@@ -41,6 +41,12 @@ def applyAutomaticPackedLayout (fields : Array StorageFieldDecl) : Array Storage
   let mut persistentCursor : Option (Nat × Nat × Nat) := none
   let mut transientCursor : Option (Nat × Nat × Nat) := none
   for field in fields do
+    -- Flattened struct members already carry their compatibility layout, and
+    -- explicitly packed fields must retain the range written by the author.
+    -- Neither kind participates in the top-level automatic packing cursor.
+    if field.packedBits.isSome || !field.emitDef then
+      out := out.push field
+      continue
     match narrowStorageWidth? field.ty with
     | some width =>
         let cursor := if field.isTransient then transientCursor else persistentCursor

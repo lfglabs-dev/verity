@@ -112,8 +112,12 @@ private def resolveReturns (context : String) (legacy : Option ParamType)
           throw s!"Compilation error: {context} has conflicting return declarations (returnType vs returns)"
 
 def functionReturns (spec : FunctionSpec) : Except String (List ParamType) :=
-  resolveReturns s!"function '{spec.name}'"
-    (spec.returnType.map fieldTypeToParamType) spec.returns
+  match spec.returnType with
+  | some (.fixedArrayUint128 _) =>
+      throw s!"Compilation error: function '{spec.name}' uses fixedArrayUint128 in legacy returnType; use an explicit supported returns declaration"
+  | legacy =>
+      resolveReturns s!"function '{spec.name}'"
+        (legacy.map fieldTypeToParamType) spec.returns
 
 def externalFunctionReturns (spec : ExternalFunction) : Except String (List ParamType) :=
   resolveReturns s!"external declaration '{spec.name}'" spec.returnType spec.returns

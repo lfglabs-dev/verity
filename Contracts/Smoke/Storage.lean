@@ -23,6 +23,10 @@ verity_contract PackedStorageLoweringSmoke where
   function setAmount (value : Uint256) : Unit := do
     setStorage amount value
 
+  function getFlags () : Uint16 := do
+    let value ← getStorage flags
+    return value
+
   function collateralAt (index : Uint256) : Uint128 := do
     let value ← getStorageArrayElement collateral index
     return value
@@ -58,6 +62,33 @@ example :
       PackedStorageLoweringSmoke.setFlags 7
       PackedStorageLoweringSmoke.setEpoch 9) : Contract Unit).run defaultState).snd.storage 0 =
       (7 + 9 * 2 ^ 16 : Nat) := by
+  rfl
+
+example :
+    (((do
+      PackedStorageLoweringSmoke.setFlags 7
+      PackedStorageLoweringSmoke.getFlags) : Contract Uint16).run defaultState).fst =
+      Verity.Core.Uint16.ofNat 7 := by
+  rfl
+
+verity_contract ExplicitStructPackingSmoke where
+  storage
+    state : StorageStruct [
+      value : Uint16 @word 0 packed(160,16)
+    ] := slot 7
+
+example : ExplicitStructPackingSmoke.spec.fields.any (fun field =>
+    field.name == "state_value" && field.slot == some 7 &&
+      field.packedBits == some { offset := 160, width := 16 }) := by decide
+
+set_option maxRecDepth 2000 in
+example :
+    Compiler.CompilationModel.functionReturns
+      { name := "badLegacyFixedArrayReturn"
+        params := []
+        returnType := some (.fixedArrayUint128 2)
+        body := [] } =
+      .error "Compilation error: function 'badLegacyFixedArrayReturn' uses fixedArrayUint128 in legacy returnType; use an explicit supported returns declaration" := by
   rfl
 
 verity_contract PackedStorageSpillSmoke where
@@ -101,7 +132,7 @@ verity_contract TransientPackedExecutableSmoke where
   function setTransientValue (value : Uint256) : Unit := do
     setStorage transientValue value
 
-  function getTransientValue () : Uint256 := do
+  function getTransientValue () : Uint128 := do
     let value ← getStorage transientValue
     return value
 
@@ -113,7 +144,8 @@ example :
 example :
     (((do
       TransientPackedExecutableSmoke.setTransientValue 7
-      TransientPackedExecutableSmoke.getTransientValue) : Contract Uint256).run defaultState).fst = 7 := by
+      TransientPackedExecutableSmoke.getTransientValue) : Contract Uint128).run defaultState).fst =
+        Verity.Core.UIntN.ofUint256 128 7 := by
   rfl
 
 example :

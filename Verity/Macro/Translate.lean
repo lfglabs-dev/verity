@@ -1856,11 +1856,31 @@ private partial def rewriteForEachExecutableDoElem
           | _ => pure (#[elem], locals)
       | `(term| getStorage $field:ident) =>
           match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { ty := .scalar .uint16, isTransient, packedBits := some (offset, width), .. } =>
+              let read ← if isTransient then
+                `(_root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))
+              else
+                `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
+              pure (#[← `(doElem| let $name:ident ← do
+                let word ← $read:term
+                pure (_root_.Verity.wordToUint16 word))], locals)
+          | some { ty := .scalar (.uintN bits), isTransient, packedBits := some (offset, width), .. } =>
+              let bitsTerm := natTerm bits
+              let read ← if isTransient then
+                `(_root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))
+              else
+                `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
+              pure (#[← `(doElem| let $name:ident ← do
+                let word ← $read:term
+                pure (_root_.Verity.Core.UIntN.ofUint256 $bitsTerm word))], locals)
           | some { isTransient := true, packedBits := some (offset, width), .. } =>
-              pure (#[← `(doElem| let $name:ident ← _root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))], locals)
+              let read ←
+                `(_root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))
+              pure (#[← `(doElem| let $name:ident ← $read:term)], locals)
           | some { packedBits := some (offset, width), .. } =>
-              pure (#[← `(doElem| let $name:ident ←
-                _root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))], locals)
+              let read ←
+                `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
+              pure (#[← `(doElem| let $name:ident ← $read:term)], locals)
           | _ => pure (#[elem], locals)
       | _ =>
           match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
