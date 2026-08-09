@@ -30,6 +30,11 @@ verity_contract PackedStorageLoweringSmoke where
   function setCollateralAt (index : Uint256, value : Uint128) : Unit := do
     setStorageArrayElement collateral index value
 
+example :
+    (PackedStorageLoweringSmoke.collateralAt 0).run defaultState =
+      ContractResult.success (Verity.Core.UIntN.ofUint256 128 0) defaultState := by
+  rfl
+
 example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
     field.name == "flags" && field.slot == some 0 &&
       field.packedBits == some { offset := 0, width := 16 }) := by decide
@@ -61,6 +66,16 @@ example : PackedStorageSpillSmoke.spec.fields.map (fun field =>
       (some 10, some { offset := 128, width := 128 }),
       (some 11, some { offset := 0, width := 128 }),
       (some 11, some { offset := 128, width := 128 })] := by decide
+
+verity_contract MixedStorageSpacePackingSmoke where
+  storage
+    persistentValue : Uint128 := slot 20
+    transient transientValue : Uint128 := slot 20
+
+example : MixedStorageSpacePackingSmoke.spec.fields.map (fun field =>
+    (field.slot, field.isTransient, field.packedBits)) == [
+      (some 20, false, some { offset := 0, width := 128 }),
+      (some 20, true, some { offset := 0, width := 128 })] := by decide
 
 verity_contract UintMapSmoke where
   storage

@@ -172,23 +172,29 @@ def compileSetStorageArrayElement (fields : List Field) (dynamicSource : Dynamic
   match findFieldWithResolvedSlot fields field with
   | some (f, slot) => match f.ty with
     | .fixedArrayUint128 size =>
-      let packedSlot := YulExpr.call "add" [YulExpr.lit slot,
-        YulExpr.call "div" [YulExpr.ident "__array_index", YulExpr.lit 2]]
-      pure [YulStmt.block [
+      let baseSlots := slot :: f.aliasSlots
+      let packedOffsetExpr := YulExpr.call "mul" [
+        YulExpr.call "mod" [YulExpr.ident "__array_index", YulExpr.lit 2], YulExpr.lit 128]
+      let packedOffset := YulExpr.ident "__packed_offset"
+      let writePackedAt (baseSlot : Nat) :=
+        let packedSlot := YulExpr.call "add" [YulExpr.lit baseSlot,
+          YulExpr.call "div" [YulExpr.ident "__array_index", YulExpr.lit 2]]
+        YulStmt.block [
+          YulStmt.let_ "__packed_old" (YulExpr.call "sload" [packedSlot]),
+          YulStmt.exprStmt (YulExpr.call "sstore" [packedSlot, YulExpr.call "or" [
+            YulExpr.call "and" [YulExpr.ident "__packed_old", YulExpr.call "not" [
+              YulExpr.call "shl" [packedOffset, YulExpr.hex (2^128 - 1)]]],
+            YulExpr.call "shl" [packedOffset,
+              YulExpr.call "and" [YulExpr.ident "__array_value", YulExpr.hex (2^128 - 1)]]
+          ]])]
+      pure [YulStmt.block ([
         YulStmt.let_ "__array_index" indexExpr,
+        YulStmt.let_ "__array_value" valueExpr,
         YulStmt.if_ (YulExpr.call "iszero" [
           YulExpr.call "lt" [YulExpr.ident "__array_index", YulExpr.lit size]
         ]) [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])],
-        YulStmt.let_ "__packed_offset" (YulExpr.call "mul" [
-          YulExpr.call "mod" [YulExpr.ident "__array_index", YulExpr.lit 2], YulExpr.lit 128]),
-        YulStmt.let_ "__packed_old" (YulExpr.call "sload" [packedSlot]),
-        YulStmt.exprStmt (YulExpr.call "sstore" [packedSlot, YulExpr.call "or" [
-          YulExpr.call "and" [YulExpr.ident "__packed_old", YulExpr.call "not" [
-            YulExpr.call "shl" [YulExpr.ident "__packed_offset", YulExpr.hex (2^128 - 1)]]],
-          YulExpr.call "shl" [YulExpr.ident "__packed_offset",
-            YulExpr.call "and" [valueExpr, YulExpr.hex (2^128 - 1)]]
-        ]])
-      ]]
+        YulStmt.let_ "__packed_offset" packedOffsetExpr
+      ] ++ baseSlots.map writePackedAt)]
     | _ => do
       let (slot, _) ← validateDynamicArrayField fields field
       pure [YulStmt.block [

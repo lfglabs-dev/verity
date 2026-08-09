@@ -1796,17 +1796,19 @@ private def isVoidTypedInterfaceCall?
 
 mutual
 private partial def rewriteForEachExecutableDoSeq
+    (fields : Array StorageFieldDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (doSeq : DoSeq) : CommandElabM DoSeq := do
   match doSeq with
   | `(doSeq| $[$elems:doElem]*) =>
-      let (elems, _) ← rewriteForEachExecutableDoElems externalDecls params locals elems
+      let (elems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals elems
       `(doSeq| $[$elems:doElem]*)
   | _ => throwErrorAt doSeq "unsupported branch body; expected do-sequence"
 
 private partial def rewriteForEachExecutableDoElems
+    (fields : Array StorageFieldDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
@@ -1814,12 +1816,13 @@ private partial def rewriteForEachExecutableDoElems
   let mut rewritten : Array (TSyntax `doElem) := #[]
   let mut currentLocals := locals
   for elem in elems do
-    let (newElems, newLocals) ← rewriteForEachExecutableDoElem externalDecls params currentLocals elem
+    let (newElems, newLocals) ← rewriteForEachExecutableDoElem fields externalDecls params currentLocals elem
     rewritten := rewritten ++ newElems
     currentLocals := newLocals
   pure (rewritten, currentLocals)
 
 private partial def rewriteForEachExecutableDoElem
+    (fields : Array StorageFieldDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
@@ -1828,12 +1831,12 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| let _ := $rhs:term) =>
       let discardName := freshSyntheticLocalName "__discard" params locals #[]
       let discardIdent := mkIdent (Name.mkSimple discardName)
-      rewriteForEachExecutableDoElem externalDecls params locals
+      rewriteForEachExecutableDoElem fields externalDecls params locals
         (← `(doElem| let $discardIdent:ident := $rhs:term))
   | `(doElem| let _ ← $rhs:term) =>
       let discardName := freshSyntheticLocalName "__discard" params locals #[]
       let discardIdent := mkIdent (Name.mkSimple discardName)
-      rewriteForEachExecutableDoElem externalDecls params locals
+      rewriteForEachExecutableDoElem fields externalDecls params locals
         (← `(doElem| let $discardIdent:ident ← $rhs:term))
   | `(doElem| let $name:ident := $rhs:term) =>
       let varName := toString name.getId
@@ -1844,12 +1847,20 @@ private partial def rewriteForEachExecutableDoElem
         | none => locals
       pure (#[elem], locals)
   | `(doElem| let $name:ident ← $rhs:term) =>
-      match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
-      | some retTy =>
-          let retTyTerm ← contractValueTypeTerm retTy
-          pure (#[← `(doElem| let $name:ident := (panic! "typed interface calls are compiler-only in executable wrappers" : $retTyTerm))],
-            locals.push (mkTypedLocal (toString name.getId) retTy))
-      | none => pure (#[elem], locals)
+      match stripParens rhs with
+      | `(term| getStorageArrayElement $field:ident $index:term) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { ty := .scalar (.fixedArray (.uintN 128) size), .. } =>
+              pure (#[← `(doElem| let $name:ident ←
+                _root_.Verity.getFixedStorageArrayElement $field:ident $(natTerm size) $index:term)], locals)
+          | _ => pure (#[elem], locals)
+      | _ =>
+          match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
+          | some retTy =>
+              let retTyTerm ← contractValueTypeTerm retTy
+              pure (#[← `(doElem| let $name:ident := (panic! "typed interface calls are compiler-only in executable wrappers" : $retTyTerm))],
+                locals.push (mkTypedLocal (toString name.getId) retTy))
+          | none => pure (#[elem], locals)
   | `(doElem| let $pat:term ← $rhs:term) =>
       match tupleBinderNames? pat with
       | some _ =>
@@ -1870,50 +1881,58 @@ private partial def rewriteForEachExecutableDoElem
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
-          let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
+          let (inner, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals inner
           pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEach body must be a do block"
   | `(doElem| forEachSetBit $name:term $_bitmap:term $body:term) =>
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
-          let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
+          let (inner, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals inner
           pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEachSetBit body must be a do block"
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
-      let thenBranch ← rewriteForEachExecutableDoSeq externalDecls params locals thenBranch
-      let elseBranch ← rewriteForEachExecutableDoSeq externalDecls params locals elseBranch
+      let thenBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals thenBranch
+      let elseBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals elseBranch
       pure (#[← `(doElem| if $cond then $thenBranch else $elseBranch)], locals)
   | `(doElem| tryCatch $attempt:term $handler:term) =>
       let tryCatchFn := Lean.mkIdentFrom attempt `_root_.Contracts.tryCatchWord
       match stripParens handler with
       | `(term| fun $name:ident => do $[$catchElems:doElem]*) =>
-          let (catchElems, _) ← rewriteForEachExecutableDoElems externalDecls params locals catchElems
+          let (catchElems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals catchElems
           pure (#[← `(doElem| $tryCatchFn:ident $attempt (fun $name => do $[$catchElems:doElem]*))], locals)
       | `(term| do $[$catchElems:doElem]*) =>
-          let (catchElems, _) ← rewriteForEachExecutableDoElems externalDecls params locals catchElems
+          let (catchElems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals catchElems
           pure (#[← `(doElem| $tryCatchFn:ident $attempt (fun _ => do $[$catchElems:doElem]*))], locals)
       | _ =>
           throwErrorAt handler
             "tryCatch handler must be `fun _ => do ...` or a direct `do ...` block"
   | `(doElem| unsafe $_reason:str do $body:doSeq) =>
-      let body ← rewriteForEachExecutableDoSeq externalDecls params locals body
+      let body ← rewriteForEachExecutableDoSeq fields externalDecls params locals body
       pure (#[← `(doElem| do $body)], locals)
   | `(doElem| $stmt:term) =>
       -- a void typed interface call in statement position is compiler-only;
       -- drop it from the executable wrapper (it returns nothing to bind).
-      if (← isVoidTypedInterfaceCall? externalDecls params locals stmt) then
-        pure (#[← `(doElem| pure ())], locals)
-      else
-        pure (#[elem], locals)
+      match stripParens stmt with
+      | `(term| setStorageArrayElement $field:ident $index:term $value:term) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { ty := .scalar (.fixedArray (.uintN 128) size), .. } =>
+              pure (#[← `(doElem| _root_.Verity.setFixedStorageArrayElement
+                $field:ident $(natTerm size) $index:term $value:term)], locals)
+          | _ => pure (#[elem], locals)
+      | _ =>
+          if (← isVoidTypedInterfaceCall? externalDecls params locals stmt) then
+            pure (#[← `(doElem| pure ())], locals)
+          else
+            pure (#[elem], locals)
   | other =>
       pure (#[other], locals)
 end
 
-private def rewriteForEachExecutableBody (externalDecls : Array ExternalDecl) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
+private def rewriteForEachExecutableBody (fields : Array StorageFieldDecl) (externalDecls : Array ExternalDecl) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
   match body with
   | `(term| do $[$elems:doElem]*) =>
-      let (elems, _) ← rewriteForEachExecutableDoElems externalDecls params #[] elems
+      let (elems, _) ← rewriteForEachExecutableDoElems fields externalDecls params #[] elems
       `(do $[$elems:doElem]*)
   | _ => pure body
 
@@ -3240,7 +3259,7 @@ def mkFunctionCommandsPublic
   let fnDecl := { fn with body := fnRoleGuardedBody }
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
   let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
-  let fnExecutableBody ← rewriteForEachExecutableBody externalDecls fn.params fnBody
+  let fnExecutableBody ← rewriteForEachExecutableBody fields externalDecls fn.params fnBody
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"

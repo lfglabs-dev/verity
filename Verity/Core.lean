@@ -695,6 +695,17 @@ def getStorageArrayElement {α : Type} [StorageArrayElem α]
     | some value => ContractResult.success (StorageArrayElem.fromWord value) state
     | none => ContractResult.revert "Storage array index out of bounds" state
 
+/-- Fixed-array source semantics: the declared length is authoritative and
+    unmaterialized elements are Solidity's zero value. -/
+def getFixedStorageArrayElement {α : Type} [StorageArrayElem α]
+    (s : StorageSlot (List α)) (size : Nat) (index : Uint256) : Contract α :=
+  fun state =>
+    if index.val < size then
+      let value := (state.readArray s.slot)[index.val]?.getD 0
+      ContractResult.success (StorageArrayElem.fromWord value) state
+    else
+      ContractResult.revert "Storage array index out of bounds" state
+
 def pushStorageArray {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α)) (value : α) : Contract Unit :=
   fun state =>
@@ -713,6 +724,19 @@ def setStorageArrayElement {α : Type} [StorageArrayElem α]
     match storageArraySetAt (state.readArray s.slot) index.val (StorageArrayElem.toWord value) with
     | some updated => ContractResult.success () (state.writeArray s.slot updated)
     | none => ContractResult.revert "Storage array index out of bounds" state
+
+/-- Update a fixed array after materializing its zero-initialized extent. -/
+def setFixedStorageArrayElement {α : Type} [StorageArrayElem α]
+    (s : StorageSlot (List α)) (size : Nat) (index : Uint256) (value : α) : Contract Unit :=
+  fun state =>
+    if index.val < size then
+      let taken := (state.readArray s.slot).take size
+      let materialized := taken ++ List.replicate (size - taken.length) 0
+      match storageArraySetAt materialized index.val (StorageArrayElem.toWord value) with
+      | some updated => ContractResult.success () (state.writeArray s.slot updated)
+      | none => ContractResult.revert "Storage array index out of bounds" state
+    else
+      ContractResult.revert "Storage array index out of bounds" state
 
 @[simp] theorem getStorageArrayLength_run {α : Type} (s : StorageSlot (List α)) (state : ContractState) :
   (getStorageArrayLength s).run state =

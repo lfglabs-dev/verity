@@ -45,7 +45,8 @@ def applyAutomaticPackedLayout (fields : Array StorageFieldDecl) : Array Storage
   for field in fields do
     match narrowStorageWidth? field.ty with
     | some width =>
-        let sameAnchor := anchor? == some field.slotNum
+        let sameAnchor := anchor? == some field.slotNum &&
+          out.back?.any (fun previous => previous.isTransient == field.isTransient)
         let nextOffset := if sameAnchor then offset else 0
         let (resolvedSlot, bitOffset) :=
           if nextOffset + width <= 256 then
