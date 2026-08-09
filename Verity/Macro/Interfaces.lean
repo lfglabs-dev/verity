@@ -116,8 +116,6 @@ def parseInterface
   match stx with
   | `(verityInterface| interface $name:ident where $[$fns:verityInterfaceFunction]* end) =>
       let parsedFns ← fns.mapM (parseInterfaceFunction newtypes structDecls adtDecls)
-      if parsedFns.isEmpty then
-        throwErrorAt name s!"interface '{toString name.getId}' must declare at least one function"
       pure { ident := name, name := toString name.getId, functions := parsedFns }
   | _ => throwErrorAt stx "invalid interface declaration"
 
