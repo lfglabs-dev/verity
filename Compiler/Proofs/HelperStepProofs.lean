@@ -1550,6 +1550,107 @@ theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_dire
         (irFuelSlack := irFuelSlack) hevidence)
       hresidual
 
+/-- Complete call-site evidence consumed by the void-call head-step catalog
+producer.  The sufficient-fuel field contains the selector-indexed
+`InternalHelperBodyExecContext`; the residual field covers exactly the
+low-fuel region left by the reviewed additive split. -/
+structure DirectInternalHelperCallSiteEvidence
+    (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
+    (scope : List String) (calleeName : String) (args : List Expr)
+    (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName) :
+    Type where
+  compiledIR : List YulStmt
+  argExprs : List YulExpr
+  helperBodySize : Nat
+  compile :
+    CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+      (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR
+  compileArgs :
+    CompilationModel.compileInternalCallArgs fields .calldata spec.functions
+      calleeName args = Except.ok argExprs
+  sufficient :
+    ∀ runtime state stmtHelperFuel irFuel,
+      1 < stmtHelperFuel →
+      helperBodySize + 2 ≤ irFuel →
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+      FunctionBody.scopeNamesPresent scope runtime.bindings →
+      FunctionBody.bindingsBounded runtime.bindings →
+      FunctionBody.runtimeStateMatchesIR fields runtime state →
+      DirectInternalHelperCallSufficientFuelEvidence
+        (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
+        (scope := scope) (calleeName := calleeName) (args := args)
+        (argExprs := argExprs) hctx helperBodySize stmtHelperFuel irFuel runtime state
+  residual :
+    InternalCallWithInternalsAdditiveResidualBridge runtimeContract spec fields scope
+      calleeName args argExprs helperBodySize 0
+
+/-- An occurring direct void call contributes its callee to the supported
+body's helper inventory. -/
+theorem callee_mem_helperCallNames_of_internalCall_occursAtScope
+    {initialScope scope : List String} {fn : FunctionSpec}
+    {calleeName : String} {args : List Expr}
+    (hoccurs : StmtOccursAtScope initialScope scope
+      (Stmt.internalCall calleeName args) fn.body) :
+    calleeName ∈ helperCallNames fn := by
+  have go : ∀ {initialScope scope : List String} {stmts : List Stmt},
+      StmtOccursAtScope initialScope scope (Stmt.internalCall calleeName args) stmts →
+      calleeName ∈ stmtListInternalHelperCallNames stmts := by
+    intro initialScope scope stmts h
+    induction stmts generalizing initialScope scope with
+    | nil => cases h
+    | cons stmt rest ih =>
+        cases h with
+        | head =>
+            simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
+        | tail htail =>
+            simp only [stmtListInternalHelperCallNames, List.mem_append]
+            exact Or.inr (ih htail)
+  have hraw := go hoccurs
+  simpa [helperCallNames] using hraw
+
+/-- Tier-2 void-call producer.  It assembles the existing `WithInternals`
+catalog from supported helper inventory, selector-aware source summaries, the
+runtime helper table, decreasing-rank evidence, and call-site body
+correspondence evidence.  In particular, selector-aware soundness and
+`InternalHelperBodyExecContext` are explicit inputs; they are not inferred from
+`SupportedBodyHelperSummariesSound`, whose selector is zero. -/
+theorem directInternalHelperCallHeadStepCatalogWithInternals_of_supportedEvidence
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {initialScope : List String} {fn : FunctionSpec}
+    (hHelpers : SupportedBodyHelperInterface spec fn)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (_hSummaries : SourceSemantics.SupportedBodyHelperSummariesSound spec fn hHelpers)
+    (hSummariesAt :
+      ∀ selector calleeName (hmem : calleeName ∈ helperCallNames fn),
+        InternalHelperSummarySoundAtSelector selector spec
+          (hHelpers.summaryOfCall hmem).callee
+          (hHelpers.summaryContractOfCall hmem))
+    (hRuntime : SupportedRuntimeHelperTableInterface spec runtimeContract)
+    (hsite :
+      ∀ {scope calleeName args}
+        (hoccurs : StmtOccursAtScope initialScope scope
+          (Stmt.internalCall calleeName args) fn.body)
+        (hmem : calleeName ∈ helperCallNames fn),
+        (hHelpers.summaryOfCall hmem).summary.helperRank < hHelpers.helperRank →
+        DirectInternalHelperCallSiteEvidence runtimeContract spec fields scope
+          calleeName args
+          (directInternalHelperStatementContextBridge_of_supportedEvidence
+            hHelpers hSummariesAt hRuntime hmem)) :
+    DirectInternalHelperCallHeadStepCatalogWithInternals
+      runtimeContract spec fields initialScope fn := by
+  refine { call := ?_ }
+  intro scope calleeName args hoccurs
+  let hmem := callee_mem_helperCallNames_of_internalCall_occursAtScope hoccurs
+  let hctx := directInternalHelperStatementContextBridge_of_supportedEvidence
+    hHelpers hSummariesAt hRuntime hmem
+  have hrank := hHelpers.calleeRanksDecrease calleeName hmem
+  let site := hsite hoccurs hmem hrank
+  exact ⟨site.compiledIR,
+    compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_directContextFuelSplit
+      hctx hnodup
+      site.helperBodySize (irFuelSlack := 0)
+      site.compile site.compileArgs site.sufficient site.residual⟩
+
 abbrev DirectInternalHelperAssignSufficientFuelEvidence
     (names : List String)
     (hctx : DirectInternalHelperStatementContextBridge runtimeContract spec calleeName)

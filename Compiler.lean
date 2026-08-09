@@ -43,6 +43,7 @@ import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
+import Compiler.Proofs.IRGeneration.HelperVoidCallCatalogRegression
 import Compiler.Proofs.Frames
 import Compiler.Proofs.YulGeneration.PatchRulesProofs
 import Compiler.Proofs.YulGeneration.ExecutionSummary

@@ -442,7 +442,7 @@ private theorem mem_expressionHelper_eraseDups_singleton
     List.mem_of_mem_eraseDups_local hmem
   simpa using hraw
 
-private def helperB : FunctionSpec :=
+def helperB : FunctionSpec :=
   { name := "helperB"
     params := []
     returnType := none
@@ -450,7 +450,7 @@ private def helperB : FunctionSpec :=
     isInternal := true
     body := [Stmt.letVar "readOnlyLocal" (Expr.literal 0)] }
 
-private def helperA : FunctionSpec :=
+def helperA : FunctionSpec :=
   { name := "helperA"
     params := []
     returnType := none
@@ -478,7 +478,7 @@ private def expressionHelperCaller : FunctionSpec :=
     isInternal := true
     body := [Stmt.internalCall "helperB" []] }
 
-private def twoHelperSpec : CompilationModel :=
+def twoHelperSpec : CompilationModel :=
   { name := "TwoHelperEvidence"
     fields := []
     constructor := none
