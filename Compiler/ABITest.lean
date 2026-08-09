@@ -155,6 +155,19 @@ private def stringAbiSpec : CompilationModel := {
   ]
 }
 
+private def packedStorageLayoutSpec : CompilationModel := {
+  name := "PackedStorageLayoutFixture"
+  fields := [
+    { name := "low", ty := .uint256, slot := some 0,
+      packedBits := some { offset := 0, width := 16 } },
+    { name := "high", ty := .uint256, slot := some 0,
+      packedBits := some { offset := 16, width := 128 } },
+    { name := "full", ty := .uint256, slot := some 1 }
+  ]
+  constructor := none
+  functions := []
+}
+
 #eval! do
   let rendered := Compiler.ABI.emitContractABIJson abiSpec
   assertContains "constructor entry" rendered ["\"type\": \"constructor\"", "\"stateMutability\": \"payable\""]
@@ -206,6 +219,15 @@ private def stringAbiSpec : CompilationModel := {
     , "\"inputs\": [{\"name\": \"\", \"type\": \"uint256\"}, {\"name\": \"\", \"type\": \"string\"}]"
     , "\"name\": \"SecondMessage\""
     , "\"inputs\": [{\"name\": \"\", \"type\": \"string\"}, {\"name\": \"\", \"type\": \"string\"}]"
+    ]
+
+  let storageRendered := Compiler.ABI.emitContractStorageLayoutJson packedStorageLayoutSpec
+  assertContains
+    "packed storage layout offsets and widths"
+    storageRendered
+    [ "\"name\": \"low\", \"slot\": \"0\", \"type\": \"uint256\", \"offset\": \"0\", \"width\": \"16\""
+    , "\"name\": \"high\", \"slot\": \"0\", \"type\": \"uint256\", \"offset\": \"16\", \"width\": \"128\""
+    , "\"name\": \"full\", \"slot\": \"1\", \"type\": \"uint256\""
     ]
 
 end Compiler.ABITest

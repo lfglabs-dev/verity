@@ -208,11 +208,13 @@
       "nonAliasClaims": [
         {
           "a": "totalAssetsSlot",
+          "aLocationKind": "persistent",
           "aSlot": 0,
           "aWriteSlots": [
             0
           ],
           "b": "totalSupplySlot",
+          "bLocationKind": "persistent",
           "bSlot": 1,
           "bWriteSlots": [
             1
@@ -221,11 +223,13 @@
         },
         {
           "a": "totalAssetsSlot",
+          "aLocationKind": "persistent",
           "aSlot": 0,
           "aWriteSlots": [
             0
           ],
           "b": "shareBalancesSlot",
+          "bLocationKind": "persistent",
           "bSlot": 2,
           "bWriteSlots": [
             2
@@ -234,11 +238,13 @@
         },
         {
           "a": "totalSupplySlot",
+          "aLocationKind": "persistent",
           "aSlot": 1,
           "aWriteSlots": [
             1
           ],
           "b": "shareBalancesSlot",
+          "bLocationKind": "persistent",
           "bSlot": 2,
           "bWriteSlots": [
             2
@@ -316,11 +322,13 @@
       "nonAliasClaims": [
         {
           "a": "owner",
+          "aLocationKind": "persistent",
           "aSlot": 0,
           "aWriteSlots": [
             0
           ],
           "b": "count",
+          "bLocationKind": "persistent",
           "bSlot": 1,
           "bWriteSlots": [
             1
@@ -410,11 +418,13 @@
       "nonAliasClaims": [
         {
           "a": "ownerSlot",
+          "aLocationKind": "persistent",
           "aSlot": 0,
           "aWriteSlots": [
             0
           ],
           "b": "balancesSlot",
+          "bLocationKind": "persistent",
           "bSlot": 1,
           "bWriteSlots": [
             1
@@ -423,11 +433,13 @@
         },
         {
           "a": "ownerSlot",
+          "aLocationKind": "persistent",
           "aSlot": 0,
           "aWriteSlots": [
             0
           ],
           "b": "totalSupplySlot",
+          "bLocationKind": "persistent",
           "bSlot": 2,
           "bWriteSlots": [
             2
@@ -436,11 +448,13 @@
         },
         {
           "a": "balancesSlot",
+          "aLocationKind": "persistent",
           "aSlot": 1,
           "aWriteSlots": [
             1
           ],
           "b": "totalSupplySlot",
+          "bLocationKind": "persistent",
           "bSlot": 2,
           "bWriteSlots": [
             2
@@ -595,11 +609,13 @@
       "nonAliasClaims": [
         {
           "a": "ownerSlot",
+          "aLocationKind": "persistent",
           "aSlot": 0,
           "aWriteSlots": [
             0
           ],
           "b": "totalSupplySlot",
+          "bLocationKind": "persistent",
           "bSlot": 1,
           "bWriteSlots": [
             1
@@ -608,11 +624,13 @@
         },
         {
           "a": "ownerSlot",
+          "aLocationKind": "persistent",
           "aSlot": 0,
           "aWriteSlots": [
             0
           ],
           "b": "balancesSlot",
+          "bLocationKind": "persistent",
           "bSlot": 2,
           "bWriteSlots": [
             2
@@ -621,11 +639,13 @@
         },
         {
           "a": "ownerSlot",
+          "aLocationKind": "persistent",
           "aSlot": 0,
           "aWriteSlots": [
             0
           ],
           "b": "allowancesSlot",
+          "bLocationKind": "persistent",
           "bSlot": 3,
           "bWriteSlots": [
             3
@@ -634,11 +654,13 @@
         },
         {
           "a": "totalSupplySlot",
+          "aLocationKind": "persistent",
           "aSlot": 1,
           "aWriteSlots": [
             1
           ],
           "b": "balancesSlot",
+          "bLocationKind": "persistent",
           "bSlot": 2,
           "bWriteSlots": [
             2
@@ -647,11 +669,13 @@
         },
         {
           "a": "totalSupplySlot",
+          "aLocationKind": "persistent",
           "aSlot": 1,
           "aWriteSlots": [
             1
           ],
           "b": "allowancesSlot",
+          "bLocationKind": "persistent",
           "bSlot": 3,
           "bWriteSlots": [
             3
@@ -660,11 +684,13 @@
         },
         {
           "a": "balancesSlot",
+          "aLocationKind": "persistent",
           "aSlot": 2,
           "aWriteSlots": [
             2
           ],
           "b": "allowancesSlot",
+          "bLocationKind": "persistent",
           "bSlot": 3,
           "bWriteSlots": [
             3
