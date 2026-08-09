@@ -2800,13 +2800,20 @@ private def addContractSyntaxEntry
     (state : ContractSyntaxRegistry) (entry : Name × ParsedContractSyntax) : ContractSyntaxRegistry :=
   entry :: state.filter (fun prior => prior.1 != entry.1)
 
-initialize contractSyntaxRef : IO.Ref ContractSyntaxRegistry ← IO.mkRef []
+initialize contractSyntaxExt : SimplePersistentEnvExtension
+    (Name × ParsedContractSyntax) ContractSyntaxRegistry ←
+  registerSimplePersistentEnvExtension {
+    addEntryFn := addContractSyntaxEntry
+    addImportedFn := fun entries =>
+      mkStateFromImportedEntries addContractSyntaxEntry [] entries
+  }
 
-def registerContractSyntax (name : Name) (parsed : ParsedContractSyntax) : IO Unit :=
-  contractSyntaxRef.modify fun state => addContractSyntaxEntry state (name, parsed)
+def registerContractSyntax (name : Name) (parsed : ParsedContractSyntax) : CommandElabM Unit :=
+  modifyEnv fun env => contractSyntaxExt.addEntry env (name, parsed)
 
-private def lookupContractSyntax (name : Name) : IO (Option ParsedContractSyntax) := do
-  pure ((← contractSyntaxRef.get).find? (fun entry => entry.1 == name) |>.map (·.2))
+private def lookupContractSyntax (name : Name) : CommandElabM (Option ParsedContractSyntax) := do
+  pure (contractSyntaxExt.getState (← getEnv)
+    |>.find? (fun entry => entry.1 == name) |>.map (·.2))
 
 private def doElems (body : Term) : CommandElabM (Array (TSyntax `doElem)) := do
   match body with
