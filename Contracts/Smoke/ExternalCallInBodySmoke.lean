@@ -282,8 +282,9 @@ example : (ExternalCallInBodySmoke.tryNotifyBool_modelBody).take 2 =
       [(.logicalNot (.eq (.param "flag") (.literal 0)))],
      .assignVar "success" (.logicalNot (.eq (.localVar "success") (.literal 0)))] := rfl
 
-example : (ExternalCallInBodySmoke.tryDirtyPair_modelBody).take 3 =
+example : (ExternalCallInBodySmoke.tryDirtyPair_modelBody).take 4 =
     [ .tryExternalCallBind "_success" ["result_narrow", "result_wide"] "dirtyPair" []
+    , .assignVar "_success" (.logicalNot (.eq (.localVar "_success") (.literal 0)))
     , .assignVar "result_narrow"
         (.bitAnd (.localVar "result_narrow") (.literal (2 ^ 32 - 1)))
     , .return (.localVar "result_narrow") ] := rfl
