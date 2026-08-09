@@ -74,6 +74,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperBodyShape
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
+import Compiler.Proofs.IRGeneration.HelperVoidCallCatalogRegression
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
@@ -1903,6 +1904,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.directInternalHelperStatementContextBridge_assignStepMatch_of_sufficientFuel
   Compiler.Proofs.HelperStepProofs.internalCallWithInternalsSufficientBridge_of_directContextEvidence
   Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall_of_directContextFuelSplit
+  Compiler.Proofs.HelperStepProofs.callee_mem_helperCallNames_of_internalCall_occursAtScope
+  Compiler.Proofs.HelperStepProofs.directInternalHelperCallHeadStepCatalogWithInternals_of_supportedEvidence
   Compiler.Proofs.HelperStepProofs.internalCallAssignWithInternalsSufficientBridge_of_directContextEvidence
   Compiler.Proofs.HelperStepProofs.compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign_of_directContextFuelSplit
   Compiler.Proofs.HelperStepProofs.evalIRCallWithInternals_of_compiledHelperWitness
@@ -3542,6 +3545,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Regression.helperB_exactSummary_soundAtSelector
   Compiler.Proofs.IRGeneration.Regression.helperA_compileStmtList_from_genuine_helper_body_generic
   Compiler.Proofs.IRGeneration.Regression.helperA_calls_helperB_rank_decreases
+
+  -- Compiler/Proofs/IRGeneration/HelperVoidCallCatalogRegression.lean
+  Compiler.Proofs.IRGeneration.Regression.helperA_helperB_voidCall_catalogWithInternals_of_bodyEvidence
 
   -- Compiler/Proofs/IRGeneration/IRInterpreter.lean
   -- Compiler.Proofs.IRGeneration.exprSize_lt_exprsSize_cons  -- private
@@ -6596,4 +6602,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6172 theorems/lemmas (4304 public, 1868 private, 0 sorry'd)
+-- Total: 6175 theorems/lemmas (4307 public, 1868 private, 0 sorry'd)
