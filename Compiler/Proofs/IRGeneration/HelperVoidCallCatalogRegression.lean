@@ -19,7 +19,7 @@ theorem helperA_helperB_voidCall_catalogWithInternals_of_bodyEvidence
     (hRuntime : SupportedRuntimeHelperTableInterface twoHelperSpec runtimeContract)
     (hsite :
       ∀ {scope calleeName args}
-        (hoccurs : StmtOccursAtScope [] scope
+        (_hoccurs : StmtOccursAtScope [] scope
           (Stmt.internalCall calleeName args) helperA.body)
         (hmem : calleeName ∈ helperCallNames helperA),
         (helperA_supportedBodyHelperInterface.summaryOfCall hmem).summary.helperRank <
