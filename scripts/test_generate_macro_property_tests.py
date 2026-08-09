@@ -1739,6 +1739,13 @@ class RenderTests(unittest.TestCase):
     def test_example_value_uint8(self) -> None:
         self.assertEqual(gen._example_value("Uint8"), "uint8(27)")
 
+    def test_narrow_uint_storage_word(self) -> None:
+        self.assertEqual(
+            gen._storage_word_expr("Uint16", "expected"),
+            "bytes32(uint256(expected))",
+        )
+        self.assertEqual(gen._single_word_uint_expr("Uint16", "expected"), "uint256(expected)")
+
 
 class CollectContractsTests(unittest.TestCase):
     def test_duplicate_contract_name_errors(self) -> None:
