@@ -447,6 +447,24 @@ class ParseContractsTests(unittest.TestCase):
         self.assertIn("vm.prank(address(0x2222));", rendered)
         self.assertNotIn("vm.prank(alice);\n        (bool ok,) = target.call", rendered)
 
+    def test_enum_fixtures_erase_to_uint8_and_stay_in_range(self) -> None:
+        src = textwrap.dedent(
+            """
+            verity_contract EnumConsumer where
+              enums
+                enum Only { Sole }
+
+              storage
+
+              function identity (value : Only) : Only := do
+                return value
+            """
+        )
+        parsed = gen.parse_contracts(src, gen.ROOT / "Contracts/Smoke.lean")
+        rendered = gen.render_contract_test(parsed["EnumConsumer"])
+        self.assertIn('identity(uint8)", uint8(0)', rendered)
+        self.assertNotIn("uint8(27)", rendered)
+
 
 class RenderTests(unittest.TestCase):
     def test_render_unit_and_non_unit_tests(self) -> None:

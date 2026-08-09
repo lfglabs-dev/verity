@@ -20,11 +20,11 @@ contract PropertyMacroEnumUsageTest is YulTestBase {
     // Property 1: identity returns the direct parameter value
     function testAuto_Identity_ReturnsDirectParam() public {
         vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("identity(uint8)", uint8(27)));
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("identity(uint8)", uint8(0)));
         require(ok, "identity reverted unexpectedly");
         assertEq(ret.length, 32, "identity ABI return length mismatch (expected 32 bytes)");
         uint8 actual = abi.decode(ret, (uint8));
-        assertEq(actual, uint8(27), "identity should preserve the expected value");
+        assertEq(actual, uint8(0), "identity should preserve the expected value");
     }
     // Property 2: TODO decode and assert `active` result
     function testTODO_Active_DecodeAndAssert() public {
@@ -47,12 +47,12 @@ contract PropertyMacroEnumUsageTest is YulTestBase {
     // Property 4: setStatus has no unexpected revert
     function testAuto_SetStatus_NoUnexpectedRevert() public {
         vm.prank(alice);
-        (bool ok,) = target.call(abi.encodeWithSignature("setStatus(uint8)", uint8(27)));
+        (bool ok,) = target.call(abi.encodeWithSignature("setStatus(uint8)", uint8(0)));
         require(ok, "setStatus reverted unexpectedly");
     }
     // Property 5: getStatus reads storage slot 0 and decodes the result
     function testAuto_GetStatus_ReadsConfiguredStorage() public {
-        uint8 expected = uint8(27);
+        uint8 expected = uint8(0);
         vm.store(target, bytes32(uint256(0)), bytes32(uint256(expected)));
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("getStatus()"));
@@ -64,12 +64,12 @@ contract PropertyMacroEnumUsageTest is YulTestBase {
     // Property 6: setStatusAt has no unexpected revert
     function testAuto_SetStatusAt_NoUnexpectedRevert() public {
         vm.prank(alice);
-        (bool ok,) = target.call(abi.encodeWithSignature("setStatusAt(uint256,uint8)", uint256(1), uint8(27)));
+        (bool ok,) = target.call(abi.encodeWithSignature("setStatusAt(uint256,uint8)", uint256(1), uint8(0)));
         require(ok, "setStatusAt reverted unexpectedly");
     }
     // Property 7: getStatusAt reads the configured mapping value
     function testAuto_GetStatusAt_ReadsConfiguredMapping() public {
-        uint8 expected = uint8(27);
+        uint8 expected = uint8(0);
         vm.store(target, _mappingSlot(bytes32(uint256(uint256(1))), 1), bytes32(uint256(expected)));
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("getStatusAt(uint256)", uint256(1)));
