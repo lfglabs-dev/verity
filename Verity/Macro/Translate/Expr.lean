@@ -1749,6 +1749,17 @@ partial def peelLambdaBody (value : Expr) (arity : Nat) : Option Expr :=
       | .lam _ _ body _ => peelLambdaBody body n
       | _ => none
 
+partial def countBVarUses (target : Nat) (expr : Expr) : Nat :=
+  match expr with
+  | .bvar idx => if idx == target then 1 else 0
+  | .app fn arg => countBVarUses target fn + countBVarUses target arg
+  | .lam _ type body _ | .forallE _ type body _ =>
+      countBVarUses target type + countBVarUses (target + 1) body
+  | .letE _ type value body _ =>
+      countBVarUses target type + countBVarUses target value + countBVarUses (target + 1) body
+  | .mdata _ body | .proj _ _ body => countBVarUses target body
+  | _ => 0
+
 partial def leanDefAppSyntax? (stx : Term) : Option (Syntax × String × Array Term) :=
   let stx := stripParens stx
   match stx.raw with
@@ -3052,6 +3063,14 @@ partial def translateLeanDefCall?
   let some info ← leanDefInfo? fnName
     | pure none
   let (paramTypeExprs, resultTypeExpr) := peelForallTypes info.type
+  let some body := peelLambdaBody info.value argTerms.size
+    | throwErrorAt stx s!"Lean helper '{fnDisplay}' body is not a transparent function definition"
+  for (arg, argIdx) in argTerms.zipIdx do
+    if syntaxContainsCallExternal arg.raw then
+      let bvarIdx := argTerms.size - 1 - argIdx
+      unless countBVarUses bvarIdx body == 1 do
+        throwErrorAt stx
+          s!"Lean helper '{fnDisplay}' arguments cannot contain callExternal because transparent-helper inlining may reuse or discard arguments; bind the external result first"
   let inferArgType (arg : Term) :=
     match linkedExternalLowerer? with
     | some lowerer => lowerer.inferType arg visitingConstants
@@ -3063,8 +3082,6 @@ partial def translateLeanDefCall?
   | none =>
       throwErrorAt stx
         s!"Lean helper '{fnDisplay}' uses an unsupported return type; supported pure helper returns are Uint256, Int256, Address, Bytes32/Uint256, and Bool"
-  let some body := peelLambdaBody info.value argTerms.size
-    | throwErrorAt stx s!"Lean helper '{fnDisplay}' body is not a transparent function definition"
   let argExprs ← argTerms.mapM
     (translatePureExprWithTypes fields constDecls immutableDecls params locals · visitingConstants linkedExternalLowerer?)
   pure (some (← translateLeanExprFromDef fields constDecls immutableDecls params locals stx.raw fnDisplay argExprs body))
@@ -4457,6 +4474,9 @@ def translateLinkedExternalCallArgs
             else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 arrayElementDynamicMemberProjection? params arg then
               if externalCallDynamicArgSupported fieldTy then
+                if syntaxContainsCallExternal index then
+                  throwErrorAt index
+                    "dynamic projection indices cannot contain callExternal because ABI lowering reuses the index for offset and length; bind the external result first"
                 let indexExpr ← translateExpr index
                 out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                   $(strTerm paramName)
@@ -4471,6 +4491,9 @@ def translateLinkedExternalCallArgs
             else if let some (paramName, index, fieldTy, _elemTy, wordOffset) :=
                 localArrayElementDynamicMemberProjection? locals arg then
               if externalCallDynamicArgSupported fieldTy then
+                if syntaxContainsCallExternal index then
+                  throwErrorAt index
+                    "dynamic projection indices cannot contain callExternal because ABI lowering reuses the index for offset and length; bind the external result first"
                 let indexExpr ← translateExpr index
                 out := out.push (← `(Compiler.CompilationModel.Expr.arrayElementDynamicMemberDataOffset
                   $(strTerm paramName)
