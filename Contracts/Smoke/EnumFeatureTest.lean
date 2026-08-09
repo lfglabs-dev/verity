@@ -91,4 +91,7 @@ def enumParamRejectsOutOfRange : Bool :=
 
 example : enumParamRejectsOutOfRange = true := by native_decide
 
+/-- Expose the contract model at the canonical module-level name used by the compiler CLI. -/
+def spec : CompilationModel := MacroEnumUsage.spec
+
 end Contracts.Smoke.EnumFeatureTest

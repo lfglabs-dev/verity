@@ -39,15 +39,24 @@ contract EnumFeatureTest is Test, YulTestBase {
         assertEq(yulData, refData, "return/revert payload mismatch");
     }
 
+    function _assertEnumParamRevert(bytes memory payload) internal {
+        (bool yulSuccess, bytes memory yulData) = enumFeature.call(payload);
+        (bool refSuccess, bytes memory refData) = address(referenceContract).call(payload);
+        assertFalse(yulSuccess, "generated enum parameter unexpectedly accepted");
+        assertFalse(refSuccess, "reference enum parameter unexpectedly accepted");
+        assertEq(yulData, abi.encodeWithSignature("Panic(uint256)", 0x21), "generated panic mismatch");
+        assertEq(refData, bytes(""), "reference ABI decoder revert mismatch");
+    }
+
     function testMembersParamsReturnsAndCastParity() public {
         _assertCallParity(abi.encodeWithSignature("active()"));
         _assertCallParity(abi.encodeWithSignature("identity(uint8)", uint8(2)));
-        _assertCallParity(abi.encodeWithSignature("identity(uint8)", uint8(3)));
+        _assertEnumParamRevert(abi.encodeWithSignature("identity(uint8)", uint8(3)));
         _assertCallParity(abi.encodeWithSignature("castStatus(uint256)", 0));
         _assertCallParity(abi.encodeWithSignature("castStatus(uint256)", 2));
         _assertCallParity(abi.encodeWithSignature("castStatus(uint256)", 3));
         _assertCallParity(abi.encodeWithSignature("castStatus(uint256)", type(uint256).max));
-        _assertCallParity(abi.encodeWithSelector(bytes4(keccak256("identity(uint8)")), uint256(0x100)));
+        _assertEnumParamRevert(abi.encodeWithSelector(bytes4(keccak256("identity(uint8)")), uint256(0x100)));
     }
 
     function testStorageAndMappingParity() public {
