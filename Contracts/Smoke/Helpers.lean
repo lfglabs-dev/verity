@@ -69,4 +69,68 @@ verity_contract ModifierInheritanceChild is ModifierInheritanceBase where
 #check_contract ModifierInheritanceBase
 #check_contract ModifierInheritanceChild
 
+-- Constructor arguments are bound lexically: the parameter `owner` in the
+-- parent body must not rewrite the storage-field operand with the same name.
+verity_contract ConstructorHygieneBase where
+  storage
+    owner : Address := slot 0
+
+  constructor (owner : Address) := do
+    setStorageAddr owner owner
+
+verity_contract ConstructorHygieneChild is ConstructorHygieneBase where
+  storage
+
+  constructor (admin : Address) ConstructorHygieneBase(admin) := do
+    pure ()
+
+#check_contract ConstructorHygieneChild
+
+-- A child with no constructor has an implicit nonpayable constructor even
+-- when it runs a zero-argument payable parent initializer.
+verity_contract PayableConstructorBase where
+  storage
+
+  constructor () payable := do
+    pure ()
+
+verity_contract ImplicitConstructorChild is PayableConstructorBase where
+  storage
+
+example : ImplicitConstructorChild.spec.constructor.map (·.isPayable) = some false := by
+  rfl
+
+-- Overrides may preserve or narrow payability, but may not widen it.
+verity_contract NonpayableVirtualBase where
+  storage
+
+  function virtual value () : Uint256 := do
+    return 1
+
+/--
+error: function 'value' cannot widen a nonpayable inherited function to payable
+-/
+#guard_msgs in
+verity_contract PayableOverrideRejected is NonpayableVirtualBase where
+  storage
+
+  function payable override value () : Uint256 := do
+    return 2
+
+-- Overloads introduced on opposite sides of the inheritance boundary receive
+-- distinct generated Lean identifiers after flattening.
+verity_contract InheritedOverloadBase where
+  storage
+
+  function inspect (value : Uint256) : Uint256 := do
+    return value
+
+verity_contract InheritedOverloadChild is InheritedOverloadBase where
+  storage
+
+  function inspect (value : Address) : Address := do
+    return value
+
+#check_contract InheritedOverloadChild
+
 end Contracts.Smoke

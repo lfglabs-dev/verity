@@ -44,6 +44,13 @@ EXCLUDED_CONTRACTS = {
     # fuzz stubs can pick a target that reverts. Lean/Yul/trust-report tests
     # cover the ABI layout.
     "CallbackABISmoke",
+    # Inheritance regression fixtures are exercised together through their
+    # child contracts in Contracts/Smoke/Helpers.lean.  Standalone generated
+    # Foundry stubs for these bases would not cover the flattening behavior.
+    "ConstructorHygieneBase",
+    "PayableConstructorBase",
+    "NonpayableVirtualBase",
+    "InheritedOverloadBase",
 }
 
 

@@ -2807,16 +2807,6 @@ def registerContractSyntax (name : Name) (parsed : ParsedContractSyntax) : IO Un
 private def lookupContractSyntax (name : Name) : IO (Option ParsedContractSyntax) := do
   pure ((← contractSyntaxRef.get).find? (fun entry => entry.1 == name) |>.map (·.2))
 
-private def substituteSyntax
-    (bindings : Array (String × Syntax)) (stx : Syntax) : Syntax :=
-  stx.rewriteBottomUp fun node =>
-    match node with
-    | .ident _ _ name _ =>
-        match bindings.find? (fun binding => binding.1 == name.toString) with
-        | some binding => binding.2
-        | none => node
-    | _ => node
-
 private def doElems (body : Term) : CommandElabM (Array (TSyntax `doElem)) := do
   match body with
   | `(term| do $[$elems:doElem]*) => pure elems
@@ -2834,7 +2824,9 @@ private def composeConstructors
   | some parent, none =>
       if !parent.params.isEmpty then
         throwErrorAt parentName s!"parent constructor '{toString parentName.getId}' expects {parent.params.size} argument(s); add an explicit parent constructor call"
-      pure (some { parent with parentName? := none, parentArgs := #[] })
+      -- An omitted child constructor is an implicit nonpayable constructor.
+      -- Running a payable parent initializer must not widen that external ABI.
+      pure (some { parent with isPayable := false, parentName? := none, parentArgs := #[] })
   | some parent, some child =>
       let calledParent ← match child.parentName? with
         | some called => pure called
@@ -2843,13 +2835,28 @@ private def composeConstructors
         throwErrorAt calledParent s!"constructor calls '{calledParent.getId}', expected direct parent '{parentName.getId}'"
       if child.parentArgs.size != parent.params.size then
         throwErrorAt calledParent s!"parent constructor '{parentName.getId}' expects {parent.params.size} argument(s), got {child.parentArgs.size}"
-      let bindings := parent.params.zip child.parentArgs |>.map fun pair =>
-        (pair.1.name, pair.2.raw)
       let parentElems ← doElems parent.body
-      let parentElems := parentElems.map fun elem =>
-        ⟨substituteSyntax bindings elem.raw⟩
+      -- Bind parent arguments in a nested lexical scope instead of rewriting
+      -- identifier syntax.  The latter is not hygienic: a parameter named
+      -- `owner` must not rewrite the storage-field operand in
+      -- `setStorageAddr owner owner` (nor a nested local binder).
+      let mut parentBindings : Array (TSyntax `doElem) := #[]
+      for (param, arg) in parent.params.zip child.parentArgs do
+        -- Reuse an identically named child parameter directly.  Introducing
+        -- a redundant `let x := x` would be rejected as parameter shadowing.
+        let isIdentityArg := match arg.raw with
+          | .ident _ _ name _ => name.toString == param.name
+          | _ => false
+        if !isIdentityArg then
+          let binding ← `(doElem| let $param.ident := $arg)
+          parentBindings := parentBindings.push binding
+      let scopedParent ← `(doElem| if true then
+        $[$parentBindings:doElem]*
+        $[$parentElems:doElem]*
+        else
+          pure ())
       let childElems ← doElems child.body
-      let combinedBody ← `(do $[$parentElems:doElem]* $[$childElems:doElem]*)
+      let combinedBody ← `(do $scopedParent:doElem $[$childElems:doElem]*)
       pure (some {
         child with
         -- The child constructor is the externally visible constructor.  A
@@ -2879,6 +2886,8 @@ private def flattenSingleInheritance
     | true, some inherited =>
         if !inherited.isVirtual then
           throwErrorAt fn.ident s!"function '{fn.name}' overrides a non-virtual inherited function"
+        if !inherited.isPayable && fn.isPayable then
+          throwErrorAt fn.ident s!"function '{fn.name}' cannot widen a nonpayable inherited function to payable"
         functions := functions.map fun candidate =>
           if functionSignatureKey candidate == functionSignatureKey fn then
             { fn with isOverride := false }
@@ -2905,7 +2914,10 @@ private def flattenSingleInheritance
     externalDecls := parent.externalDecls ++ child.externalDecls
     ctor := ctor
     modifiers := parent.modifiers ++ child.modifiers
-    functions := functions
+    -- Parent and child overload identifiers were assigned independently.
+    -- Reassign them across the flattened set so cross-boundary overloads are
+    -- collision-free as well.
+    functions := assignOverloadInternalIdents functions
     storageNamespace := child.storageNamespace.orElse (fun _ => parent.storageNamespace)
   }
 
