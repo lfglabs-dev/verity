@@ -76,11 +76,21 @@ private partial def externalExecutableReturnType? : ValueType → Bool
   | .newtype _ baseType => externalExecutableReturnType? baseType
   | ty => externalExecutableWordType? ty
 
+private partial def containsEnumReturnType : ValueType → Bool
+  | .enum _ _ => true
+  | .tuple tys => tys.any containsEnumReturnType
+  | .fixedArray ty _ | .newtype _ ty => containsEnumReturnType ty
+  | .struct _ fields => fields.any (fun field => containsEnumReturnType field.snd)
+  | _ => false
+
 def validateExternalExecutableType
     (extIdent : Ident)
     (extName : String)
     (ty : ValueType)
     (role : String) : CommandElabM Unit := do
+  if containsEnumReturnType ty then
+    throwErrorAt extIdent
+      s!"linked external '{extName}' uses an enum-valued {role}; checked enum decoding from untrusted external returndata is not implemented"
   if !externalExecutableReturnType? ty then
     throwErrorAt extIdent
       s!"linked external '{extName}' uses unsupported {role} type; executable externalCall currently supports only word-like values and static ABI composites of word-like values"

@@ -48,6 +48,13 @@ private def translateCustomErrorArgExprs
     normalizeTranslatedExprForType expectedTy arg raw
 
 mutual
+private partial def returnTypeContainsEnum : ValueType → Bool
+  | .enum _ _ => true
+  | .array ty | .fixedArray ty _ | .newtype _ ty => returnTypeContainsEnum ty
+  | .tuple tys => tys.any returnTypeContainsEnum
+  | .struct _ fields => fields.any (fun field => returnTypeContainsEnum field.snd)
+  | _ => false
+
 private partial def validateDoSeqExprTypes
     (ownerName : String)
     (returnTy : ValueType)
@@ -237,9 +244,9 @@ private partial def validateDoElemExprTypes
       | `(doElem| return $value:term) =>
           let actualTy ←
             match (← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals value) with
-            | some _ => pure .unit
+            | some valueTys => pure (.tuple valueTys.toList)
             | none => inferPureExprType fields constDecls immutableDecls externalDecls params locals value
-          if let .enum _ _ := returnTy then
+          if returnTypeContainsEnum returnTy then
             requireDeclaredValueType value s!"return from '{ownerName}'" returnTy actualTy
           pure locals
       | `(doElem| pure ()) =>
@@ -2516,7 +2523,9 @@ private def mkSpecCommand
           (constructorLocalObligationsWithArithmetic ctor immutableDecls).mapM mkModelLocalObligationTerm
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
         let ctorBodyTerms ← translateConstructorBodyToStmtTerms fields errorDecls constDecls immutableDecls externalDecls functions ctor
-        let ctorAllTerms := immutableInitTerms ++ ctorBodyTerms
+        let enumGuardCount := (← enumParamGuards ctor.params).size
+        let ctorAllTerms := ctorBodyTerms.take enumGuardCount ++ immutableInitTerms ++
+          ctorBodyTerms.drop enumGuardCount
         `(some {
           params := $ctorParams
           isPayable := $ctorPayable
