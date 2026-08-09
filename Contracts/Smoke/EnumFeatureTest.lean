@@ -33,6 +33,9 @@ verity_contract MacroEnumUsage where
   function setStatus (value : Status) : Unit := do
     setStorage status value
 
+  function announceStatus (value : Status) : Unit := do
+    emit "StatusChanged" [value, value]
+
   function getStatus () : Status := do
     let value ← getStorage status
     return value

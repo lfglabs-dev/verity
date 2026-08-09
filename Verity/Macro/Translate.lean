@@ -50,6 +50,7 @@ private def translateCustomErrorArgExprs
 mutual
 private partial def validateDoSeqExprTypes
     (ownerName : String)
+    (returnTy : ValueType)
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
@@ -61,12 +62,13 @@ private partial def validateDoSeqExprTypes
     (doSeq : DoSeq) : CommandElabM Unit := do
   match doSeq with
   | `(doSeq| $[$elems:doElem]*) =>
-      let _ ← validateDoElemsExprTypes ownerName fields constDecls immutableDecls externalDecls errorDecls functions params locals elems
+      let _ ← validateDoElemsExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls functions params locals elems
       pure ()
   | _ => throwErrorAt doSeq "unsupported branch body; expected do-sequence"
 
 private partial def validateDoElemsExprTypes
     (ownerName : String)
+    (returnTy : ValueType)
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
@@ -78,11 +80,12 @@ private partial def validateDoElemsExprTypes
     (elems : Array (TSyntax `doElem)) : CommandElabM (Array TypedLocal) := do
   let mut branchLocals := locals
   for elem in elems do
-    branchLocals ← validateDoElemExprTypes ownerName fields constDecls immutableDecls externalDecls errorDecls functions params branchLocals elem
+    branchLocals ← validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls functions params branchLocals elem
   pure branchLocals
 
 private partial def validateDoElemExprTypes
     (ownerName : String)
+    (returnTy : ValueType)
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
@@ -151,17 +154,17 @@ private partial def validateDoElemExprTypes
   | some typedLocals => pure typedLocals
   | none => match elem with
       | `(doElem| let _ := ($rhs:term : $_ty:term)) =>
-          validateDoElemExprTypes ownerName fields constDecls immutableDecls externalDecls
+          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
             errorDecls functions params locals (← `(doElem| let _ := $rhs:term))
       | `(doElem| let _ := $rhs:term) =>
           let discardName := freshSyntheticLocalName "discard" params locals #[]
           let discardIdent := mkIdent (Name.mkSimple discardName)
-          validateDoElemExprTypes ownerName fields constDecls immutableDecls externalDecls
+          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
             errorDecls functions params locals (← `(doElem| let $discardIdent:ident := $rhs:term))
       | `(doElem| let _ ← $rhs:term) =>
           let discardName := freshSyntheticLocalName "__discard" params locals #[]
           let discardIdent := mkIdent (Name.mkSimple discardName)
-          validateDoElemExprTypes ownerName fields constDecls immutableDecls externalDecls
+          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
             errorDecls functions params locals (← `(doElem| let $discardIdent:ident ← $rhs:term))
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
@@ -226,27 +229,32 @@ private partial def validateDoElemExprTypes
                           requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
                           pure <| locals.push (mkTypedLocal (toString name.getId) ty)
       | `(doElem| $name:ident := $rhs:term) =>
-          let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+          let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+          let some localInfo := locals.find? (fun entry => entry.name == toString name.getId)
+            | throwErrorAt name s!"cannot resolve type of variable '{toString name.getId}'"
+          requireDeclaredValueType rhs s!"assignment to '{localInfo.name}'" localInfo.ty actualTy
           pure locals
       | `(doElem| return $value:term) =>
-          let _ ←
+          let actualTy ←
             match (← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals value) with
             | some _ => pure .unit
             | none => inferPureExprType fields constDecls immutableDecls externalDecls params locals value
+          if let .enum _ _ := returnTy then
+            requireDeclaredValueType value s!"return from '{ownerName}'" returnTy actualTy
           pure locals
       | `(doElem| pure ()) =>
           pure locals
       | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
           requireBoolType cond "if condition" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals cond)
-          validateDoSeqExprTypes ownerName fields constDecls immutableDecls externalDecls errorDecls functions params locals thenBranch
-          validateDoSeqExprTypes ownerName fields constDecls immutableDecls externalDecls errorDecls functions params locals elseBranch
+          validateDoSeqExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls functions params locals thenBranch
+          validateDoSeqExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls functions params locals elseBranch
           pure locals
       | `(doElem| forEach $name:term $count:term $body:term) =>
           requireWordLikeType count "forEach count" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals count)
           match stripParens body with
           | `(term| do $[$inner:doElem]*) =>
               let _ ← validateDoElemsExprTypes
-                ownerName fields constDecls immutableDecls externalDecls errorDecls functions params
+                ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls functions params
                 (locals.push (mkTypedLocal (← expectStringOrIdent name) .uint256))
                 inner
               pure locals
@@ -256,7 +264,7 @@ private partial def validateDoElemExprTypes
           match stripParens body with
           | `(term| do $[$inner:doElem]*) =>
               let _ ← validateDoElemsExprTypes
-                ownerName fields constDecls immutableDecls externalDecls errorDecls functions params
+                ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls functions params
                 (locals.push (mkTypedLocal (← expectStringOrIdent name) .uint256))
                 inner
               pure locals
@@ -289,10 +297,10 @@ private partial def validateDoElemExprTypes
             (← inferPureExprType fields constDecls immutableDecls externalDecls params locals attempt)
           let (payloadName?, catchElems) ← parseTryCatchHandler handler
           validateTryCatchHandlerDoesNotUsePayload handler payloadName? catchElems
-          let _ ← validateDoElemsExprTypes ownerName fields constDecls immutableDecls externalDecls errorDecls functions params locals catchElems
+          let _ ← validateDoElemsExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls functions params locals catchElems
           pure locals
       | `(doElem| unsafe $_reason:str do $body:doSeq) =>
-          validateDoSeqExprTypes ownerName fields constDecls immutableDecls externalDecls errorDecls functions params locals body
+          validateDoSeqExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls functions params locals body
           pure locals
       | `(doElem| ecmBind $names:term $module:term $args:term) =>
           let resultVars ← expectStringList names
@@ -509,7 +517,7 @@ private def validateFunctionBodyExprTypes
     (fn : FunctionDecl) : CommandElabM Unit := do
   match fn.body with
   | `(term| do $[$elems:doElem]*) =>
-      let _ ← validateDoElemsExprTypes fn.name fields constDecls immutableDecls externalDecls errorDecls functions fn.params #[] elems
+      let _ ← validateDoElemsExprTypes fn.name fn.returnTy fields constDecls immutableDecls externalDecls errorDecls functions fn.params #[] elems
       pure ()
   | _ => throwErrorAt fn.body "function body must be a do block"
 
@@ -529,7 +537,7 @@ private def validateConstructorBodyExprTypes
     (ctor : ConstructorDecl) : CommandElabM Unit := do
   match ctor.body with
   | `(term| do $[$elems:doElem]*) =>
-      let _ ← validateDoElemsExprTypes "constructor" fields constDecls immutableDecls externalDecls errorDecls functions ctor.params #[] elems
+      let _ ← validateDoElemsExprTypes "constructor" .unit fields constDecls immutableDecls externalDecls errorDecls functions ctor.params #[] elems
       pure ()
   | _ => throwErrorAt ctor.body "constructor body must be a do block"
 
@@ -1661,11 +1669,16 @@ private def translateBodyToStmtTerms
     (fn : FunctionDecl) : CommandElabM (Array Term) := do
   match fn.body with
   | `(term| do $[$elems:doElem]*) =>
+      let enumGuardCount := (← enumParamGuards fn.params).size
       let guardPrelude ← initGuardPreludeStmtTerms fields fn
       let rolePrelude ← roleGuardPreludeStmtTerms fields roleDecls fn
       let modifierPrelude ← fn.modifiers.mapM fun modIdent =>
         `(Compiler.CompilationModel.Stmt.internalCall $(strTerm (modifierInternalName (toString modIdent.getId))) [])
-      let stmts := guardPrelude ++ rolePrelude ++ modifierPrelude ++ (← translateDoElems fields constDecls immutableDecls externalDecls errorDecls functions fn.returnTy fn.params #[] #[] elems).1
+      let bodyStmts := (← translateDoElems fields constDecls immutableDecls externalDecls errorDecls functions fn.returnTy fn.params #[] #[] elems).1
+      -- ABI decoding (including enum validity) precedes every function-level
+      -- prelude in Solidity. Keep those guards first on the model path too.
+      let stmts := bodyStmts.take enumGuardCount ++ guardPrelude ++ rolePrelude ++
+        modifierPrelude ++ bodyStmts.drop enumGuardCount
       let mut stmts := stmts
       if fn.returnTy == .unit then
         stmts := stmts.push (← `(Compiler.CompilationModel.Stmt.stop))
@@ -3726,7 +3739,7 @@ def validateFunctionDeclsPublic
   for modDecl in modifiers do
     match modDecl.body with
     | `(term| do $[$elems:doElem]*) =>
-        let _ ← validateDoElemsExprTypes modDecl.name fields constDecls immutableDecls externalDecls errorDecls functions #[] #[] elems
+        let _ ← validateDoElemsExprTypes modDecl.name .unit fields constDecls immutableDecls externalDecls errorDecls functions #[] #[] elems
         pure ()
     | _ => throwErrorAt modDecl.body "modifier body must be a do block"
   for fn in functions do
@@ -3797,6 +3810,10 @@ def mkFunctionCommandsPublic
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
   let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
   let fnExecutableBody ← rewriteForEachExecutableBody fields externalDecls fn.params fnBody
+  -- The parsed body already contains guards for the model path. Re-applying
+  -- them outside all executable wrappers makes ABI validation happen before
+  -- initializer, role, and modifier effects (the inner copy is harmless).
+  let fnExecutableBody ← prependEnumGuards fn.params fnExecutableBody
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"

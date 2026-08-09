@@ -1562,7 +1562,10 @@ def requireDeclaredValueType
     (stx : Syntax)
     (context : String)
     (expectedTy actualTy : ValueType) : CommandElabM Unit := do
-  unless actualTy == expectedTy || (isWordLikeValueType actualTy && isWordLikeValueType expectedTy) do
+  let involvesEnum := match expectedTy, actualTy with
+    | .enum _ _, _ | _, .enum _ _ => true
+    | _, _ => false
+  unless actualTy == expectedTy || (!involvesEnum && isWordLikeValueType actualTy && isWordLikeValueType expectedTy) do
     throwErrorAt stx
       s!"{context} expects {renderValueType expectedTy}, got {renderValueType actualTy}"
 
