@@ -80,11 +80,13 @@
   ],
   "heavy_runner_jobs": [
     "build",
+    "compiler-regressions",
+    "lean-profile"
+  ],
+  "medium_runner_jobs": [
     "build-audits",
     "build-compiler-binaries",
     "compiler-audits",
-    "compiler-regressions",
-    "lean-profile",
     "foundry-gas-calibration",
     "foundry",
     "foundry-patched",

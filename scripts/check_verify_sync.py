@@ -868,6 +868,13 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
     expected_conditions: dict[str, str] = spec.get("expected_job_if_conditions", {})
     expected_runs_on: dict[str, str] = spec.get("expected_job_runs_on", {})
     heavy_runner_jobs: set[str] = set(spec.get("heavy_runner_jobs", []))
+    medium_runner_jobs: set[str] = set(spec.get("medium_runner_jobs", []))
+    overlapping_runner_classes = heavy_runner_jobs & medium_runner_jobs
+    if overlapping_runner_classes:
+        errors.append(
+            "jobs cannot be both build-heavy and build-medium: "
+            + ", ".join(sorted(overlapping_runner_classes))
+        )
     expected_timeouts: dict[str, int] = spec.get("expected_job_timeouts", {})
     expected_fail_fast: dict[str, bool] = spec.get("expected_job_strategy_fail_fast", {})
     expected_outputs: dict[str, dict[str, str]] = spec.get("expected_job_outputs", {})
@@ -946,6 +953,11 @@ def check_job_contracts(snapshot: Snapshot, spec: dict) -> CheckResult:
                 errors.append(f"{job} runs-on spec is not a label list: {expected_job_runs_on!r}")
             else:
                 expected_job_runs_on = expected_job_runs_on[:-1] + ", build-heavy]"
+        if job in medium_runner_jobs and expected_job_runs_on is not None:
+            if not expected_job_runs_on.endswith("]"):
+                errors.append(f"{job} runs-on spec is not a label list: {expected_job_runs_on!r}")
+            else:
+                expected_job_runs_on = expected_job_runs_on[:-1] + ", build-medium]"
         if actual_runs_on != expected_job_runs_on:
             errors.append(
                 f"{job} runs-on does not match spec: workflow={actual_runs_on!r}, spec={expected_job_runs_on!r}"
