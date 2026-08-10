@@ -1176,7 +1176,8 @@ private partial def translateDoElem
                           pure (some (stmts, locals ++ typedPairs, mutableLocals))
                       | none => throwErrorAt rhs "tuple destructuring currently requires a tuple literal, tuple-typed parameter, structMembers/structMembers2 source, internal helper call, or tryExternalCall"
           | _ =>
-              match (← arrayElementTupleDestructureStmts? fields constDecls immutableDecls params locals mutableLocals rhs names) with
+              match (← arrayElementTupleDestructureStmts? fields constDecls immutableDecls params locals mutableLocals rhs names
+                (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
               | some (stmts, syntheticLocal) =>
                   let valueTys ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals rhs
                   match valueTys with
@@ -1536,7 +1537,8 @@ private partial def translateDoElem
               locals,
               mutableLocals)
       | `(doElem| return $value:term) =>
-          match (← arrayElementTupleReturnStmts? fields constDecls immutableDecls params locals mutableLocals value) with
+          match (← arrayElementTupleReturnStmts? fields constDecls immutableDecls params locals mutableLocals value
+            (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
           | some (stmts, syntheticLocal) =>
               pure (stmts, locals.push syntheticLocal, mutableLocals)
           | none =>

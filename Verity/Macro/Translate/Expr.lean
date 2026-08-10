@@ -3988,7 +3988,12 @@ def arrayElementTupleElemExprs?
     (immutableDecls : Array ImmutableDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
-    (rhs : Term) : CommandElabM (Option (Array Term)) := do
+    (rhs : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Option (Array Term)) := do
+  let translateExpr (expr : Term) : CommandElabM Term :=
+    match translateExpr? with
+    | some translate => translate expr
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals expr
   match stripParens rhs with
   | `(term| arrayElement $name:term $index:term) =>
       -- verity#1849, G2: compound projections never destructure into a tuple.
@@ -4007,7 +4012,7 @@ def arrayElementTupleElemExprs?
             | none =>
                 throwErrorAt rhs
                   "arrayElement tuple destructuring requires a static ABI-word tuple element type"
-          let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+          let indexExpr ← translateExpr index
           let mut offset := 0
           let mut exprs : Array Term := #[]
           for elemTy in elemTys do
@@ -4038,7 +4043,12 @@ def arrayElementTupleDestructureStmts?
     (locals : Array TypedLocal)
     (mutableLocals : Array String)
     (rhs : Term)
-    (names : Array (Option String)) : CommandElabM (Option (Array Term × TypedLocal)) := do
+    (names : Array (Option String))
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Option (Array Term × TypedLocal)) := do
+  let translateExpr (expr : Term) : CommandElabM Term :=
+    match translateExpr? with
+    | some translate => translate expr
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals expr
   match stripParens rhs with
   | `(term| arrayElement $name:term $index:term) =>
       -- verity#1849, G2: compound projections never destructure into a tuple.
@@ -4056,7 +4066,7 @@ def arrayElementTupleDestructureStmts?
               s!"tuple destructuring binds {names.size} names, but the source provides {elemTys.length} values"
           let syntheticUsed := mutableLocals ++ names.filterMap id
           let indexName := freshSyntheticLocalName "arrayElement_index" params locals syntheticUsed
-          let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+          let indexExpr ← translateExpr index
           let indexStmt ←
             `(Compiler.CompilationModel.Stmt.letVar $(strTerm indexName) $indexExpr)
           let indexLocal ←
@@ -4123,7 +4133,12 @@ def arrayElementTupleReturnStmts?
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (mutableLocals : Array String)
-    (rhs : Term) : CommandElabM (Option (Array Term × TypedLocal)) := do
+    (rhs : Term)
+    (translateExpr? : Option (Term → CommandElabM Term) := none) : CommandElabM (Option (Array Term × TypedLocal)) := do
+  let translateExpr (expr : Term) : CommandElabM Term :=
+    match translateExpr? with
+    | some translate => translate expr
+    | none => translatePureExprWithTypes fields constDecls immutableDecls params locals expr
   match stripParens rhs with
   | `(term| arrayElement $name:term $index:term) =>
       -- verity#1849, G2: compound projections (`(arrayElement <p> <i>).<dynField>`)
@@ -4145,7 +4160,7 @@ def arrayElementTupleReturnStmts?
                 throwErrorAt rhs
                   "arrayElement tuple return requires a static ABI-word tuple element type"
           let indexName := freshSyntheticLocalName "arrayElement_index" params locals mutableLocals
-          let indexExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals index
+          let indexExpr ← translateExpr index
           let indexStmt ←
             `(Compiler.CompilationModel.Stmt.letVar $(strTerm indexName) $indexExpr)
           let indexLocal ←
@@ -4240,7 +4255,7 @@ def tupleLiteralOrStructValueExprs?
   | some elems =>
       pure (some (← elems.mapM translateExpr))
   | none =>
-      match ← arrayElementTupleElemExprs? fields constDecls immutableDecls params locals rhs with
+      match ← arrayElementTupleElemExprs? fields constDecls immutableDecls params locals rhs translateExpr? with
       | some exprs => pure (some exprs)
       | none =>
           match ← structCtorValueExprs? with

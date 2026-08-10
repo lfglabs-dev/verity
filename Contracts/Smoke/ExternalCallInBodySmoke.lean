@@ -171,6 +171,15 @@ verity_contract ExternalCallInBodySmoke where
   function reentrancy_trusted tupleNestedExternalReturn () : Tuple [Uint32, Uint256] := do
     return (callExternal dirtyUint(), 0)
 
+  function reentrancy_trusted tupleArrayLinkedIndexDestructure
+      (cuts : Array (Tuple [Uint256, Uint256])) : Uint256 := do
+    let (first, _) := arrayElement cuts (callExternal dirtyUint())
+    return first
+
+  function reentrancy_trusted tupleArrayLinkedIndexReturn
+      (cuts : Array (Tuple [Uint256, Uint256])) : Tuple [Uint256, Uint256] := do
+    return arrayElement cuts (callExternal dirtyUint())
+
   function reentrancy_trusted pureDirtyInt () : Int32 := do
     let result := callExternal dirtyInt()
     return result
@@ -741,5 +750,29 @@ verity_contract DynamicReturnDataCopyRejected where
   storage
   function bad (payload : Bytes) : Unit := do
     returnDataCopy(payload, 0, 32)
+
+example : ExternalCallInBodySmoke.tupleArrayLinkedIndexDestructure_modelBody =
+    [ Compiler.CompilationModel.Stmt.letVar "arrayElement_index"
+        (Compiler.CompilationModel.Expr.bitAnd
+          (Compiler.CompilationModel.Expr.externalCall "dirtyUint" [])
+          (Compiler.CompilationModel.Expr.literal 0xffffffff))
+    , Compiler.CompilationModel.Stmt.letVar "first"
+        (Compiler.CompilationModel.Expr.arrayElementWord "cuts"
+          (Compiler.CompilationModel.Expr.localVar "arrayElement_index") 2 0)
+    , Compiler.CompilationModel.Stmt.return
+        (Compiler.CompilationModel.Expr.localVar "first") ] := by
+  rfl
+
+example : ExternalCallInBodySmoke.tupleArrayLinkedIndexReturn_modelBody =
+    [ Compiler.CompilationModel.Stmt.letVar "arrayElement_index"
+        (Compiler.CompilationModel.Expr.bitAnd
+          (Compiler.CompilationModel.Expr.externalCall "dirtyUint" [])
+          (Compiler.CompilationModel.Expr.literal 0xffffffff))
+    , Compiler.CompilationModel.Stmt.returnValues
+        [ Compiler.CompilationModel.Expr.arrayElementWord "cuts"
+            (Compiler.CompilationModel.Expr.localVar "arrayElement_index") 2 0
+        , Compiler.CompilationModel.Expr.arrayElementWord "cuts"
+            (Compiler.CompilationModel.Expr.localVar "arrayElement_index") 2 1 ] ] := by
+  rfl
 
 end Contracts.Smoke
