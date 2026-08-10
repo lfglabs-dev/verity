@@ -19,7 +19,7 @@ contract PropertyInheritedRoleChildTest is YulTestBase {
 
     // Property 1: audit enforces its required role
     function testAuto_Audit_RejectsUnauthorizedCaller() public {
-        vm.prank(alice);
+        vm.prank(address(0x2222));
         (bool ok,) = target.call(abi.encodeWithSignature("audit()"));
         require(!ok, "audit accepted an unauthorized caller");
     }

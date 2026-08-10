@@ -19,7 +19,7 @@ contract PropertyRolesCEISmokeTest is YulTestBase {
 
     // Property 1: setAndCall enforces its required role
     function testAuto_SetAndCall_RejectsUnauthorizedCaller() public {
-        vm.prank(alice);
+        vm.prank(address(0x2222));
         (bool ok,) = target.call(abi.encodeWithSignature("setAndCall(uint256)", uint256(1)));
         require(!ok, "setAndCall accepted an unauthorized caller");
     }

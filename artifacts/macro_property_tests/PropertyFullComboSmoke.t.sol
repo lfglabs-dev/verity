@@ -19,13 +19,13 @@ contract PropertyFullComboSmokeTest is YulTestBase {
 
     // Property 1: deposit enforces its required role
     function testAuto_Deposit_RejectsUnauthorizedCaller() public {
-        vm.prank(alice);
+        vm.prank(address(0x2222));
         (bool ok,) = target.call(abi.encodeWithSignature("deposit(uint256)", uint256(1)));
         require(!ok, "deposit accepted an unauthorized caller");
     }
     // Property 2: freeze enforces its required role
     function testAuto_Freeze_RejectsUnauthorizedCaller() public {
-        vm.prank(alice);
+        vm.prank(address(0x2222));
         (bool ok,) = target.call(abi.encodeWithSignature("freeze()"));
         require(!ok, "freeze accepted an unauthorized caller");
     }

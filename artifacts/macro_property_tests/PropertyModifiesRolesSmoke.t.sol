@@ -19,13 +19,13 @@ contract PropertyModifiesRolesSmokeTest is YulTestBase {
 
     // Property 1: setCounter enforces its required role
     function testAuto_SetCounter_RejectsUnauthorizedCaller() public {
-        vm.prank(alice);
+        vm.prank(address(0x2222));
         (bool ok,) = target.call(abi.encodeWithSignature("setCounter(uint256)", uint256(1)));
         require(!ok, "setCounter accepted an unauthorized caller");
     }
     // Property 2: setCounterAndFlag enforces its required role
     function testAuto_SetCounterAndFlag_RejectsUnauthorizedCaller() public {
-        vm.prank(alice);
+        vm.prank(address(0x2222));
         (bool ok,) = target.call(abi.encodeWithSignature("setCounterAndFlag(uint256,uint256)", uint256(1), uint256(1)));
         require(!ok, "setCounterAndFlag accepted an unauthorized caller");
     }

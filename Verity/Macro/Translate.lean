@@ -2864,6 +2864,42 @@ private def substitutePureInitializerParams
     (bindings : Array (String × Syntax)) (body : Term) : Term :=
   ⟨substitutePureInitializerParamSyntax bindings body.raw⟩
 
+/-- Rebind direct dynamic parent-constructor parameters to the child ABI
+    parameter that supplies them. Dynamic values cannot be materialized as
+    model locals: their offsets remain meaningful only as parameter
+    references. Storage helper field operands are declarations, rather than
+    value references, so they must remain untouched when a field and parent
+    parameter intentionally share a name. -/
+private partial def substituteDynamicParentParamSyntax
+    (bindings : Array (String × Syntax)) (node : Syntax) : Syntax :=
+  match node with
+  | .ident _ _ name _ =>
+      bindings.find? (fun binding => declaredNameMatches name.toString binding.1)
+        |>.map (·.2) |>.getD node
+  | _ =>
+      let args := node.getArgs
+      if node.getKind == `Lean.Parser.Term.app && !args.isEmpty then
+        let headName? := match args[0]? with
+          | some (.ident _ _ name _) => some name.toString
+          | _ => none
+        let fieldOperandIsDeclaration := headName?.any fun head =>
+          #["getStorage", "getStorageAddr", "getStorageArrayLength",
+            "getStorageArrayElement", "setStorage", "setStorageAddr",
+            "setStorageArrayElement", "getMapping", "getMappingAddr",
+            "getMappingUint", "getMappingUintAddr", "getMappingWord",
+            "getMapping2", "getMappingN", "setMapping", "setMappingAddr",
+            "setMappingUint", "setMappingUintAddr", "setMappingWord",
+            "setMapping2", "setMappingN", "tload", "tstore"].contains head
+        node.setArgs (args.mapIdx fun idx arg =>
+          if idx == 0 || (idx == 1 && fieldOperandIsDeclaration) then arg
+          else substituteDynamicParentParamSyntax bindings arg)
+      else
+        node.setArgs (args.map (substituteDynamicParentParamSyntax bindings))
+
+private def substituteDynamicParentParams
+    (bindings : Array (String × Syntax)) (body : Term) : Term :=
+  ⟨substituteDynamicParentParamSyntax bindings body.raw⟩
+
 /-- Whether a parameter reserves `name` in the lowered function namespace.
 Tuple parameters synthesize aliases such as `config_0` for their components. -/
 private def paramReservesName (param : ParamDecl) (name : String) : Bool :=
@@ -2919,33 +2955,42 @@ private def composeConstructors
       if let some captured := inheritedBinderNames.find? (fun name =>
           child.params.any (fun childParam => paramReservesName childParam name)) then
         throwErrorAt calledParent s!"ancestor constructor binding '{captured}' conflicts with a child constructor parameter; rename the child parameter"
-      let parentElems ← doElems parent.body
       -- Bind parent arguments in a nested lexical scope instead of rewriting
       -- identifier syntax.  The latter is not hygienic: a parameter named
       -- `owner` must not rewrite the storage-field operand in
       -- `setStorageAddr owner owner` (nor a nested local binder).
       let mut parentBindings : Array (TSyntax `doElem) := #[]
+      let mut dynamicParamBindings : Array (String × Syntax) := #[]
       let mut boundParentParamNames := inheritedBinderNames
       for (param, arg) in parent.params.zip child.parentArgs do
         -- Reuse an identically named child parameter directly.  Introducing
         -- a redundant `let x := x` would be rejected as parameter shadowing.
-        let identityChildParam? := match arg.raw with
-          | .ident _ _ name _ =>
+        let directChildParam? := match stripParens arg with
+          | `(term| $name:ident) =>
               child.params.find? (fun (childParam : ParamDecl) =>
-                name.toString == param.name && childParam.name == param.name)
-          | _ => none
-        let isIdentityArg := identityChildParam?.isSome
+                declaredNameMatches (toString name.getId) childParam.name)
+          | _ => child.params.find? (fun childParam =>
+              (stripParens arg).raw.reprint.getD "" == childParam.name)
+        let isIdentityArg := directChildParam?.any (fun childParam => childParam.name == param.name)
         if !isIdentityArg then
           if child.params.any (fun childParam => paramReservesName childParam param.name) then
             throwErrorAt arg s!"parent constructor parameter '{param.name}' conflicts with a child constructor parameter; rename the child parameter"
-          -- Parent arguments have already been checked against `param.ty`,
-          -- but Lean and the model typer otherwise infer literals at their
-          -- default type. Normalize width-sensitive values before binding so
-          -- inherited bodies retain the parent's declared semantics.
-          let normalizedArg ← normalizeParentConstructorArg param.ty arg
-          let binding ← `(doElem| let $param.ident := $normalizedArg)
-          parentBindings := parentBindings.push binding
-          boundParentParamNames := boundParentParamNames.push param.name
+          if valueTypeUsesDynamicData param.ty && directChildParam?.isSome then
+            -- Keep ABI-dynamic data attached to its actual child parameter;
+            -- a `let parent := child` would turn it into an unsupported (and
+            -- semantically incorrect) local value.
+            dynamicParamBindings := dynamicParamBindings.push (param.name, arg.raw)
+          else
+            -- Parent arguments have already been checked against `param.ty`,
+            -- but Lean and the model typer otherwise infer literals at their
+            -- default type. Normalize width-sensitive values before binding so
+            -- inherited bodies retain the parent's declared semantics.
+            let normalizedArg ← normalizeParentConstructorArg param.ty arg
+            let binding ← `(doElem| let $param.ident := $normalizedArg)
+            parentBindings := parentBindings.push binding
+            boundParentParamNames := boundParentParamNames.push param.name
+      let parentBody := substituteDynamicParentParams dynamicParamBindings parent.body
+      let parentElems ← doElems parentBody
       let scopedParent ← `(doElem| if true then
         $[$parentBindings:doElem]*
         $[$parentElems:doElem]*

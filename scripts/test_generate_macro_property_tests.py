@@ -110,6 +110,35 @@ class ParseContractsTests(unittest.TestCase):
             self.assertEqual(gen._sol_type(child.storage_types["left"]), "uint256")
             self.assertEqual(gen._sol_type(child.storage_types["right"]), "uint256")
 
+    def test_collect_contracts_resolves_alias_in_inherited_parent_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Contracts.lean"
+            source.write_text(
+                textwrap.dedent(
+                    """
+                    verity_contract Base where
+                      types
+                        Amount : Uint256
+                      storage
+                        left : Amount := slot 0
+                        right : Amount := slot 1
+
+                    verity_contract Child is Base where
+                      storage
+
+                      function sum () : Amount := do
+                        let a ← getStorage left
+                        let b ← getStorage right
+                        return (add a b)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            child = gen.collect_contracts([source])["Child"]
+            self.assertEqual(child.storage_types, {"left": "Uint256", "right": "Uint256"})
+            self.assertEqual(gen._sol_type(child.storage_types["left"]), "uint256")
+            self.assertEqual(gen._sol_type(child.storage_types["right"]), "uint256")
+
     def test_parse_contracts_rejects_duplicate_unqualified_names(self) -> None:
         src = textwrap.dedent(
             """
@@ -397,6 +426,26 @@ class ParseContractsTests(unittest.TestCase):
         # Rendering must not raise on the dropped higher-order helper.
         rendered = gen.render_contract_test(parsed["FunctionPointerParamSmoke"])
         self.assertNotIn("apply(", rendered)
+
+    def test_role_negative_property_uses_distinct_unauthorized_caller(self) -> None:
+        src = textwrap.dedent(
+            """
+            verity_contract RoleConstructorSmoke where
+              storage
+                owner : Address := slot 0
+
+              constructor (initialOwner : Address) := do
+                setStorageAddr owner initialOwner
+
+              function guarded () requires(owner) : Unit := do
+                pure ()
+            """
+        )
+        contract = gen.parse_contracts(src, gen.ROOT / "Contracts/Smoke.lean")["RoleConstructorSmoke"]
+        rendered = gen.render_contract_test(contract)
+        self.assertIn("abi.encode(alice)", rendered)
+        self.assertIn("vm.prank(address(0x2222));", rendered)
+        self.assertNotIn("vm.prank(alice);\n        (bool ok,) = target.call", rendered)
 
 
 class RenderTests(unittest.TestCase):

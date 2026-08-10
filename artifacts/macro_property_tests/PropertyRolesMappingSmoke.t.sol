@@ -19,7 +19,7 @@ contract PropertyRolesMappingSmokeTest is YulTestBase {
 
     // Property 1: setCounter enforces its required role
     function testAuto_SetCounter_RejectsUnauthorizedCaller() public {
-        vm.prank(alice);
+        vm.prank(address(0x2222));
         (bool ok,) = target.call(abi.encodeWithSignature("setCounter(uint256)", uint256(1)));
         require(!ok, "setCounter accepted an unauthorized caller");
     }

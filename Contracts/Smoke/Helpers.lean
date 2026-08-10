@@ -108,6 +108,24 @@ verity_contract ConstructorHygieneChild is ConstructorHygieneBase where
 
 #check_contract ConstructorHygieneChild
 
+-- ABI-dynamic parent arguments must remain direct references to the child
+-- constructor parameter. Materializing `let items := values` loses the
+-- calldata parameter semantics and is rejected by the model translator.
+verity_contract DynamicConstructorBase where
+  storage
+
+  constructor (items : Array Uint256) := do
+    let count := arrayLength items
+    require (count != 0) "items must not be empty"
+
+verity_contract DynamicConstructorChild is DynamicConstructorBase where
+  storage
+
+  constructor (values : Array Uint256) DynamicConstructorBase(values) := do
+    pure ()
+
+#check_contract DynamicConstructorChild
+
 verity_contract NarrowConstructorBase where
   storage
 

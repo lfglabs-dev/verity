@@ -740,7 +740,10 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
             constructor=child_constructor,
             functions=tuple(inherited_functions.values()),
             storage_slots=parent.storage_slots | child.storage_slots,
-            storage_types=parent.storage_types
+            storage_types={
+                field_name: _resolve_decl_type(field_type, merged_newtypes, merged_structs)
+                for field_name, field_type in parent.storage_types.items()
+            }
             | {
                 field_name: _resolve_decl_type(field_type, merged_newtypes, merged_structs)
                 for field_name, field_type in child.storage_types.items()
@@ -3032,7 +3035,7 @@ def render_contract_test(contract: ContractDecl) -> str:
         if fn.requires_role:
             body = f"""    // Property {idx}: {fn.name} enforces its required role
     function testAuto_{fn_camel}_RejectsUnauthorizedCaller() public {{
-        vm.prank(alice);
+        vm.prank(address(0x2222));
         (bool ok,) = target.call(abi.encodeWithSignature({encode_args}));
         require(!ok, "{fn.name} accepted an unauthorized caller");
     }}
