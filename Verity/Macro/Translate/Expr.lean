@@ -841,6 +841,10 @@ def classifyWordArithmeticResultType
     (stx : Syntax)
     (context : String)
     (lhsTy rhsTy : ValueType) : CommandElabM ValueType := do
+  if (match lhsTy with | .enum _ _ => true | _ => false) ||
+      (match rhsTy with | .enum _ _ => true | _ => false) then
+    throwErrorAt stx
+      s!"{context} requires `toUint256` before applying word operators to enum values; got {reprStr lhsTy} and {reprStr rhsTy}"
   unless isWordLikeValueType lhsTy do
     throwErrorAt stx s!"{context} requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got {reprStr lhsTy}"
   unless isWordLikeValueType rhsTy do
@@ -862,6 +866,10 @@ def classifyUnsignedWordArithmeticResultType
     (stx : Syntax)
     (context : String)
     (lhsTy rhsTy : ValueType) : CommandElabM ValueType := do
+  if (match lhsTy with | .enum _ _ => true | _ => false) ||
+      (match rhsTy with | .enum _ _ => true | _ => false) then
+    throwErrorAt stx
+      s!"{context} requires `toUint256` before applying word operators to enum values; got {reprStr lhsTy} and {reprStr rhsTy}"
   unless isWordLikeValueType lhsTy do
     throwErrorAt stx s!"{context} requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got {reprStr lhsTy}"
   unless isWordLikeValueType rhsTy do
@@ -1430,6 +1438,13 @@ def requireWordLikeType (stx : Syntax) (context : String) (ty : ValueType) : Com
   unless isWordLikeValueType ty do
     throwErrorAt stx s!"{context} requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got {renderValueType ty}"
 
+def requireWordOperatorType (stx : Syntax) (context : String) (ty : ValueType) : CommandElabM Unit := do
+  match ty with
+  | .enum _ _ =>
+      throwErrorAt stx
+        s!"{context} requires `toUint256` before applying word operators to enum values; got {renderValueType ty}"
+  | _ => requireWordLikeType stx context ty
+
 def requireBoolType (stx : Syntax) (context : String) (ty : ValueType) : CommandElabM Unit := do
   unless ty == .bool do
     throwErrorAt stx s!"{context} requires Bool, got {renderValueType ty}"
@@ -1527,10 +1542,14 @@ def requireSupportedReturnStorageWordsType
         s!"{context} requires an Array parameter on the compilation-model path, got {renderValueType ty}"
 
 def requireEqComparableTypes (stx : Syntax) (lhsTy rhsTy : ValueType) : CommandElabM Unit := do
-  let bothWordLike := isWordLikeValueType lhsTy && isWordLikeValueType rhsTy
+  let involvesEnum := match lhsTy, rhsTy with
+    | .enum _ _, _ | _, .enum _ _ => true
+    | _, _ => false
+  let bothWordLike := !involvesEnum && isWordLikeValueType lhsTy && isWordLikeValueType rhsTy
+  let sameEnum := involvesEnum && lhsTy == rhsTy
   let bothBool := lhsTy == .bool && rhsTy == .bool
   let bothDynamicBytes := (lhsTy == .string && rhsTy == .string) || (lhsTy == .bytes && rhsTy == .bytes)
-  unless bothWordLike || bothBool || bothDynamicBytes do
+  unless sameEnum || bothWordLike || bothBool || bothDynamicBytes do
     throwErrorAt stx
       s!"equality is currently supported only for Bool, matching bytes/string params, and word-like values (Uint256, Int256, Uint8, Address, Bytes32); got {renderValueType lhsTy} and {renderValueType rhsTy}"
 
@@ -1578,13 +1597,7 @@ def requireDeclaredValueType
   let involvesEnum := match expectedTy, actualTy with
     | .enum _ _, _ | _, .enum _ _ => true
     | _, _ => false
-  -- Enum member constants are generated as their underlying numeric literal.
-  -- Admit only an in-range literal here; all non-literal enum expressions must
-  -- retain their exact enum type.
-  let compatibleEnumLiteral := match expectedTy, actualTy, stx.isNatLit? with
-    | .enum _ memberCount, .uint256, some value => value < memberCount
-    | _, _, _ => false
-  unless actualTy == expectedTy || compatibleEnumLiteral ||
+  unless actualTy == expectedTy ||
       (!involvesEnum && isWordLikeValueType actualTy && isWordLikeValueType expectedTy) do
     throwErrorAt stx
       s!"{context} expects {renderValueType expectedTy}, got {renderValueType actualTy}"
@@ -2028,22 +2041,22 @@ partial def inferPureExprType
       classifyUnsignedWordArithmeticResultType stx "signed builtin arithmetic" lhsTy rhsTy
   | `(term| bitNot $a) | `(term| not $a) => do
       let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
-      requireWordLikeType a "bitwise not" ty
+      requireWordOperatorType a "bitwise not" ty
       pure .uint256
   | `(term| shl $shift $value) | `(term| shr $shift $value) | `(term| sar $shift $value)
     | `(term| signextend $shift $value) => do
-      requireWordLikeType shift "shift" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals shift visitingConstants)
+      requireWordOperatorType shift "shift" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals shift visitingConstants)
       let valueTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value visitingConstants
-      requireWordLikeType value "shift" valueTy
+      requireWordOperatorType value "shift" valueTy
       pure .uint256
   | `(term| byte $index $value) => do
-      requireWordLikeType index "byte index" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index visitingConstants)
+      requireWordOperatorType index "byte index" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index visitingConstants)
       let valueTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value visitingConstants
-      requireWordLikeType value "byte value" valueTy
+      requireWordOperatorType value "byte value" valueTy
       pure .uint256
   | `(term| slt $a $b) | `(term| sgt $a $b) => do
-      requireWordLikeType a "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
-      requireWordLikeType b "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
+      requireWordOperatorType a "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      requireWordOperatorType b "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
       pure .bool
   | `(term| $a == $b) | `(term| $a != $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
@@ -2061,11 +2074,11 @@ partial def inferPureExprType
       requireBoolType b "logical operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
       pure .bool
   | `(term| logicalAnd $a $b) | `(term| logicalOr $a $b) => do
-      requireWordLikeType a "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
-      requireWordLikeType b "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
+      requireWordOperatorType a "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      requireWordOperatorType b "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
       pure .uint256
   | `(term| logicalNot $a) => do
-      requireWordLikeType a "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      requireWordOperatorType a "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       pure .uint256
   | `(term| ! $a) => do
       requireBoolType a "logical not" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)

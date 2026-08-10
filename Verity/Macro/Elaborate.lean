@@ -88,7 +88,7 @@ def elabVerityContract : CommandElab := fun stx => do
   validateConstantDeclsPublic constDecls
   validateImmutableDeclsPublic fields constDecls immutableDecls ctor
   validateExternalDeclsPublic externalDecls
-  validateFunctionDeclsPublic fields errorDecls constDecls immutableDecls externalDecls ctor modifiers functions
+  validateFunctionDeclsPublic fields errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions
 
   let declarationNs ← getCurrNamespace
   elabCommand (← `(namespace $contractName))

@@ -127,6 +127,115 @@ verity_contract TypedInterfaceEnumReturnRejected where
     let value ← source.current
     return value
 
+/-- -/
+#guard_msgs in
+verity_contract EnumOperatorsSupported where
+  enums
+    enum Status { Pending, Active }
+  storage
+  function isActive (value : Status) : Bool := do
+    return value == Status.Active
+  function nextOrdinal (value : Status) : Uint256 := do
+    return toUint256 value + 1
+
+/--
+error: event 'StatusChanged' parameter 'current' expects Verity.Macro.ValueType.enum "Status" 2, got Verity.Macro.ValueType.enum "Role" 3
+-/
+#guard_msgs in
+verity_contract CrossEnumEventRejected where
+  enums
+    enum Status { Pending, Active }
+    enum Role { Guest, Member, Admin }
+
+  storage
+
+  event_defs
+    event StatusChanged(current : Status)
+
+  function bad (role : Role) : Unit := do
+    emit "StatusChanged" [role]
+
+/--
+error: setStorage value expects Verity.Macro.ValueType.enum "Status" 3, got Verity.Macro.ValueType.uint256
+-/
+#guard_msgs in
+verity_contract RawEnumStorageLiteralRejected where
+  enums
+    enum Status { Pending, Active, Closed }
+  storage
+    status : Status := slot 0
+  function bad () : Unit := do
+    setStorage status 1
+
+/--
+error: return from 'bad' expects Verity.Macro.ValueType.enum "Status" 3, got Verity.Macro.ValueType.uint256
+-/
+#guard_msgs in
+verity_contract RawEnumReturnLiteralRejected where
+  enums
+    enum Status { Pending, Active, Closed }
+  storage
+  function bad () : Status := do
+    return 1
+
+/--
+error: assignment to 'value' expects Verity.Macro.ValueType.enum "Status" 3, got Verity.Macro.ValueType.uint256
+-/
+#guard_msgs in
+verity_contract RawEnumLocalAssignmentRejected where
+  enums
+    enum Status { Pending, Active, Closed }
+  storage
+  function bad () : Status := do
+    let mut value := Status.Pending
+    value := 1
+    return value
+
+/--
+error: equality is currently supported only for Bool, matching bytes/string params, and word-like values (Uint256, Int256, Uint8, Address, Bytes32); got Verity.Macro.ValueType.enum "Status" 2 and Verity.Macro.ValueType.enum "Role" 2
+-/
+#guard_msgs in
+verity_contract CrossEnumEqualityRejected where
+  enums
+    enum Status { Pending, Active }
+    enum Role { Guest, Admin }
+  storage
+  function bad () : Bool := do
+    return Status.Active == Role.Admin
+
+/--
+error: equality is currently supported only for Bool, matching bytes/string params, and word-like values (Uint256, Int256, Uint8, Address, Bytes32); got Verity.Macro.ValueType.enum "Status" 2 and Verity.Macro.ValueType.uint256
+-/
+#guard_msgs in
+verity_contract EnumWordEqualityRejected where
+  enums
+    enum Status { Pending, Active }
+  storage
+  function bad (word : Uint256) : Bool := do
+    return Status.Active == word
+
+/--
+error: word arithmetic requires `toUint256` before applying word operators to enum values; got Verity.Macro.ValueType.enum "Status" 2 and Verity.Macro.ValueType.uint256
+-/
+#guard_msgs in
+verity_contract EnumArithmeticRejected where
+  enums
+    enum Status { Pending, Active }
+  storage
+  function bad (status : Status) : Uint256 := do
+    return status + 1
+
+/--
+error: bitwise not requires `toUint256` before applying word operators to enum values; got Verity.Macro.ValueType.enum "Status" 2
+-/
+#guard_msgs in
+verity_contract EnumUnaryWordOperatorRejected where
+  enums
+    enum Status { Pending, Active }
+  storage
+  function bad (status : Status) : Uint256 := do
+    return bitNot status
+
 /-- Expose the contract model at the canonical module-level name used by the compiler CLI. -/
 def spec : CompilationModel := MacroEnumUsage.spec
 
