@@ -174,6 +174,9 @@ private partial def validateDoElemExprTypes
       | `(doElem| let $name:ident := $rhs:term) =>
           match arrayElementAliasSource? params rhs with
           | some (paramName, index, elemTy) =>
+              if syntaxContainsCallExternal index then
+                throwErrorAt index
+                  "arrayElement alias index cannot contain callExternal because the alias re-evaluates its index at each projection; bind the external result first"
               requireWordLikeType index "arrayElement alias index"
                 (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index)
               pure <| locals.push
@@ -1293,6 +1296,9 @@ private partial def translateDoElem
             throwErrorAt name s!"duplicate local variable '{varName}'"
           match arrayElementAliasSource? params rhs with
           | some (paramName, index, elemTy) =>
+              if syntaxContainsCallExternal index then
+                throwErrorAt index
+                  "arrayElement alias index cannot contain callExternal because the alias re-evaluates its index at each projection; bind the external result first"
               requireWordLikeType index "arrayElement alias index"
                 (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index)
               pure

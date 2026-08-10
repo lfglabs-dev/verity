@@ -1994,6 +1994,9 @@ partial def inferPureExprType
       requireWordLikeType a "narrowBytes" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       pure (.bytesN width)
   | `(term| boolToWord $a:term) =>
+      if syntaxContainsCallExternal a then
+        throwErrorAt a
+          "boolToWord operand cannot contain callExternal because expression lowering evaluates its condition more than once; bind the external result first"
       requireBoolType a "boolToWord" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       pure .uint256
   | `(term| $n:num) =>
@@ -3302,6 +3305,9 @@ partial def translatePureExprWithTypes
         $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
         (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
   | `(term| boolToWord $a:term) =>
+      if syntaxContainsCallExternal a then
+        throwErrorAt a
+          "boolToWord operand cannot contain callExternal because expression lowering evaluates its condition more than once; bind the external result first"
       `(Compiler.CompilationModel.Expr.ite
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
           (Compiler.CompilationModel.Expr.literal 1)

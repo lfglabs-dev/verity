@@ -664,6 +664,27 @@ verity_contract EffectfulMsbOperandRejected where
   function bad () : Uint256 := do
     return msb (callExternal dirtyWord())
 
+/-- error: boolToWord operand cannot contain callExternal because expression lowering evaluates its condition more than once; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulBoolToWordOperandRejected where
+  storage
+  linked_externals
+    external dirtyBool() -> (Bool)
+  function bad () : Uint256 := do
+    return boolToWord (callExternal dirtyBool())
+
+/-- error: arrayElement alias index cannot contain callExternal because the alias re-evaluates its index at each projection; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulArrayElementAliasIndexRejected where
+  storage
+  struct Payload where
+    values : Array Uint256
+  linked_externals
+    external dirtyIndex() -> (Uint256)
+  function bad (payloads : Array Payload) : Uint256 := do
+    let item := arrayElement payloads (callExternal dirtyIndex())
+    return arrayLength item.values
+
 /-- error: structMembers key cannot contain callExternal when selecting multiple members because lowering reuses the key; bind the external result first -/
 #guard_msgs in
 verity_contract EffectfulStructMembersKeyRejected where
