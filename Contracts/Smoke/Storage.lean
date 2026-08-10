@@ -64,6 +64,18 @@ example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
       | Compiler.CompilationModel.FieldType.fixedArrayUint128 4 => true
       | _ => false) := by decide
 
+/--
+error: storage fixed arrays must contain at least one element
+-/
+#guard_msgs in
+verity_contract ZeroLengthFixedStorageArrayRejected where
+  storage
+    empty : FixedArray Uint128 0 := slot 4
+
+  function readEmpty (index : Uint256) : Uint128 := do
+    let value ← getStorageArrayElement empty index
+    return value
+
 example :
     (((do
       PackedStorageLoweringSmoke.setFlags 7

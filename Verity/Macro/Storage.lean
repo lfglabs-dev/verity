@@ -119,6 +119,8 @@ def storageTypeFromSyntax
       let vt ← valueTypeFromSyntax newtypes structDecls adtDecls ty
       match vt with
       | .array elemTy => pure (.dynamicArray (← storageArrayElemTypeFromValueType elemTy))
+      | .fixedArray _ 0 =>
+          throwErrorAt ty "storage fixed arrays must contain at least one element"
       | .tuple _ => throwErrorAt ty "storage fields cannot be Tuple; use mapping encodings"
       | .struct _ _ =>
           throwErrorAt ty
@@ -186,7 +188,9 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   | .scalar .string => throwError "storage fields cannot be String; use Uint256 encoding"
   | .scalar .bytes => throwError "storage fields cannot be Bytes; use Uint256 encoding"
   | .scalar (.array _) => throwError "storage fields cannot be Array; use mapping encodings"
-  | .scalar (.fixedArray (.uintN 128) size) =>
+  | .scalar (.fixedArray (.uintN 128) size) => do
+      if size == 0 then
+        throwError "storage fixed arrays must contain at least one element"
       `(Compiler.CompilationModel.FieldType.fixedArrayUint128 $(natTerm size))
   | .scalar (.fixedArray _ _) => throwError "storage fixed arrays currently support only Uint128 elements"
   | .scalar (.tuple _) => throwError "storage fields cannot be Tuple; use mapping encodings"

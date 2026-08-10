@@ -248,6 +248,36 @@ private def proxyLayoutFixedArrayCandidateSpec : CompilationModel := {
   functions := []
 }
 
+private def packedLayoutBaselineSpec : CompilationModel := {
+  name := "PackedLayoutBaseline"
+  fields := [
+    { name := "low", ty := FieldType.uint256, «slot» := some 5,
+      packedBits := some { offset := 0, width := 128 } }
+  ]
+  «constructor» := none
+  functions := []
+}
+
+private def packedLayoutDisjointCandidateSpec : CompilationModel := {
+  name := "PackedLayoutDisjointCandidate"
+  fields := packedLayoutBaselineSpec.fields ++ [
+    { name := "high", ty := FieldType.uint256, «slot» := some 5,
+      packedBits := some { offset := 128, width := 128 } }
+  ]
+  «constructor» := none
+  functions := []
+}
+
+private def packedLayoutIntersectingCandidateSpec : CompilationModel := {
+  name := "PackedLayoutIntersectingCandidate"
+  fields := packedLayoutBaselineSpec.fields ++ [
+    { name := "overlap", ty := FieldType.uint256, «slot» := some 5,
+      packedBits := some { offset := 64, width := 128 } }
+  ]
+  «constructor» := none
+  functions := []
+}
+
 private def stringAbiSmokeSpec : CompilationModel := {
   name := "StringAbiSmoke"
   fields := []
@@ -1534,6 +1564,17 @@ unsafe def runTests : IO Unit := do
     emitLayoutCompatibilityReportJson proxyLayoutBaselineSpec proxyLayoutFixedArrayCandidateSpec
   if !contains fixedArrayCompatibilityReport "\"reservedSlotConsumption\":[{\"field\":\"checkpoints\",\"slots\":[10,11]}]" then
     throw (IO.userError "✗ layout compatibility report expands fixed-array footprints")
+
+  let disjointPackedCompatibilityReport :=
+    emitLayoutCompatibilityReportJson packedLayoutBaselineSpec packedLayoutDisjointCandidateSpec
+  if !contains disjointPackedCompatibilityReport "\"compatible\":true" then
+    throw (IO.userError "✗ layout compatibility report rejects a disjoint packed extension")
+  let intersectingPackedCompatibilityReport :=
+    emitLayoutCompatibilityReportJson packedLayoutBaselineSpec packedLayoutIntersectingCandidateSpec
+  if !contains intersectingPackedCompatibilityReport "\"compatible\":false" ||
+      !contains intersectingPackedCompatibilityReport "\"field\":\"overlap\",\"kind\":\"newFieldOverlapsBaselineWriteSet\"" then
+    throw (IO.userError "✗ layout compatibility report accepts intersecting packed ranges")
+  IO.println "✓ layout compatibility report distinguishes disjoint and intersecting packed ranges"
 
   let incompatibleLayoutCompatibilityReport :=
     emitLayoutCompatibilityReportJson proxyLayoutBaselineSpec proxyLayoutIncompatibleSpec

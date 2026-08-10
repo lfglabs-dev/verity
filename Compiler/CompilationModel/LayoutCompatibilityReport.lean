@@ -101,6 +101,29 @@ private def overlappingSlots (lhs rhs : List Nat) : List Nat :=
         acc)
     []
 
+private def fieldsOverlap (lhs rhs : FieldLayoutInfo) : Bool :=
+  if lhs.isTransient != rhs.isTransient then
+    false
+  else
+    let sharedSlots := overlappingSlots lhs.writeSlots rhs.writeSlots
+    if sharedSlots.isEmpty then
+      false
+    else
+      match lhs.packedBits, rhs.packedBits with
+      | some lhsPacked, some rhsPacked => packedRangesOverlap lhsPacked rhsPacked
+      | _, _ => true
+
+private def overlappingBaselineSlots
+    (candidate : FieldLayoutInfo) (baselineFields : List FieldLayoutInfo) : List Nat :=
+  baselineFields.foldl
+    (fun acc baseline =>
+      if fieldsOverlap candidate baseline then
+        acc ++ (overlappingSlots candidate.writeSlots baseline.writeSlots).filter
+          (fun slot => !(acc.elem slot))
+      else
+        acc)
+    []
+
 private def slotsWithinReservedRanges
     (ranges : List ReservedSlotRange)
     (slots : List Nat) : List Nat :=
@@ -200,9 +223,7 @@ private def compatibilityChanges
         match findFieldLayout? baselineFields candidateField.name with
         | some _ => acc
         | none =>
-            let baselineWriteSlots := baselineFields.foldl (fun acc field =>
-              if field.isTransient == candidateField.isTransient then acc ++ field.writeSlots else acc) []
-            let overlaps := overlappingSlots candidateField.writeSlots baselineWriteSlots
+            let overlaps := overlappingBaselineSlots candidateField baselineFields
             if overlaps.isEmpty then
               acc
             else
