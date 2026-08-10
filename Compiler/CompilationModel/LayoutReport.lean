@@ -195,10 +195,12 @@ private def storageFamilyJson (declaredField : Field) (idx : Nat) : String :=
       write slot sets* (canonical slot ∪ `aliasSlots` ∪
       `slotAliasRanges`-derived aliases) are disjoint; the claim is a
       closed-form finite decision the proof side discharges with `decide`.
-    - `writeSetsOverlap`     — both are scalar families but their
-      effective write slot sets intersect; this is a real aliasing
-      conflict the certificate must surface rather than silently assert
-      `distinctScalarSlots` for (Bugbot #1967).
+    - `distinctPackedRanges` — both are packed scalar families sharing a
+      storage word, but their bit ranges are disjoint.
+    - `writeSetsOverlap`     — both are scalar families and at least one
+      shared storage word has intersecting write ranges; this is a real
+      aliasing conflict the certificate must surface rather than silently
+      assert a non-alias claim (Bugbot #1967).
     - `keccakDomainScalar`   — one is keccak-derived, the other a scalar
       at a declared slot < 2^32 (say); the claim assumes keccak digest >
       maxDeclaredSlot, which is a standard preimage assumption.
@@ -238,6 +240,19 @@ private def scalarWriteSetsOverlap
   else
     let writeA := effectiveScalarWriteSlots a idxA aliasRanges
     let writeB := effectiveScalarWriteSlots b idxB aliasRanges
+    writeA.any fun s =>
+      if !writeB.contains s then false
+      else
+        match a.packedBits, b.packedBits with
+        | some packedA, some packedB => packedRangesOverlap packedA packedB
+        | _, _ => true
+
+private def scalarWriteSlotsIntersect
+    (a b : Field) (idxA idxB : Nat) (aliasRanges : List SlotAliasRange) : Bool :=
+  if a.isTransient != b.isTransient then false
+  else
+    let writeA := effectiveScalarWriteSlots a idxA aliasRanges
+    let writeB := effectiveScalarWriteSlots b idxB aliasRanges
     writeA.any (fun s => writeB.contains s)
 
 /-- Justification for a pairwise non-alias claim. Both the family kinds and
@@ -253,6 +268,8 @@ private def nonAliasJustification
   if !aKeccak && !bKeccak then
     if scalarWriteSetsOverlap a b idxA idxB aliasRanges then
       "writeSetsOverlap"
+    else if scalarWriteSlotsIntersect a b idxA idxB aliasRanges then
+      "distinctPackedRanges"
     else
       "distinctScalarSlots"
   else if aKeccak && bKeccak then "keccakPreimageDistinct"
@@ -273,6 +290,8 @@ private def nonAliasClaimJson (a b : Field) (idxA idxB : Nat)
     ("bLocationKind", jsonString (fieldLocationKind b)),
     ("aWriteSlots", jsonArray (writeA.map jsonNat)),
     ("bWriteSlots", jsonArray (writeB.map jsonNat)),
+    ("aPackedBits", jsonOption packedBitsJson a.packedBits),
+    ("bPackedBits", jsonOption packedBitsJson b.packedBits),
     ("justification", jsonString (nonAliasJustification a b idxA idxB aliasRanges))
   ]
 

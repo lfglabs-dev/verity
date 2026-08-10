@@ -278,6 +278,15 @@ private def packedLayoutIntersectingCandidateSpec : CompilationModel := {
   functions := []
 }
 
+private def zeroLengthFixedArraySpec : CompilationModel := {
+  name := "ZeroLengthFixedArray"
+  fields := [
+    { name := "invalid", ty := FieldType.fixedArrayUint128 0, «slot» := some 0 }
+  ]
+  «constructor» := none
+  functions := []
+}
+
 private def stringAbiSmokeSpec : CompilationModel := {
   name := "StringAbiSmoke"
   fields := []
@@ -1534,6 +1543,14 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ layout report records storage-space identity in non-alias claims")
   if !contains layoutReport "\"packedBits\":{\"offset\":8,\"width\":8}" then
     throw (IO.userError "✗ layout report emits packed field metadata")
+  let disjointPackedCertificate := emitLayoutReportJson [packedLayoutDisjointCandidateSpec]
+  if !contains disjointPackedCertificate "\"justification\":\"distinctPackedRanges\"" ||
+      !contains disjointPackedCertificate "\"aPackedBits\":{\"offset\":0,\"width\":128}" ||
+      !contains disjointPackedCertificate "\"bPackedBits\":{\"offset\":128,\"width\":128}" then
+    throw (IO.userError "✗ non-alias certificate rejects disjoint packed ranges in one slot")
+  let intersectingPackedCertificate := emitLayoutReportJson [packedLayoutIntersectingCandidateSpec]
+  if !contains intersectingPackedCertificate "\"justification\":\"writeSetsOverlap\"" then
+    throw (IO.userError "✗ non-alias certificate accepts intersecting packed ranges in one slot")
   if !contains layoutReport "\"kind\":\"mapping\",\"keys\":[\"address\"],\"valueKind\":\"uint256\"" then
     throw (IO.userError "✗ layout report emits mapping field type metadata")
   if !contains layoutReport "\"name\":\"liquidationLocks\",\"declaredSlot\":8,\"canonicalSlot\":8" ||
@@ -1575,6 +1592,14 @@ unsafe def runTests : IO Unit := do
       !contains intersectingPackedCompatibilityReport "\"field\":\"overlap\",\"kind\":\"newFieldOverlapsBaselineWriteSet\"" then
     throw (IO.userError "✗ layout compatibility report accepts intersecting packed ranges")
   IO.println "✓ layout compatibility report distinguishes disjoint and intersecting packed ranges"
+
+  match validateCompileInputs zeroLengthFixedArraySpec [] with
+  | .error msg =>
+      if !contains msg "fixed storage array field 'invalid' must have positive size" then
+        throw (IO.userError s!"✗ direct model validation returned the wrong zero-length fixed-array error: {msg}")
+  | .ok _ =>
+      throw (IO.userError "✗ direct model validation accepts fixedArrayUint128 0")
+  IO.println "✓ direct model validation rejects zero-length fixed arrays"
 
   let incompatibleLayoutCompatibilityReport :=
     emitLayoutCompatibilityReportJson proxyLayoutBaselineSpec proxyLayoutIncompatibleSpec

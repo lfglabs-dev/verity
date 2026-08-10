@@ -576,6 +576,12 @@ private def validateCompileInputsBeforeFieldWriteConflict
       throw s!"Compilation error: transient fixed array field '{field.name}' is unsupported in {spec.name}; fixedArrayUint128 lowering uses persistent storage."
   | none =>
       pure ()
+  match spec.fields.find? (fun field =>
+      match field.ty with | .fixedArrayUint128 0 => true | _ => false) with
+  | some field =>
+      throw s!"Compilation error: fixed storage array field '{field.name}' must have positive size in {spec.name}."
+  | none =>
+      pure ()
   match firstUnsupportedStorageArrayElemType spec.fields with
   | some (fieldName, elemType) =>
       throw s!"Compilation error: field '{fieldName}' uses unsupported storage dynamic array element type {repr elemType} in {spec.name} ({issue1571Ref}). This incremental lowering currently supports only one-storage-word elements (uint256, address, bool, bytes32)."
