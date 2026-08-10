@@ -524,7 +524,19 @@ private def validateFunctionBodyExprTypes
     (fn : FunctionDecl) : CommandElabM Unit := do
   match fn.body with
   | `(term| do $[$elems:doElem]*) =>
-      let _ ← validateDoElemsExprTypes fn.name fn.returnTy fields constDecls immutableDecls externalDecls errorDecls functions fn.params #[] elems
+      -- Generated enum casts accept a raw Uint256, guard it against the member
+      -- count, and only then return it as the enum. Type the guarded parameter
+      -- as that enum while validating this compiler-generated body so the
+      -- exact enum-return rule does not reject the proven refinement.
+      let validationParams :=
+        match fn.isInternal, fn.returnTy, fn.params with
+        | true, enumTy@(.enum enumName _), #[param] =>
+            if fn.name == enumName && param.ty == .uint256 then
+              #[{ param with ty := enumTy }]
+            else
+              fn.params
+        | _, _, _ => fn.params
+      let _ ← validateDoElemsExprTypes fn.name fn.returnTy fields constDecls immutableDecls externalDecls errorDecls functions validationParams #[] elems
       pure ()
   | _ => throwErrorAt fn.body "function body must be a do block"
 

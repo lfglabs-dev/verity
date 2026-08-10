@@ -1385,10 +1385,20 @@ def requireTypedInterfaceStaticParams
     True dynamic returns (bytes/string, arrays with dynamic elements) are
     still rejected here with the #1982 error until full ABI-frame
     typed-interface lowering exists. -/
+partial def containsEnumInterfaceReturn : ValueType → Bool
+  | .enum _ _ => true
+  | .array ty | .fixedArray ty _ | .newtype _ ty => containsEnumInterfaceReturn ty
+  | .tuple tys => tys.any containsEnumInterfaceReturn
+  | .struct _ fields => fields.any (fun field => containsEnumInterfaceReturn field.snd)
+  | _ => false
+
 def requireTypedInterfaceStaticReturns
     (stx : Syntax) (externalName : String) (returnTys : Array ValueType) : CommandElabM Unit := do
   for h : i in [:returnTys.size] do
     let ty := returnTys[i]
+    if containsEnumInterfaceReturn ty then
+      throwErrorAt stx
+        s!"typed interface call '{externalName}' uses an enum-valued return; checked enum decoding from untrusted external returndata is not implemented"
     if staticAbiWordCount? ty |>.isNone then
       throwErrorAt stx
         s!"typed interface call '{externalName}' currently supports only static (single-word or composite) returns; return {i + 1} has {renderValueType ty}. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet (#1982)."
@@ -1554,7 +1564,10 @@ def dynamicEqParamNames
         "bytes/string equality currently requires direct parameter references on the compilation-model path"
 
 def requireSameOrWordLikeTypes (stx : Syntax) (context : String) (lhsTy rhsTy : ValueType) : CommandElabM Unit := do
-  unless lhsTy == rhsTy || (isWordLikeValueType lhsTy && isWordLikeValueType rhsTy) do
+  let involvesEnum := match lhsTy, rhsTy with
+    | .enum _ _, _ | _, .enum _ _ => true
+    | _, _ => false
+  unless lhsTy == rhsTy || (!involvesEnum && isWordLikeValueType lhsTy && isWordLikeValueType rhsTy) do
     throwErrorAt stx
       s!"{context} requires matching branch types, got {renderValueType lhsTy} and {renderValueType rhsTy}"
 
@@ -1565,7 +1578,14 @@ def requireDeclaredValueType
   let involvesEnum := match expectedTy, actualTy with
     | .enum _ _, _ | _, .enum _ _ => true
     | _, _ => false
-  unless actualTy == expectedTy || (!involvesEnum && isWordLikeValueType actualTy && isWordLikeValueType expectedTy) do
+  -- Enum member constants are generated as their underlying numeric literal.
+  -- Admit only an in-range literal here; all non-literal enum expressions must
+  -- retain their exact enum type.
+  let compatibleEnumLiteral := match expectedTy, actualTy, stx.isNatLit? with
+    | .enum _ memberCount, .uint256, some value => value < memberCount
+    | _, _, _ => false
+  unless actualTy == expectedTy || compatibleEnumLiteral ||
+      (!involvesEnum && isWordLikeValueType actualTy && isWordLikeValueType expectedTy) do
     throwErrorAt stx
       s!"{context} expects {renderValueType expectedTy}, got {renderValueType actualTy}"
 

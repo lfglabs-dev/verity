@@ -94,6 +94,39 @@ def enumParamRejectsOutOfRange : Bool :=
 
 example : enumParamRejectsOutOfRange = true := by native_decide
 
+/--
+error: ite requires matching branch types, got Verity.Macro.ValueType.enum "Status" 3 and Verity.Macro.ValueType.uint256
+-/
+#guard_msgs in
+verity_contract EnumIteRawWordRejected where
+  enums
+    enum Status { Pending, Active, Closed }
+
+  storage
+    status : Status := slot 0
+
+  function bad (cond : Bool) : Unit := do
+    setStorage status (ite cond Status.Active 999)
+
+/--
+error: typed interface call 'IStatus.current' uses an enum-valued return; checked enum decoding from untrusted external returndata is not implemented
+-/
+#guard_msgs in
+verity_contract TypedInterfaceEnumReturnRejected where
+  enums
+    enum Status { Pending, Active, Closed }
+
+  storage
+
+  interfaces
+    interface IStatus where
+      function current() view returns (Status)
+    end
+
+  function bad (source : IStatus) : Status := do
+    let value ← source.current
+    return value
+
 /-- Expose the contract model at the canonical module-level name used by the compiler CLI. -/
 def spec : CompilationModel := MacroEnumUsage.spec
 
