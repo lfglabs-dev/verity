@@ -139,32 +139,31 @@ private theorem ensureTypedIRScalarStorageFieldSupported_uint256
       context = Except.ok () := rfl
 
 private theorem ensureTypedIRScalarStorageFieldSupported_address
-    (fieldName name context : String) (slot : Option Nat)
-    (packedBits : Option PackedBits) (aliasSlots : List Nat) :
+    (fieldName name context : String) (slot : Option Nat) (aliasSlots : List Nat) :
     ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .address, slot := slot, packedBits := packedBits, aliasSlots := aliasSlots }
+      { name := name, ty := .address, slot := slot, packedBits := none, aliasSlots := aliasSlots }
       context = Except.ok () := rfl
 
 private theorem ensureTypedIRScalarStorageFieldSupported_mappingTyped
     (fieldName name context : String) (mt : MappingType) (slot : Option Nat)
-    (packedBits : Option PackedBits) (aliasSlots : List Nat) :
+    (aliasSlots : List Nat) :
     ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .mappingTyped mt, slot := slot, packedBits := packedBits, aliasSlots := aliasSlots }
+      { name := name, ty := .mappingTyped mt, slot := slot, packedBits := none, aliasSlots := aliasSlots }
       context = Except.ok () := rfl
 
 private theorem ensureTypedIRScalarStorageFieldSupported_mappingStruct
     (fieldName name context : String) (keyType : MappingKeyType) (members : List StructMember)
-    (slot : Option Nat) (packedBits : Option PackedBits) (aliasSlots : List Nat) :
+    (slot : Option Nat) (aliasSlots : List Nat) :
     ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .mappingStruct keyType members, slot := slot, packedBits := packedBits,
+      { name := name, ty := .mappingStruct keyType members, slot := slot, packedBits := none,
         aliasSlots := aliasSlots }
       context = Except.ok () := rfl
 
 private theorem ensureTypedIRScalarStorageFieldSupported_mappingStruct2
     (fieldName name context : String) (outerKey innerKey : MappingKeyType) (members : List StructMember)
-    (slot : Option Nat) (packedBits : Option PackedBits) (aliasSlots : List Nat) :
+    (slot : Option Nat) (aliasSlots : List Nat) :
     ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .mappingStruct2 outerKey innerKey members, slot := slot, packedBits := packedBits,
+      { name := name, ty := .mappingStruct2 outerKey innerKey members, slot := slot, packedBits := none,
         aliasSlots := aliasSlots }
       context = Except.ok () := rfl
 
