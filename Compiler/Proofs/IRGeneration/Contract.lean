@@ -1720,12 +1720,12 @@ private theorem DecodedInternalHelperNamesReserved.mulDiv512 :
   rcases hname with rfl | rfl <;> decide)
 
 private theorem DecodedInternalHelperNamesReserved.storageArray :
-    DecodedInternalHelperNamesReserved [checkedStorageArrayElementHelper] :=
+    DecodedInternalHelperNamesReserved
+      [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper] :=
   DecodedInternalHelperNamesReserved.of_funcDefNames (by
   intro name hname
-  simp [checkedStorageArrayElementHelperName] at hname
-  rcases hname with rfl
-  decide)
+  simp [checkedStorageArrayElementHelperName, checkedFixedUint128ArrayElementHelperName] at hname
+  rcases hname with rfl | rfl <;> decide)
 
 private theorem DecodedInternalHelperNamesReserved.dynamicBytesEq :
     DecodedInternalHelperNamesReserved
@@ -1800,7 +1800,7 @@ private theorem DecodedInternalHelperNamesReserved.compileValidatedCore_helpers
         else
           [])) ++
       (if storageArrayHelpersRequired then
-        [checkedStorageArrayElementHelper]
+        [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper]
       else
         []) ++
       (if dynamicBytesEqHelpersRequired then
@@ -1890,7 +1890,7 @@ def compileValidatedCoreHelperSegment
     else
       [])) ++
   (if storageArrayHelpersRequired then
-    [checkedStorageArrayElementHelper]
+    [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper]
   else
     []) ++
   (if dynamicBytesEqHelpersRequired then

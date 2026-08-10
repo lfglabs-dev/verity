@@ -29,6 +29,42 @@ def parseStorageField (newtypes : Array NewtypeDecl) (structDecls : Array Struct
       }
   | _ => throwErrorAt stx "invalid storage field declaration"
 
+private def narrowStorageWidth? : StorageType → Option Nat
+  | .scalar .uint16 => some 16
+  | .scalar (.uintN bits) => some bits
+  | _ => none
+
+/-- Assign Solidity-compatible least-significant-first offsets to consecutive
+    narrow declarations sharing the same explicit base-slot anchor. -/
+def applyAutomaticPackedLayout (fields : Array StorageFieldDecl) : Array StorageFieldDecl := Id.run do
+  let mut out := #[]
+  let mut persistentCursor : Option (Nat × Nat × Nat) := none
+  let mut transientCursor : Option (Nat × Nat × Nat) := none
+  for field in fields do
+    -- Flattened struct members already carry their compatibility layout, and
+    -- explicitly packed fields must retain the range written by the author.
+    -- Neither kind participates in the top-level automatic packing cursor.
+    if field.packedBits.isSome || !field.emitDef then
+      out := out.push field
+      continue
+    match narrowStorageWidth? field.ty with
+    | some width =>
+        let cursor := if field.isTransient then transientCursor else persistentCursor
+        let sameAnchor := cursor.any (fun (anchor, _, _) => anchor == field.slotNum)
+        let currentSlot := cursor.map (fun (_, current, _) => current) |>.getD field.slotNum
+        let nextOffset := if sameAnchor then cursor.map (fun (_, _, off) => off) |>.getD 0 else 0
+        let (resolvedSlot, bitOffset) :=
+          if nextOffset + width <= 256 then
+            (if sameAnchor then currentSlot else field.slotNum, nextOffset)
+          else ((currentSlot + 1) % Compiler.Constants.evmModulus, 0)
+        out := out.push { field with slotNum := resolvedSlot, packedBits := some (bitOffset, width) }
+        let nextCursor := some (field.slotNum, resolvedSlot, bitOffset + width)
+        if field.isTransient then transientCursor := nextCursor else persistentCursor := nextCursor
+    | none =>
+        out := out.push field
+        if field.isTransient then transientCursor := none else persistentCursor := none
+  return out
+
 def parseTransientStorageItem (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[])
     (stx : TSyntax `verityStorageItem) : CommandElabM (Option StorageFieldDecl) := do
   match stx with

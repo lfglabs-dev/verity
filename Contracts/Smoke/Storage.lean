@@ -1,4 +1,6 @@
 import Contracts.Smoke.Intrinsics
+import Compiler.Proofs.IRGeneration.SourceSemantics
+import Verity.Core.Model.Denote
 
 namespace Contracts.Smoke
 
@@ -6,6 +8,268 @@ open Contracts
 open Verity hiding pure bind
 open Verity.EVM.Uint256
 open Verity.Stdlib.Math
+
+verity_contract PackedStorageLoweringSmoke where
+  storage
+    flags : Uint16 := slot 0
+    epoch : Uint32 := slot 0
+    amount : Uint128 := slot 0
+    collateral : FixedArray Uint128 4 := slot 1
+
+  function setFlags (value : Uint256) : Unit := do
+    setStorage flags value
+
+  function setEpoch (value : Uint256) : Unit := do
+    setStorage epoch value
+
+  function setAmount (value : Uint128) : Unit := do
+    setStorage amount value
+
+  function rewriteAmount () : Unit := do
+    let current ← getStorage amount
+    setStorage amount current
+
+  function incrementAmount (value : Uint128) : Unit := do
+    setStorage amount (value + 1)
+
+  function getFlags () : Uint16 := do
+    let value ← getStorage flags
+    return value
+
+  function collateralAt (index : Uint256) : Uint128 := do
+    let value ← getStorageArrayElement collateral index
+    return value
+
+  function setCollateralAt (index : Uint256, value : Uint128) : Unit := do
+    setStorageArrayElement collateral index value
+
+  function setAmountFromCollateral () : Unit := do
+    let value ← getStorageArrayElement collateral 0
+    setStorage amount value
+
+example :
+    (PackedStorageLoweringSmoke.collateralAt 0).run defaultState =
+      ContractResult.success (Verity.Core.UIntN.ofUint256 128 0) defaultState := by
+  rfl
+
+example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
+    field.name == "flags" && field.slot == some 0 &&
+      field.packedBits == some { offset := 0, width := 16 }) := by decide
+
+example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
+    field.name == "epoch" && field.slot == some 0 &&
+      field.packedBits == some { offset := 16, width := 32 }) := by decide
+
+example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
+    field.name == "amount" && field.slot == some 0 &&
+      field.packedBits == some { offset := 48, width := 128 }) := by decide
+
+example : PackedStorageLoweringSmoke.spec.fields.any (fun field =>
+    field.name == "collateral" && field.slot == some 1 &&
+      match field.ty with
+      | Compiler.CompilationModel.FieldType.fixedArrayUint128 4 => true
+      | _ => false) := by decide
+
+/--
+error: storage fixed arrays must contain at least one element
+-/
+#guard_msgs in
+verity_contract ZeroLengthFixedStorageArrayRejected where
+  storage
+    empty : FixedArray Uint128 0 := slot 4
+
+  function readEmpty (index : Uint256) : Uint128 := do
+    let value ← getStorageArrayElement empty index
+    return value
+
+example :
+    (((do
+      PackedStorageLoweringSmoke.setFlags 7
+      PackedStorageLoweringSmoke.setEpoch 9) : Contract Unit).run defaultState).snd.storage 0 =
+      (7 + 9 * 2 ^ 16 : Nat) := by
+  rfl
+
+private def packedFormalFields : List Compiler.CompilationModel.Field := [
+  ⟨"flags", .uint256, false, some 0, some { offset := 0, width := 16 }, []⟩,
+  ⟨"epoch", .uint256, false, some 0, some { offset := 16, width := 32 }, []⟩]
+
+example :
+    let afterFlags := Compiler.Proofs.IRGeneration.SourceSemantics.writeUintFieldSlots
+      packedFormalFields "flags" defaultState [0] 7
+    let afterEpoch := Compiler.Proofs.IRGeneration.SourceSemantics.writeUintFieldSlots
+      packedFormalFields "epoch" afterFlags [0] 9
+    afterEpoch.storage 0 = (7 + 9 * 2 ^ 16 : Nat) := by
+  native_decide
+
+example :
+    let afterFlags := Compiler.CompilationModel.Denote.writeUintFieldSlots
+      packedFormalFields "flags" defaultState [0] 7
+    let afterEpoch := Compiler.CompilationModel.Denote.writeUintFieldSlots
+      packedFormalFields "epoch" afterFlags [0] 9
+    afterEpoch.storage 0 = (7 + 9 * 2 ^ 16 : Nat) := by
+  native_decide
+
+-- Updating either packed field leaves its neighbor's range intact.
+example :
+    let afterEpoch := Compiler.CompilationModel.Denote.writeUintFieldSlots
+      packedFormalFields "epoch" defaultState [0] 9
+    let afterFlags := Compiler.CompilationModel.Denote.writeUintFieldSlots
+      packedFormalFields "flags" afterEpoch [0] 7
+    afterFlags.storage 0 = (7 + 9 * 2 ^ 16 : Nat) := by
+  native_decide
+
+example :
+    (((do
+      PackedStorageLoweringSmoke.setFlags 7
+      PackedStorageLoweringSmoke.getFlags) : Contract Uint16).run defaultState).fst =
+      Verity.Core.Uint16.ofNat 7 := by
+  rfl
+
+verity_contract ExplicitStructPackingSmoke where
+  storage
+    state : StorageStruct [
+      value : Uint16 @word 0 packed(160,16)
+    ] := slot 7
+
+example : ExplicitStructPackingSmoke.spec.fields.any (fun field =>
+    field.name == "state_value" && field.slot == some 7 &&
+      field.packedBits == some { offset := 160, width := 16 }) := by decide
+
+set_option maxRecDepth 2000 in
+example :
+    Compiler.CompilationModel.functionReturns
+      { name := "badLegacyFixedArrayReturn"
+        params := []
+        returnType := some (.fixedArrayUint128 2)
+        body := [] } =
+      .error "Compilation error: function 'badLegacyFixedArrayReturn' uses fixedArrayUint128 in legacy returnType; use an explicit supported returns declaration" := by
+  rfl
+
+example :
+    Compiler.CompilationModel.firstMappingPackedBits
+      [⟨"badPackedArray", .fixedArrayUint128 2, false, some 9,
+        some { offset := 0, width := 128 }, []⟩] = some "badPackedArray" := by
+  rfl
+
+private def badTransientFixedArraySpec : Compiler.CompilationModel.CompilationModel :=
+  { name := "BadTransientFixedArray"
+    fields := [⟨"items", .fixedArrayUint128 2, true, some 0, none, []⟩]
+    «constructor» := none
+    functions := [] }
+
+example :
+    Compiler.CompilationModel.validateCompileInputs badTransientFixedArraySpec [] =
+      .error "Compilation error: transient fixed array field 'items' is unsupported in BadTransientFixedArray; fixedArrayUint128 lowering uses persistent storage." := by
+  native_decide
+
+verity_contract PackedStorageSpillSmoke where
+  storage
+    a : Uint128 := slot 10
+    b : Uint128 := slot 10
+    c : Uint128 := slot 10
+    d : Uint128 := slot 10
+
+example : PackedStorageSpillSmoke.spec.fields.map (fun field =>
+    (field.slot, field.packedBits)) == [
+      (some 10, some { offset := 0, width := 128 }),
+      (some 10, some { offset := 128, width := 128 }),
+      (some 11, some { offset := 0, width := 128 }),
+      (some 11, some { offset := 128, width := 128 })] := by decide
+
+verity_contract PackedStorageWrappingSpillSmoke where
+  storage
+    a : Uint128 := slot 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+    b : Uint128 := slot 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+    c : Uint128 := slot 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+example : PackedStorageWrappingSpillSmoke.spec.fields.map (fun field => field.slot) == [
+    some (Compiler.Constants.evmModulus - 1),
+    some (Compiler.Constants.evmModulus - 1),
+    some 0] := by decide
+
+verity_contract MixedStorageSpacePackingSmoke where
+  storage
+    persistentValue : Uint128 := slot 20
+    transient transientValue : Uint128 := slot 20
+
+example : MixedStorageSpacePackingSmoke.spec.fields.map (fun field =>
+    (field.slot, field.isTransient, field.packedBits)) == [
+      (some 20, false, some { offset := 0, width := 128 }),
+      (some 20, true, some { offset := 0, width := 128 })] := by decide
+
+example :
+    Compiler.CompilationModel.firstFieldWriteSlotConflict
+      MixedStorageSpacePackingSmoke.spec.fields = none := by
+  native_decide
+
+example :
+    Compiler.CompilationModel.validateCompileInputs
+      MixedStorageSpacePackingSmoke.spec [] = .ok () := by
+  native_decide
+
+verity_contract TransientPackedExecutableSmoke where
+  storage
+    transient transientValue : Uint128 := slot 20
+
+  function setTransientValue (value : Uint256) : Unit := do
+    setStorage transientValue value
+
+  function getTransientValue () : Uint128 := do
+    let value ← getStorage transientValue
+    return value
+
+example :
+    let result := (TransientPackedExecutableSmoke.setTransientValue 7).run defaultState
+    result.snd.storage 20 = 0 ∧ result.snd.transientStorage 20 = 7 := by
+  decide
+
+example :
+    (((do
+      TransientPackedExecutableSmoke.setTransientValue 7
+      TransientPackedExecutableSmoke.getTransientValue) : Contract Uint128).run defaultState).fst =
+        Verity.Core.UIntN.ofUint256 128 7 := by
+  rfl
+
+example :
+    Compiler.CompilationModel.firstFieldWriteSlotConflict (fields := [
+      ⟨"persistentA", .uint256, false, some 41, none, []⟩,
+      ⟨"persistentB", .uint256, false, some 41, none, []⟩
+    ]) = some (41, "persistentA", "persistentB") := by
+  native_decide
+
+example :
+    Compiler.CompilationModel.firstFieldWriteSlotConflict (fields := [
+      ⟨"transientA", .uint256, true, some 42, none, []⟩,
+      ⟨"transientB", .uint256, true, some 42, none, []⟩
+    ]) = some (42, "transientA", "transientB") := by
+  native_decide
+
+verity_contract InterleavedStorageSpacePackingSmoke where
+  storage
+    a : Uint128 := slot 30
+    transient b : Uint128 := slot 30
+    c : Uint128 := slot 30
+
+example : InterleavedStorageSpacePackingSmoke.spec.fields.map (fun field =>
+    (field.slot, field.isTransient, field.packedBits)) == [
+      (some 30, false, some { offset := 0, width := 128 }),
+      (some 30, true, some { offset := 0, width := 128 }),
+      (some 30, false, some { offset := 128, width := 128 })] := by decide
+
+example :
+    (Compiler.CompilationModel.firstReservedSlotWriteConflict
+      PackedStorageLoweringSmoke.spec.fields [{ start := 2, end_ := 2 }]).isSome = true := by
+  native_decide
+
+example :
+    (match Compiler.CompilationModel.firstReservedSlotWriteConflict
+      [⟨"wrappingArray", .fixedArrayUint128 3, false,
+        some (Compiler.Constants.evmModulus - 1), none, []⟩]
+      [{ start := 0, end_ := 0 }] with
+    | some (resolvedSlot, owner, rangeIdx, _) =>
+        resolvedSlot == 0 && owner == "wrappingArray.packedWord[1]" && rangeIdx == 0
+    | none => false) = true := by
+  native_decide
 
 verity_contract UintMapSmoke where
   storage

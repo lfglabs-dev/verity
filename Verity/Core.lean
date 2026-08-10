@@ -528,6 +528,33 @@ def getStorage (s : StorageSlot Uint256) : Contract Uint256 :=
 def setStorage (s : StorageSlot Uint256) (value : Uint256) : Contract Unit :=
   fun state => ContractResult.success () (state.writeSlot s.slot value)
 
+def getPackedStorage (s : StorageSlot Uint256) (offset width : Nat) : Contract Uint256 :=
+  fun state =>
+    ContractResult.success
+      ((state.readSlot s.slot).val / (2 ^ offset : Nat) % (2 ^ width : Nat)) state
+
+def setPackedStorage (s : StorageSlot Uint256) (offset width : Nat) (value : Uint256) : Contract Unit :=
+  fun state =>
+    let current := (state.readSlot s.slot).val
+    let updated := (current / (2 ^ (offset + width) : Nat) * (2 ^ (offset + width) : Nat) +
+      current % (2 ^ offset : Nat) +
+      (value.val % (2 ^ width : Nat)) * (2 ^ offset : Nat) : Nat)
+    ContractResult.success () (state.writeSlot s.slot updated)
+
+def getPackedTransientStorage (s : StorageSlot Uint256) (offset width : Nat) : Contract Uint256 :=
+  fun state =>
+    ContractResult.success
+      ((state.readTransient s.slot).val / (2 ^ offset : Nat) % (2 ^ width : Nat)) state
+
+def setPackedTransientStorage (s : StorageSlot Uint256) (offset width : Nat)
+    (value : Uint256) : Contract Unit :=
+  fun state =>
+    let current := (state.readTransient s.slot).val
+    let updated := (current / (2 ^ (offset + width) : Nat) * (2 ^ (offset + width) : Nat) +
+      current % (2 ^ offset : Nat) +
+      (value.val % (2 ^ width : Nat)) * (2 ^ offset : Nat) : Nat)
+    ContractResult.success () (state.writeTransient s.slot updated)
+
 @[simp] theorem getStorage_run (s : StorageSlot Uint256) (state : ContractState) :
   (getStorage s).run state = ContractResult.success (state.storage s.slot) state := rfl
 
@@ -680,6 +707,10 @@ instance : StorageArrayElem Bool where
   toWord value := boolToWord value
   fromWord value := value != 0
 
+instance : StorageArrayElem (UIntN bits) where
+  toWord value := Verity.Core.UIntN.toUint256 value
+  fromWord value := Verity.Core.UIntN.ofUint256 bits value
+
 -- Storage dynamic-array operations (#1571), routed through the canonical lens API
 def getStorageArrayLength {α : Type} (s : StorageSlot (List α)) : Contract Uint256 :=
   fun state => ContractResult.success (((state.readArray s.slot).length : Nat) : Uint256) state
@@ -690,6 +721,17 @@ def getStorageArrayElement {α : Type} [StorageArrayElem α]
     match (state.readArray s.slot)[index.val]? with
     | some value => ContractResult.success (StorageArrayElem.fromWord value) state
     | none => ContractResult.revert "Storage array index out of bounds" state
+
+/-- Fixed-array source semantics: the declared length is authoritative and
+    unmaterialized elements are Solidity's zero value. -/
+def getFixedStorageArrayElement {α : Type} [StorageArrayElem α]
+    (s : StorageSlot (List α)) (size : Nat) (index : Uint256) : Contract α :=
+  fun state =>
+    if index.val < size then
+      let value := (state.readArray s.slot)[index.val]?.getD 0
+      ContractResult.success (StorageArrayElem.fromWord value) state
+    else
+      ContractResult.revert "Storage array index out of bounds" state
 
 def pushStorageArray {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α)) (value : α) : Contract Unit :=
@@ -709,6 +751,19 @@ def setStorageArrayElement {α : Type} [StorageArrayElem α]
     match storageArraySetAt (state.readArray s.slot) index.val (StorageArrayElem.toWord value) with
     | some updated => ContractResult.success () (state.writeArray s.slot updated)
     | none => ContractResult.revert "Storage array index out of bounds" state
+
+/-- Update a fixed array after materializing its zero-initialized extent. -/
+def setFixedStorageArrayElement {α : Type} [StorageArrayElem α]
+    (s : StorageSlot (List α)) (size : Nat) (index : Uint256) (value : α) : Contract Unit :=
+  fun state =>
+    if index.val < size then
+      let taken := (state.readArray s.slot).take size
+      let materialized := taken ++ List.replicate (size - taken.length) 0
+      match storageArraySetAt materialized index.val (StorageArrayElem.toWord value) with
+      | some updated => ContractResult.success () (state.writeArray s.slot updated)
+      | none => ContractResult.revert "Storage array index out of bounds" state
+    else
+      ContractResult.revert "Storage array index out of bounds" state
 
 @[simp] theorem getStorageArrayLength_run {α : Type} (s : StorageSlot (List α)) (state : ContractState) :
   (getStorageArrayLength s).run state =

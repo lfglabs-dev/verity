@@ -1231,7 +1231,7 @@ def _return_shape_assertion(lean_ty: str, fn_name: str) -> str:
 
 def _storage_word_expr(lean_ty: str, value_expr: str) -> str:
     ty = _normalize_type(lean_ty)
-    if ty in {"Uint256", "Int256", "Uint8"}:
+    if re.fullmatch(r"(?:Uint|Int)\d+", ty):
         return f"bytes32(uint256({value_expr}))"
     if ty == "Bool":
         return f"bytes32(uint256({value_expr} ? 1 : 0))"
@@ -1244,7 +1244,7 @@ def _storage_word_expr(lean_ty: str, value_expr: str) -> str:
 
 def _single_word_uint_expr(lean_ty: str, value_expr: str) -> str | None:
     ty = _normalize_type(lean_ty)
-    if ty in {"Uint256", "Int256", "Uint8"}:
+    if re.fullmatch(r"(?:Uint|Int)\d+", ty):
         return f"uint256({value_expr})"
     if ty == "Bool":
         return f"({value_expr} ? 1 : 0)"

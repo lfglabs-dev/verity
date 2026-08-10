@@ -157,6 +157,7 @@ where
   renderFieldType : FieldType → String
     | .uint256 => "uint256"
     | .address => "address"
+    | .fixedArrayUint128 size => s!"uint128[{size}]"
     | .adt name maxFields => s!"adt({name},{maxFields})"
     | .dynamicArray elemType => renderStorageArrayElemType elemType ++ "[]"
     | .mappingTyped _ => "mapping"
@@ -173,11 +174,17 @@ where
     | [] => []
     | f :: rest =>
         let slot := f.slot.getD idx
-        let entry := "{" ++ joinJsonFields [
+        let packedFields := match f.packedBits with
+          | some packed => [
+              s!"\"offset\": {jsonString (toString packed.offset)}",
+              s!"\"width\": {jsonString (toString packed.width)}"
+            ]
+          | none => []
+        let entry := "{" ++ joinJsonFields ([
           s!"\"name\": {jsonString f.name}",
           s!"\"slot\": {jsonString (toString slot)}",
           s!"\"type\": {jsonString (renderFieldType f.ty)}"
-        ] ++ "}"
+        ] ++ packedFields) ++ "}"
         entry :: renderFields rest (idx + 1)
 
 def writeContractStorageLayoutFile (outDir : String) (spec : CompilationModel) : IO Unit := do

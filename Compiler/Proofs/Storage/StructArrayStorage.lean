@@ -316,6 +316,30 @@ theorem evalEmittedPackedWordWrite_eq_packedWordWrite
       SourceSemantics.packedWordWrite current value packed := by
   rfl
 
+/-- Smoke specializations for the narrow widths exposed by the storage DSL. -/
+theorem evalEmittedPackedWordWrite_uint16 (current value offset : Nat) :
+    evalEmittedPackedWordWrite current value { offset := offset, width := 16 } =
+      SourceSemantics.packedWordWrite current value { offset := offset, width := 16 } := by
+  exact evalEmittedPackedWordWrite_eq_packedWordWrite current value _
+
+theorem evalEmittedPackedWordWrite_uint32 (current value offset : Nat) :
+    evalEmittedPackedWordWrite current value { offset := offset, width := 32 } =
+      SourceSemantics.packedWordWrite current value { offset := offset, width := 32 } := by
+  exact evalEmittedPackedWordWrite_eq_packedWordWrite current value _
+
+theorem evalEmittedPackedWordWrite_uint128 (current value offset : Nat) :
+    evalEmittedPackedWordWrite current value { offset := offset, width := 128 } =
+      SourceSemantics.packedWordWrite current value { offset := offset, width := 128 } := by
+  exact evalEmittedPackedWordWrite_eq_packedWordWrite current value _
+
+/-- The fixed-array lowering selects the low/high half from index parity. -/
+theorem evalEmittedPackedWordWrite_uint128ArrayElement (current value index : Nat) :
+    evalEmittedPackedWordWrite current value
+        { offset := index % 2 * 128, width := 128 } =
+      SourceSemantics.packedWordWrite current value
+        { offset := index % 2 * 128, width := 128 } := by
+  exact evalEmittedPackedWordWrite_eq_packedWordWrite current value _
+
 /-- Interpret precisely the packed-write block emitted by the real compiler.
     A syntactically different block is rejected; the accepted block evaluates
     its read-modify-write operations against the old canonical slot word. -/

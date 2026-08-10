@@ -1,8 +1,8 @@
-import Contracts.Legacy.SpecAliases
+import Contracts.Specs
 
 /-!
 Deprecated compatibility import.
 
-Use `Contracts.Legacy.SpecAliases` for the legacy aliases, or import the
-canonical contract module and use `Contracts.<Name>.spec` directly in new code.
+Import the canonical contract module and use `Contracts.<Name>.spec` in new
+code. This forwarding module intentionally contains no legacy aliases.
 -/

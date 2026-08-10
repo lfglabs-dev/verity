@@ -274,9 +274,10 @@ def findResolvedFieldAtSlotCopy (fields : List Field) (slot : Nat) : Option Fiel
     | [] => none
     | field :: rest =>
         let resolvedSlot := field.slot.getD idx
-        if SourceSemantics.wordNormalize resolvedSlot = SourceSemantics.wordNormalize slot ||
+        if field.isTransient == false &&
+            (SourceSemantics.wordNormalize resolvedSlot = SourceSemantics.wordNormalize slot ||
             (field.aliasSlots.map SourceSemantics.wordNormalize).contains
-              (SourceSemantics.wordNormalize slot) then
+              (SourceSemantics.wordNormalize slot)) then
           some field
         else
           go rest (idx + 1)
@@ -288,9 +289,10 @@ def findResolvedFieldAtSlotCopyFrom
   | [] => none
   | field :: rest =>
       let resolvedSlot := field.slot.getD idx
-      if SourceSemantics.wordNormalize resolvedSlot = SourceSemantics.wordNormalize slot ||
+      if field.isTransient == false &&
+          (SourceSemantics.wordNormalize resolvedSlot = SourceSemantics.wordNormalize slot ||
           (field.aliasSlots.map SourceSemantics.wordNormalize).contains
-            (SourceSemantics.wordNormalize slot) then
+            (SourceSemantics.wordNormalize slot)) then
         some field
       else
       findResolvedFieldAtSlotCopyFrom rest (idx + 1) slot
@@ -373,19 +375,20 @@ private def encodeStorageAtCopy
 
 private theorem findResolvedFieldAtSlot_go_eq_copy
     (remaining : List Field) (idx : Nat) (slot : Nat) :
-    SourceSemantics.findResolvedFieldAtSlot.go slot remaining idx =
+    SourceSemantics.findResolvedFieldAtStorageSlot.go false slot remaining idx =
       findResolvedFieldAtSlotCopy.go slot remaining idx := by
   induction remaining generalizing idx with
   | nil => rfl
   | cons field rest ih =>
-    simp only [SourceSemantics.findResolvedFieldAtSlot.go, findResolvedFieldAtSlotCopy.go]
+    simp only [SourceSemantics.findResolvedFieldAtStorageSlot.go, findResolvedFieldAtSlotCopy.go]
     split <;> simp_all
 
 theorem findResolvedFieldAtSlotCopy_eq
     (fields : List Field) (slot : Nat) :
     SourceSemantics.findResolvedFieldAtSlot fields slot =
       findResolvedFieldAtSlotCopy fields slot := by
-  simp only [SourceSemantics.findResolvedFieldAtSlot, findResolvedFieldAtSlotCopy]
+  simp only [SourceSemantics.findResolvedFieldAtSlot,
+    SourceSemantics.findResolvedFieldAtStorageSlot, findResolvedFieldAtSlotCopy]
   exact findResolvedFieldAtSlot_go_eq_copy fields 0 slot
 
 private theorem findDynamicArrayElementAtSlot_scanElements_eq_copy
@@ -475,9 +478,11 @@ private def fieldWriteEntriesAt
 
 private theorem fieldWriteEntriesAt_base_mem
     (idx : Nat) (field : Field) :
-    SourceSemantics.wordNormalize (field.slot.getD idx) ∈
-      (fieldWriteEntriesAt idx field).map (fun entry => entry.1) := by
+    (SourceSemantics.wordNormalize (field.slot.getD idx), field.isTransient) ∈
+      (fieldWriteEntriesAt idx field).map
+        (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)) := by
   obtain ⟨name, ty, isTransient, slotOpt, packedBits, aliasSlots⟩ := field
+  cases isTransient <;>
   cases ty with
   | adt _ maxFields =>
       simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
@@ -503,12 +508,13 @@ private theorem exists_mem_zipIdx_of_mem
 private theorem fieldWriteEntriesAt_alias_mem
     {idx : Nat} {field : Field} {slot : Nat}
     (hmem : slot ∈ field.aliasSlots) :
-    SourceSemantics.wordNormalize slot ∈
-      (fieldWriteEntriesAt idx field).map (fun entry => entry.1) := by
+    (SourceSemantics.wordNormalize slot, field.isTransient) ∈
+      (fieldWriteEntriesAt idx field).map
+        (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)) := by
     obtain ⟨name, ty, isTransient, slotOpt, packedBits, aliasSlots⟩ := field
     obtain ⟨aliasIdx, halias⟩ : ∃ i, (slot, i) ∈ aliasSlots.zipIdx :=
       exists_mem_zipIdx_of_mem hmem
-    cases ty with
+    cases isTransient <;> cases ty with
     | uint256 =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
@@ -517,6 +523,10 @@ private theorem fieldWriteEntriesAt_alias_mem
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
         exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
+    | fixedArrayUint128 size =>
+        simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
+          SourceSemantics.wordNormalize, halias]
+        aesop
     | adt _ maxFields =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
@@ -557,8 +567,10 @@ private def firstInFieldConflictCopy
   match current with
   | [] => none
   | (slot, ownerName, packed) :: tail =>
-      match seen.find? (fun entry => entry.1 == slot && packedSlotsConflict entry.2.2 packed) with
-      | some (_, prevName, _) => some (slot, prevName, ownerName)
+      match seen.find? (fun entry => entry.1 == slot &&
+          storageOwnersSameSpace entry.2.1 ownerName && packedSlotsConflict entry.2.2 packed) with
+      | some (_, prevName, _) =>
+          some (slot, storageOwnerDisplay prevName, storageOwnerDisplay ownerName)
       | none => firstInFieldConflictCopy ((slot, ownerName, packed) :: seen) tail
 
 private def firstFieldWriteSlotConflictCopyFrom
@@ -574,70 +586,68 @@ private def firstFieldWriteSlotConflictCopyFrom
 
 private theorem list_findSlotPackedNone_ne_none
     {seen : List (Nat × String × Option PackedBits)}
-    {slot : Nat}
-    (hmem : slot ∈ seen.map (fun entry => entry.1)) :
-    (seen.find? (fun entry => entry.1 == slot && packedSlotsConflict entry.2.2 none)) ≠ none := by
-  induction seen with
-  | nil => simp at hmem
-  | cons entry rest ih =>
-      simp at hmem
-      by_cases hEq : entry.1 = slot
-      · subst hEq
-        simp only [List.find?]
-        cases entry.2.2 with
-        | none => simp [packedSlotsConflict]
-        | some _ => simp [packedSlotsConflict]
-      · have hrest : slot ∈ List.map (fun entry => entry.1) rest := by
-          rcases hmem with ⟨rfl, _⟩ | ⟨_, _, hmem'⟩
-          · exact absurd rfl hEq
-          · exact List.mem_map.mpr ⟨(slot, _, _), hmem', rfl⟩
-        have hih := ih hrest
-        change List.find? _ (entry :: rest) ≠ none
-        rw [List.find?_cons]
-        split
-        · simp
-        · exact hih
+    {slot : Nat} {ownerName : String}
+    (hmem : (slot, storageOwnerIsTransient ownerName) ∈ seen.map
+      (fun entry => (entry.1, storageOwnerIsTransient entry.2.1))) :
+    (seen.find? (fun entry => entry.1 == slot &&
+        storageOwnersSameSpace entry.2.1 ownerName &&
+        packedSlotsConflict entry.2.2 none)) ≠ none := by
+  obtain ⟨entry, hentry, hkey⟩ := List.mem_map.mp hmem
+  intro hnone
+  have hfalse := List.find?_eq_none.mp hnone entry hentry
+  obtain ⟨entrySlot, entryOwner, entryPacked⟩ := entry
+  simp only [Prod.fst, Prod.snd] at hkey hfalse
+  have hs : entrySlot = slot := congrArg Prod.fst hkey
+  have ht : storageOwnerIsTransient entryOwner =
+      storageOwnerIsTransient ownerName := congrArg Prod.snd hkey
+  apply hfalse
+  cases entryPacked <;> simp [hs, storageOwnersSameSpace, ht, packedSlotsConflict]
 
 private theorem firstInFieldConflictCopy_ne_none_of_seen_slot_unpacked
     {seen current : List (Nat × String × Option PackedBits)}
-    {slot : Nat}
-    (hseen : slot ∈ seen.map (fun entry => entry.1))
-    (hcurrent : slot ∈ current.map (fun entry => entry.1))
+    {slot : Nat} {isTransient : Bool}
+    (hseen : (slot, isTransient) ∈ seen.map
+      (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)))
+    (hcurrent : (slot, isTransient) ∈ current.map
+      (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)))
     (hunpacked : ∀ packed ∈ current.map (fun entry => entry.2.2), packed = none) :
     firstInFieldConflictCopy seen current ≠ none := by
   induction current generalizing seen with
-  | nil =>
-      simp at hcurrent
+  | nil => simp at hcurrent
   | cons entry rest ih =>
-      simp at hcurrent
       have hpnone : entry.2.2 = none := hunpacked entry.2.2 (by simp)
       have hunpackedRest :
           ∀ packed ∈ rest.map (fun restEntry => restEntry.2.2), packed = none := by
         intro packed hmem
         exact hunpacked packed (by simp [hmem])
-      -- entry = (entry.1, entry.2.1, entry.2.2) and entry.2.2 = none
       obtain ⟨e1, e21, e22⟩ := entry
       simp at hpnone
       subst hpnone
-      -- Now entry = (e1, e21, none)
-      rcases hcurrent with ⟨rfl, _⟩ | ⟨_, _, hrest⟩
-      · -- slot = e1
-        have hfindSeen := list_findSlotPackedNone_ne_none hseen
+      simp only [List.map_cons, List.mem_cons] at hcurrent
+      rcases hcurrent with hcurrent | hrest
+      · have hs : slot = e1 := congrArg Prod.fst hcurrent
+        have ht : isTransient = storageOwnerIsTransient e21 := congrArg Prod.snd hcurrent
+        subst slot
+        subst isTransient
+        have hfindSeen := list_findSlotPackedNone_ne_none (ownerName := e21) hseen
         simp only [firstInFieldConflictCopy]
-        cases hf : seen.find? (fun seenEntry => seenEntry.1 == e1 && packedSlotsConflict seenEntry.2.2 none)
+        cases hf : seen.find? (fun seenEntry => seenEntry.1 == e1 &&
+            storageOwnersSameSpace seenEntry.2.1 e21 && packedSlotsConflict seenEntry.2.2 none)
         · exact absurd hf hfindSeen
         · simp
-      · have hrest' : slot ∈ rest.map (fun entry => entry.1) :=
-          List.mem_map.mpr ⟨(slot, _, _), hrest, rfl⟩
+      ·
         intro hnone
         simp only [firstInFieldConflictCopy] at hnone
-        cases hfind : seen.find? (fun seenEntry => seenEntry.1 == e1 && packedSlotsConflict seenEntry.2.2 none)
+        cases hfind : seen.find? (fun seenEntry => seenEntry.1 == e1 &&
+            storageOwnersSameSpace seenEntry.2.1 e21 && packedSlotsConflict seenEntry.2.2 none)
         · rw [hfind] at hnone
           simp at hnone
           have hseen' :
-              slot ∈ (((e1, e21, none) :: seen).map (fun seenEntry => seenEntry.1)) := by
+              (slot, isTransient) ∈ (((e1, e21, none) :: seen).map
+                (fun seenEntry => (seenEntry.1,
+                  storageOwnerIsTransient seenEntry.2.1))) := by
             simp [hseen]
-          exact (ih hseen' hrest' hunpackedRest) hnone
+          exact (ih hseen' hrest hunpackedRest) hnone
         · rw [hfind] at hnone; simp at hnone
 
 private theorem firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member
@@ -649,7 +659,8 @@ private theorem firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member
     {slot : Nat}
     {writeSlots : List Nat}
     {targetSlot : Nat}
-    (hseen : SourceSemantics.wordNormalize targetSlot ∈ seen.map (fun entry => entry.1))
+    (hseen : (SourceSemantics.wordNormalize targetSlot, f.isTransient) ∈ seen.map
+      (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)))
     (hfind :
       findFieldWithResolvedSlotCopyFrom fields idx fieldName = some (f, slot))
     (hwrite :
@@ -673,8 +684,9 @@ private theorem firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member
         -- fieldWriteEntriesAt produces entries with first components matching writeSlots
         -- and all packed bits = field.packedBits = none
         have htarget_in_entries :
-            SourceSemantics.wordNormalize targetSlot ∈
-              (fieldWriteEntriesAt idx field).map (fun entry => entry.1) := by
+            (SourceSemantics.wordNormalize targetSlot, field.isTransient) ∈
+              (fieldWriteEntriesAt idx field).map
+                (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)) := by
           simp only [List.mem_cons] at hslot
           rcases hslot with hslot | halias
           · subst targetSlot
@@ -693,9 +705,9 @@ private theorem firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member
       · -- field.name doesn't match: recurse
         simp [hname] at hfind hwrite
         have hseen' :
-              SourceSemantics.wordNormalize targetSlot ∈
+              (SourceSemantics.wordNormalize targetSlot, f.isTransient) ∈
                 ((fieldWriteEntriesAt idx field).reverse ++ seen).map
-                (fun entry => entry.1) := by
+                (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)) := by
           rw [List.map_append, List.mem_append]
           exact Or.inr hseen
         cases hc : firstInFieldConflictCopy seen (fieldWriteEntriesAt idx field) with
@@ -709,7 +721,8 @@ private theorem firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_singleton
     {fieldName : String}
     {f : Field}
     {slot : Nat}
-    (hseen : SourceSemantics.wordNormalize slot ∈ seen.map (fun entry => entry.1))
+    (hseen : (SourceSemantics.wordNormalize slot, f.isTransient) ∈ seen.map
+      (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)))
     (hfind :
       findFieldWithResolvedSlotCopyFrom fields idx fieldName = some (f, slot))
     (hwrite :
@@ -733,6 +746,7 @@ theorem findResolvedFieldAtSlotCopyFrom_of_member
     (hfind : findFieldWithResolvedSlotCopyFrom fields idx fieldName = some (f, slot))
     (hwrite : findFieldWriteSlotsCopyFrom fields idx fieldName = some writeSlots)
     (hslot : targetSlot ∈ writeSlots)
+    (hpersistent : f.isTransient = false)
     (hunpacked : f.packedBits = none) :
     findResolvedFieldAtSlotCopyFrom fields idx targetSlot = some f := by
   induction fields generalizing seen idx with
@@ -749,57 +763,70 @@ theorem findResolvedFieldAtSlotCopyFrom_of_member
       subst writeSlots
       simp only [List.mem_cons] at hslot
       rcases hslot with rfl | hmem
-      · simp
+      · simp [hpersistent]
       · rw [show
           (List.map SourceSemantics.wordNormalize field.aliasSlots).contains
             (SourceSemantics.wordNormalize targetSlot) = true by
             rw [List.contains_eq_mem]
             exact decide_eq_true (List.mem_map.mpr ⟨targetSlot, hmem, rfl⟩)]
-        simp
+        simp [hpersistent]
     · -- field.name doesn't match: recurse
       simp [hname] at hfind hwrite
       cases hc : firstInFieldConflictCopy seen (fieldWriteEntriesAt idx field) with
       | some conflict => rw [hc] at hnoConflict; simp at hnoConflict
       | none =>
         rw [hc] at hnoConflict
-        -- After simp, condition is Prop-level: = or ∈
-        by_cases hcapture :
+        by_cases hspace : field.isTransient = false
+        · by_cases hcapture :
             SourceSemantics.wordNormalize (field.slot.getD idx) =
               SourceSemantics.wordNormalize targetSlot ∨
             ∃ a ∈ field.aliasSlots,
               SourceSemantics.wordNormalize a = SourceSemantics.wordNormalize targetSlot
-        · exfalso
-          have htargetInEntries :
-              SourceSemantics.wordNormalize targetSlot ∈
-                (fieldWriteEntriesAt idx field).map (fun entry => entry.1) := by
-            rcases hcapture with hbase | ⟨a, haMem, haEq⟩
-            · have hb := fieldWriteEntriesAt_base_mem idx field
-              rw [hbase] at hb
-              exact hb
-            · have haIn := fieldWriteEntriesAt_alias_mem (idx := idx) (field := field) haMem
-              rw [haEq] at haIn
-              exact haIn
-          have htargetInSeen :
-              SourceSemantics.wordNormalize targetSlot ∈
+          · exfalso
+            have htargetInEntries :
+              (SourceSemantics.wordNormalize targetSlot, field.isTransient) ∈
+                (fieldWriteEntriesAt idx field).map
+                  (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)) := by
+              rcases hcapture with hbase | ⟨a, haMem, haEq⟩
+              · have hb := fieldWriteEntriesAt_base_mem idx field
+                rw [hbase] at hb
+                exact hb
+              · have haIn := fieldWriteEntriesAt_alias_mem (idx := idx) (field := field) haMem
+                rw [haEq] at haIn
+                exact haIn
+            have htargetInSeen :
+              (SourceSemantics.wordNormalize targetSlot, field.isTransient) ∈
               ((fieldWriteEntriesAt idx field).reverse ++ seen).map
-                (fun entry => entry.1) := by
-            rw [List.map_append, List.mem_append, List.map_reverse]
-            exact Or.inl (List.mem_reverse.mpr htargetInEntries)
-          exact (firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member
-            htargetInSeen hfind hwrite hslot hunpacked) hnoConflict
-        · push Not at hcapture
-          rw [show
-            (decide (SourceSemantics.wordNormalize (field.slot.getD idx) =
+                (fun entry => (entry.1, storageOwnerIsTransient entry.2.1)) := by
+              rw [List.map_append, List.mem_append, List.map_reverse]
+              exact Or.inl (List.mem_reverse.mpr htargetInEntries)
+            have hspaces : field.isTransient = f.isTransient := hspace.trans hpersistent.symm
+            rw [hspaces] at htargetInSeen
+            exact (firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member
+              htargetInSeen hfind hwrite hslot hunpacked) hnoConflict
+          · push Not at hcapture
+            have hmiss :
+              (decide (SourceSemantics.wordNormalize (field.slot.getD idx) =
                 SourceSemantics.wordNormalize targetSlot) ||
               (List.map SourceSemantics.wordNormalize field.aliasSlots).contains
-                (SourceSemantics.wordNormalize targetSlot)) = false by
-            simp only [Bool.or_eq_false_iff, decide_eq_false_iff_not,
-              List.contains_eq_mem, List.mem_map]
-            exact ⟨hcapture.1, by
-              intro hmem
-              rcases hmem with ⟨a, haMem, haEq⟩
-              exact hcapture.2 a haMem haEq⟩]
-          exact ih hnoConflict hfind hwrite
+                (SourceSemantics.wordNormalize targetSlot)) = false := by
+              simp only [Bool.or_eq_false_iff, decide_eq_false_iff_not,
+                List.contains_eq_mem, List.mem_map]
+              exact ⟨hcapture.1, by
+                intro hmem
+                rcases hmem with ⟨a, haMem, haEq⟩
+                exact hcapture.2 a haMem haEq⟩
+            have hcaptureMod : ¬(
+                field.slot.getD idx % Compiler.Constants.evmModulus =
+                    targetSlot % Compiler.Constants.evmModulus ∨
+                ∃ a ∈ field.aliasSlots,
+                  a % Compiler.Constants.evmModulus = targetSlot % Compiler.Constants.evmModulus) := by
+              simpa [SourceSemantics.wordNormalize] using hcapture
+            simpa [hspace, hmiss, hcaptureMod] using
+              ih hnoConflict hfind hwrite
+        · have htransient : field.isTransient = true := by
+            cases h : field.isTransient <;> simp_all
+          simpa [htransient] using ih hnoConflict hfind hwrite
 
 theorem findResolvedFieldAtSlotCopy_go_eq_CopyFrom
     (flds : List Field) (i s : Nat) :
@@ -820,7 +847,8 @@ private theorem firstInFieldConflict_eq_Copy
     obtain ⟨slot, ownerName, packed⟩ := entry
     simp only [firstFieldWriteSlotConflict_firstInFieldConflict_cons,
                firstInFieldConflictCopy]
-    cases seen.find? (fun entry => entry.1 == slot && packedSlotsConflict entry.2.2 packed) with
+    cases seen.find? (fun entry => entry.1 == slot &&
+        storageOwnersSameSpace entry.2.1 ownerName && packedSlotsConflict entry.2.2 packed) with
     | none => exact ih _
     | some _ => rfl
 
@@ -860,6 +888,7 @@ theorem findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_member
     (hfind : findFieldWithResolvedSlot fields fieldName = some (f, slot))
     (hwrite : findFieldWriteSlots fields fieldName = some writeSlots)
     (hslot : targetSlot ∈ writeSlots)
+    (hpersistent : f.isTransient = false)
     (hunpacked : f.packedBits = none) :
     findResolvedFieldAtSlotCopy fields targetSlot = some f := by
   -- Bridge result
@@ -873,7 +902,7 @@ theorem findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_member
   have hnoConflictCopy : firstFieldWriteSlotConflictCopyFrom [] 0 fields = none :=
     firstFieldWriteSlotConflict_go_eq_CopyFrom [] 0 fields ▸ hnoConflict
   exact findResolvedFieldAtSlotCopyFrom_of_member
-    hnoConflictCopy hfindCopy hwriteCopy hslot hunpacked
+    hnoConflictCopy hfindCopy hwriteCopy hslot hpersistent hunpacked
 
 theorem findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
     {fields : List Field}
@@ -883,11 +912,12 @@ theorem findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
     (hfind : findFieldWithResolvedSlot fields fieldName = some (f, slot))
     (hwrite : findFieldWriteSlots fields fieldName = some [slot])
+    (hpersistent : f.isTransient = false)
     (hunpacked : f.packedBits = none) :
     findResolvedFieldAtSlotCopy fields slot = some f := by
   exact
     findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_member
-      hnoConflict hfind hwrite (by simp) hunpacked
+      hnoConflict hfind hwrite (by simp) hpersistent hunpacked
 
 private theorem encodeStorageAt_eq_storage_of_resolvedSlot
     {fields : List Field}
@@ -2305,7 +2335,7 @@ theorem compiledStmtStep_setStorage_singleSlot
     have hresolvedSlot :
         findResolvedFieldAtSlotCopy fields slot = some f :=
       findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
-        hnoConflict hfind hwriteSlots hunpacked
+        hnoConflict hfind hwriteSlots hnotTransient hunpacked
     have hvalueSourceEval :=
       FunctionBody.eval_compileExpr_core_of_scope
         hcore hexact hinScope hbounded
@@ -2335,7 +2365,8 @@ theorem compiledStmtStep_setStorage_singleSlot
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.setStorage fieldName value) = .continue runtime' := by
         simp [SourceSemantics.execStmt, SourceSemantics.writeUintFieldSlots,
-          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient, runtime']
+          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient,
+          hfind, hunpacked, hnotTransient, runtime']
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
             (YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])) =
@@ -2388,7 +2419,7 @@ theorem compiledStmtStep_setStorageWord_singleSlot_zeroOffset
     have hresolvedSlot :
         findResolvedFieldAtSlotCopy fields slot = some f :=
       findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
-        hnoConflict hfind hwriteSlots hunpacked
+        hnoConflict hfind hwriteSlots hnotTransient hunpacked
     have hvalueSourceEval :=
       FunctionBody.eval_compileExpr_core_of_scope
         hcore hexact hinScope hbounded
@@ -2499,7 +2530,7 @@ private theorem compiledStmtStep_setStorageAddr_singleSlot_preserves
   have hresolvedSlot : findResolvedFieldAtSlotCopy fields slot =
       some { name := fieldName, ty := FieldType.address } :=
     findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
-      hnoConflict hfind hwriteSlots (by rfl)
+      hnoConflict hfind hwriteSlots (by rfl) (by rfl)
   have hvalueSourceEval :=
     FunctionBody.eval_compileExpr_core_of_scope
       hcore hexact hinScope hbounded
@@ -6203,7 +6234,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
     cases hty : f.ty with
     | adt name maxFields =>
         exact False.elim (hNotAdt name maxFields hty)
-    | uint256 | address | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
+    | uint256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
         simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileSetStorage,
           hNotMapping, hfind, hwriteSlots, halias, hunpacked, hnotTransient, hvalueIR, hty,
           pure, Except.pure, Bind.bind, Except.bind]
@@ -6260,7 +6291,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
         intro writeSlot hmem
         exact
           findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_member
-            hnoConflict hfind hwriteSlots hmem hunpacked
+            hnoConflict hfind hwriteSlots hmem hnotTransient hunpacked
       have hbody :
           execIRStmts extraFuel state blockBody =
             .continue
@@ -6311,7 +6342,8 @@ theorem compiledStmtStep_setStorage_aliasSlots
             { runtime with
                 world := SourceSemantics.writeUintSlots runtime.world (slot :: f.aliasSlots) valueNat } := by
         simp [SourceSemantics.execStmt, SourceSemantics.writeUintFieldSlots,
-          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient, slots]
+          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient,
+          hfind, hunpacked, hnotTransient, slots]
       -- Scope inclusion
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setStorage fieldName value)) scope := by
@@ -6948,7 +6980,7 @@ private theorem compiledStmtStep_letStorageField
       rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
-      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl)
+      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
     have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
     have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
@@ -7032,7 +7064,7 @@ private theorem compiledStmtStep_letStorageAddrField
       rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
-      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl)
+      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
     have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
     have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
@@ -7110,7 +7142,7 @@ private theorem compiledStmtStep_assignStorageField
       rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
-      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl)
+      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
     have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
     have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
@@ -7195,7 +7227,7 @@ private theorem compiledStmtStep_assignStorageAddrField
       rfl
     have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
       hnoConflict hfind
-      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl)
+      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
     have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
     have hresolved' :
           findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =

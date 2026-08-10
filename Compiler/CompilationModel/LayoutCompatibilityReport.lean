@@ -33,6 +33,7 @@ private def packedBitsJson (packed : PackedBits) : String :=
 private def fieldTypeSummary : FieldType → String
   | .uint256 => "uint256"
   | .address => "address"
+  | .fixedArrayUint128 size => s!"uint128[{size}]"
   | .adt name maxFields => s!"adt({name};maxFields={maxFields})"
   | .dynamicArray elemType =>
       s!"dynamicArray({paramTypeToSolidityString (storageArrayElemTypeToParamType elemType)})"
@@ -54,6 +55,15 @@ private structure FieldLayoutInfo where
   effectiveAliasSlots : List Nat
   writeSlots : List Nat
   packedBits : Option PackedBits
+  isTransient : Bool
+
+private def expandedWriteSlots (ty : FieldType) (bases : List Nat) : List Nat :=
+  let words := match ty with
+    | .fixedArrayUint128 size => max 1 ((size + 1) / 2)
+    | _ => 1
+  dedupNatPreserve <| bases.flatMap fun base =>
+    (List.range words).map fun offset =>
+      (base + offset) % Compiler.Constants.evmModulus
 
 private def fieldLayoutInfo (declaredField effectiveField : Field) (idx : Nat) : FieldLayoutInfo :=
   let canonicalSlot := declaredField.slot.getD idx
@@ -62,8 +72,9 @@ private def fieldLayoutInfo (declaredField effectiveField : Field) (idx : Nat) :
     ty := declaredField.ty
     canonicalSlot := canonicalSlot
     effectiveAliasSlots := effectiveAliasSlots
-    writeSlots := canonicalSlot :: effectiveAliasSlots
-    packedBits := declaredField.packedBits }
+    writeSlots := expandedWriteSlots declaredField.ty (canonicalSlot :: effectiveAliasSlots)
+    packedBits := declaredField.packedBits
+    isTransient := declaredField.isTransient }
 
 private def collectFieldLayouts
     (declaredFields effectiveFields : List Field)
@@ -86,6 +97,29 @@ private def overlappingSlots (lhs rhs : List Nat) : List Nat :=
     (fun acc slot =>
       if rhs.elem slot && !(acc.elem slot) then
         acc ++ [slot]
+      else
+        acc)
+    []
+
+private def fieldsOverlap (lhs rhs : FieldLayoutInfo) : Bool :=
+  if lhs.isTransient != rhs.isTransient then
+    false
+  else
+    let sharedSlots := overlappingSlots lhs.writeSlots rhs.writeSlots
+    if sharedSlots.isEmpty then
+      false
+    else
+      match lhs.packedBits, rhs.packedBits with
+      | some lhsPacked, some rhsPacked => packedRangesOverlap lhsPacked rhsPacked
+      | _, _ => true
+
+private def overlappingBaselineSlots
+    (candidate : FieldLayoutInfo) (baselineFields : List FieldLayoutInfo) : List Nat :=
+  baselineFields.foldl
+    (fun acc baseline =>
+      if fieldsOverlap candidate baseline then
+        acc ++ (overlappingSlots candidate.writeSlots baseline.writeSlots).filter
+          (fun slot => !(acc.elem slot))
       else
         acc)
     []
@@ -133,8 +167,6 @@ private def compatibilityChanges
     (baseline candidate : CompilationModel) : List LayoutCompatibilityChange :=
   let baselineFields := fieldLayouts baseline
   let candidateFields := fieldLayouts candidate
-  let baselineWriteSlots :=
-    baselineFields.foldl (fun acc field => acc ++ field.writeSlots) []
   let baselineChanges :=
     baselineFields.foldl
       (fun acc baselineField =>
@@ -191,7 +223,7 @@ private def compatibilityChanges
         match findFieldLayout? baselineFields candidateField.name with
         | some _ => acc
         | none =>
-            let overlaps := overlappingSlots candidateField.writeSlots baselineWriteSlots
+            let overlaps := overlappingBaselineSlots candidateField baselineFields
             if overlaps.isEmpty then
               acc
             else

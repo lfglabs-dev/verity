@@ -2242,6 +2242,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.bindValue_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.valuesAsEventArgs_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeUintSlots_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.writeFixedUint128ArrayElementSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageWordSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMappingWordSlots_eq
@@ -4440,6 +4441,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.compiledPackedStructMemberWrite_regression
   Compiler.Proofs.Storage.compiledPackedStructMemberWrite_eq
   Compiler.Proofs.Storage.evalEmittedPackedWordWrite_eq_packedWordWrite
+  Compiler.Proofs.Storage.evalEmittedPackedWordWrite_uint16
+  Compiler.Proofs.Storage.evalEmittedPackedWordWrite_uint32
+  Compiler.Proofs.Storage.evalEmittedPackedWordWrite_uint128
+  Compiler.Proofs.Storage.evalEmittedPackedWordWrite_uint128ArrayElement
   Compiler.Proofs.Storage.compiledPackedStructMemberWrite_exec_eq_canonical
   Compiler.Proofs.Storage.compilerStructMemberWrite_eq_storageStructWrite
   Compiler.Proofs.Storage.structMember_eq_sourceEval
@@ -6597,4 +6602,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6170 theorems/lemmas (4302 public, 1868 private, 0 sorry'd)
+-- Total: 6175 theorems/lemmas (4307 public, 1868 private, 0 sorry'd)

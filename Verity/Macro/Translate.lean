@@ -710,7 +710,8 @@ private def translateEffectStmt
               $(← translateAdtConstructForStorage fields constDecls immutableDecls params locals adtName value))
       | none =>
           match f.ty with
-          | .scalar .uint256 | .scalar .int256 | .scalar (.newtype _ .uint256) =>
+          | .scalar .uint256 | .scalar .int256 | .scalar .uint16 | .scalar (.uintN _)
+          | .scalar (.newtype _ .uint256) =>
               `(Compiler.CompilationModel.Stmt.setStorage $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
           | .scalar (.adt adtName _) =>
               `(Compiler.CompilationModel.Stmt.setStorage
@@ -729,7 +730,7 @@ private def translateEffectStmt
           `(Compiler.CompilationModel.Stmt.setStorageAddr $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
       | .scalar .uint256 | .scalar (.newtype _ .uint256) =>
           throwErrorAt stx s!"field '{f.name}' is Uint256-valued; use setStorage"
-      | .dynamicArray _ =>
+      | .dynamicArray _ | .scalar (.fixedArray (.uintN 128) _) =>
           throwErrorAt stx s!"field '{f.name}' is a storage dynamic array; use pushStorageArray/popStorageArray/setStorageArrayElement"
       | _ =>
           throwErrorAt stx s!"field '{f.name}' is not Address; use setStorage"
@@ -893,7 +894,7 @@ private def translateEffectStmt
   | `(term| setStorageArrayElement $field:ident $index:term $value:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .dynamicArray _ =>
+      | .dynamicArray _ | .scalar (.fixedArray (.uintN 128) _) =>
           `(Compiler.CompilationModel.Stmt.setStorageArrayElement
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals index)
@@ -1795,17 +1796,19 @@ private def isVoidTypedInterfaceCall?
 
 mutual
 private partial def rewriteForEachExecutableDoSeq
+    (fields : Array StorageFieldDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (doSeq : DoSeq) : CommandElabM DoSeq := do
   match doSeq with
   | `(doSeq| $[$elems:doElem]*) =>
-      let (elems, _) ← rewriteForEachExecutableDoElems externalDecls params locals elems
+      let (elems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals elems
       `(doSeq| $[$elems:doElem]*)
   | _ => throwErrorAt doSeq "unsupported branch body; expected do-sequence"
 
 private partial def rewriteForEachExecutableDoElems
+    (fields : Array StorageFieldDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
@@ -1813,12 +1816,13 @@ private partial def rewriteForEachExecutableDoElems
   let mut rewritten : Array (TSyntax `doElem) := #[]
   let mut currentLocals := locals
   for elem in elems do
-    let (newElems, newLocals) ← rewriteForEachExecutableDoElem externalDecls params currentLocals elem
+    let (newElems, newLocals) ← rewriteForEachExecutableDoElem fields externalDecls params currentLocals elem
     rewritten := rewritten ++ newElems
     currentLocals := newLocals
   pure (rewritten, currentLocals)
 
 private partial def rewriteForEachExecutableDoElem
+    (fields : Array StorageFieldDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
@@ -1827,12 +1831,12 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| let _ := $rhs:term) =>
       let discardName := freshSyntheticLocalName "__discard" params locals #[]
       let discardIdent := mkIdent (Name.mkSimple discardName)
-      rewriteForEachExecutableDoElem externalDecls params locals
+      rewriteForEachExecutableDoElem fields externalDecls params locals
         (← `(doElem| let $discardIdent:ident := $rhs:term))
   | `(doElem| let _ ← $rhs:term) =>
       let discardName := freshSyntheticLocalName "__discard" params locals #[]
       let discardIdent := mkIdent (Name.mkSimple discardName)
-      rewriteForEachExecutableDoElem externalDecls params locals
+      rewriteForEachExecutableDoElem fields externalDecls params locals
         (← `(doElem| let $discardIdent:ident ← $rhs:term))
   | `(doElem| let $name:ident := $rhs:term) =>
       let varName := toString name.getId
@@ -1843,12 +1847,51 @@ private partial def rewriteForEachExecutableDoElem
         | none => locals
       pure (#[elem], locals)
   | `(doElem| let $name:ident ← $rhs:term) =>
-      match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
-      | some retTy =>
-          let retTyTerm ← contractValueTypeTerm retTy
-          pure (#[← `(doElem| let $name:ident := (panic! "typed interface calls are compiler-only in executable wrappers" : $retTyTerm))],
-            locals.push (mkTypedLocal (toString name.getId) retTy))
-      | none => pure (#[elem], locals)
+      match stripParens rhs with
+      | `(term| getStorageArrayElement $field:ident $index:term) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { ty := .scalar (.fixedArray (.uintN 128) size), .. } =>
+              pure (#[← `(doElem| let $name:ident ←
+                _root_.Verity.getFixedStorageArrayElement $field:ident $(natTerm size) $index:term)],
+                locals.push (mkTypedLocal (toString name.getId) (.uintN 128)))
+          | _ => pure (#[elem], locals)
+      | `(term| getStorage $field:ident) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { ty := .scalar .uint16, isTransient, packedBits := some (offset, width), .. } =>
+              let read ← if isTransient then
+                `(_root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))
+              else
+                `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
+              pure (#[← `(doElem| let $name:ident ← do
+                let word ← $read:term
+                pure (_root_.Verity.wordToUint16 word))],
+                locals.push (mkTypedLocal (toString name.getId) .uint16))
+          | some { ty := .scalar (.uintN bits), isTransient, packedBits := some (offset, width), .. } =>
+              let bitsTerm := natTerm bits
+              let read ← if isTransient then
+                `(_root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))
+              else
+                `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
+              pure (#[← `(doElem| let $name:ident ← do
+                let word ← $read:term
+                pure (_root_.Verity.Core.UIntN.ofUint256 $bitsTerm word))],
+                locals.push (mkTypedLocal (toString name.getId) (.uintN bits)))
+          | some { isTransient := true, packedBits := some (offset, width), .. } =>
+              let read ←
+                `(_root_.Verity.getPackedTransientStorage $field:ident $(natTerm offset) $(natTerm width))
+              pure (#[← `(doElem| let $name:ident ← $read:term)], locals)
+          | some { packedBits := some (offset, width), .. } =>
+              let read ←
+                `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
+              pure (#[← `(doElem| let $name:ident ← $read:term)], locals)
+          | _ => pure (#[elem], locals)
+      | _ =>
+          match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
+          | some retTy =>
+              let retTyTerm ← contractValueTypeTerm retTy
+              pure (#[← `(doElem| let $name:ident := (panic! "typed interface calls are compiler-only in executable wrappers" : $retTyTerm))],
+                locals.push (mkTypedLocal (toString name.getId) retTy))
+          | none => pure (#[elem], locals)
   | `(doElem| let $pat:term ← $rhs:term) =>
       match tupleBinderNames? pat with
       | some _ =>
@@ -1869,50 +1912,80 @@ private partial def rewriteForEachExecutableDoElem
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
-          let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
+          let (inner, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals inner
           pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEach body must be a do block"
   | `(doElem| forEachSetBit $name:term $_bitmap:term $body:term) =>
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
-          let (inner, _) ← rewriteForEachExecutableDoElems externalDecls params locals inner
+          let (inner, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals inner
           pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEachSetBit body must be a do block"
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
-      let thenBranch ← rewriteForEachExecutableDoSeq externalDecls params locals thenBranch
-      let elseBranch ← rewriteForEachExecutableDoSeq externalDecls params locals elseBranch
+      let thenBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals thenBranch
+      let elseBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals elseBranch
       pure (#[← `(doElem| if $cond then $thenBranch else $elseBranch)], locals)
   | `(doElem| tryCatch $attempt:term $handler:term) =>
       let tryCatchFn := Lean.mkIdentFrom attempt `_root_.Contracts.tryCatchWord
       match stripParens handler with
       | `(term| fun $name:ident => do $[$catchElems:doElem]*) =>
-          let (catchElems, _) ← rewriteForEachExecutableDoElems externalDecls params locals catchElems
+          let (catchElems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals catchElems
           pure (#[← `(doElem| $tryCatchFn:ident $attempt (fun $name => do $[$catchElems:doElem]*))], locals)
       | `(term| do $[$catchElems:doElem]*) =>
-          let (catchElems, _) ← rewriteForEachExecutableDoElems externalDecls params locals catchElems
+          let (catchElems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals catchElems
           pure (#[← `(doElem| $tryCatchFn:ident $attempt (fun _ => do $[$catchElems:doElem]*))], locals)
       | _ =>
           throwErrorAt handler
             "tryCatch handler must be `fun _ => do ...` or a direct `do ...` block"
   | `(doElem| unsafe $_reason:str do $body:doSeq) =>
-      let body ← rewriteForEachExecutableDoSeq externalDecls params locals body
+      let body ← rewriteForEachExecutableDoSeq fields externalDecls params locals body
       pure (#[← `(doElem| do $body)], locals)
   | `(doElem| $stmt:term) =>
       -- a void typed interface call in statement position is compiler-only;
       -- drop it from the executable wrapper (it returns nothing to bind).
-      if (← isVoidTypedInterfaceCall? externalDecls params locals stmt) then
-        pure (#[← `(doElem| pure ())], locals)
-      else
-        pure (#[elem], locals)
+      match stripParens stmt with
+      | `(term| setStorageArrayElement $field:ident $index:term $value:term) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { ty := .scalar (.fixedArray (.uintN 128) size), .. } =>
+              pure (#[← `(doElem| _root_.Verity.setFixedStorageArrayElement
+                $field:ident $(natTerm size) $index:term $value:term)], locals)
+          | _ => pure (#[elem], locals)
+      | `(term| setStorage $field:ident $value:term) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { ty := .scalar (.uintN _bits), isTransient, packedBits := some (offset, width), .. } =>
+              let valueTy ← inferPureExprType fields #[] #[] externalDecls params locals value
+              let encoded ← if match valueTy with | .uintN _ => true | _ => false then
+                `(_root_.Verity.Core.UIntN.toUint256 $value:term)
+              else
+                pure value
+              let write ← if isTransient then
+                `(_root_.Verity.setPackedTransientStorage
+                  $field:ident $(natTerm offset) $(natTerm width) $encoded:term)
+              else
+                `(_root_.Verity.setPackedStorage
+                  $field:ident $(natTerm offset) $(natTerm width) $encoded:term)
+              pure (#[← `(doElem| $write:term)], locals)
+          | some { isTransient := true, packedBits := some (offset, width), .. } =>
+              pure (#[← `(doElem| _root_.Verity.setPackedTransientStorage
+                $field:ident $(natTerm offset) $(natTerm width) $value:term)], locals)
+          | some { packedBits := some (offset, width), .. } =>
+              pure (#[← `(doElem| _root_.Verity.setPackedStorage
+                $field:ident $(natTerm offset) $(natTerm width) $value:term)], locals)
+          | _ => pure (#[elem], locals)
+      | _ =>
+          if (← isVoidTypedInterfaceCall? externalDecls params locals stmt) then
+            pure (#[← `(doElem| pure ())], locals)
+          else
+            pure (#[elem], locals)
   | other =>
       pure (#[other], locals)
 end
 
-private def rewriteForEachExecutableBody (externalDecls : Array ExternalDecl) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
+private def rewriteForEachExecutableBody (fields : Array StorageFieldDecl) (externalDecls : Array ExternalDecl) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
   match body with
   | `(term| do $[$elems:doElem]*) =>
-      let (elems, _) ← rewriteForEachExecutableDoElems externalDecls params #[] elems
+      let (elems, _) ← rewriteForEachExecutableDoElems fields externalDecls params #[] elems
       `(do $[$elems:doElem]*)
   | _ => pure body
 
@@ -1938,8 +2011,8 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
     | .scalar .uint256 => `(Uint256)
     | .scalar .int256 => `(Uint256)
     | .scalar .uint8 => throwError "storage field cannot be Uint8; use Uint256 encoding"
-    | .scalar .uint16 => throwError "storage field cannot be Uint16; use Uint256 encoding"
-    | .scalar (.uintN _) => throwError "narrow integer storage is tracked separately in #2060"
+    | .scalar .uint16 => `(Uint256)
+    | .scalar (.uintN _) => `(Uint256)
     | .scalar (.intN _) => throwError "narrow integer storage is tracked separately in #2060"
     | .scalar (.bytesN _) => throwError "fixed-bytes storage is tracked separately in #2060"
     | .scalar .address => `(Address)
@@ -1948,7 +2021,8 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
     | .scalar .string => throwError "storage field cannot be String; use Uint256 encoding"
     | .scalar .bytes => throwError "storage field cannot be Bytes; use Uint256 encoding"
     | .scalar (.array _) => throwError "storage field cannot be Array; use mapping encodings"
-    | .scalar (.fixedArray _ _) => throwError "storage field cannot be FixedArray; use mapping encodings"
+    | .scalar (.fixedArray (.uintN 128) _) => `(List Uint128)
+    | .scalar (.fixedArray _ _) => throwError "storage fixed arrays currently support only Uint128 elements"
     | .scalar (.tuple _) => throwError "storage field cannot be Tuple; use mapping encodings"
     | .scalar (.struct _ _) => throwError "storage field cannot be named struct; use mapping encodings"
     | .scalar .unit => throwError "storage field cannot be Unit"
@@ -2896,6 +2970,14 @@ def parseContractSyntax
                         firstNamespaceLocked := true
                     | none =>
                         throwErrorAt item "unsupported storage item"
+      parsedFields := applyAutomaticPackedLayout parsedFields
+      for field in parsedFields do
+        if field.isTransient then
+          match field.ty with
+          | .scalar (.fixedArray _ _) =>
+              throwErrorAt field.ident
+                "transient fixed arrays are not supported until fixed-array lowering uses tload/tstore"
+          | _ => pure ()
       let parsedRoles ←
         match roleDecls with
         | some decls => decls.mapM (parseRoleDecl parsedFields)
@@ -3237,7 +3319,7 @@ def mkFunctionCommandsPublic
   let fnDecl := { fn with body := fnRoleGuardedBody }
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
   let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
-  let fnExecutableBody ← rewriteForEachExecutableBody externalDecls fn.params fnBody
+  let fnExecutableBody ← rewriteForEachExecutableBody fields externalDecls fn.params fnBody
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"

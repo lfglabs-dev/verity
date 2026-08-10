@@ -167,26 +167,50 @@ def compileStorageArrayPop (fields : List Field) (field : String) : Except Strin
 def compileSetStorageArrayElement (fields : List Field) (dynamicSource : DynamicDataSource)
     (field : String) (index value : Expr) (internalFunctions : List FunctionSpec := []) :
     Except String (List YulStmt) := do
-  let (slot, _) ← validateDynamicArrayField fields field
   let indexExpr ← compileExprWithInternals fields dynamicSource internalFunctions index
   let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
-  pure [
-    YulStmt.block [
-      YulStmt.let_ "__array_len" (YulExpr.call "sload" [YulExpr.lit slot]),
-      YulStmt.let_ "__array_index" indexExpr,
-      YulStmt.if_ (YulExpr.call "iszero" [
-        YulExpr.call "lt" [YulExpr.ident "__array_index", YulExpr.ident "__array_len"]
-      ]) [
-        YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
-      ],
-      YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit slot]),
-      YulStmt.let_ "__array_base" (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 32]),
-      YulStmt.exprStmt (YulExpr.call "sstore" [
-        YulExpr.call "add" [YulExpr.ident "__array_base", YulExpr.ident "__array_index"],
-        valueExpr
-      ])
-    ]
-  ]
+  match findFieldWithResolvedSlot fields field with
+  | some (f, slot) => match f.ty with
+    | .fixedArrayUint128 size =>
+      let baseSlots := slot :: f.aliasSlots
+      let packedOffsetExpr := YulExpr.call "mul" [
+        YulExpr.call "mod" [YulExpr.ident "__array_index", YulExpr.lit 2], YulExpr.lit 128]
+      let packedOffset := YulExpr.ident "__packed_offset"
+      let writePackedAt (baseSlot : Nat) :=
+        let packedSlot := YulExpr.call "add" [YulExpr.lit baseSlot,
+          YulExpr.call "div" [YulExpr.ident "__array_index", YulExpr.lit 2]]
+        YulStmt.block [
+          YulStmt.let_ "__packed_old" (YulExpr.call "sload" [packedSlot]),
+          YulStmt.exprStmt (YulExpr.call "sstore" [packedSlot, YulExpr.call "or" [
+            YulExpr.call "and" [YulExpr.ident "__packed_old", YulExpr.call "not" [
+              YulExpr.call "shl" [packedOffset, YulExpr.hex (2^128 - 1)]]],
+            YulExpr.call "shl" [packedOffset,
+              YulExpr.call "and" [YulExpr.ident "__array_value", YulExpr.hex (2^128 - 1)]]
+          ]])]
+      pure [YulStmt.block ([
+        YulStmt.let_ "__array_index" indexExpr,
+        YulStmt.let_ "__array_value" valueExpr,
+        YulStmt.if_ (YulExpr.call "iszero" [
+          YulExpr.call "lt" [YulExpr.ident "__array_index", YulExpr.lit size]
+        ]) [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])],
+        YulStmt.let_ "__packed_offset" packedOffsetExpr
+      ] ++ baseSlots.map writePackedAt)]
+    | _ => do
+      let (slot, _) ← validateDynamicArrayField fields field
+      pure [YulStmt.block [
+        YulStmt.let_ "__array_len" (YulExpr.call "sload" [YulExpr.lit slot]),
+        YulStmt.let_ "__array_index" indexExpr,
+        YulStmt.if_ (YulExpr.call "iszero" [
+          YulExpr.call "lt" [YulExpr.ident "__array_index", YulExpr.ident "__array_len"]
+        ]) [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])],
+        YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit slot]),
+        YulStmt.let_ "__array_base" (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 32]),
+        YulStmt.exprStmt (YulExpr.call "sstore" [
+          YulExpr.call "add" [YulExpr.ident "__array_base", YulExpr.ident "__array_index"], valueExpr])
+      ]]
+  | none => do
+    let _ ← validateDynamicArrayField fields field
+    throw s!"Compilation error: unknown storage array field '{field}'"
 
 def compileSetMapping2 (fields : List Field) (dynamicSource : DynamicDataSource)
     (field : String) (key1 key2 value : Expr) (internalFunctions : List FunctionSpec := []) :
