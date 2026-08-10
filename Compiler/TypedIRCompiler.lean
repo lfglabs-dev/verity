@@ -104,23 +104,27 @@ private def ensureTypedIRAddressFieldSupported (fieldName : String) (field : Fie
 
 private def ensureTypedIRScalarStorageFieldSupported (fieldName : String) (field : Field)
     (context : String) : Except String Unit := do
-  match field.ty with
-  | .dynamicArray _ =>
-      let guidance :=
-        match context with
-        | "Expr.storage" =>
-            "use Expr.storageArrayLength or Expr.storageArrayElement instead"
-        | "Expr.storageAddr" =>
-            "use Expr.storageArrayLength or Expr.storageArrayElement instead"
-        | "Stmt.setStorage" =>
-            "use Stmt.storageArrayPush, Stmt.storageArrayPop, or Stmt.setStorageArrayElement instead"
-        | "Stmt.setStorageAddr" =>
-            "use Stmt.storageArrayPush, Stmt.storageArrayPop, or Stmt.setStorageArrayElement instead"
-        | _ =>
-            "use storage dynamic-array helpers instead"
-      throw s!"Typed IR compile error: storage field '{fieldName}' is a storage dynamic array; {guidance}"
-  | _ =>
-      Except.ok ()
+  match field.packedBits with
+  | some _ =>
+      throw s!"Typed IR compile error: storage field '{fieldName}' uses packedBits; packed scalar storage is not yet supported in typed IR"
+  | none =>
+      match field.ty with
+      | .dynamicArray _ =>
+          let guidance :=
+            match context with
+            | "Expr.storage" =>
+                "use Expr.storageArrayLength or Expr.storageArrayElement instead"
+            | "Expr.storageAddr" =>
+                "use Expr.storageArrayLength or Expr.storageArrayElement instead"
+            | "Stmt.setStorage" =>
+                "use Stmt.storageArrayPush, Stmt.storageArrayPop, or Stmt.setStorageArrayElement instead"
+            | "Stmt.setStorageAddr" =>
+                "use Stmt.storageArrayPush, Stmt.storageArrayPop, or Stmt.setStorageArrayElement instead"
+            | _ =>
+                "use storage dynamic-array helpers instead"
+          throw s!"Typed IR compile error: storage field '{fieldName}' is a storage dynamic array; {guidance}"
+      | _ =>
+          Except.ok ()
 
 @[simp] private theorem ensureTypedIRAddressFieldSupported_none
     (fieldName name : String) (ty : FieldType) (slot : Option Nat) (aliasSlots : List Nat) :
@@ -129,10 +133,9 @@ private def ensureTypedIRScalarStorageFieldSupported (fieldName : String) (field
         Except.ok () := rfl
 
 private theorem ensureTypedIRScalarStorageFieldSupported_uint256
-    (fieldName name context : String) (slot : Option Nat)
-    (packedBits : Option PackedBits) (aliasSlots : List Nat) :
+    (fieldName name context : String) (slot : Option Nat) (aliasSlots : List Nat) :
     ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .uint256, slot := slot, packedBits := packedBits, aliasSlots := aliasSlots }
+      { name := name, ty := .uint256, slot := slot, packedBits := none, aliasSlots := aliasSlots }
       context = Except.ok () := rfl
 
 private theorem ensureTypedIRScalarStorageFieldSupported_address
@@ -695,6 +698,33 @@ private def stringContains (haystack needle : String) : Bool :=
         if (c :: cs).take n.length == n then true
         else go cs
     go h
+
+private def typedIRPackedStorageRejectionSmokeSpec : CompilationModel := {
+  name := "TypedIRPackedStorageRejectionSmoke"
+  fields := [
+    { name := "flags", ty := .uint256, slot := some 0,
+      packedBits := some { offset := 0, width := 16 } },
+    { name := "epoch", ty := .uint256, slot := some 0,
+      packedBits := some { offset := 16, width := 32 } }
+  ]
+  «constructor» := none
+  functions := [
+    { name := "setEpoch"
+      params := []
+      returnType := none
+      body := [Stmt.setStorage "epoch" (Expr.literal 9)]
+    }
+  ]
+}
+
+/-- Packed scalar fields must not lower to whole-word typed-IR storage operations.
+The typed path rejects them until it has the same masked read-modify-write lowering
+as the production Yul path, so writing `epoch` cannot erase neighboring `flags`. -/
+example :
+    (match compileFunctionNamed typedIRPackedStorageRejectionSmokeSpec "setEpoch" with
+    | Except.ok _ => false
+    | Except.error msg => stringContains msg "uses packedBits") = true := by
+  native_decide
 
 example :
     (match compileFunctionNamed typedIROverloadSmokeSpec "echo" with

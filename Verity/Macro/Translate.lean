@@ -1852,7 +1852,8 @@ private partial def rewriteForEachExecutableDoElem
           match fields.find? (fun candidate => candidate.name == toString field.getId) with
           | some { ty := .scalar (.fixedArray (.uintN 128) size), .. } =>
               pure (#[← `(doElem| let $name:ident ←
-                _root_.Verity.getFixedStorageArrayElement $field:ident $(natTerm size) $index:term)], locals)
+                _root_.Verity.getFixedStorageArrayElement $field:ident $(natTerm size) $index:term)],
+                locals.push (mkTypedLocal (toString name.getId) (.uintN 128)))
           | _ => pure (#[elem], locals)
       | `(term| getStorage $field:ident) =>
           match fields.find? (fun candidate => candidate.name == toString field.getId) with

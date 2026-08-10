@@ -43,6 +43,10 @@ verity_contract PackedStorageLoweringSmoke where
   function setCollateralAt (index : Uint256, value : Uint128) : Unit := do
     setStorageArrayElement collateral index value
 
+  function setAmountFromCollateral () : Unit := do
+    let value ← getStorageArrayElement collateral 0
+    setStorage amount value
+
 example :
     (PackedStorageLoweringSmoke.collateralAt 0).run defaultState =
       ContractResult.success (Verity.Core.UIntN.ofUint256 128 0) defaultState := by
@@ -103,6 +107,15 @@ example :
     let afterEpoch := Compiler.CompilationModel.Denote.writeUintFieldSlots
       packedFormalFields "epoch" afterFlags [0] 9
     afterEpoch.storage 0 = (7 + 9 * 2 ^ 16 : Nat) := by
+  native_decide
+
+-- Updating either packed field leaves its neighbor's range intact.
+example :
+    let afterEpoch := Compiler.CompilationModel.Denote.writeUintFieldSlots
+      packedFormalFields "epoch" defaultState [0] 9
+    let afterFlags := Compiler.CompilationModel.Denote.writeUintFieldSlots
+      packedFormalFields "flags" afterEpoch [0] 7
+    afterFlags.storage 0 = (7 + 9 * 2 ^ 16 : Nat) := by
   native_decide
 
 example :
