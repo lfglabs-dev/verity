@@ -73,4 +73,10 @@ contract PropertyPackedStorageLoweringSmokeTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("setCollateralAt(uint256,uint128)", uint256(1), uint128(1)));
         require(ok, "setCollateralAt reverted unexpectedly");
     }
+    // Property 9: setAmountFromCollateral has no unexpected revert
+    function testAuto_SetAmountFromCollateral_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("setAmountFromCollateral()"));
+        require(ok, "setAmountFromCollateral reverted unexpectedly");
+    }
 }
