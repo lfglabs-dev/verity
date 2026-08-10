@@ -655,6 +655,35 @@ verity_contract EffectfulMulDivUpDivisorRejected where
   function bad () : Uint256 := do
     return mulDivUp 10 2 (callExternal dirtyWord())
 
+/-- error: msb operand cannot contain callExternal because expression lowering reuses it in the zero check and clz; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulMsbOperandRejected where
+  storage
+  linked_externals
+    external dirtyWord() -> (Uint256)
+  function bad () : Uint256 := do
+    return msb (callExternal dirtyWord())
+
+/-- error: structMembers key cannot contain callExternal when selecting multiple members because lowering reuses the key; bind the external result first -/
+#guard_msgs in
+verity_contract EffectfulStructMembersKeyRejected where
+  storage
+    records : MappingStruct(Uint256, [first : Uint256 @word 0, second : Uint256 @word 1]) := slot 0
+  linked_externals
+    external dirtyKey() -> (Uint256)
+  function bad () : Tuple [Uint256, Uint256] := do
+    return structMembers records (callExternal dirtyKey()) ["first", "second"]
+
+/-- error: structMembers2 keys cannot contain callExternal when selecting multiple members because lowering reuses the keys; bind external results first -/
+#guard_msgs in
+verity_contract EffectfulStructMembers2KeyRejected where
+  storage
+    records : MappingStruct2(Uint256, Uint256, [first : Uint256 @word 0, second : Uint256 @word 1]) := slot 0
+  linked_externals
+    external dirtyKey() -> (Uint256)
+  function bad (outerKey : Uint256) : Tuple [Uint256, Uint256] := do
+    return structMembers2 records outerKey (callExternal dirtyKey()) ["first", "second"]
+
 /-- error: dynamic projection indices cannot contain callExternal because ABI lowering reuses the index for offset and length; bind the external result first -/
 #guard_msgs in
 verity_contract EffectfulDynamicProjectionIndexRejected where

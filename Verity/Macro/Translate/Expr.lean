@@ -2255,7 +2255,14 @@ partial def inferPureExprType
               (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x visitingConstants)
           pure .uint256
       | _ => throwErrorAt args "expected list literal [..]"
-  | `(term| clz $x:term) | `(term| msb $x:term) =>
+  | `(term| clz $x:term) =>
+      requireWordLikeType x "bitmap primitive argument"
+        (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x visitingConstants)
+      pure .uint256
+  | `(term| msb $x:term) => do
+      if syntaxContainsCallExternal x then
+        throwErrorAt x
+          "msb operand cannot contain callExternal because expression lowering reuses it in the zero check and clz; bind the external result first"
       requireWordLikeType x "bitmap primitive argument"
         (← inferPureExprType fields constDecls immutableDecls externalDecls params locals x visitingConstants)
       pure .uint256
@@ -2651,6 +2658,9 @@ partial def inferTupleSourceTypes?
         | `(term| structMembers $field:term $key:term $members:term) => do
             let fieldName := ← expectStringOrIdent field
             let memberNames := ← expectStringList members
+            if memberNames.size > 1 && syntaxContainsCallExternal key then
+              throwErrorAt key
+                "structMembers key cannot contain callExternal when selecting multiple members because lowering reuses the key; bind the external result first"
             let memberDecls ← memberNames.mapM fun memberName =>
               lookupStructMemberDecl fields fieldName memberName false
             requireWordLikeType key "structMembers key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key)
@@ -2658,6 +2668,10 @@ partial def inferTupleSourceTypes?
         | `(term| structMembers2 $field:term $key1:term $key2:term $members:term) => do
             let fieldName := ← expectStringOrIdent field
             let memberNames := ← expectStringList members
+            if memberNames.size > 1 &&
+                (syntaxContainsCallExternal key1 || syntaxContainsCallExternal key2) then
+              throwErrorAt rhs
+                "structMembers2 keys cannot contain callExternal when selecting multiple members because lowering reuses the keys; bind external results first"
             let memberDecls ← memberNames.mapM fun memberName =>
               lookupStructMemberDecl fields fieldName memberName true
             requireWordLikeType key1 "structMembers2 key" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals key1)
@@ -3735,6 +3749,9 @@ partial def translatePureExprWithTypes
           Verity.Core.Intrinsics.HardFork.osaka
           [$xExpr])
   | `(term| msb $x:term) =>
+      if syntaxContainsCallExternal x then
+        throwErrorAt x
+          "msb operand cannot contain callExternal because expression lowering reuses it in the zero check and clz; bind the external result first"
       let xExpr ← translatePureExprWithTypes fields constDecls immutableDecls params locals x visitingConstants linkedExternalLowerer?
       let clzExpr ← `(Compiler.CompilationModel.Expr.intrinsic "clz"
           (Verity.Core.Intrinsics.YulLowering.verbatim 1 1 "1e")
@@ -4187,6 +4204,9 @@ def tupleLiteralOrStructValueExprs?
     | `(term| structMembers $field:term $key:term $members:term) => do
         let fieldName := ← expectStringOrIdent field
         let memberNames := ← expectStringList members
+        if memberNames.size > 1 && syntaxContainsCallExternal key then
+          throwErrorAt key
+            "structMembers key cannot contain callExternal when selecting multiple members because lowering reuses the key; bind the external result first"
         let exprs ← memberNames.mapM fun memberName => do
           let _ ← lookupStructMemberDecl fields fieldName memberName false
           `(Compiler.CompilationModel.Expr.structMember
@@ -4197,6 +4217,10 @@ def tupleLiteralOrStructValueExprs?
     | `(term| structMembers2 $field:term $key1:term $key2:term $members:term) => do
         let fieldName := ← expectStringOrIdent field
         let memberNames := ← expectStringList members
+        if memberNames.size > 1 &&
+            (syntaxContainsCallExternal key1 || syntaxContainsCallExternal key2) then
+          throwErrorAt rhs
+            "structMembers2 keys cannot contain callExternal when selecting multiple members because lowering reuses the keys; bind external results first"
         let exprs ← memberNames.mapM fun memberName => do
           let _ ← lookupStructMemberDecl fields fieldName memberName true
           `(Compiler.CompilationModel.Expr.structMember2
