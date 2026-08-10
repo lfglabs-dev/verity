@@ -411,7 +411,7 @@ If RUNNER_URL and RUNNER_TOKEN were set, the runner services are now installed.
 Otherwise, rerun with:
   RUNNER_URL=https://github.com/<owner>/<repo> \\
   RUNNER_TOKEN=<registration-token> \\
-  RUNNER_PROFILE=fastlane|build|dgx-gpu \\
+  RUNNER_PROFILE=fastlane|build|build-medium|dgx-gpu \\
   RUNNER_ARCH=x64|arm64 \\
   $0
 EOF

@@ -49,7 +49,9 @@ class RunnerProvisioningLabelsTests(unittest.TestCase):
         self.assertIn("mem-28g", body)
 
     def test_generic_heavy_runners_are_medium_fallbacks(self) -> None:
-        generic = self.script.split("    *)\n      case \"$1\" in", 1)[1]
+        delimiter = "    *)\n      case \"$1\" in"
+        self.assertIn(delimiter, self.script)
+        _, generic = self.script.split(delimiter, 1)
         self.assertIn("build-heavy,build-medium", generic)
 
 
