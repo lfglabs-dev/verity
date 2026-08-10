@@ -1,4 +1,6 @@
 import Contracts.Smoke.Intrinsics
+import Compiler.Proofs.IRGeneration.SourceSemantics
+import Verity.Core.Model.Denote
 
 namespace Contracts.Smoke
 
@@ -82,6 +84,26 @@ example :
       PackedStorageLoweringSmoke.setEpoch 9) : Contract Unit).run defaultState).snd.storage 0 =
       (7 + 9 * 2 ^ 16 : Nat) := by
   rfl
+
+private def packedFormalFields : List Compiler.CompilationModel.Field := [
+  ⟨"flags", .uint256, false, some 0, some { offset := 0, width := 16 }, []⟩,
+  ⟨"epoch", .uint256, false, some 0, some { offset := 16, width := 32 }, []⟩]
+
+example :
+    let afterFlags := Compiler.Proofs.IRGeneration.SourceSemantics.writeUintFieldSlots
+      packedFormalFields "flags" defaultState [0] 7
+    let afterEpoch := Compiler.Proofs.IRGeneration.SourceSemantics.writeUintFieldSlots
+      packedFormalFields "epoch" afterFlags [0] 9
+    afterEpoch.storage 0 = (7 + 9 * 2 ^ 16 : Nat) := by
+  native_decide
+
+example :
+    let afterFlags := Compiler.CompilationModel.Denote.writeUintFieldSlots
+      packedFormalFields "flags" defaultState [0] 7
+    let afterEpoch := Compiler.CompilationModel.Denote.writeUintFieldSlots
+      packedFormalFields "epoch" afterFlags [0] 9
+    afterEpoch.storage 0 = (7 + 9 * 2 ^ 16 : Nat) := by
+  native_decide
 
 example :
     (((do

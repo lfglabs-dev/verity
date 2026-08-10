@@ -2365,7 +2365,8 @@ theorem compiledStmtStep_setStorage_singleSlot
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.setStorage fieldName value) = .continue runtime' := by
         simp [SourceSemantics.execStmt, SourceSemantics.writeUintFieldSlots,
-          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient, runtime']
+          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient,
+          hfind, hunpacked, hnotTransient, runtime']
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
             (YulStmt.exprStmt (YulExpr.call "sstore" [YulExpr.lit slot, valueIR])) =
@@ -6341,7 +6342,8 @@ theorem compiledStmtStep_setStorage_aliasSlots
             { runtime with
                 world := SourceSemantics.writeUintSlots runtime.world (slot :: f.aliasSlots) valueNat } := by
         simp [SourceSemantics.execStmt, SourceSemantics.writeUintFieldSlots,
-          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient, slots]
+          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient,
+          hfind, hunpacked, hnotTransient, slots]
       -- Scope inclusion
       have hincl : FunctionBody.scopeNamesIncluded
           (stmtNextScope scope (.setStorage fieldName value)) scope := by

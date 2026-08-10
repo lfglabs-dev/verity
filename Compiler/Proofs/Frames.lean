@@ -955,33 +955,64 @@ theorem writeUintFieldSlots_preserves_storage_except
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat)
     (hslot : slot ∉ slots.map wordNormalize) :
     (writeUintFieldSlots fields fieldName world slots value).storage slot = world.storage slot := by
-  simp only [writeUintFieldSlots]
-  split
-  · simp [writeTransientTargets]
-  · exact writeUintSlots_preserves_storage_except world slots value slot hslot
+  have hcontains : (slots.map wordNormalize).contains slot = false := by
+    simpa [List.elem_eq_contains] using hslot
+  generalize hfind : Compiler.CompilationModel.findFieldWithResolvedSlot fields fieldName = found
+  cases found with
+  | none =>
+      simpa [writeUintFieldSlots, hfind] using
+        writeUintSlots_preserves_storage_except world slots value slot hslot
+  | some result =>
+      rcases result with ⟨field, resolvedSlot⟩
+      generalize hpacked : field.packedBits = packed
+      cases packed <;> simp only [writeUintFieldSlots, hfind, hpacked] <;> split
+      · rfl
+      · exact writeUintSlots_preserves_storage_except world slots value slot hslot
+      · rfl
+      · change (if (slots.map wordNormalize).contains slot then _ else _) = _
+        rw [hcontains]
+        simp
 
 theorem writeUintFieldSlots_preserves_address
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
     (writeUintFieldSlots fields fieldName world slots value).storageAddr slot =
       world.storageAddr slot := by
-  simp only [writeUintFieldSlots]
-  split <;> simp [writeTransientTargets, writeUintSlots]
+  generalize hfind : Compiler.CompilationModel.findFieldWithResolvedSlot fields fieldName = found
+  cases found with
+  | none => simp [writeUintFieldSlots, hfind, writeUintSlots]
+  | some result =>
+      rcases result with ⟨field, resolvedSlot⟩
+      generalize hpacked : field.packedBits = packed
+      cases packed <;> simp only [writeUintFieldSlots, hfind, hpacked] <;>
+        split <;> rfl
 
 theorem writeUintFieldSlots_preserves_arrays
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
     (writeUintFieldSlots fields fieldName world slots value).storageArray slot =
       world.storageArray slot := by
-  simp only [writeUintFieldSlots]
-  split <;> simp [writeTransientTargets, writeUintSlots]
+  generalize hfind : Compiler.CompilationModel.findFieldWithResolvedSlot fields fieldName = found
+  cases found with
+  | none => simp [writeUintFieldSlots, hfind, writeUintSlots]
+  | some result =>
+      rcases result with ⟨field, resolvedSlot⟩
+      generalize hpacked : field.packedBits = packed
+      cases packed <;> simp only [writeUintFieldSlots, hfind, hpacked] <;>
+        split <;> rfl
 
 theorem writeUintFieldSlots_preserves_calldata
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
     (writeUintFieldSlots fields fieldName world slots value).calldata = world.calldata := by
-  simp only [writeUintFieldSlots]
-  split <;> simp [writeTransientTargets, writeUintSlots]
+  generalize hfind : Compiler.CompilationModel.findFieldWithResolvedSlot fields fieldName = found
+  cases found with
+  | none => simp [writeUintFieldSlots, hfind, writeUintSlots]
+  | some result =>
+      rcases result with ⟨field, resolvedSlot⟩
+      generalize hpacked : field.packedBits = packed
+      cases packed <;> simp only [writeUintFieldSlots, hfind, hpacked] <;>
+        split <;> rfl
 
 theorem writeAddressFieldSlots_preserves_address_except
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)

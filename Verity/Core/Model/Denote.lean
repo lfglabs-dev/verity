@@ -308,13 +308,35 @@ def writeTransientTargets (world : Verity.ContractState) (targets : List Nat) (v
     transientStorage := fun slot =>
       if targets.contains slot then word else world.transientStorage slot }
 
+def packedWordWrite (current value : Nat) (packed : PackedBits) : Nat :=
+  let maskNat := packedMaskNat packed
+  let shiftedMaskNat := maskNat * (2 ^ packed.offset)
+  let packedValue := Verity.Core.Uint256.and value maskNat
+  let cleared := Verity.Core.Uint256.and current (Verity.Core.Uint256.not shiftedMaskNat)
+  (Verity.Core.Uint256.or cleared (Verity.Core.Uint256.shl packed.offset packedValue)).val
+
 def writeUintFieldSlots (fields : List Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
     Verity.ContractState :=
-  if fieldIsTransient fields fieldName then
-    writeTransientTargets world slots value
-  else
-    writeUintSlots world slots value
+  match findFieldWithResolvedSlot fields fieldName with
+  | some (field, _) =>
+      match field.packedBits with
+      | some packed =>
+          let targets := slots.map wordNormalize
+          if field.isTransient then
+            { world with transientStorage := fun slot =>
+                if targets.contains slot then
+                  packedWordWrite (world.transientStorage slot).val value packed
+                else world.transientStorage slot }
+          else
+            { world with storage := fun slot =>
+                if targets.contains slot then
+                  packedWordWrite (world.storage slot).val value packed
+                else world.storage slot }
+      | none =>
+          if field.isTransient then writeTransientTargets world slots value
+          else writeUintSlots world slots value
+  | none => writeUintSlots world slots value
 
 def writeStorageWordFieldSlots (fields : List Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (wordOffset value : Nat) :
@@ -399,13 +421,6 @@ def writeAddressKeyedMappingWordSlots (oracle : DenoteOracle)
   { world with
     storage := fun slot =>
       if targets.contains slot then word else world.storage slot }
-
-def packedWordWrite (current value : Nat) (packed : PackedBits) : Nat :=
-  let maskNat := packedMaskNat packed
-  let shiftedMaskNat := maskNat * (2 ^ packed.offset)
-  let packedValue := Verity.Core.Uint256.and value maskNat
-  let cleared := Verity.Core.Uint256.and current (Verity.Core.Uint256.not shiftedMaskNat)
-  (Verity.Core.Uint256.or cleared (Verity.Core.Uint256.shl packed.offset packedValue)).val
 
 def readFixedUint128ArrayElement
     (world : Verity.ContractState) (slot size index : Nat) : Option Nat :=
