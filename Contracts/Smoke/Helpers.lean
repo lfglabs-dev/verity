@@ -114,6 +114,23 @@ verity_contract NarrowConstructorBase where
   constructor (value : Uint8) := do
     pure ()
 
+-- A literal parent argument is accepted at the declared narrow width and the
+-- inherited body must continue to see that width after constructor flattening.
+verity_contract TypedNarrowConstructorBase where
+  storage
+
+  constructor (value : Uint24) := do
+    let _sum ← narrowAddPanic value value
+    pure ()
+
+verity_contract TypedNarrowConstructorChild is TypedNarrowConstructorBase where
+  storage
+
+  constructor () TypedNarrowConstructorBase(1) := do
+    pure ()
+
+#check_contract TypedNarrowConstructorChild
+
 /--
 error: parent constructor parameter 'value' expects Verity.Macro.ValueType.uint8, got Verity.Macro.ValueType.uint256
 -/
@@ -244,6 +261,22 @@ verity_contract InheritedTypeNameBase where
   types
     Amount : Uint256
   storage
+
+namespace QualifiedTypeFixture
+abbrev Amount := Address
+end QualifiedTypeFixture
+
+/--
+error: unsupported type 'QualifiedTypeFixture.Amount'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section
+-/
+#guard_msgs in
+verity_contract QualifiedLocalTypeCaptureRejected where
+  types
+    Amount : Uint256
+  storage
+
+  function inspect (_value : QualifiedTypeFixture.Amount) : Unit := do
+    pure ()
 
 /--
 error: duplicate type name 'Amount'

@@ -740,7 +740,11 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
             constructor=child_constructor,
             functions=tuple(inherited_functions.values()),
             storage_slots=parent.storage_slots | child.storage_slots,
-            storage_types=parent.storage_types | child.storage_types,
+            storage_types=parent.storage_types
+            | {
+                field_name: _resolve_decl_type(field_type, merged_newtypes, merged_structs)
+                for field_name, field_type in child.storage_types.items()
+            },
             transient_slots=parent.transient_slots | child.transient_slots,
             newtypes=merged_newtypes,
             structs=merged_structs,

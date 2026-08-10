@@ -2872,6 +2872,16 @@ private def paramReservesName (param : ParamDecl) (name : String) : Bool :=
         s!"{param.name}_{idx}" == name
     | _ => false
 
+private partial def normalizeParentConstructorArg
+    (paramTy : ValueType) (arg : Term) : CommandElabM Term := do
+  match paramTy with
+  | .uintN bits => `(narrowUInt $(natTerm bits) $arg)
+  | .intN bits => `(narrowInt $(natTerm bits) $arg)
+  | .bytesN bytes => `(narrowBytes $(natTerm bytes) $arg)
+  | .int256 => `(toInt256 $arg)
+  | .newtype _ baseType => normalizeParentConstructorArg baseType arg
+  | _ => pure arg
+
 private def composeConstructors
     (parentName : Ident) (parentContract childContract : ParsedContractSyntax) :
     CommandElabM (Option ConstructorDecl) := do
@@ -2928,7 +2938,12 @@ private def composeConstructors
         if !isIdentityArg then
           if child.params.any (fun childParam => paramReservesName childParam param.name) then
             throwErrorAt arg s!"parent constructor parameter '{param.name}' conflicts with a child constructor parameter; rename the child parameter"
-          let binding ← `(doElem| let $param.ident := $arg)
+          -- Parent arguments have already been checked against `param.ty`,
+          -- but Lean and the model typer otherwise infer literals at their
+          -- default type. Normalize width-sensitive values before binding so
+          -- inherited bodies retain the parent's declared semantics.
+          let normalizedArg ← normalizeParentConstructorArg param.ty arg
+          let binding ← `(doElem| let $param.ident := $normalizedArg)
           parentBindings := parentBindings.push binding
           boundParentParamNames := boundParentParamNames.push param.name
       let scopedParent ← `(doElem| if true then

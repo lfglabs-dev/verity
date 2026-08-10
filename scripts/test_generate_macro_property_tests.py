@@ -81,6 +81,35 @@ class ParseContractsTests(unittest.TestCase):
             contracts = gen.collect_contracts([source])
             self.assertEqual(contracts["Child"].parent_name, "Base")
 
+    def test_collect_contracts_resolves_inherited_alias_in_child_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Contracts.lean"
+            source.write_text(
+                textwrap.dedent(
+                    """
+                    verity_contract Base where
+                      types
+                        Amount : Uint256
+                      storage
+
+                    verity_contract Child is Base where
+                      storage
+                        left : Amount := slot 0
+                        right : Amount := slot 1
+
+                      function sum () : Amount := do
+                        let a ← getStorage left
+                        let b ← getStorage right
+                        return (add a b)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            child = gen.collect_contracts([source])["Child"]
+            self.assertEqual(child.storage_types, {"left": "Uint256", "right": "Uint256"})
+            self.assertEqual(gen._sol_type(child.storage_types["left"]), "uint256")
+            self.assertEqual(gen._sol_type(child.storage_types["right"]), "uint256")
+
     def test_parse_contracts_rejects_duplicate_unqualified_names(self) -> None:
         src = textwrap.dedent(
             """

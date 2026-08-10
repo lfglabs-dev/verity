@@ -357,11 +357,20 @@ partial def valueTypeFromSyntax
       pure (.tuple elems.toList)
   | `(term| Unit) => pure .unit
   | `(term| $id:ident) =>
+      -- Use the source spelling when deciding whether this is one of the
+      -- contract-local declarations. `getId` may contain a namespace added
+      -- while inherited syntax was elaborated, while `rawVal` still records
+      -- whether the author actually wrote a qualifier. In particular, an
+      -- explicitly qualified `Other.Amount` must never capture local
+      -- `Amount` merely because both names have the same final component.
+      let sourceName := match id.raw with
+        | .ident _ rawVal _ _ => rawVal.toString
+        | _ => toString id.getId
       -- Inherited declarations have already been elaborated, so an
       -- unqualified type written in the child may carry its resolved
       -- namespace here.  Contract-local type tables store the source-local
-      -- name; compare that final component consistently.
-      let tyName := id.getId.getString!
+      -- name; the source spelling preserves that unqualified identity.
+      let tyName := sourceName
       if let some bits := parseNarrowTypeSuffix "Uint" tyName then
         if validIntegerWidth bits then pure (.uintN bits)
         else throwErrorAt ty s!"invalid Solidity unsigned integer width {bits}; expected a multiple of 8 from 8 through 248"
