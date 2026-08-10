@@ -605,6 +605,20 @@ verity_contract EffectfulConditionalConditionRejected where
   function bad () : Uint256 := do
     return ite (callExternal dirtyBool()) 1 0
 
+/-- error: conditional operands cannot contain callExternal because expression lowering duplicates the condition and evaluates both branches; use statement-level control flow -/
+#guard_msgs in
+verity_contract EffectfulEvmCallConditionalBranchRejected where
+  storage
+  function bad (target : Address) : Uint256 := do
+    return ite false (evmCall(50000, target, 0, 0, 0, 0, 0)) 0
+
+/-- error: conditional operands cannot contain callExternal because expression lowering duplicates the condition and evaluates both branches; use statement-level control flow -/
+#guard_msgs in
+verity_contract EffectfulEvmStaticCallConditionalBranchRejected where
+  storage
+  function bad (target : Address) : Uint256 := do
+    return ite false (evmStaticCall(50000, target, 0, 0, 0, 0)) 0
+
 /-- error: duplicated expression operands cannot contain callExternal; bind the external result first -/
 #guard_msgs in
 verity_contract EffectfulDuplicatedOperandRejected where

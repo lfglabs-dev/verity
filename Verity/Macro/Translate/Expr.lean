@@ -1824,7 +1824,16 @@ partial def inferLeanDefCallType?
 partial def syntaxContainsCallExternal (stx : Syntax) : Bool :=
   match stx with
   | .node _ _ args =>
-      if let `(term| callExternal $_name:ident ($[$_args:term],*)) := stx then
+      if stx.getKind == `Verity.Macro.evmCallTerm ||
+          stx.getKind == `Verity.Macro.evmStaticCallTerm then
+        true
+      else if let `(term| callExternal $_name:ident ($[$_args:term],*)) := stx then
+        true
+      else if let `(term| call $_gas $_target $_value $_inOffset $_inSize $_outOffset $_outSize) := stx then
+        true
+      else if let `(term| staticcall $_gas $_target $_inOffset $_inSize $_outOffset $_outSize) := stx then
+        true
+      else if let `(term| delegatecall $_gas $_target $_inOffset $_inSize $_outOffset $_outSize) := stx then
         true
       else
         args.any syntaxContainsCallExternal
