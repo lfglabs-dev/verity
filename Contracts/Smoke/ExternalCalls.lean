@@ -177,6 +177,8 @@ example :
           [ Compiler.CompilationModel.Expr.param "leaves_data_offset"
           , Compiler.CompilationModel.Expr.param "leaves_length"
           ]
+      , Compiler.CompilationModel.Stmt.assignVar "_success"
+          (.logicalNot (.eq (.localVar "_success") (.literal 0)))
       , Compiler.CompilationModel.Stmt.return
           (Compiler.CompilationModel.Expr.localVar "h")
       ] := rfl
@@ -222,6 +224,8 @@ example :
               (Compiler.CompilationModel.Expr.param "idx")
               1
           ]
+      , Compiler.CompilationModel.Stmt.assignVar "_success"
+          (.logicalNot (.eq (.localVar "_success") (.literal 0)))
       , Compiler.CompilationModel.Stmt.return
           (Compiler.CompilationModel.Expr.localVar "h")
       ] := rfl
@@ -257,6 +261,8 @@ example :
               (Compiler.CompilationModel.Expr.param "idx")
               3
           ]
+      , Compiler.CompilationModel.Stmt.assignVar "_success"
+          (.logicalNot (.eq (.localVar "_success") (.literal 0)))
       , Compiler.CompilationModel.Stmt.return
           (Compiler.CompilationModel.Expr.localVar "h")
       ] := rfl
