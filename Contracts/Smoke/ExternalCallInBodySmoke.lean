@@ -32,6 +32,8 @@ verity_contract ExternalCallInBodySmoke where
     wide : Uint256
   errors
     error Failure(Uint256)
+  events
+    event Seen(value : Uint256)
 
   linked_externals
     external getDepositableEther() -> (Uint256)
