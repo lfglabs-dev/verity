@@ -52,6 +52,66 @@ def commitWorlds (adversary : AdversaryModel) (world : Verity.ContractState)
     (sites : List CallSite) : Verity.ContractState :=
   sites.foldl (commitWorld adversary) world
 
+/-! ## Top-level transaction rollback -/
+
+/-- The control result of the enclosing transaction.  Unlike an individual
+external-call result, `revert` rolls back every mutable call already performed
+by the program. -/
+inductive TransactionResult (α : Type) where
+  | commit (value : α)
+  | revert (returndata : List Nat)
+  deriving DecidableEq, Repr
+
+/-- The observable result and final caller state of a transaction. -/
+structure TransactionObservation (α : Type) where
+  result : TransactionResult α
+  state : CallState
+
+/-- Run a call program against a snapshot of the caller world.  A committed
+result keeps the threaded state.  A top-level revert restores the initial
+world after all inner calls have run, while retaining charged gas and exposing
+the transaction's revert data. -/
+def denoteTransaction (prog : CallProgram (TransactionResult α))
+    (adversary : AdversaryModel) (state : CallState) : TransactionObservation α :=
+  let (result, postState) := denote prog adversary state
+  match result with
+  | .commit value => { result := .commit value, state := postState }
+  | .revert data =>
+      { result := .revert data
+        state := { postState with world := state.world, returndata := data } }
+
+theorem denoteTransaction_commit_eq (prog : CallProgram (TransactionResult α))
+    (adversary : AdversaryModel) (state : CallState) (value : α)
+    (h : (denote prog adversary state).1 = .commit value) :
+    denoteTransaction prog adversary state =
+      { result := .commit value, state := (denote prog adversary state).2 } := by
+  simp [denoteTransaction, h]
+
+theorem denoteTransaction_revert_world (prog : CallProgram (TransactionResult α))
+    (adversary : AdversaryModel) (state : CallState) (data : List Nat)
+    (h : (denote prog adversary state).1 = .revert data) :
+    (denoteTransaction prog adversary state).state.world = state.world := by
+  simp [denoteTransaction, h]
+
+theorem denoteTransaction_revert_result (prog : CallProgram (TransactionResult α))
+    (adversary : AdversaryModel) (state : CallState) (data : List Nat)
+    (h : (denote prog adversary state).1 = .revert data) :
+    (denoteTransaction prog adversary state).result = .revert data := by
+  simp [denoteTransaction, h]
+
+theorem denoteTransaction_revert_returndata (prog : CallProgram (TransactionResult α))
+    (adversary : AdversaryModel) (state : CallState) (data : List Nat)
+    (h : (denote prog adversary state).1 = .revert data) :
+    (denoteTransaction prog adversary state).state.returndata = data := by
+  simp [denoteTransaction, h]
+
+theorem denoteTransaction_revert_gasRemaining (prog : CallProgram (TransactionResult α))
+    (adversary : AdversaryModel) (state : CallState) (data : List Nat)
+    (h : (denote prog adversary state).1 = .revert data) :
+    (denoteTransaction prog adversary state).state.gasRemaining =
+      (denote prog adversary state).2.gasRemaining := by
+  simp [denoteTransaction, h]
+
 theorem denote_pure_world (value : α) (adversary : AdversaryModel)
     (state : CallState) :
     (denote (.pure value) adversary state).2.world = state.world := rfl
