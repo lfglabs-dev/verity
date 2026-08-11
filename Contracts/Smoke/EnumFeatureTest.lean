@@ -69,9 +69,12 @@ def eventAndErrorUseUint8Abi : Bool :=
 
 example : eventAndErrorUseUint8Abi = true := by native_decide
 
-def memberConstantIsOne : Bool := MacroEnumUsage.Status.Active == 1
+def memberConstantsFollowDeclarationOrder : Bool :=
+  MacroEnumUsage.Status.Pending == 0 &&
+    MacroEnumUsage.Status.Active == 1 &&
+    MacroEnumUsage.Status.Closed == 2
 
-example : memberConstantIsOne = true := by native_decide
+example : memberConstantsFollowDeclarationOrder = true := by native_decide
 
 def castAcceptsLastMember : Bool :=
   match MacroEnumUsage.castStatus 2 defaultState with
