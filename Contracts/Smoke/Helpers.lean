@@ -285,7 +285,7 @@ abbrev Amount := Address
 end QualifiedTypeFixture
 
 /--
-error: unsupported type 'QualifiedTypeFixture.Amount'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section
+error: unsupported type 'QualifiedTypeFixture.Amount'; expected a built-in type or a user-defined enum, struct, newtype, or inductive type
 -/
 #guard_msgs in
 verity_contract QualifiedLocalTypeCaptureRejected where
