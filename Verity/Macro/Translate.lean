@@ -1710,7 +1710,8 @@ private def translateBodyToStmtTerms
     (fn : FunctionDecl) : CommandElabM (Array Term) := do
   match fn.body with
   | `(term| do $[$elems:doElem]*) =>
-      let enumGuardCount := (← enumParamGuards fn.params).size
+      let enumGuardCount := fn.params.countP fun param =>
+        match param.ty with | .enum _ _ => true | _ => false
       let guardPrelude ← initGuardPreludeStmtTerms fields fn
       let rolePrelude ← roleGuardPreludeStmtTerms fields roleDecls fn
       let modifierPrelude ← fn.modifiers.mapM fun modIdent =>
@@ -2115,6 +2116,7 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
         | .uint256 => `(Uint256)
         | .address => `(Address)
         | _ => throwError "storage field with newtype base type not supported; use Uint256 or Address"
+    | .scalar (.enum _ _) => `(Uint256)
     | .scalar (.adt _ _) => `(Uint256)  -- ADTs stored as tag value in storage (#1727 Step 5b)
     | .dynamicArray .uint256 => `(List Uint256)
     | .dynamicArray .address => `(List Address)
@@ -2557,7 +2559,8 @@ private def mkSpecCommand
           (constructorLocalObligationsWithArithmetic ctor immutableDecls).mapM mkModelLocalObligationTerm
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
         let ctorBodyTerms ← translateConstructorBodyToStmtTerms fields errorDecls constDecls immutableDecls externalDecls functions ctor
-        let enumGuardCount := (← enumParamGuards ctor.params).size
+        let enumGuardCount := ctor.params.countP fun param =>
+          match param.ty with | .enum _ _ => true | _ => false
         let ctorAllTerms := ctorBodyTerms.take enumGuardCount ++ immutableInitTerms ++
           ctorBodyTerms.drop enumGuardCount
         `(some {
@@ -3289,7 +3292,7 @@ def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident $[is $parentName:ident]? where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident $[is $parentName:ident]? where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
       -- Resolve inheritance before parsing the child: inherited user-defined
       -- types are valid in every child declaration and function signature.
       let currentNs ← getCurrNamespace
@@ -3313,6 +3316,12 @@ def parseContractSyntax
         match newtypeDecls with
         | some decls => decls.mapM parseNewtype
         | none => pure #[]
+      let parsedEnums ←
+        match enumDecls with
+        | some decls => decls.mapM parseEnumDecl
+        | none => pure #[]
+      let parsedNewtypes := parsedNewtypes ++ parsedEnums.map (fun e => {
+        ident := e.ident, name := e.name, baseType := .uint8, enumMembers := e.members })
       let typeNewtypes := parent?.map (fun p => p.newtypeDecls ++ parsedNewtypes) |>.getD parsedNewtypes
       -- Validate: no duplicate type names
       let inheritedTypeNames := parent?.map (fun p =>
