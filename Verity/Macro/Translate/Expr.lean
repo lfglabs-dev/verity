@@ -52,6 +52,7 @@ partial def modelParamTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .newtype name baseType => do
       let baseTerm ← modelParamTypeTerm baseType
       `(Compiler.CompilationModel.ParamType.newtypeOf $(Lean.quote name) $baseTerm)
+  | .enum _ _ => `(Compiler.CompilationModel.ParamType.uint8)
   | .adt name maxFields => do
       `(Compiler.CompilationModel.ParamType.adt $(Lean.quote name) $(Lean.quote maxFields))
 
@@ -73,6 +74,7 @@ def modelReturnTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .tuple _ => `(none)
   | .struct _ _ => `(none)
   | .newtype _ baseType => modelReturnTypeTerm baseType
+  | .enum _ _ => `(none)
   | .adt _ _ => `(none)  -- ADTs are not directly returnable as single FieldType
 
 partial def modelReturnsTerm (ty : ValueType) : CommandElabM Term :=
@@ -103,6 +105,7 @@ partial def modelReturnsTerm (ty : ValueType) : CommandElabM Term :=
   | .newtype name baseType => do
       let baseTerm ← modelParamTypeTerm baseType
       `([Compiler.CompilationModel.ParamType.newtypeOf $(Lean.quote name) $baseTerm])
+  | .enum _ _ => `([Compiler.CompilationModel.ParamType.uint8])
   | .adt name maxFields => do
       `([Compiler.CompilationModel.ParamType.adt $(Lean.quote name) $(Lean.quote maxFields)])
 
@@ -189,6 +192,7 @@ partial def contractValueTypeTerm (ty : ValueType) : CommandElabM Term :=
   | .tuple elemTys => mkTupleContractType elemTys
   | .unit => `(Unit)
   | .newtype _ baseType => contractValueTypeTerm baseType  -- Erased to base type at contract level
+  | .enum _ _ => `(Uint256)
   | .struct name _ => pure (mkIdent (Name.mkSimple name))
   | .adt _ _ => `(Uint256)  -- ADTs represented as tag value at contract level
 end
@@ -213,6 +217,7 @@ def normalizeTranslatedExprForType
           `(Compiler.CompilationModel.Expr.bitAnd $expr
               (Compiler.CompilationModel.Expr.literal $(natTerm mask)))
   | .newtype _ baseType => normalizeTranslatedExprForType baseType source expr
+  | .enum _ _ => `(Compiler.CompilationModel.Expr.bitAnd $expr (Compiler.CompilationModel.Expr.literal 255))
   | _ => pure expr
 
 def immutableHiddenName (imm : ImmutableDecl) : String :=
@@ -692,6 +697,7 @@ def isWordLikeValueType : ValueType → Bool
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 => true
   | .newtype _ baseType => isWordLikeValueType baseType
+  | .enum _ _ => true
   | _ => false
 
 def isSingleWordStaticValueType : ValueType → Bool
@@ -726,6 +732,7 @@ partial def staticAbiWordCount? : ValueType → Option Nat
           | _, _ => none)
         (some 0)
   | .newtype _ baseType => staticAbiWordCount? baseType
+  | .enum _ _ => some 1
   | _ => none
 
 partial def staticAbiLeafNames? : ValueType → Option (List String)
@@ -753,6 +760,7 @@ partial def staticAbiLeafNames? : ValueType → Option (List String)
           out := out ++ [if suffix == "" then fieldName else s!"{fieldName}_{suffix}"]
       some out
   | .newtype _ baseType => staticAbiLeafNames? baseType
+  | .enum _ _ => some [""]
   | _ => none
 
 partial def staticStructDirectFieldLocals?
@@ -796,6 +804,7 @@ partial def abiLocalHeadWordCount? : ValueType → Option Nat
           | _, _ => none)
         (some 0)
   | .newtype _ baseType => abiLocalHeadWordCount? baseType
+  | .enum _ _ => some 1
   | .adt _ _ | .unit => none
 
 partial def valueTypeUsesDynamicData : ValueType → Bool
@@ -804,6 +813,7 @@ partial def valueTypeUsesDynamicData : ValueType → Bool
   | .tuple elemTys => elemTys.any valueTypeUsesDynamicData
   | .struct _ fields => fields.any (fun field => valueTypeUsesDynamicData field.snd)
   | .newtype _ baseType => valueTypeUsesDynamicData baseType
+  | .enum _ _ => false
   | .adt _ _ => false  -- ADTs are stored as tag + fixed-width slots, not dynamic
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 | .bool | .unit => false
@@ -822,6 +832,7 @@ partial def abiParentHeadWordCount? (ty : ValueType) : Option Nat :=
       else
         abiLocalHeadWordCount? ty
   | .newtype _ baseType => abiParentHeadWordCount? baseType
+  | .enum _ _ => some 1
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 | .bool => some 1
   | .adt _ _ | .unit => none
@@ -830,6 +841,10 @@ def classifyWordArithmeticResultType
     (stx : Syntax)
     (context : String)
     (lhsTy rhsTy : ValueType) : CommandElabM ValueType := do
+  if (match lhsTy with | .enum _ _ => true | _ => false) ||
+      (match rhsTy with | .enum _ _ => true | _ => false) then
+    throwErrorAt stx
+      s!"{context} requires `toUint256` before applying word operators to enum values; got {reprStr lhsTy} and {reprStr rhsTy}"
   unless isWordLikeValueType lhsTy do
     throwErrorAt stx s!"{context} requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got {reprStr lhsTy}"
   unless isWordLikeValueType rhsTy do
@@ -851,6 +866,10 @@ def classifyUnsignedWordArithmeticResultType
     (stx : Syntax)
     (context : String)
     (lhsTy rhsTy : ValueType) : CommandElabM ValueType := do
+  if (match lhsTy with | .enum _ _ => true | _ => false) ||
+      (match rhsTy with | .enum _ _ => true | _ => false) then
+    throwErrorAt stx
+      s!"{context} requires `toUint256` before applying word operators to enum values; got {reprStr lhsTy} and {reprStr rhsTy}"
   unless isWordLikeValueType lhsTy do
     throwErrorAt stx s!"{context} requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got {reprStr lhsTy}"
   unless isWordLikeValueType rhsTy do
@@ -865,6 +884,7 @@ def isNatLiteralTerm (stx : Term) : Bool :=
 def numericLiteralCompatibleValueType : ValueType → Bool
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ => true
   | .newtype _ baseType => numericLiteralCompatibleValueType baseType
+  | .enum _ _ => false
   | _ => false
 
 def argumentTypeMatchesParam (arg : Term) (argTy paramTy : ValueType) : Bool :=
@@ -1373,10 +1393,20 @@ def requireTypedInterfaceStaticParams
     True dynamic returns (bytes/string, arrays with dynamic elements) are
     still rejected here with the #1982 error until full ABI-frame
     typed-interface lowering exists. -/
+partial def containsEnumInterfaceReturn : ValueType → Bool
+  | .enum _ _ => true
+  | .array ty | .fixedArray ty _ | .newtype _ ty => containsEnumInterfaceReturn ty
+  | .tuple tys => tys.any containsEnumInterfaceReturn
+  | .struct _ fields => fields.any (fun field => containsEnumInterfaceReturn field.snd)
+  | _ => false
+
 def requireTypedInterfaceStaticReturns
     (stx : Syntax) (externalName : String) (returnTys : Array ValueType) : CommandElabM Unit := do
   for h : i in [:returnTys.size] do
     let ty := returnTys[i]
+    if containsEnumInterfaceReturn ty then
+      throwErrorAt stx
+        s!"typed interface call '{externalName}' uses an enum-valued return; checked enum decoding from untrusted external returndata is not implemented"
     if staticAbiWordCount? ty |>.isNone then
       throwErrorAt stx
         s!"typed interface call '{externalName}' currently supports only static (single-word or composite) returns; return {i + 1} has {renderValueType ty}. Dynamic and composite ABI returns require ABI-frame typed-interface lowering, which is not implemented yet (#1982)."
@@ -1407,6 +1437,13 @@ def requireWordOrDirectArrayType (stx : Syntax) (context : String) (ty : ValueTy
 def requireWordLikeType (stx : Syntax) (context : String) (ty : ValueType) : CommandElabM Unit := do
   unless isWordLikeValueType ty do
     throwErrorAt stx s!"{context} requires a word-like value (Uint256, Int256, Uint8, Address, or Bytes32), got {renderValueType ty}"
+
+def requireWordOperatorType (stx : Syntax) (context : String) (ty : ValueType) : CommandElabM Unit := do
+  match ty with
+  | .enum _ _ =>
+      throwErrorAt stx
+        s!"{context} requires `toUint256` before applying word operators to enum values; got {renderValueType ty}"
+  | _ => requireWordLikeType stx context ty
 
 def requireBoolType (stx : Syntax) (context : String) (ty : ValueType) : CommandElabM Unit := do
   unless ty == .bool do
@@ -1505,10 +1542,14 @@ def requireSupportedReturnStorageWordsType
         s!"{context} requires an Array parameter on the compilation-model path, got {renderValueType ty}"
 
 def requireEqComparableTypes (stx : Syntax) (lhsTy rhsTy : ValueType) : CommandElabM Unit := do
-  let bothWordLike := isWordLikeValueType lhsTy && isWordLikeValueType rhsTy
+  let involvesEnum := match lhsTy, rhsTy with
+    | .enum _ _, _ | _, .enum _ _ => true
+    | _, _ => false
+  let bothWordLike := !involvesEnum && isWordLikeValueType lhsTy && isWordLikeValueType rhsTy
+  let sameEnum := involvesEnum && lhsTy == rhsTy
   let bothBool := lhsTy == .bool && rhsTy == .bool
   let bothDynamicBytes := (lhsTy == .string && rhsTy == .string) || (lhsTy == .bytes && rhsTy == .bytes)
-  unless bothWordLike || bothBool || bothDynamicBytes do
+  unless sameEnum || bothWordLike || bothBool || bothDynamicBytes do
     throwErrorAt stx
       s!"equality is currently supported only for Bool, matching bytes/string params, and word-like values (Uint256, Int256, Uint8, Address, Bytes32); got {renderValueType lhsTy} and {renderValueType rhsTy}"
 
@@ -1542,7 +1583,10 @@ def dynamicEqParamNames
         "bytes/string equality currently requires direct parameter references on the compilation-model path"
 
 def requireSameOrWordLikeTypes (stx : Syntax) (context : String) (lhsTy rhsTy : ValueType) : CommandElabM Unit := do
-  unless lhsTy == rhsTy || (isWordLikeValueType lhsTy && isWordLikeValueType rhsTy) do
+  let involvesEnum := match lhsTy, rhsTy with
+    | .enum _ _, _ | _, .enum _ _ => true
+    | _, _ => false
+  unless lhsTy == rhsTy || (!involvesEnum && isWordLikeValueType lhsTy && isWordLikeValueType rhsTy) do
     throwErrorAt stx
       s!"{context} requires matching branch types, got {renderValueType lhsTy} and {renderValueType rhsTy}"
 
@@ -1550,7 +1594,11 @@ def requireDeclaredValueType
     (stx : Syntax)
     (context : String)
     (expectedTy actualTy : ValueType) : CommandElabM Unit := do
-  unless actualTy == expectedTy || (isWordLikeValueType actualTy && isWordLikeValueType expectedTy) do
+  let involvesEnum := match expectedTy, actualTy with
+    | .enum _ _, _ | _, .enum _ _ => true
+    | _, _ => false
+  unless actualTy == expectedTy ||
+      (!involvesEnum && isWordLikeValueType actualTy && isWordLikeValueType expectedTy) do
     throwErrorAt stx
       s!"{context} expects {renderValueType expectedTy}, got {renderValueType actualTy}"
 
@@ -1597,6 +1645,7 @@ def customErrorRequiresDirectParamRef : ValueType → Bool
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bool | .bytes32 => false
   | .newtype _ baseType => customErrorRequiresDirectParamRef baseType
+  | .enum _ _ => false
   | _ => true
 
 def directParamRefName? (stx : Term) : Option String :=
@@ -1992,22 +2041,22 @@ partial def inferPureExprType
       classifyUnsignedWordArithmeticResultType stx "signed builtin arithmetic" lhsTy rhsTy
   | `(term| bitNot $a) | `(term| not $a) => do
       let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
-      requireWordLikeType a "bitwise not" ty
+      requireWordOperatorType a "bitwise not" ty
       pure .uint256
   | `(term| shl $shift $value) | `(term| shr $shift $value) | `(term| sar $shift $value)
     | `(term| signextend $shift $value) => do
-      requireWordLikeType shift "shift" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals shift visitingConstants)
+      requireWordOperatorType shift "shift" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals shift visitingConstants)
       let valueTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value visitingConstants
-      requireWordLikeType value "shift" valueTy
+      requireWordOperatorType value "shift" valueTy
       pure .uint256
   | `(term| byte $index $value) => do
-      requireWordLikeType index "byte index" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index visitingConstants)
+      requireWordOperatorType index "byte index" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals index visitingConstants)
       let valueTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value visitingConstants
-      requireWordLikeType value "byte value" valueTy
+      requireWordOperatorType value "byte value" valueTy
       pure .uint256
   | `(term| slt $a $b) | `(term| sgt $a $b) => do
-      requireWordLikeType a "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
-      requireWordLikeType b "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
+      requireWordOperatorType a "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      requireWordOperatorType b "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
       pure .bool
   | `(term| $a == $b) | `(term| $a != $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
@@ -2025,11 +2074,11 @@ partial def inferPureExprType
       requireBoolType b "logical operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
       pure .bool
   | `(term| logicalAnd $a $b) | `(term| logicalOr $a $b) => do
-      requireWordLikeType a "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
-      requireWordLikeType b "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
+      requireWordOperatorType a "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      requireWordOperatorType b "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
       pure .uint256
   | `(term| logicalNot $a) => do
-      requireWordLikeType a "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
+      requireWordOperatorType a "logical word operator" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       pure .uint256
   | `(term| ! $a) => do
       requireBoolType a "logical not" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
@@ -2263,6 +2312,7 @@ partial def inferBindSourceType
       | .scalar (.uintN bits) => pure (.uintN bits)
       | .scalar .int256 => pure .int256
       | .scalar (.newtype ntName (.uint256)) => pure (.newtype ntName .uint256)
+      | .scalar (.enum name memberCount) => pure (.enum name memberCount)
       | .scalar (.adt name maxFields) => pure (.adt name maxFields)
       | .scalar (.newtype _ (.address)) => throwErrorAt rhs s!"field '{f.name}' is Address-based newtype; use getStorageAddr"
       | .scalar .address => throwErrorAt rhs s!"field '{f.name}' is Address; use getStorageAddr"
@@ -2305,13 +2355,15 @@ partial def inferBindSourceType
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mappingAddressToUint256 | .mappingUintToUint256 => pure .uint256
+      | .mappingAddressToEnum name memberCount | .mappingUintToEnum name memberCount =>
+          pure (.enum name memberCount)
       | .mappingStruct _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a struct-valued mapping; use structMember"
       | .mappingStruct2 _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a nested struct mapping; use structMember2"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -2321,13 +2373,15 @@ partial def inferBindSourceType
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mappingAddressToUint256 | .mappingUintToUint256 => pure .address
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
+          throwErrorAt rhs s!"field '{f.name}' is enum-valued; use getMapping/getMappingUint"
       | .mappingStruct _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a struct-valued mapping; use structMember"
       | .mappingStruct2 _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a nested struct mapping; use structMember2"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -2338,6 +2392,7 @@ partial def inferBindSourceType
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .mapping2AddressToAddressToUint256 => pure .uint256
+      | .mapping2AddressToAddressToEnum name memberCount => pure (.enum name memberCount)
       | .mappingStruct2 _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a nested struct mapping; use structMember2"
       | .mappingStruct _ _ =>
@@ -2351,7 +2406,9 @@ partial def inferBindSourceType
       match storageTypeMappingKeyTypes? f.ty with
       | some keyTypes =>
           if keyTerms.size == keyTypes.length then
-            pure .uint256
+            match f.ty with
+            | .mappingChainEnum _ name memberCount => pure (.enum name memberCount)
+            | _ => pure .uint256
           else
             throwErrorAt rhs s!"field '{f.name}' expects {keyTypes.length} mapping keys, but getMappingN received {keyTerms.size}"
       | none =>
@@ -4685,7 +4742,7 @@ def translateBindSource
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .scalar .uint256 | .scalar .int256 | .scalar .uint16 | .scalar (.uintN _)
-      | .scalar (.newtype _ .uint256) | .scalar (.adt _ _) =>
+      | .scalar (.newtype _ .uint256) | .scalar (.enum _ _) | .scalar (.adt _ _) =>
           `(Compiler.CompilationModel.Expr.storage $(strTerm f.name))
       | .scalar .bool => throwErrorAt rhs s!"field '{f.name}' is Bool; encode as Uint256 and use getStorage"
       | .scalar .address | .scalar (.newtype _ .address) =>
@@ -4725,13 +4782,13 @@ def translateBindSource
   | `(term| getMapping $field:ident $key:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingAddressToUint256 =>
+      | .mappingAddressToUint256 | .mappingAddressToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mapping $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
-      | .mappingUintToUint256 =>
+      | .mappingUintToUint256 | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -4745,9 +4802,11 @@ def translateBindSource
           `(Compiler.CompilationModel.Expr.mapping $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
       | .mappingUintToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is Uint256-keyed; use getMappingUintAddr"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
+          throwErrorAt rhs s!"field '{f.name}' is enum-valued; use getMapping/getMappingUint"
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -4757,13 +4816,13 @@ def translateBindSource
   | `(term| getMappingUint $field:ident $key:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingUintToUint256 =>
+      | .mappingUintToUint256 | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
-      | .mappingAddressToUint256 =>
+      | .mappingAddressToUint256 | .mappingAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is Address-keyed; use getMapping"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -4777,9 +4836,11 @@ def translateBindSource
           `(Compiler.CompilationModel.Expr.mappingUint $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key))
       | .mappingAddressToUint256 =>
           throwErrorAt rhs s!"field '{f.name}' is Address-keyed; use getMappingAddr"
-      | .mapping2AddressToAddressToUint256 =>
+      | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
+          throwErrorAt rhs s!"field '{f.name}' is enum-valued; use getMapping/getMappingUint"
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
@@ -4789,12 +4850,13 @@ def translateBindSource
   | `(term| getMappingWord $field:ident $key:term $wordOffset:num) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mappingAddressToUint256 | .mappingUintToUint256 =>
+      | .mappingAddressToUint256 | .mappingUintToUint256
+        | .mappingAddressToEnum _ _ | .mappingUintToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mappingWord
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key)
               $wordOffset)
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a double mapping; use getMapping2Word"
       | .mappingStruct _ _ =>
           throwErrorAt rhs s!"field '{f.name}' is a struct-valued mapping; use structMember"
@@ -4803,12 +4865,12 @@ def translateBindSource
       | .dynamicArray _ =>
           throwErrorAt rhs s!"field '{f.name}' is a storage dynamic array; use getStorageArrayLength/getStorageArrayElement"
       | .scalar _ => throwErrorAt rhs s!"field '{f.name}' is not a mapping"
-      | .mappingChain _ =>
+      | .mappingChain _ | .mappingChainEnum _ _ _ =>
           throwErrorAt rhs s!"field '{f.name}' uses {storageTypeMappingDepth? f.ty |>.getD 0} mapping keys; use getMappingN"
   | `(term| getMapping2 $field:ident $key1:term $key2:term) =>
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
-      | .mapping2AddressToAddressToUint256 =>
+      | .mapping2AddressToAddressToUint256 | .mapping2AddressToAddressToEnum _ _ =>
           `(Compiler.CompilationModel.Expr.mapping2
               $(strTerm f.name)
               $(← translatePureExprWithTypes fields constDecls immutableDecls params locals key1)

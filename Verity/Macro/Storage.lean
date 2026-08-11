@@ -52,6 +52,7 @@ def storageTypeFromSyntax
   let rec storageStructMemberElementWords (memberName : String) : ValueType → CommandElabM Nat
     | .uint256 | .int256 | .uint16 | .address | .bool | .bytes32 => pure 1
     | .newtype _ baseType => storageStructMemberElementWords memberName baseType
+    | .enum _ _ => pure 1
     | .fixedArray elemTy size => do
         let elemWords ← storageStructMemberElementWords memberName elemTy
         pure (elemWords * size)
@@ -64,6 +65,8 @@ def storageTypeFromSyntax
     match memberTy with
     | .newtype _ baseType =>
         expandStructMemberDecl memberPrefix baseOffset baseType packed
+    | .enum _ _ =>
+        pure [{ name := memberPrefix, ty := memberTy, wordOffset := baseOffset, packed := packed }]
     | .fixedArray elemTy size => do
         if packed.isSome then
           throwErrorAt ty s!"mapping struct fixed-array member '{memberPrefix}' cannot be packed"
@@ -94,16 +97,23 @@ def storageTypeFromSyntax
 
   let (arrowArgs, arrowResult) ← collectArrowChainTypes ty
   if !arrowArgs.isEmpty then
-    match arrowResult with
-    | `(term| Uint256) =>
+    match (← valueTypeFromSyntax newtypes structDecls adtDecls arrowResult) with
+    | .uint256 =>
         let keyTypes ← arrowArgs.mapM keyTypeFromSyntax
         match keyTypes with
         | [.address] => pure .mappingAddressToUint256
         | [.uint256] => pure .mappingUintToUint256
         | [.address, .address] => pure .mapping2AddressToAddressToUint256
         | _ => pure (.mappingChain keyTypes)
+    | .enum name memberCount =>
+        let keyTypes ← arrowArgs.mapM keyTypeFromSyntax
+        match keyTypes with
+        | [.address] => pure (.mappingAddressToEnum name memberCount)
+        | [.uint256] => pure (.mappingUintToEnum name memberCount)
+        | [.address, .address] => pure (.mapping2AddressToAddressToEnum name memberCount)
+        | _ => pure (.mappingChainEnum keyTypes name memberCount)
     | _ =>
-        throwErrorAt ty "unsupported mapping value type; expected Uint256"
+        throwErrorAt ty "unsupported mapping value type; expected Uint256 or an enum"
   else
     match ty with
   | `(term| MappingStruct($keyTy:term,[ $[$members:verityStructMember],* ])) =>
@@ -134,13 +144,23 @@ def modelMappingKeyTypeTerm : MappingKeyType → CommandElabM Term
 
 def storageTypeMappingKeyTypes? : StorageType → Option (List MappingKeyType)
   | .mappingAddressToUint256 => some [.address]
+  | .mappingAddressToEnum _ _ => some [.address]
   | .mapping2AddressToAddressToUint256 => some [.address, .address]
+  | .mapping2AddressToAddressToEnum _ _ => some [.address, .address]
   | .mappingUintToUint256 => some [.uint256]
+  | .mappingUintToEnum _ _ => some [.uint256]
   | .mappingChain keyTypes => some keyTypes
+  | .mappingChainEnum keyTypes _ _ => some keyTypes
   | _ => none
 
 def storageTypeMappingDepth? (ty : StorageType) : Option Nat :=
   storageTypeMappingKeyTypes? ty |>.map List.length
+
+def storageTypeMappingValueType? : StorageType → Option ValueType
+  | .mappingAddressToEnum name memberCount | .mapping2AddressToAddressToEnum name memberCount
+    | .mappingUintToEnum name memberCount | .mappingChainEnum _ name memberCount =>
+      some (.enum name memberCount)
+  | _ => none
 
 def storageKeyTypeContractTerm : MappingKeyType → CommandElabM Term
   | .address => `(Address)
@@ -155,7 +175,7 @@ def modelStructMemberTerm (member : StructMemberDecl) : CommandElabM Term := do
         `(some { offset := $(natTerm offset), width := $(natTerm width) })
   let memberTypeTerm ←
     match member.ty with
-    | .uint256 | .int256 | .uint8 =>
+    | .uint256 | .int256 | .uint8 | .enum _ _ =>
         `(Compiler.CompilationModel.StructMemberType.uint256)
     | .uint16 =>
         `(Compiler.CompilationModel.StructMemberType.uint16)
@@ -199,6 +219,7 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
         "top-level named struct storage fields are not supported yet (#1758); flatten the struct into explicit scalar storage fields with fixed slots, or use MappingStruct/MappingStruct2 for struct-valued mappings"
   | .scalar .unit => throwError "storage fields cannot be Unit"
   | .scalar (.newtype _ baseType) => modelFieldTypeTerm (.scalar baseType)  -- Erased to base type
+  | .scalar (.enum _ _) => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar (.adt name maxFields) =>
       `(Compiler.CompilationModel.FieldType.adt $(Lean.quote name) $(Lean.quote maxFields))
   | .dynamicArray .uint256 => `(Compiler.CompilationModel.FieldType.dynamicArray Compiler.CompilationModel.StorageArrayElemType.uint256)
@@ -209,7 +230,15 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   | .mappingAddressToUint256 =>
       `(Compiler.CompilationModel.FieldType.mappingTyped
           (Compiler.CompilationModel.MappingType.simple Compiler.CompilationModel.MappingKeyType.address))
+  | .mappingAddressToEnum _ _ =>
+      `(Compiler.CompilationModel.FieldType.mappingTyped
+          (Compiler.CompilationModel.MappingType.simple Compiler.CompilationModel.MappingKeyType.address))
   | .mapping2AddressToAddressToUint256 =>
+      `(Compiler.CompilationModel.FieldType.mappingTyped
+          (Compiler.CompilationModel.MappingType.nested
+            Compiler.CompilationModel.MappingKeyType.address
+            Compiler.CompilationModel.MappingKeyType.address))
+  | .mapping2AddressToAddressToEnum _ _ =>
       `(Compiler.CompilationModel.FieldType.mappingTyped
           (Compiler.CompilationModel.MappingType.nested
             Compiler.CompilationModel.MappingKeyType.address
@@ -217,7 +246,14 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   | .mappingUintToUint256 =>
       `(Compiler.CompilationModel.FieldType.mappingTyped
           (Compiler.CompilationModel.MappingType.simple Compiler.CompilationModel.MappingKeyType.uint256))
+  | .mappingUintToEnum _ _ =>
+      `(Compiler.CompilationModel.FieldType.mappingTyped
+          (Compiler.CompilationModel.MappingType.simple Compiler.CompilationModel.MappingKeyType.uint256))
   | .mappingChain keyTypes => do
+      let keyTypeTerms := (← keyTypes.mapM modelMappingKeyTypeTerm).toArray
+      `(Compiler.CompilationModel.FieldType.mappingTyped
+          (Compiler.CompilationModel.MappingType.chain [ $[$keyTypeTerms],* ]))
+  | .mappingChainEnum keyTypes _ _ => do
       let keyTypeTerms := (← keyTypes.mapM modelMappingKeyTypeTerm).toArray
       `(Compiler.CompilationModel.FieldType.mappingTyped
           (Compiler.CompilationModel.MappingType.chain [ $[$keyTypeTerms],* ]))

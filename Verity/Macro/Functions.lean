@@ -24,6 +24,7 @@ partial def valueTypeSignatureComponent : ValueType → String
   | .fixedArray ty size => "fixed_array_" ++ toString size ++ "_" ++ valueTypeSignatureComponent ty
   | .tuple tys => "tuple" ++ toString tys.length ++ "_" ++ String.intercalate "__" (tys.map valueTypeSignatureComponent)
   | .newtype name baseType => "newtype_" ++ name ++ "_" ++ valueTypeSignatureComponent baseType
+  | .enum name _ => "enum_" ++ name
   | .struct name fields =>
       "struct_" ++ name ++ "_" ++
         String.intercalate "__" (fields.map (fun field => field.fst ++ "_" ++ valueTypeSignatureComponent field.snd))
@@ -34,6 +35,7 @@ def functionSignatureKey (fn : FunctionDecl) : String :=
 
 partial def valueTypeAbiSignatureComponent : ValueType → String
   | .newtype _ baseType => valueTypeAbiSignatureComponent baseType
+  | .enum _ _ => "scalar_uint8"
   | .array ty => "array_" ++ valueTypeAbiSignatureComponent ty
   | .fixedArray ty size => "fixed_array_" ++ toString size ++ "_" ++ valueTypeAbiSignatureComponent ty
   | .tuple tys => "tuple" ++ toString tys.length ++ "_" ++ String.intercalate "__" (tys.map valueTypeAbiSignatureComponent)

@@ -4,6 +4,10 @@ namespace Verity.Macro
 
 open Lean
 
+syntax:max ident noWs "(" sepBy(term, ",") ")" : term
+macro_rules
+  | `($fn:ident($[$args:term],*)) => `($fn $args*)
+
 declare_syntax_cat verityStorageField
 declare_syntax_cat verityStorageItem
 declare_syntax_cat verityStorageStructMember
@@ -27,6 +31,7 @@ declare_syntax_cat verityInitGuard
 declare_syntax_cat verityModifies
 declare_syntax_cat verityRequiresRole
 declare_syntax_cat verityNewtype
+declare_syntax_cat verityEnumDecl
 declare_syntax_cat verityStructDecl
 declare_syntax_cat verityAdtVariant
 declare_syntax_cat verityAdtDecl
@@ -102,6 +107,7 @@ syntax "override" : verityDispatch
 syntax "modifies(" sepBy1(ident, ",") ")" : verityModifies
 syntax "requires(" ident ")" : verityRequiresRole
 syntax ident " : " term:max : verityNewtype
+syntax "enum " ident " {" sepBy1(ident, ",") "}" : verityEnumDecl
 syntax "struct " ident " where " sepBy1(verityParam, ",") : verityStructDecl
 syntax "| " ident "(" sepBy(verityParam, ",") ")" : verityAdtVariant
 syntax "| " ident : verityAdtVariant
@@ -195,6 +201,7 @@ syntax (name := verityIntrinsicCmd)
 syntax (name := verityContractCmd)
   "verity_contract " ident (" is " ident)? " where "
   ("types " verityNewtype+)?
+  ("enums " verityEnumDecl+)?
   ("inductive " verityAdtDecl+)?
   (verityNamespaceSpec)?
   "storage " verityStorageItem*

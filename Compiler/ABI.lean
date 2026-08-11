@@ -27,6 +27,7 @@ private def abiTypeString : ParamType → String
   | .array t => abiTypeString t ++ "[]"
   | .fixedArray t n => abiTypeString t ++ "[" ++ toString n ++ "]"
   | .adt _ _ => "tuple"  -- ADTs are ABI-encoded as static tuples
+  | .newtypeOf "__verity_enum" _ => "uint8"
   | .newtypeOf _ baseType => abiTypeString baseType  -- Erased to base type
 
 -- Uses `fieldTypeToParamType` from CompilationModel (shared, not duplicated).

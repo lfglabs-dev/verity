@@ -31,6 +31,7 @@ inductive ValueType where
   | tuple (elemTys : List ValueType)
   | unit
   | newtype (name : String) (baseType : ValueType)  -- Semantic newtype; erased to baseType (#1727 Steps 3b/3c)
+  | enum (name : String) (memberCount : Nat) -- Solidity enum; erased to uint8
   | struct (name : String) (fields : List (String × ValueType)) -- Named ABI tuple with executable field access (#1750)
   | adt (name : String) (maxFields : Nat)  -- User-defined ADT (tagged union); maxFields = max variant field count (#1727 Step 5b)
   deriving Repr, BEq
@@ -52,9 +53,13 @@ inductive StorageType where
   | scalar (ty : ValueType)
   | dynamicArray (elemTy : Compiler.CompilationModel.StorageArrayElemType)
   | mappingAddressToUint256
+  | mappingAddressToEnum (name : String) (memberCount : Nat)
   | mapping2AddressToAddressToUint256
+  | mapping2AddressToAddressToEnum (name : String) (memberCount : Nat)
   | mappingUintToUint256
+  | mappingUintToEnum (name : String) (memberCount : Nat)
   | mappingChain (keyTypes : List MappingKeyType)
+  | mappingChainEnum (keyTypes : List MappingKeyType) (name : String) (memberCount : Nat)
   | mappingStruct (keyType : MappingKeyType) (members : List StructMemberDecl)
   | mappingStruct2 (outerKey : MappingKeyType) (innerKey : MappingKeyType) (members : List StructMemberDecl)
   deriving BEq
@@ -158,6 +163,13 @@ structure NewtypeDecl where
   ident : Ident
   name : String
   baseType : ValueType
+  enumMembers : Array Ident := #[]
+
+/-- A Solidity-compatible enum. Members are encoded in declaration order as uint8. -/
+structure EnumDecl where
+  ident : Ident
+  name : String
+  members : Array Ident
 
 /-- A named ABI struct declared in the `verity_contract` body.
     It elaborates to a Lean `structure` for executable tests, while the compiler
@@ -321,7 +333,8 @@ partial def valueTypeFromSyntax
     (newtypes : Array NewtypeDecl)
     (structDecls : Array StructDecl)
     (adtDecls : Array AdtDecl)
-    (ty : Term) : CommandElabM ValueType := do
+    (ty : Term)
+    (enumDecls : Array EnumDecl := #[]) : CommandElabM ValueType := do
   let ty := stripParens ty
   let (arrowArgs, _arrowResult) ← collectArrowChainTypes ty
   if !arrowArgs.isEmpty then
@@ -338,20 +351,20 @@ partial def valueTypeFromSyntax
   | `(term| String) => pure .string
   | `(term| Bytes) => pure .bytes
   | `(term| Array $elemTy:term) =>
-      let elem ← valueTypeFromSyntax newtypes structDecls adtDecls elemTy
+      let elem ← valueTypeFromSyntax newtypes structDecls adtDecls elemTy enumDecls
       match elem with
       | .unit => throwErrorAt ty "unsupported type '{ty}'; Array Unit is not allowed"
       | .array _ => throwErrorAt ty "unsupported type '{ty}'; nested arrays are not supported"
       | _ => pure (.array elem)
   | `(term| FixedArray $elemTy:term $size:num) =>
-      let elem ← valueTypeFromSyntax newtypes structDecls adtDecls elemTy
+      let elem ← valueTypeFromSyntax newtypes structDecls adtDecls elemTy enumDecls
       let n ← natFromSyntax size
       match elem with
       | .unit => throwErrorAt ty "unsupported type '{ty}'; FixedArray Unit is not allowed"
       | .array _ => throwErrorAt ty "unsupported type '{ty}'; FixedArray of dynamic Array is not supported"
       | _ => pure (.fixedArray elem n)
   | `(term| Tuple [ $[$elemTys:term],* ]) =>
-      let elems ← elemTys.mapM (valueTypeFromSyntax newtypes structDecls adtDecls)
+      let elems ← elemTys.mapM (fun elemTy => valueTypeFromSyntax newtypes structDecls adtDecls elemTy enumDecls)
       if elems.size < 2 then
         throwErrorAt ty "tuple types must have at least 2 elements"
       pure (.tuple elems.toList)
@@ -383,17 +396,21 @@ partial def valueTypeFromSyntax
       else
       -- Try resolving as a user-defined newtype (#1727, Axis 1 Steps 3a/3b)
       match newtypes.find? (fun nt => nt.name == tyName) with
-      | some nt => pure (.newtype nt.name nt.baseType)
+      | some nt =>
+          if nt.enumMembers.isEmpty then pure (.newtype nt.name nt.baseType)
+          else pure (.enum nt.name nt.enumMembers.size)
       | none =>
         -- Try resolving as a user-defined ADT (#1727, Axis 1 Step 5b)
         match structDecls.find? (fun s => s.name == tyName) with
         | some decl => pure (.struct decl.name (structValueTypeFields decl))
         | none =>
-          match adtDecls.find? (fun a => a.name == tyName) with
+          match enumDecls.find? (fun e => e.name == tyName) with
+          | some decl => pure (.enum decl.name decl.members.size)
+          | none => match adtDecls.find? (fun a => a.name == tyName) with
           | some decl =>
               let maxFields := decl.variants.foldl (fun acc v => max acc v.fields.size) 0
               pure (.adt decl.name maxFields)
-          | none => throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
+          | none => throwErrorAt ty "unsupported type '{ty}'; expected a built-in type or a user-defined enum, struct, newtype, or inductive type"
   | _ =>
       throwErrorAt ty "unsupported type '{ty}'; expected Uint256, Int256, Uint8, Uint16, Address, Bytes32, Bool, String, Bytes, Array <type>, FixedArray <type> <size>, Tuple [...], Unit, a user-defined struct, or a user-defined type from the `types` or `inductive` section"
 

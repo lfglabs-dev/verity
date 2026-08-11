@@ -27,6 +27,7 @@ partial def valueTypeToSolidityString : ValueType → String
   | .struct _ fields =>
       "(" ++ String.intercalate "," (fields.map (fun field => valueTypeToSolidityString field.snd)) ++ ")"
   | .newtype _ baseType => valueTypeToSolidityString baseType
+  | .enum _ _ => "uint8"
   | .adt name _ => name
   | .unit => "()"
 

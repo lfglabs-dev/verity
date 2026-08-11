@@ -9,6 +9,12 @@ import Compiler.CompilationModel.ScopeValidation
 
 namespace Compiler.CompilationModel
 
+def eventParamTypeCompatible (actual expected : ParamType) : Bool :=
+  actual == expected ||
+    match actual, expected with
+    | .newtypeOf "__verity_enum" .uint256, .uint8 => true
+    | _, _ => false
+
 def customErrorRequiresDirectParamRef : ParamType → Bool
   | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
   | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
@@ -104,7 +110,7 @@ def validateEventArgShapesNode (fnName : String) (params : List Param)
         | Expr.param name =>
             match findParamType params name with
             | some ty =>
-                if ty != eventParam.ty then
+                if !eventParamTypeCompatible ty eventParam.ty then
                   throw s!"Compilation error: function '{fnName}' event '{eventName}' param '{eventParam.name}' expects {repr eventParam.ty}, got parameter '{name}' of type {repr ty} ({issue586Ref})."
             | none =>
                 throw s!"Compilation error: function '{fnName}' event '{eventName}' references unknown parameter '{name}' ({issue586Ref})."

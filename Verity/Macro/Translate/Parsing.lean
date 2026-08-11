@@ -256,6 +256,19 @@ def parseNewtype (stx : Syntax) : CommandElabM NewtypeDecl := do
       }
   | _ => throwErrorAt stx "invalid type declaration"
 
+def parseEnumDecl (stx : Syntax) : CommandElabM EnumDecl := do
+  match stx with
+  | `(verityEnumDecl| enum $name:ident { $[$members:ident],* }) =>
+      if members.size > 256 then
+        throwErrorAt name s!"enum '{toString name.getId}' has {members.size} members; Solidity enums support at most 256"
+      else
+        let names := members.map (fun m => toString m.getId)
+        for member in members do
+          if (names.filter (fun name => name == toString member.getId)).size > 1 then
+            throwErrorAt member s!"duplicate enum member '{toString member.getId}'"
+        pure { ident := name, name := toString name.getId, members }
+  | _ => throwErrorAt stx "invalid enum declaration"
+
 def parseStructDecl (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl) (stx : Syntax) : CommandElabM StructDecl := do
   match stx with
   | `(verityStructDecl| struct $name:ident where $[$fields:verityParam],*) =>

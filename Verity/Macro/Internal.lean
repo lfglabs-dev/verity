@@ -1,6 +1,7 @@
 import Lean
 import Compiler.CompilationModel.InternalNaming
 import Verity.Macro.Types
+import Verity.Macro.Syntax
 
 namespace Verity.Macro
 
@@ -10,7 +11,10 @@ open Lean.Elab.Command
 def localFunctionAppSyntax?
     (stx : Term) : Option (String × Array Term) :=
   let stx := stripParens stx
-  match stx.raw with
+  match stx with
+  | `(term| $fn:ident($[$args:term],*)) =>
+      some (toString fn.getId, args)
+  | _ => match stx.raw with
   | .node _ `Lean.Parser.Term.app args =>
       match args.getD 0 Syntax.missing with
       | .ident _ raw _ _ =>

@@ -60,6 +60,9 @@ PARAM_RE = re.compile(rf"^\s*{_IDENT}\s*:\s*(.+?)\s*$")
 NEWTYPE_RE = re.compile(
     r"^\s*([A-Z][A-Za-z0-9_]*)\s*:\s*([A-Za-z0-9_]+)\s*$",
 )
+ENUM_RE = re.compile(
+    r"^\s*enum\s+([A-Z][A-Za-z0-9_]*)\s*\{[^}]+\}\s*$",
+)
 STRUCT_RE = re.compile(r"^\s*struct\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*(.*?)\s*$")
 INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*$")
 STORAGE_RE = re.compile(
@@ -335,6 +338,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
     current_body: list[str] = []
     guard_pending = False
     in_types_block = False
+    in_enums_block = False
     in_storage_block = False
     in_constants_block = False
     in_immutables_block = False
@@ -369,7 +373,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_body = []
 
     def flush_current() -> None:
-        nonlocal current_name, current_namespace, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
+        nonlocal current_name, current_namespace, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_enums_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
         if current_name is None:
             return
         flush_struct()
@@ -483,6 +487,26 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
                 in_types_block = False
                 # fall through to check other sections
 
+        if line.strip() == "enums":
+            in_types_block = False
+            in_enums_block = True
+            in_storage_block = False
+            in_constants_block = False
+            in_immutables_block = False
+            pending_storage_lines = []
+            continue
+
+        if in_enums_block:
+            stripped = line.strip()
+            enum_decl = ENUM_RE.match(stripped)
+            if enum_decl:
+                # Preserve enum-ness long enough to choose an in-range fixture;
+                # it still erases to uint8 in generated Solidity signatures.
+                current_newtypes[enum_decl.group(1)] = "EnumUint8"
+                continue
+            if stripped:
+                in_enums_block = False
+                # fall through to check other sections
         if line.strip() == "storage":
             flush_struct()
             in_types_block = False
@@ -802,6 +826,8 @@ def _sol_type(lean_ty: str) -> str:
         return "int256"
     if ty == "Uint8":
         return "uint8"
+    if ty == "EnumUint8":
+        return "uint8"
     if ty == "Address":
         return "address"
     if ty == "Bool":
@@ -850,6 +876,8 @@ def _example_value(lean_ty: str) -> str:
         return "int256(1)"
     if ty == "Uint8":
         return "uint8(27)"
+    if ty == "EnumUint8":
+        return "uint8(0)"
     if ty == "Address":
         return "alice"
     if ty == "Bool":
@@ -1092,7 +1120,7 @@ def _resolve_value_expr(
                 if lhs is not None and rhs is not None:
                     return f"({lhs} {sol_op} {rhs})"
 
-    if lean_type in {"Uint256", "Int256", "Uint8"}:
+    if lean_type in {"Uint256", "Int256", "Uint8", "EnumUint8"}:
         for lean_op, sol_op in {"/": "/", "%": "%"}.items():
             math_match = re.fullmatch(rf"(.+)\s*{re.escape(lean_op)}\s*(.+)", expr)
             if math_match is None:
@@ -1132,7 +1160,7 @@ def _resolve_value_expr(
             "shl": "<<",
             "shr": ">>",
         }
-        if op in op_map and len(args) == 2 and lean_type in {"Uint256", "Int256", "Uint8"}:
+        if op in op_map and len(args) == 2 and lean_type in {"Uint256", "Int256", "Uint8", "EnumUint8"}:
             lhs = _resolve_value_expr(
                 contract, args[0], lean_type, constructor_examples, seen, local_values
             )
@@ -1177,7 +1205,7 @@ def _resolve_value_expr(
                         folded = rhs_lit << lhs_lit
                     else:
                         folded = rhs_lit >> lhs_lit
-                    if lean_type in {"Uint256", "Uint8"}:
+                    if lean_type in {"Uint256", "Uint8", "EnumUint8"}:
                         return _format_uint_literal(folded)
                     return _format_int_literal(folded)
                 if op in {"shl", "shr"}:
@@ -1231,7 +1259,7 @@ def _resolve_value_expr(
                 value_lit = _parse_literal_int(value)
                 if byte_index_lit is not None and value_lit is not None:
                     return _format_uint_literal(_signextend_literal(byte_index_lit, value_lit))
-        if op in {"min", "max"} and len(args) == 2 and lean_type in {"Uint256", "Int256", "Uint8"}:
+        if op in {"min", "max"} and len(args) == 2 and lean_type in {"Uint256", "Int256", "Uint8", "EnumUint8"}:
             lhs = _resolve_value_expr(
                 contract, args[0], lean_type, constructor_examples, seen, local_values
             )
@@ -1322,7 +1350,7 @@ def _resolve_value_expr(
 
 def _return_shape_assertion(lean_ty: str, fn_name: str) -> str:
     ty = _normalize_type(lean_ty)
-    if (ty in {"Uint256", "Int256", "Uint8", "Address", "Bool", "Bytes32"}
+    if (ty in {"Uint256", "Int256", "Uint8", "EnumUint8", "Address", "Bool", "Bytes32"}
             or re.fullmatch(r"(?:Uint|Int|Bytes)\d+", ty)):
         return (
             f'        assertEq(ret.length, 32, "{fn_name} ABI return length mismatch (expected 32 bytes)");'
@@ -1347,7 +1375,7 @@ def _return_shape_assertion(lean_ty: str, fn_name: str) -> str:
 
 def _storage_word_expr(lean_ty: str, value_expr: str) -> str:
     ty = _normalize_type(lean_ty)
-    if re.fullmatch(r"(?:Uint|Int)\d+", ty):
+    if re.fullmatch(r"(?:Uint|Int)\d+", ty) or ty == "EnumUint8":
         return f"bytes32(uint256({value_expr}))"
     if ty == "Bool":
         return f"bytes32(uint256({value_expr} ? 1 : 0))"
@@ -1360,7 +1388,7 @@ def _storage_word_expr(lean_ty: str, value_expr: str) -> str:
 
 def _single_word_uint_expr(lean_ty: str, value_expr: str) -> str | None:
     ty = _normalize_type(lean_ty)
-    if re.fullmatch(r"(?:Uint|Int)\d+", ty):
+    if re.fullmatch(r"(?:Uint|Int)\d+", ty) or ty == "EnumUint8":
         return f"uint256({value_expr})"
     if ty == "Bool":
         return f"({value_expr} ? 1 : 0)"
@@ -1373,7 +1401,7 @@ def _single_word_uint_expr(lean_ty: str, value_expr: str) -> str | None:
 
 def _literal_expr(value: str, lean_ty: str) -> str | None:
     ty = _normalize_type(lean_ty)
-    if ty in {"Uint256", "Uint8"} and re.fullmatch(r"(0x[0-9A-Fa-f]+|[0-9]+)", value):
+    if ty in {"Uint256", "Uint8", "EnumUint8"} and re.fullmatch(r"(0x[0-9A-Fa-f]+|[0-9]+)", value):
         return value
     if ty == "Int256" and re.fullmatch(r"-?(0x[0-9A-Fa-f]+|[0-9]+)", value):
         return value if not value.startswith("-") else f"int256({value})"
@@ -2023,7 +2051,7 @@ def _mapping_key_expr(param: ParamDecl, value_expr: str) -> str:
     ty = _normalize_type(param.lean_type)
     if ty == "Address":
         return f"bytes32(uint256(uint160({value_expr})))"
-    if ty in {"Uint256", "Uint8", "Bytes32"}:
+    if ty in {"Uint256", "Uint8", "EnumUint8", "Bytes32"}:
         return f"bytes32(uint256({value_expr}))"
     raise ValueError(f"unsupported Lean key type for generated mapping setup: {ty!r}")
 
