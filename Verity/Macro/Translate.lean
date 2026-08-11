@@ -805,7 +805,7 @@ private def translateEffectStmt
       | none =>
           match f.ty with
           | .scalar .uint256 | .scalar .int256 | .scalar .uint16 | .scalar (.uintN _)
-          | .scalar (.newtype _ .uint256) =>
+          | .scalar (.newtype _ .uint256) | .scalar (.enum _ _) =>
               `(Compiler.CompilationModel.Stmt.setStorage $(strTerm f.name) $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
           | .scalar (.adt adtName _) =>
               `(Compiler.CompilationModel.Stmt.setStorage
@@ -3541,6 +3541,15 @@ def parseContractSyntax
         match constantDecls with
         | some decls => decls.mapM (parseConstant typeNewtypes)
         | none => pure #[]
+      let enumConstants : Array ConstantDecl := parsedEnums.flatMap fun enumDecl =>
+        enumDecl.members.mapIdx fun ordinal member => {
+          ident := mkIdentFrom member <|
+            Name.str (Name.mkSimple enumDecl.name) (toString member.getId)
+          name := s!"{enumDecl.name}.{toString member.getId}"
+          ty := .enum enumDecl.name enumDecl.members.size
+          body := natTerm ordinal
+        }
+      let parsedConstants := enumConstants ++ parsedConstants
       let parsedImmutables ←
         match immutableDecls with
         | some decls => decls.mapM (parseImmutable typeNewtypes)
