@@ -32,7 +32,22 @@ case "$RUNNER_DETECTED_PROFILE" in
   88.99.4.254|healthy-build)
     RUNNER_PROFILE="${RUNNER_PROFILE_INPUT:-build}"
     RUNNER_COUNT="${RUNNER_COUNT:-1}"
-    RUNNER_LABELS_1="${RUNNER_LABELS_1:-verity,build,build-heavy,hetzner,hz2,cpu-8,mem-64g,ci-host-88-99-4-254}"
+    RUNNER_LABELS_1="${RUNNER_LABELS_1:-verity,build,build-heavy,build-medium,hetzner,hz2,cpu-8,mem-64g,ci-host-88-99-4-254}"
+    ;;
+  188.40.69.160|ashur-medium)
+    RUNNER_PROFILE="${RUNNER_PROFILE_INPUT:-build-medium}"
+    RUNNER_COUNT="${RUNNER_COUNT:-1}"
+    RUNNER_LABELS_1="${RUNNER_LABELS_1:-verity,build,build-medium,ashur,cpu-8,mem-64g}"
+    ;;
+  95.216.112.253|old-agent-medium)
+    RUNNER_PROFILE="${RUNNER_PROFILE_INPUT:-build-medium}"
+    RUNNER_COUNT="${RUNNER_COUNT:-1}"
+    RUNNER_LABELS_1="${RUNNER_LABELS_1:-verity,build,build-medium,old-agent,cpu-8,mem-64g}"
+    ;;
+  37.187.92.183|nippur-medium)
+    RUNNER_PROFILE="${RUNNER_PROFILE_INPUT:-build-medium}"
+    RUNNER_COUNT="${RUNNER_COUNT:-1}"
+    RUNNER_LABELS_1="${RUNNER_LABELS_1:-verity,build,build-medium,nippur,backup,cpu-8,mem-28g}"
     ;;
   95.216.244.60|mixed-8core)
     RUNNER_PROFILE="${RUNNER_PROFILE_INPUT:-fastlane}"
@@ -57,16 +72,16 @@ case "$RUNNER_ARCH" in
     ;;
 esac
 case "$RUNNER_PROFILE" in
-  fastlane|build|dgx-gpu) ;;
+  fastlane|build|build-medium|dgx-gpu) ;;
   *)
     echo "Unsupported RUNNER_PROFILE: $RUNNER_PROFILE" >&2
-    echo "Use one of: fastlane, build, dgx-gpu." >&2
+    echo "Use one of: fastlane, build, build-medium, dgx-gpu." >&2
     exit 1
     ;;
 esac
 if [ -z "${RUNNER_COUNT:-}" ]; then
   case "$RUNNER_PROFILE" in
-    fastlane|build|dgx-gpu)
+    fastlane|build|build-medium|dgx-gpu)
       RUNNER_COUNT=1
       ;;
     *)
@@ -97,16 +112,29 @@ runner_labels_for_index() {
           ;;
       esac
       ;;
+    build-medium)
+      case "$1" in
+        1)
+          printf '%s' "${RUNNER_LABELS_1:-verity,build,build-medium,hetzner,cpu-8,mem-64g}"
+          ;;
+        2)
+          printf '%s' "${RUNNER_LABELS_2:-verity,build,build-medium,hetzner,cpu-8,mem-64g}"
+          ;;
+        *)
+          printf '%s' "${RUNNER_LABELS_EXTRA:-verity,build,build-medium,hetzner,cpu-8,mem-64g}"
+          ;;
+      esac
+      ;;
     *)
       case "$1" in
         1)
-          printf '%s' "${RUNNER_LABELS_1:-verity,build,build-heavy,hetzner,cpu-8,mem-64g}"
+          printf '%s' "${RUNNER_LABELS_1:-verity,build,build-heavy,build-medium,hetzner,cpu-8,mem-64g}"
           ;;
         2)
-          printf '%s' "${RUNNER_LABELS_2:-verity,build,build-heavy,hetzner,cpu-8,mem-64g}"
+          printf '%s' "${RUNNER_LABELS_2:-verity,build,build-heavy,build-medium,hetzner,cpu-8,mem-64g}"
           ;;
         *)
-          printf '%s' "${RUNNER_LABELS_EXTRA:-verity,build,build-heavy,hetzner,cpu-8,mem-64g}"
+          printf '%s' "${RUNNER_LABELS_EXTRA:-verity,build,build-heavy,build-medium,hetzner,cpu-8,mem-64g}"
           ;;
       esac
       ;;
@@ -383,7 +411,7 @@ If RUNNER_URL and RUNNER_TOKEN were set, the runner services are now installed.
 Otherwise, rerun with:
   RUNNER_URL=https://github.com/<owner>/<repo> \\
   RUNNER_TOKEN=<registration-token> \\
-  RUNNER_PROFILE=fastlane|build|dgx-gpu \\
+  RUNNER_PROFILE=fastlane|build|build-medium|dgx-gpu \\
   RUNNER_ARCH=x64|arm64 \\
   $0
 EOF

@@ -20,7 +20,7 @@ class CiInfraMaintenanceTests(unittest.TestCase):
         self.assertIn('RUNNER_COUNT="${RUNNER_COUNT:-1}"', text)
         self.assertIn("ci-host-88-99-4-254", text)
         self.assertIn(
-            '${RUNNER_LABELS_1:-verity,build,build-heavy,hetzner,cpu-8,mem-64g}',
+            '${RUNNER_LABELS_1:-verity,build,build-heavy,build-medium,hetzner,cpu-8,mem-64g}',
             text,
         )
 
