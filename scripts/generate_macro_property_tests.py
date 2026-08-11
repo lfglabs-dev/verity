@@ -60,6 +60,9 @@ PARAM_RE = re.compile(rf"^\s*{_IDENT}\s*:\s*(.+?)\s*$")
 NEWTYPE_RE = re.compile(
     r"^\s*([A-Z][A-Za-z0-9_]*)\s*:\s*([A-Za-z0-9_]+)\s*$",
 )
+ENUM_RE = re.compile(
+    r"^\s*enum\s+([A-Z][A-Za-z0-9_]*)\s*\{[^}]+\}\s*$",
+)
 STRUCT_RE = re.compile(r"^\s*struct\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*(.*?)\s*$")
 INTERFACE_RE = re.compile(r"^\s*interface\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*$")
 STORAGE_RE = re.compile(
