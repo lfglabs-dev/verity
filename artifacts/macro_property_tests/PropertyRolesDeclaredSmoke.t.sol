@@ -17,4 +17,28 @@ contract PropertyRolesDeclaredSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
+    // Property 1: setByOwner enforces its required role
+    function testAuto_SetByOwner_RejectsUnauthorizedCaller() public {
+        vm.prank(address(0x2222));
+        (bool ok,) = target.call(abi.encodeWithSignature("setByOwner(uint256)", uint256(1)));
+        require(!ok, "setByOwner accepted an unauthorized caller");
+    }
+    // Property 2: setByAdmin enforces its required role
+    function testAuto_SetByAdmin_RejectsUnauthorizedCaller() public {
+        vm.prank(address(0x2222));
+        (bool ok,) = target.call(abi.encodeWithSignature("setByAdmin(uint256)", uint256(1)));
+        require(!ok, "setByAdmin accepted an unauthorized caller");
+    }
+    // Property 3: mintLike enforces its required role
+    function testAuto_MintLike_RejectsUnauthorizedCaller() public {
+        vm.prank(address(0x2222));
+        (bool ok,) = target.call(abi.encodeWithSignature("mintLike(uint256)", uint256(1)));
+        require(!ok, "mintLike accepted an unauthorized caller");
+    }
+    // Property 4: relayLike enforces its required role
+    function testAuto_RelayLike_RejectsUnauthorizedCaller() public {
+        vm.prank(address(0x2222));
+        (bool ok,) = target.call(abi.encodeWithSignature("relayLike(uint256)", uint256(1)));
+        require(!ok, "relayLike accepted an unauthorized caller");
+    }
 }

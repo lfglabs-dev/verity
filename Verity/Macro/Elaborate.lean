@@ -90,6 +90,7 @@ def elabVerityContract : CommandElab := fun stx => do
   validateExternalDeclsPublic externalDecls
   validateFunctionDeclsPublic fields errorDecls constDecls immutableDecls externalDecls ctor modifiers functions
 
+  let declarationNs ← getCurrNamespace
   elabCommand (← `(namespace $contractName))
   try
     for constant in constDecls do
@@ -148,6 +149,8 @@ def elabVerityContract : CommandElab := fun stx => do
     for fn in functions do
       if fn.isPure then
         elabCommand (← mkPureTheoremCommand fn)
+
+    registerContractSyntax (declarationNs ++ contractName.getId) parsed
 
     -- Emit per-function _no_calls theorems for no_external_calls functions (#1729, Axis 3 Step 1c).
     for fn in functions do

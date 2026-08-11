@@ -238,6 +238,8 @@ structure FunctionDecl where
   modifies : Array Ident := #[]
   localObligations : Array LocalObligationDecl := #[]
   modifiers : Array Ident := #[]
+  isVirtual : Bool := false
+  isOverride : Bool := false
   body : Term
 
 structure InterfaceFunctionDecl where
@@ -261,6 +263,11 @@ structure ConstructorDecl where
   params : Array ParamDecl
   isPayable : Bool := false
   localObligations : Array LocalObligationDecl := #[]
+  /-- Parent-parameter names introduced as lexical bindings while flattening
+      ancestor constructors.  Used to reject capture by later descendants. -/
+  boundParentParamNames : Array String := #[]
+  parentName? : Option Ident := none
+  parentArgs : Array Term := #[]
   body : Term
 
 def strTerm (s : String) : Term := ⟨Syntax.mkStrLit s⟩
@@ -350,7 +357,20 @@ partial def valueTypeFromSyntax
       pure (.tuple elems.toList)
   | `(term| Unit) => pure .unit
   | `(term| $id:ident) =>
-      let tyName := toString id.getId
+      -- Use the source spelling when deciding whether this is one of the
+      -- contract-local declarations. `getId` may contain a namespace added
+      -- while inherited syntax was elaborated, while `rawVal` still records
+      -- whether the author actually wrote a qualifier. In particular, an
+      -- explicitly qualified `Other.Amount` must never capture local
+      -- `Amount` merely because both names have the same final component.
+      let sourceName := match id.raw with
+        | .ident _ rawVal _ _ => rawVal.toString
+        | _ => toString id.getId
+      -- Inherited declarations have already been elaborated, so an
+      -- unqualified type written in the child may carry its resolved
+      -- namespace here.  Contract-local type tables store the source-local
+      -- name; the source spelling preserves that unqualified identity.
+      let tyName := sourceName
       if let some bits := parseNarrowTypeSuffix "Uint" tyName then
         if validIntegerWidth bits then pure (.uintN bits)
         else throwErrorAt ty s!"invalid Solidity unsigned integer width {bits}; expected a multiple of 8 from 8 through 248"

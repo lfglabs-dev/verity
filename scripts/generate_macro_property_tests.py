@@ -14,12 +14,17 @@ from __future__ import annotations
 
 import argparse
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from property_utils import ROOT
 
-CONTRACT_RE = re.compile(r"^\s*verity_contract\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s*$")
+CONTRACT_RE = re.compile(
+    r"^\s*verity_contract\s+([A-Za-z_][A-Za-z0-9_]*)"
+    r"(?:\s+is\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+where\s*$"
+)
+NAMESPACE_RE = re.compile(r"^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$")
+END_NAMESPACE_RE = re.compile(r"^\s*end\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$")
 CHECK_CONTRACT_RE = re.compile(r"^\s*#check_contract\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
 # Optional leading mutability modifiers (`function <modifier>* <name> (...)`,
 # Verity/Macro/Syntax.lean). They sit between `function` and the name, so the
@@ -31,12 +36,20 @@ CHECK_CONTRACT_RE = re.compile(r"^\s*#check_contract\s+([A-Za-z_][A-Za-z0-9_]*)\
 _FUNCTION_MODIFIER = (
     r"(?:payable|view|pure|no_external_calls"
     r"|allow_post_interaction_writes|cei_safe|reentrancy_trusted"
-    r"|nonreentrant\([^)]*\))"
+    r"|nonreentrant\([^)]*\)|virtual|override)"
 )
 FUNCTION_RE = re.compile(
-    rf"^\s*function\s+(?:{_FUNCTION_MODIFIER}\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*:\s*(.+?)\s*:=\s*",
+    rf"^\s*function\s+(?:{_FUNCTION_MODIFIER}\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)"
+    rf"(?:\s+(?:initializer\([^)]+\)|reinitializer\([^)]+\)))?"
+    rf"(?:\s+with\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)?"
+    rf"(?:\s+requires\([^)]+\))?"
+    rf"(?:\s+modifies\([^)]+\))?"
+    rf"(?:\s+local_obligations\s*\[[^]]*\])?\s*:\s*(.+?)\s*:=\s*",
 )
-CONSTRUCTOR_RE = re.compile(r"^\s*constructor\s*\(([^)]*)\)\s*:=\s*")
+# Constructor ABI parameters are the first balanced group and cannot themselves
+# contain parentheses in the supported type grammar.  Match only that prefix;
+# the remaining macro syntax may contain arbitrarily nested parent-call terms.
+CONSTRUCTOR_RE = re.compile(r"^\s*constructor\s*\(([^)]*)\)")
 # `_IDENT` captures a user-facing identifier with optional `«…»` raw-identifier
 # escape (verity#1847). The capture group excludes the guillemets so downstream
 # name lookups stay consistent with the compiled CompilationModel param/field
@@ -134,6 +147,7 @@ class FunctionDecl:
     params: tuple[ParamDecl, ...]
     return_type: str
     body: tuple[str, ...] = ()
+    requires_role: bool = False
 
 
 @dataclass(frozen=True)
@@ -155,9 +169,12 @@ class ContractDecl:
     functions: tuple[FunctionDecl, ...]
     storage_slots: dict[str, int]
     source: Path
+    namespace: tuple[str, ...] = ()
+    parent_name: str | None = None
     storage_types: dict[str, str] = field(default_factory=dict)
     transient_slots: frozenset[str] = frozenset()
     newtypes: dict[str, str] = field(default_factory=dict)
+    structs: dict[str, tuple[ParamDecl, ...]] = field(default_factory=dict)
     constants: dict[str, ValueDecl] = field(default_factory=dict)
     immutables: dict[str, ValueDecl] = field(default_factory=dict)
 
@@ -299,6 +316,9 @@ def _resolve_decl_types_in_params(
 def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
     contracts: dict[str, ContractDecl] = {}
     current_name: str | None = None
+    current_namespace: tuple[str, ...] = ()
+    namespace_stack: list[tuple[str, ...]] = []
+    current_parent_name: str | None = None
     current_constructor: ConstructorDecl | None = None
     current_storage_slots: dict[str, int] = {}
     current_transient_slots: set[str] = set()
@@ -338,6 +358,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             params=current_function.params,
             return_type=current_function.return_type,
             body=tuple(current_body),
+            requires_role=current_function.requires_role,
         )
         # Higher-order internal helpers (#1747) are monomorphized away before
         # lowering, so they never reach the external ABI; drop them here to
@@ -348,13 +369,20 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_body = []
 
     def flush_current() -> None:
-        nonlocal current_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
+        nonlocal current_name, current_namespace, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
         if current_name is None:
             return
         flush_struct()
         flush_function()
+        if current_name in contracts:
+            raise ValueError(
+                f"duplicate contract '{current_name}' in {source}; "
+                "namespace-qualified property registry keys are required"
+            )
         contracts[current_name] = ContractDecl(
             name=current_name,
+            namespace=current_namespace,
+            parent_name=current_parent_name,
             constructor=current_constructor,
             functions=tuple(current_functions),
             storage_slots=dict(current_storage_slots),
@@ -362,10 +390,13 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             storage_types=dict(current_storage_types),
             transient_slots=frozenset(current_transient_slots),
             newtypes=dict(current_newtypes),
+            structs=dict(current_structs),
             constants=dict(current_constants),
             immutables=dict(current_immutables),
         )
         current_name = None
+        current_namespace = ()
+        current_parent_name = None
         current_constructor = None
         current_storage_slots = {}
         current_transient_slots = set()
@@ -383,6 +414,16 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         pending_storage_lines = []
 
     for line in text.splitlines():
+        namespace_match = NAMESPACE_RE.match(line)
+        if namespace_match:
+            flush_current()
+            namespace_stack.append(tuple(namespace_match.group(1).split(".")))
+            continue
+        end_namespace_match = END_NAMESPACE_RE.match(line)
+        if end_namespace_match and namespace_stack:
+            flush_current()
+            namespace_stack.pop()
+            continue
         if line.strip() == "#guard_msgs in":
             flush_current()
             guard_pending = True
@@ -394,6 +435,8 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
                 continue
             flush_current()
             current_name = cm.group(1)
+            current_namespace = tuple(part for ns in namespace_stack for part in ns)
+            current_parent_name = cm.group(2)
             continue
 
         # Clear guard_pending on any non-blank, non-comment line that isn't
@@ -529,6 +572,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
                     _split_params(params_src), current_newtypes, current_structs
                 ),
                 return_type=ret_ty,
+                requires_role=" requires(" in line,
             )
             in_storage_block = False
             in_constants_block = False
@@ -643,7 +687,79 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
                 prev = all_contracts[name].source
                 raise ValueError(f"duplicate contract '{name}' in {prev} and {contract.source}")
             all_contracts[name] = contract
-    return all_contracts
+    resolved: dict[str, ContractDecl] = {}
+    qualified_contracts = {
+        ".".join((*contract.namespace, contract.name)): contract
+        for contract in all_contracts.values()
+    }
+
+    def resolve(name: str) -> ContractDecl:
+        if name in resolved:
+            return resolved[name]
+        child = all_contracts[name]
+        if child.parent_name is None:
+            resolved[name] = child
+            return child
+        if "." in child.parent_name:
+            parent_decl = qualified_contracts.get(child.parent_name)
+        else:
+            relative_parent = ".".join((*child.namespace, child.parent_name))
+            parent_decl = qualified_contracts.get(relative_parent)
+            if parent_decl is None:
+                parent_decl = qualified_contracts.get(child.parent_name)
+        if parent_decl is None:
+            raise ValueError(
+                f"unresolved parent contract '{child.parent_name}' for '{child.name}'"
+            )
+        parent_key = parent_decl.name
+        parent = resolve(parent_key)
+        merged_newtypes = parent.newtypes | child.newtypes
+        merged_structs = parent.structs | child.structs
+        child_functions = tuple(
+            replace(
+                fn,
+                params=_resolve_decl_types_in_params(fn.params, merged_newtypes, merged_structs),
+                return_type=_resolve_decl_type(fn.return_type, merged_newtypes, merged_structs),
+            )
+            for fn in child.functions
+        )
+        child_constructor = child.constructor
+        if child_constructor is not None:
+            child_constructor = replace(
+                child_constructor,
+                params=_resolve_decl_types_in_params(child_constructor.params, merged_newtypes, merged_structs),
+            )
+        inherited_functions = {
+            (fn.name, tuple(param.lean_type for param in fn.params)): fn
+            for fn in parent.functions
+        }
+        for fn in child_functions:
+            inherited_functions[(fn.name, tuple(param.lean_type for param in fn.params))] = fn
+        merged = replace(
+            child,
+            constructor=child_constructor,
+            functions=tuple(inherited_functions.values()),
+            storage_slots=parent.storage_slots | child.storage_slots,
+            storage_types={
+                field_name: _resolve_decl_type(field_type, merged_newtypes, merged_structs)
+                for field_name, field_type in parent.storage_types.items()
+            }
+            | {
+                field_name: _resolve_decl_type(field_type, merged_newtypes, merged_structs)
+                for field_name, field_type in child.storage_types.items()
+            },
+            transient_slots=parent.transient_slots | child.transient_slots,
+            newtypes=merged_newtypes,
+            structs=merged_structs,
+            constants=parent.constants | child.constants,
+            immutables=parent.immutables | child.immutables,
+        )
+        resolved[name] = merged
+        return merged
+
+    for contract_name in all_contracts:
+        resolve(contract_name)
+    return resolved
 
 
 def _parse_tuple_elements(inner: str) -> list[str]:
@@ -2916,7 +3032,15 @@ def render_contract_test(contract: ContractDecl) -> str:
         encode_args = ", ".join([f'"{sig}"', *call_args]) if call_args else f'"{sig}"'
         fn_camel = _fn_camel(fn.name)
 
-        if _normalize_type(fn.return_type) == "Unit":
+        if fn.requires_role:
+            body = f"""    // Property {idx}: {fn.name} enforces its required role
+    function testAuto_{fn_camel}_RejectsUnauthorizedCaller() public {{
+        vm.prank(address(0x2222));
+        (bool ok,) = target.call(abi.encodeWithSignature({encode_args}));
+        require(!ok, "{fn.name} accepted an unauthorized caller");
+    }}
+"""
+        elif _normalize_type(fn.return_type) == "Unit":
             body = f"""    // Property {idx}: {fn.name} has no unexpected revert
     function testAuto_{fn_camel}_NoUnexpectedRevert() public {{
         vm.prank(alice);

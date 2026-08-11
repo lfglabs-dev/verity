@@ -28,13 +28,19 @@ contract PropertyEffectCompositionSmokeTest is YulTestBase {
         uint256 actual = abi.decode(ret, (uint256));
         assertEq(actual, expected, "getCounter should return storage slot 0");
     }
-    // Property 2: setOwner has no unexpected revert
+    // Property 2: increment has no unexpected revert
+    function testAuto_Increment_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("increment()"));
+        require(ok, "increment reverted unexpectedly");
+    }
+    // Property 3: setOwner has no unexpected revert
     function testAuto_SetOwner_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("setOwner(address)", alice));
         require(ok, "setOwner reverted unexpectedly");
     }
-    // Property 3: deposit has no unexpected revert
+    // Property 4: deposit has no unexpected revert
     function testAuto_Deposit_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("deposit(uint256)", uint256(1)));

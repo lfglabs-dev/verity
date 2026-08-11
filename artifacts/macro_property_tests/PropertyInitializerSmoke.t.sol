@@ -17,4 +17,16 @@ contract PropertyInitializerSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
+    // Property 1: initOwner has no unexpected revert
+    function testAuto_InitOwner_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("initOwner(address)", alice));
+        require(ok, "initOwner reverted unexpectedly");
+    }
+    // Property 2: upgradeToV2 has no unexpected revert
+    function testAuto_UpgradeToV2_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("upgradeToV2()"));
+        require(ok, "upgradeToV2 reverted unexpectedly");
+    }
 }

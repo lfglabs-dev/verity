@@ -17,7 +17,19 @@ contract PropertyFullComboSmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
-    // Property 1: getBalance reads storage slot 1 and decodes the result
+    // Property 1: deposit enforces its required role
+    function testAuto_Deposit_RejectsUnauthorizedCaller() public {
+        vm.prank(address(0x2222));
+        (bool ok,) = target.call(abi.encodeWithSignature("deposit(uint256)", uint256(1)));
+        require(!ok, "deposit accepted an unauthorized caller");
+    }
+    // Property 2: freeze enforces its required role
+    function testAuto_Freeze_RejectsUnauthorizedCaller() public {
+        vm.prank(address(0x2222));
+        (bool ok,) = target.call(abi.encodeWithSignature("freeze()"));
+        require(!ok, "freeze accepted an unauthorized caller");
+    }
+    // Property 3: getBalance reads storage slot 1 and decodes the result
     function testAuto_GetBalance_ReadsConfiguredStorage() public {
         uint256 expected = uint256(1);
         vm.store(target, bytes32(uint256(1)), bytes32(uint256(expected)));

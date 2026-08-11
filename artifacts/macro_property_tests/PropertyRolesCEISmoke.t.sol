@@ -17,7 +17,13 @@ contract PropertyRolesCEISmokeTest is YulTestBase {
         require(target != address(0), "Deploy failed");
     }
 
-    // Property 1: getCounter reads storage slot 1 and decodes the result
+    // Property 1: setAndCall enforces its required role
+    function testAuto_SetAndCall_RejectsUnauthorizedCaller() public {
+        vm.prank(address(0x2222));
+        (bool ok,) = target.call(abi.encodeWithSignature("setAndCall(uint256)", uint256(1)));
+        require(!ok, "setAndCall accepted an unauthorized caller");
+    }
+    // Property 2: getCounter reads storage slot 1 and decodes the result
     function testAuto_GetCounter_ReadsConfiguredStorage() public {
         uint256 expected = uint256(1);
         vm.store(target, bytes32(uint256(1)), bytes32(uint256(expected)));

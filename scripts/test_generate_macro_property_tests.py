@@ -16,6 +16,145 @@ import generate_macro_property_tests as gen
 
 
 class ParseContractsTests(unittest.TestCase):
+    def test_parse_inherited_constructor_with_nested_parent_argument(self) -> None:
+        src = textwrap.dedent(
+            """
+            verity_contract Child is Base where
+              storage
+              constructor (x : Uint256) Base(helper(x)) := do
+                pure ()
+            """
+        )
+        parsed = gen.parse_contracts(src, Path("dummy.lean"))
+        self.assertEqual(parsed["Child"].constructor.params[0].name, "x")
+
+    def test_collect_contracts_rejects_unresolved_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Child.lean"
+            source.write_text(
+                "verity_contract Child is Missing where\n  storage\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "unresolved parent contract 'Missing'"):
+                gen.collect_contracts([source])
+
+    def test_collect_contracts_rejects_missing_qualified_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Contracts.lean"
+            source.write_text(
+                "verity_contract Base where\n  storage\n\n"
+                "verity_contract Child is Other.Base where\n  storage\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "unresolved parent contract 'Other.Base'"):
+                gen.collect_contracts([source])
+
+    def test_collect_contracts_rejects_unrelated_namespace_parent_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            child_source = Path(tmpdir) / "Child.lean"
+            child_source.write_text(
+                "namespace A\n"
+                "verity_contract Child is Base where\n  storage\n"
+                "end A\n",
+                encoding="utf-8",
+            )
+            unrelated_source = Path(tmpdir) / "Base.lean"
+            unrelated_source.write_text(
+                "namespace B\n"
+                "verity_contract Base where\n  storage\n"
+                "end B\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "unresolved parent contract 'Base'"):
+                gen.collect_contracts([child_source, unrelated_source])
+
+    def test_collect_contracts_falls_back_to_root_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Contracts.lean"
+            source.write_text(
+                "verity_contract Base where\n  storage\n\n"
+                "namespace A\n"
+                "verity_contract Child is Base where\n  storage\n"
+                "end A\n",
+                encoding="utf-8",
+            )
+            contracts = gen.collect_contracts([source])
+            self.assertEqual(contracts["Child"].parent_name, "Base")
+
+    def test_collect_contracts_resolves_inherited_alias_in_child_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Contracts.lean"
+            source.write_text(
+                textwrap.dedent(
+                    """
+                    verity_contract Base where
+                      types
+                        Amount : Uint256
+                      storage
+
+                    verity_contract Child is Base where
+                      storage
+                        left : Amount := slot 0
+                        right : Amount := slot 1
+
+                      function sum () : Amount := do
+                        let a ← getStorage left
+                        let b ← getStorage right
+                        return (add a b)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            child = gen.collect_contracts([source])["Child"]
+            self.assertEqual(child.storage_types, {"left": "Uint256", "right": "Uint256"})
+            self.assertEqual(gen._sol_type(child.storage_types["left"]), "uint256")
+            self.assertEqual(gen._sol_type(child.storage_types["right"]), "uint256")
+
+    def test_collect_contracts_resolves_alias_in_inherited_parent_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Contracts.lean"
+            source.write_text(
+                textwrap.dedent(
+                    """
+                    verity_contract Base where
+                      types
+                        Amount : Uint256
+                      storage
+                        left : Amount := slot 0
+                        right : Amount := slot 1
+
+                    verity_contract Child is Base where
+                      storage
+
+                      function sum () : Amount := do
+                        let a ← getStorage left
+                        let b ← getStorage right
+                        return (add a b)
+                    """
+                ),
+                encoding="utf-8",
+            )
+            child = gen.collect_contracts([source])["Child"]
+            self.assertEqual(child.storage_types, {"left": "Uint256", "right": "Uint256"})
+            self.assertEqual(gen._sol_type(child.storage_types["left"]), "uint256")
+            self.assertEqual(gen._sol_type(child.storage_types["right"]), "uint256")
+
+    def test_parse_contracts_rejects_duplicate_unqualified_names(self) -> None:
+        src = textwrap.dedent(
+            """
+            namespace A
+            verity_contract Base where
+              storage
+            end A
+            namespace B
+            verity_contract Base where
+              storage
+            end B
+            """
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate contract 'Base'"):
+            gen.parse_contracts(src, Path("dummy.lean"))
+
     def test_parse_two_contracts(self) -> None:
         src = textwrap.dedent(
             """
@@ -46,6 +185,23 @@ class ParseContractsTests(unittest.TestCase):
     def test_parse_params(self) -> None:
         out = gen._split_params("to : Address, amount : Uint256")
         self.assertEqual([(p.name, p.lean_type) for p in out], [("to", "Address"), ("amount", "Uint256")])
+
+    def test_parse_function_post_parameter_clauses(self) -> None:
+        src = textwrap.dedent(
+            """
+            verity_contract Guarded where
+              storage
+                owner : Address := slot 0
+
+              function audit (value : Uint256) initializer(owner) with onlyOwner requires(owner) modifies(owner) local_obligations [safe := proved "ok"] : Uint256 := do
+                return value
+            """
+        )
+        parsed = gen.parse_contracts(src, Path("dummy.lean"))
+        fn = parsed["Guarded"].functions[0]
+        self.assertEqual(fn.name, "audit")
+        self.assertEqual(fn.return_type, "Uint256")
+        self.assertTrue(fn.requires_role)
 
     def test_parse_inline_struct_param_as_tuple(self) -> None:
         src = textwrap.dedent(
@@ -270,6 +426,26 @@ class ParseContractsTests(unittest.TestCase):
         # Rendering must not raise on the dropped higher-order helper.
         rendered = gen.render_contract_test(parsed["FunctionPointerParamSmoke"])
         self.assertNotIn("apply(", rendered)
+
+    def test_role_negative_property_uses_distinct_unauthorized_caller(self) -> None:
+        src = textwrap.dedent(
+            """
+            verity_contract RoleConstructorSmoke where
+              storage
+                owner : Address := slot 0
+
+              constructor (initialOwner : Address) := do
+                setStorageAddr owner initialOwner
+
+              function guarded () requires(owner) : Unit := do
+                pure ()
+            """
+        )
+        contract = gen.parse_contracts(src, gen.ROOT / "Contracts/Smoke.lean")["RoleConstructorSmoke"]
+        rendered = gen.render_contract_test(contract)
+        self.assertIn("abi.encode(alice)", rendered)
+        self.assertIn("vm.prank(address(0x2222));", rendered)
+        self.assertNotIn("vm.prank(alice);\n        (bool ok,) = target.call", rendered)
 
 
 class RenderTests(unittest.TestCase):

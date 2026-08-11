@@ -29,7 +29,7 @@ errors with scalar payloads, `require`, bounded `for`, `if/else`, ternary,
 low-level `call`/`staticcall`/`delegatecall` (no proof coverage). ❌:
 `uint128/64/32/24/16`, `int128`, `bytes4/20`, `enum`, storage `string`/`bytes`,
 top-level `struct` as storage root, `mapping` depth ≥ 3 (no proof),
-inheritance, modifiers as first class, `abi.encode`/`abi.encodePacked`,
+multiple inheritance, modifier postludes, `abi.encode`/`abi.encodePacked`,
 `try/catch`, `while`, `break/continue`, `CREATE`/`CREATE2`, `transfer`/`send`,
 `receive`/`fallback`.
 
@@ -287,7 +287,7 @@ inline.
 
 | Construct | Status | Feature gap |
 |---|---|---|
-| `contract AccountingOracle is BaseOracle` | ❌ | inheritance |
+| `contract AccountingOracle is BaseOracle` | ✅ | flattened single inheritance; virtual overrides specialize at compile time |
 | `initialize(...)` / `finalizeUpgrade_v5(uint256)` | ❌ | modifiers |
 | `submitReportData(ReportData calldata, uint256)` | ❌ | large calldata struct with nested fields |
 | `_checkStakingRouterModuleBalances(sanityChecker, data, timeElapsed)` (SRV3-P3 P4 anchor) | 🚧 | staticcall + bounded loop |

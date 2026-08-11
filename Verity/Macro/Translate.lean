@@ -2776,6 +2776,7 @@ private partial def offsetStorageAccessorTree (offset : Nat) : StorageAccessorTr
 
 structure ParsedContractSyntax where
   contractName : Ident
+  parentName? : Option Ident := none
   newtypeDecls : Array NewtypeDecl
   structDecls : Array StructDecl
   adtDecls : Array AdtDecl
@@ -2786,11 +2787,344 @@ structure ParsedContractSyntax where
   eventDecls : Array EventDecl
   constDecls : Array ConstantDecl
   immutableDecls : Array ImmutableDecl
+  interfaceDecls : Array InterfaceDecl
   externalDecls : Array ExternalDecl
   ctor : Option ConstructorDecl
   modifiers : Array ModifierDecl
   functions : Array FunctionDecl
   storageNamespace : Option Nat
+
+abbrev ContractSyntaxRegistry := List (Name × ParsedContractSyntax)
+
+private def addContractSyntaxEntry
+    (state : ContractSyntaxRegistry) (entry : Name × ParsedContractSyntax) : ContractSyntaxRegistry :=
+  entry :: state.filter (fun prior => prior.1 != entry.1)
+
+initialize contractSyntaxExt : SimplePersistentEnvExtension
+    (Name × ParsedContractSyntax) ContractSyntaxRegistry ←
+  registerSimplePersistentEnvExtension {
+    addEntryFn := addContractSyntaxEntry
+    addImportedFn := fun entries =>
+      mkStateFromImportedEntries addContractSyntaxEntry [] entries
+  }
+
+def registerContractSyntax (name : Name) (parsed : ParsedContractSyntax) : CommandElabM Unit :=
+  modifyEnv fun env => contractSyntaxExt.addEntry env (name, parsed)
+
+private def lookupContractSyntax (name : Name) : CommandElabM (Option ParsedContractSyntax) := do
+  pure (contractSyntaxExt.getState (← getEnv)
+    |>.find? (fun entry => entry.1 == name) |>.map (·.2))
+
+private def doElems (body : Term) : CommandElabM (Array (TSyntax `doElem)) := do
+  match body with
+  | `(term| do $[$elems:doElem]*) => pure elems
+  | _ => throwErrorAt body "constructor body must be a do block"
+
+private partial def localBinderNames (stx : Syntax) : CommandElabM (Array String) := do
+  let here ←
+    if stx.getKind == `Lean.Parser.Term.doLet then
+      let binder := stx[3][0][0]
+      match binder with
+      | .ident _ raw _ _ => pure #[raw.toString]
+      | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
+    else if stx.getKind == `Lean.Parser.Term.doLetArrow then
+      let binder := stx[3][0]
+      match binder with
+      | .ident _ raw _ _ => pure #[raw.toString]
+      | _ => pure <| (tupleBinderNames? binder).getD #[] |>.filterMap id
+    else
+      match (⟨stx⟩ : TSyntax `doElem) with
+      | `(doElem| forEach $name:term $_count:term $_body:term) =>
+          pure #[← expectStringOrIdent name]
+      | `(doElem| forEachSetBit $name:term $_bitmap:term $_body:term) =>
+          pure #[← expectStringOrIdent name]
+      | `(doElem| ecmBind $names:term $_module:term $_args:term) =>
+          expectStringList names
+      | _ => pure #[]
+  let nested ← stx.getArgs.mapM localBinderNames
+  pure (nested.foldl (· ++ ·) here)
+
+private partial def substitutePureInitializerParamSyntax
+    (bindings : Array (String × Syntax)) (node : Syntax) : Syntax :=
+    match node with
+    | .ident _ _ name _ =>
+        bindings.find? (fun binding => binding.1 == name.toString)
+          |>.map (·.2) |>.getD node
+    | _ =>
+        let args := node.getArgs
+        if node.getKind == `Lean.Parser.Term.app && !args.isEmpty then
+          -- The application head names a helper/constant, not a constructor
+          -- parameter reference.  Rebind only its argument expressions.
+          node.setArgs (args.mapIdx fun idx arg =>
+            if idx == 0 then arg else substitutePureInitializerParamSyntax bindings arg)
+        else
+          node.setArgs (args.map (substitutePureInitializerParamSyntax bindings))
+
+private def substitutePureInitializerParams
+    (bindings : Array (String × Syntax)) (body : Term) : Term :=
+  ⟨substitutePureInitializerParamSyntax bindings body.raw⟩
+
+/-- Rebind direct dynamic parent-constructor parameters to the child ABI
+    parameter that supplies them. Dynamic values cannot be materialized as
+    model locals: their offsets remain meaningful only as parameter
+    references. Storage helper field operands are declarations, rather than
+    value references, so they must remain untouched when a field and parent
+    parameter intentionally share a name. -/
+private partial def substituteDynamicParentParamSyntax
+    (bindings : Array (String × Syntax)) (node : Syntax) : Syntax :=
+  match node with
+  | .ident _ _ name _ =>
+      bindings.find? (fun binding => declaredNameMatches name.toString binding.1)
+        |>.map (·.2) |>.getD node
+  | _ =>
+      let args := node.getArgs
+      if node.getKind == `Lean.Parser.Term.app && !args.isEmpty then
+        let headName? := match args[0]? with
+          | some (.ident _ _ name _) => some name.toString
+          | _ => none
+        let fieldOperandIsDeclaration := headName?.any fun head =>
+          #["getStorage", "getStorageAddr", "getStorageArrayLength",
+            "getStorageArrayElement", "setStorage", "setStorageAddr",
+            "setStorageArrayElement", "getMapping", "getMappingAddr",
+            "getMappingUint", "getMappingUintAddr", "getMappingWord",
+            "getMapping2", "getMappingN", "setMapping", "setMappingAddr",
+            "setMappingUint", "setMappingUintAddr", "setMappingWord",
+            "setMapping2", "setMappingN", "tload", "tstore"].contains head
+        node.setArgs (args.mapIdx fun idx arg =>
+          if idx == 0 || (idx == 1 && fieldOperandIsDeclaration) then arg
+          else substituteDynamicParentParamSyntax bindings arg)
+      else
+        node.setArgs (args.map (substituteDynamicParentParamSyntax bindings))
+
+private def substituteDynamicParentParams
+    (bindings : Array (String × Syntax)) (body : Term) : Term :=
+  ⟨substituteDynamicParentParamSyntax bindings body.raw⟩
+
+/-- Whether a parameter reserves `name` in the lowered function namespace.
+Tuple parameters synthesize aliases such as `config_0` for their components. -/
+private def paramReservesName (param : ParamDecl) (name : String) : Bool :=
+  param.name == name || match param.ty with
+    | .tuple elemTys => (elemTys.toArray.zipIdx).any fun (_, idx) =>
+        s!"{param.name}_{idx}" == name
+    | _ => false
+
+private partial def normalizeParentConstructorArg
+    (paramTy : ValueType) (arg : Term) : CommandElabM Term := do
+  match paramTy with
+  | .uintN bits => `(narrowUInt $(natTerm bits) $arg)
+  | .intN bits => `(narrowInt $(natTerm bits) $arg)
+  | .bytesN bytes => `(narrowBytes $(natTerm bytes) $arg)
+  | .int256 => `(toInt256 $arg)
+  | .newtype _ baseType => normalizeParentConstructorArg baseType arg
+  | _ => pure arg
+
+private def composeConstructors
+    (parentName : Ident) (parentContract childContract : ParsedContractSyntax) :
+    CommandElabM (Option ConstructorDecl) := do
+  match parentContract.ctor, childContract.ctor with
+  | none, none => pure none
+  | none, some child =>
+      if child.parentName?.isSome then
+        throwErrorAt child.parentName?.get! "parent constructor call supplied, but the parent has no constructor"
+      pure (some child)
+  | some parent, none =>
+      if !parent.params.isEmpty then
+        throwErrorAt parentName s!"parent constructor '{toString parentName.getId}' expects {parent.params.size} argument(s); add an explicit parent constructor call"
+      -- An omitted child constructor is an implicit nonpayable constructor.
+      -- Running a payable parent initializer must not widen that external ABI.
+      pure (some { parent with isPayable := false, parentName? := none, parentArgs := #[] })
+  | some parent, some child =>
+      let calledParent ← match child.parentName? with
+        | some called => pure called
+        | none => throwErrorAt parentName s!"constructor must call parent constructor '{toString parentName.getId}'"
+      if calledParent.getId != parentName.getId then
+        throwErrorAt calledParent s!"constructor calls '{calledParent.getId}', expected direct parent '{parentName.getId}'"
+      if child.parentArgs.size != parent.params.size then
+        throwErrorAt calledParent s!"parent constructor '{parentName.getId}' expects {parent.params.size} argument(s), got {child.parentArgs.size}"
+      for (param, arg) in parent.params.zip child.parentArgs do
+        let argTy ← inferPureExprType
+          (parentContract.fields ++ childContract.fields)
+          (parentContract.constDecls ++ childContract.constDecls)
+          (parentContract.immutableDecls ++ childContract.immutableDecls)
+          (parentContract.externalDecls ++ childContract.externalDecls)
+          child.params #[] arg
+        unless argumentTypeMatchesParam arg argTy param.ty do
+          throwErrorAt arg
+            s!"parent constructor parameter '{param.name}' expects {renderValueType param.ty}, got {renderValueType argTy}"
+      let inheritedBinderNames := parent.boundParentParamNames ++ (← localBinderNames parent.body.raw)
+      if let some captured := inheritedBinderNames.find? (fun name =>
+          child.params.any (fun childParam => paramReservesName childParam name)) then
+        throwErrorAt calledParent s!"ancestor constructor binding '{captured}' conflicts with a child constructor parameter; rename the child parameter"
+      -- Bind parent arguments in a nested lexical scope instead of rewriting
+      -- identifier syntax.  The latter is not hygienic: a parameter named
+      -- `owner` must not rewrite the storage-field operand in
+      -- `setStorageAddr owner owner` (nor a nested local binder).
+      let mut parentBindings : Array (TSyntax `doElem) := #[]
+      let mut dynamicParamBindings : Array (String × Syntax) := #[]
+      let mut boundParentParamNames := inheritedBinderNames
+      for (param, arg) in parent.params.zip child.parentArgs do
+        -- Reuse an identically named child parameter directly.  Introducing
+        -- a redundant `let x := x` would be rejected as parameter shadowing.
+        let directChildParam? := match stripParens arg with
+          | `(term| $name:ident) =>
+              child.params.find? (fun (childParam : ParamDecl) =>
+                declaredNameMatches (toString name.getId) childParam.name)
+          | _ => child.params.find? (fun childParam =>
+              (stripParens arg).raw.reprint.getD "" == childParam.name)
+        let isIdentityArg := directChildParam?.any (fun childParam => childParam.name == param.name)
+        if !isIdentityArg then
+          if child.params.any (fun childParam => paramReservesName childParam param.name) then
+            throwErrorAt arg s!"parent constructor parameter '{param.name}' conflicts with a child constructor parameter; rename the child parameter"
+          if valueTypeUsesDynamicData param.ty && directChildParam?.isSome then
+            -- Keep ABI-dynamic data attached to its actual child parameter;
+            -- a `let parent := child` would turn it into an unsupported (and
+            -- semantically incorrect) local value.
+            dynamicParamBindings := dynamicParamBindings.push (param.name, arg.raw)
+          else
+            -- Parent arguments have already been checked against `param.ty`,
+            -- but Lean and the model typer otherwise infer literals at their
+            -- default type. Normalize width-sensitive values before binding so
+            -- inherited bodies retain the parent's declared semantics.
+            let normalizedArg ← normalizeParentConstructorArg param.ty arg
+            let binding ← `(doElem| let $param.ident := $normalizedArg)
+            parentBindings := parentBindings.push binding
+            boundParentParamNames := boundParentParamNames.push param.name
+      let parentBody := substituteDynamicParentParams dynamicParamBindings parent.body
+      let parentElems ← doElems parentBody
+      let scopedParent ← `(doElem| if true then
+        $[$parentBindings:doElem]*
+        $[$parentElems:doElem]*
+        else
+          pure ())
+      let childElems ← doElems child.body
+      let combinedBody ← `(do $scopedParent:doElem $[$childElems:doElem]*)
+      pure (some {
+        child with
+        -- The child constructor is the externally visible constructor.  A
+        -- payable parent initializer must not widen its mutability.
+        isPayable := child.isPayable
+        localObligations := parent.localObligations ++ child.localObligations
+        boundParentParamNames := boundParentParamNames
+        parentName? := none
+        parentArgs := #[]
+        body := combinedBody
+      })
+
+private def flattenSingleInheritance
+    (parentName : Ident) (parent child : ParsedContractSyntax) : CommandElabM ParsedContractSyntax := do
+  let duplicateFields := child.fields.filter fun field => parent.fields.any (fun inherited => inherited.name == field.name)
+  if let some field := duplicateFields[0]? then
+    throwErrorAt field.ident s!"storage field '{field.name}' duplicates an inherited field"
+  let duplicateModifiers := child.modifiers.filter fun modDecl =>
+    parent.modifiers.any (fun inherited => inherited.name == modDecl.name)
+  if let some modDecl := duplicateModifiers[0]? then
+    throwErrorAt modDecl.ident s!"modifier '{modDecl.name}' duplicates an inherited modifier"
+  let duplicateRoles := child.roleDecls.filter fun roleDecl =>
+    parent.roleDecls.any (fun inherited => inherited.name == roleDecl.name)
+  if let some roleDecl := duplicateRoles[0]? then
+    throwErrorAt roleDecl.ident s!"role '{roleDecl.name}' duplicates an inherited role"
+  let mut functions := parent.functions
+  for fn in child.functions do
+    let inherited? := functions.find? (fun inherited => functionSignatureKey inherited == functionSignatureKey fn)
+    match fn.isOverride, inherited? with
+    | true, none =>
+        throwErrorAt fn.ident s!"function '{fn.name}' is marked override, but no inherited function has the same signature"
+    | true, some inherited =>
+        if !inherited.isVirtual then
+          throwErrorAt fn.ident s!"function '{fn.name}' overrides a non-virtual inherited function"
+        if !inherited.isPayable && fn.isPayable then
+          throwErrorAt fn.ident s!"function '{fn.name}' cannot widen a nonpayable inherited function to payable"
+        if inherited.isPayable && !fn.isPayable then
+          throwErrorAt fn.ident s!"function '{fn.name}' cannot change an inherited payable function to nonpayable"
+        if inherited.isPure && !fn.isPure then
+          throwErrorAt fn.ident s!"function '{fn.name}' cannot weaken an inherited pure function"
+        if inherited.isView && !fn.isView && !fn.isPure then
+          throwErrorAt fn.ident s!"function '{fn.name}' cannot weaken an inherited view function to state-mutating"
+        if inherited.isInternal != fn.isInternal then
+          throwErrorAt fn.ident s!"function '{fn.name}' must preserve inherited internal/external visibility"
+        if inherited.returnTy != fn.returnTy then
+          throwErrorAt fn.ident s!"function '{fn.name}' must preserve the inherited return type"
+        functions := functions.map fun candidate =>
+          if functionSignatureKey candidate == functionSignatureKey fn then
+            { fn with isOverride := false }
+          else
+            candidate
+    | false, some _ =>
+        throwErrorAt fn.ident s!"function '{fn.name}' has the same signature as an inherited function; add override (the inherited function must be virtual)"
+    | false, none =>
+        functions := functions.push fn
+  let inheritedImmutables :=
+    match parent.ctor, child.ctor with
+    | some parentCtor, some childCtor =>
+        let bindings := parentCtor.params.zip childCtor.parentArgs |>.map fun (param, arg) =>
+          (param.name, arg.raw)
+        parent.immutableDecls.map fun imm =>
+          { imm with body := substitutePureInitializerParams bindings imm.body }
+    | _, _ => parent.immutableDecls
+  let ctor ← composeConstructors parentName parent child
+  pure {
+    child with
+    parentName? := some parentName
+    newtypeDecls := parent.newtypeDecls ++ child.newtypeDecls
+    structDecls := parent.structDecls ++ child.structDecls
+    adtDecls := parent.adtDecls ++ child.adtDecls
+    fields := parent.fields ++ child.fields
+    roleDecls := parent.roleDecls ++ child.roleDecls
+    storageStructAccessors := parent.storageStructAccessors ++ child.storageStructAccessors
+    errorDecls := parent.errorDecls ++ child.errorDecls
+    eventDecls := parent.eventDecls ++ child.eventDecls
+    constDecls := parent.constDecls ++ child.constDecls
+    immutableDecls := inheritedImmutables ++ child.immutableDecls
+    interfaceDecls := parent.interfaceDecls ++ child.interfaceDecls
+    externalDecls := parent.externalDecls ++ child.externalDecls
+    ctor := ctor
+    modifiers := parent.modifiers ++ child.modifiers
+    -- Parent and child overload identifiers were assigned independently.
+    -- Reassign them across the flattened set so cross-boundary overloads are
+    -- collision-free as well.
+    functions := assignOverloadInternalIdents functions
+    -- Flattening emits parent fields first, so report the namespace belonging
+    -- to whichever contract contributes the first field in the final layout.
+    storageNamespace :=
+      if !parent.fields.isEmpty then parent.storageNamespace
+      else if !child.fields.isEmpty then child.storageNamespace
+      else child.storageNamespace.orElse (fun _ => parent.storageNamespace)
+  }
+
+private def inlineModifierPrefixes
+    (modifiers : Array ModifierDecl) (functions : Array FunctionDecl) : CommandElabM (Array FunctionDecl) :=
+  functions.mapM fun fn => do
+    if fn.modifiers.isEmpty then
+      pure fn
+    else
+      let mut prelude : Array (TSyntax `doElem) := #[]
+      for modifierIdent in fn.modifiers do
+        let modifierName := toString modifierIdent.getId
+        let some modDecl := modifiers.find? (fun candidate => candidate.name == modifierName)
+          | throwErrorAt modifierIdent s!"function '{fn.name}' references unknown modifier '{modifierName}'"
+        let modifierElems ← doElems modDecl.body
+        let modifierLocals ← localBinderNames modDecl.body.raw
+        if let some captured := modifierLocals.find? (fun name =>
+            fn.params.any (fun param => paramReservesName param name)) then
+          throwErrorAt modifierIdent s!"modifier '{modifierName}' local '{captured}' conflicts with a function parameter; rename one of them"
+        -- A modifier's locals have their own lexical scope in Solidity.  An
+        -- always-taken branch preserves that scope in the flattened EDSL IR,
+        -- so modifier-local names may be reused by later modifiers or by the
+        -- function body.
+        let scopedElem ← `(doElem| if true then $[$modifierElems:doElem]* else
+          require false "unreachable modifier scope")
+        prelude := prelude.push scopedElem
+      let bodyElems ← doElems fn.body
+      let inlined ← `(do $[$prelude:doElem]* $[$bodyElems:doElem]*)
+      pure { fn with modifiers := #[], body := inlined }
+
+private partial def modifierSyntaxTerminates (stx : Syntax) : Bool :=
+  stx.getKind == ``Lean.Parser.Term.doReturn ||
+    (match stx with
+    | .ident _ _ name _ =>
+        #["returnValues", "returnArray", "returnBytes", "returnStorageWords", "returnCodeData"]
+          |>.contains name.toString
+    | _ => stx.getArgs.any modifierSyntaxTerminates)
 
 private def roleKindOfStorageField? (field : StorageFieldDecl) : Option RoleKind :=
   match field.ty with
@@ -2825,18 +3159,42 @@ def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident $[is $parentName:ident]? where $[types $[$newtypeDecls:verityNewtype]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+      -- Resolve inheritance before parsing the child: inherited user-defined
+      -- types are valid in every child declaration and function signature.
+      let currentNs ← getCurrNamespace
+      let mut parent? : Option ParsedContractSyntax := none
+      if let some parentIdent := parentName then
+        let candidates := [currentNs ++ parentIdent.getId, parentIdent.getId]
+        let mut resolvedParentName? : Option Name := none
+        for candidate in candidates do
+          if parent?.isNone then
+            parent? ← lookupContractSyntax candidate
+            if parent?.isSome then
+              resolvedParentName? := some candidate
+        if parent?.isNone then
+          throwErrorAt parentIdent s!"unknown parent contract '{parentIdent.getId}'; import or declare the parent before the child"
+        if let some resolvedParentName := resolvedParentName? then
+          if resolvedParentName.getPrefix != currentNs then
+            throwErrorAt parentIdent
+              "cross-namespace inheritance is not supported because inherited bodies must retain the parent's lexical namespace; declare the child in the parent's namespace"
       -- Parse newtypes first — they are needed by all downstream type resolution
       let parsedNewtypes ←
         match newtypeDecls with
         | some decls => decls.mapM parseNewtype
         | none => pure #[]
+      let typeNewtypes := parent?.map (fun p => p.newtypeDecls ++ parsedNewtypes) |>.getD parsedNewtypes
       -- Validate: no duplicate type names
-      let mut seenNames : Array String := #[]
+      let inheritedTypeNames := parent?.map (fun p =>
+        (p.newtypeDecls.map (fun decl => localDeclName decl.name)) ++
+        (p.structDecls.map (fun decl => localDeclName decl.name)) ++
+        (p.adtDecls.map (fun decl => localDeclName decl.name))) |>.getD #[]
+      let mut seenNames : Array String := inheritedTypeNames
       for nt in parsedNewtypes do
-        if seenNames.contains nt.name then
+        let ntLocalName := localDeclName nt.name
+        if seenNames.contains ntLocalName then
           throwErrorAt nt.ident s!"duplicate type name '{nt.name}'"
-        seenNames := seenNames.push nt.name
+        seenNames := seenNames.push ntLocalName
       -- Validate: type names don't shadow built-in types
       let builtinTypeNames := #["Uint256", "Int256", "Uint8", "Address", "Bytes32", "Bool", "String", "Bytes", "Unit", "Array", "Tuple"]
       for nt in parsedNewtypes do
@@ -2844,23 +3202,28 @@ def parseContractSyntax
           throwErrorAt nt.ident s!"type name '{nt.name}' shadows a built-in type"
       let mut parsedStructs : Array StructDecl := #[]
       for structStx in structDecls do
-        let parsedStruct ← parseStructDecl parsedNewtypes parsedStructs structStx
-        if seenNames.contains parsedStruct.name then
+        let inheritedStructs := parent?.map (fun p => p.structDecls) |>.getD #[]
+        let parsedStruct ← parseStructDecl typeNewtypes (inheritedStructs ++ parsedStructs) structStx
+        let structLocalName := localDeclName parsedStruct.name
+        if seenNames.contains structLocalName then
           throwErrorAt parsedStruct.ident s!"duplicate type name '{parsedStruct.name}'"
         if builtinTypeNames.contains parsedStruct.name then
           throwErrorAt parsedStruct.ident s!"struct name '{parsedStruct.name}' shadows a built-in type"
-        seenNames := seenNames.push parsedStruct.name
+        seenNames := seenNames.push structLocalName
         parsedStructs := parsedStructs.push parsedStruct
       -- Parse ADT declarations (#1727, Axis 1 Step 5a)
       let parsedAdts ←
         match adtDecls with
-        | some decls => decls.mapM (parseAdtDecl parsedNewtypes)
+        | some decls => decls.mapM (parseAdtDecl typeNewtypes)
         | none => pure #[]
+      let typeStructs := parent?.map (fun p => p.structDecls ++ parsedStructs) |>.getD parsedStructs
+      let typeAdts := parent?.map (fun p => p.adtDecls ++ parsedAdts) |>.getD parsedAdts
       -- Validate: no duplicate ADT names
       for adtDecl in parsedAdts do
-        if seenNames.contains adtDecl.name then
+        let adtLocalName := localDeclName adtDecl.name
+        if seenNames.contains adtLocalName then
           throwErrorAt adtDecl.ident s!"duplicate type name '{adtDecl.name}'"
-        seenNames := seenNames.push adtDecl.name
+        seenNames := seenNames.push adtLocalName
       -- Validate: ADT names don't shadow built-in types
       for adtDecl in parsedAdts do
         if builtinTypeNames.contains adtDecl.name then
@@ -2890,26 +3253,27 @@ def parseContractSyntax
       let namespaceFromContractSpec : Bool := nsSpec.isSome
       let parsedErrors ←
         match errorDecls with
-        | some decls => decls.mapM (parseError parsedNewtypes parsedStructs parsedAdts)
+        | some decls => decls.mapM (parseError typeNewtypes typeStructs typeAdts)
         | none => pure #[]
       let parsedEvents ←
         match eventDecls with
-        | some decls => decls.mapM (parseEvent parsedNewtypes parsedStructs parsedAdts)
+        | some decls => decls.mapM (parseEvent typeNewtypes typeStructs typeAdts)
         | none => pure #[]
       let parsedConstants ←
         match constantDecls with
-        | some decls => decls.mapM (parseConstant parsedNewtypes)
+        | some decls => decls.mapM (parseConstant typeNewtypes)
         | none => pure #[]
       let parsedImmutables ←
         match immutableDecls with
-        | some decls => decls.mapM (parseImmutable parsedNewtypes)
+        | some decls => decls.mapM (parseImmutable typeNewtypes)
         | none => pure #[]
       let parsedInterfaces ←
         match interfaceDecls with
-        | some decls => decls.mapM (parseInterface parsedNewtypes parsedStructs parsedAdts)
+        | some decls => decls.mapM (parseInterface typeNewtypes typeStructs typeAdts)
         | none => pure #[]
-      let seenTypeLocalNames := seenNames.map localDeclName
-      let mut seenInterfaceNames : Array String := #[]
+      let seenTypeLocalNames := seenNames
+      let mut seenInterfaceNames : Array String := parent?.map (fun p =>
+        p.interfaceDecls.map (fun iface => localDeclName iface.name)) |>.getD #[]
       for iface in parsedInterfaces do
         let ifaceLocalName := localDeclName iface.name
         if seenTypeLocalNames.contains ifaceLocalName then
@@ -2919,10 +3283,12 @@ def parseContractSyntax
         if seenInterfaceNames.contains ifaceLocalName then
           throwErrorAt iface.ident s!"duplicate interface name '{ifaceLocalName}'"
         seenInterfaceNames := seenInterfaceNames.push ifaceLocalName
-      let interfaceNames := parsedInterfaces.map (·.name)
+      let inheritedInterfaceNames := parent?.map (fun p =>
+        p.interfaceDecls.map (·.name)) |>.getD #[]
+      let interfaceNames := inheritedInterfaceNames ++ parsedInterfaces.map (·.name)
       let parsedExternals ←
         match externalDecls with
-        | some decls => decls.mapM (parseExternal parsedNewtypes parsedStructs parsedAdts)
+        | some decls => decls.mapM (parseExternal typeNewtypes typeStructs typeAdts)
         | none => pure #[]
       let parsedExternals := interfaceExternals parsedInterfaces ++ parsedExternals
       -- Apply namespace offsets to parsed storage fields (#1730).  In-storage
@@ -2947,12 +3313,12 @@ def parseContractSyntax
               firstNamespaceOpt := some offset
               firstNamespaceLocked := true
         | none =>
-            match (← parseTransientStorageItem parsedNewtypes parsedStructs parsedAdts item) with
+            match (← parseTransientStorageItem typeNewtypes typeStructs typeAdts item) with
             | some field =>
                 parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
                 firstNamespaceLocked := true
             | none =>
-                match (← parseStorageStructItem parsedNewtypes parsedStructs parsedAdts item) with
+                match (← parseStorageStructItem typeNewtypes typeStructs typeAdts item) with
                 | some (structFields, accessor) =>
                     parsedFields := parsedFields ++
                       (structFields.map fun field => { field with slotNum := field.slotNum + currentNamespaceOffset })
@@ -2965,7 +3331,7 @@ def parseContractSyntax
                 | none =>
                     match (← storageFieldFromItem? item) with
                     | some fieldStx =>
-                        let field ← parseStorageField parsedNewtypes parsedStructs parsedAdts fieldStx
+                        let field ← parseStorageField typeNewtypes typeStructs typeAdts fieldStx
                         parsedFields := parsedFields.push { field with slotNum := field.slotNum + currentNamespaceOffset }
                         firstNamespaceLocked := true
                     | none =>
@@ -2978,17 +3344,29 @@ def parseContractSyntax
               throwErrorAt field.ident
                 "transient fixed arrays are not supported until fixed-array lowering uses tload/tstore"
           | _ => pure ()
+      let roleFields := parent?.map (fun p => p.fields ++ parsedFields) |>.getD parsedFields
       let parsedRoles ←
         match roleDecls with
-        | some decls => decls.mapM (parseRoleDecl parsedFields)
+        | some decls => decls.mapM (parseRoleDecl roleFields)
         | none => pure #[]
       let mut seenRoleNames : Array String := #[]
       for role in parsedRoles do
         if seenRoleNames.contains role.name then
           throwErrorAt role.ident s!"duplicate role declaration '{role.name}'"
         seenRoleNames := seenRoleNames.push role.name
-      pure {
+      let parsedModifiers ← modifierDecls.mapM parseModifier
+      for modDecl in parsedModifiers do
+        if modifierSyntaxTerminates modDecl.body.raw then
+          throwErrorAt modDecl.body
+            s!"modifier '{modDecl.name}' contains a terminating return; modifiers must only contain non-terminating precondition statements"
+      let parsedFunctions :=
+        assignOverloadInternalIdents
+          (← monomorphizeHigherOrderHelpers
+            ((← entrypoints.mapM parseSpecialEntrypoint) ++
+              (← functions.mapM (parseFunction typeNewtypes typeStructs typeAdts interfaceNames))))
+      let own : ParsedContractSyntax := {
         contractName := contractName
+        parentName? := parentName
         newtypeDecls := parsedNewtypes
         structDecls := parsedStructs
         adtDecls := parsedAdts
@@ -2999,16 +3377,20 @@ def parseContractSyntax
         eventDecls := parsedEvents
         constDecls := parsedConstants
         immutableDecls := parsedImmutables
+        interfaceDecls := parsedInterfaces
         externalDecls := parsedExternals
-        ctor := (← ctor.mapM (parseConstructor parsedNewtypes parsedStructs parsedAdts))
-        modifiers := (← modifierDecls.mapM parseModifier)
-        functions :=
-          assignOverloadInternalIdents
-            (← monomorphizeHigherOrderHelpers
-              ((← entrypoints.mapM parseSpecialEntrypoint) ++
-                (← functions.mapM (parseFunction parsedNewtypes parsedStructs parsedAdts interfaceNames))))
+        ctor := (← ctor.mapM (parseConstructor typeNewtypes typeStructs typeAdts))
+        modifiers := parsedModifiers
+        functions := parsedFunctions
         storageNamespace := firstNamespaceOpt
       }
+      match parentName with
+      | none => pure { own with functions := (← inlineModifierPrefixes own.modifiers own.functions) }
+      | some parentIdent =>
+          let some parent := parent? | unreachable!
+          let flattened ← flattenSingleInheritance parentIdent parent own
+          pure { flattened with
+            functions := (← inlineModifierPrefixes flattened.modifiers flattened.functions) }
   | _ => throwErrorAt stx "invalid verity_contract declaration"
 
 private def mkConstantDefCommand (constant : ConstantDecl) : CommandElabM Cmd := do
