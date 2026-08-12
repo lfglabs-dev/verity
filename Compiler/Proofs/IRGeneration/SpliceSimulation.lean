@@ -607,4 +607,100 @@ theorem execIRStmts_applyLockReleaseOnExits_fallthrough (slot : Nat)
       rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
         (by intro s' h; cases h)]
 
+/-- Frame halts whose interpreter semantics actually halt (the analysis also
+marks `invalid`/`selfdestruct`, which the interpreter continues — those are
+excluded here). -/
+inductive ModeledHalt : YulStmt → Prop
+  | stop : ModeledHalt (.exprStmt (.call "stop" []))
+  | ret (a b : Nat) :
+      ModeledHalt (.exprStmt (.call "return" [.lit a, .lit b]))
+  | rev (a b : YulExpr) :
+      ModeledHalt (.exprStmt (.call "revert" [a, b]))
+
+/-- A modeled halt never continues, at any fuel (out of fuel reverts). -/
+theorem execIRStmt_modeledHalt_no_continue (h : YulStmt) (hmh : ModeledHalt h)
+    (fuel : Nat) (state : IRState) :
+    ∀ s, execIRStmt fuel state h ≠ .continue s := by
+  intro s hcontra
+  cases hmh with
+  | stop => cases fuel <;> simp [execIRStmt] at hcontra
+  | ret a b =>
+      cases fuel with
+      | zero => simp [execIRStmt] at hcontra
+      | succ f =>
+          by_cases hb : b = 32 <;>
+            simp [execIRStmt, evalIRExpr, evalIRExprs, hb] at hcontra
+  | rev a b => cases fuel <;> simp [execIRStmt] at hcontra
+
+/-- A body ending in a modeled halt never continues. -/
+theorem execIRStmts_last_halt_no_continue (h : YulStmt) (hmh : ModeledHalt h) :
+    ∀ (ys : List YulStmt) (fuel : Nat) (state : IRState) (s : IRState),
+      execIRStmts fuel state (ys ++ [h]) ≠ .continue s := by
+  intro ys fuel state s hcontra
+  cases hpre : execIRStmts fuel state ys with
+  | «continue» s₁ =>
+      rw [execIRStmts_append_continue [h] ys fuel state s₁ hpre] at hcontra
+      cases hfl : fuel - ys.length with
+      | zero => rw [hfl] at hcontra; simp [execIRStmts] at hcontra
+      | succ k =>
+          rw [hfl] at hcontra
+          rw [show execIRStmts (k + 1) s₁ [h] =
+            (match execIRStmt k s₁ h with
+              | .continue s₂ => execIRStmts k s₂ []
+              | .return v s' => .return v s'
+              | .stop s' => .stop s'
+              | .revert s' => .revert s') from rfl] at hcontra
+          cases hstep : execIRStmt k s₁ h with
+          | «continue» s₂ =>
+              exact execIRStmt_modeledHalt_no_continue h hmh k s₁ s₂ hstep
+          | «return» v s' => rw [hstep] at hcontra; cases hcontra
+          | stop s' => rw [hstep] at hcontra; cases hcontra
+          | revert s' => rw [hstep] at hcontra; cases hcontra
+  | «return» v s₁ =>
+      rw [execIRStmts_append_halt [h] ys fuel state _ hpre
+        (by intro _ hc; cases hc)] at hcontra
+      cases hcontra
+  | stop s₁ =>
+      rw [execIRStmts_append_halt [h] ys fuel state _ hpre
+        (by intro _ hc; cases hc)] at hcontra
+      cases hcontra
+  | revert s₁ =>
+      rw [execIRStmts_append_halt [h] ys fuel state _ hpre
+        (by intro _ hc; cases hc)] at hcontra
+      cases hcontra
+
+/-- Modeled halts are halting for the frame analysis. -/
+theorem ModeledHalt.frameHalts {h : YulStmt} (hmh : ModeledHalt h) :
+    yulFrameHalts h = true := by
+  cases hmh <;> rfl
+
+/-- Wrapper composition, halting-analysis branch: a fragment body ending in a
+modeled halt gets no trailing release, and the wrapped execution equals the
+original with halts carrying the released state — the fall-through arm being
+unreachable. -/
+theorem execIRStmts_applyLockReleaseOnExits_halting (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (ys : List YulStmt) (h : YulStmt)
+    (hSS : SpliceSimList (ys ++ [h])) (hmh : ModeledHalt h)
+    (F G : Nat) (state : IRState)
+    (hF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot)
+      (ys ++ [h])) ≤ F)
+    (hG : stmtsFuelBound (ys ++ [h]) ≤ G) :
+    execIRStmts F state
+        (applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])) =
+      (match execIRStmts G state (ys ++ [h]) with
+        | .continue s => .continue (releaseState slot s)
+        | .return v s => .return v (releaseState slot s)
+        | .stop s => .stop (releaseState slot s)
+        | .revert s => .revert s) := by
+  unfold applyLockReleaseOnExits
+  rw [yulFrameHaltsList_append_halting h hmh.frameHalts ys, if_pos rfl]
+  rw [execIRStmts_spliced slot hslot (ys ++ [h]) hSS F G state hF hG]
+  cases hres : execIRStmts G state (ys ++ [h]) with
+  | «continue» s =>
+      exact absurd hres (execIRStmts_last_halt_no_continue h hmh ys G state s)
+  | «return» v s => rfl
+  | stop s => rfl
+  | revert s => rfl
+
 end Compiler.Proofs.IRGeneration
