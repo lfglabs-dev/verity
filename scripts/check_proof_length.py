@@ -36,6 +36,11 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
+    # #2276 fuel stability: mutual well-founded induction mirroring the
+    # interpreter's statement/list recursion; extracting per-case lemmas would
+    # break the shared sizeOf termination measure across the mutual block.
+    "execIRStmt_stable",
+    "execIRStmts_stable",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
     # against the corresponding exhaustive expression definitions.
