@@ -197,10 +197,10 @@ These helpers are used by standard modules and available to third-party modules.
 They mirror the helpers in CompilationModel but are decoupled from the full compilation
 pipeline so that module files only need to import `Compiler.ECM`. -/
 
-private def bytesFromString (s : String) : List UInt8 :=
+def bytesFromString (s : String) : List UInt8 :=
   s.toUTF8.data.toList
 
-private def chunkBytes32 (bs : List UInt8) : List (List UInt8) :=
+def chunkBytes32 (bs : List UInt8) : List (List UInt8) :=
   if bs.isEmpty then
     []
   else
@@ -213,7 +213,7 @@ decreasing_by
   | nil => simp at *
   | cons head tail => simp; omega
 
-private def wordFromBytes (bs : List UInt8) : Nat :=
+def wordFromBytes (bs : List UInt8) : Nat :=
   let padded := bs ++ List.replicate (32 - bs.length) (0 : UInt8)
   padded.foldl (fun acc b => acc * 256 + b.toNat) 0
 

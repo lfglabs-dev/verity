@@ -1,6 +1,7 @@
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgeLemmas
 import Verity.Core.Model.ECM
+import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 
 /-!
 # Proof-side observable for the Error(string) revert payload
@@ -106,5 +107,161 @@ theorem execIRStmts_mstoreWrites :
           memory := fun x => if x = o then w else state.memory x } from by
         simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs]]
       exact execIRStmts_mstoreWrites htail fuel _
+
+/-- The write list `revertWithMessage` performs: three header words then one
+word per 32-byte chunk. -/
+def errorStringWrites (message : String) : List (Nat × Nat) :=
+  (0, Compiler.Constants.errorStringSelectorWord) :: (4, 32) ::
+    (36, (bytesFromString message).length) ::
+    ((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+      (68 + ci.2 * 32, wordFromBytes ci.1))
+
+/-- The emitted statements: mixed lit/hex header mstores, the chunk mstores,
+then the final `revert`. -/
+def errorStringStmts (message : String) : List YulStmt :=
+  YulStmt.exprStmt (.call "mstore"
+      [.lit 0, .hex Compiler.Constants.errorStringSelectorWord]) ::
+    YulStmt.exprStmt (.call "mstore" [.lit 4, .lit 32]) ::
+    YulStmt.exprStmt (.call "mstore"
+      [.lit 36, .lit (bytesFromString message).length]) ::
+    ((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+      YulStmt.exprStmt (.call "mstore"
+        [.lit (68 + ci.2 * 32), .hex (wordFromBytes ci.1)]))
+
+theorem revertWithMessage_shape (message : String) :
+    revertWithMessage message =
+      errorStringStmts message ++
+        [YulStmt.exprStmt (.call "revert" [.lit 0,
+          .lit (68 + ((bytesFromString message).length + 31) / 32 * 32)])] := by
+  simp [revertWithMessage, errorStringStmts]
+
+/-- Any mapped write list is an `MstoreWrites` instance (hex form). -/
+theorem MstoreWrites.of_map :
+    ∀ (writes : List (Nat × Nat)),
+      MstoreWrites
+        (writes.map fun ow =>
+          YulStmt.exprStmt (.call "mstore" [.lit ow.1, .hex ow.2]))
+        writes
+  | [] => .nil
+  | (o, w) :: rest => .consHex o w (MstoreWrites.of_map rest)
+
+/-- The chunk statements are the mstore block of the chunk writes. -/
+theorem chunkStmts_mstoreWrites (message : String) :
+    MstoreWrites
+      ((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+        YulStmt.exprStmt (.call "mstore"
+          [.lit (68 + ci.2 * 32), .hex (wordFromBytes ci.1)]))
+      ((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+        (68 + ci.2 * 32, wordFromBytes ci.1)) := by
+  rw [show ((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+      YulStmt.exprStmt (.call "mstore"
+        [.lit (68 + ci.2 * 32), .hex (wordFromBytes ci.1)])) =
+    (((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+      (68 + ci.2 * 32, wordFromBytes ci.1)).map fun ow =>
+        YulStmt.exprStmt (.call "mstore" [.lit ow.1, .hex ow.2])) from by
+    simp [List.map_map, Function.comp]]
+  exact MstoreWrites.of_map _
+
+/-- The statement block is the mstore block of `errorStringWrites`. -/
+theorem errorStringStmts_mstoreWrites (message : String) :
+    MstoreWrites (errorStringStmts message) (errorStringWrites message) :=
+  MstoreWrites.consHex 0 Compiler.Constants.errorStringSelectorWord
+    (MstoreWrites.consLit 4 32
+      (MstoreWrites.consLit 36 (bytesFromString message).length
+        (chunkStmts_mstoreWrites message)))
+
+/-- Data-chunk keys never shadow a header key below 68. -/
+theorem errorStringWrites_tail_keys (message : String) (k : Nat) (hk : k < 68) :
+    ∀ ow ∈ (chunkBytes32 (bytesFromString message)).zipIdx.map
+        (fun ci => (68 + ci.2 * 32, wordFromBytes ci.1)),
+      ow.1 ≠ k := by
+  intro ow how
+  obtain ⟨ci, _, rfl⟩ := List.mem_map.mp how
+  omega
+
+theorem errorStringWrites_mem0 (message : String) (mem : Nat → Nat) :
+    applyWrites mem (errorStringWrites message) 0 =
+      Compiler.Constants.errorStringSelectorWord := by
+  rw [show applyWrites mem (errorStringWrites message) 0 =
+    applyWrites (fun x => if x = 0 then
+      Compiler.Constants.errorStringSelectorWord else mem x)
+      ((4, 32) :: (36, (bytesFromString message).length) ::
+        ((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+          (68 + ci.2 * 32, wordFromBytes ci.1))) 0 from rfl,
+    applyWrites_not_written 0 _ _ ?_]
+  · simp
+  · intro ow how
+    simp at how
+    rcases how with h | h | h
+    · simp [h]
+    · simp [h]
+    · exact errorStringWrites_tail_keys message 0 (by omega) ow
+        (List.mem_map.mpr (by simpa using h))
+
+theorem errorStringWrites_mem4 (message : String) (mem : Nat → Nat) :
+    applyWrites mem (errorStringWrites message) 4 = 32 := by
+  rw [show applyWrites mem (errorStringWrites message) 4 =
+    applyWrites (fun x => if x = 4 then 32 else
+      if x = 0 then Compiler.Constants.errorStringSelectorWord else mem x)
+      ((36, (bytesFromString message).length) ::
+        ((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+          (68 + ci.2 * 32, wordFromBytes ci.1))) 4 from by
+      simp [applyWrites, errorStringWrites],
+    applyWrites_not_written 4 _ _ ?_]
+  · simp
+  · intro ow how
+    simp at how
+    rcases how with h | h
+    · simp [h]
+    · exact errorStringWrites_tail_keys message 4 (by omega) ow
+        (List.mem_map.mpr (by simpa using h))
+
+theorem errorStringWrites_mem36 (message : String) (mem : Nat → Nat) :
+    applyWrites mem (errorStringWrites message) 36 =
+      (bytesFromString message).length := by
+  rw [show applyWrites mem (errorStringWrites message) 36 =
+    applyWrites (fun x => if x = 36 then (bytesFromString message).length
+      else if x = 4 then 32 else
+      if x = 0 then Compiler.Constants.errorStringSelectorWord else mem x)
+      ((chunkBytes32 (bytesFromString message)).zipIdx.map fun ci =>
+        (68 + ci.2 * 32, wordFromBytes ci.1)) 36 from by
+      simp [applyWrites, errorStringWrites],
+    applyWrites_not_written 36 _ _
+      (fun ow how => errorStringWrites_tail_keys message 36 (by omega) ow how)]
+  simp
+
+/-- End-to-end observable: `revertWithMessage` deterministically reverts and
+the reverted state's memory carries the canonical Error(string) header —
+selector word at 0, ABI offset 32 at 4, byte length at 36. -/
+theorem execIRStmts_revertWithMessage (message : String) (fuel : Nat)
+    (state : IRState) :
+    ∃ finalState,
+      execIRStmts ((errorStringStmts message).length + fuel + 2) state
+          (revertWithMessage message) = .revert finalState ∧
+      finalState.memory 0 = Compiler.Constants.errorStringSelectorWord ∧
+      finalState.memory 4 = 32 ∧
+      finalState.memory 36 = (bytesFromString message).length := by
+  rw [revertWithMessage_shape,
+    show (errorStringStmts message).length + fuel + 2 =
+      (errorStringStmts message).length + (fuel + 1) + 1 from by omega,
+    execIRStmts_append_continue _ (errorStringStmts message) _ state _
+      (execIRStmts_mstoreWrites (errorStringStmts_mstoreWrites message)
+        (fuel + 1) state)]
+  refine ⟨{ state with
+      memory := applyWrites state.memory (errorStringWrites message) },
+    ?_, errorStringWrites_mem0 message state.memory,
+    errorStringWrites_mem4 message state.memory,
+    errorStringWrites_mem36 message state.memory⟩
+  rw [show (errorStringStmts message).length + (fuel + 1) + 1 -
+    (errorStringStmts message).length = (fuel + 1) + 1 from by omega]
+  show (match execIRStmt (fuel + 1)
+      { state with memory := applyWrites state.memory (errorStringWrites message) }
+      (YulStmt.exprStmt (.call "revert" [.lit 0,
+        .lit (68 + ((bytesFromString message).length + 31) / 32 * 32)])) with
+    | .continue s₁ => execIRStmts (fuel + 1) s₁ []
+    | .return v s => .return v s
+    | .stop s => .stop s
+    | .revert s => .revert s) = _
+  simp [execIRStmt]
 
 end Compiler.Proofs.IRGeneration
