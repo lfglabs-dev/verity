@@ -189,4 +189,64 @@ theorem applyLockReleaseOnExits_fallthrough (slot : Nat) (body : List YulStmt)
   rw [execIRStmt_lockRelease k s' slot hslot]
   simp [execIRStmts]
 
+/-! ## Splice-point release semantics
+
+The other exit class: bodies that halt the frame with `stop`/`return` get the
+release spliced immediately before the halt, and no trailing release. -/
+
+/-- Splicing distributes over concatenation. -/
+theorem spliceLockReleaseList_append (release : YulStmt) :
+    ∀ (xs ys : List YulStmt),
+      spliceLockReleaseList release (xs ++ ys) =
+        spliceLockReleaseList release xs ++ spliceLockReleaseList release ys
+  | [], _ => rfl
+  | x :: xs', ys => by
+      simp [spliceLockReleaseList, spliceLockReleaseList_append release xs' ys]
+
+/-- `yulFrameHaltsList` looks only at the last statement: appending a halting
+statement makes the list halt. -/
+theorem yulFrameHaltsList_append_halting (s : YulStmt)
+    (hs : yulFrameHalts s = true) :
+    ∀ (xs : List YulStmt), yulFrameHaltsList (xs ++ [s]) = true
+  | [] => by simpa [yulFrameHaltsList] using hs
+  | [_] => by
+      simpa [yulFrameHaltsList] using
+        yulFrameHaltsList_append_halting s hs []
+  | _ :: x' :: xs' => by
+      simpa [yulFrameHaltsList] using
+        yulFrameHaltsList_append_halting s hs (x' :: xs')
+
+/-- Stop-exit law: a straight-line body ending in `stop` releases the lock
+immediately before halting, and gets no trailing (dead) release. -/
+theorem applyLockReleaseOnExits_stop (slot : Nat) (xs : List YulStmt)
+    (fuel : Nat) (state s' : IRState)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hnosplice : spliceLockReleaseList (lockReleaseStmt slot) xs = xs)
+    (hxs : execIRStmts fuel state xs = .continue s')
+    (hfuel : xs.length + 3 ≤ fuel) :
+    execIRStmts fuel state
+        (applyLockReleaseOnExits (lockReleaseStmt slot)
+          (xs ++ [YulStmt.exprStmt (.call "stop" [])])) =
+      .stop { s' with
+        transientStorage := fun o => if o = slot then 0 else s'.transientStorage o } := by
+  unfold applyLockReleaseOnExits
+  rw [yulFrameHaltsList_append_halting _ (by rfl) xs, if_pos rfl,
+    spliceLockReleaseList_append, hnosplice,
+    show spliceLockReleaseList (lockReleaseStmt slot)
+        [YulStmt.exprStmt (.call "stop" [])] =
+      [lockReleaseStmt slot, YulStmt.exprStmt (.call "stop" [])] from rfl,
+    execIRStmts_append_continue _ xs fuel state s' hxs]
+  obtain ⟨k, hk⟩ : ∃ k, fuel - xs.length = k + 3 :=
+    ⟨fuel - xs.length - 3, by omega⟩
+  rw [hk]
+  rw [show execIRStmts (k + 3) s'
+      [lockReleaseStmt slot, YulStmt.exprStmt (.call "stop" [])] =
+    (match execIRStmt (k + 2) s' (lockReleaseStmt slot) with
+      | .continue s₁ => execIRStmts (k + 2) s₁ [YulStmt.exprStmt (.call "stop" [])]
+      | .return v s => .return v s
+      | .stop s => .stop s
+      | .revert s => .revert s) from rfl]
+  rw [execIRStmt_lockRelease (k + 1) s' slot hslot]
+  rfl
+
 end Compiler.Proofs.IRGeneration
