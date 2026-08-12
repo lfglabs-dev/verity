@@ -173,6 +173,17 @@ at end-of-transaction, so the guard does not need an explicit release path —
 early `return`, `revert`, or panic cannot leak the lock across transactions.
 The guard exempts the function from CEI ordering enforcement, so state writes
 after external calls are permitted within reentrancy-protected entry points.
+
+`Verity.Core.Model.NonReentrantGuard.guarded` now gives this transformation a
+*proved source semantics*: lock free ⇒ the body runs with the lock observably
+set and successful exits release it; lock held ⇒ revert with the pre-call
+state unchanged; and whole reentry schedules of same-lock guarded entrypoints
+collapse to the identity on locked states (`runSeq_guarded_locked_id`) — the
+reentry window is closed at the model level. Still trusted: the
+correspondence between `guarded` and the Yul emitted by
+`attachNonReentrantGuard`, and the supported-fragment `noNonReentrant`
+restriction (guarded functions are not yet inside the generically proved
+compiler fragment).
 **Fork requirement**: the compile driver rejects any contract carrying a
 `nonreentrant(<lock>)` annotation when the targeted EVM fork predates
 Cancun (the `validateNonReentrantForkCompatibility` pre-check in
