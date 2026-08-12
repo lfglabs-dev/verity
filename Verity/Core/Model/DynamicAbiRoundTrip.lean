@@ -251,4 +251,42 @@ theorem arrayElementDynamicWord?_aligned (selector : Nat)
     4 + 32 * (q0 + relq + wordOffset) from by omega,
     externalWordAt?_aligned selector calldata (q0 + relq + wordOffset) hq2 hval2]
 
+/-- Nested composition: the member-length decoder — head indirection, then a
+member offset word, then the length word at the member's data position —
+recovers exactly the stored length word under canonical word alignment. -/
+theorem arrayElementDynamicMemberLength?_aligned (selector : Nat)
+    (calldata : List Nat) (q0 length index wordOffset relq mrelq : Nat)
+    (hidx : index < length) (hq : q0 + index < calldata.length)
+    (hval : calldata.getD (q0 + index) 0 < Compiler.Constants.evmModulus)
+    (hrel : calldata.getD (q0 + index) 0 = 32 * relq)
+    (htable : length * 32 ≤ calldata.getD (q0 + index) 0)
+    (hhead : 4 + 32 * q0 + calldata.getD (q0 + index) 0 + 32 ≤
+      externalCalldataSize calldata)
+    (hq2 : q0 + relq + wordOffset < calldata.length)
+    (hval2 : calldata.getD (q0 + relq + wordOffset) 0 < Compiler.Constants.evmModulus)
+    (hmrel : calldata.getD (q0 + relq + wordOffset) 0 = 32 * mrelq)
+    (hq3 : q0 + relq + mrelq < calldata.length)
+    (hval3 : calldata.getD (q0 + relq + mrelq) 0 < Compiler.Constants.evmModulus) :
+    arrayElementDynamicMemberLength? selector calldata (4 + 32 * q0)
+        length index wordOffset =
+      some (calldata.getD (q0 + relq + mrelq) 0) := by
+  simp only [arrayElementDynamicMemberLength?,
+    arrayElementDynamicHeadOffset?_aligned selector calldata q0 length index
+      hidx hq hval htable hhead, Option.bind]
+  rw [hrel]
+  show (externalWordAt? selector calldata
+      (4 + 32 * q0 + 32 * relq + wordOffset * 32)).bind
+    (fun memberRelOffset => externalWordAt? selector calldata
+      (4 + 32 * q0 + 32 * relq + memberRelOffset)) =
+    some (calldata.getD (q0 + relq + mrelq) 0)
+  rw [show 4 + 32 * q0 + 32 * relq + wordOffset * 32 =
+      4 + 32 * (q0 + relq + wordOffset) from by omega,
+    externalWordAt?_aligned selector calldata (q0 + relq + wordOffset) hq2 hval2]
+  show externalWordAt? selector calldata
+      (4 + 32 * q0 + 32 * relq + calldata.getD (q0 + relq + wordOffset) 0) =
+    some (calldata.getD (q0 + relq + mrelq) 0)
+  rw [hmrel, show 4 + 32 * q0 + 32 * relq + 32 * mrelq =
+      4 + 32 * (q0 + relq + mrelq) from by omega,
+    externalWordAt?_aligned selector calldata (q0 + relq + mrelq) hq3 hval3]
+
 end Compiler.CompilationModel.DynamicAbi
