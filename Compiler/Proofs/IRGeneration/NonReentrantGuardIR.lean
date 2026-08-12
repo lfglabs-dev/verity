@@ -319,4 +319,64 @@ theorem attachNonReentrantGuard_some_shape (fields : List Field)
   simp [pure, Except.pure, List.append_assoc]
   rfl
 
+/-! ## Straight-line fuel insensitivity (#2276 option (a), first fragment)
+
+A straight-line statement — no `if`/`for`/`switch`/`block` — executes in one
+fuel step and never recurses, so its result is the same at every positive
+fuel.  This removes exact-fuel bookkeeping from the guard laws' consumers and
+is the first brick of the `ExecutesWithin` plan in #2276. -/
+
+/-- Statements whose execution never recurses into a sub-list. -/
+def StraightLineStmt : YulStmt → Prop
+  | .comment _ => True
+  | .let_ _ _ => True
+  | .letMany _ _ => True
+  | .assign _ _ => True
+  | .leave => True
+  | .exprStmt _ => True
+  | .funcDef _ _ _ _ => True
+  | _ => False
+
+/-- A straight-line statement's execution is fuel-insensitive at positive
+fuel. -/
+theorem execIRStmt_straightline_fuel_insensitive (stmt : YulStmt)
+    (hs : StraightLineStmt stmt) (f g : Nat) (state : IRState) :
+    execIRStmt (f + 1) state stmt = execIRStmt (g + 1) state stmt := by
+  cases stmt <;> simp [StraightLineStmt] at hs <;> rfl
+
+/-- A straight-line list's execution is the same at every fuel strictly above
+its length. -/
+theorem execIRStmts_straightline_fuel_insensitive :
+    ∀ (xs : List YulStmt), (∀ s ∈ xs, StraightLineStmt s) →
+      ∀ (f g : Nat) (state : IRState),
+        execIRStmts (xs.length + f + 1) state xs =
+          execIRStmts (xs.length + g + 1) state xs
+  | [], _, f, g, state => rfl
+  | x :: xs', hall, f, g, state => by
+      have hx : StraightLineStmt x := hall x (by simp)
+      have htail : ∀ s ∈ xs', StraightLineStmt s := fun s hs =>
+        hall s (by simp [hs])
+      rw [show (x :: xs').length + f + 1 = (xs'.length + f + 1) + 1 from by
+            simp [List.length]; omega,
+          show (x :: xs').length + g + 1 = (xs'.length + g + 1) + 1 from by
+            simp [List.length]; omega]
+      show (match execIRStmt (xs'.length + f + 1) state x with
+          | .continue s₁ => execIRStmts (xs'.length + f + 1) s₁ xs'
+          | .return v s => .return v s
+          | .stop s => .stop s
+          | .revert s => .revert s) =
+        (match execIRStmt (xs'.length + g + 1) state x with
+          | .continue s₁ => execIRStmts (xs'.length + g + 1) s₁ xs'
+          | .return v s => .return v s
+          | .stop s => .stop s
+          | .revert s => .revert s)
+      rw [execIRStmt_straightline_fuel_insensitive x hx
+        (xs'.length + f) (xs'.length + g) state]
+      cases execIRStmt (xs'.length + g + 1) state x with
+      | «continue» s₁ =>
+          exact execIRStmts_straightline_fuel_insensitive xs' htail f g s₁
+      | «return» v s => rfl
+      | stop s => rfl
+      | revert s => rfl
+
 end Compiler.Proofs.IRGeneration
