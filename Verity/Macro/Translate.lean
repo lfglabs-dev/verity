@@ -805,13 +805,8 @@ private def translateEffectStmt
       | none =>
           match f.ty with
           | .scalar .uint256 | .scalar .int256 | .scalar .uint16 | .scalar (.uintN _)
-<<<<<<< HEAD
           | .scalar (.newtype _ .uint256) | .scalar (.enum _ _) =>
               `(Compiler.CompilationModel.Stmt.setStorage $(strTerm f.name) $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals value))
-=======
-          | .scalar (.newtype _ .uint256) =>
-              `(Compiler.CompilationModel.Stmt.setStorage $(strTerm f.name) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals value))
->>>>>>> origin/feat/packed-storage-lowering-2060
           | .scalar (.adt adtName _) =>
               `(Compiler.CompilationModel.Stmt.setStorage
                   $(strTerm f.name)
@@ -2094,7 +2089,6 @@ private partial def rewriteForEachExecutableDoElem
               let retTyTerm ← contractValueTypeTerm retTy
               pure (#[← `(doElem| let $name:ident := (panic! "typed interface calls are compiler-only in executable wrappers" : $retTyTerm))],
                 locals.push (mkTypedLocal (toString name.getId) retTy))
-<<<<<<< HEAD
           | none =>
               match stripParens rhs with
               | `(term| tryExternalCall $extNameTerm:term $_args:term) =>
@@ -2109,9 +2103,6 @@ private partial def rewriteForEachExecutableDoElem
                       | _ => pure (#[elem], locals)
                   | none => pure (#[elem], locals)
               | _ => pure (#[elem], locals)
-=======
-          | none => pure (#[elem], locals)
->>>>>>> origin/feat/packed-storage-lowering-2060
   | `(doElem| let $pat:term ← $rhs:term) =>
       match tupleBinderNames? pat with
       | some _ =>
@@ -3640,10 +3631,7 @@ def parseContractSyntax
               throwErrorAt field.ident
                 "transient fixed arrays are not supported until fixed-array lowering uses tload/tstore"
           | _ => pure ()
-<<<<<<< HEAD
       let roleFields := parent?.map (fun p => p.fields ++ parsedFields) |>.getD parsedFields
-=======
->>>>>>> origin/feat/packed-storage-lowering-2060
       let parsedRoles ←
         match roleDecls with
         | some decls => decls.mapM (parseRoleDecl roleFields)
@@ -4023,13 +4011,10 @@ def mkFunctionCommandsPublic
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
   let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
   let fnExecutableBody ← rewriteForEachExecutableBody fields externalDecls fn.params fnBody
-<<<<<<< HEAD
   -- The parsed body already contains guards for the model path. Re-applying
   -- them outside all executable wrappers makes ABI validation happen before
   -- initializer, role, and modifier effects (the inner copy is harmless).
   let fnExecutableBody ← prependEnumGuards fn.params fnExecutableBody
-=======
->>>>>>> origin/feat/packed-storage-lowering-2060
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"

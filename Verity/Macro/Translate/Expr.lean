@@ -5096,11 +5096,7 @@ def translateBindSource
       let f ← lookupStorageField fields (toString field.getId)
       match f.ty with
       | .scalar .uint256 | .scalar .int256 | .scalar .uint16 | .scalar (.uintN _)
-<<<<<<< HEAD
       | .scalar (.newtype _ .uint256) | .scalar (.enum _ _) | .scalar (.adt _ _) =>
-=======
-      | .scalar (.newtype _ .uint256) | .scalar (.adt _ _) =>
->>>>>>> origin/feat/packed-storage-lowering-2060
           `(Compiler.CompilationModel.Expr.storage $(strTerm f.name))
       | .scalar .bool => throwErrorAt rhs s!"field '{f.name}' is Bool; encode as Uint256 and use getStorage"
       | .scalar .address | .scalar (.newtype _ .address) =>
