@@ -150,4 +150,49 @@ theorem bindSupportedParams_canonical :
             decodeSupportedParamWord_canonical param.ty arg hhead,
             bindSupportedParams_canonical htail]
 
+/-! ## Aligned calldata reads
+
+Round-trip for the word-aligned reads that dynamic decoding is built from: a
+`calldataload` at a word-aligned data offset recovers exactly the stored
+calldata word, so dynamic-array elements laid out canonically (32-byte words
+at an aligned tail) decode to precisely the encoded values. -/
+
+/-- A word-aligned `calldataload` reads exactly the stored word. -/
+theorem calldataloadWord_aligned (selector : Nat) (calldata : List Nat)
+    (q : Nat) (hval : calldata.getD q 0 < Compiler.Constants.evmModulus) :
+    calldataloadWord selector calldata (4 + 32 * q) = calldata.getD q 0 := by
+  have hne : ¬(4 + 32 * q = 0) := by omega
+  have hlt : ¬(4 + 32 * q < 4) := by omega
+  have hp : 4 + 32 * q - 4 = 32 * q := by omega
+  have hdiv : 32 * q / 32 = q := by omega
+  have hmod : 32 * q % 32 = 0 := by omega
+  simp [calldataloadWord, hlt, hp, hdiv, hmod]
+  simpa using hval
+
+/-- Canonically laid-out dynamic-array elements round-trip: an in-bounds index
+at a word-aligned data offset recovers exactly the encoded element word. -/
+theorem arrayElement?_aligned (selector : Nat) (calldata : List Nat)
+    (q0 length index : Nat) (hidx : index < length)
+    (hval : calldata.getD (q0 + index) 0 < Compiler.Constants.evmModulus) :
+    arrayElement? selector calldata (4 + 32 * q0) length index =
+      some (calldata.getD (q0 + index) 0) := by
+  rw [arrayElement?_index_in_bounds selector calldata _ length index hidx]
+  have harith : 4 + 32 * q0 + index * 32 = 4 + 32 * (q0 + index) := by omega
+  rw [harith, calldataloadWord_aligned selector calldata (q0 + index) hval]
+
+/-- Whole-array round-trip: every element of a canonically encoded dynamic
+array decodes to exactly the encoded word. -/
+theorem arrayElements_aligned_roundtrip (selector : Nat) (calldata : List Nat)
+    (q0 : Nat) (elements : List Nat)
+    (hstored : ∀ i, i < elements.length →
+      calldata.getD (q0 + i) 0 = elements.getD i 0)
+    (hcanon : ∀ i, i < elements.length → elements.getD i 0 < Compiler.Constants.evmModulus) :
+    ∀ i, i < elements.length →
+      arrayElement? selector calldata (4 + 32 * q0) elements.length i =
+        some (elements.getD i 0) := by
+  intro i hi
+  rw [arrayElement?_aligned selector calldata q0 elements.length i hi
+    (by rw [hstored i hi]; exact hcanon i hi)]
+  rw [hstored i hi]
+
 end Compiler.CompilationModel.DynamicAbi
