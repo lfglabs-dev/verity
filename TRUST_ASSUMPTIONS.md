@@ -179,11 +179,17 @@ after external calls are permitted within reentrancy-protected entry points.
 set and successful exits release it; lock held ⇒ revert with the pre-call
 state unchanged; and whole reentry schedules of same-lock guarded entrypoints
 collapse to the identity on locked states (`runSeq_guarded_locked_id`) — the
-reentry window is closed at the model level. Still trusted: the
-correspondence between `guarded` and the Yul emitted by
-`attachNonReentrantGuard`, and the supported-fragment `noNonReentrant`
-restriction (guarded functions are not yet inside the generically proved
-compiler fragment).
+reentry window is closed at the model level. On the compiled side,
+`Compiler.Proofs.IRGeneration.NonReentrantGuardIR` proves the emitted
+prologue/release statements under the IR interpreter: locked entry reverts
+untouched, free entry acquires the lock and changes nothing else, the spliced
+release resets it (acquire/release round-trips the transient store), and the
+Yul decision `eq(lock,1)` agrees with the model's `lock ≠ 0` on reachable
+binary lock values. Still trusted: threading these statement-level facts
+through `attachNonReentrantGuard`/`compileGuardedFunctionSpec` and the
+`compile_preserves_semantics` stack, and the supported-fragment
+`noNonReentrant` restriction (guarded functions are not yet inside the
+generically proved compiler fragment).
 **Fork requirement**: the compile driver rejects any contract carrying a
 `nonreentrant(<lock>)` annotation when the targeted EVM fork predates
 Cancun (the `validateNonReentrantForkCompatibility` pre-check in

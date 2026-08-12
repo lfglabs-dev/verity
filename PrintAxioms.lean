@@ -79,6 +79,7 @@ import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
+import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SupportedFragment
@@ -3848,6 +3849,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_intrinsic_verbatim_zero_output_error
   Compiler.Proofs.IRGeneration.IntrinsicProofs.compileExpr_intrinsic_verbatim_wrong_arity_error
 
+  -- Compiler/Proofs/IRGeneration/NonReentrantGuardIR.lean
+  Compiler.Proofs.IRGeneration.nonReentrantGuardPrologue_eq
+  Compiler.Proofs.IRGeneration.execIRStmts_guardPrologue_locked
+  Compiler.Proofs.IRGeneration.execIRStmts_guardPrologue_free
+  Compiler.Proofs.IRGeneration.execIRStmt_lockRelease
+  Compiler.Proofs.IRGeneration.guard_decision_agrees
+  Compiler.Proofs.IRGeneration.guard_acquire_release_roundtrip
+
   -- Compiler/Proofs/IRGeneration/ParamLoading.lean
   Compiler.Proofs.IRGeneration.ParamLoading.uint256_modulus_eq_evm
   Compiler.Proofs.IRGeneration.ParamLoading.wordNormalize_eq_mod
@@ -6602,4 +6611,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6175 theorems/lemmas (4307 public, 1868 private, 0 sorry'd)
+-- Total: 6181 theorems/lemmas (4313 public, 1868 private, 0 sorry'd)
