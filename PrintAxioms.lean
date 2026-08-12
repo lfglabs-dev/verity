@@ -2340,6 +2340,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.MstoreWrites.append
   Compiler.Proofs.IRGeneration.MstoreWrites.length_eq
   Compiler.Proofs.IRGeneration.execIRStmts_mstoreWrites
+  Compiler.Proofs.IRGeneration.revertWithMessage_shape
+  Compiler.Proofs.IRGeneration.MstoreWrites.of_map
+  Compiler.Proofs.IRGeneration.chunkStmts_mstoreWrites
+  Compiler.Proofs.IRGeneration.errorStringStmts_mstoreWrites
+  Compiler.Proofs.IRGeneration.errorStringWrites_tail_keys
+  Compiler.Proofs.IRGeneration.errorStringWrites_mem0
+  Compiler.Proofs.IRGeneration.errorStringWrites_mem4
+  Compiler.Proofs.IRGeneration.errorStringWrites_mem36
+  Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage
 
   -- Compiler/Proofs/IRGeneration/Function.lean
   -- Compiler.Proofs.IRGeneration.Function.yulStmtList_length_le_sizeOf  -- private
@@ -6636,4 +6645,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6200 theorems/lemmas (4332 public, 1868 private, 0 sorry'd)
+-- Total: 6209 theorems/lemmas (4341 public, 1868 private, 0 sorry'd)
