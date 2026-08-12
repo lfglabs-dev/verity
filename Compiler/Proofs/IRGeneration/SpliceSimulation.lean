@@ -72,4 +72,21 @@ theorem SpliceSimList.loopFree : ∀ (xs : List YulStmt), SpliceSimList xs →
 
 end
 
+/-- A non-exit expression statement never halts the frame: every interpreter
+branch other than the `return`/`stop` builtins produces `continue` or
+`revert`. -/
+theorem execIRStmt_exprStmt_no_halt (e : YulExpr) (fuel : Nat) (state : IRState)
+    (hret : ∀ args, e ≠ .call "return" args)
+    (hstop : ∀ args, e ≠ .call "stop" args) :
+    (∀ v s, execIRStmt (fuel + 1) state (.exprStmt e) ≠ .return v s) ∧
+      (∀ s, execIRStmt (fuel + 1) state (.exprStmt e) ≠ .stop s) := by
+  refine ⟨fun v s hcontra => ?_, fun s hcontra => ?_⟩ <;>
+  · rw [execIRStmt.eq_def] at hcontra
+    repeat' split at hcontra
+    all_goals first
+      | exact absurd rfl (hret _)
+      | exact absurd rfl (hstop _)
+      | simp_all
+      | cases hcontra
+
 end Compiler.Proofs.IRGeneration

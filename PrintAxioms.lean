@@ -4157,6 +4157,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/SpliceSimulation.lean
   Compiler.Proofs.IRGeneration.SpliceSim.loopFree
   Compiler.Proofs.IRGeneration.SpliceSimList.loopFree
+  Compiler.Proofs.IRGeneration.execIRStmt_exprStmt_no_halt
 
   -- Compiler/Proofs/IRGeneration/SupportedFragment.lean
   Compiler.Proofs.IRGeneration.stmtNextScope_requireError_preserves_scope
@@ -6664,4 +6665,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6222 theorems/lemmas (4354 public, 1868 private, 0 sorry'd)
+-- Total: 6223 theorems/lemmas (4355 public, 1868 private, 0 sorry'd)
