@@ -113,4 +113,80 @@ theorem guard_acquire_release_roundtrip (fuel₁ fuel₂ : Nat) (state : IRState
   · simp [hk, hlock]
   · simp [hk]
 
+/-! ## Fall-through release semantics
+
+With `spliceLockRelease`/`yulFrameHalts` now total (equation lemmas exist),
+the epilogue behavior of `applyLockReleaseOnExits` becomes provable.  The
+first law: on a straight-line body (no frame exits, hence no splice points)
+that executes to a `continue`, the guarded body releases the lock on
+fall-through and changes nothing else. -/
+
+/-- Sequencing lemma for the fuel-indexed interpreter: a prefix that continues
+consumes exactly its length in fuel. -/
+theorem execIRStmts_append_continue (ys : List YulStmt) :
+    ∀ (xs : List YulStmt) (fuel : Nat) (state s' : IRState),
+      execIRStmts fuel state xs = .continue s' →
+      execIRStmts fuel state (xs ++ ys) =
+        execIRStmts (fuel - xs.length) s' ys
+  | [], fuel, state, s', h => by
+      have hs : s' = state := by
+        simpa [execIRStmts] using h.symm
+      subst hs
+      simp [execIRStmts]
+  | x :: xs', fuel, state, s', h => by
+      cases fuel with
+      | zero => simp [execIRStmts] at h
+      | succ f =>
+          rw [show (x :: xs') ++ ys = x :: (xs' ++ ys) from rfl]
+          rw [show execIRStmts (f + 1) state (x :: (xs' ++ ys)) =
+            (match execIRStmt f state x with
+              | .continue s₁ => execIRStmts f s₁ (xs' ++ ys)
+              | .return v s => .return v s
+              | .stop s => .stop s
+              | .revert s => .revert s) from rfl]
+          rw [show execIRStmts (f + 1) state (x :: xs') =
+            (match execIRStmt f state x with
+              | .continue s₁ => execIRStmts f s₁ xs'
+              | .return v s => .return v s
+              | .stop s => .stop s
+              | .revert s => .revert s) from rfl] at h
+          cases hstep : execIRStmt f state x with
+          | «continue» s₁ =>
+              rw [hstep] at h
+              simpa [List.length] using
+                execIRStmts_append_continue ys xs' f s₁ s' h
+          | «return» v s => rw [hstep] at h; cases h
+          | stop s => rw [hstep] at h; cases h
+          | revert s => rw [hstep] at h; cases h
+
+/-- Fall-through law: a straight-line guarded body (no frame exits, no splice
+points) that continues releases the lock at the end and changes nothing
+else. -/
+theorem applyLockReleaseOnExits_fallthrough (slot : Nat) (body : List YulStmt)
+    (fuel : Nat) (state s' : IRState)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hnohalt : yulFrameHaltsList body = false)
+    (hnosplice : spliceLockReleaseList (lockReleaseStmt slot) body = body)
+    (hexec : execIRStmts fuel state body = .continue s')
+    (hfuel : body.length + 2 ≤ fuel) :
+    execIRStmts fuel state
+        (applyLockReleaseOnExits (lockReleaseStmt slot) body) =
+      .continue { s' with
+        transientStorage := fun o => if o = slot then 0 else s'.transientStorage o } := by
+  unfold applyLockReleaseOnExits
+  rw [hnosplice, hnohalt]
+  simp only [Bool.false_eq_true, if_false]
+  rw [execIRStmts_append_continue [lockReleaseStmt slot] body fuel state s' hexec]
+  obtain ⟨k, hk⟩ : ∃ k, fuel - body.length = k + 2 :=
+    ⟨fuel - body.length - 2, by omega⟩
+  rw [hk]
+  rw [show execIRStmts (k + 2) s' [lockReleaseStmt slot] =
+    (match execIRStmt (k + 1) s' (lockReleaseStmt slot) with
+      | .continue s₁ => execIRStmts (k + 1) s₁ []
+      | .return v s => .return v s
+      | .stop s => .stop s
+      | .revert s => .revert s) from rfl]
+  rw [execIRStmt_lockRelease k s' slot hslot]
+  simp [execIRStmts]
+
 end Compiler.Proofs.IRGeneration
