@@ -295,4 +295,28 @@ theorem guardedBody_free_runs_suffix (slot : Nat) (rest : List YulStmt)
     (execIRStmts_guardPrologue_free k state slot hslot hlock)]
   rfl
 
+/-! ## attachNonReentrantGuard shape -/
+
+/-- The guarded compilation unit has exactly the param-loads ++ prologue ++
+released-body shape: the split point is the param-load count, the prologue is
+`guardPrologueStmts` at the resolved slot, and the suffix goes through
+`applyLockReleaseOnExits` with the matching release.  This pins the object the
+composed guard laws talk about to the transformation's actual output. -/
+theorem attachNonReentrantGuard_some_shape (fields : List Field)
+    (spec : FunctionSpec) (irFn : IRFunction) (lockField : String)
+    (field : Field) (slot : Nat)
+    (hlock : spec.nonReentrantLock = some lockField)
+    (hfield : findFieldWithResolvedSlot fields lockField = some (field, slot)) :
+    attachNonReentrantGuard fields spec irFn = .ok { irFn with
+      body :=
+        irFn.body.take (genParamLoads spec.params).length ++
+          guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot)
+            (irFn.body.drop (genParamLoads spec.params).length) } := by
+  simp only [attachNonReentrantGuard, hlock,
+    nonReentrantGuardPrologue_eq fields lockField field slot hfield,
+    hfield, lockReleaseStmt, List.splitAt_eq]
+  simp [pure, Except.pure, List.append_assoc]
+  rfl
+
 end Compiler.Proofs.IRGeneration
