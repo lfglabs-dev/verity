@@ -80,14 +80,14 @@ def demoState : CallState :=
 
 /-- The first call commits: slot 1 now holds 42 (it held 0 initially). -/
 example : (denoteCall mutatingAdversary first demoState).state.world.storage 1 = 42 := by
-  native_decide
+  decide
 
 /-- Both inner calls committed before the transaction-level revert: the
 threaded post-state has both slots mutated. -/
 example :
     (denote commitsThenReverts mutatingAdversary demoState).2.world.storage 1 = 42 ∧
     (denote commitsThenReverts mutatingAdversary demoState).2.world.storage 2 = 42 := by
-  constructor <;> native_decide
+  constructor <;> decide
 
 /-- The enclosing revert rolls those committed mutations back to the initial
 values — which differ from the intermediate ones, so the rollback is not
@@ -95,17 +95,17 @@ vacuous. -/
 example :
     (denoteTransaction commitsThenReverts mutatingAdversary demoState).state.world.storage 1 = 0 ∧
     (denoteTransaction commitsThenReverts mutatingAdversary demoState).state.world.storage 2 = 0 := by
-  constructor <;> native_decide
+  constructor <;> decide
 
 /-- On commit the same adversary's mutation is kept, ruling out a wrapper that
 unconditionally restores the initial world. -/
 example :
     (denoteTransaction commits mutatingAdversary demoState).state.world.storage 1 = 42 := by
-  native_decide
+  decide
 
 /-- Gas charged by the reverted inner calls stays charged after rollback. -/
 example :
     (denoteTransaction commitsThenReverts mutatingAdversary demoState).state.gasRemaining = 90 := by
-  native_decide
+  decide
 
 end Contracts.Examples.CallProgramRollback
