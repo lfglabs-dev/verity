@@ -193,8 +193,10 @@ exits: the general splice simulation (`execIRStmts_spliced`), both
 prologue + release-wrapped body mirrors `guarded` exactly (locked entry
 reverts untouched; free entry runs from the acquired state with successful
 outcomes released). Still trusted: `switch` bodies and loops in guarded
-functions, the `invalid`/`selfdestruct` analysis-vs-interpreter halt gap
-(scoped out via `ModeledHalt`), and the `compile_preserves_semantics`
+functions, `selfdestruct` in guarded bodies (excluded from the simulation fragment: the
+splice inserts no release before it, and a self-destructed contract's lock is
+moot — `invalid` is now modeled as a frame halt and covered by `ModeledHalt`),
+and the `compile_preserves_semantics`
 threading that would lift the supported-fragment `noNonReentrant`
 restriction.
 **Fork requirement**: the compile driver rejects any contract carrying a

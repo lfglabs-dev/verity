@@ -40,6 +40,7 @@ def SpliceSim : YulStmt → Prop
   | .switch _ cases dflt => SpliceSimCases cases ∧ SpliceSimDflt dflt
   | .exprStmt (.call "return" args) => ∃ a b, args = [YulExpr.lit a, YulExpr.lit b]
   | .exprStmt (.call "stop" args) => args = []
+  | .exprStmt (.call "selfdestruct" _) => False
   | _ => True
 
 def SpliceSimCases : List (Nat × List YulStmt) → Prop
@@ -100,12 +101,14 @@ theorem SpliceSimList.loopFree : ∀ (xs : List YulStmt), SpliceSimList xs →
 
 end
 
+set_option maxHeartbeats 1600000 in
 /-- A non-exit expression statement never halts the frame: every interpreter
 branch other than the `return`/`stop` builtins produces `continue` or
 `revert`. -/
 theorem execIRStmt_exprStmt_no_halt (e : YulExpr) (fuel : Nat) (state : IRState)
     (hret : ∀ args, e ≠ .call "return" args)
-    (hstop : ∀ args, e ≠ .call "stop" args) :
+    (hstop : ∀ args, e ≠ .call "stop" args)
+    (hsd : ∀ args, e ≠ .call "selfdestruct" args) :
     (∀ v s, execIRStmt (fuel + 1) state (.exprStmt e) ≠ .return v s) ∧
       (∀ s, execIRStmt (fuel + 1) state (.exprStmt e) ≠ .stop s) := by
   refine ⟨fun v s hcontra => ?_, fun s hcontra => ?_⟩ <;>
@@ -114,6 +117,7 @@ theorem execIRStmt_exprStmt_no_halt (e : YulExpr) (fuel : Nat) (state : IRState)
     all_goals first
       | exact absurd rfl (hret _)
       | exact absurd rfl (hstop _)
+      | exact absurd rfl (hsd _)
       | simp_all
       | cases hcontra
 
@@ -128,6 +132,7 @@ def AtomicNonExit : YulStmt → Prop
   | .funcDef _ _ _ _ => True
   | .exprStmt (.call "return" _) => False
   | .exprStmt (.call "stop" _) => False
+  | .exprStmt (.call "selfdestruct" _) => False
   | .exprStmt _ => True
   | _ => False
 
@@ -163,7 +168,7 @@ theorem execIRStmt_atomic_no_halt (x : YulStmt) (hx : AtomicNonExit x)
       (∀ s, execIRStmt (fuel + 1) state x ≠ .stop s) := by
   cases x with
   | exprStmt e =>
-      refine execIRStmt_exprStmt_no_halt e fuel state ?_ ?_ <;>
+      refine execIRStmt_exprStmt_no_halt e fuel state ?_ ?_ ?_ <;>
         (intro args hcontra; subst hcontra; simp [AtomicNonExit] at hx)
   | comment _ => exact ⟨(fun v s h => nomatch h), (fun s h => nomatch h)⟩
   | «leave» => exact ⟨(fun v s h => nomatch h), (fun s h => nomatch h)⟩
@@ -716,9 +721,12 @@ theorem execIRStmts_spliced (slot : Nat)
                 · subst hstop
                   obtain rfl : args = [] := by simpa [SpliceSim] using hx
                   exact spliced_cons_stop slot hslot rest F G state hF hG
-                · exact spliced_cons_atomic slot _ rest
-                    (by simp [AtomicNonExit, hret, hstop]) (by simp [LoopFree])
-                    IHrest F G state hF hG
+                · by_cases hsd : f = "selfdestruct"
+                  · subst hsd
+                    exact absurd hx (by simp [SpliceSim])
+                  · exact spliced_cons_atomic slot _ rest
+                      (by simp [AtomicNonExit, hret, hstop, hsd]) (by simp [LoopFree])
+                      IHrest F G state hF hG
 termination_by xs _ _ _ _ _ _ => sizeOf xs
 decreasing_by
   all_goals try assumption
@@ -885,6 +893,7 @@ inductive ModeledHalt : YulStmt → Prop
       ModeledHalt (.exprStmt (.call "return" [.lit a, .lit b]))
   | rev (a b : YulExpr) :
       ModeledHalt (.exprStmt (.call "revert" [a, b]))
+  | inv : ModeledHalt (.exprStmt (.call "invalid" []))
 
 /-- A modeled halt never continues, at any fuel (out of fuel reverts). -/
 theorem execIRStmt_modeledHalt_no_continue (h : YulStmt) (hmh : ModeledHalt h)
@@ -900,6 +909,7 @@ theorem execIRStmt_modeledHalt_no_continue (h : YulStmt) (hmh : ModeledHalt h)
           by_cases hb : b = 32 <;>
             simp [execIRStmt, evalIRExpr, evalIRExprs, hb] at hcontra
   | rev a b => cases fuel <;> simp [execIRStmt] at hcontra
+  | inv => cases fuel <;> simp [execIRStmt] at hcontra
 
 /-- A body ending in a modeled halt never continues. -/
 theorem execIRStmts_last_halt_no_continue (h : YulStmt) (hmh : ModeledHalt h) :
