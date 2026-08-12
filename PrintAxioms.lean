@@ -75,6 +75,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
 import Compiler.Proofs.IRGeneration.GuardedCompile
+import Compiler.Proofs.IRGeneration.GuardedFunction
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperBodyShape
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
@@ -2985,6 +2986,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_of_head  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_stop  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_selfdestruct  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_invalid  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_sstore  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_mstore  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_revert  -- private
@@ -3542,6 +3545,12 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/GuardedCompile.lean
   Compiler.Proofs.IRGeneration.compileFunctionSpec_body_shape
   Compiler.Proofs.IRGeneration.compileGuardedFunctionSpec_inv
+
+  -- Compiler/Proofs/IRGeneration/GuardedFunction.lean
+  Compiler.Proofs.IRGeneration.execResultToIRResult_releasedResult
+  Compiler.Proofs.IRGeneration.prebindRawArgs_transient
+  Compiler.Proofs.IRGeneration.acquiredBoundState_eq
+  Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_fallthrough
 
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
@@ -6710,4 +6719,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6262 theorems/lemmas (4394 public, 1868 private, 0 sorry'd)
+-- Total: 6268 theorems/lemmas (4398 public, 1870 private, 0 sorry'd)

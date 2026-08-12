@@ -1959,6 +1959,28 @@ private theorem internalFunctionYulName_ne_stop
     CompilationModel.internalFunctionYulName calleeName ≠ "stop" := by
   exact internalFunctionYulName_ne_of_head calleeName "stop" 's' (by decide) (by decide)
 
+private theorem internalFunctionYulName_ne_selfdestruct
+    (calleeName : String) :
+    CompilationModel.internalFunctionYulName calleeName ≠ "selfdestruct" := by
+  exact internalFunctionYulName_ne_of_head calleeName "selfdestruct" 's'
+    (by decide) (by decide)
+
+private theorem internalFunctionYulName_ne_invalid
+    (calleeName : String) :
+    CompilationModel.internalFunctionYulName calleeName ≠ "invalid" := by
+  intro hEq
+  have hLen := congrArg String.length hEq
+  have hMe : (CompilationModel.internalFunctionYulName calleeName).length =
+      9 + calleeName.length := by
+    show (toString "internal_" ++ toString calleeName).length =
+      9 + calleeName.length
+    rw [String.length_append]
+    simp [toString]
+    decide
+  rw [hMe] at hLen
+  have h7 : ("invalid" : String).length = 7 := by decide
+  omega
+
 private theorem internalFunctionYulName_ne_sstore
     (calleeName : String) :
     CompilationModel.internalFunctionYulName calleeName ≠ "sstore" := by
@@ -2239,6 +2261,8 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
           exact nomatch hHead)
         (internalFunctionYulName_ne_revert calleeName)
         (internalFunctionYulName_ne_return calleeName)
+        (internalFunctionYulName_ne_invalid calleeName)
+        (internalFunctionYulName_ne_selfdestruct calleeName)
         (internalFunctionYulName_isYulLogName_false calleeName)
 
 end Compiler.Proofs.IRGeneration
