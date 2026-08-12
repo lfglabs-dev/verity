@@ -505,4 +505,106 @@ theorem execIRStmts_spliced (slot : Nat)
                     (by simp [AtomicNonExit, hret, hstop]) (by simp [LoopFree])
                     IHrest F G state hF hG
 
+/-- A halted prefix short-circuits an appended suffix. -/
+theorem execIRStmts_append_halt (ys : List YulStmt) :
+    ∀ (xs : List YulStmt) (fuel : Nat) (state : IRState) (r : IRExecResult),
+      execIRStmts fuel state xs = r →
+      (∀ s, r ≠ .continue s) →
+      execIRStmts fuel state (xs ++ ys) = r
+  | [], fuel, state, r, hr, hnc => by
+      have hcs : r = .continue state := by
+        cases fuel <;> simpa [execIRStmts] using hr.symm
+      exact absurd hcs (hnc state)
+  | x :: xs', fuel, state, r, hr, hnc => by
+      cases fuel with
+      | zero =>
+          simp [execIRStmts] at hr ⊢
+          exact hr
+      | succ f =>
+          rw [show (x :: xs') ++ ys = x :: (xs' ++ ys) from rfl]
+          rw [show execIRStmts (f + 1) state (x :: (xs' ++ ys)) =
+            (match execIRStmt f state x with
+              | .continue s₁ => execIRStmts f s₁ (xs' ++ ys)
+              | .return v s => .return v s
+              | .stop s => .stop s
+              | .revert s => .revert s) from rfl]
+          rw [show execIRStmts (f + 1) state (x :: xs') =
+            (match execIRStmt f state x with
+              | .continue s₁ => execIRStmts f s₁ xs'
+              | .return v s => .return v s
+              | .stop s => .stop s
+              | .revert s => .revert s) from rfl] at hr
+          cases hstep : execIRStmt f state x with
+          | «continue» s₁ =>
+              rw [hstep] at hr
+              exact execIRStmts_append_halt ys xs' f s₁ r hr hnc
+          | «return» v s => rw [hstep] at hr; rw [← hr]
+          | stop s => rw [hstep] at hr; rw [← hr]
+          | revert s => rw [hstep] at hr; rw [← hr]
+
+/-- Wrapper composition, fall-through analysis branch: when the halt analysis
+reports the body can fall through, `applyLockReleaseOnExits` appends a
+trailing release, and the wrapped execution equals the original with every
+successful outcome carrying the released state — halts released by the
+splice, the fall-through by the trailing statement, reverts rolling back the
+acquire untouched. -/
+theorem execIRStmts_applyLockReleaseOnExits_fallthrough (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (xs : List YulStmt) (hSS : SpliceSimList xs)
+    (hH : yulFrameHaltsList xs = false)
+    (F G : Nat) (state : IRState)
+    (hF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) xs) +
+      (spliceLockReleaseList (lockReleaseStmt slot) xs).length + 2 ≤ F)
+    (hG : stmtsFuelBound xs ≤ G) :
+    execIRStmts F state (applyLockReleaseOnExits (lockReleaseStmt slot) xs) =
+      (match execIRStmts G state xs with
+        | .continue s => .continue (releaseState slot s)
+        | .return v s => .return v (releaseState slot s)
+        | .stop s => .stop (releaseState slot s)
+        | .revert s => .revert s) := by
+  have hboundlist : 1 ≤ stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) xs) :=
+    stmtsFuelBound_pos _
+  unfold applyLockReleaseOnExits
+  rw [hH]
+  simp only [Bool.false_eq_true, if_false]
+  have hsim := execIRStmts_spliced slot hslot xs hSS F G state (by omega) hG
+  cases hres : execIRStmts G state xs with
+  | «continue» s =>
+      have hpre : execIRStmts F state
+          (spliceLockReleaseList (lockReleaseStmt slot) xs) = .continue s := by
+        rw [hsim, hres]; rfl
+      rw [execIRStmts_append_continue [lockReleaseStmt slot] _ F state s hpre]
+      obtain ⟨k, hk⟩ : ∃ k, F -
+          (spliceLockReleaseList (lockReleaseStmt slot) xs).length = k + 2 :=
+        ⟨F - (spliceLockReleaseList (lockReleaseStmt slot) xs).length - 2, by omega⟩
+      rw [hk]
+      rw [show execIRStmts (k + 2) s [lockReleaseStmt slot] =
+        (match execIRStmt (k + 1) s (lockReleaseStmt slot) with
+          | .continue s₁ => execIRStmts (k + 1) s₁ []
+          | .return v s' => .return v s'
+          | .stop s' => .stop s'
+          | .revert s' => .revert s') from rfl,
+        execIRStmt_lockRelease k s slot hslot]
+      rfl
+  | «return» v s =>
+      have hpre : execIRStmts F state
+          (spliceLockReleaseList (lockReleaseStmt slot) xs) =
+          .return v (releaseState slot s) := by
+        rw [hsim, hres]; rfl
+      rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
+        (by intro s' h; cases h)]
+  | stop s =>
+      have hpre : execIRStmts F state
+          (spliceLockReleaseList (lockReleaseStmt slot) xs) =
+          .stop (releaseState slot s) := by
+        rw [hsim, hres]; rfl
+      rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
+        (by intro s' h; cases h)]
+  | revert s =>
+      have hpre : execIRStmts F state
+          (spliceLockReleaseList (lockReleaseStmt slot) xs) = .revert s := by
+        rw [hsim, hres]; rfl
+      rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
+        (by intro s' h; cases h)]
+
 end Compiler.Proofs.IRGeneration
