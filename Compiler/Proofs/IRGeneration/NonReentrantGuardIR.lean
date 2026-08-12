@@ -379,4 +379,47 @@ theorem execIRStmts_straightline_fuel_insensitive :
       | stop s => rfl
       | revert s => rfl
 
+/-- A straight-line statement that is not a frame exit splices to itself. -/
+theorem spliceLockRelease_eq_self (release : YulStmt) (stmt : YulStmt)
+    (hs : StraightLineStmt stmt)
+    (hexit : ∀ f args, stmt = .exprStmt (.call f args) →
+      f ≠ "return" ∧ f ≠ "stop") :
+    spliceLockRelease release stmt = [stmt] := by
+  cases stmt with
+  | exprStmt e =>
+      cases e with
+      | call f args =>
+          obtain ⟨hret, hstop⟩ := hexit f args rfl
+          simp [spliceLockRelease, hret, hstop]
+      | _ => rfl
+  | comment _ => rfl
+  | let_ _ _ => rfl
+  | letMany _ _ => rfl
+  | assign _ _ => rfl
+  | «leave» => rfl
+  | funcDef _ _ _ _ => rfl
+  | if_ _ _ => simp [StraightLineStmt] at hs
+  | for_ _ _ _ _ => simp [StraightLineStmt] at hs
+  | «switch» _ _ _ => simp [StraightLineStmt] at hs
+  | block _ => simp [StraightLineStmt] at hs
+
+/-- Discharge the no-splice-point hypothesis of the straight-line guard laws
+structurally: a list of straight-line non-exit statements splices to
+itself. -/
+theorem spliceLockReleaseList_eq_self (release : YulStmt) :
+    ∀ (xs : List YulStmt),
+      (∀ s ∈ xs, StraightLineStmt s ∧
+        ∀ f args, s = YulStmt.exprStmt (.call f args) →
+          f ≠ "return" ∧ f ≠ "stop") →
+      spliceLockReleaseList release xs = xs
+  | [], _ => rfl
+  | x :: xs', hall => by
+      obtain ⟨hx, hexit⟩ := hall x (by simp)
+      rw [show spliceLockReleaseList release (x :: xs') =
+        spliceLockRelease release x ++ spliceLockReleaseList release xs' from rfl,
+        spliceLockRelease_eq_self release x hx hexit,
+        spliceLockReleaseList_eq_self release xs'
+          (fun s hs => hall s (by simp [hs]))]
+      rfl
+
 end Compiler.Proofs.IRGeneration
