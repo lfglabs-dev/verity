@@ -38,11 +38,11 @@ EVM Bytecode
 | ERC721 | 11 | Baseline | `Contracts/ERC721/Proofs/` |
 | Vault | 9 | Baseline | `Contracts/Vault/Proofs/` |
 | ReentrancyExample | 5 | Complete | `Contracts/ReentrancyExample/Contract.lean` |
-| ReentrancyRelyGuarantee | 8 | Semantic | `Contracts/ReentrancyRelyGuarantee/Contract.lean` |
+| ReentrancyRelyGuarantee | 10 | Semantic | `Contracts/ReentrancyRelyGuarantee/Contract.lean` |
 | CryptoHash | 0 | No specs | `Contracts/CryptoHash/Contract.lean` |
-| **Total** | **300** | **✅ 100%** | — |
+| **Total** | **302** | **✅ 100%** | — |
 
-> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (300 total properties).
+> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (302 total properties).
 
 Layer 1 uses macro-generated EDSL-to-`CompilationModel` bridge theorems backed by a generic typed-IR compilation-correctness theorem ([`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean)). Tuple/bytes/fixed-array/dynamic-array/string parameters now stay inside that proof path when they are carried as ABI head words/offsets. Advanced constructs beyond that typed-IR head-word surface (linked libraries, ECMs, fully custom ABI behavior) are still expressed directly in `CompilationModel` and trusted at that boundary. Higher-order internal helpers (function-pointer parameters, [#1747](https://github.com/lfglabs-dev/verity/issues/1747)) are eliminated by a compile-time monomorphization pre-pass that runs before any lowering, so the `CompilationModel` only ever contains first-order helpers: these calls are covered by the existing first-order proof path and introduce no new boundary trust.
 
@@ -192,7 +192,7 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 | ERC721 | 100% (11/11) | 0 |
 | SafeCounter | 100% (25/25) | 0 |
 | ReentrancyExample | 100% (5/5) | 0 |
-| ReentrancyRelyGuarantee | 0% (0/8) | 8 proof-only |
+| ReentrancyRelyGuarantee | 0% (0/10) | 10 proof-only |
 | Ledger | 100% (33/33) | 0 |
 | LocalObligationMacroSmoke | 100% (4/4) | 0 |
 | SimpleStorage | 95% (19/20) | 1 proof-only |
@@ -202,13 +202,13 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 | Counter | 74% (23/31) | 8 proof-only |
 | Stdlib | 0% (0/0) | 0 proof-only |
 
-**Status**: 85% coverage (255/300), 45 remaining exclusions all proof-only
+**Status**: 84% coverage (255/302), 47 remaining exclusions all proof-only
 
-- **Total Properties**: 300
+- **Total Properties**: 302
 - **Covered**: 255
-- **Excluded**: 45 (all proof-only)
+- **Excluded**: 47 (all proof-only)
 
-**Proof-Only Properties (45 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
+**Proof-Only Properties (47 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
 
 0 `sorry` remaining across `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules.
 5266 theorems/lemmas (3645 public, 1621 private) verified by `lake build PrintAxioms`.
