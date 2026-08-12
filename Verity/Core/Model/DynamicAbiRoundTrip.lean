@@ -12,9 +12,9 @@ parameter-loading semantics.  The list-level corollary shows
 `bindSupportedParams` reconstructs precisely the intended name/value bindings
 from canonically encoded arguments.
 
-Signed (`intN`) and right-padded (`bytesN`) canonicity are the next slice —
-their canonical forms involve sign extension and byte alignment rather than a
-plain upper bound.
+Signed (`intN`) canonicity is the sign-extension fixed point and `bytesN`
+canonicity is the alignment-mask fixed point: exactly the words the decoder
+returns unchanged, which is what a correct encoder must emit.
 -/
 namespace Compiler.CompilationModel.DynamicAbi
 
@@ -30,6 +30,14 @@ def CanonicalParamWord : ParamType → Nat → Prop
   | .uintN bits, v => v < 2 ^ bits ∧ v < Compiler.Constants.evmModulus
   | .address, v => v < 2 ^ 160
   | .bool, v => v = 0 ∨ v = 1
+  | .intN bits, v =>
+      (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat (bits / 8 - 1))
+        (Verity.Core.Uint256.ofNat v)).val = v ∧
+      v < Compiler.Constants.evmModulus
+  | .bytesN bytes, v =>
+      v &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))) = v ∧
+      v < Compiler.Constants.evmModulus
   | _, _ => False
 
 private theorem and_mask_eq_mod (n k : Nat) : n &&& (2 ^ k - 1) = n % 2 ^ k :=
@@ -43,6 +51,18 @@ private theorem wordNormalize_eq_of_lt (v : Nat)
 private theorem pow_le_evmModulus (k : Nat) (hk : k ≤ 256) :
     (2 : Nat) ^ k ≤ Compiler.Constants.evmModulus :=
   Nat.pow_le_pow_right (by decide) hk
+
+private theorem decode_intN_canonical (bits v : Nat)
+    (h : CanonicalParamWord (.intN bits) v) :
+    decodeSupportedParamWord (.intN bits) v = some v := by
+  obtain ⟨hfix, hmod⟩ := h
+  simp [decodeSupportedParamWord, wordNormalize_eq_of_lt v hmod, hfix]
+
+private theorem decode_bytesN_canonical (bytes v : Nat)
+    (h : CanonicalParamWord (.bytesN bytes) v) :
+    decodeSupportedParamWord (.bytesN bytes) v = some v := by
+  obtain ⟨hfix, hmod⟩ := h
+  simp [decodeSupportedParamWord, wordNormalize_eq_of_lt v hmod, hfix]
 
 /-- The decoder is the identity on canonical words: no information is lost or
 altered, so canonical encoding round-trips. -/
@@ -82,8 +102,8 @@ theorem decodeSupportedParamWord_canonical :
       rcases h with h | h <;> subst h
       · simp [decodeSupportedParamWord, wordNormalize_eq_of_lt 0 (by decide)]
       · simp [decodeSupportedParamWord, wordNormalize_eq_of_lt 1 (by decide)]
-  | .intN _, _, h => h.elim
-  | .bytesN _, _, h => h.elim
+  | .intN bits, v, h => decode_intN_canonical bits v h
+  | .bytesN bytes, v, h => decode_bytesN_canonical bytes v h
   | .string, _, h => h.elim
   | .tuple _, _, h => h.elim
   | .array _, _, h => h.elim
@@ -91,6 +111,21 @@ theorem decodeSupportedParamWord_canonical :
   | .bytes, _, h => h.elim
   | .adt _ _, _, h => h.elim
   | .newtypeOf _ _, _, h => h.elim
+
+/-- Every `bytesN` word the decoder produces is canonical: the alignment mask
+is idempotent, so decode-of-decode is stable and the canonicity predicate
+characterizes exactly the decoder's image. -/
+theorem decode_bytesN_output_canonical (bytes : Nat) (v w : Nat)
+    (h : decodeSupportedParamWord (.bytesN bytes) v = some w) :
+    CanonicalParamWord (.bytesN bytes) w := by
+  have hw : w = wordNormalize v &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes))) := by
+    simpa [decodeSupportedParamWord] using h.symm
+  constructor
+  · rw [hw, Nat.and_assoc, Nat.and_self]
+  · calc w ≤ wordNormalize v := by rw [hw]; exact Nat.and_le_left
+      _ < Compiler.Constants.evmModulus := by
+          show (Verity.Core.Uint256.ofNat v).val < _
+          exact (Verity.Core.Uint256.ofNat v).isLt
 
 /-- Pointwise canonicity of an argument list for a parameter list (also forces
 equal lengths). -/
