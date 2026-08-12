@@ -195,4 +195,18 @@ theorem arrayElements_aligned_roundtrip (selector : Nat) (calldata : List Nat)
     (by rw [hstored i hi]; exact hcanon i hi)]
   rw [hstored i hi]
 
+/-- Bounds-checked aligned reads round-trip: an in-range word index passes the
+calldata-size check and recovers exactly the stored word.  This is the base
+fact for the dynamic head-offset/length decoders, which are all built from
+`externalWordAt?`. -/
+theorem externalWordAt?_aligned (selector : Nat) (calldata : List Nat)
+    (q : Nat) (hq : q < calldata.length)
+    (hval : calldata.getD q 0 < Compiler.Constants.evmModulus) :
+    externalWordAt? selector calldata (4 + 32 * q) = some (calldata.getD q 0) := by
+  have hbound : 4 ≤ 4 + 32 * q ∧
+      4 + 32 * q + 32 ≤ externalCalldataSize calldata := by
+    unfold externalCalldataSize
+    omega
+  simp [externalWordAt?, hbound, calldataloadWord_aligned selector calldata q hval]
+
 end Compiler.CompilationModel.DynamicAbi
