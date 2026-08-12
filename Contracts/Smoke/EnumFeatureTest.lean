@@ -76,6 +76,25 @@ def memberConstantsFollowDeclarationOrder : Bool :=
 
 example : memberConstantsFollowDeclarationOrder = true := by native_decide
 
+/- Member names chosen so alphabetical, name-length, and hash orderings all
+disagree with declaration order: any producer-shared ordering other than the
+declaration sequence itself would assign different ordinals. -/
+verity_contract MacroEnumReordered where
+  enums
+    enum Priority { Zeta, Alpha, Mid }
+
+  storage
+
+  function identity (value : Priority) : Priority := do
+    return value
+
+def reorderedMembersFollowDeclarationOrder : Bool :=
+  MacroEnumReordered.Priority.Zeta == 0 &&
+    MacroEnumReordered.Priority.Alpha == 1 &&
+    MacroEnumReordered.Priority.Mid == 2
+
+example : reorderedMembersFollowDeclarationOrder = true := by native_decide
+
 def castAcceptsLastMember : Bool :=
   match MacroEnumUsage.castStatus 2 defaultState with
   | .success value _ => value == 2

@@ -157,6 +157,9 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 ### Revert-State Modeling
 High-level semantics can expose intermediate state in reverted computations. EVM reverts discard state. Contracts should use checks-before-effects. See [docs/REVERT_STATE_MODEL.md](docs/REVERT_STATE_MODEL.md).
 
+### Top-Level Transaction Rollback (`denoteTransaction`)
+`Verity.Core.Model.CallProgramRollback.denoteTransaction` restores the pre-transaction caller world on a top-level `.revert` *by construction*: the `denoteTransaction_revert_*` theorems characterize this wrapper's behavior, they do not derive rollback from lower-level EVM semantics. That the EVM's actual transaction-revert behavior matches this model (full world restoration, gas remains charged, returndata exposed) is a trusted modeling assumption, on par with §6 (EVM/Yul Semantics).
+
 ### Reentrancy Guard (`nonreentrant(lockField)`)
 Functions annotated `nonreentrant(lockField)` are compiled with a
 **transient-storage** reentrancy guard prologue (#1893): an
