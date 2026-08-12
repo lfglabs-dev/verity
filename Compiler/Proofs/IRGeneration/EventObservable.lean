@@ -14,6 +14,7 @@ environment — never `state.memory`.
 namespace Compiler.Proofs.IRGeneration
 
 open Compiler.Yul
+open Compiler.CompilationModel
 
 mutual
 
@@ -131,5 +132,60 @@ theorem execIRStmts_mstore_ptr_expr_block (ptrName : String) (p : Nat) :
                 exact hevs
               exact execIRStmts_mstore_ptr_expr_block ptrName p rest ws fuel _
                 hptr' hrest hevs'
+
+/-- `normalizeEventWord` preserves memory insensitivity: every wrapper it
+emits (`and`/`signextend`/`iszero∘iszero`) is a non-memory builtin over the
+argument. -/
+theorem normalizeEventWord_memInsensitive :
+    ∀ (ty : ParamType) (e : YulExpr), MemInsensitiveExpr e →
+      MemInsensitiveExpr (normalizeEventWord ty e)
+  | .uint8, e, he => ⟨by decide, by decide, he, trivial, trivial⟩
+  | .uint16, e, he => ⟨by decide, by decide, he, trivial, trivial⟩
+  | .uintN _, e, he => ⟨by decide, by decide, he, trivial, trivial⟩
+  | .intN _, e, he => ⟨by decide, by decide, trivial, he, trivial⟩
+  | .bytesN _, e, he => ⟨by decide, by decide, he, trivial, trivial⟩
+  | .address, e, he => ⟨by decide, by decide, he, trivial, trivial⟩
+  | .bool, e, he =>
+      ⟨by decide, by decide, ⟨by decide, by decide, he, trivial⟩, trivial⟩
+  | .newtypeOf _ baseType, e, he =>
+      normalizeEventWord_memInsensitive baseType e he
+  | .uint256, e, he => he
+  | .int256, e, he => he
+  | .bytes32, e, he => he
+  | .string, e, he => he
+  | .tuple _, e, he => he
+  | .array _, e, he => he
+  | .fixedArray _ _, e, he => he
+  | .bytes, e, he => he
+  | .adt _ _, e, he => he
+
+/-- The write list of the scalar unindexed-store block: offsets accumulate by
+head word size, values are the normalized argument expressions. -/
+def scalarEventWrites :
+    List (EventParam × Expr × YulExpr) → Nat → List (Nat × YulExpr)
+  | [], _ => []
+  | (p, _, argExpr) :: rest, headOffset =>
+      (headOffset, normalizeEventWord p.ty argExpr) ::
+        scalarEventWrites rest (headOffset + eventHeadWordSize p.ty)
+
+/-- The emitted store block is exactly the pointer-store map of its write
+list — so `execIRStmts_mstore_ptr_expr_block` applies directly. -/
+theorem scalarEventUnindexedStoresFrom_shape :
+    ∀ (unindexed : List (EventParam × Expr × YulExpr)) (headOffset : Nat),
+      scalarEventUnindexedStoresFrom unindexed headOffset =
+        (scalarEventWrites unindexed headOffset).map fun ov =>
+          YulStmt.exprStmt (.call "mstore"
+            [.call "add" [.ident "__evt_ptr", .lit ov.1], ov.2])
+  | [], _ => rfl
+  | (p, e, argExpr) :: rest, headOffset => by
+      rw [show scalarEventUnindexedStoresFrom ((p, e, argExpr) :: rest) headOffset =
+        YulStmt.exprStmt (YulExpr.call "mstore" [
+          YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit headOffset],
+          normalizeEventWord p.ty argExpr
+        ]) :: scalarEventUnindexedStoresFrom rest
+          (headOffset + eventHeadWordSize p.ty) from rfl,
+        scalarEventUnindexedStoresFrom_shape rest
+          (headOffset + eventHeadWordSize p.ty)]
+      rfl
 
 end Compiler.Proofs.IRGeneration
