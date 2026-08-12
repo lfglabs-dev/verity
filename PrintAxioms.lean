@@ -3887,6 +3887,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.spliceLockReleaseList_eq_self
   Compiler.Proofs.IRGeneration.yulFrameHalts_eq_false
   Compiler.Proofs.IRGeneration.yulFrameHaltsList_eq_false
+  Compiler.Proofs.IRGeneration.spliceLockRelease_if_stop_shape
+  Compiler.Proofs.IRGeneration.execIRStmts_spliced_if_stop
 
   -- Compiler/Proofs/IRGeneration/PanicPayloadIR.lean
   Compiler.Proofs.IRGeneration.execIRStmts_solidityPanicPayload
@@ -6645,4 +6647,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6209 theorems/lemmas (4341 public, 1868 private, 0 sorry'd)
+-- Total: 6211 theorems/lemmas (4343 public, 1868 private, 0 sorry'd)

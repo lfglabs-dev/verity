@@ -466,4 +466,64 @@ theorem yulFrameHaltsList_eq_false :
         yulFrameHaltsList_eq_false (x' :: xs')
           (fun s hs => hall s (by simp at hs ⊢; tauto))
 
+/-! ## First nested splice law: conditional frame exit -/
+
+/-- Splicing a conditional stop guards the release inside the branch. -/
+theorem spliceLockRelease_if_stop_shape (slot : Nat) (cond : YulExpr) :
+    spliceLockRelease (lockReleaseStmt slot)
+        (.if_ cond [.exprStmt (.call "stop" [])]) =
+      [.if_ cond [lockReleaseStmt slot, .exprStmt (.call "stop" [])]] := rfl
+
+/-- Semantics of the spliced conditional exit: a true condition releases the
+lock and halts; a false condition falls through with nothing changed. -/
+theorem execIRStmts_spliced_if_stop (slot : Nat) (cond : YulExpr)
+    (fuel : Nat) (state : IRState) (c : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hcond : evalIRExpr state cond = some c) :
+    execIRStmts (fuel + 5) state
+        (spliceLockRelease (lockReleaseStmt slot)
+          (.if_ cond [.exprStmt (.call "stop" [])])) =
+      if c ≠ 0 then
+        .stop { state with
+          transientStorage := fun o => if o = slot then 0
+            else state.transientStorage o }
+      else .continue state := by
+  rw [spliceLockRelease_if_stop_shape]
+  show (match execIRStmt (fuel + 4) state
+      (.if_ cond [lockReleaseStmt slot, .exprStmt (.call "stop" [])]) with
+    | .continue s₁ => execIRStmts (fuel + 4) s₁ []
+    | .return v s => .return v s
+    | .stop s => .stop s
+    | .revert s => .revert s) = _
+  rw [show execIRStmt (fuel + 4) state
+      (.if_ cond [lockReleaseStmt slot, .exprStmt (.call "stop" [])]) =
+    (match evalIRExpr state cond with
+      | some c => if c ≠ 0 then
+          execIRStmts (fuel + 3) state
+            [lockReleaseStmt slot, .exprStmt (.call "stop" [])]
+        else .continue state
+      | none => .revert state) from rfl, hcond]
+  show (match (if c ≠ 0 then
+      execIRStmts (fuel + 3) state
+        [lockReleaseStmt slot, .exprStmt (.call "stop" [])]
+    else .continue state) with
+    | .continue s₁ => execIRStmts (fuel + 4) s₁ []
+    | .return v s => .return v s
+    | .stop s => .stop s
+    | .revert s => .revert s) = _
+  by_cases hc : c ≠ 0
+  · rw [if_pos hc, if_pos hc,
+      show execIRStmts (fuel + 3) state
+          [lockReleaseStmt slot, .exprStmt (.call "stop" [])] =
+        (match execIRStmt (fuel + 2) state (lockReleaseStmt slot) with
+          | .continue s₁ => execIRStmts (fuel + 2) s₁
+              [.exprStmt (.call "stop" [])]
+          | .return v s => .return v s
+          | .stop s => .stop s
+          | .revert s => .revert s) from rfl,
+      execIRStmt_lockRelease (fuel + 1) state slot hslot]
+    rfl
+  · rw [if_neg hc, if_neg hc]
+    rfl
+
 end Compiler.Proofs.IRGeneration
