@@ -1,5 +1,6 @@
 import Compiler.Proofs.IRGeneration.FuelBound
 import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
+import Compiler.Proofs.IRGeneration.ParamLoading
 
 /-!
 # Splice simulation (fragment slice 1: atomics, `if`, `block`)
@@ -1033,5 +1034,62 @@ theorem execIRStmts_guardedUnit_halting (slot : Nat)
       (F - 2) G _ (by omega) hG
   · rw [if_pos hlocked]
     exact guardedBody_locked_reverts slot _ F state hslot hlocked (by omega)
+
+/-- Parameter binding never touches transient storage. -/
+theorem applyBindingsToIRState_transient :
+    ∀ (bindings : List (String × Nat)) (state : IRState),
+      (ParamLoading.applyBindingsToIRState state bindings).transientStorage =
+        state.transientStorage
+  | [], _ => rfl
+  | (n, v) :: rest, state => by
+      rw [show ParamLoading.applyBindingsToIRState state ((n, v) :: rest) =
+        ParamLoading.applyBindingsToIRState (state.setVar n v) rest from rfl,
+        applyBindingsToIRState_transient rest (state.setVar n v)]
+      rfl
+
+/-- The full guarded function body — parameter loads, prologue, release-wrapped
+body — mirrors `guarded` end to end for fall-through fragment bodies: loads
+bind the arguments, a locked entry then reverts with only the bindings
+applied, and a free entry runs the body from the acquired bound state with
+successful outcomes released. -/
+theorem execIRStmts_guardedFunction_fallthrough (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (params : List Param) (bindings : List (String × Nat))
+    (xs : List YulStmt) (hSS : SpliceSimList xs)
+    (hH : yulFrameHaltsList xs = false)
+    (extraFuel G : Nat) (state : IRState)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hfits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbind : SourceSemantics.bindSupportedParams params state.calldata =
+      some bindings)
+    (hlock01 : state.transientStorage slot = 0 ∨ state.transientStorage slot = 1)
+    (hF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) xs) +
+      (spliceLockReleaseList (lockReleaseStmt slot) xs).length + 4 ≤
+      (guardPrologueStmts slot ++
+        applyLockReleaseOnExits (lockReleaseStmt slot) xs).length + extraFuel + 1)
+    (hG : stmtsFuelBound xs ≤ G) :
+    execIRStmts ((genParamLoads params).length +
+        (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) xs).length +
+        extraFuel + 1) state
+      (genParamLoads params ++
+        (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) xs)) =
+      if state.transientStorage slot = 1 then
+        .revert (ParamLoading.applyBindingsToIRState state bindings)
+      else
+        (match execIRStmts G { ParamLoading.applyBindingsToIRState state bindings with
+            transientStorage := fun o => if o = slot then 1
+              else state.transientStorage o } xs with
+          | .continue s => .continue (releaseState slot s)
+          | .return v s => .return v (releaseState slot s)
+          | .stop s => .stop (releaseState slot s)
+          | .revert s => .revert s) := by
+  rw [ParamLoading.exec_genParamLoads_supported_then_extraFuel state params bindings
+    _ extraFuel hsupported hfits hbind]
+  have htrans := applyBindingsToIRState_transient bindings state
+  rw [execIRStmts_guardedUnit_fallthrough slot hslot xs hSS hH _ G
+    (ParamLoading.applyBindingsToIRState state bindings)
+    (by rw [htrans]; exact hlock01) hF hG, htrans]
 
 end Compiler.Proofs.IRGeneration
