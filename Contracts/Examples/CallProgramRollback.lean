@@ -60,4 +60,52 @@ example (adversary : AdversaryModel) (state : CallState) :
       { result := .commit 7, state := postState } := by
   exact denoteTransaction_commit_eq commits adversary state 7 rfl
 
+/-! ### Non-vacuous instantiation
+
+A concrete adversary whose successful calls really mutate the world: site `k`
+writes `42` into storage slot `k`.  The examples below show the mutation is
+observable after each inner call commits, and that the transaction-level
+revert restores the untouched initial world — so the rollback laws are
+exercised on an execution whose intermediate state provably differs from both
+the initial and the final state. -/
+
+def mutatingAdversary : AdversaryModel where
+  stateTransition := fun site w =>
+    { w with storage := fun slot => if slot == site.siteId then 42 else w.storage slot }
+  result := fun _ _ => .success []
+  gasUsed := fun _ _ => 5
+
+def demoState : CallState :=
+  { world := Verity.defaultState, gasRemaining := 100 }
+
+/-- The first call commits: slot 1 now holds 42 (it held 0 initially). -/
+example : (denoteCall mutatingAdversary first demoState).state.world.storage 1 = 42 := by
+  native_decide
+
+/-- Both inner calls committed before the transaction-level revert: the
+threaded post-state has both slots mutated. -/
+example :
+    (denote commitsThenReverts mutatingAdversary demoState).2.world.storage 1 = 42 ∧
+    (denote commitsThenReverts mutatingAdversary demoState).2.world.storage 2 = 42 := by
+  constructor <;> native_decide
+
+/-- The enclosing revert rolls those committed mutations back to the initial
+values — which differ from the intermediate ones, so the rollback is not
+vacuous. -/
+example :
+    (denoteTransaction commitsThenReverts mutatingAdversary demoState).state.world.storage 1 = 0 ∧
+    (denoteTransaction commitsThenReverts mutatingAdversary demoState).state.world.storage 2 = 0 := by
+  constructor <;> native_decide
+
+/-- On commit the same adversary's mutation is kept, ruling out a wrapper that
+unconditionally restores the initial world. -/
+example :
+    (denoteTransaction commits mutatingAdversary demoState).state.world.storage 1 = 42 := by
+  native_decide
+
+/-- Gas charged by the reverted inner calls stays charged after rollback. -/
+example :
+    (denoteTransaction commitsThenReverts mutatingAdversary demoState).state.gasRemaining = 90 := by
+  native_decide
+
 end Contracts.Examples.CallProgramRollback
