@@ -703,4 +703,67 @@ theorem execIRStmts_applyLockReleaseOnExits_halting (slot : Nat)
   | stop s => rfl
   | revert s => rfl
 
+/-- End-to-end guarded unit, fall-through bodies: the compiled prologue plus
+release-wrapped body mirrors `NonReentrantGuard.guarded` exactly — locked
+entry reverts untouched; free entry runs the body from the acquired state
+with every successful outcome carrying the released state. -/
+theorem execIRStmts_guardedUnit_fallthrough (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (xs : List YulStmt) (hSS : SpliceSimList xs)
+    (hH : yulFrameHaltsList xs = false)
+    (F G : Nat) (state : IRState)
+    (hlock01 : state.transientStorage slot = 0 ∨ state.transientStorage slot = 1)
+    (hF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) xs) +
+      (spliceLockReleaseList (lockReleaseStmt slot) xs).length + 4 ≤ F)
+    (hG : stmtsFuelBound xs ≤ G) :
+    execIRStmts F state (guardPrologueStmts slot ++
+        applyLockReleaseOnExits (lockReleaseStmt slot) xs) =
+      if state.transientStorage slot = 1 then .revert state
+      else
+        (match execIRStmts G { state with
+            transientStorage := fun o => if o = slot then 1
+              else state.transientStorage o } xs with
+          | .continue s => .continue (releaseState slot s)
+          | .return v s => .return v (releaseState slot s)
+          | .stop s => .stop (releaseState slot s)
+          | .revert s => .revert s) := by
+  rcases hlock01 with hfree | hlocked
+  · rw [if_neg (by rw [hfree]; decide)]
+    rw [guardedBody_free_runs_suffix slot _ F state hslot hfree (by omega)]
+    exact execIRStmts_applyLockReleaseOnExits_fallthrough slot hslot xs hSS hH
+      (F - 2) G _ (by omega) hG
+  · rw [if_pos hlocked]
+    exact guardedBody_locked_reverts slot _ F state hslot hlocked (by omega)
+
+/-- End-to-end guarded unit, modeled-halt endings. -/
+theorem execIRStmts_guardedUnit_halting (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (ys : List YulStmt) (h : YulStmt)
+    (hSS : SpliceSimList (ys ++ [h])) (hmh : ModeledHalt h)
+    (F G : Nat) (state : IRState)
+    (hlock01 : state.transientStorage slot = 0 ∨ state.transientStorage slot = 1)
+    (hF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot)
+      (ys ++ [h])) + 2 ≤ F)
+    (hG : stmtsFuelBound (ys ++ [h]) ≤ G) :
+    execIRStmts F state (guardPrologueStmts slot ++
+        applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])) =
+      if state.transientStorage slot = 1 then .revert state
+      else
+        (match execIRStmts G { state with
+            transientStorage := fun o => if o = slot then 1
+              else state.transientStorage o } (ys ++ [h]) with
+          | .continue s => .continue (releaseState slot s)
+          | .return v s => .return v (releaseState slot s)
+          | .stop s => .stop (releaseState slot s)
+          | .revert s => .revert s) := by
+  have hpos := stmtsFuelBound_pos
+    (spliceLockReleaseList (lockReleaseStmt slot) (ys ++ [h]))
+  rcases hlock01 with hfree | hlocked
+  · rw [if_neg (by rw [hfree]; decide)]
+    rw [guardedBody_free_runs_suffix slot _ F state hslot hfree (by omega)]
+    exact execIRStmts_applyLockReleaseOnExits_halting slot hslot ys h hSS hmh
+      (F - 2) G _ (by omega) hG
+  · rw [if_pos hlocked]
+    exact guardedBody_locked_reverts slot _ F state hslot hlocked (by omega)
+
 end Compiler.Proofs.IRGeneration
