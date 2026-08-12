@@ -4156,6 +4156,8 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/IRGeneration/SpliceSimulation.lean
   Compiler.Proofs.IRGeneration.SpliceSim.loopFree
+  Compiler.Proofs.IRGeneration.SpliceSimCases.loopFree
+  Compiler.Proofs.IRGeneration.SpliceSimDflt.loopFree
   Compiler.Proofs.IRGeneration.SpliceSimList.loopFree
   Compiler.Proofs.IRGeneration.execIRStmt_exprStmt_no_halt
   Compiler.Proofs.IRGeneration.spliceLockRelease_atomic
@@ -4165,7 +4167,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.spliced_cons_return
   Compiler.Proofs.IRGeneration.spliced_cons_if
   Compiler.Proofs.IRGeneration.spliced_cons_block
+  Compiler.Proofs.IRGeneration.find?_spliceCases
+  Compiler.Proofs.IRGeneration.spliced_case_bound_le
+  Compiler.Proofs.IRGeneration.SpliceSimCases.mem
+  Compiler.Proofs.IRGeneration.spliced_cons_switch
   Compiler.Proofs.IRGeneration.execIRStmts_spliced
+  Compiler.Proofs.IRGeneration.execIRStmts_splicedCases
+  Compiler.Proofs.IRGeneration.execIRStmts_splicedDflt
   Compiler.Proofs.IRGeneration.execIRStmts_append_halt
   Compiler.Proofs.IRGeneration.execIRStmts_applyLockReleaseOnExits_fallthrough
   Compiler.Proofs.IRGeneration.execIRStmt_modeledHalt_no_continue
@@ -6681,4 +6689,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6239 theorems/lemmas (4371 public, 1868 private, 0 sorry'd)
+-- Total: 6247 theorems/lemmas (4379 public, 1868 private, 0 sorry'd)

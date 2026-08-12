@@ -49,6 +49,7 @@ ALLOWLIST: set[str] = {
     "spliced_cons_if",
     "spliced_cons_atomic",
     "execIRStmts_applyLockReleaseOnExits_fallthrough",
+    "spliced_cons_switch",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
     # against the corresponding exhaustive expression definitions.
