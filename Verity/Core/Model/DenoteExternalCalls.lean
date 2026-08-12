@@ -59,6 +59,55 @@ def succeeded : ExternalCallResult → Bool
 
 end ExternalCallResult
 
+/-- The control component of an external-call result, with the returndata
+projected away — what branching logic in callers actually inspects. -/
+inductive CallControl where
+  | success
+  | failure
+  | revert
+  deriving DecidableEq, Repr
+
+namespace ExternalCallResult
+
+/-- Project the control component. -/
+def control : ExternalCallResult → CallControl
+  | .success _ => .success
+  | .failure _ => .failure
+  | .revert _ => .revert
+
+/-- A result is exactly its control paired with its returndata. -/
+theorem control_returndata_eta : ∀ (r : ExternalCallResult),
+    r = match r.control with
+      | .success => .success r.returndata
+      | .failure => .failure r.returndata
+      | .revert => .revert r.returndata
+  | .success _ => rfl
+  | .failure _ => rfl
+  | .revert _ => rfl
+
+/-- Two results agree iff their controls and returndata agree. -/
+theorem ext_iff (r₁ r₂ : ExternalCallResult) :
+    r₁ = r₂ ↔ r₁.control = r₂.control ∧ r₁.returndata = r₂.returndata := by
+  constructor
+  · rintro rfl; exact ⟨rfl, rfl⟩
+  · rintro ⟨hc, hd⟩
+    cases r₁ <;> cases r₂ <;>
+      simp_all [control, returndata]
+
+@[simp] theorem control_success (data : List Nat) :
+    (ExternalCallResult.success data).control = .success := rfl
+@[simp] theorem control_failure (data : List Nat) :
+    (ExternalCallResult.failure data).control = .failure := rfl
+@[simp] theorem control_revert (data : List Nat) :
+    (ExternalCallResult.revert data).control = .revert := rfl
+
+/-- `succeeded` is a control fact. -/
+theorem succeeded_iff_control (r : ExternalCallResult) :
+    r.succeeded = true ↔ r.control = .success := by
+  cases r <;> simp [succeeded, control]
+
+end ExternalCallResult
+
 /-- The caller state threaded between call sites. -/
 structure CallState where
   world : Verity.ContractState
