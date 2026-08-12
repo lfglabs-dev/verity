@@ -226,4 +226,29 @@ theorem arrayElementDynamicHeadOffset?_aligned (selector : Nat)
     externalWordAt?_aligned selector calldata (q0 + index) hq hval]
   exact ⟨by simpa using htable, by simpa using hhead⟩
 
+/-- Composition: reading word `wordOffset` of a dynamic element through the
+head-offset indirection recovers exactly the stored word, provided the
+relative offset is word-aligned (as canonical ABI encoding guarantees). -/
+theorem arrayElementDynamicWord?_aligned (selector : Nat)
+    (calldata : List Nat) (q0 length index wordOffset relq : Nat)
+    (hidx : index < length) (hq : q0 + index < calldata.length)
+    (hval : calldata.getD (q0 + index) 0 < Compiler.Constants.evmModulus)
+    (hrel : calldata.getD (q0 + index) 0 = 32 * relq)
+    (htable : length * 32 ≤ calldata.getD (q0 + index) 0)
+    (hhead : 4 + 32 * q0 + calldata.getD (q0 + index) 0 + 32 ≤
+      externalCalldataSize calldata)
+    (hq2 : q0 + relq + wordOffset < calldata.length)
+    (hval2 : calldata.getD (q0 + relq + wordOffset) 0 < Compiler.Constants.evmModulus) :
+    arrayElementDynamicWord? selector calldata (4 + 32 * q0) length index wordOffset =
+      some (calldata.getD (q0 + relq + wordOffset) 0) := by
+  simp only [arrayElementDynamicWord?,
+    arrayElementDynamicHeadOffset?_aligned selector calldata q0 length index
+      hidx hq hval htable hhead, Option.bind]
+  rw [hrel]
+  show externalWordAt? selector calldata (4 + 32 * q0 + 32 * relq + wordOffset * 32) =
+    some (calldata.getD (q0 + relq + wordOffset) 0)
+  rw [show 4 + 32 * q0 + 32 * relq + wordOffset * 32 =
+    4 + 32 * (q0 + relq + wordOffset) from by omega,
+    externalWordAt?_aligned selector calldata (q0 + relq + wordOffset) hq2 hval2]
+
 end Compiler.CompilationModel.DynamicAbi
