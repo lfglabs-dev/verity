@@ -37,6 +37,8 @@ def SpliceSim : YulStmt → Prop
   | .block stmts => SpliceSimList stmts
   | .for_ _ _ _ _ => False
   | .switch _ _ _ => False
+  | .exprStmt (.call "return" args) => ∃ a b, args = [YulExpr.lit a, YulExpr.lit b]
+  | .exprStmt (.call "stop" args) => args = []
   | _ => True
 
 def SpliceSimList : List YulStmt → Prop
@@ -88,5 +90,68 @@ theorem execIRStmt_exprStmt_no_halt (e : YulExpr) (fuel : Nat) (state : IRState)
       | exact absurd rfl (hstop _)
       | simp_all
       | cases hcontra
+
+/-- Atomic non-exit statements: everything the splice leaves untouched and
+whose execution cannot halt the frame. -/
+def AtomicNonExit : YulStmt → Prop
+  | .comment _ => True
+  | .let_ _ _ => True
+  | .letMany _ _ => True
+  | .assign _ _ => True
+  | .leave => True
+  | .funcDef _ _ _ _ => True
+  | .exprStmt (.call "return" _) => False
+  | .exprStmt (.call "stop" _) => False
+  | .exprStmt _ => True
+  | _ => False
+
+/-- The splice leaves atomic non-exit statements untouched. -/
+theorem spliceLockRelease_atomic (release : YulStmt) :
+    ∀ (x : YulStmt), AtomicNonExit x →
+      spliceLockRelease release x = [x]
+  | .comment _, _ => rfl
+  | .let_ _ _, _ => rfl
+  | .letMany _ _, _ => rfl
+  | .assign _ _, _ => rfl
+  | .leave, _ => rfl
+  | .funcDef _ _ _ _, _ => rfl
+  | .exprStmt (.lit _), _ => rfl
+  | .exprStmt (.hex _), _ => rfl
+  | .exprStmt (.ident _), _ => rfl
+  | .exprStmt (.str _), _ => rfl
+  | .exprStmt (.call f args), h => by
+      have hret : f ≠ "return" := by
+        intro hf; subst hf; simp [AtomicNonExit] at h
+      have hstop : f ≠ "stop" := by
+        intro hf; subst hf; simp [AtomicNonExit] at h
+      simp [spliceLockRelease, hret, hstop]
+  | .if_ _ _, h => by simp [AtomicNonExit] at h
+  | .for_ _ _ _ _, h => by simp [AtomicNonExit] at h
+  | .switch _ _ _, h => by simp [AtomicNonExit] at h
+  | .block _, h => by simp [AtomicNonExit] at h
+
+/-- Atomic non-exit statements never halt the frame. -/
+theorem execIRStmt_atomic_no_halt (x : YulStmt) (hx : AtomicNonExit x)
+    (fuel : Nat) (state : IRState) :
+    (∀ v s, execIRStmt (fuel + 1) state x ≠ .return v s) ∧
+      (∀ s, execIRStmt (fuel + 1) state x ≠ .stop s) := by
+  cases x with
+  | exprStmt e =>
+      refine execIRStmt_exprStmt_no_halt e fuel state ?_ ?_ <;>
+        (intro args hcontra; subst hcontra; simp [AtomicNonExit] at hx)
+  | comment _ => exact ⟨(fun v s h => nomatch h), (fun s h => nomatch h)⟩
+  | «leave» => exact ⟨(fun v s h => nomatch h), (fun s h => nomatch h)⟩
+  | funcDef _ _ _ _ => exact ⟨(fun v s h => nomatch h), (fun s h => nomatch h)⟩
+  | letMany _ _ => exact ⟨(fun v s h => nomatch h), (fun s h => nomatch h)⟩
+  | let_ n v =>
+      refine ⟨fun v' s' hcontra => ?_, fun s' hcontra => ?_⟩ <;>
+        (cases heval : evalIRExpr state v <;> simp [execIRStmt, heval] at hcontra)
+  | assign n v =>
+      refine ⟨fun v' s' hcontra => ?_, fun s' hcontra => ?_⟩ <;>
+        (cases heval : evalIRExpr state v <;> simp [execIRStmt, heval] at hcontra)
+  | if_ _ _ => simp [AtomicNonExit] at hx
+  | for_ _ _ _ _ => simp [AtomicNonExit] at hx
+  | «switch» _ _ _ => simp [AtomicNonExit] at hx
+  | block _ => simp [AtomicNonExit] at hx
 
 end Compiler.Proofs.IRGeneration
