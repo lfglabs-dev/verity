@@ -422,4 +422,48 @@ theorem spliceLockReleaseList_eq_self (release : YulStmt) :
           (fun s hs => hall s (by simp [hs]))]
       rfl
 
+/-- Companion discharge for the fall-through law's halt hypothesis: a
+straight-line statement that is no halting builtin call does not halt the
+frame, and a list of such statements never halts (the analysis only inspects
+the last statement, but the pointwise condition is what shapes provide). -/
+theorem yulFrameHalts_eq_false (stmt : YulStmt)
+    (hs : StraightLineStmt stmt)
+    (hexit : ∀ f args, stmt = YulStmt.exprStmt (.call f args) →
+      f ≠ "return" ∧ f ≠ "stop" ∧ f ≠ "revert" ∧ f ≠ "invalid" ∧
+        f ≠ "selfdestruct") :
+    yulFrameHalts stmt = false := by
+  cases stmt with
+  | exprStmt e =>
+      cases e with
+      | call f args =>
+          obtain ⟨h1, h2, h3, h4, h5⟩ := hexit f args rfl
+          simp [yulFrameHalts, h1, h2, h3, h4, h5]
+      | _ => rfl
+  | comment _ => rfl
+  | let_ _ _ => rfl
+  | letMany _ _ => rfl
+  | assign _ _ => rfl
+  | «leave» => rfl
+  | funcDef _ _ _ _ => rfl
+  | if_ _ _ => rfl
+  | for_ _ _ _ _ => rfl
+  | «switch» _ _ _ => simp [StraightLineStmt] at hs
+  | block _ => simp [StraightLineStmt] at hs
+
+theorem yulFrameHaltsList_eq_false :
+    ∀ (xs : List YulStmt),
+      (∀ s ∈ xs, StraightLineStmt s ∧
+        ∀ f args, s = YulStmt.exprStmt (.call f args) →
+          f ≠ "return" ∧ f ≠ "stop" ∧ f ≠ "revert" ∧ f ≠ "invalid" ∧
+            f ≠ "selfdestruct") →
+      yulFrameHaltsList xs = false
+  | [], _ => rfl
+  | [x], hall => by
+      obtain ⟨hx, hexit⟩ := hall x (by simp)
+      simpa [yulFrameHaltsList] using yulFrameHalts_eq_false x hx hexit
+  | x :: x' :: xs', hall => by
+      simpa [yulFrameHaltsList] using
+        yulFrameHaltsList_eq_false (x' :: xs')
+          (fun s hs => hall s (by simp at hs ⊢; tauto))
+
 end Compiler.Proofs.IRGeneration
