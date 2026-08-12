@@ -225,9 +225,8 @@ theorem execIRStmt_stable : ∀ (stmt : YulStmt), LoopFree stmt →
 termination_by stmt _ _ _ => sizeOf stmt
 decreasing_by
   all_goals simp_wf
-  all_goals try omega
   all_goals try (have h1 := List.sizeOf_lt_of_mem hmem; simp at h1 ⊢; omega)
-  all_goals (try simp [*, Option.some.sizeOf_spec, Prod.mk.sizeOf_spec]) <;> omega
+  all_goals (try simp [*, Option.some.sizeOf_spec]); omega
 
 /-- Fuel stability for statement lists. -/
 theorem execIRStmts_stable : ∀ (xs : List YulStmt), LoopFreeList xs →

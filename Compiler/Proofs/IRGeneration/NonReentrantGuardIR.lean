@@ -85,7 +85,7 @@ theorem execIRStmt_lockRelease (fuel : Nat) (state : IRState) (slot : Nat)
       .continue { state with
         transientStorage := fun o => if o = slot then 0 else state.transientStorage o } := by
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
-  simp [lockReleaseStmt, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hmod]
+  simp [lockReleaseStmt, execIRStmt, evalIRExpr, hmod]
 
 /-- On the reachable (binary) lock values, the Yul decision `eq(lock, 1)`
 agrees with the source model's `lock ≠ 0` (`NonReentrantGuard.guarded`). -/
@@ -132,7 +132,7 @@ theorem execIRStmts_append_continue (ys : List YulStmt) :
       have hs : s' = state := by
         simpa [execIRStmts] using h.symm
       subst hs
-      simp [execIRStmts]
+      simp
   | x :: xs', fuel, state, s', h => by
       cases fuel with
       | zero => simp [execIRStmts] at h
