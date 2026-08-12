@@ -289,4 +289,86 @@ theorem arrayElementDynamicMemberLength?_aligned (selector : Nat)
       4 + 32 * (q0 + relq + mrelq) from by omega,
     externalWordAt?_aligned selector calldata (q0 + relq + mrelq) hq3 hval3]
 
+/-- The member data-offset decoder returns the word after the member's length
+slot under the same canonical-alignment hypotheses. -/
+theorem arrayElementDynamicMemberDataOffset?_aligned (selector : Nat)
+    (calldata : List Nat) (q0 length index wordOffset relq mrelq : Nat)
+    (hidx : index < length) (hq : q0 + index < calldata.length)
+    (hval : calldata.getD (q0 + index) 0 < Compiler.Constants.evmModulus)
+    (hrel : calldata.getD (q0 + index) 0 = 32 * relq)
+    (htable : length * 32 ≤ calldata.getD (q0 + index) 0)
+    (hhead : 4 + 32 * q0 + calldata.getD (q0 + index) 0 + 32 ≤
+      externalCalldataSize calldata)
+    (hq2 : q0 + relq + wordOffset < calldata.length)
+    (hval2 : calldata.getD (q0 + relq + wordOffset) 0 < Compiler.Constants.evmModulus)
+    (hmrel : calldata.getD (q0 + relq + wordOffset) 0 = 32 * mrelq)
+    (hq3 : q0 + relq + mrelq < calldata.length) :
+    arrayElementDynamicMemberDataOffset? selector calldata (4 + 32 * q0)
+        length index wordOffset =
+      some (4 + 32 * (q0 + relq + mrelq) + 32) := by
+  have hfits : 4 + 32 * (q0 + relq + mrelq) + 32 ≤ externalCalldataSize calldata := by
+    unfold externalCalldataSize
+    omega
+  simp only [arrayElementDynamicMemberDataOffset?,
+    arrayElementDynamicHeadOffset?_aligned selector calldata q0 length index
+      hidx hq hval htable hhead, Option.bind]
+  rw [hrel]
+  show (externalWordAt? selector calldata
+      (4 + 32 * q0 + 32 * relq + wordOffset * 32)).bind
+    (fun memberRelOffset =>
+      if 4 + 32 * q0 + 32 * relq + memberRelOffset + 32 ≤
+          externalCalldataSize calldata then
+        some (4 + 32 * q0 + 32 * relq + memberRelOffset + 32)
+      else none) =
+    some (4 + 32 * (q0 + relq + mrelq) + 32)
+  rw [show 4 + 32 * q0 + 32 * relq + wordOffset * 32 =
+      4 + 32 * (q0 + relq + wordOffset) from by omega,
+    externalWordAt?_aligned selector calldata (q0 + relq + wordOffset) hq2 hval2]
+  show (if 4 + 32 * q0 + 32 * relq + calldata.getD (q0 + relq + wordOffset) 0 + 32 ≤
+      externalCalldataSize calldata then
+    some (4 + 32 * q0 + 32 * relq + calldata.getD (q0 + relq + wordOffset) 0 + 32)
+  else none) = some (4 + 32 * (q0 + relq + mrelq) + 32)
+  rw [hmrel, show 4 + 32 * q0 + 32 * relq + 32 * mrelq + 32 =
+      4 + 32 * (q0 + relq + mrelq) + 32 from by omega]
+  simp [hfits]
+
+/-- Full nested-element composition: reading inner element `innerIndex` of a
+dynamic member through both indirection levels recovers exactly the stored
+word.  The hypotheses are the canonical-encoding facts of the two levels plus
+the member's own bounds. -/
+theorem arrayElementDynamicMemberElement?_aligned (selector : Nat)
+    (calldata : List Nat) (q0 length index wordOffset relq mrelq innerIndex : Nat)
+    (hidx : index < length) (hq : q0 + index < calldata.length)
+    (hval : calldata.getD (q0 + index) 0 < Compiler.Constants.evmModulus)
+    (hrel : calldata.getD (q0 + index) 0 = 32 * relq)
+    (htable : length * 32 ≤ calldata.getD (q0 + index) 0)
+    (hhead : 4 + 32 * q0 + calldata.getD (q0 + index) 0 + 32 ≤
+      externalCalldataSize calldata)
+    (hq2 : q0 + relq + wordOffset < calldata.length)
+    (hval2 : calldata.getD (q0 + relq + wordOffset) 0 < Compiler.Constants.evmModulus)
+    (hmrel : calldata.getD (q0 + relq + wordOffset) 0 = 32 * mrelq)
+    (hq3 : q0 + relq + mrelq < calldata.length)
+    (hval3 : calldata.getD (q0 + relq + mrelq) 0 < Compiler.Constants.evmModulus)
+    (hinner : innerIndex < calldata.getD (q0 + relq + mrelq) 0)
+    (hq4 : q0 + relq + mrelq + 1 + innerIndex < calldata.length)
+    (hval4 : calldata.getD (q0 + relq + mrelq + 1 + innerIndex) 0 <
+      Compiler.Constants.evmModulus) :
+    arrayElementDynamicMemberElement? selector calldata (4 + 32 * q0)
+        length index wordOffset innerIndex =
+      some (calldata.getD (q0 + relq + mrelq + 1 + innerIndex) 0) := by
+  simp only [arrayElementDynamicMemberElement?,
+    arrayElementDynamicMemberLength?_aligned selector calldata q0 length index
+      wordOffset relq mrelq hidx hq hval hrel htable hhead hq2 hval2 hmrel hq3 hval3,
+    arrayElementDynamicMemberDataOffset?_aligned selector calldata q0 length index
+      wordOffset relq mrelq hidx hq hval hrel htable hhead hq2 hval2 hmrel hq3,
+    Option.bind]
+  show (if innerIndex < calldata.getD (q0 + relq + mrelq) 0 then
+      externalWordAt? selector calldata
+        (4 + 32 * (q0 + relq + mrelq) + 32 + innerIndex * 32)
+    else none) = some (calldata.getD (q0 + relq + mrelq + 1 + innerIndex) 0)
+  rw [if_pos hinner, show 4 + 32 * (q0 + relq + mrelq) + 32 + innerIndex * 32 =
+      4 + 32 * (q0 + relq + mrelq + 1 + innerIndex) from by omega,
+    externalWordAt?_aligned selector calldata
+      (q0 + relq + mrelq + 1 + innerIndex) hq4 hval4]
+
 end Compiler.CompilationModel.DynamicAbi
