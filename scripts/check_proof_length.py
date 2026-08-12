@@ -55,6 +55,7 @@ ALLOWLIST: set[str] = {
     # ParamLoading prefix, and the guarded-unit laws; fragmenting it would
     # duplicate the fuel bookkeeping across artificial sub-lemmas.
     "exec_compiledGuardedFunctionIR_of_body_fallthrough",
+    "exec_compiledGuardedFunctionIR_of_body_halting",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
     # against the corresponding exhaustive expression definitions.

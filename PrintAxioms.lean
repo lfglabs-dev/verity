@@ -3551,6 +3551,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.prebindRawArgs_transient
   Compiler.Proofs.IRGeneration.acquiredBoundState_eq
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_fallthrough
+  Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_halting
 
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
@@ -6719,4 +6720,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6268 theorems/lemmas (4398 public, 1870 private, 0 sorry'd)
+-- Total: 6269 theorems/lemmas (4399 public, 1870 private, 0 sorry'd)
