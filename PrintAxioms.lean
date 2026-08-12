@@ -3856,6 +3856,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmt_lockRelease
   Compiler.Proofs.IRGeneration.guard_decision_agrees
   Compiler.Proofs.IRGeneration.guard_acquire_release_roundtrip
+  Compiler.Proofs.IRGeneration.execIRStmts_append_continue
+  Compiler.Proofs.IRGeneration.applyLockReleaseOnExits_fallthrough
 
   -- Compiler/Proofs/IRGeneration/ParamLoading.lean
   Compiler.Proofs.IRGeneration.ParamLoading.uint256_modulus_eq_evm
@@ -6611,4 +6613,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6181 theorems/lemmas (4313 public, 1868 private, 0 sorry'd)
+-- Total: 6183 theorems/lemmas (4315 public, 1868 private, 0 sorry'd)
