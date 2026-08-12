@@ -1192,4 +1192,53 @@ theorem attachNonReentrantGuard_exec (fields : List Field)
   exact execIRStmts_guardedFunction_fallthrough slot hslot spec.params bindings
     bodyStmts hSS hH extraFuel G state hsupported hfits hbind hlock01 hF hG
 
+/-- Halting twin of `attachNonReentrantGuard_exec`. -/
+theorem attachNonReentrantGuard_exec_halting (fields : List Field)
+    (spec : FunctionSpec) (irFn guardedFn : IRFunction) (lockField : String)
+    (field : Field) (slot : Nat) (ys : List YulStmt) (h : YulStmt)
+    (bindings : List (String × Nat)) (extraFuel G : Nat) (state : IRState)
+    (hlock : spec.nonReentrantLock = some lockField)
+    (hfield : findFieldWithResolvedSlot fields lockField = some (field, slot))
+    (hguard : attachNonReentrantGuard fields spec irFn = .ok guardedFn)
+    (hbody : irFn.body = genParamLoads spec.params ++ (ys ++ [h]))
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hSS : SpliceSimList (ys ++ [h])) (hmh : ModeledHalt h)
+    (hsupported : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hfits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbind : SourceSemantics.bindSupportedParams spec.params state.calldata =
+      some bindings)
+    (hlock01 : state.transientStorage slot = 0 ∨ state.transientStorage slot = 1)
+    (hF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot)
+      (ys ++ [h])) + 2 ≤
+      (guardPrologueStmts slot ++
+        applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])).length +
+        extraFuel + 1)
+    (hG : stmtsFuelBound (ys ++ [h]) ≤ G) :
+    execIRStmts ((genParamLoads spec.params).length +
+        (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])).length +
+        extraFuel + 1) state guardedFn.body =
+      if state.transientStorage slot = 1 then
+        .revert (ParamLoading.applyBindingsToIRState state bindings)
+      else
+        (match execIRStmts G { ParamLoading.applyBindingsToIRState state bindings with
+            transientStorage := fun o => if o = slot then 1
+              else state.transientStorage o } (ys ++ [h]) with
+          | .continue s => .continue (releaseState slot s)
+          | .return v s => .return v (releaseState slot s)
+          | .stop s => .stop (releaseState slot s)
+          | .revert s => .revert s) := by
+  have hshape := attachNonReentrantGuard_some_shape fields spec irFn lockField
+    field slot hlock hfield
+  rw [hguard] at hshape
+  have hbodyEq : guardedFn.body =
+      genParamLoads spec.params ++
+        (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])) := by
+    have := congrArg IRFunction.body (Except.ok.inj hshape)
+    simpa [hbody, List.take_left, List.drop_left, List.append_assoc] using this
+  rw [hbodyEq]
+  exact execIRStmts_guardedFunction_halting slot hslot spec.params bindings
+    ys h hSS hmh extraFuel G state hsupported hfits hbind hlock01 hF hG
+
 end Compiler.Proofs.IRGeneration
