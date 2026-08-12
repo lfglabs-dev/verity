@@ -80,6 +80,7 @@ import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
+import Compiler.Proofs.IRGeneration.PanicPayloadIR
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SupportedFragment
@@ -3871,6 +3872,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.yulFrameHalts_eq_false
   Compiler.Proofs.IRGeneration.yulFrameHaltsList_eq_false
 
+  -- Compiler/Proofs/IRGeneration/PanicPayloadIR.lean
+  Compiler.Proofs.IRGeneration.execIRStmts_solidityPanicPayload
+
   -- Compiler/Proofs/IRGeneration/ParamLoading.lean
   Compiler.Proofs.IRGeneration.ParamLoading.uint256_modulus_eq_evm
   Compiler.Proofs.IRGeneration.ParamLoading.wordNormalize_eq_mod
@@ -6625,4 +6629,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6195 theorems/lemmas (4327 public, 1868 private, 0 sorry'd)
+-- Total: 6196 theorems/lemmas (4328 public, 1868 private, 0 sorry'd)
