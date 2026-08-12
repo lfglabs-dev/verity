@@ -54,6 +54,7 @@ import Compiler.Proofs.IRGeneration.DenoteEquivalence
 import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.DynamicAbiRefinement
+import Compiler.Proofs.IRGeneration.ErrorStringPayloadIR
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
 import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
@@ -2333,6 +2334,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DynamicAbiRefinement.arrayElementDynamicMemberDataOffset_eq_length_pos_add_word
   Compiler.Proofs.IRGeneration.DynamicAbiRefinement.ERC4337.decodePackedUserOperationAt?_dynamic_bytes_members
   Compiler.Proofs.IRGeneration.DynamicAbiRefinement.ERC4337.decodeHandleOps_ops_binding
+
+  -- Compiler/Proofs/IRGeneration/ErrorStringPayloadIR.lean
+  Compiler.Proofs.IRGeneration.applyWrites_not_written
+  Compiler.Proofs.IRGeneration.MstoreWrites.append
+  Compiler.Proofs.IRGeneration.MstoreWrites.length_eq
+  Compiler.Proofs.IRGeneration.execIRStmts_mstoreWrites
 
   -- Compiler/Proofs/IRGeneration/Function.lean
   -- Compiler.Proofs.IRGeneration.Function.yulStmtList_length_le_sizeOf  -- private
@@ -6629,4 +6636,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6196 theorems/lemmas (4328 public, 1868 private, 0 sorry'd)
+-- Total: 6200 theorems/lemmas (4332 public, 1868 private, 0 sorry'd)
