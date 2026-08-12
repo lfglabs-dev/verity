@@ -164,6 +164,39 @@ def signextend (byteIdx value : Uint256) : Uint256 :=
     else
       ofNat (value.val &&& mask)
 
+/-- Checked addition: `some` of the exact sum when it fits, `none` on
+overflow — the semantic counterpart of solc-0.8 checked `+` (#1993). -/
+def checkedAdd (a b : Uint256) : Option Uint256 :=
+  if h : a.val + b.val < modulus then some ⟨a.val + b.val, h⟩ else none
+
+/-- A successful checked addition is the wrapping addition, and its value is
+the exact Nat sum — no wrap occurred. -/
+theorem checkedAdd_eq_some {a b c : Uint256}
+    (h : checkedAdd a b = some c) :
+    c = add a b ∧ c.val = a.val + b.val := by
+  unfold checkedAdd at h
+  split at h
+  · rename_i hlt
+    obtain rfl := Option.some.inj h
+    exact ⟨by simp [add, ofNat, Nat.mod_eq_of_lt hlt], rfl⟩
+  · cases h
+
+/-- Checked addition fails exactly on overflow. -/
+theorem checkedAdd_eq_none_iff (a b : Uint256) :
+    checkedAdd a b = none ↔ modulus ≤ a.val + b.val := by
+  unfold checkedAdd
+  split <;> rename_i hlt
+  · simp
+    omega
+  · simp
+    omega
+
+/-- Non-overflowing addition is exact: the wrapped sum's value is the Nat
+sum. -/
+theorem addNoWrap {a b : Uint256} (h : a.val + b.val < modulus) :
+    (add a b).val = a.val + b.val := by
+  simp [add, ofNat, Nat.mod_eq_of_lt h]
+
 -- Overflow detection predicates for safety proofs (on raw Nat values)
 def willAddOverflow (a b : Uint256) : Bool :=
   a.val + b.val ≥ modulus
