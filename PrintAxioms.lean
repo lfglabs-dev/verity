@@ -4166,6 +4166,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.spliced_cons_if
   Compiler.Proofs.IRGeneration.spliced_cons_block
   Compiler.Proofs.IRGeneration.execIRStmts_spliced
+  Compiler.Proofs.IRGeneration.execIRStmts_append_halt
+  Compiler.Proofs.IRGeneration.execIRStmts_applyLockReleaseOnExits_fallthrough
 
   -- Compiler/Proofs/IRGeneration/SupportedFragment.lean
   Compiler.Proofs.IRGeneration.stmtNextScope_requireError_preserves_scope
@@ -6673,4 +6675,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6231 theorems/lemmas (4363 public, 1868 private, 0 sorry'd)
+-- Total: 6233 theorems/lemmas (4365 public, 1868 private, 0 sorry'd)
