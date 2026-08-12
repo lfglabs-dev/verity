@@ -317,4 +317,21 @@ theorem execIRStmts_mstore_ptr_block (ptrName : String) (p : Nat) :
             else state.memory x } : IRState).getVar ptrName = some p := hptr
       exact execIRStmts_mstore_ptr_block ptrName p rest fuel _ hptr' 
 
+/-- The log observable: a log builtin whose arguments evaluate appends
+exactly the encoded event and changes nothing else. -/
+theorem execIRStmt_log (fuel : Nat) (state next : IRState) (func : String)
+    (args : List YulExpr) (argVals : List Nat)
+    (hlog : Compiler.Proofs.YulGeneration.isYulLogName func = true)
+    (hargs : evalIRExprs state args = some argVals)
+    (happly : applyYulLogCall? state func argVals = some next) :
+    execIRStmt (fuel + 1) state (.exprStmt (.call func args)) =
+      .continue next := by
+  have hcases : func = "log0" ∨ func = "log1" ∨ func = "log2" ∨
+      func = "log3" ∨ func = "log4" := by
+    simp [Compiler.Proofs.YulGeneration.isYulLogName] at hlog
+    tauto
+  rcases hcases with rfl | rfl | rfl | rfl | rfl <;>
+    simp [execIRStmt, evalIRCall, hargs, happly,
+      Compiler.Proofs.YulGeneration.isYulLogName]
+
 end Compiler.Proofs.IRGeneration
