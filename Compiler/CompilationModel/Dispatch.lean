@@ -239,15 +239,19 @@ def nonReentrantGuardPrologue (fields : List Field) (lockField : String) :
    treated as possibly falling through. Used to decide whether the guarded body
    still needs a trailing fall-through lock release (#2075). -/
 mutual
-partial def yulFrameHalts : YulStmt → Bool
+def yulFrameHalts : YulStmt → Bool
   | .exprStmt (.call f _) =>
       f == "return" || f == "stop" || f == "revert" || f == "invalid" || f == "selfdestruct"
   | .block stmts => yulFrameHaltsList stmts
   | .switch _ cases (some dflt) =>
-      yulFrameHaltsList dflt && cases.all (fun c => yulFrameHaltsList c.2)
+      yulFrameHaltsList dflt && yulFrameHaltsCases cases
   | _ => false
 
-partial def yulFrameHaltsList : List YulStmt → Bool
+def yulFrameHaltsCases : List (Nat × List YulStmt) → Bool
+  | [] => true
+  | c :: rest => yulFrameHaltsList c.2 && yulFrameHaltsCases rest
+
+def yulFrameHaltsList : List YulStmt → Bool
   | [] => false
   | [s] => yulFrameHalts s
   | _ :: rest => yulFrameHaltsList rest
@@ -262,7 +266,7 @@ end
    releasing the lock there would clear it mid-execution. Only the top-level
    frame-halting `return`/`stop` opcodes clear the lock (#2075). -/
 mutual
-partial def spliceLockRelease (release : YulStmt) : YulStmt → List YulStmt
+def spliceLockRelease (release : YulStmt) : YulStmt → List YulStmt
   | s@(.exprStmt (.call f _)) =>
       if f == "return" || f == "stop" then [release, s] else [s]
   | .if_ cond body => [.if_ cond (spliceLockReleaseList release body)]
@@ -272,12 +276,23 @@ partial def spliceLockRelease (release : YulStmt) : YulStmt → List YulStmt
              (spliceLockReleaseList release body)]
   | .switch e cases dflt =>
       [.switch e
-        (cases.map (fun c => (c.1, spliceLockReleaseList release c.2)))
-        (dflt.map (spliceLockReleaseList release))]
+        (spliceLockReleaseCases release cases)
+        (spliceLockReleaseDflt release dflt)]
   | .block stmts => [.block (spliceLockReleaseList release stmts)]
   | s => [s]
 
-partial def spliceLockReleaseList (release : YulStmt) : List YulStmt → List YulStmt
+def spliceLockReleaseCases (release : YulStmt) :
+    List (Nat × List YulStmt) → List (Nat × List YulStmt)
+  | [] => []
+  | c :: rest =>
+      (c.1, spliceLockReleaseList release c.2) :: spliceLockReleaseCases release rest
+
+def spliceLockReleaseDflt (release : YulStmt) :
+    Option (List YulStmt) → Option (List YulStmt)
+  | none => none
+  | some stmts => some (spliceLockReleaseList release stmts)
+
+def spliceLockReleaseList (release : YulStmt) : List YulStmt → List YulStmt
   | [] => []
   | s :: rest => spliceLockRelease release s ++ spliceLockReleaseList release rest
 end
