@@ -119,7 +119,6 @@ theorem execIRStmt_exprStmt_no_halt (e : YulExpr) (fuel : Nat) (state : IRState)
       | exact absurd rfl (hstop _)
       | exact absurd rfl (hsd _)
       | simp_all
-      | cases hcontra
 
 /-- Atomic non-exit statements: everything the splice leaves untouched and
 whose execution cannot halt the frame. -/
@@ -332,7 +331,7 @@ theorem spliced_cons_return (slot : Nat)
     | .revert s => .revert s) = _
   rw [execIRStmt_lockRelease (F' + 1) state slot hslot]
   by_cases hb : b = 32 <;>
-    simp [execIRStmts, execIRStmt, evalIRExpr, evalIRExprs, releasedResult,
+    simp [execIRStmts, execIRStmt, evalIRExpr, releasedResult,
       releaseState, hb]
 
 /-- Cons step for an `if` head: the condition evaluates identically, the
@@ -729,15 +728,8 @@ theorem execIRStmts_spliced (slot : Nat)
                       IHrest F G state hF hG
 termination_by xs _ _ _ _ _ _ => sizeOf xs
 decreasing_by
-  all_goals try assumption
   all_goals simp_wf
-  all_goals try omega
-  all_goals try (have h1 := List.sizeOf_lt_of_mem hmem; simp at h1 ⊢; omega)
-  all_goals try (have h1 := List.sizeOf_lt_of_mem hmem; obtain ⟨k1, b1⟩ := c; simp at h1 ⊢; omega)
-  all_goals try (subst hbody; simp; omega)
-  all_goals try (injection hbody with hbb; subst hbb; simp; omega)
-  all_goals try (rename _ ∈ _ => hm; have h1 := List.sizeOf_lt_of_mem hm; simp at h1 ⊢; omega)
-  all_goals (try simp [*, Option.some.sizeOf_spec]) <;> omega
+  all_goals (try simp [*, Option.some.sizeOf_spec]); omega
 
 /-- Companion recursion over switch cases: pointwise simulation for every
 member body, with structurally static termination. -/
@@ -759,7 +751,7 @@ theorem execIRStmts_splicedCases (slot : Nat)
 termination_by cs _ _ _ _ _ _ _ _ => sizeOf cs
 decreasing_by
   all_goals simp_wf
-  all_goals (try simp) <;> omega
+  all_goals omega
 
 /-- Companion recursion for the default branch. -/
 theorem execIRStmts_splicedDflt (slot : Nat)
@@ -778,7 +770,6 @@ theorem execIRStmts_splicedDflt (slot : Nat)
 termination_by d _ _ _ _ _ _ _ _ => sizeOf d
 decreasing_by
   all_goals simp_wf
-  all_goals (try simp [Option.some.sizeOf_spec]) <;> omega
 
 end
 
@@ -907,7 +898,7 @@ theorem execIRStmt_modeledHalt_no_continue (h : YulStmt) (hmh : ModeledHalt h)
       | zero => simp [execIRStmt] at hcontra
       | succ f =>
           by_cases hb : b = 32 <;>
-            simp [execIRStmt, evalIRExpr, evalIRExprs, hb] at hcontra
+            simp [execIRStmt, evalIRExpr, hb] at hcontra
   | rev a b => cases fuel <;> simp [execIRStmt] at hcontra
   | inv => cases fuel <;> simp [execIRStmt] at hcontra
 

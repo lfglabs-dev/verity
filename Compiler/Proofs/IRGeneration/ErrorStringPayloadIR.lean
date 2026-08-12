@@ -90,7 +90,7 @@ theorem execIRStmts_mstoreWrites :
           (.exprStmt (.call "mstore" [.lit o, .lit w])) =
         .continue { state with
           memory := fun x => if x = o then w else state.memory x } from by
-        simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs]]
+        simp [execIRStmt, evalIRExpr]]
       exact execIRStmts_mstoreWrites htail fuel _
   | _, _, @MstoreWrites.consHex tail wtail o w htail, fuel, state => by
       rw [show (YulStmt.exprStmt (.call "mstore" [.lit o, .hex w]) :: tail).length +
@@ -105,7 +105,7 @@ theorem execIRStmts_mstoreWrites :
           (.exprStmt (.call "mstore" [.lit o, .hex w])) =
         .continue { state with
           memory := fun x => if x = o then w else state.memory x } from by
-        simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs]]
+        simp [execIRStmt, evalIRExpr]]
       exact execIRStmts_mstoreWrites htail fuel _
 
 /-- The write list `revertWithMessage` performs: three header words then one
@@ -331,7 +331,7 @@ theorem execIRStmt_log (fuel : Nat) (state next : IRState) (func : String)
     simp [Compiler.Proofs.YulGeneration.isYulLogName] at hlog
     tauto
   rcases hcases with rfl | rfl | rfl | rfl | rfl <;>
-    simp [execIRStmt, evalIRCall, hargs, happly,
+    simp [execIRStmt, hargs, happly,
       Compiler.Proofs.YulGeneration.isYulLogName]
 
 end Compiler.Proofs.IRGeneration

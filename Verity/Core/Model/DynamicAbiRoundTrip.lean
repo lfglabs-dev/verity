@@ -90,7 +90,7 @@ theorem decodeSupportedParamWord_canonical :
   | .uintN bits, v, h => by
       obtain ⟨hbits, hmod⟩ := h
       simp [decodeSupportedParamWord, wordNormalize_eq_of_lt v hmod,
-        and_mask_eq_mod, Nat.mod_eq_of_lt hbits]
+        Nat.mod_eq_of_lt hbits]
   | .address, v, h => by
       have hlt : v < Compiler.Constants.evmModulus :=
         Nat.lt_of_lt_of_le h (pow_le_evmModulus 160 (by decide))
@@ -243,7 +243,7 @@ theorem arrayElementDynamicWord?_aligned (selector : Nat)
       some (calldata.getD (q0 + relq + wordOffset) 0) := by
   simp only [arrayElementDynamicWord?,
     arrayElementDynamicHeadOffset?_aligned selector calldata q0 length index
-      hidx hq hval htable hhead, Option.bind]
+      hidx hq hval htable hhead]
   rw [hrel]
   show externalWordAt? selector calldata (4 + 32 * q0 + 32 * relq + wordOffset * 32) =
     some (calldata.getD (q0 + relq + wordOffset) 0)
@@ -272,7 +272,7 @@ theorem arrayElementDynamicMemberLength?_aligned (selector : Nat)
       some (calldata.getD (q0 + relq + mrelq) 0) := by
   simp only [arrayElementDynamicMemberLength?,
     arrayElementDynamicHeadOffset?_aligned selector calldata q0 length index
-      hidx hq hval htable hhead, Option.bind]
+      hidx hq hval htable hhead]
   rw [hrel]
   show (externalWordAt? selector calldata
       (4 + 32 * q0 + 32 * relq + wordOffset * 32)).bind
@@ -311,7 +311,7 @@ theorem arrayElementDynamicMemberDataOffset?_aligned (selector : Nat)
     omega
   simp only [arrayElementDynamicMemberDataOffset?,
     arrayElementDynamicHeadOffset?_aligned selector calldata q0 length index
-      hidx hq hval htable hhead, Option.bind]
+      hidx hq hval htable hhead]
   rw [hrel]
   show (externalWordAt? selector calldata
       (4 + 32 * q0 + 32 * relq + wordOffset * 32)).bind
@@ -360,8 +360,7 @@ theorem arrayElementDynamicMemberElement?_aligned (selector : Nat)
     arrayElementDynamicMemberLength?_aligned selector calldata q0 length index
       wordOffset relq mrelq hidx hq hval hrel htable hhead hq2 hval2 hmrel hq3 hval3,
     arrayElementDynamicMemberDataOffset?_aligned selector calldata q0 length index
-      wordOffset relq mrelq hidx hq hval hrel htable hhead hq2 hval2 hmrel hq3,
-    Option.bind]
+      wordOffset relq mrelq hidx hq hval hrel htable hhead hq2 hval2 hmrel hq3]
   show (if innerIndex < calldata.getD (q0 + relq + mrelq) 0 then
       externalWordAt? selector calldata
         (4 + 32 * (q0 + relq + mrelq) + 32 + innerIndex * 32)
