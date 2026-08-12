@@ -2352,6 +2352,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.errorStringWrites_mem4
   Compiler.Proofs.IRGeneration.errorStringWrites_mem36
   Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage
+  Compiler.Proofs.IRGeneration.execIRStmt_mstore_ptr
+  Compiler.Proofs.IRGeneration.execIRStmts_mstore_ptr_block
 
   -- Compiler/Proofs/IRGeneration/FuelBound.lean
   Compiler.Proofs.IRGeneration.stmtFuelBound_pos
@@ -6699,4 +6701,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6254 theorems/lemmas (4386 public, 1868 private, 0 sorry'd)
+-- Total: 6256 theorems/lemmas (4388 public, 1868 private, 0 sorry'd)

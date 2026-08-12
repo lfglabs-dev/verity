@@ -264,4 +264,57 @@ theorem execIRStmts_revertWithMessage (message : String) (fuel : Nat)
     | .revert s => .revert s) = _
   simp [execIRStmt]
 
+/-! ## Pointer-based stores
+
+Event payloads and ABI tails write through a base pointer
+(`mstore(add(ptr, off), value)`).  The lemmas below extend the block
+machinery to that shape: a pointer-offset store with a bound base variable
+executes to exactly the offset write, and blocks of them apply their write
+lists relative to the pointer. -/
+
+/-- One pointer-offset store executes to the offset write. -/
+theorem execIRStmt_mstore_ptr (fuel : Nat) (state : IRState)
+    (ptrName : String) (p off w : Nat)
+    (hptr : state.getVar ptrName = some p) :
+    execIRStmt (fuel + 1) state
+        (.exprStmt (.call "mstore"
+          [.call "add" [.ident ptrName, .lit off], .hex w])) =
+      .continue { state with
+        memory := fun x => if x = (p + off) % Compiler.Constants.evmModulus then w
+          else state.memory x } := by
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hptr,
+    YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+
+/-- A block of pointer-offset stores applies its writes at the pointer. -/
+theorem execIRStmts_mstore_ptr_block (ptrName : String) (p : Nat) :
+    ∀ (writes : List (Nat × Nat)) (fuel : Nat) (state : IRState),
+      state.getVar ptrName = some p →
+      execIRStmts (writes.length + fuel + 1) state
+          (writes.map fun ow =>
+            YulStmt.exprStmt (.call "mstore"
+              [.call "add" [.ident ptrName, .lit ow.1], .hex ow.2])) =
+        .continue { state with
+          memory := applyWrites state.memory
+            (writes.map fun ow =>
+              ((p + ow.1) % Compiler.Constants.evmModulus, ow.2)) }
+  | [], _, state, _ => by simp [execIRStmts, applyWrites]
+  | (o, w) :: rest, fuel, state, hptr => by
+      rw [show ((o, w) :: rest).length + fuel + 1 =
+        (rest.length + fuel + 1) + 1 from by simp [List.length]; omega]
+      show (match execIRStmt (rest.length + fuel + 1) state
+          (.exprStmt (.call "mstore"
+            [.call "add" [.ident ptrName, .lit o], .hex w])) with
+        | .continue s₁ => execIRStmts (rest.length + fuel + 1) s₁
+            (rest.map fun (ow : Nat × Nat) =>
+              YulStmt.exprStmt (.call "mstore"
+                [.call "add" [.ident ptrName, .lit ow.1], .hex ow.2]))
+        | .return v s => .return v s
+        | .stop s => .stop s
+        | .revert s => .revert s) = _
+      rw [execIRStmt_mstore_ptr (rest.length + fuel) state ptrName p o w hptr]
+      have hptr' : ({ state with
+          memory := fun x => if x = (p + o) % Compiler.Constants.evmModulus then w
+            else state.memory x } : IRState).getVar ptrName = some p := hptr
+      exact execIRStmts_mstore_ptr_block ptrName p rest fuel _ hptr' 
+
 end Compiler.Proofs.IRGeneration
