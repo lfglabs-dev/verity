@@ -209,4 +209,21 @@ theorem externalWordAt?_aligned (selector : Nat) (calldata : List Nat)
     omega
   simp [externalWordAt?, hbound, calldataloadWord_aligned selector calldata q hval]
 
+/-- Dynamic head-offset round-trip: with a canonical offset table (the stored
+relative offset points past the table) and an in-bounds element head, the
+head-offset decoder recovers exactly `dataOffset + storedRelOffset`. -/
+theorem arrayElementDynamicHeadOffset?_aligned (selector : Nat)
+    (calldata : List Nat) (q0 length index : Nat)
+    (hidx : index < length) (hq : q0 + index < calldata.length)
+    (hval : calldata.getD (q0 + index) 0 < Compiler.Constants.evmModulus)
+    (htable : length * 32 ≤ calldata.getD (q0 + index) 0)
+    (hhead : 4 + 32 * q0 + calldata.getD (q0 + index) 0 + 32 ≤
+      externalCalldataSize calldata) :
+    arrayElementDynamicHeadOffset? selector calldata (4 + 32 * q0) length index =
+      some (4 + 32 * q0 + calldata.getD (q0 + index) 0) := by
+  have harith : 4 + 32 * q0 + index * 32 = 4 + 32 * (q0 + index) := by omega
+  simp [arrayElementDynamicHeadOffset?, hidx, harith,
+    externalWordAt?_aligned selector calldata (q0 + index) hq hval]
+  exact ⟨by simpa using htable, by simpa using hhead⟩
+
 end Compiler.CompilationModel.DynamicAbi
