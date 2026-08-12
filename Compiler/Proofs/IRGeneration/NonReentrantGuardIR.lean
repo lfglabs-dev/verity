@@ -249,4 +249,50 @@ theorem applyLockReleaseOnExits_stop (slot : Nat) (xs : List YulStmt)
   rw [execIRStmt_lockRelease (k + 1) s' slot hslot]
   rfl
 
+/-! ## Composed guard correspondence (straight-line bodies)
+
+The IR-level mirror of `Verity.Core.Model.NonReentrantGuard.guarded` for
+straight-line bodies: locked entry reverts untouched; free entry runs the body
+under the acquired lock and releases it on fall-through. -/
+
+/-- Locked entry: the whole guarded compilation unit — prologue followed by
+anything — reverts untouched; the revert short-circuits the rest. -/
+theorem guardedBody_locked_reverts (slot : Nat) (rest : List YulStmt)
+    (fuel : Nat) (state : IRState)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hlock : state.transientStorage slot = 1)
+    (hfuel : 3 ≤ fuel) :
+    execIRStmts fuel state (guardPrologueStmts slot ++ rest) = .revert state := by
+  obtain ⟨k, hk⟩ : ∃ k, fuel = k + 3 := ⟨fuel - 3, by omega⟩
+  subst hk
+  have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
+  have hone : (1 : Nat) < Compiler.Constants.evmModulus := by
+    simp [Compiler.Constants.evmModulus]
+  cases k with
+  | zero =>
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
+        evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
+        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+  | succ n =>
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
+        evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
+        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+
+/-- Free entry: the guarded unit runs its suffix from the acquired state.
+Composes the prologue-acquire lemma with fuel sequencing. -/
+theorem guardedBody_free_runs_suffix (slot : Nat) (rest : List YulStmt)
+    (fuel : Nat) (state : IRState)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hlock : state.transientStorage slot = 0)
+    (hfuel : 3 ≤ fuel) :
+    execIRStmts fuel state (guardPrologueStmts slot ++ rest) =
+      execIRStmts (fuel - 2) { state with
+        transientStorage := fun o => if o = slot then 1 else state.transientStorage o }
+        rest := by
+  obtain ⟨k, hk⟩ : ∃ k, fuel = k + 3 := ⟨fuel - 3, by omega⟩
+  subst hk
+  rw [execIRStmts_append_continue rest (guardPrologueStmts slot) (k + 3) state _
+    (execIRStmts_guardPrologue_free k state slot hslot hlock)]
+  rfl
+
 end Compiler.Proofs.IRGeneration
