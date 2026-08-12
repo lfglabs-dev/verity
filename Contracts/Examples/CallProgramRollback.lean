@@ -108,4 +108,62 @@ example :
     (denoteTransaction commitsThenReverts mutatingAdversary demoState).state.gasRemaining = 90 := by
   decide
 
+/-! ### Result-aware loop, Lido shape
+
+Three deposit-like calls iterate under a policy that aborts once the gas
+budget drops to 85.  Every call succeeds and commits (slot k := 42), the
+first two observations continue, the third aborts — so the enclosing
+transaction reverts and discards three genuinely committed mutations. -/
+
+def third : CallSite :=
+  { siteId := 3, kind := .call, target := 30, gas := 30 }
+
+def depositLoop : CallProgram (TransactionResult Nat) :=
+  forEachCall
+    (fun obs => if obs.state.gasRemaining ≤ 85 then .abort [0xbe, 0xef] else .next)
+    0
+    [first, second, third]
+
+/-- All three planned sites are actually observed before the abort. -/
+example :
+    (CallsIn depositLoop mutatingAdversary demoState).map (·.siteId) = [1, 2, 3] := by
+  decide
+
+/-- Each iteration really committed: the threaded pre-revert world has all
+three slots mutated. -/
+example :
+    (denote depositLoop mutatingAdversary demoState).2.world.storage 1 = 42 ∧
+    (denote depositLoop mutatingAdversary demoState).2.world.storage 2 = 42 ∧
+    (denote depositLoop mutatingAdversary demoState).2.world.storage 3 = 42 := by
+  refine ⟨?_, ?_, ?_⟩ <;> decide
+
+/-- The loop aborts through its policy and the transaction reverts with the
+policy's data, rolling every committed iteration back to the initial world
+while keeping the charged gas. -/
+example :
+    (denoteTransaction depositLoop mutatingAdversary demoState).result =
+        .revert [0xbe, 0xef] ∧
+    (denoteTransaction depositLoop mutatingAdversary demoState).state.world.storage 1 = 0 ∧
+    (denoteTransaction depositLoop mutatingAdversary demoState).state.world.storage 3 = 0 ∧
+    (denoteTransaction depositLoop mutatingAdversary demoState).state.gasRemaining = 85 := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;> decide
+
+/-- The generic trace-based law instantiated on the concrete loop: revert
+result, rollback to the initial world, and intermediate world pinned to the
+fold of the observed commits. -/
+example :
+    (denoteTransaction depositLoop mutatingAdversary demoState).state.world =
+        demoState.world ∧
+    (denote depositLoop mutatingAdversary demoState).2.world =
+      commitWorlds mutatingAdversary demoState.world
+        (CallsIn depositLoop mutatingAdversary demoState) := by
+  have h := forEachCall_abort_discards_committed_prefix
+    (fun obs => if obs.state.gasRemaining ≤ 85 then .abort [0xbe, 0xef] else .next)
+    0 [first, second, third] mutatingAdversary demoState [0xbe, 0xef]
+    (by decide)
+    (by intro entry hentry
+        refine ⟨[], ?_⟩
+        rfl)
+  exact ⟨h.2.1, h.2.2⟩
+
 end Contracts.Examples.CallProgramRollback

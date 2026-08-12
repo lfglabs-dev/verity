@@ -227,4 +227,115 @@ theorem denoteCallProgram_all_succeed_commits_world
           (CallsIn (next observation) adversary observation.state)
       rw [hcall]
 
+/-! ## Result-aware iteration
+
+A loop whose continuation decides, after observing each call, whether to keep
+iterating, stop with a committed value, or abort the enclosing transaction.
+The laws below relate the *observed trace* — not just the wrapper — to the
+rollback: an aborted run has really committed the fold of its observed sites
+into the threaded state before the transaction discards it. -/
+
+/-- Decision taken by the loop policy after observing one iteration. -/
+inductive LoopStep (α : Type) where
+  | next
+  | stop (value : α)
+  | abort (returndata : List Nat)
+
+/-- Iterate `sites` in order.  After each call the `step` policy inspects the
+observation and chooses to continue, stop with a committed value, or abort the
+enclosing transaction.  Exhausting the sites commits `exhausted`.  A failed or
+reverted inner call does not by itself abort the transaction: the policy sees
+the observation and chooses, which models callers that tolerate individual
+call failures. -/
+def forEachCall (step : CallObservation → LoopStep α) (exhausted : α) :
+    List CallSite → CallProgram (TransactionResult α)
+  | [] => .pure (.commit exhausted)
+  | site :: rest =>
+      .bind site fun obs =>
+        match step obs with
+        | .next => forEachCall step exhausted rest
+        | .stop value => .pure (.commit value)
+        | .abort data => .pure (.revert data)
+
+/-- The loop executes a prefix of its planned sites: iteration order follows
+the site list and stops at the first `stop`/`abort` decision. -/
+theorem forEachCall_callsIn_take (step : CallObservation → LoopStep α)
+    (exhausted : α) (sites : List CallSite) (adversary : AdversaryModel)
+    (state : CallState) :
+    ∃ n, CallsIn (forEachCall step exhausted sites) adversary state =
+      sites.take n := by
+  induction sites generalizing state with
+  | nil => exact ⟨0, rfl⟩
+  | cons site rest ih =>
+      cases hstep : step (denoteCall adversary site state) with
+      | next =>
+          obtain ⟨n, hn⟩ := ih (denoteCall adversary site state).state
+          exact ⟨n + 1, by
+            simp [CallsIn, ObservedCalls, forEachCall, hstep] at hn ⊢
+            exact hn⟩
+      | stop value =>
+          exact ⟨1, by simp [CallsIn, ObservedCalls, forEachCall, hstep]⟩
+      | abort data =>
+          exact ⟨1, by simp [CallsIn, ObservedCalls, forEachCall, hstep]⟩
+
+/-- A transaction-level revert of the loop can only originate from the loop
+policy: some actually produced observation was mapped to `abort` with exactly
+the revert data the transaction reports. -/
+theorem forEachCall_revert_step_abort (step : CallObservation → LoopStep α)
+    (exhausted : α) (sites : List CallSite) (adversary : AdversaryModel)
+    (state : CallState) (data : List Nat)
+    (habort : (denote (forEachCall step exhausted sites) adversary state).1 =
+      .revert data) :
+    ∃ obs : CallObservation, step obs = .abort data := by
+  induction sites generalizing state with
+  | nil => simp [forEachCall, denote] at habort
+  | cons site rest ih =>
+      have hden : (denote (forEachCall step exhausted (site :: rest)) adversary state).1 =
+          (denote
+            (match step (denoteCall adversary site state) with
+              | .next => forEachCall step exhausted rest
+              | .stop value => CallProgram.pure (TransactionResult.commit value)
+              | .abort data => CallProgram.pure (TransactionResult.revert data))
+            adversary (denoteCall adversary site state).state).1 := rfl
+      rw [hden] at habort
+      cases hstep : step (denoteCall adversary site state) with
+      | next =>
+          rw [hstep] at habort
+          exact ih (denoteCall adversary site state).state habort
+      | stop value =>
+          rw [hstep] at habort
+          exact absurd habort (by simp [denote])
+      | abort d =>
+          rw [hstep] at habort
+          have hdd : d = data := by simpa [denote] using habort
+          exact ⟨denoteCall adversary site state, by rw [hstep, hdd]⟩
+
+/-- The Lido-shaped rollback law.  A run of the loop whose observed iterations
+all succeed — and therefore committed their world transitions into the
+threaded state, per the third conjunct — but which ends in a policy abort,
+reverts the whole transaction: the observable result carries the abort data,
+the final world is the initial world, and the discarded intermediate world is
+exactly the fold of the observed sites' commits.  The conclusion is tied to
+`ObservedCalls`/`CallsIn`, so it cannot be satisfied by a wrapper that merely
+overwrites the final state: the same hypotheses pin the intermediate state to
+the committed prefix. -/
+theorem forEachCall_abort_discards_committed_prefix
+    (step : CallObservation → LoopStep α) (exhausted : α)
+    (sites : List CallSite) (adversary : AdversaryModel) (state : CallState)
+    (data : List Nat)
+    (habort : (denote (forEachCall step exhausted sites) adversary state).1 =
+      .revert data)
+    (hsucc : ∀ entry ∈ ObservedCalls (forEachCall step exhausted sites) adversary state,
+      Succeeds adversary entry) :
+    (denoteTransaction (forEachCall step exhausted sites) adversary state).result =
+        .revert data ∧
+    (denoteTransaction (forEachCall step exhausted sites) adversary state).state.world =
+        state.world ∧
+    (denote (forEachCall step exhausted sites) adversary state).2.world =
+      commitWorlds adversary state.world
+        (CallsIn (forEachCall step exhausted sites) adversary state) :=
+  ⟨denoteTransaction_revert_result _ adversary state data habort,
+   denoteTransaction_revert_world _ adversary state data habort,
+   denoteCallProgram_all_succeed_commits_world _ adversary state hsucc⟩
+
 end Compiler.CompilationModel.DenoteExternalCalls
