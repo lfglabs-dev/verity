@@ -1092,6 +1092,49 @@ theorem execIRStmts_guardedFunction_fallthrough (slot : Nat)
     (ParamLoading.applyBindingsToIRState state bindings)
     (by rw [htrans]; exact hlock01) hF hG, htrans]
 
+/-- Halting twin of `execIRStmts_guardedFunction_fallthrough`: bodies ending
+in a modeled halt. -/
+theorem execIRStmts_guardedFunction_halting (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (params : List Param) (bindings : List (String × Nat))
+    (ys : List YulStmt) (h : YulStmt)
+    (hSS : SpliceSimList (ys ++ [h])) (hmh : ModeledHalt h)
+    (extraFuel G : Nat) (state : IRState)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hfits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbind : SourceSemantics.bindSupportedParams params state.calldata =
+      some bindings)
+    (hlock01 : state.transientStorage slot = 0 ∨ state.transientStorage slot = 1)
+    (hF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot)
+      (ys ++ [h])) + 2 ≤
+      (guardPrologueStmts slot ++
+        applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])).length +
+        extraFuel + 1)
+    (hG : stmtsFuelBound (ys ++ [h]) ≤ G) :
+    execIRStmts ((genParamLoads params).length +
+        (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])).length +
+        extraFuel + 1) state
+      (genParamLoads params ++
+        (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h]))) =
+      if state.transientStorage slot = 1 then
+        .revert (ParamLoading.applyBindingsToIRState state bindings)
+      else
+        (match execIRStmts G { ParamLoading.applyBindingsToIRState state bindings with
+            transientStorage := fun o => if o = slot then 1
+              else state.transientStorage o } (ys ++ [h]) with
+          | .continue s => .continue (releaseState slot s)
+          | .return v s => .return v (releaseState slot s)
+          | .stop s => .stop (releaseState slot s)
+          | .revert s => .revert s) := by
+  rw [ParamLoading.exec_genParamLoads_supported_then_extraFuel state params bindings
+    _ extraFuel hsupported hfits hbind]
+  have htrans := applyBindingsToIRState_transient bindings state
+  rw [execIRStmts_guardedUnit_halting slot hslot ys h hSS hmh _ G
+    (ParamLoading.applyBindingsToIRState state bindings)
+    (by rw [htrans]; exact hlock01) hF hG, htrans]
+
 /-- Correctness of the post-compilation guard transformation itself: for an
 annotated function whose compiled body has the standard loads-then-body
 shape, the transformed function's body executes exactly as the guarded
