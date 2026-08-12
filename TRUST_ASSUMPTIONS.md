@@ -161,6 +161,9 @@ High-level semantics can expose intermediate state in reverted computations. EVM
 ### Top-Level Transaction Rollback (`denoteTransaction`)
 `Verity.Core.Model.CallProgramRollback.denoteTransaction` restores the pre-transaction caller world on a top-level `.revert` *by construction*: the `denoteTransaction_revert_*` theorems characterize this wrapper's behavior, they do not derive rollback from lower-level EVM semantics. That the EVM's actual transaction-revert behavior matches this model (full world restoration, gas remains charged, returndata exposed) is a trusted modeling assumption, on par with §6 (EVM/Yul Semantics).
 
+### External-Call Gas Discipline (short-term model)
+`Verity.Core.Model.GasCoupling` ties the modeled callee cost to the call's gas allowance: a `GasFaithful` adversary can only succeed within the allowance, must fail (never commit) when over budget, and cannot claim more gas than forwarded. Failure causes (`outOfGas` vs. opaque exceptional halt) are modeling artifacts: `denoteCall_congr`/`denote_congr` prove observations are determined by the adversary's responses alone, so causes cannot leak to the caller — matching the EVM's zero-success-bit observability. The caller-has-enough-gas-for-its-handler assumption is the explicit `CallerCoversAllowance` hypothesis. Opcode-level gas accounting (EIP-150, warm/cold, refunds, stipend) is out of scope for this model and remains a dedicated roadmap lane.
+
 ### Reentrancy Guard (`nonreentrant(lockField)`)
 Functions annotated `nonreentrant(lockField)` are compiled with a
 **transient-storage** reentrancy guard prologue (#1893): an
