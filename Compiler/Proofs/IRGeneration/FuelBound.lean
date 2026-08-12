@@ -299,4 +299,24 @@ decreasing_by
 
 end
 
+/-- Consumer API: any two fuels at or above the bound execute identically. -/
+theorem execIRStmts_stable_of_le (xs : List YulStmt) (hLF : LoopFreeList xs)
+    (F G : Nat) (state : IRState)
+    (hF : stmtsFuelBound xs ≤ F) (hG : stmtsFuelBound xs ≤ G) :
+    execIRStmts F state xs = execIRStmts G state xs := by
+  rw [show F = stmtsFuelBound xs + (F - stmtsFuelBound xs) from by omega,
+    execIRStmts_stable xs hLF _ state,
+    show G = stmtsFuelBound xs + (G - stmtsFuelBound xs) from by omega,
+    execIRStmts_stable xs hLF _ state]
+
+/-- Statement-level consumer API. -/
+theorem execIRStmt_stable_of_le (stmt : YulStmt) (hLF : LoopFree stmt)
+    (F G : Nat) (state : IRState)
+    (hF : stmtFuelBound stmt ≤ F) (hG : stmtFuelBound stmt ≤ G) :
+    execIRStmt F state stmt = execIRStmt G state stmt := by
+  rw [show F = stmtFuelBound stmt + (F - stmtFuelBound stmt) from by omega,
+    execIRStmt_stable stmt hLF _ state,
+    show G = stmtFuelBound stmt + (G - stmtFuelBound stmt) from by omega,
+    execIRStmt_stable stmt hLF _ state]
+
 end Compiler.Proofs.IRGeneration

@@ -2359,6 +2359,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.LoopFreeCases.mem
   Compiler.Proofs.IRGeneration.execIRStmt_stable
   Compiler.Proofs.IRGeneration.execIRStmts_stable
+  Compiler.Proofs.IRGeneration.execIRStmts_stable_of_le
+  Compiler.Proofs.IRGeneration.execIRStmt_stable_of_le
 
   -- Compiler/Proofs/IRGeneration/Function.lean
   -- Compiler.Proofs.IRGeneration.Function.yulStmtList_length_le_sizeOf  -- private
@@ -6657,4 +6659,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6218 theorems/lemmas (4350 public, 1868 private, 0 sorry'd)
+-- Total: 6220 theorems/lemmas (4352 public, 1868 private, 0 sorry'd)
