@@ -147,4 +147,43 @@ theorem denoteCallProgram_all_static_preserves_world
   denoteCallProgram_all_revert_preserves_world prog adversary state
     (fun entry hentry => Or.inl (h entry hentry))
 
+/-! ## ECM-induced summary environments
+
+Typed External Call Modules already carry a derived `externalSummary`.  The
+definitions below interpret an ECM assignment as a `SummaryEnv`, so the same
+conformance notion covers typed ECM calls and raw call sites, and the trust
+report linkage (`assumptionNames = axioms`) is a definitional lemma rather
+than a convention. -/
+
+/-- Summary environment induced by assigning an ECM to every call site. -/
+def SummaryEnv.ofECM (moduleFor : CallSite → Compiler.ECM.ExternalCallModule) :
+    SummaryEnv :=
+  { summaryFor := fun site => (moduleFor site).externalSummary }
+
+/-- The trust assumptions surfaced by the summary environment are exactly the
+module's declared axioms. -/
+theorem SummaryEnv.ofECM_assumptions
+    (moduleFor : CallSite → Compiler.ECM.ExternalCallModule) (site : CallSite) :
+    ((SummaryEnv.ofECM moduleFor).summaryFor site).assumptionNames =
+      (moduleFor site).axioms := rfl
+
+/-- Under conformance, a site handled by a staticcall-mutability ECM must be
+compiled as a staticcall, and a successful response cannot change the external
+world.  For standard modules `summaryMutability` defaults to `.staticcall`
+exactly when `writesState = false`, so read-only ECMs are externally pure by
+construction of the boundary, not by per-module assumption. -/
+theorem Conforms.static_ecm_success_is_externally_pure
+    {moduleFor : CallSite → Compiler.ECM.ExternalCallModule}
+    {adversary : AdversaryModel}
+    (h : Conforms (SummaryEnv.ofECM moduleFor) adversary)
+    (site : CallSite) (world : Verity.ContractState) (data : List Nat)
+    (hstatic : (moduleFor site).summaryMutability = .staticcall)
+    (hres : adversary.result site world = .success data) :
+    site.kind = .staticcall ∧
+      externalWorldOf (adversary.stateTransition site world) =
+        externalWorldOf world := by
+  have hkm := (h site world).1
+  have hkind : site.kind = .staticcall := hkm.mpr hstatic
+  exact ⟨hkind, h.staticcall_preserves_externalWorld site world data hkind hres⟩
+
 end Compiler.CompilationModel.DenoteExternalCalls
