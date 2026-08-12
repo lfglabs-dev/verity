@@ -185,11 +185,18 @@ prologue/release statements under the IR interpreter: locked entry reverts
 untouched, free entry acquires the lock and changes nothing else, the spliced
 release resets it (acquire/release round-trips the transient store), and the
 Yul decision `eq(lock,1)` agrees with the model's `lock ≠ 0` on reachable
-binary lock values. Still trusted: threading these statement-level facts
-through `attachNonReentrantGuard`/`compileGuardedFunctionSpec` and the
-`compile_preserves_semantics` stack, and the supported-fragment
-`noNonReentrant` restriction (guarded functions are not yet inside the
-generically proved compiler fragment).
+binary lock values. `Compiler.Proofs.IRGeneration.SpliceSimulation` now proves the full guarded
+unit end to end for the loop/switch-free fragment with compiler-emitted
+exits: the general splice simulation (`execIRStmts_spliced`), both
+`applyLockReleaseOnExits` branches, and
+`execIRStmts_guardedUnit_fallthrough`/`_halting` — the compiled
+prologue + release-wrapped body mirrors `guarded` exactly (locked entry
+reverts untouched; free entry runs from the acquired state with successful
+outcomes released). Still trusted: `switch` bodies and loops in guarded
+functions, the `invalid`/`selfdestruct` analysis-vs-interpreter halt gap
+(scoped out via `ModeledHalt`), and the `compile_preserves_semantics`
+threading that would lift the supported-fragment `noNonReentrant`
+restriction.
 **Fork requirement**: the compile driver rejects any contract carrying a
 `nonreentrant(<lock>)` annotation when the targeted EVM fork predates
 Cancun (the `validateNonReentrantForkCompatibility` pre-check in
