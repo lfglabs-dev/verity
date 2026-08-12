@@ -21,6 +21,7 @@
 import Verity.Core
 import Verity.Core.Semantics
 import Verity.Core.Reentrancy
+import Verity.Core.Model.CallbackBridge
 
 namespace Contracts.ReentrancyRelyGuarantee
 
@@ -191,5 +192,29 @@ theorem any_cross_contract_schedule_preserves_I (inScope : List Address)
     (hsteps : ∀ p, p ∈ steps → p.2 ∈ spec.entrypoints) :
     Preserves (Isys I inScope) (runSeq (steps.map (fun p => lift p.1 p.2))) :=
   cross_contract_schedule_preserves spec inScope steps hsteps
+
+/-! ## Call-boundary payoff: invariant safety through whole call programs
+
+The same single `liquidate` obligation now covers the external-call boundary:
+any adversary whose committed transitions are reentry schedules drawn from
+this contract's registry preserves `I` at every externally opened window of
+any `CallProgram`, and through the transaction commit/revert boundary. -/
+
+open Compiler.CompilationModel.DenoteExternalCalls in
+theorem callback_bounded_program_preserves_I
+    {adversary : AdversaryModel}
+    (hbound : CallbackBounded spec.entrypoints adversary)
+    (prog : CallProgram α) (state : CallState) (hInv : I state.world) :
+    I (denote prog adversary state).2.world :=
+  hbound.denote_preserves spec prog state hInv
+
+open Compiler.CompilationModel.DenoteExternalCalls in
+theorem callback_bounded_transaction_preserves_I
+    {adversary : AdversaryModel} {α : Type}
+    (hbound : CallbackBounded spec.entrypoints adversary)
+    (prog : CallProgram (TransactionResult α)) (state : CallState)
+    (hInv : I state.world) :
+    I (denoteTransaction prog adversary state).state.world :=
+  hbound.transaction_preserves spec prog state hInv
 
 end Contracts.ReentrancyRelyGuarantee

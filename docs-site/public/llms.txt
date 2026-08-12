@@ -30,12 +30,12 @@ Every transition inside the proof envelope is either fully verified or recorded 
 ## Quick facts
 
 <!-- BEGIN GENERATED QUICK FACTS -->
-- **Language**: Lean 4.22.0
-- **Core Size**: 830 lines
+- **Language**: Lean 4.31.0
+- **Core Size**: 1027 lines
 - **Verified Contracts**: 13 (Counter, ERC20, ERC721, Ledger, LocalObligationMacroSmoke, Owned, OwnedCounter, ReentrancyExample, ReentrancyRelyGuarantee, SafeCounter, SimpleStorage, SimpleToken, Vault)
-- **Theorems**: 300 across 13 categories, 300 fully proven
+- **Theorems**: 302 across 13 categories, 302 fully proven
 - **Axioms**: 0 documented Lean axioms (see AXIOMS.md)
-- **Tests**: 522 Foundry tests, 239 property tests
+- **Tests**: 528 Foundry tests, 239 property tests
 - **Build**: `lake build` verifies all proofs
 - **Repository**: https://github.com/lfglabs-dev/verity
 <!-- END GENERATED QUICK FACTS -->
