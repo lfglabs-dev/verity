@@ -41,6 +41,13 @@ ALLOWLIST: set[str] = {
     # break the shared sizeOf termination measure across the mutual block.
     "execIRStmt_stable",
     "execIRStmts_stable",
+    # #2276/lane 2.2 splice simulation: the main WF induction dispatches per
+    # constructor to the cons-step lemmas (which carry the real content); the
+    # block-step mirrors the if-step's exhaustive fuel/branch bookkeeping.
+    "execIRStmts_spliced",
+    "spliced_cons_block",
+    "spliced_cons_if",
+    "spliced_cons_atomic",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
     # against the corresponding exhaustive expression definitions.
