@@ -73,6 +73,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
+import Compiler.Proofs.IRGeneration.GuardedCompile
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperBodyShape
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
@@ -3527,6 +3528,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot
 
+  -- Compiler/Proofs/IRGeneration/GuardedCompile.lean
+  Compiler.Proofs.IRGeneration.compileFunctionSpec_body_shape
+  Compiler.Proofs.IRGeneration.compileGuardedFunctionSpec_inv
+
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
   -- Compiler.Proofs.IRGeneration.helperBridge_internalFunctionYulName_head  -- private
@@ -6692,4 +6697,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6250 theorems/lemmas (4382 public, 1868 private, 0 sorry'd)
+-- Total: 6252 theorems/lemmas (4384 public, 1868 private, 0 sorry'd)
