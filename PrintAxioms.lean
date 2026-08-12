@@ -85,6 +85,7 @@ import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 import Compiler.Proofs.IRGeneration.PanicPayloadIR
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Compiler.Proofs.IRGeneration.SpliceSimulation
 import Compiler.Proofs.IRGeneration.SupportedFragment
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
@@ -4153,6 +4154,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
 
+  -- Compiler/Proofs/IRGeneration/SpliceSimulation.lean
+  Compiler.Proofs.IRGeneration.SpliceSim.loopFree
+  Compiler.Proofs.IRGeneration.SpliceSimList.loopFree
+
   -- Compiler/Proofs/IRGeneration/SupportedFragment.lean
   Compiler.Proofs.IRGeneration.stmtNextScope_requireError_preserves_scope
 
@@ -6659,4 +6664,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6220 theorems/lemmas (4352 public, 1868 private, 0 sorry'd)
+-- Total: 6222 theorems/lemmas (4354 public, 1868 private, 0 sorry'd)
