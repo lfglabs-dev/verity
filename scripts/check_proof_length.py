@@ -404,6 +404,15 @@ ALLOWLIST: set[str] = {
     "supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety",
     # --- Legacy compatibility and dispatch ---
     "interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir_closed",
+    # bounded-loop fuel stability: the induction on remaining iterations must
+    # thread the counter invariant through the three body outcomes and the
+    # post-increment in one pass; splitting per-outcome would duplicate the
+    # loop-unfold plumbing at both fuel indices.
+    "execIRStmt_boundedFor_stable",
+    # counter-preservation soundness: mutual structural recursion over the
+    # statement grammar (mirrors execIRStmt_stable); per-constructor splits
+    # would break the mutual recursion with the list companion.
+    "execIRStmt_getVar_of_checked",
     # master compileValidatedCore inversion: pins every field of the output
     # record in one pass (mapM + constructor + record shape); all per-projection
     # shape lemmas are one-line derivations of it, so splitting it would just
