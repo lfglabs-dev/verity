@@ -233,6 +233,8 @@ theorem mint_reverts_balance_overflow (s : ContractState) (toAddr : Address) (am
   simp [mint, Contracts.SimpleToken.onlyOwner, isOwner, requireSomeUint,
     Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.balancesSlot, Contracts.SimpleToken.totalSupplySlot,
     msgSender, getStorageAddr, setStorageAddr, getStorage, setStorage, getMapping, setMapping,
+    ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+    ContractState.writeAddrSlot, ContractState.readMap, ContractState.writeMap,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
     Contract.run, ContractResult.snd, ContractResult.fst,
     h_none, h_owner]
@@ -405,6 +407,7 @@ theorem transfer_reverts_recipient_overflow (s : ContractState) (toAddr : Addres
   have h_none := safeAdd_none (s.storageMap 1 toAddr) amount h_overflow
   simp [transfer, requireSomeUint, Contracts.SimpleToken.balancesSlot,
     msgSender, getMapping, setMapping,
+    ContractState.readMap, ContractState.writeMap,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
     Contract.run, ContractResult.snd, ContractResult.fst,
     h_balance', h_ne, beq_iff_eq, h_none]
@@ -432,7 +435,7 @@ theorem getTotalSupply_meets_spec (s : ContractState) :
   getTotalSupply_spec result s := by
   unfold getTotalSupply
   simp [getTotalSupply_spec, Contracts.SimpleToken.totalSupply,
-    getStorage, Contracts.SimpleToken.totalSupplySlot,
+    getStorage, Contracts.SimpleToken.totalSupplySlot, ContractState.readSlot,
     Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run]
 
 theorem getTotalSupply_returns_supply (s : ContractState) :
@@ -453,7 +456,7 @@ theorem getOwner_meets_spec (s : ContractState) :
   getOwner_spec result s := by
   unfold getOwner
   simp [getOwner_spec, Contracts.SimpleToken.owner,
-    getStorageAddr, Contracts.SimpleToken.ownerSlot,
+    getStorageAddr, Contracts.SimpleToken.ownerSlot, ContractState.readAddrSlot,
     Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run]
 
 theorem getOwner_returns_owner (s : ContractState) :

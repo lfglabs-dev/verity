@@ -270,17 +270,18 @@ theorem getStorage_runState (slot : StorageSlot Uint256) (state : ContractState)
 theorem setStorage_runState (slot : StorageSlot Uint256) (value : Uint256) (state : ContractState) :
     (setStorage slot value).runState state =
       { state with storage := fun s => if s == slot.slot then value else state.storage s } := by
-  simp [setStorage, Contract.runState]
+  simp [setStorage, Contract.runState, ContractState.writeSlot]
 
 -- getStorage returns correct value
 theorem getStorage_runValue (slot : StorageSlot Uint256) (state : ContractState) :
     (getStorage slot).runValue state = state.storage slot.slot := by
-  simp [getStorage, Contract.runValue]
+  simp [getStorage, Contract.runValue, ContractState.readSlot]
 
 -- After setStorage, getStorage returns the value
 theorem setStorage_getStorage (slot : StorageSlot Uint256) (value : Uint256) (state : ContractState) :
     (getStorage slot).runValue ((setStorage slot value).runState state) = value := by
-  simp [setStorage, getStorage, Contract.runState, Contract.runValue]
+  simp [setStorage, getStorage, Contract.runState, Contract.runValue, ContractState.writeSlot,
+    ContractState.readSlot]
 
 -- getStorage for different slot is unchanged after setStorage
 theorem setStorage_getStorage_diff (slot1 slot2 : StorageSlot Uint256) (value : Uint256) (state : ContractState)
@@ -290,7 +291,7 @@ theorem setStorage_getStorage_diff (slot1 slot2 : StorageSlot Uint256) (value : 
   unfold setStorage getStorage Contract.runState Contract.runValue
   by_cases h_eq : slot2.slot = slot1.slot
   · exact (h h_eq.symm).elim
-  · simp [h_eq]
+  · simp [h_eq, ContractState.writeSlot, ContractState.readSlot]
 
 /-!
 ## Monadic Composition Lemmas
@@ -326,7 +327,8 @@ theorem bind_assoc {α β γ : Type} (m : Contract α) (f : α → Contract β) 
 theorem bind_getStorage_setStorage_runState (slot : StorageSlot Uint256) (f : Uint256 → Uint256) (state : ContractState) :
     (Verity.bind (getStorage slot) (fun val => setStorage slot (f val))).runState state =
       { state with storage := fun s => if s == slot.slot then f (state.storage slot.slot) else state.storage s } := by
-  simp [Verity.bind, getStorage, setStorage, Contract.runState]
+  simp [Verity.bind, getStorage, setStorage, Contract.runState, ContractState.writeSlot,
+    ContractState.readSlot]
 
 -- Bind success propagation: if bind succeeds, first action succeeded
 theorem bind_isSuccess_left {α β : Type} (m1 : Contract α) (m2 : α → Contract β) (state : ContractState) :
@@ -358,12 +360,12 @@ theorem getStorageAddr_runState (slot : StorageSlot Address) (state : ContractSt
 theorem setStorageAddr_runState (slot : StorageSlot Address) (value : Address) (state : ContractState) :
     (setStorageAddr slot value).runState state =
       { state with storageAddr := fun s => if s == slot.slot then value else state.storageAddr s } := by
-  simp [setStorageAddr, Contract.runState]
+  simp [setStorageAddr, Contract.runState, ContractState.writeAddrSlot]
 
 -- getStorageAddr returns correct value
 theorem getStorageAddr_runValue (slot : StorageSlot Address) (state : ContractState) :
     (getStorageAddr slot).runValue state = state.storageAddr slot.slot := by
-  simp [getStorageAddr, Contract.runValue]
+  simp [getStorageAddr, Contract.runValue, ContractState.readAddrSlot]
 
 /-!
 ## Address Encoding Lemmas
@@ -398,7 +400,7 @@ theorem getMapping_runState (slot : StorageSlot (Address → Uint256)) (key : Ad
 -- getMapping returns correct value
 theorem getMapping_runValue (slot : StorageSlot (Address → Uint256)) (key : Address) (state : ContractState) :
     (getMapping slot key).runValue state = state.storageMap slot.slot key := by
-  simp [getMapping, Contract.runValue]
+  simp [getMapping, Contract.runValue, ContractState.readMap]
 
 /-!
 ## List Lookup Lemmas
@@ -1253,7 +1255,7 @@ theorem owner_guard_success_implies_storageAddr_eq_sender
     state.storageAddr slot.slot = state.sender := by
   have h_req :
       ((Verity.require (state.sender == state.storageAddr slot.slot) msg).run state).isSuccess = true := by
-    simpa [msgSender, getStorageAddr, Verity.bind, Contract.run] using h
+    simpa [msgSender, getStorageAddr, Verity.bind, Contract.run, ContractState.readAddrSlot] using h
   exact (require_beq_isSuccess_true_iff_eq state.sender (state.storageAddr slot.slot) msg state).1 h_req |>.symm
 
 -- All lemmas in this file are fully proven with zero sorry, zero axioms.

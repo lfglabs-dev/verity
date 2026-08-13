@@ -507,6 +507,7 @@ macro "denote_stmt_arm" : tactic =>
        ← denote_evalExpr_eq, ← denote_evalExprList_eq]
      repeat' (split <;>
          try simp_all [toStmtResult, toRuntimeState,
+         Verity.ContractState.readArray, Verity.ContractState.writeArray,
          writeAddressKeyedMappingSlots_eq, writeUintKeyedMappingSlots_eq,
          writeAddressKeyedMapping2Slots_eq, writeAddressKeyedMappingFieldSlots_eq,
          writeUintKeyedMappingFieldSlots_eq, writeAddressKeyedMapping2FieldSlots_eq,

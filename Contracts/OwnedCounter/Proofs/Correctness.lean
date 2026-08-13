@@ -86,7 +86,9 @@ theorem increment_survives_transfer (s : ContractState) (initialOwner newOwner :
   simp [setStorageAddr, increment, transferOwnership, owner, count,
     getCount, getStorage, getStorageAddr, setStorage, setStorageAddr,
     msgSender, Verity.require, Verity.pure, Verity.bind,
-    Bind.bind, Pure.pure, Contract.run, ContractResult.snd, ContractResult.fst, h_sender]
+    Bind.bind, Pure.pure, Contract.run, ContractResult.snd, ContractResult.fst, h_sender,
+    ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+    ContractState.writeAddrSlot]
 
 /-! ## Summary
 

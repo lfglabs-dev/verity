@@ -240,6 +240,23 @@ sibling entrypoint.
   correspondence) are tracked in `docs/ROADMAP.md`. No semantic change: the
   lenses are definitionally the former raw updates.
 
+## Storage-Lens Simp Flip — C5 Step 2 (2026-08)
+
+- The ContractState lenses are no longer default-`simp` transparent: the
+  global `attribute [simp]` block in `Verity/Core.lean` is removed.
+  `storage_simps` stays laws-only (read-over-write normalization; it
+  deliberately does not unfold lenses to the raw record representation, so it
+  survives the step-3 flip). Proofs that genuinely need the current raw
+  representation now name the lens explicitly in their `simp` lists
+  (`simp [ContractState.writeSlot]`) — those call sites are the step-3
+  burn-down inventory, greppable as `ContractState.read`/`ContractState.write`
+  occurrences inside simp lists.
+- Repair surface: ~25 files (Core storage-array run-lemmas, Stdlib
+  Automation/MappingAutomation, NonReentrantGuard, the `denote_stmt_arm`
+  macro in `DenoteAgreement`, the `simp_tir_eval` macro in
+  `TypedIRCompilerCorrectness`, and the contract proof suites). No theorem
+  statement changed; no semantic change; zero axioms.
+
 ## CI Guards
 
 - `make check` validates generated reports, bridge coverage synchronization,

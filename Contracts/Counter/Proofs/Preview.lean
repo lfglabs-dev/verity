@@ -21,7 +21,7 @@ theorem previewAddTwice_correct (s : ContractState) (delta : Uint256) :
     let result := ((previewAddTwice delta).run s).fst
     result = EVM.Uint256.add (EVM.Uint256.add (s.storage 0) delta) delta := by
   simp [previewAddTwice, count, getStorage, Contract.run, ContractResult.fst,
-    Verity.bind, Bind.bind, Verity.pure, Pure.pure]
+    Verity.bind, Bind.bind, Verity.pure, Pure.pure, ContractState.readSlot]
 
 theorem previewAddTwice_preserves_state (s : ContractState) (delta : Uint256) :
     let s' := ((previewAddTwice delta).run s).snd

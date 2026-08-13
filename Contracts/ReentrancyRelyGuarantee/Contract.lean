@@ -55,11 +55,11 @@ def liquidate (s : ContractState) : ContractState :=
 
 @[simp] theorem liquidate_health (s : ContractState) :
     (liquidate s).storage healthSlot = s.storage healthSlot := by
-  unfold liquidate; split <;> simp [healthSlot, liquidatedSlot]
+  unfold liquidate; split <;> simp [healthSlot, liquidatedSlot, ContractState.writeSlot]
 
 @[simp] theorem liquidate_lock (s : ContractState) :
     (liquidate s).storage lockSlot = s.storage lockSlot := by
-  unfold liquidate; split <;> simp [lockSlot, liquidatedSlot]
+  unfold liquidate; split <;> simp [lockSlot, liquidatedSlot, ContractState.writeSlot]
 
 /-- Guarantee discharged by `liquidate`: it preserves `I`. It only ever changes
     the `liquidated` slot, leaving both `I` disjuncts (health, lock) untouched. -/
@@ -87,15 +87,15 @@ def setLock (b : Bool) (s : ContractState) : ContractState :=
 
 @[simp] theorem setHealthy_liq (b : Bool) (s : ContractState) :
     (setHealthy b s).storage liquidatedSlot = s.storage liquidatedSlot := by
-  simp [setHealthy, healthSlot, liquidatedSlot]
+  simp [setHealthy, healthSlot, liquidatedSlot, ContractState.writeSlot, ContractState.readSlot]
 
 @[simp] theorem setLock_liq (b : Bool) (s : ContractState) :
     (setLock b s).storage liquidatedSlot = s.storage liquidatedSlot := by
-  simp [setLock, lockSlot, liquidatedSlot]
+  simp [setLock, lockSlot, liquidatedSlot, ContractState.writeSlot, ContractState.readSlot]
 
 @[simp] theorem setHealthy_lock (b : Bool) (s : ContractState) :
     (setHealthy b s).storage lockSlot = s.storage lockSlot := by
-  simp [setHealthy, healthSlot, lockSlot]
+  simp [setHealthy, healthSlot, lockSlot, ContractState.writeSlot, ContractState.readSlot]
 
 /-! ## Buggy `take`: trade ⇒ transiently unhealthy, NO lock, final health check -/
 
@@ -137,7 +137,7 @@ theorem locked_take_no_new_liquidation
   have hlock : locked (setHealthy false (setLock true s)) := by
     show (setHealthy false (setLock true s)).storage lockSlot ≠ 0
     have hval : (setHealthy false (setLock true s)).storage lockSlot = 1 := by
-      simp [setHealthy, setLock, healthSlot, lockSlot]
+      simp [setHealthy, setLock, healthSlot, lockSlot, ContractState.writeSlot, ContractState.readSlot]
     rw [hval]; decide
   simp only [takeLocked, setHealthy_liq, setLock_liq, hAdv _ hlock]
 
@@ -149,7 +149,7 @@ theorem locked_take_preserves_I (adv : ContractState → ContractState) (s : Con
   left
   show (takeLocked adv s).storage healthSlot ≠ 0
   have hval : (takeLocked adv s).storage healthSlot = 1 := by
-    simp [takeLocked, setLock, setHealthy, healthSlot, lockSlot]
+    simp [takeLocked, setLock, setHealthy, healthSlot, lockSlot, ContractState.writeSlot, ContractState.readSlot]
   rw [hval]; decide
 
 /-- Concrete corollary: the lock blocks the real `liquidate` adversary, because

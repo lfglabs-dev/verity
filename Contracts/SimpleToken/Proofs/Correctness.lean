@@ -38,7 +38,8 @@ theorem mint_reverts_when_not_owner (s : ContractState) (toAddr : Address) (amou
     msgSender, getStorageAddr, getStorage, setStorage, getMapping, setMapping,
     Verity.require, Verity.bind, Bind.bind,
     Contract.run]
-  simp [address_beq_false_of_ne s.sender (s.storageAddr 0) h_not_owner]
+  simp [address_beq_false_of_ne s.sender (s.storageAddr 0) h_not_owner,
+    ContractState.readAddrSlot]
 
 /-- Transfer reverts when sender has insufficient balance.
     Safety property: no overdrafts possible. -/
@@ -49,7 +50,8 @@ theorem transfer_reverts_insufficient_balance (s : ContractState) (toAddr : Addr
     msgSender, getMapping,
     Verity.require, Verity.bind, Bind.bind,
     Contract.run]
-  simp [show ¬(s.storageMap 1 s.sender ≥ amount) from Nat.not_le.mpr h_insufficient]
+  simp [show ¬(s.storageMap 1 s.sender ≥ amount) from Nat.not_le.mpr h_insufficient,
+    ContractState.readMap]
 
 /-! ## Invariant Preservation
 
