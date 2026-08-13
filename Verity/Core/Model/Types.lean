@@ -1535,6 +1535,59 @@ structure CompilationModel where
   storageNamespace : Option Nat := none
   deriving Repr
 
+/-- Concatenate mixin constructor bodies in include order, then the host body.
+    Prefer expanding mixin inits into the host constructor *before* merge so
+    argument substitution is hygienic. This helper remains for callers that
+    already performed that expansion (or have matching parameter names). -/
+def mergeConstructorSpecs (mixins : List (Option ConstructorSpec)) (host : Option ConstructorSpec) :
+    Option ConstructorSpec :=
+  let mixinCtors := mixins.filterMap id
+  match mixinCtors, host with
+  | [], host => host
+  | m :: rest, none =>
+      some {
+        params := m.params
+        isPayable := false
+        body := (m :: rest).flatMap (·.body)
+        localObligations := (m :: rest).flatMap (·.localObligations)
+      }
+  | ms, some h =>
+      some {
+        h with
+        body := ms.flatMap (·.body) ++ h.body
+        localObligations := ms.flatMap (·.localObligations) ++ h.localObligations
+      }
+
+/-- Host CompilationModel is mixin specs (include order) then host fields/functions.
+    The host constructor is already the full sequence: mixin immutable
+    `setImmutable` statements (with host-substituted initializers), mixin
+    user-ctor bodies with hygienic argument bindings, then the host body.
+    Do not concatenate mixin constructor bodies a second time. -/
+def mergeIncludedSpecs (name : String) (mixins : List CompilationModel) (host : CompilationModel) :
+    CompilationModel :=
+  { host with
+    name := name
+    fields := mixins.flatMap (·.fields) ++ host.fields
+    immutables := mixins.flatMap (·.immutables) ++ host.immutables
+    roles := mixins.flatMap (·.roles) ++ host.roles
+    errors := mixins.flatMap (·.errors) ++ host.errors
+    events := mixins.flatMap (·.events) ++ host.events
+    functions := mixins.flatMap (·.functions) ++ host.functions
+    externals := mixins.flatMap (·.externals) ++ host.externals
+    adtTypes := mixins.flatMap (·.adtTypes) ++ host.adtTypes
+    reservedSlotRanges := mixins.flatMap (·.reservedSlotRanges) ++ host.reservedSlotRanges
+    slotAliasRanges := mixins.flatMap (·.slotAliasRanges) ++ host.slotAliasRanges
+    constructor := host.constructor
+  }
+
+/-- Public functions that share an ABI name across mixin and host specs. -/
+def selectorCollision? (mixins : List CompilationModel) (host : CompilationModel) : Option String :=
+  let publicName (fn : FunctionSpec) : Option String :=
+    if fn.isInternal then none else some fn.name
+  let mixinNames := mixins.flatMap (fun m => m.functions.filterMap publicName)
+  let hostNames := host.functions.filterMap publicName
+  hostNames.find? (fun n => mixinNames.contains n)
+
 /-!
 ## IR Generation from Spec
 

@@ -27,13 +27,13 @@ These establish fundamental properties of address storage operations.
 theorem setStorageAddr_updates_owner (s : ContractState) (addr : Address) :
   let slotIdx : StorageSlot Address := owner
   let s' := ((setStorageAddr slotIdx addr).run s).snd
-  s'.storageAddr 0 = addr := by
+  s'.storageAddr owner.slot = addr := by
   simp [owner]
 
 theorem getStorageAddr_reads_owner (s : ContractState) :
   let slotIdx : StorageSlot Address := owner
   let result := ((getStorageAddr slotIdx).run s).fst
-  result = s.storageAddr 0 := by
+  result = s.storageAddr owner.slot := by
   simp [owner]
 
 theorem setStorageAddr_preserves_other_slots (s : ContractState) (addr : Address) (slot_num : Nat)
@@ -66,16 +66,16 @@ theorem setStorageAddr_preserves_context (s : ContractState) (addr : Address) :
 theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   constructor_spec initialOwner s s' := by
-  refine ⟨?_, ?_, ?_⟩
-  · simp [owner]
+  simp [constructor_spec, owner]
+  refine ⟨rfl, ?_, ?_⟩
   · intro slotIdx h_neq
-    simp [owner, h_neq]
-  · simp [owner, Specs.sameStorageMapContext,
+    simp [h_neq]
+  · simp [Specs.sameStorageMapContext,
       Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
 
 theorem constructor_sets_owner (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
-  s'.storageAddr 0 = initialOwner := by
+  s'.storageAddr owner.slot = initialOwner := by
   simp [owner]
 
 /-! ## getOwner Correctness -/
@@ -88,7 +88,7 @@ theorem getOwner_meets_spec (s : ContractState) :
 
 theorem getOwner_returns_owner (s : ContractState) :
   let result := ((getOwner).run s).fst
-  result = s.storageAddr 0 := by
+  result = s.storageAddr owner.slot := by
   simpa [getOwner_spec] using getOwner_meets_spec s
 
 theorem getOwner_preserves_state (s : ContractState) :
@@ -102,12 +102,11 @@ theorem isOwner_meets_spec (s : ContractState) :
   let result := ((isOwner).run s).fst
   isOwner_spec result s := by
   verity_unfold isOwner
-  simp only [isOwner_spec]
-  rfl
+  simp [isOwner_spec, owner]
 
 theorem isOwner_returns_correct_value (s : ContractState) :
   let result := ((isOwner).run s).fst
-  result = (s.sender == s.storageAddr 0) := by
+  result = (s.sender == s.storageAddr owner.slot) := by
   simpa [isOwner_spec] using isOwner_meets_spec s
 
 /-! ## transferOwnership Correctness
@@ -120,7 +119,7 @@ is fully modeled and can be unfolded in proofs.
 
 /-- Helper: unfold transferOwnership when caller is owner -/
 theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
-  (h_owner : s.sender = s.storageAddr 0) :
+  (h_owner : s.sender = s.storageAddr owner.slot) :
   (transferOwnership newOwner).run s = ContractResult.success ()
     { «storage» := s.storage,
       contractStorage := s.contractStorage,
@@ -149,23 +148,23 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
   exact h_owner
 
 theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : Address)
-  (h_is_owner : s.sender = s.storageAddr 0) :
+  (h_is_owner : s.sender = s.storageAddr owner.slot) :
   let s' := ((transferOwnership newOwner).run s).snd
   transferOwnership_spec newOwner s s' := by
   rw [transferOwnership_unfold s newOwner h_is_owner]
-  refine ⟨?_, ?_, ?_⟩
-  · simp [ContractResult.snd]
+  simp [transferOwnership_spec, owner, ContractResult.snd]
+  refine ⟨rfl, ?_, ?_⟩
   · intro slotIdx h_neq
-    simp [ContractResult.snd, h_neq]
-  · simp [ContractResult.snd, Specs.sameStorageMapContext,
+    simp [h_neq]
+  · simp [Specs.sameStorageMapContext,
       Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
 
 theorem transferOwnership_changes_owner_when_allowed (s : ContractState) (newOwner : Address)
-  (h_is_owner : s.sender = s.storageAddr 0) :
+  (h_is_owner : s.sender = s.storageAddr owner.slot) :
   let s' := ((transferOwnership newOwner).run s).snd
-  s'.storageAddr 0 = newOwner := by
+  s'.storageAddr owner.slot = newOwner := by
   rw [transferOwnership_unfold s newOwner h_is_owner]
-  simp [ContractResult.snd]
+  simp [owner, ContractResult.snd]
 
 /-! ## Composition Properties -/
 

@@ -266,7 +266,8 @@ private def mkFieldFrameConjunct (field : StorageFieldDecl) : CommandElabM Term 
     (#1729, Axis 3 Step 1b) -/
 def mkFrameDefCommand
     (fields : Array StorageFieldDecl)
-    (fnDecl : FunctionDecl) : CommandElabM (Array Cmd) := do
+    (fnDecl : FunctionDecl)
+    (generateExecutionFrame : Bool := true) : CommandElabM (Array Cmd) := do
   let frameName ← mkSuffixedIdent fnDecl.ident "_frame"
   let frameRflName ← mkSuffixedIdent fnDecl.ident "_frame_rfl"
   let frameHoldsName ← mkSuffixedIdent fnDecl.ident "_frame_holds"
@@ -290,7 +291,12 @@ def mkFrameDefCommand
       simp [Verity.Specs.sameContext, Verity.Specs.sameStorageSlot,
             Verity.Specs.sameStorageAddrSlot, Verity.Specs.sameStorage])
 
-  if fnDecl.requiresRole.isSome || fnDecl.nonReentrantLock.isSome || fnDecl.initGuard?.isSome then
+  -- Mixin modifiers / include hosts bind a Lean guard that the generated
+  -- `simp` proof cannot case-split. Keep the frame *definition* and skip
+  -- the automatic `_frame_holds` theorem in those cases.
+  if !generateExecutionFrame || !fnDecl.modifiers.isEmpty ||
+      fnDecl.requiresRole.isSome || fnDecl.nonReentrantLock.isSome ||
+      fnDecl.initGuard?.isSome then
     pure #[frameCmd, frameRflCmd]
   else
     let fnApp ← mkFunctionApplication fnDecl

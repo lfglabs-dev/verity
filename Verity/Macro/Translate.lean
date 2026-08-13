@@ -2672,7 +2672,15 @@ private def mkSpecCommand
     (modifiers : Array ModifierDecl)
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
-    (storageNamespace : Option Nat) : CommandElabM Cmd := do
+    (storageNamespace : Option Nat)
+    (specIdent : Ident := mkIdent (Name.mkSimple "spec"))
+    (translationFields : Array StorageFieldDecl := fields)
+    (translationErrorDecls : Array ErrorDecl := errorDecls)
+    (translationConstDecls : Array ConstantDecl := constDecls)
+    (translationImmutableDecls : Array ImmutableDecl := immutableDecls)
+    (translationExternalDecls : Array ExternalDecl := externalDecls)
+    (translationFunctions : Array FunctionDecl := functions)
+    (constructorImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM Cmd := do
   let immutableTerms ← immutableDecls.mapM fun imm => do
     let tyTerm ← modelParamTypeTerm imm.ty
     let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
@@ -2689,15 +2697,18 @@ private def mkSpecCommand
   let eventTerms ← eventDecls.mapM mkModelEventTerm
   let externalTerms ← externalDecls.mapM mkModelExternalTerm
   let constructorTerm ←
-    match ctor, immutableDecls.isEmpty with
+    match ctor, constructorImmutableDecls.isEmpty with
     | none, true => `(none)
     | some ctor, _ =>
         let ctorParams ← mkModelParamsTerm ctor.params
         let ctorPayable ← if ctor.isPayable then `(true) else `(false)
         let ctorLocalObligationTerms ←
-          (constructorLocalObligationsWithArithmetic ctor immutableDecls).mapM mkModelLocalObligationTerm
-        let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
-        let ctorBodyTerms ← translateConstructorBodyToStmtTerms fields errorDecls constDecls immutableDecls externalDecls functions ctor
+          (constructorLocalObligationsWithArithmetic ctor constructorImmutableDecls).mapM mkModelLocalObligationTerm
+        let immutableInitTerms ← immutableInitStmtTerms
+          translationFields translationConstDecls constructorImmutableDecls ctor.params
+        let ctorBodyTerms ← translateConstructorBodyToStmtTerms
+          translationFields translationErrorDecls translationConstDecls
+          translationImmutableDecls translationExternalDecls translationFunctions ctor
         let enumGuardCount := ctor.params.countP fun param =>
           match param.ty with | .enum _ _ => true | _ => false
         let ctorAllTerms := ctorBodyTerms.take enumGuardCount ++ immutableInitTerms ++
@@ -2709,9 +2720,10 @@ private def mkSpecCommand
           body := [ $[$ctorAllTerms],* ]
         })
     | none, false =>
-        let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls #[]
+        let immutableInitTerms ← immutableInitStmtTerms
+          translationFields translationConstDecls constructorImmutableDecls #[]
         let ctorLocalObligationTerms ←
-          (synthesizedConstructorLocalObligationsWithArithmetic immutableDecls).mapM mkModelLocalObligationTerm
+          (synthesizedConstructorLocalObligationsWithArithmetic constructorImmutableDecls).mapM mkModelLocalObligationTerm
         `(some {
           params := []
           isPayable := false
@@ -2805,7 +2817,9 @@ private def mkSpecCommand
     let bodyTerms ←
       match modDecl.body with
       | `(term| do $[$elems:doElem]*) =>
-          pure (← (translateDoElems fields constDecls immutableDecls externalDecls errorDecls functions .unit #[] #[] #[] elems)).1
+          pure (← (translateDoElems translationFields translationConstDecls
+            translationImmutableDecls translationExternalDecls
+            translationErrorDecls translationFunctions .unit #[] #[] #[] elems)).1
       | _ => throwErrorAt modDecl.body "modifier body must be a do block"
     let bodyTerms := bodyTerms.push (← `(Compiler.CompilationModel.Stmt.stop))
     `( ({
@@ -2841,7 +2855,7 @@ private def mkSpecCommand
   let namespaceTerm ← match storageNamespace with
     | some ns => `(some $(natTerm ns))
     | none => `(none)
-  `(command| def spec : Compiler.CompilationModel.CompilationModel := {
+  `(command| def $specIdent : Compiler.CompilationModel.CompilationModel := {
     name := $(strTerm contractName)
     fields := [ $[$fieldTerms],* ]
     «immutables» := [ $[$immutableTerms],* ]
@@ -3024,6 +3038,9 @@ structure ParsedContractSyntax where
   modifiers : Array ModifierDecl
   functions : Array FunctionDecl
   storageNamespace : Option Nat
+  isMixin : Bool := false
+  includes : Array Ident := #[]
+  resolvedIncludes : Array Name := #[]
 
 abbrev ContractSyntaxRegistry := List (Name × ParsedContractSyntax)
 
@@ -3045,6 +3062,9 @@ def registerContractSyntax (name : Name) (parsed : ParsedContractSyntax) : Comma
 private def lookupContractSyntax (name : Name) : CommandElabM (Option ParsedContractSyntax) := do
   pure (contractSyntaxExt.getState (← getEnv)
     |>.find? (fun entry => entry.1 == name) |>.map (·.2))
+
+def lookupContractSyntaxPublic (name : Name) : CommandElabM (Option ParsedContractSyntax) :=
+  lookupContractSyntax name
 
 private def doElems (body : Term) : CommandElabM (Array (TSyntax `doElem)) := do
   match body with
@@ -3427,11 +3447,302 @@ private def parseRoleDecl
               throwErrorAt fieldName s!"role '{toString roleName.getId}' uses unsupported backing field '{backingName}'; roles require an Address scalar field or Address→Uint256 mapping"
   | _ => throwErrorAt roleStx "invalid role declaration"
 
-def parseContractSyntax
+private def mixinShortName (mixinName : Name) : String :=
+  match mixinName with
+  | .str _ s => s
+  | _ => toString mixinName
+
+private def namesMixin (n : String) (mixinName : Name) : Bool :=
+  n == mixinShortName mixinName || n == toString mixinName
+
+/-- Expand host constructor mixin inits into scoped do-elems so the
+    CompilationModel constructor references host arguments (or expressions),
+    not the mixin's original parameter names. Executable lowering still
+    calls the mixin `constructor` Lean def. -/
+private def expandMixinConstructorForModel
+    (hostFields : Array StorageFieldDecl)
+    (hostConsts : Array ConstantDecl)
+    (hostImmutables : Array ImmutableDecl)
+    (hostExternals : Array ExternalDecl)
+    (host : ConstructorDecl)
+    (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM ConstructorDecl := do
+  if host.mixinInits.isEmpty then
+    return host
+  let mut preludeElems : Array (TSyntax `doElem) := #[]
+  let mut extraObligations : Array LocalObligationDecl := #[]
+  for (mixinIdent, args) in host.mixinInits do
+    let n := toString mixinIdent.getId
+    let some (mixinName, mixin) :=
+        mixins.find? (fun (mixinName, mixin) =>
+          mixin.ctor.isSome && namesMixin n mixinName)
+      | throwErrorAt mixinIdent s!"constructor init '{n}' does not name an included mixin that has a constructor"
+    let some mixinCtor := mixin.ctor
+      | throwErrorAt mixinIdent s!"constructor init '{n}' names a mixin without a constructor"
+    if args.size != mixinCtor.params.size then
+      throwErrorAt mixinIdent
+        s!"mixin constructor '{mixinShortName mixinName}' expects {mixinCtor.params.size} argument(s), got {args.size}"
+    extraObligations := extraObligations ++ mixinCtor.localObligations
+    for (param, arg) in mixinCtor.params.zip args do
+      let argTy ← inferPureExprType
+        (mixin.fields ++ hostFields) (mixin.constDecls ++ hostConsts)
+        (mixin.immutableDecls ++ hostImmutables)
+        (mixin.externalDecls ++ hostExternals)
+        host.params #[] arg
+      unless argumentTypeMatchesParam arg argTy param.ty do
+        throwErrorAt arg
+          s!"mixin constructor parameter '{param.name}' expects {renderValueType param.ty}, got {renderValueType argTy}"
+    let mut mixinBindings : Array (TSyntax `doElem) := #[]
+    let mut dynamicParamBindings : Array (String × Syntax) := #[]
+    for (param, arg) in mixinCtor.params.zip args do
+      let directHostParam? := match stripParens arg with
+        | `(term| $name:ident) =>
+            host.params.find? (fun (hostParam : ParamDecl) =>
+              declaredNameMatches (toString name.getId) hostParam.name)
+        | _ => host.params.find? (fun hostParam =>
+            (stripParens arg).raw.reprint.getD "" == hostParam.name)
+      let isIdentityArg := directHostParam?.any (fun hostParam => hostParam.name == param.name)
+      if !isIdentityArg then
+        if host.params.any (fun hostParam => paramReservesName hostParam param.name) then
+          throwErrorAt arg
+            s!"mixin constructor parameter '{param.name}' conflicts with a host constructor parameter; rename the host parameter"
+        if valueTypeUsesDynamicData param.ty && directHostParam?.isSome then
+          dynamicParamBindings := dynamicParamBindings.push (param.name, arg.raw)
+        else
+          let normalizedArg ← normalizeParentConstructorArg param.ty arg
+          mixinBindings := mixinBindings.push (← `(doElem| let $param.ident := $normalizedArg))
+    let mixinBody := substituteDynamicParentParams dynamicParamBindings mixinCtor.body
+    let mixinElems ← doElems mixinBody
+    let scopedElem ← `(doElem| if true then
+      $[$mixinBindings:doElem]*
+      $[$mixinElems:doElem]*
+      else
+        pure ())
+    preludeElems := preludeElems.push scopedElem
+  let hostElems ← doElems host.body
+  let combined ← `(term| do $[$preludeElems:doElem]* $[$hostElems:doElem]*)
+  pure {
+    host with
+    localObligations := extraObligations ++ host.localObligations
+    mixinInits := #[]
+    body := combined
+  }
+
+def expandMixinConstructorForModelPublic
+    (hostFields : Array StorageFieldDecl)
+    (hostConsts : Array ConstantDecl)
+    (hostImmutables : Array ImmutableDecl)
+    (hostExternals : Array ExternalDecl)
+    (host : ConstructorDecl)
+    (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM ConstructorDecl :=
+  expandMixinConstructorForModel hostFields hostConsts hostImmutables hostExternals host mixins
+
+/-- Mixin immutable initializers, with constructor-parameter references
+    rewritten to the host init expressions. The host CompilationModel must
+    emit `setImmutable` for these; merge keeps `host.constructor` only. -/
+private def includedMixinImmutablesForHost
+    (hostCtor : Option ConstructorDecl)
+    (mixins : Array (Name × ParsedContractSyntax)) : Array ImmutableDecl :=
+  let inits := hostCtor.map (·.mixinInits) |>.getD #[]
+  mixins.flatMap fun (mixinName, mixin) =>
+    let bindings : Array (String × Syntax) :=
+      match mixin.ctor with
+      | none => #[]
+      | some mixinCtor =>
+          match inits.find? (fun (id, _) => namesMixin (toString id.getId) mixinName) with
+          | none => #[]
+          | some (_, args) =>
+              mixinCtor.params.zip args |>.map fun (param, arg) => (param.name, arg.raw)
+    mixin.immutableDecls.map fun imm =>
+      { imm with body := substitutePureInitializerParams bindings imm.body }
+
+def includedMixinImmutablesForHostPublic
+    (hostCtor : Option ConstructorDecl)
+    (mixins : Array (Name × ParsedContractSyntax)) : Array ImmutableDecl :=
+  includedMixinImmutablesForHost hostCtor mixins
+
+private def resolveIncludedMixin (currentNs : Name) (id : Ident) :
+    CommandElabM (Name × ParsedContractSyntax) := do
+  let candidates := [currentNs ++ id.getId, id.getId]
+  let mut found : Option (Name × ParsedContractSyntax) := none
+  for candidate in candidates do
+    if found.isNone then
+      match (← lookupContractSyntax candidate) with
+      | some parsed =>
+          if parsed.isMixin then
+            found := some (candidate, parsed)
+          else
+            throwErrorAt id s!"include '{id.getId}' names a contract, not a verity_mixin"
+      | none => pure ()
+  match found with
+  | some result => pure result
+  | none =>
+      throwErrorAt id s!"unknown mixin '{id.getId}'; import or declare the mixin before the host"
+
+private def fieldOccupiedSlots (field : StorageFieldDecl) : Array Nat :=
+  let extra :=
+    match field.adtInfo? with
+    | some (_, maxFields) => maxFields
+    | none =>
+        match field.ty with
+        | .scalar (.adt _ maxFields) => maxFields
+        | _ => 0
+  ((List.range (extra + 1)).map (fun i => field.slotNum + i)).toArray
+
+private def fieldDeclaredNames (field : StorageFieldDecl) : Array String :=
+  #[field.name] ++ field.aliases.toArray
+
+private def pushUniqueIncludeName
+    (kind : String) (mixinName : Name) (name : String) (seen : Array String) :
+    CommandElabM (Array String) := do
+  if seen.contains name then
+    throwError
+      ("include clash: " ++ kind ++ " '" ++ name ++ "' from mixin '" ++
+        toString mixinName ++ "' duplicates a host or earlier mixin " ++ kind)
+  pure (seen.push name)
+
+private def checkIncludeClashes
+    (host : ParsedContractSyntax)
+    (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM Unit := do
+  let mut seenFieldNames : Array String := host.fields.flatMap fieldDeclaredNames
+  -- Persistent and transient storage are distinct EVM spaces.
+  let mut seenPersistSlots : Array Nat :=
+    (host.fields.filter (fun f => !f.isTransient)).flatMap fieldOccupiedSlots
+  let mut seenTransientSlots : Array Nat :=
+    (host.fields.filter (·.isTransient)).flatMap fieldOccupiedSlots
+  let mut seenModNames : Array String := host.modifiers.map (·.name)
+  let mut seenRoleNames : Array String := host.roleDecls.map (·.name)
+  -- Internal helpers share the Yul/CompilationModel name key with entrypoints.
+  let mut seenFnNames : Array String := host.functions.map (·.name)
+  let mut seenErrorNames : Array String := host.errorDecls.map (·.name)
+  let mut seenEventNames : Array String := host.eventDecls.map (·.name)
+  let mut seenConstNames : Array String := host.constDecls.map (·.name)
+  let mut seenImmutableNames : Array String := host.immutableDecls.map (·.name)
+  let mut seenExternalNames : Array String := host.externalDecls.map (·.name)
+  let mut seenAdtNames : Array String := host.adtDecls.map (·.name)
+  for (mixinName, mixin) in mixins do
+    for field in mixin.fields do
+      for n in fieldDeclaredNames field do
+        if seenFieldNames.contains n then
+          throwError s!"include clash: field '{n}' from mixin '{mixinName}' duplicates a host or earlier mixin field"
+        seenFieldNames := seenFieldNames.push n
+      let occupied := fieldOccupiedSlots field
+      if field.isTransient then
+        for sl in occupied do
+          if seenTransientSlots.contains sl then
+            throwError s!"include clash: transient slot {sl} from mixin '{mixinName}' field '{field.name}' overlaps a host or earlier mixin slot"
+          seenTransientSlots := seenTransientSlots.push sl
+      else
+        for sl in occupied do
+          if seenPersistSlots.contains sl then
+            throwError s!"include clash: slot {sl} from mixin '{mixinName}' field '{field.name}' overlaps a host or earlier mixin slot"
+          seenPersistSlots := seenPersistSlots.push sl
+    for modDecl in mixin.modifiers do
+      seenModNames ← pushUniqueIncludeName "modifier" mixinName modDecl.name seenModNames
+    for role in mixin.roleDecls do
+      seenRoleNames ← pushUniqueIncludeName "role" mixinName role.name seenRoleNames
+    for fn in mixin.functions do
+      seenFnNames ← pushUniqueIncludeName "function" mixinName fn.name seenFnNames
+    for err in mixin.errorDecls do
+      seenErrorNames ← pushUniqueIncludeName "error" mixinName err.name seenErrorNames
+    for ev in mixin.eventDecls do
+      seenEventNames ← pushUniqueIncludeName "event" mixinName ev.name seenEventNames
+    for c in mixin.constDecls do
+      seenConstNames ← pushUniqueIncludeName "constant" mixinName c.name seenConstNames
+    for imm in mixin.immutableDecls do
+      seenImmutableNames ← pushUniqueIncludeName "immutable" mixinName imm.name seenImmutableNames
+    for extDecl in mixin.externalDecls do
+      seenExternalNames ← pushUniqueIncludeName "external" mixinName extDecl.name seenExternalNames
+    for adtDecl in mixin.adtDecls do
+      seenAdtNames ← pushUniqueIncludeName "ADT" mixinName adtDecl.name seenAdtNames
+
+private def checkMixinConstructorInits
+    (host : ParsedContractSyntax)
+    (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM Unit := do
+  let inits :=
+    match host.ctor with
+    | some ctor => ctor.mixinInits
+    | none => #[]
+  let mut seenInitMixins : Array Name := #[]
+  for (id, args) in inits do
+    let n := toString id.getId
+    let some (mixinName, mixin) :=
+        mixins.find? (fun (mixinName, mixin) =>
+          mixin.ctor.isSome && namesMixin n mixinName)
+      | throwErrorAt id s!"constructor init '{n}' does not name an included mixin that has a constructor"
+    if seenInitMixins.any (fun prev => namesMixin (mixinShortName prev) mixinName) then
+      throwErrorAt id
+        s!"duplicate mixin constructor call for '{mixinShortName mixinName}'; each included mixin may be initialized once"
+    seenInitMixins := seenInitMixins.push mixinName
+    match mixin.ctor with
+    | some mixinCtor =>
+        if args.size != mixinCtor.params.size then
+          throwErrorAt id
+            s!"mixin constructor '{mixinShortName mixinName}' expects {mixinCtor.params.size} argument(s), got {args.size}"
+    | none => pure ()
+  for (mixinName, mixin) in mixins do
+    if mixin.ctor.isSome then
+      let shortName := mixinShortName mixinName
+      unless inits.any (fun (id, _) => namesMixin (toString id.getId) mixinName) do
+        throwError
+          s!"missing mixin constructor call for '{shortName}'; add `{shortName}(...)` to the host constructor"
+
+private def mixinModifierNames (mixins : Array (Name × ParsedContractSyntax)) : Array String :=
+  mixins.flatMap fun (_, mixin) => mixin.modifiers.map (·.name)
+
+private def finishIncludeContract
+    (currentNs : Name) (includeIdents : Array Ident) (own : ParsedContractSyntax) :
+    CommandElabM ParsedContractSyntax := do
+  let mixins ← includeIdents.mapM (resolveIncludedMixin currentNs)
+  checkIncludeClashes own mixins
+  checkMixinConstructorInits own mixins
+  let mixinFnNames := mixins.flatMap fun (_, mixin) => mixin.functions.map (·.name)
+  for fn in own.functions do
+    if mixinFnNames.contains fn.name then
+      throwErrorAt fn.ident
+        s!"include clash: function '{fn.name}' collides with an included mixin function"
+  let mixinModNames := mixinModifierNames mixins
+  let localModifiers := own.modifiers.filter fun m => !mixinModNames.contains m.name
+  -- Inline only host-local modifiers. Mixin modifiers stay on the function
+  -- so CompilationModel can emit statements / the elaborator can bind the
+  -- mixin's Lean `def`.
+  let functions ← own.functions.mapM fun fn => do
+    let localUsed := fn.modifiers.filter fun id =>
+      localModifiers.any (fun m => m.name == toString id.getId)
+    let mixinUsed := fn.modifiers.filter fun id =>
+      mixinModNames.contains (toString id.getId)
+    for id in fn.modifiers do
+      let n := toString id.getId
+      unless localModifiers.any (fun m => m.name == n) || mixinModNames.contains n do
+        throwErrorAt id s!"function '{fn.name}' references unknown modifier '{n}'"
+    let inlined ←
+      if localUsed.isEmpty then
+        pure fn
+      else
+        let onlyLocal := { fn with modifiers := localUsed }
+        let arr ← inlineModifierPrefixes localModifiers #[onlyLocal]
+        match arr[0]? with
+        | some inlinedFn => pure { inlinedFn with modifiers := mixinUsed }
+        | none => pure { fn with modifiers := mixinUsed }
+    pure { inlined with modifiers := mixinUsed }
+  pure {
+    own with
+    functions := functions
+    includes := includeIdents
+    resolvedIncludes := mixins.map (·.1)
+  }
+
+partial def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident $[is $parentName:ident]? where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident $[is $parentName:ident]? $[include $[$includeNames:ident],*]? where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+      let includeIdents : Array Ident :=
+        match includeNames with
+        | some ids => ids
+        | none => #[]
+      if parentName.isSome && !includeIdents.isEmpty then
+        throwErrorAt stx "cannot combine `is` inheritance with `include` mixins"
+
       -- Resolve inheritance before parsing the child: inherited user-defined
       -- types are valid in every child declaration and function signature.
       let currentNs ← getCurrNamespace
@@ -3693,12 +4004,21 @@ def parseContractSyntax
         storageNamespace := firstNamespaceOpt
       }
       match parentName with
-      | none => pure { own with functions := (← inlineModifierPrefixes own.modifiers own.functions) }
       | some parentIdent =>
           let some parent := parent? | unreachable!
           let flattened ← flattenSingleInheritance parentIdent parent own
           pure { flattened with
             functions := (← inlineModifierPrefixes flattened.modifiers flattened.functions) }
+      | none =>
+          if includeIdents.isEmpty then
+            pure { own with functions := (← inlineModifierPrefixes own.modifiers own.functions) }
+          else
+            finishIncludeContract currentNs includeIdents own
+  | `(command| verity_mixin $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+      -- Reuse the contract parser by wrapping mixin syntax as a contract with no parent/includes/entrypoints.
+      let wrapped ← `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*)
+      let parsed ← parseContractSyntax wrapped
+      pure { parsed with isMixin := true }
   | _ => throwErrorAt stx "invalid verity_contract declaration"
 
 private def mkConstantDefCommand (constant : ConstantDecl) : CommandElabM Cmd := do
@@ -3996,6 +4316,104 @@ def validateFunctionDeclsPublic
       throwErrorAt fn.ident s!"function '{fn.name}': nonreentrant and cei_safe are mutually exclusive"
     validateFunctionBodyExprTypes fields errorDecls eventDecls constDecls immutableDecls externalDecls functions fn
 
+/-- Prepend calls to included mixin modifier Lean defs. CompilationModel still
+    uses `fn.modifiers` for inlined mixin-modifier statements. -/
+def prefixMixinModifierExecutableBody
+    (resolvedIncludes : Array Name) (fn : FunctionDecl) (body : Term) :
+    CommandElabM Term := do
+  if fn.modifiers.isEmpty || resolvedIncludes.isEmpty then
+    return body
+  let mut preludes : Array (TSyntax `doElem) := #[]
+  for modIdent in fn.modifiers do
+    let modName := toString modIdent.getId
+    let mut qual? : Option Name := none
+    for mixinName in resolvedIncludes do
+      if qual?.isNone then
+        match (← lookupContractSyntax mixinName) with
+        | some mixin =>
+            if mixin.modifiers.any (fun m => m.name == modName) then
+              qual? := some (mixinName ++ modIdent.getId)
+        | none => pure ()
+    let target :=
+      match qual? with
+      | some q => mkIdent q
+      | none => modIdent
+    preludes := preludes.push (← `(doElem| $target:ident))
+  match body with
+  | `(term| do $[$elems:doElem]*) =>
+      `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
+  | _ =>
+      `(term| do $[$preludes:doElem]* $body:term)
+
+def mkModifierDefCommandPublic (modDecl : ModifierDecl) : CommandElabM Cmd := do
+  `(command| def $(modDecl.ident) : Verity.Contract Unit := $(modDecl.body))
+
+def mkConstructorDefCommandPublic (ctor : ConstructorDecl) : CommandElabM Cmd := do
+  let fnType ← mkContractFnType ctor.params .unit
+  let fnValue ← mkContractFnValue ctor.params ctor.body
+  let id : Ident := mkIdent (Name.mkSimple "constructor")
+  `(command| def $id : $fnType := $fnValue)
+
+def mkHostConstructorDefCommandPublic
+    (resolvedIncludes : Array Name) (ctor : ConstructorDecl) : CommandElabM Cmd := do
+  let fnType ← mkContractFnType ctor.params .unit
+  match ctor.body with
+  | `(term| do $[$elems:doElem]*) =>
+      let mut preludes : Array (TSyntax `doElem) := #[]
+      for (mixinIdent, args) in ctor.mixinInits do
+        let mut targetName : Option Name := none
+        for mixinName in resolvedIncludes do
+          if targetName.isNone && namesMixin (toString mixinIdent.getId) mixinName then
+            targetName := some (mixinName ++ Name.mkSimple "constructor")
+        let tgt := mkIdent (targetName.getD (mixinIdent.getId ++ Name.mkSimple "constructor"))
+        if args.isEmpty then
+          preludes := preludes.push (← `(doElem| $tgt:ident))
+        else
+          preludes := preludes.push (← `(doElem| $tgt:ident $args*))
+      let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
+      let fnValue ← mkContractFnValue ctor.params body
+      let id : Ident := mkIdent (Name.mkSimple "constructor")
+      `(command| def $id : $fnType := $fnValue)
+  | _ =>
+      mkConstructorDefCommandPublic ctor
+
+def mkIncludeAliasCommandsPublic
+    (resolvedIncludes : Array Name) : CommandElabM (Array Cmd) := do
+  let mut cmds : Array Cmd := #[]
+  for mixinName in resolvedIncludes do
+    match (← lookupContractSyntax mixinName) with
+    | none => pure ()
+    | some mixin =>
+        for field in mixin.fields do
+          if field.emitDef then
+            let tgt := mkIdent (mixinName ++ field.ident.getId)
+            cmds := cmds.push (← `(command| abbrev $(field.ident) := $tgt))
+        for fn in mixin.functions do
+          unless fn.isInternal do
+            let tgt := mkIdent (mixinName ++ fn.ident.getId)
+            cmds := cmds.push (← `(command| abbrev $(fn.ident) := $tgt))
+        for modDecl in mixin.modifiers do
+          let tgt := mkIdent (mixinName ++ modDecl.ident.getId)
+          cmds := cmds.push (← `(command| abbrev $(modDecl.ident) := $tgt))
+        if mixin.ctor.isSome then
+          let tgt := mkIdent (mixinName ++ Name.mkSimple "constructor")
+          let id : Ident := mkIdent (Name.mkSimple s!"{mixinShortName mixinName}_constructor")
+          cmds := cmds.push (← `(command| abbrev $id := $tgt))
+  pure cmds
+
+def mkMergedSpecCommandPublic
+    (contractName : String)
+    (resolvedIncludes : Array Name) : CommandElabM Cmd := do
+  let mixinSpecs : Array Term :=
+    resolvedIncludes.map fun mixinName =>
+      mkIdent (mixinName ++ Name.mkSimple "spec")
+  `(command|
+    def spec : Compiler.CompilationModel.CompilationModel :=
+      Compiler.CompilationModel.mergeIncludedSpecs
+        $(strTerm contractName)
+        [ $[$mixinSpecs],* ]
+        host_spec)
+
 def mkFunctionCommandsPublic
     (fields : Array StorageFieldDecl)
     (roleDecls : Array RoleDecl)
@@ -4004,12 +4422,22 @@ def mkFunctionCommandsPublic
     (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (functions : Array FunctionDecl)
-    (fn : FunctionDecl) : CommandElabM (Array Cmd) := do
+    (fn : FunctionDecl)
+    (resolvedIncludes : Array Name := #[])
+    (boundImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM (Array Cmd) := do
   let fnType ← mkContractFnType fn.params fn.returnTy
-  let fnRoleGuardedBody ← mkRoleGuardedBody fields roleDecls fn
-  let fnDecl := { fn with body := fnRoleGuardedBody }
+  -- Mixin modifiers belong after ABI/enum, init, and role guards, matching
+  -- `translateBodyToStmtTerms`. Prefix them onto the source body so those
+  -- wrappers stay outside.
+  let fnBodyWithMixin ← prefixMixinModifierExecutableBody resolvedIncludes fn fn.body
+  let fnWithMixin := { fn with body := fnBodyWithMixin }
+  let fnRoleGuardedBody ← mkRoleGuardedBody fields roleDecls fnWithMixin
+  let fnDecl := { fnWithMixin with body := fnRoleGuardedBody }
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
-  let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
+  -- Bind only this contract's immutables. Mixin immutables keep the hidden
+  -- slots computed in the mixin namespace; recomputing them against host
+  -- fields would shift those slots.
+  let fnBody ← mkImmutableBoundBody fields boundImmutableDecls fn fnGuardedBody
   let fnExecutableBody ← rewriteForEachExecutableBody fields externalDecls fn.params fnBody
   -- The parsed body already contains guards for the model path. Re-applying
   -- them outside all executable wrappers makes ABI validation happen before
@@ -4018,7 +4446,23 @@ def mkFunctionCommandsPublic
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"
-  let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions fn
+  -- CompilationModel inlines mixin modifier statements so `modifies(...)`
+  -- can see the write set. The executable path above still binds the
+  -- mixin's Lean `def` (import, not copy).
+  let mut mixinModifiers : Array ModifierDecl := #[]
+  for mixinName in resolvedIncludes do
+    match (← lookupContractSyntax mixinName) with
+    | some mixin => mixinModifiers := mixinModifiers ++ mixin.modifiers
+    | none => pure ()
+  let modelFn ←
+    if mixinModifiers.isEmpty then
+      pure fn
+    else
+      let arr ← inlineModifierPrefixes mixinModifiers #[fn]
+      match arr[0]? with
+      | some inlined => pure inlined
+      | none => pure fn
+  let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
   let modelParams ← mkModelParamsTerm fn.params
   let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)
@@ -4080,8 +4524,16 @@ def mkSpecCommandPublic
     (modifiers : Array ModifierDecl)
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
-    (storageNamespace : Option Nat) : CommandElabM Cmd :=
-  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace
+    (storageNamespace : Option Nat)
+    (specIdent : Ident := mkIdent (Name.mkSimple "spec"))
+    (translationFields : Array StorageFieldDecl := fields)
+    (translationErrorDecls : Array ErrorDecl := errorDecls)
+    (translationConstDecls : Array ConstantDecl := constDecls)
+    (translationImmutableDecls : Array ImmutableDecl := immutableDecls)
+    (translationExternalDecls : Array ExternalDecl := externalDecls)
+    (translationFunctions : Array FunctionDecl := functions)
+    (constructorImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM Cmd :=
+  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace specIdent translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls
 
 def mkFindIdxFieldSimpCommandsPublic
     (contractIdent : Ident)

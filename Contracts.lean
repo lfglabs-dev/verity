@@ -7,7 +7,9 @@ import Contracts.Smoke
 import Contracts.Counter
 import Contracts.SimpleStorage
 import Contracts.Owned
+import Contracts.Ownable
 import Contracts.OwnedCounter
+import Contracts.OwnedCounterComposed
 import Contracts.SafeCounter
 import Contracts.Ledger
 import Contracts.Vault

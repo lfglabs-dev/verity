@@ -30,7 +30,9 @@ EVM Bytecode
 | Counter | 31 | Complete | `Contracts/Counter/Proofs/` |
 | SafeCounter | 25 | Complete | `Contracts/SafeCounter/Proofs/` |
 | Owned | 23 | Complete | `Contracts/Owned/Proofs/` |
+| Ownable | 6 | Complete | `Contracts/Ownable/Proofs/` |
 | OwnedCounter | 48 | Complete | `Contracts/OwnedCounter/Proofs/` |
+| OwnedCounterComposed | 6 | Complete | `Contracts/OwnedCounterComposed/Proofs/` |
 | Ledger | 33 | Complete | `Contracts/Ledger/Proofs/` |
 | LocalObligationMacroSmoke | 4 | Baseline | `Contracts/LocalObligationMacroSmoke/Proofs/` |
 | SimpleToken | 61 | Complete | `Contracts/SimpleToken/Proofs/` |
@@ -40,9 +42,9 @@ EVM Bytecode
 | ReentrancyExample | 5 | Complete | `Contracts/ReentrancyExample/Contract.lean` |
 | ReentrancyRelyGuarantee | 10 | Semantic | `Contracts/ReentrancyRelyGuarantee/Contract.lean` |
 | CryptoHash | 0 | No specs | `Contracts/CryptoHash/Contract.lean` |
-| **Total** | **302** | **✅ 100%** | — |
+| **Total** | **314** | **✅ 100%** | — |
 
-> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (302 total properties).
+> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (314 total properties).
 
 Layer 1 uses macro-generated EDSL-to-`CompilationModel` bridge theorems backed by a generic typed-IR compilation-correctness theorem ([`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean)). Tuple/bytes/fixed-array/dynamic-array/string parameters now stay inside that proof path when they are carried as ABI head words/offsets. Advanced constructs beyond that typed-IR head-word surface (linked libraries, ECMs, fully custom ABI behavior) are still expressed directly in `CompilationModel` and trusted at that boundary. Higher-order internal helpers (function-pointer parameters, [#1747](https://github.com/lfglabs-dev/verity/issues/1747)) are eliminated by a compile-time monomorphization pre-pass that runs before any lowering, so the `CompilationModel` only ever contains first-order helpers: these calls are covered by the existing first-order proof path and introduce no new boundary trust.
 
@@ -198,17 +200,19 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 | SimpleStorage | 95% (19/20) | 1 proof-only |
 | OwnedCounter | 92% (44/48) | 4 proof-only |
 | Owned | 87% (20/23) | 3 proof-only |
+| Ownable | 0% (0/6) | 6 proof-only |
+| OwnedCounterComposed | 0% (0/6) | 6 proof-only |
 | SimpleToken | 85% (52/61) | 9 proof-only |
 | Counter | 74% (23/31) | 8 proof-only |
 | Stdlib | 0% (0/0) | 0 proof-only |
 
-**Status**: 84% coverage (255/302), 47 remaining exclusions all proof-only
+**Status**: 81% coverage (255/314), 59 remaining exclusions all proof-only
 
-- **Total Properties**: 302
+- **Total Properties**: 314
 - **Covered**: 255
-- **Excluded**: 47 (all proof-only)
+- **Excluded**: 59 (all proof-only)
 
-**Proof-Only Properties (47 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
+**Proof-Only Properties (59 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
 
 0 `sorry` remaining across `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules.
 5266 theorems/lemmas (3645 public, 1621 private) verified by `lake build PrintAxioms`.

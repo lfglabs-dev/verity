@@ -65,8 +65,7 @@ private def parseIntrinsicProofStatus (status : Ident) : CommandElabM String := 
       throwErrorAt status
         "unsupported proof status for verity_intrinsic obligation; expected proved, assumed, or unchecked"
 
-@[command_elab verityContractCmd]
-def elabVerityContract : CommandElab := fun stx => do
+private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   let parsed ← parseContractSyntax stx
   let contractName := parsed.contractName
   let structDecls := parsed.structDecls
@@ -83,12 +82,48 @@ def elabVerityContract : CommandElab := fun stx => do
   let modifiers := parsed.modifiers
   let functions := parsed.functions
   let storageNamespace := parsed.storageNamespace
+  let isMixin := parsed.isMixin
+  let resolvedIncludes := parsed.resolvedIncludes
 
   validateGeneratedDefNamesPublic fields constDecls immutableDecls functions
   validateConstantDeclsPublic constDecls
   validateImmutableDeclsPublic fields constDecls immutableDecls ctor
   validateExternalDeclsPublic externalDecls
-  validateFunctionDeclsPublic fields errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions
+  let mut mixinModifiers : Array ModifierDecl := #[]
+  let mut mixinFields : Array StorageFieldDecl := #[]
+  let mut mixinErrorDecls : Array ErrorDecl := #[]
+  let mut mixinEventDecls : Array EventDecl := #[]
+  let mut mixinConstDecls : Array ConstantDecl := #[]
+  let mut mixinImmutableDecls : Array ImmutableDecl := #[]
+  let mut mixinExternalDecls : Array ExternalDecl := #[]
+  let mut mixinFunctions : Array FunctionDecl := #[]
+  let mut mixinRoleDecls : Array RoleDecl := #[]
+  let mut mixinParsed : Array (Name × ParsedContractSyntax) := #[]
+  for mixinName in resolvedIncludes do
+    match (← lookupContractSyntaxPublic mixinName) with
+    | some mixin =>
+        mixinModifiers := mixinModifiers ++ mixin.modifiers
+        mixinFields := mixinFields ++ mixin.fields
+        mixinErrorDecls := mixinErrorDecls ++ mixin.errorDecls
+        mixinEventDecls := mixinEventDecls ++ mixin.eventDecls
+        mixinConstDecls := mixinConstDecls ++ mixin.constDecls
+        mixinImmutableDecls := mixinImmutableDecls ++ mixin.immutableDecls
+        mixinExternalDecls := mixinExternalDecls ++ mixin.externalDecls
+        mixinFunctions := mixinFunctions ++ mixin.functions
+        mixinRoleDecls := mixinRoleDecls ++ mixin.roleDecls
+        mixinParsed := mixinParsed.push (mixinName, mixin)
+    | none => pure ()
+  let translationFields := mixinFields ++ fields
+  let translationErrorDecls := mixinErrorDecls ++ errorDecls
+  let translationEventDecls := mixinEventDecls ++ eventDecls
+  let translationConstDecls := mixinConstDecls ++ constDecls
+  let translationImmutableDecls := mixinImmutableDecls ++ immutableDecls
+  let translationExternalDecls := mixinExternalDecls ++ externalDecls
+  let translationFunctions := mixinFunctions ++ functions
+  let translationRoleDecls := mixinRoleDecls ++ roleDecls
+  validateFunctionDeclsPublic translationFields translationErrorDecls translationEventDecls
+    translationConstDecls translationImmutableDecls translationExternalDecls ctor
+    (mixinModifiers ++ modifiers) translationFunctions
 
   let declarationNs ← getCurrNamespace
   elabCommand (← `(namespace $contractName))
@@ -99,6 +134,10 @@ def elabVerityContract : CommandElab := fun stx => do
     for structDecl in structDecls do
       elabCommand (← mkStructDefCommandPublic structDecl)
       elabCommand (← mkStructEventArgInstanceCommandPublic structDecl)
+
+    let aliasCmds ← mkIncludeAliasCommandsPublic resolvedIncludes
+    for cmd in aliasCmds do
+      elabCommand cmd
 
     for field in fields do
       if field.emitDef then
@@ -118,13 +157,48 @@ def elabVerityContract : CommandElab := fun stx => do
     -- Use the resolved namespace from parseContractSyntax to respect custom keys.
     elabCommand (← mkStorageNamespaceCommand (toString contractName.getId) storageNamespace)
 
+    if isMixin then
+      for modDecl in modifiers do
+        elabCommand (← mkModifierDefCommandPublic modDecl)
+      match ctor with
+      | some ctorDecl =>
+          elabCommand (← mkConstructorDefCommandPublic ctorDecl)
+      | none => pure ()
+
+    if !resolvedIncludes.isEmpty then
+      match ctor with
+      | some ctorDecl =>
+          elabCommand (← mkHostConstructorDefCommandPublic resolvedIncludes ctorDecl)
+      | none => pure ()
+
+    -- Translation (not storage-def emission) must see mixin fields/decls so
+    -- inlined mixin-modifier CompilationModel bodies can resolve slots,
+    -- custom errors, constants, and helpers.
     for fn in functions do
-      let fnCmds ← mkFunctionCommandsPublic fields roleDecls errorDecls constDecls immutableDecls externalDecls functions fn
+      let fnCmds ← mkFunctionCommandsPublic translationFields translationRoleDecls
+        translationErrorDecls translationConstDecls translationImmutableDecls
+        translationExternalDecls translationFunctions fn resolvedIncludes
+        (boundImmutableDecls := immutableDecls)
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
 
-    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace)
+    let specName : Ident :=
+      if resolvedIncludes.isEmpty then mkIdent (Name.mkSimple "spec")
+      else mkIdent (Name.mkSimple "host_spec")
+    let mut modelCtor := ctor
+    if !resolvedIncludes.isEmpty then
+      match ctor with
+      | some ctorDecl =>
+          modelCtor := some (← expandMixinConstructorForModelPublic
+            translationFields translationConstDecls translationImmutableDecls
+            translationExternalDecls ctorDecl mixinParsed)
+      | none => pure ()
+    let constructorImmutableDecls :=
+      includedMixinImmutablesForHostPublic ctor mixinParsed ++ immutableDecls
+    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls modelCtor modifiers functions adtDecls storageNamespace specName translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls)
+    if !resolvedIncludes.isEmpty then
+      elabCommand (← mkMergedSpecCommandPublic (toString contractName.getId) resolvedIncludes)
 
     let findIdxSimpCmds ← mkFindIdxFieldSimpCommandsPublic contractName fields
     for cmd in findIdxSimpCmds do
@@ -159,10 +233,13 @@ def elabVerityContract : CommandElab := fun stx => do
 
     -- Emit per-function _modifies theorem and _frame definition for
     -- functions with modifies(...) annotation (#1729, Axis 3 Step 1b).
+    -- Mixin / include functions keep the frame definition; the automatic
+    -- `_frame_holds` simp proof cannot close over mixin `require` guards.
+    let generateExecutionFrame := !isMixin && resolvedIncludes.isEmpty
     for fn in functions do
       if !fn.modifies.isEmpty then
         elabCommand (← mkModifiesTheoremCommand fn)
-        let frameCmds ← mkFrameDefCommand fields fn
+        let frameCmds ← mkFrameDefCommand translationFields fn generateExecutionFrame
         for cmd in frameCmds do
           elabCommand cmd
 
@@ -211,6 +288,14 @@ def elabVerityContract : CommandElab := fun stx => do
   catch err =>
     elabCommand (← `(end $contractName))
     throw err
+
+@[command_elab verityContractCmd]
+def elabVerityContract : CommandElab := fun stx =>
+  elabVerityContractOrMixin stx
+
+@[command_elab verityMixinCmd]
+def elabVerityMixin : CommandElab := fun stx =>
+  elabVerityContractOrMixin stx
 
 @[command_elab verityIntrinsicCmd]
 def elabVerityIntrinsic : CommandElab := fun stx => do

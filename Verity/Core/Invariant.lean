@@ -34,6 +34,12 @@ theorem comp {σ : Type} {Inv : σ → Prop} {f g : σ → σ}
     Preserves Inv (fun s => f (g s)) :=
   fun s h => hf (g s) (hg s h)
 
+/-- Conjunction of invariants is preserved when each conjunct is. -/
+theorem and {σ : Type} {InvA InvB : σ → Prop} {f : σ → σ}
+    (hA : Preserves InvA f) (hB : Preserves InvB f) :
+    Preserves (fun s => InvA s ∧ InvB s) f :=
+  fun s h => ⟨hA s h.1, hB s h.2⟩
+
 end Preserves
 
 /-- A reentrant adversary as a finite *schedule* of picked entrypoints, applied
