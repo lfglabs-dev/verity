@@ -2101,8 +2101,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Contract.compiled_internal_functions_forall₂_of_mapM_ok  -- private
   -- Compiler.Proofs.IRGeneration.Contract.exists_right_of_forall₂_mem_left  -- private
   Compiler.Proofs.IRGeneration.Contract.filterInternalFunctions_eq_nil_of_all_nonInternal
-  -- Compiler.Proofs.IRGeneration.Contract.filterInternalFunctions_eq_nil_of_supported  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.filterInternalFunctions_eq_nil_of_supported_except_mapping_writes  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_yields_compiled_functions  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_yields_compiled_functions_except_mapping_writes  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_yields_internalFunctions_nil  -- private
@@ -2217,6 +2215,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ContractShape.supportedSpecWithScalarEvents_entries_lock_free
   -- Compiler.Proofs.IRGeneration.ContractShape.filterInternalFunctions_eq_nil_of_all_nonInternal  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.filterInternalFunctions_eq_nil_of_supported  -- private
+  Compiler.Proofs.IRGeneration.ContractShape.coreHelperInternalFunctions_eq_nil
+  Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_core
+  Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_inv
   -- Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_yields_compiled_functions  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_yields_internalFunctions_nil  -- private
   -- Compiler.Proofs.IRGeneration.ContractShape.compileValidatedCore_ok_yields_deploy_compileConstructor  -- private
@@ -6782,4 +6783,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6307 theorems/lemmas (4441 public, 1866 private, 0 sorry'd)
+-- Total: 6308 theorems/lemmas (4444 public, 1864 private, 0 sorry'd)
