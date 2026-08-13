@@ -79,6 +79,7 @@ import Compiler.Proofs.IRGeneration.GuardedCompile
 import Compiler.Proofs.IRGeneration.GuardedContractShape
 import Compiler.Proofs.IRGeneration.GuardedDispatch
 import Compiler.Proofs.IRGeneration.GuardedFunction
+import Compiler.Proofs.IRGeneration.GuardedSourceBridge
 import Compiler.Proofs.IRGeneration.GuardedSpec
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperBodyShape
@@ -3575,6 +3576,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_fallthrough
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_halting
 
+  -- Compiler/Proofs/IRGeneration/GuardedSourceBridge.lean
+  Compiler.Proofs.IRGeneration.withTransactionContext_setLock
+  Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_go_setLock
+  Compiler.Proofs.IRGeneration.encodeStorageAt_setLock
+  Compiler.Proofs.IRGeneration.initialIRStateForTx_setLock
+  Compiler.Proofs.IRGeneration.execResultToIRResult_lock_overlay
+  Compiler.Proofs.IRGeneration.revertedResult_matches_revert_projection
+  Compiler.Proofs.IRGeneration.interpretGuardedFunction_matches
+
   -- Compiler/Proofs/IRGeneration/GuardedSpec.lean
   Compiler.Proofs.IRGeneration.SupportedSpecGuarded.noInternalFunctions
   Compiler.Proofs.IRGeneration.compileValidatedCore_ok_yields_guarded_functions
@@ -6747,4 +6757,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6284 theorems/lemmas (4415 public, 1869 private, 0 sorry'd)
+-- Total: 6291 theorems/lemmas (4422 public, 1869 private, 0 sorry'd)
