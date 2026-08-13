@@ -1127,7 +1127,7 @@ theorem compile_setStorage_literal_semantics
       .ok { init with world := execSourceSetStorageLiteral init.world slot n } := by
   simp [execCompiledSetStorageLiteral, execSourceSetStorageLiteral,
     compileStmts_single_setStorage_literal_run, hfind, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation theorem for the supported two-statement subset:
 compiling and running `letVar tmp (literal n); setStorage fieldName (localVar tmp)`
@@ -1144,7 +1144,7 @@ theorem compile_let_setStorage_local_literal_semantics
             vars := init.vars.set { id := 0, ty := Ty.uint256 } (n : Verity.Core.Uint256) }) := by
   simp [execCompiledLetSetStorageLocalLiteral, execSourceSetStorageLiteral,
     compileStmts_let_literal_setStorage_local_run, hfind, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation theorem for a broader supported three-statement subset:
 compiling and running
@@ -1164,7 +1164,7 @@ theorem compile_let_assign_setStorage_local_literal_semantics
               { id := 1, ty := Ty.uint256 } (m : Verity.Core.Uint256) }) := by
   simp [execCompiledLetAssignSetStorageLocalLiteral, execSourceSetStorageLiteral,
     compileStmts_let_assign_literal_setStorage_local_run, hfind, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation theorem for an arithmetic supported three-statement subset:
 compiling and running
@@ -1186,7 +1186,7 @@ theorem compile_let_assign_add_setStorage_local_literal_semantics
                 ((n : Verity.Core.Uint256).add (m : Verity.Core.Uint256)) }) := by
   simp [execCompiledLetAssignAddSetStorageLocalLiteral, execSourceSetStorageLiteral,
     compileStmts_let_assign_add_literal_setStorage_local_run, hfind, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation theorem for an arithmetic supported three-statement subset:
 compiling and running
@@ -1310,7 +1310,7 @@ theorem compile_return_storage_semantics
   simp [execCompiledReturnStorage, execSourceReturnStorage,
     compileStmts_single_return_storage_run, hfind,
     evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation theorem for `return (storage field)` (address). -/
 theorem compile_return_storage_addr_semantics
@@ -1323,7 +1323,7 @@ theorem compile_return_storage_addr_semantics
   simp [execCompiledReturnStorageAddr, execSourceReturnStorageAddr,
     compileStmts_single_return_storage_addr_run, hfind,
     evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation for `return (mapping fieldName caller)`:
 compiled execution matches direct source semantics (no state change). -/
@@ -1336,7 +1336,7 @@ theorem compile_return_mapping_caller_semantics
   simp [execCompiledReturnMappingCaller, execSourceReturnMappingCaller,
     compileStmts_single_return_mapping_caller_run, hSlot,
     evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation for the address storage-read + return pattern. -/
 theorem compile_let_storage_addr_return_local_semantics
@@ -1952,7 +1952,7 @@ theorem compile_return_literal_semantics
     execCompiledReturnLiteral fields init n = execSourceReturnLiteral init n := by
   simp [execCompiledReturnLiteral, execSourceReturnLiteral,
     compileStmts_single_return_literal_run, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation theorem for a broader supported subset:
 compiling and running `letVar tmp (literal n); return (localVar tmp)`
@@ -1963,7 +1963,7 @@ theorem compile_let_return_local_literal_semantics
       execSourceLetReturnLocalLiteral init n := by
   simp [execCompiledLetReturnLocalLiteral, execSourceLetReturnLocalLiteral,
     compileStmts_let_return_local_literal_run, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.readSlot, Verity.ContractState.writeSlot]
+  simp [evalTStmtsFuel, evalTStmtFuel]
 
 /-- Semantic-preservation theorem for a broader supported branch subset:
 compiling and running
