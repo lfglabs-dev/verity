@@ -35,7 +35,7 @@ theorem compileStmts_append_from (fields : List Field) (pre post : List Stmt)
 `setStorage fieldName (literal n)` updates the resolved storage slot. -/
 def execSourceSetStorageLiteral (world : Verity.ContractState) (slot : Nat) (n : Verity.Core.Uint256) :
     Verity.ContractState :=
-  { world with storage := fun i => if i == slot then n else world.storage i }
+  world.writeSlot slot n
 
 /-- Compile + execute the same supported subset statement through typed IR. -/
 def execCompiledSetStorageLiteral
@@ -455,9 +455,8 @@ def execSourceRequireCallerEqStorageAddrSetStorageAddStop
     (init : TExecState) (ownerSlot countSlot : Nat) (n : Nat)
     (msg : String) : TExecResult :=
   if decide (init.env.sender = init.world.storageAddr ownerSlot) then
-    .ok { init with world := { init.world with
-      storage := fun i => if i == countSlot then
-        Verity.Core.Uint256.add (init.world.storage countSlot) n else init.world.storage i } }
+    .ok { init with world := (init.world.writeSlot countSlot
+      (Verity.Core.Uint256.add (init.world.storage countSlot) n)) }
   else .revert msg
 
 /-- Compiled semantics for `require (eq caller (storage ownerField)) msg ;
@@ -478,9 +477,8 @@ def execSourceRequireCallerEqStorageAddrSetStorageSubStop
     (init : TExecState) (ownerSlot countSlot : Nat) (n : Nat)
     (msg : String) : TExecResult :=
   if decide (init.env.sender = init.world.storageAddr ownerSlot) then
-    .ok { init with world := { init.world with
-      storage := fun i => if i == countSlot then
-        Verity.Core.Uint256.sub (init.world.storage countSlot) n else init.world.storage i } }
+    .ok { init with world := (init.world.writeSlot countSlot
+      (Verity.Core.Uint256.sub (init.world.storage countSlot) n)) }
   else .revert msg
 
 /-- Compiled semantics for `require (eq caller (storage ownerField)) msg ;

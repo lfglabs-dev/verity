@@ -32,7 +32,7 @@ open Verity.Core.Invariant (Preserves runSeq)
 
 /-- Write `value` into transient lock slot `slot`. -/
 def setLock (slot : Nat) (value : Uint256) (s : ContractState) : ContractState :=
-  { s with transientStorage := fun k => if k == slot then value else s.transientStorage k }
+  s.writeTransient slot value
 
 @[simp] theorem setLock_reads (slot : Nat) (value : Uint256) (s : ContractState) :
     (setLock slot value s).transientStorage slot = value := by

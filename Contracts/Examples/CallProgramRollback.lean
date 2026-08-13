@@ -71,7 +71,7 @@ the initial and the final state. -/
 
 def mutatingAdversary : AdversaryModel where
   stateTransition := fun site w =>
-    { w with storage := fun slot => if slot == site.siteId then 42 else w.storage slot }
+    w.writeSlot site.siteId 42
   result := fun _ _ => .success []
   gasUsed := fun _ _ => 5
 
