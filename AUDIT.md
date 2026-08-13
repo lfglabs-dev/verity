@@ -193,6 +193,24 @@ sibling entrypoint.
   Journal".
 - **Axiom-free**: `AXIOMS.md` unchanged.
 
+## Guarded Event Preservation + Checked Arithmetic Completion (2026-08)
+
+- `Compiler/Proofs/IRGeneration/GuardedScalarEvents.lean`:
+  `compile_preserves_semantics_guarded_with_scalar_events` closes final-result
+  event preservation (`encodeEvents source.events = ir.events`) for the
+  guarded whole-contract pipeline on the scalar-event fragment, by proving
+  the guarded source semantics collapses to the plain one when every
+  dispatched function is lock-free (which `SupportedSpecWithScalarEvents`
+  forces). Pure composition of the #2000 event lane and the #2314–#2317
+  guarded family; no new semantic assumption, no axiom.
+- The `notModeledEventEmission` trust slice and `--deny-event-emission` gate
+  are **kept**: they flag `rawLog`, which remains unmodeled. Known limit
+  (documented in `TRUST_ASSUMPTIONS.md` §Event Emission): the slice does not
+  enumerate declared `Stmt.emit` sites outside the scalar fragment; that
+  boundary is enforced at the theorem support witness instead.
+- `Verity/Core/Uint256.lean`: `checkedSub`/`checkedMul` + `subNoWrap`/`mulNoWrap`
+  complete the checked-arithmetic lane (#1993) alongside `checkedAdd`.
+
 ## Audit Artifacts
 
 | Artifact | Purpose | Check |

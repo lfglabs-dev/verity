@@ -143,7 +143,7 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
       calldata := s.calldata,
       memory := s.memory,
       knownAddresses := s.knownAddresses,
-      events := s.events } := by
+      events := s.events, calls := s.calls } := by
   verity_unfold transferOwnership with h_owner
   simp [owner]
   exact h_owner

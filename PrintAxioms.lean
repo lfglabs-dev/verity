@@ -53,6 +53,7 @@ import Compiler.Proofs.IRGeneration.DenoteAgreement
 import Compiler.Proofs.IRGeneration.DenoteEquivalence
 import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 import Compiler.Proofs.IRGeneration.Dispatch
+import Compiler.Proofs.IRGeneration.DispatchGeneric
 import Compiler.Proofs.IRGeneration.DynamicAbiRefinement
 import Compiler.Proofs.IRGeneration.ErrorStringPayloadIR
 import Compiler.Proofs.IRGeneration.EventObservable
@@ -80,6 +81,7 @@ import Compiler.Proofs.IRGeneration.GuardedContract
 import Compiler.Proofs.IRGeneration.GuardedContractShape
 import Compiler.Proofs.IRGeneration.GuardedDispatch
 import Compiler.Proofs.IRGeneration.GuardedFunction
+import Compiler.Proofs.IRGeneration.GuardedScalarEvents
 import Compiler.Proofs.IRGeneration.GuardedSourceBridge
 import Compiler.Proofs.IRGeneration.GuardedSpec
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
@@ -2317,13 +2319,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.denoteFunction_eq
 
   -- Compiler/Proofs/IRGeneration/Dispatch.lean
-  Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_internalFunctions
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_legacyCompatible
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_disjoint
-  -- Compiler.Proofs.IRGeneration.Dispatch.decodeSupportedParamWord_some_of_supported  -- private
-  Compiler.Proofs.IRGeneration.Dispatch.bindSupportedParams_some_of_supported
-  -- Compiler.Proofs.IRGeneration.Dispatch.find_compiledFunction_some_of_forall₂  -- private
-  -- Compiler.Proofs.IRGeneration.Dispatch.find_compiledFunction_none_of_forall₂  -- private
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions
   Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithInternals_correct_of_compiled_functions
   Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithHelpersWithInternals_correct_of_compiled_functions
@@ -2339,6 +2336,21 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_goal
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_of_disjointRuntimeContract
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_closed
+
+  -- Compiler/Proofs/IRGeneration/DispatchGeneric.lean
+  Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_internalFunctions
+  -- Compiler.Proofs.IRGeneration.Dispatch.decodeSupportedParamWord_some_of_supported  -- private
+  Compiler.Proofs.IRGeneration.Dispatch.bindSupportedParams_some_of_supported
+  Compiler.Proofs.IRGeneration.Dispatch.not_length_le_of_bindSupportedParams_none
+  Compiler.Proofs.IRGeneration.interpretFunction_eq_reverted_of_bind_none
+  Compiler.Proofs.IRGeneration.interpretFunctionWithHelpers_eq_reverted_of_bind_none
+  Compiler.Proofs.IRGeneration.interpretContract_eq_interpretContractWith
+  Compiler.Proofs.IRGeneration.interpretContractWithHelpers_eq_interpretContractWith
+  Compiler.Proofs.IRGeneration.find_function_some_of_forall₂_generic
+  Compiler.Proofs.IRGeneration.find_function_none_of_forall₂_generic
+  Compiler.Proofs.IRGeneration.interpretContractWith_correct_generic
+  Compiler.Proofs.IRGeneration.interpretContractWith_correct_of_functions_generic
+  Compiler.Proofs.IRGeneration.interpretContract_correct_of_functions_generic
 
   -- Compiler/Proofs/IRGeneration/DynamicAbiRefinement.lean
   Compiler.Proofs.IRGeneration.DynamicAbiRefinement.arrayElementDynamicHeadOffset?_index_oob
@@ -3561,7 +3573,6 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/IRGeneration/GuardedContract.lean
   Compiler.Proofs.IRGeneration.revertedResult_setLock
-  Compiler.Proofs.IRGeneration.interpretContractWith_correct_of_functions_generic
   Compiler.Proofs.IRGeneration.SupportedFunctionGuarded.paramsSupported
   Compiler.Proofs.IRGeneration.supported_params_of_supportedSpecGuarded
   Compiler.Proofs.IRGeneration.guardedFunctionChoice_bindFail
@@ -3573,9 +3584,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.guarded_functions_forall₂_of_mapM_ok
 
   -- Compiler/Proofs/IRGeneration/GuardedDispatch.lean
-  Compiler.Proofs.IRGeneration.find_function_some_of_forall₂_generic
-  Compiler.Proofs.IRGeneration.find_function_none_of_forall₂_generic
-  Compiler.Proofs.IRGeneration.interpretContract_correct_of_functions_generic
   Compiler.Proofs.IRGeneration.interpretContract_correct_of_compiled_guarded_functions
 
   -- Compiler/Proofs/IRGeneration/GuardedFunction.lean
@@ -3584,6 +3592,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.acquiredBoundState_eq
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_fallthrough
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_halting
+
+  -- Compiler/Proofs/IRGeneration/GuardedScalarEvents.lean
+  Compiler.Proofs.IRGeneration.guardedFunctionChoice_eq_of_none
+  Compiler.Proofs.IRGeneration.interpretGuardedContract_eq_of_lock_free
+  Compiler.Proofs.IRGeneration.lock_free_of_supportedSpecWithScalarEvents
+  Compiler.Proofs.IRGeneration.compile_preserves_semantics_guarded_with_scalar_events
+  Compiler.Proofs.IRGeneration.guarded_scalar_events_final_events_eq
 
   -- Compiler/Proofs/IRGeneration/GuardedSourceBridge.lean
   Compiler.Proofs.IRGeneration.withTransactionContext_setLock
@@ -3603,6 +3618,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
   -- Compiler.Proofs.IRGeneration.helperBridge_internalFunctionYulName_head  -- private
   -- Compiler.Proofs.IRGeneration.helperBridge_internalFunctionYulName_ne_of_head  -- private
+  -- Compiler.Proofs.IRGeneration.helperBridge_internalFunctionYulName_ne_invalid  -- private
   -- Compiler.Proofs.IRGeneration.helperBridge_internalFunctionYulName_isYulLogName_false  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_call_internal  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_internalCallAssign_obeys_internal_helper_summary
@@ -6766,4 +6782,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6297 theorems/lemmas (4430 public, 1867 private, 0 sorry'd)
+-- Total: 6307 theorems/lemmas (4441 public, 1866 private, 0 sorry'd)

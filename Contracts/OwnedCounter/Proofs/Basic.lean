@@ -132,7 +132,7 @@ theorem increment_unfold (s : ContractState)
       calldata := s.calldata,
       memory := s.memory,
       knownAddresses := s.knownAddresses,
-      events := s.events } := by
+      events := s.events, calls := s.calls } := by
   verity_unfold increment
   simp [owner, count, h_owner]
 
@@ -187,7 +187,7 @@ theorem decrement_unfold (s : ContractState)
       calldata := s.calldata,
       memory := s.memory,
       knownAddresses := s.knownAddresses,
-      events := s.events } := by
+      events := s.events, calls := s.calls } := by
   verity_unfold decrement
   simp [owner, count, h_owner]
 
@@ -241,7 +241,7 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
        calldata := s.calldata,
        memory := s.memory,
        knownAddresses := s.knownAddresses,
-       events := s.events } := by
+       events := s.events, calls := s.calls } := by
   verity_unfold transferOwnership
   simp [owner, h_owner]
 
