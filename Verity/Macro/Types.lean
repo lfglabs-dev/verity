@@ -280,6 +280,9 @@ structure ConstructorDecl where
   boundParentParamNames : Array String := #[]
   parentName? : Option Ident := none
   parentArgs : Array Term := #[]
+  /-- Mixin constructor inits from `constructor (...) M1(args) M2(args)`.
+      For `is Parent`, the first init is also recorded in `parentName?`/`parentArgs`. -/
+  mixinInits : Array (Ident × Array Term) := #[]
   body : Term
 
 def strTerm (s : String) : Term := ⟨Syntax.mkStrLit s⟩

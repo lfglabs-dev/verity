@@ -26,20 +26,21 @@ The fundamental access control property: non-owners cannot transfer ownership.
 /-- transferOwnership reverts when the caller is not the owner.
     This is the core security property of the Owned pattern. -/
 theorem transferOwnership_reverts_when_not_owner (s : ContractState) (newOwner : Address)
-  (h_not_owner : s.sender ≠ s.storageAddr 0) :
+  (h_not_owner : s.sender ≠ s.storageAddr owner.slot) :
   ∃ msg, (transferOwnership newOwner).run s = ContractResult.revert msg s := by
+  have h : s.sender ≠ s.storageAddr 0 := by simpa [owner] using h_not_owner
   simp [transferOwnership, owner,
-    msgSender, getStorageAddr,
+    msgSender, getStorageAddr, ContractState.readAddrSlot,
     Verity.require, Verity.bind, Bind.bind,
     Contract.run,
-    address_beq_false_of_ne s.sender (s.storageAddr 0) h_not_owner]
+    address_beq_false_of_ne s.sender (s.storageAddr 0) h]
 
 /-! ## Invariant Preservation -/
 
 /-- transferOwnership preserves WellFormedState when the new owner is non-empty.
     After ownership transfer, all address fields remain non-empty. -/
 theorem transferOwnership_preserves_wellformedness (s : ContractState) (newOwner : Address)
-  (h : WellFormedState s) (h_owner : s.sender = s.storageAddr 0) (h_new : newOwner ≠ 0) :
+  (h : WellFormedState s) (h_owner : s.sender = s.storageAddr owner.slot) (h_new : newOwner ≠ 0) :
   let s' := ((transferOwnership newOwner).run s).snd
   WellFormedState s' := by
   verity_frame (transferOwnership_unfold s newOwner h_owner)
@@ -55,19 +56,21 @@ theorem constructor_transferOwnership_getOwner (s : ContractState) (initialOwner
   let s2 := ((transferOwnership newOwner).run s1).snd
   ((getOwner).run s2).fst = newOwner := by
   simp [setStorageAddr, transferOwnership, owner, getOwner,
-    msgSender, getStorageAddr, setStorageAddr,
+    msgSender, getStorageAddr, ContractState.readAddrSlot, ContractState.writeAddrSlot,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
     Contract.run, ContractResult.snd, ContractResult.fst, h_sender]
 
 /-- After ownership transfer, the previous owner can no longer transfer.
     Proves that ownership is truly transferred, not just copied. -/
 theorem transferred_owner_cannot_act (s : ContractState) (newOwner : Address)
-  (h_owner : s.sender = s.storageAddr 0) (h_ne : s.sender ≠ newOwner) :
+  (h_owner : s.sender = s.storageAddr owner.slot) (h_ne : s.sender ≠ newOwner) :
   let s' := ((transferOwnership newOwner).run s).snd
   ∃ msg, (transferOwnership 42).run s' = ContractResult.revert msg s' := by
   have h_ne' : ((transferOwnership newOwner).run s).snd.sender ≠
-      ((transferOwnership newOwner).run s).snd.storageAddr 0 := by
+      ((transferOwnership newOwner).run s).snd.storageAddr owner.slot := by
     verity_frame (transferOwnership_unfold s newOwner h_owner) with h_ne
+    simp [owner] at *
+    exact h_ne
   exact transferOwnership_reverts_when_not_owner _ _ h_ne'
 
 /-! ## Summary

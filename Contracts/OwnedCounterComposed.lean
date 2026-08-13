@@ -1,0 +1,3 @@
+import Contracts.OwnedCounterComposed.OwnedCounterComposed
+import Contracts.OwnedCounterComposed.Spec
+import Contracts.OwnedCounterComposed.Proofs.Basic

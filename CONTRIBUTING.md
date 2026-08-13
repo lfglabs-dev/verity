@@ -47,6 +47,7 @@ FOUNDRY_PROFILE=difftest forge test  # Must pass — runs all Foundry tests
 
 **When adding a new contract**, also update:
 - Author the contract with `verity_contract`; do not add a separate hand-written `Compiler.Specs` body unless the workflow truly requires a special case like external linking.
+- A new reusable facet (Ownable, Pausable, …) is a `verity_mixin` plus named-slot specs, a `Footprint`, and `_meets_spec` / guard theorems. Hosts `include` the mixin; do not copy `Owned.lean` into the host.
 - Add the macro-generated `<Name>.spec` alias/list entry in [`Contracts/Specs.lean`](Contracts/Specs.lean) if the contract should ship through the default compiler manifest.
 - `test/property_manifest.json` — Run `python3 scripts/extract_property_manifest.py`
 - `README.md` — Contracts table (theorem count and description)

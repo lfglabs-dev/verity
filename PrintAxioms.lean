@@ -17,11 +17,13 @@ import Contracts.Ledger.Proofs.Conservation
 import Contracts.Ledger.Proofs.Correctness
 import Contracts.LocalObligationMacroSmoke.Proofs.Basic
 import Contracts.LocalObligationMacroSmoke.Proofs.Correctness
+import Contracts.Ownable.Proofs.Basic
 import Contracts.Owned.Proofs.Basic
 import Contracts.Owned.Proofs.Correctness
 import Contracts.OwnedCounter.Proofs.Basic
 import Contracts.OwnedCounter.Proofs.Correctness
 import Contracts.OwnedCounter.Proofs.Isolation
+import Contracts.OwnedCounterComposed.Proofs.Basic
 import Contracts.SafeCounter.Proofs.Basic
 import Contracts.SafeCounter.Proofs.Correctness
 import Contracts.SimpleStorage.Proofs.Basic
@@ -45,6 +47,8 @@ import Compiler.Proofs.EventSemantics
 import Compiler.Proofs.ExecutionSummary
 import Compiler.Proofs.Frames
 import Compiler.Proofs.HelperStepProofs
+import Compiler.Proofs.IRGeneration.BoundedLoopCheck
+import Compiler.Proofs.IRGeneration.BoundedLoopFuel
 import Compiler.Proofs.IRGeneration.CEISafety
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
@@ -392,6 +396,15 @@ end Verity.AxiomAudit
   -- Contracts/LocalObligationMacroSmoke/Proofs/Correctness.lean
   Contracts.LocalObligationMacroSmoke.Proofs.Correctness.dischargedEdge_roundtrip
 
+  -- Contracts/Ownable/Proofs/Basic.lean
+  -- Contracts.Ownable.Proofs.owner_slot_zero  -- private
+  Contracts.Ownable.Proofs.onlyOwner_ok
+  Contracts.Ownable.Proofs.onlyOwner_reverts
+  Contracts.Ownable.Proofs.transferOwnership_writes_only
+  Contracts.Ownable.Proofs.transferOwnership_meets_spec_when_owner
+  Contracts.Ownable.Proofs.getOwner_meets_spec
+  Contracts.Ownable.Proofs.constructor_sets_owner
+
   -- Contracts/Owned/Proofs/Basic.lean
   Contracts.Owned.Proofs.setStorageAddr_updates_owner
   Contracts.Owned.Proofs.getStorageAddr_reads_owner
@@ -477,6 +490,14 @@ end Verity.AxiomAudit
   Contracts.OwnedCounter.Proofs.Isolation.increment_preserves_map_storage
   Contracts.OwnedCounter.Proofs.Isolation.decrement_preserves_map_storage
   Contracts.OwnedCounter.Proofs.Isolation.transferOwnership_preserves_map_storage
+
+  -- Contracts/OwnedCounterComposed/Proofs/Basic.lean
+  Contracts.OwnedCounterComposed.Proofs.increment_reverts_when_not_owner
+  Contracts.OwnedCounterComposed.Proofs.increment_meets_spec_when_owner
+  Contracts.OwnedCounterComposed.Proofs.increment_preserves_owner
+  Contracts.OwnedCounterComposed.Proofs.increment_writes_only_count
+  Contracts.OwnedCounterComposed.Proofs.increment_preserves_ownable_inv
+  Contracts.OwnedCounterComposed.Proofs.getCount_meets_spec
 
   -- Contracts/SafeCounter/Proofs/Basic.lean
   -- Contracts.SafeCounter.Proofs.getCount_run  -- private
@@ -2086,6 +2107,25 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness_disjoint
+
+  -- Compiler/Proofs/IRGeneration/BoundedLoopCheck.lean
+  Compiler.Proofs.IRGeneration.applyYulLogCall?_vars
+  Compiler.Proofs.IRGeneration.execIRStmt_exprStmt_state_vars
+  Compiler.Proofs.IRGeneration.IRState.getVar_congr_vars
+  Compiler.Proofs.IRGeneration.varUntouchedCheckCases_mem
+  Compiler.Proofs.IRGeneration.execIRStmt_getVar_of_checked
+  Compiler.Proofs.IRGeneration.execIRStmts_getVar_of_checked
+  Compiler.Proofs.IRGeneration.counter_preservation_of_checked
+
+  -- Compiler/Proofs/IRGeneration/BoundedLoopFuel.lean
+  Compiler.Proofs.IRGeneration.IRState.getVar_setVar_self
+  -- Compiler.Proofs.IRGeneration.find?_filter_ne_name  -- private
+  Compiler.Proofs.IRGeneration.IRState.getVar_setVar_ne
+  Compiler.Proofs.IRGeneration.execIRStmts_forEach_post
+  Compiler.Proofs.IRGeneration.evalIRExpr_forEach_cond
+  Compiler.Proofs.IRGeneration.stmtsFuelBound_post_eq
+  Compiler.Proofs.IRGeneration.execIRStmt_boundedFor_stable
+  Compiler.Proofs.IRGeneration.execIRStmt_boundedFor_stable_of_le
 
   -- Compiler/Proofs/IRGeneration/CEISafety.lean
   Compiler.Proofs.IRGeneration.CEIProofBackedExecution.execution_safe
@@ -6783,4 +6823,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6308 theorems/lemmas (4444 public, 1864 private, 0 sorry'd)
+-- Total: 6336 theorems/lemmas (4470 public, 1866 private, 0 sorry'd)
