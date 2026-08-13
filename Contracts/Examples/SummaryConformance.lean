@@ -24,7 +24,7 @@ def pingEnv : SummaryEnv where
 its external projection is untouched, as `pingEnv` demands. -/
 def pingAdversary : AdversaryModel where
   stateTransition := fun site w =>
-    { w with storage := fun slot => if slot == site.siteId then 7 else w.storage slot }
+    w.writeSlot site.siteId 7
   result := fun _ _ => .success [1]
   gasUsed := fun _ _ => 3
 

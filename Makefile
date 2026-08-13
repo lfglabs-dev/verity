@@ -131,6 +131,7 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/lean_lint.py --only axioms
 	python3 scripts/lean_lint.py --only trust_surface_registry
 	python3 scripts/check_benchmark_cases.py
+	python3 scripts/check_storage_lens_freeze.py
 	python3 scripts/generate_verification_status.py --check
 	python3 scripts/generate_layer2_boundary_catalog.py --check
 	python3 scripts/check_verification_status_doc.py

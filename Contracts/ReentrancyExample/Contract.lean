@@ -32,11 +32,11 @@ def supplyInvariant (s : ContractState) (addrs : List Address) : Prop :=
 
 -- Minimal state updates (pure helpers)
 def setStorageSlot (slot : StorageSlot Uint256) (val : Uint256) (s : ContractState) : ContractState :=
-  { s with storage := fun n => if n == slot.slot then val else s.storage n }
+  s.writeSlot slot.slot val
 
 def setMappingSlot (slot : StorageSlot (Address → Uint256)) (addr : Address) (val : Uint256)
   (s : ContractState) : ContractState :=
-  { s with storageMap := fun n a => if n == slot.slot && a == addr then val else s.storageMap n a }
+  s.writeMap slot.slot addr val
 
 @[simp] theorem modulus_sub_max :
   Verity.Core.Uint256.modulus - Verity.EVM.MAX_UINT256 = 1 := by

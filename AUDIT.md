@@ -224,6 +224,22 @@ sibling entrypoint.
 | Intrinsic fork gate | Fail-closed `min_fork` enforcement against `--target-fork` / `YulEmitOptions.targetFork` | `lake build Compiler.CompileDriverTest` |
 | `trust_report.intrinsics[*]` | Planned consumer-declared intrinsic trust surface: name, emission mode, opcode/builtin target, obligation, `min_fork`, and source location | Follow-up hardening; until then, grep consumer trees for `verity_intrinsic` |
 
+## Storage-Lens API Freeze — C5 Step 1 (2026-08)
+
+- `scripts/check_storage_lens_freeze.py` (in `make check`) ratchets raw
+  `ContractState` storage-channel record updates: new
+  `{ s with storageMap := ... }`-style sites fail CI; the 304 existing sites
+  are frozen per file in the script's `BASELINE` and must only shrink.
+  Exactly-lens-shaped helpers (`setLock`, `ReentrancyExample.setStorageSlot`/
+  `setMappingSlot`, adversary transitions in the call-program examples,
+  `TypedIRCompilerCorrectness` typed-IR write helpers) are already migrated
+  to `writeSlot`/`writeMap`/`writeTransient`.
+- This is step 1 of the C5 storage-representation flip (single word-addressed
+  map + Solidity-layout slot derivation under stable lens names); steps 2–4
+  (proofs onto `storage_simps`, representation flip, compiler slot
+  correspondence) are tracked in `docs/ROADMAP.md`. No semantic change: the
+  lenses are definitionally the former raw updates.
+
 ## CI Guards
 
 - `make check` validates generated reports, bridge coverage synchronization,
