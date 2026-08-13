@@ -1,0 +1,176 @@
+{
+  "ecm_assumption_count": 31,
+  "ecm_assumptions": [
+    {
+      "file": "Compiler/Modules/Hashing.lean",
+      "line": 292,
+      "name": "abi_packed_static_segment_layout"
+    },
+    {
+      "file": "Compiler/Modules/Hashing.lean",
+      "line": 83,
+      "name": "abi_packed_static_word_layout"
+    },
+    {
+      "file": "Compiler/Modules/Hashing.lean",
+      "line": 226,
+      "name": "abi_standard_dynamic_array_static_element_layout"
+    },
+    {
+      "file": "Compiler/Modules/Hashing.lean",
+      "line": 128,
+      "name": "abi_standard_static_word_layout"
+    },
+    {
+      "file": "Compiler/Modules/Callbacks.lean",
+      "line": 38,
+      "name": "callback_target_interface"
+    },
+    {
+      "file": "Compiler/Modules/Create2SSTORE2.lean",
+      "line": 25,
+      "name": "create2_address_derivation"
+    },
+    {
+      "file": "Compiler/Modules/Create2SSTORE2.lean",
+      "line": 25,
+      "name": "create2_initcode_layout"
+    },
+    {
+      "file": "Compiler/CompileDriverTest.lean",
+      "line": 687,
+      "name": "ctor_hook_interface"
+    },
+    {
+      "file": "Compiler/Modules/Hashing.lean",
+      "line": 332,
+      "name": "eip712_digest_layout"
+    },
+    {
+      "file": "Compiler/Modules/ERC20.lean",
+      "line": 499,
+      "name": "erc20_approve_interface"
+    },
+    {
+      "file": "Compiler/Modules/ERC20.lean",
+      "line": 460,
+      "name": "erc20_legacy_string_safe_transferFrom_interface"
+    },
+    {
+      "file": "Compiler/Modules/ERC20.lean",
+      "line": 424,
+      "name": "erc20_legacy_string_safe_transfer_interface"
+    },
+    {
+      "file": "Compiler/Modules/ERC20.lean",
+      "line": 314,
+      "name": "erc20_solmate_safe_transferFrom_interface"
+    },
+    {
+      "file": "Compiler/Modules/ERC20.lean",
+      "line": 270,
+      "name": "erc20_solmate_safe_transfer_interface"
+    },
+    {
+      "file": "Compiler/Modules/ERC20.lean",
+      "line": 220,
+      "name": "erc20_transferFrom_interface"
+    },
+    {
+      "file": "Compiler/Modules/ERC20.lean",
+      "line": 175,
+      "name": "erc20_transfer_interface"
+    },
+    {
+      "file": "Compiler/Modules/ERC4626.lean",
+      "line": 327,
+      "name": "erc4626_asset_interface"
+    },
+    {
+      "file": "Compiler/Modules/Precompiles.lean",
+      "line": 148,
+      "name": "evm_bn256_add_precompile"
+    },
+    {
+      "file": "Compiler/Modules/Precompiles.lean",
+      "line": 259,
+      "name": "evm_bn256_pairing_precompile"
+    },
+    {
+      "file": "Compiler/Modules/Precompiles.lean",
+      "line": 202,
+      "name": "evm_bn256_scalar_mul_precompile"
+    },
+    {
+      "file": "Compiler/Modules/Precompiles.lean",
+      "line": 37,
+      "name": "evm_ecrecover_precompile"
+    },
+    {
+      "file": "Compiler/Modules/Hashing.lean",
+      "line": 412,
+      "name": "evm_sha256_precompile"
+    },
+    {
+      "file": "Compiler/Modules/Calls.lean",
+      "line": 161,
+      "name": "external_call_abi_interface"
+    },
+    {
+      "file": "Compiler/Modules/Calls.lean",
+      "line": 377,
+      "name": "generic_call_with_value_interface"
+    },
+    {
+      "file": "Compiler/Modules/Calls.lean",
+      "line": 317,
+      "name": "generic_low_level_value_call_interface"
+    },
+    {
+      "file": "Compiler/Modules/Hashing.lean",
+      "line": 83,
+      "name": "keccak256_memory_slice_matches_evm"
+    },
+    {
+      "file": "Compiler/Modules/Oracle.lean",
+      "line": 88,
+      "name": "oracle_read_uint256_interface"
+    },
+    {
+      "file": "Compiler/Modules/Oracle.lean",
+      "line": 106,
+      "name": "oracle_summary:{summaryName}"
+    },
+    {
+      "file": "Compiler/Modules/Calls.lean",
+      "line": 482,
+      "name": "self_delegate_multicall_bytes_revert_bubbling"
+    },
+    {
+      "file": "Compiler/Modules/Create2SSTORE2.lean",
+      "line": 40,
+      "name": "sstore2_pointer_code_layout"
+    },
+    {
+      "file": "Compiler/CompileDriverTest.lean",
+      "line": 445,
+      "name": "test_call_interface"
+    }
+  ],
+  "generator": "scripts/generate_trust_surface_report.py",
+  "lean431_string_kernel_facts": {
+    "kernel_only": true,
+    "module": "Compiler/CompilationModel/ReservedScratchNames.lean",
+    "theorems": [
+      "compatScratch_startsWith_reserved",
+      "compatScratch_not_internalImmutable"
+    ]
+  },
+  "mechanisms": {
+    "@[implemented_by": 1,
+    "native_decide": 477,
+    "partial def": 169
+  },
+  "notes": "native_decide trusts Lean.ofReduceBool or Lean 4.31 generated per-proof native_decide axioms + Lean.trustCompiler. Prose registry: AXIOMS.md, TRUST_ASSUMPTIONS.md (enforced by scripts/check_trust_surface_registry.py).",
+  "schema_version": 1
+}
