@@ -47,8 +47,6 @@ import Compiler.Proofs.EventSemantics
 import Compiler.Proofs.ExecutionSummary
 import Compiler.Proofs.Frames
 import Compiler.Proofs.HelperStepProofs
-import Compiler.Proofs.IRGeneration.BoundedLoopCheck
-import Compiler.Proofs.IRGeneration.BoundedLoopFuel
 import Compiler.Proofs.IRGeneration.CEISafety
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
@@ -2107,25 +2105,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness
   Compiler.Proofs.HelperStepProofs.helperFreeContractWitness_disjoint
-
-  -- Compiler/Proofs/IRGeneration/BoundedLoopCheck.lean
-  Compiler.Proofs.IRGeneration.applyYulLogCall?_vars
-  Compiler.Proofs.IRGeneration.execIRStmt_exprStmt_state_vars
-  Compiler.Proofs.IRGeneration.IRState.getVar_congr_vars
-  Compiler.Proofs.IRGeneration.varUntouchedCheckCases_mem
-  Compiler.Proofs.IRGeneration.execIRStmt_getVar_of_checked
-  Compiler.Proofs.IRGeneration.execIRStmts_getVar_of_checked
-  Compiler.Proofs.IRGeneration.counter_preservation_of_checked
-
-  -- Compiler/Proofs/IRGeneration/BoundedLoopFuel.lean
-  Compiler.Proofs.IRGeneration.IRState.getVar_setVar_self
-  -- Compiler.Proofs.IRGeneration.find?_filter_ne_name  -- private
-  Compiler.Proofs.IRGeneration.IRState.getVar_setVar_ne
-  Compiler.Proofs.IRGeneration.execIRStmts_forEach_post
-  Compiler.Proofs.IRGeneration.evalIRExpr_forEach_cond
-  Compiler.Proofs.IRGeneration.stmtsFuelBound_post_eq
-  Compiler.Proofs.IRGeneration.execIRStmt_boundedFor_stable
-  Compiler.Proofs.IRGeneration.execIRStmt_boundedFor_stable_of_le
 
   -- Compiler/Proofs/IRGeneration/CEISafety.lean
   Compiler.Proofs.IRGeneration.CEIProofBackedExecution.execution_safe
@@ -6823,4 +6802,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6336 theorems/lemmas (4470 public, 1866 private, 0 sorry'd)
+-- Total: 6321 theorems/lemmas (4456 public, 1865 private, 0 sorry'd)
