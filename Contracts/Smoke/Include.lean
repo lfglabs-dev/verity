@@ -92,4 +92,35 @@ verity_contract IncludeMissingCtorRejected include IncludeOwnableMixin where
   constructor (initialOwner : Address) := do
     setStorage count 0
 
+/--
+error: duplicate mixin constructor call for 'IncludeOwnableMixin'; each included mixin may be initialized once
+-/
+#guard_msgs in
+verity_contract IncludeDupCtorRejected include IncludeOwnableMixin where
+  storage
+    count : Uint256 := slot 1
+
+  constructor (initialOwner : Address) IncludeOwnableMixin(initialOwner) IncludeOwnableMixin(initialOwner) := do
+    setStorage count 0
+
+/--
+error: mixin constructor 'IncludeOwnableMixin' expects 1 argument(s), got 0
+-/
+#guard_msgs in
+verity_contract IncludeCtorArityRejected include IncludeOwnableMixin where
+  storage
+    count : Uint256 := slot 1
+
+  constructor IncludeOwnableMixin() := do
+    setStorage count 0
+
+verity_contract IncludeRenamedCtorArgHost include IncludeOwnableMixin where
+  storage
+    count : Uint256 := slot 1
+
+  constructor (owner_ : Address) IncludeOwnableMixin(owner_) := do
+    setStorage count 0
+
+#check_contract IncludeRenamedCtorArgHost
+
 end Contracts.Smoke

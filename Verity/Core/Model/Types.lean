@@ -1535,7 +1535,10 @@ structure CompilationModel where
   storageNamespace : Option Nat := none
   deriving Repr
 
-/-- Concatenate mixin constructor bodies in include order, then the host body. -/
+/-- Concatenate mixin constructor bodies in include order, then the host body.
+    Prefer expanding mixin inits into the host constructor *before* merge so
+    argument substitution is hygienic. This helper remains for callers that
+    already performed that expansion (or have matching parameter names). -/
 def mergeConstructorSpecs (mixins : List (Option ConstructorSpec)) (host : Option ConstructorSpec) :
     Option ConstructorSpec :=
   let mixinCtors := mixins.filterMap id
@@ -1555,7 +1558,10 @@ def mergeConstructorSpecs (mixins : List (Option ConstructorSpec)) (host : Optio
         localObligations := ms.flatMap (·.localObligations) ++ h.localObligations
       }
 
-/-- Host CompilationModel is mixin specs (include order) then host fields/functions. -/
+/-- Host CompilationModel is mixin specs (include order) then host fields/functions.
+    The host constructor is already the full sequence (mixin inits with
+    substituted arguments, then the host body); do not concatenate mixin
+    constructor bodies a second time. -/
 def mergeIncludedSpecs (name : String) (mixins : List CompilationModel) (host : CompilationModel) :
     CompilationModel :=
   { host with
@@ -1568,7 +1574,9 @@ def mergeIncludedSpecs (name : String) (mixins : List CompilationModel) (host : 
     functions := mixins.flatMap (·.functions) ++ host.functions
     externals := mixins.flatMap (·.externals) ++ host.externals
     adtTypes := mixins.flatMap (·.adtTypes) ++ host.adtTypes
-    constructor := mergeConstructorSpecs (mixins.map (·.constructor)) host.constructor
+    reservedSlotRanges := mixins.flatMap (·.reservedSlotRanges) ++ host.reservedSlotRanges
+    slotAliasRanges := mixins.flatMap (·.slotAliasRanges) ++ host.slotAliasRanges
+    constructor := host.constructor
   }
 
 /-- Public functions that share an ABI name across mixin and host specs. -/
