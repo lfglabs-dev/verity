@@ -60,12 +60,13 @@ ALLOWLIST: set[str] = {
     # executable mirror; splitting per constructor would break the mutual
     # recursion with the Cases/Dflt/List companions.
     "spliceSimCheck_sound",
-    # predicate-generic dispatcher correctness: faithful clone of the
-    # dispatcher case analysis with the compile predicate abstracted; the
-    # branch structure mirrors interpretContract_correct_of_compiled_functions.
-    "interpretContract_correct_of_functions_generic",
+    # the master dispatcher skeleton: single source of truth for the
+    # payable/arity/binding case analysis, generic over compile predicate,
+    # source semantics, and IR executor; every dispatcher theorem derives
+    # from it, so splitting it would just reintroduce the duplication it
+    # removed.
+    "interpretContractWith_correct_generic",
     "compileValidatedCore_ok_yields_guarded_functions",
-    "interpretContractWith_correct_of_functions_generic",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
     # against the corresponding exhaustive expression definitions.
@@ -205,6 +206,9 @@ ALLOWLIST: set[str] = {
     # mirror the same payable/argument-length case split as the legacy dispatch
     # theorem while threading the helper-aware interpreter. Splitting either
     # would duplicate the Forall₂ lookup and rollback-result plumbing.
+    # now thin derivations of interpretContractWith_correct_generic; the
+    # residual length is the verbatim interpretIRWithInternals dispatch-shape
+    # equation (hinterp) that pins the interpreter's fallback records.
     "interpretContractWithInternals_correct_of_compiled_functions",
     "interpretContractWithHelpersWithInternals_correct_of_compiled_functions",
     # #2205 helper-rich function seam: source/IR rollback states, parameter
@@ -399,7 +403,6 @@ ALLOWLIST: set[str] = {
     "supported_function_correct_with_body_interface_except_mapping_writes",
     "supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety",
     # --- Legacy compatibility and dispatch ---
-    "interpretContract_correct_of_compiled_functions",
     "interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir_closed",
     # Constructor-bearing compile output adds one extra compileConstructor split
     # to these component extractors; the surrounding Forall₂ proof shape remains
