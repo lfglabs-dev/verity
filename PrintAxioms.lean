@@ -3603,7 +3603,7 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/IRGeneration/GuardedSourceBridge.lean
   Compiler.Proofs.IRGeneration.withTransactionContext_setLock
-  Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_go_setLock
+  Compiler.Proofs.IRGeneration.findDynamicArrayElementAtSlot_setLock
   Compiler.Proofs.IRGeneration.encodeStorageAt_setLock
   Compiler.Proofs.IRGeneration.initialIRStateForTx_setLock
   Compiler.Proofs.IRGeneration.execResultToIRResult_lock_overlay

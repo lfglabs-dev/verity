@@ -35,22 +35,17 @@ theorem withTransactionContext_setLock (world : Verity.ContractState)
     SourceSemantics.withTransactionContext (setLock slot v world) tx =
       setLock slot v (SourceSemantics.withTransactionContext world tx) := rfl
 
-/-- The dynamic-array scan never reads transient storage. -/
-theorem findDynamicArrayElementAtSlot_go_setLock
-    (world : Verity.ContractState) (targetSlot lockSlot : Nat)
-    (v : Verity.Uint256) :
-    ∀ (remaining : List Field) (idx : Nat),
-      SourceSemantics.findDynamicArrayElementAtSlot.go
-          (setLock lockSlot v world) targetSlot remaining idx =
-        SourceSemantics.findDynamicArrayElementAtSlot.go
-          world targetSlot remaining idx
-  | [], _ => rfl
-  | field :: rest, idx => by
-      simp only [SourceSemantics.findDynamicArrayElementAtSlot.go]
-      rw [show (setLock lockSlot v world).storageArray = world.storageArray
-        from rfl,
-        findDynamicArrayElementAtSlot_go_setLock world targetSlot lockSlot v
-          rest (idx + 1)]
+/-- The dynamic-array scan never reads transient storage: the lock overlay
+preserves `storageArray` definitionally, so this is the general
+`storageArray` congruence at `rfl`. -/
+theorem findDynamicArrayElementAtSlot_setLock (fields : List Field)
+    (world : Verity.ContractState) (lockSlot : Nat) (v : Verity.Uint256)
+    (slot : Nat) :
+    SourceSemantics.findDynamicArrayElementAtSlot fields
+        (setLock lockSlot v world) slot =
+      SourceSemantics.findDynamicArrayElementAtSlot fields world slot :=
+  SourceSemantics.findDynamicArrayElementAtSlot_congr_storageArray
+    fields _ world slot rfl
 
 /-- `encodeStorageAt` never reads transient storage. -/
 theorem encodeStorageAt_setLock (fields : List Field)
@@ -59,10 +54,7 @@ theorem encodeStorageAt_setLock (fields : List Field)
     SourceSemantics.encodeStorageAt fields (setLock lockSlot v world) slot =
       SourceSemantics.encodeStorageAt fields world slot := by
   unfold SourceSemantics.encodeStorageAt
-  rw [show SourceSemantics.findDynamicArrayElementAtSlot fields
-      (setLock lockSlot v world) slot =
-    SourceSemantics.findDynamicArrayElementAtSlot fields world slot from
-    findDynamicArrayElementAtSlot_go_setLock world slot lockSlot v fields 0]
+  rw [findDynamicArrayElementAtSlot_setLock fields world lockSlot v slot]
   cases SourceSemantics.findResolvedFieldAtSlot fields slot <;> rfl
 
 /-- The initial IR state of the lock-acquired world is the lock overlay of
