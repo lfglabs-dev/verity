@@ -158,7 +158,19 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
     let specName : Ident :=
       if resolvedIncludes.isEmpty then mkIdent (Name.mkSimple "spec")
       else mkIdent (Name.mkSimple "host_spec")
-    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace specName)
+    let mut modelCtor := ctor
+    if !resolvedIncludes.isEmpty then
+      let mut mixins : Array (Name × ParsedContractSyntax) := #[]
+      for mixinName in resolvedIncludes do
+        match (← lookupContractSyntaxPublic mixinName) with
+        | some mixin => mixins := mixins.push (mixinName, mixin)
+        | none => pure ()
+      match ctor with
+      | some ctorDecl =>
+          modelCtor := some (← expandMixinConstructorForModelPublic
+            translationFields constDecls immutableDecls externalDecls ctorDecl mixins)
+      | none => pure ()
+    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls modelCtor modifiers functions adtDecls storageNamespace specName translationFields)
     if !resolvedIncludes.isEmpty then
       elabCommand (← mkMergedSpecCommandPublic (toString contractName.getId) resolvedIncludes)
 

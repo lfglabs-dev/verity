@@ -2673,7 +2673,8 @@ private def mkSpecCommand
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat)
-    (specIdent : Ident := mkIdent (Name.mkSimple "spec")) : CommandElabM Cmd := do
+    (specIdent : Ident := mkIdent (Name.mkSimple "spec"))
+    (translationFields : Array StorageFieldDecl := fields) : CommandElabM Cmd := do
   let immutableTerms ← immutableDecls.mapM fun imm => do
     let tyTerm ← modelParamTypeTerm imm.ty
     let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
@@ -2698,7 +2699,7 @@ private def mkSpecCommand
         let ctorLocalObligationTerms ←
           (constructorLocalObligationsWithArithmetic ctor immutableDecls).mapM mkModelLocalObligationTerm
         let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
-        let ctorBodyTerms ← translateConstructorBodyToStmtTerms fields errorDecls constDecls immutableDecls externalDecls functions ctor
+        let ctorBodyTerms ← translateConstructorBodyToStmtTerms translationFields errorDecls constDecls immutableDecls externalDecls functions ctor
         let enumGuardCount := ctor.params.countP fun param =>
           match param.ty with | .enum _ _ => true | _ => false
         let ctorAllTerms := ctorBodyTerms.take enumGuardCount ++ immutableInitTerms ++
@@ -3442,6 +3443,87 @@ private def mixinShortName (mixinName : Name) : String :=
 private def namesMixin (n : String) (mixinName : Name) : Bool :=
   n == mixinShortName mixinName || n == toString mixinName
 
+/-- Expand host constructor mixin inits into scoped do-elems so the
+    CompilationModel constructor references host arguments (or expressions),
+    not the mixin's original parameter names. Executable lowering still
+    calls the mixin `constructor` Lean def. -/
+private def expandMixinConstructorForModel
+    (hostFields : Array StorageFieldDecl)
+    (hostConsts : Array ConstantDecl)
+    (hostImmutables : Array ImmutableDecl)
+    (hostExternals : Array ExternalDecl)
+    (host : ConstructorDecl)
+    (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM ConstructorDecl := do
+  if host.mixinInits.isEmpty then
+    return host
+  let mut preludeElems : Array (TSyntax `doElem) := #[]
+  let mut extraObligations : Array LocalObligationDecl := #[]
+  for (mixinIdent, args) in host.mixinInits do
+    let n := toString mixinIdent.getId
+    let some (mixinName, mixin) :=
+        mixins.find? (fun (mixinName, mixin) =>
+          mixin.ctor.isSome && namesMixin n mixinName)
+      | throwErrorAt mixinIdent s!"constructor init '{n}' does not name an included mixin that has a constructor"
+    let some mixinCtor := mixin.ctor
+      | throwErrorAt mixinIdent s!"constructor init '{n}' names a mixin without a constructor"
+    if args.size != mixinCtor.params.size then
+      throwErrorAt mixinIdent
+        s!"mixin constructor '{mixinShortName mixinName}' expects {mixinCtor.params.size} argument(s), got {args.size}"
+    extraObligations := extraObligations ++ mixinCtor.localObligations
+    for (param, arg) in mixinCtor.params.zip args do
+      let argTy ← inferPureExprType
+        (mixin.fields ++ hostFields) (mixin.constDecls ++ hostConsts)
+        (mixin.immutableDecls ++ hostImmutables)
+        (mixin.externalDecls ++ hostExternals)
+        host.params #[] arg
+      unless argumentTypeMatchesParam arg argTy param.ty do
+        throwErrorAt arg
+          s!"mixin constructor parameter '{param.name}' expects {renderValueType param.ty}, got {renderValueType argTy}"
+    let mut mixinBindings : Array (TSyntax `doElem) := #[]
+    let mut dynamicParamBindings : Array (String × Syntax) := #[]
+    for (param, arg) in mixinCtor.params.zip args do
+      let directHostParam? := match stripParens arg with
+        | `(term| $name:ident) =>
+            host.params.find? (fun (hostParam : ParamDecl) =>
+              declaredNameMatches (toString name.getId) hostParam.name)
+        | _ => host.params.find? (fun hostParam =>
+            (stripParens arg).raw.reprint.getD "" == hostParam.name)
+      let isIdentityArg := directHostParam?.any (fun hostParam => hostParam.name == param.name)
+      if !isIdentityArg then
+        if host.params.any (fun hostParam => paramReservesName hostParam param.name) then
+          throwErrorAt arg
+            s!"mixin constructor parameter '{param.name}' conflicts with a host constructor parameter; rename the host parameter"
+        if valueTypeUsesDynamicData param.ty && directHostParam?.isSome then
+          dynamicParamBindings := dynamicParamBindings.push (param.name, arg.raw)
+        else
+          let normalizedArg ← normalizeParentConstructorArg param.ty arg
+          mixinBindings := mixinBindings.push (← `(doElem| let $param.ident := $normalizedArg))
+    let mixinBody := substituteDynamicParentParams dynamicParamBindings mixinCtor.body
+    let mixinElems ← doElems mixinBody
+    let scopedElem ← `(doElem| if true then
+      $[$mixinBindings:doElem]*
+      $[$mixinElems:doElem]*
+      else
+        pure ())
+    preludeElems := preludeElems.push scopedElem
+  let hostElems ← doElems host.body
+  let combined ← `(term| do $[$preludeElems:doElem]* $[$hostElems:doElem]*)
+  pure {
+    host with
+    localObligations := extraObligations ++ host.localObligations
+    mixinInits := #[]
+    body := combined
+  }
+
+def expandMixinConstructorForModelPublic
+    (hostFields : Array StorageFieldDecl)
+    (hostConsts : Array ConstantDecl)
+    (hostImmutables : Array ImmutableDecl)
+    (hostExternals : Array ExternalDecl)
+    (host : ConstructorDecl)
+    (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM ConstructorDecl :=
+  expandMixinConstructorForModel hostFields hostConsts hostImmutables hostExternals host mixins
+
 private def resolveIncludedMixin (currentNs : Name) (id : Ident) :
     CommandElabM (Name × ParsedContractSyntax) := do
   let candidates := [currentNs ++ id.getId, id.getId]
@@ -3460,26 +3542,49 @@ private def resolveIncludedMixin (currentNs : Name) (id : Ident) :
   | none =>
       throwErrorAt id s!"unknown mixin '{id.getId}'; import or declare the mixin before the host"
 
+private def fieldOccupiedSlots (field : StorageFieldDecl) : Array Nat :=
+  let extra :=
+    match field.adtInfo? with
+    | some (_, maxFields) => maxFields
+    | none =>
+        match field.ty with
+        | .scalar (.adt _ maxFields) => maxFields
+        | _ => 0
+  ((List.range (extra + 1)).map (fun i => field.slotNum + i)).toArray
+
+private def fieldDeclaredNames (field : StorageFieldDecl) : Array String :=
+  #[field.name] ++ field.aliases.toArray
+
 private def checkIncludeClashes
     (host : ParsedContractSyntax)
     (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM Unit := do
-  let mut seenFieldNames : Array String := host.fields.map (·.name)
-  let mut seenSlots : Array (Nat × String × String) :=
-    host.fields.map fun f => (f.slotNum, "host", f.name)
+  let mut seenFieldNames : Array String := host.fields.flatMap fieldDeclaredNames
+  -- Persistent and transient storage are distinct EVM spaces.
+  let mut seenPersistSlots : Array Nat :=
+    (host.fields.filter (fun f => !f.isTransient)).flatMap fieldOccupiedSlots
+  let mut seenTransientSlots : Array Nat :=
+    (host.fields.filter (·.isTransient)).flatMap fieldOccupiedSlots
   let mut seenModNames : Array String := host.modifiers.map (·.name)
   let mut seenRoleNames : Array String := host.roleDecls.map (·.name)
   let mut seenFnNames : Array String :=
     host.functions.filterMap fun fn => if fn.isInternal then none else some fn.name
   for (mixinName, mixin) in mixins do
     for field in mixin.fields do
-      if seenFieldNames.contains field.name then
-        throwError s!"include clash: field '{field.name}' from mixin '{mixinName}' duplicates a host or earlier mixin field"
-      seenFieldNames := seenFieldNames.push field.name
-      match seenSlots.find? (fun (n, _, _) => n == field.slotNum) with
-      | some _ =>
-          throwError s!"include clash: slot {field.slotNum} from mixin '{mixinName}' field '{field.name}' overlaps a host or earlier mixin slot"
-      | none =>
-          seenSlots := seenSlots.push (field.slotNum, toString mixinName, field.name)
+      for n in fieldDeclaredNames field do
+        if seenFieldNames.contains n then
+          throwError s!"include clash: field '{n}' from mixin '{mixinName}' duplicates a host or earlier mixin field"
+        seenFieldNames := seenFieldNames.push n
+      let occupied := fieldOccupiedSlots field
+      if field.isTransient then
+        for sl in occupied do
+          if seenTransientSlots.contains sl then
+            throwError s!"include clash: transient slot {sl} from mixin '{mixinName}' field '{field.name}' overlaps a host or earlier mixin slot"
+          seenTransientSlots := seenTransientSlots.push sl
+      else
+        for sl in occupied do
+          if seenPersistSlots.contains sl then
+            throwError s!"include clash: slot {sl} from mixin '{mixinName}' field '{field.name}' overlaps a host or earlier mixin slot"
+          seenPersistSlots := seenPersistSlots.push sl
     for modDecl in mixin.modifiers do
       if seenModNames.contains modDecl.name then
         throwError s!"include clash: modifier '{modDecl.name}' from mixin '{mixinName}' duplicates a host or earlier mixin modifier"
@@ -3501,19 +3606,29 @@ private def checkMixinConstructorInits
     match host.ctor with
     | some ctor => ctor.mixinInits
     | none => #[]
-  let initNames := inits.map fun (id, _) => toString id.getId
+  let mut seenInitMixins : Array Name := #[]
+  for (id, args) in inits do
+    let n := toString id.getId
+    let some (mixinName, mixin) :=
+        mixins.find? (fun (mixinName, mixin) =>
+          mixin.ctor.isSome && namesMixin n mixinName)
+      | throwErrorAt id s!"constructor init '{n}' does not name an included mixin that has a constructor"
+    if seenInitMixins.any (fun prev => namesMixin (mixinShortName prev) mixinName) then
+      throwErrorAt id
+        s!"duplicate mixin constructor call for '{mixinShortName mixinName}'; each included mixin may be initialized once"
+    seenInitMixins := seenInitMixins.push mixinName
+    match mixin.ctor with
+    | some mixinCtor =>
+        if args.size != mixinCtor.params.size then
+          throwErrorAt id
+            s!"mixin constructor '{mixinShortName mixinName}' expects {mixinCtor.params.size} argument(s), got {args.size}"
+    | none => pure ()
   for (mixinName, mixin) in mixins do
     if mixin.ctor.isSome then
       let shortName := mixinShortName mixinName
-      unless initNames.any (fun n => namesMixin n mixinName) do
+      unless inits.any (fun (id, _) => namesMixin (toString id.getId) mixinName) do
         throwError
           s!"missing mixin constructor call for '{shortName}'; add `{shortName}(...)` to the host constructor"
-  for (id, _) in inits do
-    let n := toString id.getId
-    let known := mixins.any fun (mixinName, mixin) =>
-      mixin.ctor.isSome && namesMixin n mixinName
-    unless known do
-      throwErrorAt id s!"constructor init '{n}' does not name an included mixin that has a constructor"
 
 private def mixinModifierNames (mixins : Array (Name × ParsedContractSyntax)) : Array String :=
   mixins.flatMap fun (_, mixin) => mixin.modifiers.map (·.name)
@@ -4256,8 +4371,13 @@ def mkFunctionCommandsPublic
     (fn : FunctionDecl)
     (resolvedIncludes : Array Name := #[]) : CommandElabM (Array Cmd) := do
   let fnType ← mkContractFnType fn.params fn.returnTy
-  let fnRoleGuardedBody ← mkRoleGuardedBody fields roleDecls fn
-  let fnDecl := { fn with body := fnRoleGuardedBody }
+  -- Mixin modifiers belong after ABI/enum, init, and role guards, matching
+  -- `translateBodyToStmtTerms`. Prefix them onto the source body so those
+  -- wrappers stay outside.
+  let fnBodyWithMixin ← prefixMixinModifierExecutableBody resolvedIncludes fn fn.body
+  let fnWithMixin := { fn with body := fnBodyWithMixin }
+  let fnRoleGuardedBody ← mkRoleGuardedBody fields roleDecls fnWithMixin
+  let fnDecl := { fnWithMixin with body := fnRoleGuardedBody }
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
   let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
   let fnExecutableBody ← rewriteForEachExecutableBody fields externalDecls fn.params fnBody
@@ -4265,7 +4385,6 @@ def mkFunctionCommandsPublic
   -- them outside all executable wrappers makes ABI validation happen before
   -- initializer, role, and modifier effects (the inner copy is harmless).
   let fnExecutableBody ← prependEnumGuards fn.params fnExecutableBody
-  let fnExecutableBody ← prefixMixinModifierExecutableBody resolvedIncludes fn fnExecutableBody
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"
@@ -4348,8 +4467,9 @@ def mkSpecCommandPublic
     (functions : Array FunctionDecl)
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat)
-    (specIdent : Ident := mkIdent (Name.mkSimple "spec")) : CommandElabM Cmd :=
-  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace specIdent
+    (specIdent : Ident := mkIdent (Name.mkSimple "spec"))
+    (translationFields : Array StorageFieldDecl := fields) : CommandElabM Cmd :=
+  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace specIdent translationFields
 
 def mkFindIdxFieldSimpCommandsPublic
     (contractIdent : Ident)
