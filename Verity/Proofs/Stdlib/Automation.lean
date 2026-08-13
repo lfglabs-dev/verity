@@ -139,9 +139,15 @@ macro_rules
         $extra
       ])
   | `(tactic| verity_frame $h:rwRule) =>
-      `(tactic| (rw [$h]; simp [ContractResult.snd]))
+      `(tactic| (rw [$h]; simp [ContractResult.snd,
+        ContractState.writeSlot, ContractState.writeAddrSlot,
+        ContractState.writeMap, ContractState.writeMapUint,
+        ContractState.writeMap2, ContractState.writeTransient]))
   | `(tactic| verity_frame $h:rwRule with $extra:simpLemma) =>
-      `(tactic| (rw [$h]; simp [ContractResult.snd, $extra]))
+      `(tactic| (rw [$h]; simp [ContractResult.snd,
+        ContractState.writeSlot, ContractState.writeAddrSlot,
+        ContractState.writeMap, ContractState.writeMapUint,
+        ContractState.writeMap2, ContractState.writeTransient, $extra]))
   | `(tactic| verity_spec $spec:simpLemma using $h:rwRule) =>
       `(tactic|
         (rw [$h]
@@ -269,7 +275,7 @@ theorem getStorage_runState (slot : StorageSlot Uint256) (state : ContractState)
 -- setStorage updates the state
 theorem setStorage_runState (slot : StorageSlot Uint256) (value : Uint256) (state : ContractState) :
     (setStorage slot value).runState state =
-      { state with storage := fun s => if s == slot.slot then value else state.storage s } := by
+      state.writeSlot slot.slot value := by
   simp [setStorage, Contract.runState, ContractState.writeSlot]
 
 -- getStorage returns correct value
@@ -326,7 +332,7 @@ theorem bind_assoc {α β γ : Type} (m : Contract α) (f : α → Contract β) 
 @[simp]
 theorem bind_getStorage_setStorage_runState (slot : StorageSlot Uint256) (f : Uint256 → Uint256) (state : ContractState) :
     (Verity.bind (getStorage slot) (fun val => setStorage slot (f val))).runState state =
-      { state with storage := fun s => if s == slot.slot then f (state.storage slot.slot) else state.storage s } := by
+      state.writeSlot slot.slot (f (state.storage slot.slot)) := by
   simp [Verity.bind, getStorage, setStorage, Contract.runState, ContractState.writeSlot,
     ContractState.readSlot]
 
@@ -359,7 +365,7 @@ theorem getStorageAddr_runState (slot : StorageSlot Address) (state : ContractSt
 -- setStorageAddr updates the state
 theorem setStorageAddr_runState (slot : StorageSlot Address) (value : Address) (state : ContractState) :
     (setStorageAddr slot value).runState state =
-      { state with storageAddr := fun s => if s == slot.slot then value else state.storageAddr s } := by
+      state.writeAddrSlot slot.slot value := by
   simp [setStorageAddr, Contract.runState, ContractState.writeAddrSlot]
 
 -- getStorageAddr returns correct value

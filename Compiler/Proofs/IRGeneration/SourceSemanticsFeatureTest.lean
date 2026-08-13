@@ -33,7 +33,7 @@ private def storageArraySourceSpec : CompilationModel :=
           body := [Stmt.storageArrayPop "queue", .stop] } ] }
 
 private def storageArrayInitialWorld : Verity.ContractState :=
-  { Verity.defaultState with storageArray := fun slot => if slot = 7 then [11, 17] else [] }
+  Verity.defaultState.writeArray 7 [11, 17]
 
 private def signedScalarSourceSpec : CompilationModel :=
   { name := "SignedScalarSource"

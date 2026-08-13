@@ -102,19 +102,12 @@ theorem vulnerable_attack_exists :
   -- Choose a concrete attacker and amount. We use MAX_UINT256 so that
   -- `0 - amount` wraps to 1, making the mismatch obvious.
   let s : ContractState :=
-    { storage := fun slot => if slot == totalSupply.slot then (Verity.EVM.MAX_UINT256 : Uint256) else 0
-    , transientStorage := fun _ => 0
-    , storageAddr := fun _ => 0
-    , storageMap := fun slot addr =>
-        if slot == balances.slot && addr == 0xA77AC then (Verity.EVM.MAX_UINT256 : Uint256) else 0
-    , storageMapUint := fun _ _ => 0
-    , storageMap2 := fun _ _ _ => 0
-    , storageArray := fun _ => []
-    , sender := 0xA77AC
-    , thisAddress := 0x7415
-    , msgValue := 0
-    , blockTimestamp := 0
-    , knownAddresses := fun _ => Core.FiniteAddressSet.empty }
+    ContractState.ofChannels
+      (fun slot => if slot == totalSupply.slot then (Verity.EVM.MAX_UINT256 : Uint256) else 0)
+      (mapChannel := fun slot addr =>
+        if slot == balances.slot && addr == 0xA77AC then (Verity.EVM.MAX_UINT256 : Uint256) else 0)
+      (sender := 0xA77AC)
+      (thisAddress := 0x7415)
   let env : Verity.Env :=
     { sender := s.sender
     , thisAddress := s.thisAddress

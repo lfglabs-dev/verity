@@ -48,32 +48,10 @@ theorem getBalance_preserves_state (s : ContractState) (addr : Address) :
 /-- Helper: unfold deposit computation -/
 private theorem deposit_unfold (s : ContractState) (amount : Uint256) :
     (deposit amount).run s = ContractResult.success ()
-    { «storage» := s.storage,
-      contractStorage := s.contractStorage,
-      transientStorage := s.transientStorage,
-      storageAddr := s.storageAddr,
-      storageMap := fun slotIdx addr =>
-        if (slotIdx == 0 && addr == s.sender) = true then EVM.Uint256.add (s.storageMap 0 s.sender) amount
-        else s.storageMap slotIdx addr,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
+    { s.writeMap 0 s.sender (EVM.Uint256.add (s.storageMap 0 s.sender) amount) with
       knownAddresses := fun slotIdx =>
         if slotIdx == 0 then (s.knownAddresses slotIdx).insert s.sender
-        else s.knownAddresses slotIdx,
-      events := s.events, calls := s.calls } := by
+        else s.knownAddresses slotIdx } := by
   verity_unfold deposit
   simp only [balances]
   rfl
@@ -84,24 +62,25 @@ theorem deposit_meets_spec (s : ContractState) (amount : Uint256) :
   rw [deposit_unfold]
   unfold deposit_spec Specs.storageMapUpdateSpec
   refine ⟨?_, ?_, ?_⟩
-  · simp [ContractResult.snd, beq_iff_eq]
+  · simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq]
   · refine ⟨?_, ?_⟩
     · intro addr h_ne
-      simp [ContractResult.snd, beq_iff_eq, h_ne]
+      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne]
     · intro slotIdx h_ne addr
-      simp [ContractResult.snd, beq_iff_eq, h_ne]
+      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne]
   · exact ⟨rfl, rfl, rfl, Specs.sameContext_rfl _⟩
 
 theorem deposit_increases_balance (s : ContractState) (amount : Uint256) :
   let s' := ((deposit amount).run s).snd
   s'.storageMap 0 s.sender = EVM.Uint256.add (s.storageMap 0 s.sender) amount := by
-  verity_frame deposit_unfold
+  verity_frame deposit_unfold with ContractState.writeMap
 
 theorem deposit_preserves_other_balances (s : ContractState) (amount : Uint256)
   (addr : Address) (h_ne : addr ≠ s.sender) :
   let s' := ((deposit amount).run s).snd
   s'.storageMap 0 addr = s.storageMap 0 addr := by
-  verity_frame deposit_unfold with h_ne
+  rw [deposit_unfold]
+  simp [ContractResult.snd, ContractState.writeMap, h_ne]
 
 /-! ## Withdraw Correctness -/
 
@@ -109,32 +88,10 @@ theorem deposit_preserves_other_balances (s : ContractState) (amount : Uint256)
 private theorem withdraw_unfold (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
   (withdraw amount).run s = ContractResult.success ()
-    { «storage» := s.storage,
-      contractStorage := s.contractStorage,
-      transientStorage := s.transientStorage,
-      storageAddr := s.storageAddr,
-      storageMap := fun slotIdx addr =>
-        if (slotIdx == 0 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 0 s.sender) amount
-        else s.storageMap slotIdx addr,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
+    { s.writeMap 0 s.sender (EVM.Uint256.sub (s.storageMap 0 s.sender) amount) with
       knownAddresses := fun slotIdx =>
         if slotIdx == 0 then (s.knownAddresses slotIdx).insert s.sender
-        else s.knownAddresses slotIdx,
-      events := s.events, calls := s.calls } := by
+        else s.knownAddresses slotIdx } := by
   verity_unfold withdraw
   simp [balances, h_balance]
 
@@ -145,19 +102,19 @@ theorem withdraw_meets_spec (s : ContractState) (amount : Uint256)
   rw [withdraw_unfold s amount h_balance]
   unfold withdraw_spec Specs.storageMapUpdateSpec
   refine ⟨?_, ?_, ?_⟩
-  · simp [ContractResult.snd, beq_iff_eq]
+  · simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq]
   · refine ⟨?_, ?_⟩
     · intro addr h_ne
-      simp [ContractResult.snd, beq_iff_eq, h_ne]
+      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne]
     · intro slotIdx h_ne addr
-      simp [ContractResult.snd, beq_iff_eq, h_ne]
+      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne]
   · exact ⟨rfl, rfl, rfl, Specs.sameContext_rfl _⟩
 
 theorem withdraw_decreases_balance (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
   let s' := ((withdraw amount).run s).snd
   s'.storageMap 0 s.sender = EVM.Uint256.sub (s.storageMap 0 s.sender) amount := by
-  verity_frame (withdraw_unfold s amount h_balance)
+  verity_frame (withdraw_unfold s amount h_balance) with ContractState.writeMap
 
 theorem withdraw_reverts_insufficient (s : ContractState) (amount : Uint256)
   (h_insufficient : ¬(s.storageMap 0 s.sender >= amount)) :
@@ -182,33 +139,11 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
   (h_balance : s.storageMap 0 s.sender >= amount)
   (h_ne : s.sender ≠ toAddr) :
   (transfer toAddr amount).run s = ContractResult.success ()
-    { «storage» := s.storage,
-      contractStorage := s.contractStorage,
-      transientStorage := s.transientStorage,
-      storageAddr := s.storageAddr,
-      storageMap := fun slotIdx addr =>
-        if (slotIdx == 0 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 0 toAddr) amount
-        else if (slotIdx == 0 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 0 s.sender) amount
-        else s.storageMap slotIdx addr,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
+    { (s.writeMap 0 s.sender (EVM.Uint256.sub (s.storageMap 0 s.sender) amount)).writeMap
+        0 toAddr (EVM.Uint256.add (s.storageMap 0 toAddr) amount) with
       knownAddresses := fun slotIdx =>
         if slotIdx == 0 then ((s.knownAddresses slotIdx).insert s.sender).insert toAddr
-        else s.knownAddresses slotIdx,
-      events := s.events, calls := s.calls } := by
+        else s.knownAddresses slotIdx } := by
   simp only [transfer, Contracts.Ledger.balances,
     msgSender, getMapping, setMapping,
     ContractState.readMap, ContractState.writeMap,
@@ -237,15 +172,15 @@ theorem transfer_meets_spec (s : ContractState) (toAddr : Address) (amount : Uin
     simp only [ContractResult.snd, transfer_spec]
     have h_ne' := address_beq_false_of_ne s.sender toAddr h_eq
     refine ⟨?_, ?_, ?_, ?_⟩
-    · simp [h_ne']
-    · simp [h_ne']
-    · simp [h_ne']
+    · simp [ContractState.writeMap, h_ne', h_eq]
+    · simp [ContractState.writeMap, h_ne']
+    · simp [ContractState.writeMap, h_ne']
       refine ⟨?_, ?_⟩
       · intro addr h_ne_sender h_ne_to
         simp [h_ne_sender, h_ne_to]
       · intro slotIdx h_slot addr
         simp [h_slot]
-    · simp [Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext]
+    · simp [ContractState.writeMap, Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext]
 
 theorem transfer_self_preserves_balance (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
@@ -288,33 +223,11 @@ theorem transfer_succeeds_recipient_overflow (s : ContractState) (toAddr : Addre
   (_h_overflow : (s.storageMap 0 toAddr : Nat) + (amount : Nat) > MAX_UINT256) :
   ∃ s', (transfer toAddr amount).run s = ContractResult.success () s' := by
   let s' : ContractState :=
-    { «storage» := s.storage,
-      contractStorage := s.contractStorage,
-      transientStorage := s.transientStorage,
-      storageAddr := s.storageAddr,
-      storageMap := fun slotIdx addr =>
-        if (slotIdx == 0 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 0 toAddr) amount
-        else if (slotIdx == 0 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 0 s.sender) amount
-        else s.storageMap slotIdx addr,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
+    { (s.writeMap 0 s.sender (EVM.Uint256.sub (s.storageMap 0 s.sender) amount)).writeMap
+        0 toAddr (EVM.Uint256.add (s.storageMap 0 toAddr) amount) with
       knownAddresses := fun slotIdx =>
         if slotIdx == 0 then ((s.knownAddresses slotIdx).insert s.sender).insert toAddr
-        else s.knownAddresses slotIdx,
-      events := s.events, calls := s.calls }
+        else s.knownAddresses slotIdx }
   refine ⟨s', ?_⟩
   simpa [s'] using transfer_unfold_other s toAddr amount h_balance h_ne
 
@@ -324,21 +237,21 @@ theorem deposit_preserves_non_mapping (s : ContractState) (amount : Uint256) :
   let s' := ((deposit amount).run s).snd
   non_mapping_storage_unchanged s s' := by
   rw [deposit_unfold]
-  simp [ContractResult.snd, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray]
+  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray]
 
 theorem withdraw_preserves_non_mapping (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
   let s' := ((withdraw amount).run s).snd
   non_mapping_storage_unchanged s s' := by
   rw [withdraw_unfold s amount h_balance]
-  simp [ContractResult.snd, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray]
+  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray]
 
 theorem deposit_preserves_wellformedness (s : ContractState) (amount : Uint256)
   (h : WellFormedState s) :
   let s' := ((deposit amount).run s).snd
   WellFormedState s' := by
   rw [deposit_unfold]
-  simp [ContractResult.snd]
+  simp [ContractResult.snd, ContractState.writeMap]
   exact ⟨h.sender_nonzero, h.contract_nonzero⟩
 
 theorem withdraw_preserves_wellformedness (s : ContractState) (amount : Uint256)
@@ -346,7 +259,7 @@ theorem withdraw_preserves_wellformedness (s : ContractState) (amount : Uint256)
   let s' := ((withdraw amount).run s).snd
   WellFormedState s' := by
   rw [withdraw_unfold s amount h_balance]
-  simp [ContractResult.snd]
+  simp [ContractResult.snd, ContractState.writeMap]
   exact ⟨h.sender_nonzero, h.contract_nonzero⟩
 
 /-! ## Composition: deposit → getBalance -/
@@ -356,7 +269,7 @@ theorem deposit_getBalance_correct (s : ContractState) (amount : Uint256) :
   ((getBalance s.sender).run s').fst = EVM.Uint256.add (s.storageMap 0 s.sender) amount := by
   rw [deposit_unfold]
   unfold getBalance
-  simp [ContractResult.snd, Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run,
+  simp [ContractResult.snd, ContractState.writeMap, Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run,
     getMapping, balances, ContractState.readMap]
 
 /-! ## Summary of Proven Properties

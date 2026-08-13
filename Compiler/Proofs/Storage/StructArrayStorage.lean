@@ -128,7 +128,8 @@ def compiledStructMemberSlot (helper : YulStmt) (scratchBase : Nat) :
 /-- A slot-reflecting world makes a source struct-member read return the exact
     slot it consumed. -/
 def structMemberBridgeState : SourceSemantics.RuntimeState :=
-  { world := { Verity.defaultState with storage := fun slot => slot }, bindings := [] }
+  { world := Verity.defaultState.withStorageChannel (fun _ => fun slot => slot),
+    bindings := [] }
 
 /-- The slot the executable source evaluator reads for a struct member. -/
 def sourceStructMemberSlotRead (baseSlot key wordOffset : Nat) : Option Nat :=
@@ -174,6 +175,7 @@ theorem compiledStructMemberSlot_eq_sourceStructMemberSlotRead
     unfold sourceStructMemberSlotRead
     rw [SourceSemantics.evalExpr]
     simp only [SourceSemantics.evalExpr, hfield, hmembers, structBridgeMember,
+      structMemberBridgeState, Verity.ContractState.withStorageChannel,
       SourceSemantics.wordNormalize_eq_mod, Nat.mod_eq_of_lt hkey]
     simp only [structBridgeField, structMemberBridgeState, SourceSemantics.readFieldWord,
       SourceSemantics.wordNormalize]
@@ -686,11 +688,8 @@ def arrayBridgeField (slot : Nat) : Field :=
     itself holding the array length exactly as the EVM layout requires. -/
 def arrayBridgeState (slot : Nat) (values : List Verity.Core.Uint256) :
     SourceSemantics.RuntimeState :=
-  { world := { Verity.defaultState with
-                storageArray := fun s => if s = slot then values else [],
-                storage := fun s =>
-                  if s = SourceSemantics.wordNormalize slot then (values.length : Verity.Core.Uint256)
-                  else 0 },
+  { world := (Verity.defaultState.writeArray slot values).writeSlot
+      (SourceSemantics.wordNormalize slot) (values.length : Verity.Core.Uint256),
     bindings := [] }
 
 theorem sourceStorageArrayDropLast_length (values updated : List Verity.Core.Uint256)
@@ -740,13 +739,17 @@ theorem storageArrayLength_eq_storageArrayLength (slot : Nat)
         (.storageArrayLength "__array_bridge") := by
   have hsource : SourceSemantics.evalExpr [arrayBridgeField slot] (arrayBridgeState slot values)
       (.storageArrayLength "__array_bridge") = some values.length := by
-    rw [SourceSemantics.evalExpr]
-    show some (if slot = slot then values else []).length = some values.length
-    simp
+    have hfield : findFieldWithResolvedSlot [arrayBridgeField slot] "__array_bridge" =
+        some (arrayBridgeField slot, slot) := rfl
+    rw [SourceSemantics.evalExpr, hfield]
+    simp [arrayBridgeState, Verity.ContractState.writeArray,
+      Verity.ContractState.writeSlot]
   rw [hsource, compiledStorageArrayLength_eq]
-  simp only [Except.toOption, Option.bind_some, interpretSloadLit, arrayBridgeState]
+  simp only [Except.toOption, Option.bind_some, interpretSloadLit, arrayBridgeState,
+    Verity.ContractState.writeArray, Verity.ContractState.writeSlot,
+    SourceSemantics.wordNormalize]
   simp only [Option.some.injEq]
-  show (values.length : Verity.Core.Uint256).val = values.length
+  simp [Verity.Core.Uint256.ofNat]
   exact Nat.mod_eq_of_lt hlen
 
 /-- The real compiler output for a checked storage-array element read. -/

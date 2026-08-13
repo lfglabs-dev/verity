@@ -265,28 +265,20 @@ def writeUintSlots (world : Verity.ContractState) (slots : List Nat) (value : Na
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map wordNormalize
-  { world with
-    storage := fun slot =>
-      if targets.contains slot then word else world.storage slot }
+  world.writeSlots targets word
 
 def writeStorageWordSlots (world : Verity.ContractState) (slots : List Nat)
     (wordOffset value : Nat) : Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let addr := Verity.wordToAddress word
   let targets := slots.map (fun slot => wordNormalize (slot + wordOffset))
-  { world with
-    storage := fun current =>
-      if targets.contains current then word else world.storage current,
-    storageAddr := fun current =>
-      if targets.contains current then addr else world.storageAddr current }
+  (world.writeSlots targets word).writeAddrSlots targets addr
 
 def writeAddressSlots (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
     Verity.ContractState :=
   let addr := Verity.wordToAddress (value : Verity.Core.Uint256)
   let targets := slots.map wordNormalize
-  { world with
-    storageAddr := fun slot =>
-      if targets.contains slot then addr else world.storageAddr slot }
+  world.writeAddrSlots targets addr
 
 def fieldIsTransient (fields : List Field) (name : String) : Bool :=
   match findFieldWithResolvedSlot fields name with
@@ -304,9 +296,7 @@ def writeTransientTargets (world : Verity.ContractState) (targets : List Nat) (v
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := targets.map wordNormalize
-  { world with
-    transientStorage := fun slot =>
-      if targets.contains slot then word else world.transientStorage slot }
+  world.writeTransientSlots targets word
 
 def packedWordWrite (current value : Nat) (packed : PackedBits) : Nat :=
   let maskNat := packedMaskNat packed
@@ -324,15 +314,11 @@ def writeUintFieldSlots (fields : List Field) (fieldName : String)
       | some packed =>
           let targets := slots.map wordNormalize
           if field.isTransient then
-            { world with transientStorage := fun slot =>
-                if targets.contains slot then
-                  packedWordWrite (world.transientStorage slot).val value packed
-                else world.transientStorage slot }
+            world.modifyTransientSlots targets
+              (fun current => packedWordWrite current.val value packed)
           else
-            { world with storage := fun slot =>
-                if targets.contains slot then
-                  packedWordWrite (world.storage slot).val value packed
-                else world.storage slot }
+            world.modifySlots targets
+              (fun current => packedWordWrite current.val value packed)
       | none =>
           if field.isTransient then writeTransientTargets world slots value
           else writeUintSlots world slots value
@@ -361,9 +347,7 @@ def writeMappingTargets (fields : List Field) (fieldName : String)
     writeTransientTargets world targets value
   else
     let word : Verity.Core.Uint256 := value
-    { world with
-      storage := fun slot =>
-        if targets.map wordNormalize |>.contains slot then word else world.storage slot }
+    world.writeSlots (targets.map wordNormalize) word
 
 /-- Nat-level rendering of `Compiler.Proofs.abstractStoreMappingEntry` over a
 word-normalized storage view (see header note 3). -/
@@ -392,13 +376,9 @@ def writeAddressKeyedMappingSlots (oracle : DenoteOracle)
         slots.foldl
           (fun current slot => storeMappingEntryNat oracle current slot key value)
           (storageNatView world)
-      { world with
-        storage := fun s => ((storage (wordNormalize s) : Verity.Core.Uint256))
-        storageMap := fun baseSlot addr =>
-          if baseSlot == slot && addr == keyAddr then
-            word
-          else
-            world.storageMap baseSlot addr }
+      (world.withStorageChannel
+          (fun _ => fun s => ((storage (wordNormalize s) : Verity.Core.Uint256)))).writeMap
+        slot keyAddr word
 
 def mappingSlotChain (oracle : DenoteOracle) (baseSlot : Nat) (keys : List Nat) : Nat :=
   keys.foldl oracle.mappingSlot baseSlot
@@ -408,9 +388,7 @@ def writeAddressKeyedMappingChainSlots (oracle : DenoteOracle)
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map (fun slot => wordNormalize (mappingSlotChain oracle slot keys))
-  { world with
-    storage := fun slot =>
-      if targets.contains slot then word else world.storage slot }
+  world.writeSlots targets word
 
 def writeAddressKeyedMappingWordSlots (oracle : DenoteOracle)
     (world : Verity.ContractState) (slots : List Nat) (key wordOffset value : Nat) :
@@ -418,9 +396,7 @@ def writeAddressKeyedMappingWordSlots (oracle : DenoteOracle)
   let word : Verity.Core.Uint256 := value
   let targets :=
     slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key + wordOffset))
-  { world with
-    storage := fun slot =>
-      if targets.contains slot then word else world.storage slot }
+  world.writeSlots targets word
 
 def readFixedUint128ArrayElement
     (world : Verity.ContractState) (slot size index : Nat) : Option Nat :=
@@ -439,9 +415,8 @@ def writeFixedUint128ArrayElementSlots
     let offset := (index % 2) * 128
     let packed : PackedBits := { offset := offset, width := 128 }
     let targets := slots.map (fun slot => wordNormalize (slot + index / 2))
-    some { world with storage := fun slot =>
-      if targets.contains slot then packedWordWrite (world.storage slot).val value packed
-      else world.storage slot }
+    some (world.modifySlots targets
+      (fun current => packedWordWrite current.val value packed))
   else
     none
 
@@ -451,12 +426,8 @@ def writeAddressKeyedMappingPackedWordSlots (oracle : DenoteOracle)
     Verity.ContractState :=
   let targets :=
     slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key + wordOffset))
-  { world with
-    storage := fun slot =>
-      if targets.contains slot then
-        packedWordWrite (world.storage slot).val value packed
-      else
-        world.storage slot }
+  world.modifySlots targets
+    (fun current => packedWordWrite current.val value packed)
 
 def writeAddressKeyedMappingPackedWordFieldSlots (oracle : DenoteOracle)
     (fields : List Field) (fieldName : String)
@@ -487,13 +458,9 @@ def writeUintKeyedMappingSlots (oracle : DenoteOracle)
         slots.foldl
           (fun current slot => storeMappingEntryNat oracle current slot key value)
           (storageNatView world)
-      { world with
-        storage := fun s => ((storage (wordNormalize s) : Verity.Core.Uint256))
-        storageMapUint := fun baseSlot key' =>
-          if baseSlot == slot && key' == keyWord then
-            word
-          else
-            world.storageMapUint baseSlot key' }
+      (world.withStorageChannel
+          (fun _ => fun s => ((storage (wordNormalize s) : Verity.Core.Uint256)))).writeMapUint
+        slot keyWord word
 
 def writeAddressKeyedMapping2Slots (oracle : DenoteOracle)
     (world : Verity.ContractState) (slots : List Nat) (key1 key2 value : Nat) :
@@ -509,13 +476,9 @@ def writeAddressKeyedMapping2Slots (oracle : DenoteOracle)
           (fun current slot =>
             storeMappingEntryNat oracle current (oracle.mappingSlot slot key1) key2 value)
           (storageNatView world)
-      { world with
-        storage := fun s => ((storage (wordNormalize s) : Verity.Core.Uint256))
-        storageMap2 := fun baseSlot addr1 addr2 =>
-          if baseSlot == slot && addr1 == key1Addr && addr2 == key2Addr then
-            word
-          else
-            world.storageMap2 baseSlot addr1 addr2 }
+      (world.withStorageChannel
+          (fun _ => fun s => ((storage (wordNormalize s) : Verity.Core.Uint256)))).writeMap2
+        slot key1Addr key2Addr word
 
 def writeAddressKeyedMapping2WordSlots (oracle : DenoteOracle)
     (world : Verity.ContractState) (slots : List Nat) (key1 key2 wordOffset value : Nat) :
@@ -524,9 +487,7 @@ def writeAddressKeyedMapping2WordSlots (oracle : DenoteOracle)
   let targets := slots.map (fun slot =>
     wordNormalize
       (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
-  { world with
-    storage := fun slot =>
-      if targets.contains slot then word else world.storage slot }
+  world.writeSlots targets word
 
 def writeAddressKeyedMappingWordFieldSlots (oracle : DenoteOracle)
     (fields : List Field) (fieldName : String)
@@ -591,12 +552,8 @@ def writeAddressKeyedMapping2PackedWordSlots (oracle : DenoteOracle)
   let targets := slots.map (fun slot =>
     wordNormalize
       (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
-  { world with
-    storage := fun slot =>
-      if targets.contains slot then
-        packedWordWrite (world.storage slot).val value packed
-      else
-        world.storage slot }
+  world.modifySlots targets
+    (fun current => packedWordWrite current.val value packed)
 
 def writeAddressKeyedMapping2PackedWordFieldSlots (oracle : DenoteOracle)
     (fields : List Field) (fieldName : String)

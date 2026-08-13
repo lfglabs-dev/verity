@@ -39,9 +39,9 @@ private theorem encodeStorageAt_writeUintSlots_singleton_other
   apply SourceSemantics.encodeStorageAt_congr
   · have hneq' : query ≠ slot % Compiler.Constants.evmModulus := by
       simpa [SourceSemantics.wordNormalize] using hneq
-    simp [SourceSemantics.writeUintSlots, SourceSemantics.wordNormalize, hneq']
-  · simp [SourceSemantics.writeUintSlots]
-  · simp [SourceSemantics.writeUintSlots]
+    simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots, SourceSemantics.wordNormalize, hneq']
+  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
+  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
 
 private theorem encodeStorageAt_writeUintSlots_other
     {fields : List Field}
@@ -54,12 +54,12 @@ private theorem encodeStorageAt_writeUintSlots_other
       query =
       SourceSemantics.encodeStorageAt fields world query := by
   apply SourceSemantics.encodeStorageAt_congr
-  · simp only [SourceSemantics.writeUintSlots]
+  · simp only [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
     rw [show (slots.map SourceSemantics.wordNormalize).contains query = false from by
       simpa using hnotMem]
     simp
-  · simp [SourceSemantics.writeUintSlots]
-  · simp [SourceSemantics.writeUintSlots]
+  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
+  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
 
 set_option maxHeartbeats 800000 in
 private theorem encodeStorageAt_writeUintKeyedMappingSlots_singleton_other
@@ -1392,7 +1392,7 @@ private theorem runtimeStateMatchesIR_writeUintSlot
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
       rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' hnotAddr hnotDyn]
-      simp [SourceSemantics.writeUintSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
+      simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
         SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
         Verity.Core.UINT256_MODULUS, Verity.Core.Uint256.val_ofNat]
       exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
@@ -1482,7 +1482,7 @@ private theorem runtimeStateMatchesIR_writeAddressSlot
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
       rw [encodeStorageAt_eq_storageAddr_of_resolvedSlot hresolved' haddr hnotDyn]
-      simp [SourceSemantics.writeAddressSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
+      simp [SourceSemantics.writeAddressSlots, Verity.ContractState.writeAddrSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
         SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
         Verity.Core.UINT256_MODULUS,
         Verity.wordToAddress, Verity.Core.Address.ofNat, Verity.Core.Uint256.val_ofNat,
@@ -1501,9 +1501,9 @@ private theorem runtimeStateMatchesIR_writeAddressSlot
       have hneqNat' : query.toNat ≠ slot % Compiler.Constants.evmModulus := by
         simpa [SourceSemantics.wordNormalize] using hneqNat
       apply SourceSemantics.encodeStorageAt_congr
-      · simp [SourceSemantics.writeAddressSlots]
-      · simp [SourceSemantics.writeAddressSlots, SourceSemantics.wordNormalize, hneqNat']
-      · simp [SourceSemantics.writeAddressSlots]
+      · simp [SourceSemantics.writeAddressSlots, Verity.ContractState.writeAddrSlots]
+      · simp [SourceSemantics.writeAddressSlots, Verity.ContractState.writeAddrSlots, SourceSemantics.wordNormalize, hneqNat']
+      · simp [SourceSemantics.writeAddressSlots, Verity.ContractState.writeAddrSlots]
 
 private theorem runtimeStateMatchesIR_writeUintSlots
     {fields : List Field}
@@ -1547,7 +1547,7 @@ private theorem runtimeStateMatchesIR_writeUintSlots
                 (slot % Verity.Core.Uint256.modulus) = true := by
             simpa [SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
               Verity.Core.UINT256_MODULUS, Verity.Core.Uint256.modulus] using hcontains
-        simp only [SourceSemantics.writeUintSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
+        simp only [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
             SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
             Verity.Core.UINT256_MODULUS, hcontains',
             ↓reduceIte, Verity.Core.Uint256.val_ofNat]
@@ -1623,17 +1623,17 @@ private theorem runtimeStateMatchesIR_writeTransientTarget
   · funext query
     rw [hstorage]
     exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
-      (SourceSemantics.encodeStorageAt_congr (by simp [SourceSemantics.writeTransientTargets])
-        (by simp [SourceSemantics.writeTransientTargets])
-        (by simp [SourceSemantics.writeTransientTargets]))
+      (SourceSemantics.encodeStorageAt_congr (by simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots])
+        (by simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots])
+        (by simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots]))
   · funext slot
     by_cases hslot : slot = SourceSemantics.wordNormalize target
     · subst hslot
-      simp [SourceSemantics.writeTransientTargets]
+      simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots]
       exact (Nat.mod_eq_of_lt (by
         simpa [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS,
           Verity.Core.Uint256.modulus] using hvalue)).symm
-    · simp [SourceSemantics.writeTransientTargets, hslot]
+    · simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots, hslot]
       have hslot' : slot ≠ target % Compiler.Constants.evmModulus := by
         simpa [SourceSemantics.wordNormalize] using hslot
       simp [hslot', congrFun htransient slot]

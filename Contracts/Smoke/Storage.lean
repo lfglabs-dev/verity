@@ -441,9 +441,7 @@ verity_contract StorageBoolArraySmoke where
 
 def storageAddressArrayExecutableReadsHead : Bool :=
   let seededState : Verity.ContractState :=
-    { Verity.defaultState with
-      storageArray := fun idx =>
-        if idx == StorageAddressArraySmoke.owners.slot then [11, 17] else [] }
+    Verity.defaultState.writeArray StorageAddressArraySmoke.owners.slot [11, 17]
   match StorageAddressArraySmoke.firstOwner seededState with
   | .success owner state =>
       owner == (11 : Address) &&
@@ -462,9 +460,7 @@ example : storageAddressArrayExecutablePushStoresWord = true := by decide
 
 def storageAddressArrayExecutableSetUpdatesHead : Bool :=
   let seededState : Verity.ContractState :=
-    { Verity.defaultState with
-      storageArray := fun idx =>
-        if idx == StorageAddressArraySmoke.owners.slot then [11, 17] else [] }
+    Verity.defaultState.writeArray StorageAddressArraySmoke.owners.slot [11, 17]
   match StorageAddressArraySmoke.replaceFirstOwner (29 : Address) seededState with
   | .success () state =>
       state.storageArray StorageAddressArraySmoke.owners.slot == [29, 17]
@@ -474,9 +470,7 @@ example : storageAddressArrayExecutableSetUpdatesHead = true := by decide
 
 def storageBytes32ArrayExecutableReadsHead : Bool :=
   let seededState : Verity.ContractState :=
-    { Verity.defaultState with
-      storageArray := fun idx =>
-        if idx == StorageBytes32ArraySmoke.digests.slot then [41, 43] else [] }
+    Verity.defaultState.writeArray StorageBytes32ArraySmoke.digests.slot [41, 43]
   match StorageBytes32ArraySmoke.firstDigest seededState with
   | .success digest state =>
       digest == 41 &&
@@ -487,9 +481,7 @@ example : storageBytes32ArrayExecutableReadsHead = true := by decide
 
 def storageBoolArrayExecutableReadsHead : Bool :=
   let seededState : Verity.ContractState :=
-    { Verity.defaultState with
-      storageArray := fun idx =>
-        if idx == StorageBoolArraySmoke.flags.slot then [0, 1] else [] }
+    Verity.defaultState.writeArray StorageBoolArraySmoke.flags.slot [0, 1]
   match StorageBoolArraySmoke.firstFlag seededState with
   | .success flag state =>
       flag = false &&
@@ -508,9 +500,7 @@ example : storageBoolArrayExecutablePushStoresCanonicalWord = true := by decide
 
 def storageBoolArrayExecutableSetUpdatesHead : Bool :=
   let seededState : Verity.ContractState :=
-    { Verity.defaultState with
-      storageArray := fun idx =>
-        if idx == StorageBoolArraySmoke.flags.slot then [0, 1] else [] }
+    Verity.defaultState.writeArray StorageBoolArraySmoke.flags.slot [0, 1]
   match StorageBoolArraySmoke.setFirstFlag true seededState with
   | .success () state =>
       state.storageArray StorageBoolArraySmoke.flags.slot == [1, 1]

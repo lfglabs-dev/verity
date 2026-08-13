@@ -375,11 +375,8 @@ def execSourceLetCallerSetMapping2Stop
     (init : TExecState) (slot : Nat) : TExecResult :=
   .ok { init with
     vars := TVars.set init.vars { id := 2, ty := Ty.address } init.env.sender,
-    world := { init.world with
-      storageMap2 := fun i a1 a2 =>
-        if i == slot && a1 == init.env.sender && a2 == init.vars.address 0
-        then init.vars.uint256 1
-        else init.world.storageMap2 i a1 a2 } }
+    world := init.world.writeMap2 slot init.env.sender (init.vars.address 0)
+      (init.vars.uint256 1) }
 
 /-- Compile + execute the approve pattern from a pre-populated 2-param state
 (spender: address, amount: uint256). -/
@@ -427,11 +424,8 @@ def execCompiledLetMappingUintParamReturnLocal
 Sets a Uint256-keyed mapping at slot: mapping[p1] = p2. -/
 def execSourceSetMappingUintParamsStop
     (init : TExecState) (slot : Nat) : TExecResult :=
-  .ok { init with world := { init.world with
-    storageMapUint := fun i key' =>
-      if i == slot && key' == init.vars.uint256 0
-      then init.vars.uint256 1
-      else init.world.storageMapUint i key' } }
+  .ok { init with world :=
+    init.world.writeMapUint slot (init.vars.uint256 0) (init.vars.uint256 1) }
 
 /-- Compile + execute the setMappingUint(param1, param2) + stop pattern,
 from a pre-populated 2-Uint256-param CompileState. -/
@@ -1390,7 +1384,8 @@ theorem compile_let_caller_setMapping2_stop_semantics
     compileStmts_let_caller_setMapping2_stop_run, hSlot,
     h1, h2, h3, h4, h5, h6,
     evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, TVars.get, TVars.set]
+  simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, TVars.get, TVars.set,
+    Verity.ContractState.writeMap2]
 
 /-- Semantic-preservation for the mappingUint(param) read + return pattern. -/
 theorem compile_let_mappingUint_param_return_local_semantics
@@ -1415,7 +1410,8 @@ theorem compile_setMappingUint_params_stop_semantics
   simp [execCompiledSetMappingUintParamsStop, execSourceSetMappingUintParamsStop,
     compileStmts_setMappingUint_params_stop_run, hSlot, hp,
     evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, TVars.get]
+  simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, TVars.get,
+    Verity.ContractState.writeMapUint]
 
 -- ============================================================================
 -- Morpho Blue admin function base semantics definitions
@@ -1435,8 +1431,7 @@ def execSourceLetCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
         vars := TVars.set (TVars.set init.vars
           { id := 1, ty := Ty.address } sender)
           { id := 2, ty := Ty.address } owner,
-        world := { init.world with
-          storageAddr := fun i => if i == ownerSlot then param else init.world.storageAddr i } }
+        world := init.world.writeAddrSlot ownerSlot param }
     else .revert msg2
   else .revert msg1
 
@@ -1476,8 +1471,7 @@ def execSourceLetCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageAddrPara
           { id := 1, ty := Ty.address } sender)
           { id := 2, ty := Ty.address } owner)
           { id := 3, ty := Ty.address } targetVal,
-        world := { init.world with
-          storageAddr := fun i => if i == targetSlot then param else init.world.storageAddr i } }
+        world := init.world.writeAddrSlot targetSlot param }
     else .revert msg2
   else .revert msg1
 
@@ -1513,10 +1507,7 @@ def execSourceLetCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop
           { id := 1, ty := Ty.address } sender)
           { id := 2, ty := Ty.address } owner)
           { id := 3, ty := Ty.uint256 } currentVal,
-        world := { init.world with
-          storageMap := fun i a => if i == mappingSlot && a == key
-            then (writeVal : Verity.Core.Uint256)
-            else init.world.storageMap i a } }
+        world := init.world.writeMap mappingSlot key (writeVal : Verity.Core.Uint256) }
     else .revert msg2
   else .revert msg1
 
@@ -1559,10 +1550,8 @@ def execSourceLetCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappingU
             { id := 1, ty := Ty.address } sender)
             { id := 2, ty := Ty.address } owner)
             { id := 3, ty := Ty.uint256 } currentVal,
-          world := { init.world with
-            storageMapUint := fun i k => if i == mappingSlot && k == key
-              then (writeVal : Verity.Core.Uint256)
-              else init.world.storageMapUint i k } }
+          world := init.world.writeMapUint mappingSlot key
+            (writeVal : Verity.Core.Uint256) }
       else .revert msg3
     else .revert msg2
   else .revert msg1
@@ -1612,13 +1601,8 @@ def execSourceLetCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingAddParam
               { id := 3, ty := Ty.address } owner)
             { id := 4, ty := Ty.uint256 } currentBalance)
           { id := 5, ty := Ty.uint256 } currentSupply
-      world := { init.world with
-        storageMap := fun i a =>
-          if i == mappingSlot && a == recipient
-          then currentBalance + amount
-          else init.world.storageMap i a
-        storage := fun i =>
-          if i == supplySlot then currentSupply + amount else init.world.storage i } }
+      world := (init.world.writeMap mappingSlot recipient
+        (currentBalance + amount)).writeSlot supplySlot (currentSupply + amount) }
   else
     .revert msg
 
@@ -1662,10 +1646,8 @@ def execSourceLetCallerLetMapping2IteParamReqSetMapping2Stop
         vars := TVars.set (TVars.set init.vars
           { id := 2, ty := Ty.address } sender)
           { id := 3, ty := Ty.uint256 } currentVal,
-        world := { init.world with
-          storageMap2 := fun i a1 a2 => if i == mappingSlot && a1 == sender && a2 == authAddr
-            then (1 : Verity.Core.Uint256)
-            else init.world.storageMap2 i a1 a2 } }
+        world := init.world.writeMap2 mappingSlot sender authAddr
+          (1 : Verity.Core.Uint256) }
     else .revert msg1
   else
     if decide (¬ ((currentVal : Verity.Core.Uint256) = (0 : Verity.Core.Uint256))) then
@@ -1673,10 +1655,8 @@ def execSourceLetCallerLetMapping2IteParamReqSetMapping2Stop
         vars := TVars.set (TVars.set init.vars
           { id := 2, ty := Ty.address } sender)
           { id := 3, ty := Ty.uint256 } currentVal,
-        world := { init.world with
-          storageMap2 := fun i a1 a2 => if i == mappingSlot && a1 == sender && a2 == authAddr
-            then (0 : Verity.Core.Uint256)
-            else init.world.storageMap2 i a1 a2 } }
+        world := init.world.writeMap2 mappingSlot sender authAddr
+          (0 : Verity.Core.Uint256) }
     else .revert msg2
 
 /-- Compiled semantics for the Morpho setAuthorization pattern.
@@ -1798,7 +1778,8 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMapping_letStorage_setMapping_
     hOwner, hMapping, hSupply, hne_ap_tp, hne_sv_tp, hne_sv_ap, hne_ov_tp, hne_ov_ap, hne_ov_sv,
     hne_bv_tp, hne_bv_ap, hne_sp_tp, hne_sp_ap, hne_sp_bv, evalTStmts, defaultEvalFuel]
   by_cases hEq : init.env.sender = init.world.storageAddr ownerSlot
-  · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get]
+  · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get,
+      Verity.ContractState.writeMap, Verity.ContractState.writeSlot]
     constructor
     · funext i
       by_cases hi : i = supplySlot

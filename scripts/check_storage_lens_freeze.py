@@ -58,37 +58,20 @@ SHARED_SCAN_DIRS = ("Verity", "Contracts")
 # canonical `defaultState`/`emitEvent`-style literals; it is the only file
 # meant to keep raw access after the migration completes.
 BASELINE = {
-    # Lens implementations + defaultState (the permanent residue).
-    "Verity/Core.lean": 26,
-    # Denotational bulk writes (multi-slot / packed): need bulk lenses
-    # before they can migrate (C5 step 2).
-    "Verity/Core/Model/Denote.lean": 26,
-    "Verity/Core/Free/TypedIR.lean": 7,
-    # Bridge lemma statements equating monad ops with the raw update form;
-    # restated via lenses when the simp attribute moves to `storage_simps`.
-    "Verity/Proofs/Stdlib/Automation.lean": 3,
-    "Verity/Proofs/Stdlib/MappingAutomation.lean": 3,
-    "Verity/Specs/Common/Sum.lean": 1,
-    # Contract proofs spelling out full post-state record literals, and test
-    # fixtures constructing initial states by raw literal; both migrate in
-    # C5 step 2 (proofs onto `storage_simps`, fixtures onto lens chains).
-    "Contracts/Common.lean": 5,
-    "Contracts/ERC20/Proofs/Basic.lean": 16,
-    "Contracts/Interpreter.lean": 7,
-    "Contracts/Ledger/Proofs/Basic.lean": 32,
+    # Lens/bulk-lens/ofChannels implementations + defaultState — the
+    # permanent residue the C5 step-3 flip swaps in place.
+    "Verity/Core.lean": 39,
+    # 3 `let storage :=` local-binding false positives + the find?-shaped
+    # transient packed-write arm (non-defeq to a lens; step-3 burn-down).
+    "Verity/Core/Model/Denote.lean": 6,
+    # Concurrent lane (Ownable/composition session) — not ours to migrate.
     "Contracts/Owned/Proofs/Basic.lean": 8,
-    "Contracts/OwnedCounter/Proofs/Basic.lean": 24,
-    "Contracts/ReentrancyExample/Contract.lean": 7,
-    "Contracts/SafeCounter/Proofs/Basic.lean": 16,
-    "Contracts/SimpleToken/Proofs/Basic.lean": 16,
-    "Contracts/Smoke/Storage.lean": 5,
-    "Contracts/TypedIRTests.lean": 79,
-    "Compiler/CompilationModelFeatureTest.lean": 3,
-    "Compiler/Proofs/IRGeneration/SourceSemantics.lean": 8,
-    "Compiler/Proofs/IRGeneration/SourceSemanticsFeatureTest.lean": 1,
-    "Compiler/Proofs/Storage/StructArrayStorage.lean": 1,
-    "Compiler/Proofs/StorageBounds.lean": 1,
-    "Compiler/TypedIRCompilerCorrectness.lean": 9,
+    # IRState fixture literals (field-name collision false positives).
+    "Contracts/TypedIRTests.lean": 3,
+    # `=`-guarded dual-channel writeStorageWordSlot(s) (re-guarding to `==`
+    # would reshape the GenericInduction unfold surface; step-3 burn-down)
+    # + let-binding false positives.
+    "Compiler/Proofs/IRGeneration/SourceSemantics.lean": 7,
 }
 
 

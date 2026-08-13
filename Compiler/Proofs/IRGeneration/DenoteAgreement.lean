@@ -237,7 +237,8 @@ theorem writeAddressKeyedMappingSlots_eq
   | cons slot rest =>
       have h := storageRel_foldl k v id (slot :: rest) (storageRel_base w)
       simp only [Denote.writeAddressKeyedMappingSlots,
-        SourceSemantics.writeAddressKeyedMappingSlots]
+        SourceSemantics.writeAddressKeyedMappingSlots,
+        Verity.ContractState.withStorageChannel, Verity.ContractState.writeMap]
       congr 1
       exact storage_field_eq_of_rel h
 
@@ -250,7 +251,8 @@ theorem writeUintKeyedMappingSlots_eq
   | cons slot rest =>
       have h := storageRel_foldl k v id (slot :: rest) (storageRel_base w)
       simp only [Denote.writeUintKeyedMappingSlots,
-        SourceSemantics.writeUintKeyedMappingSlots]
+        SourceSemantics.writeUintKeyedMappingSlots,
+        Verity.ContractState.withStorageChannel, Verity.ContractState.writeMapUint]
       congr 1
       exact storage_field_eq_of_rel h
 
@@ -264,7 +266,8 @@ theorem writeAddressKeyedMapping2Slots_eq
       have h := storageRel_foldl k2 v (fun slot => Compiler.Proofs.abstractMappingSlot slot k1)
         (slot :: rest) (storageRel_base w)
       simp only [Denote.writeAddressKeyedMapping2Slots,
-        SourceSemantics.writeAddressKeyedMapping2Slots]
+        SourceSemantics.writeAddressKeyedMapping2Slots,
+        Verity.ContractState.withStorageChannel, Verity.ContractState.writeMap2]
       congr 1
       exact storage_field_eq_of_rel h
 
