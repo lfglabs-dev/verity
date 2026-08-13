@@ -94,6 +94,24 @@ private theorem helperBridge_internalFunctionYulName_ne_of_head
   rw [helperBridge_internalFunctionYulName_head calleeName] at hHead
   exact hhead hHead.symm
 
+/-- `internal_<name>` is at least 9 characters, `"invalid"` is 7 — a length
+discriminator, since both start with `'i'`. -/
+private theorem helperBridge_internalFunctionYulName_ne_invalid
+    (calleeName : String) :
+    CompilationModel.internalFunctionYulName calleeName ≠ "invalid" := by
+  intro hEq
+  have hLen := congrArg String.length hEq
+  have hMe : (CompilationModel.internalFunctionYulName calleeName).length =
+      9 + calleeName.length := by
+    show (toString "internal_" ++ toString calleeName).length =
+      9 + calleeName.length
+    rw [String.length_append]
+    simp [toString]
+    decide
+  rw [hMe] at hLen
+  have h7 : ("invalid" : String).length = 7 := by decide
+  omega
+
 private theorem helperBridge_internalFunctionYulName_isYulLogName_false (calleeName : String) :
     isYulLogName (CompilationModel.internalFunctionYulName calleeName) = false := by
   simp [isYulLogName,
@@ -161,6 +179,8 @@ private theorem execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_
     (helperBridge_internalFunctionYulName_ne_of_head calleeName "tstore" (by decide))
     (helperBridge_internalFunctionYulName_ne_of_head calleeName "revert" (by decide))
     (helperBridge_internalFunctionYulName_ne_of_head calleeName "return" (by decide))
+    (helperBridge_internalFunctionYulName_ne_invalid calleeName)
+    (helperBridge_internalFunctionYulName_ne_of_head calleeName "selfdestruct" (by decide))
     (helperBridge_internalFunctionYulName_isYulLogName_false calleeName)
 
 /-- N2/N3 assignment-call instantiation of the N1a helper-summary bridge.
