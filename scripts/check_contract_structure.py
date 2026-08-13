@@ -19,6 +19,8 @@ EXCLUDED_CONTRACTS = {
     "ReentrancyExample",        # Inline proofs in Examples/, no separate Proofs/ dir
     "CryptoHash",               # Axiom-based, no separate proof structure
     "ReentrancyRelyGuarantee",  # Proof-only rely-guarantee framework example, inline proofs
+    "Ownable",                  # Mixin facet: named-slot proofs + footprint, no Foundry/Yul twin
+    "OwnedCounterComposed",     # Include-host acceptance example; OwnedCounter keeps Yul/difftest
 }
 
 # Contracts excluded from property test check
@@ -26,6 +28,8 @@ EXCLUDED_FROM_PROPERTY_TESTS = {
     "CryptoHash",               # External-library contract, no property tests
     "Vault",                    # Minimal scaffolding landed before proof/property suite completion
     "ReentrancyRelyGuarantee",  # Abstract state-transformer proofs, no compiled contract to property-test
+    "Ownable",                  # Mixin proofs are reused by hosts; no compiled property harness
+    "OwnedCounterComposed",     # Proof-composition host; OwnedCounter remains the Foundry target
 }
 
 # Contracts excluded from differential test check
@@ -34,6 +38,8 @@ EXCLUDED_FROM_DIFFERENTIAL_TESTS = {
     "ReentrancyExample",        # Reentrancy model requires dedicated external-call harnessing
     "Vault",                    # Minimal scaffolding landed before differential harness completion
     "ReentrancyRelyGuarantee",  # No compiled bytecode (abstract proofs), nothing to differential-test
+    "Ownable",                  # Mixin facet; no dedicated Yul/Foundry twin
+    "OwnedCounterComposed",     # Selectors/layout stay on OwnedCounter until bit-identical
 }
 
 # Expected files for each contract (relative to ROOT)

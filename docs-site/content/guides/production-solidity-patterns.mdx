@@ -19,7 +19,7 @@ surfaces.
 
 | Solidity pattern | Prefer this Verity surface | Notes |
 |---|---|---|
-| `onlyOwner`, role gates | `requires(ownerSlot)` or a named `modifier` | Use a mapping-backed modifier for role sets such as relayers. |
+| `onlyOwner`, role gates | `verity_mixin Ownable` + `include Ownable`, or `requires(ownerSlot)` / a named `modifier` | Prefer include so host proofs reuse mixin `onlyOwner_*` theorems. Flatten (`is`) does not reuse proofs. |
 | `nonReentrant` | `nonreentrant(reentrancyLockSlot)` | Keep the external entrypoint guard instead of sprinkling manual lock writes. |
 | `initializer` | `initializer(initializedSlot)` | Mirrors upgradeable-contract bootstrap guards. |
 | `immutable` values | `immutables` block | Constructor-visible values become read-only bindings in functions. |

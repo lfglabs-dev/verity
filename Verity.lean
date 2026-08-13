@@ -13,5 +13,6 @@ import Verity.EVM.Uint256
 import Verity.Stdlib.Math
 import Verity.Specs.Common
 import Verity.Specs.Common.Sum
+import Verity.Specs.Composition
 import Verity.Proofs.Stdlib.Math
 import Verity.Proofs.Stdlib.ListSum

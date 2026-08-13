@@ -16,6 +16,7 @@ lean_lib «Verity» where
     .andSubmodules `Verity.Macro,
     .submodules `Verity.Stdlib,
     .andSubmodules `Verity.Specs.Common,
+    .one `Verity.Specs.Composition,
     .submodules `Verity.Proofs.Stdlib,
     .one `Verity.Proofs.LoopSimulation,
     .one `Verity.Proofs.LoopSimulationResultAware
@@ -32,7 +33,9 @@ lean_lib «Contracts» where
     .andSubmodules `Contracts.Counter,
     .andSubmodules `Contracts.SimpleStorage,
     .andSubmodules `Contracts.Owned,
+    .andSubmodules `Contracts.Ownable,
     .andSubmodules `Contracts.OwnedCounter,
+    .andSubmodules `Contracts.OwnedCounterComposed,
     .andSubmodules `Contracts.SafeCounter,
     .andSubmodules `Contracts.Ledger,
     .andSubmodules `Contracts.Vault,

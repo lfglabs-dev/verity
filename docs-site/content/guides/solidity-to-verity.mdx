@@ -59,13 +59,17 @@ Use this table as your first-pass conversion checklist.
 
 Some Solidity features are not 1:1 in the current EDSL/compiler pipeline.
 
-### Inheritance -> Explicit Composition
+### Inheritance -> Mixin include (preferred) or flatten
 
 - Solidity: `contract Child is Ownable, ERC20 { ... }`
-- Verity: compose the inherited storage roots, guards, and helpers explicitly.
-- Use `storage_namespace erc7201 "..."` for each inherited ERC-7201 root when
-  the source uses namespaced storage.
-- Put shared checks in reusable EDSL helpers (for example `onlyOwner`).
+- Verity, proof reuse: declare `verity_mixin Ownable` and
+  `verity_contract Child include Ownable where` plus the host's own storage.
+  Host `with onlyOwner` calls the mixin's Lean `onlyOwner`; mixin proofs
+  import into the host. Mixin slots stay as written (put ERC-7201 on the
+  mixin itself).
+- Verity, source flatten only: `verity_contract Child is Parent where`
+  re-elaborates a copied tree. Parent proofs do not apply. One parent, no C3.
+- Do not copy Ownable storage and re-prove `onlyOwner` by hand for new ports.
 
 ### Modifiers -> Guard Helpers
 

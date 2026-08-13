@@ -50,6 +50,22 @@
   "setStorage_updates_supply",
   "transfer_sum_preserved_unique"
  ],
+ "Ownable": [
+  "constructor_sets_owner",
+  "getOwner_meets_spec",
+  "onlyOwner_ok",
+  "onlyOwner_reverts",
+  "transferOwnership_meets_spec_when_owner",
+  "transferOwnership_writes_only"
+ ],
+ "OwnedCounterComposed": [
+  "getCount_meets_spec",
+  "increment_meets_spec_when_owner",
+  "increment_preserves_ownable_inv",
+  "increment_preserves_owner",
+  "increment_reverts_when_not_owner",
+  "increment_writes_only_count"
+ ],
  "ReentrancyRelyGuarantee": [
   "any_cross_contract_schedule_preserves_I",
   "any_reentry_schedule_preserves_I",

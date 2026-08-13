@@ -186,8 +186,12 @@ syntax "requireError " term:max ppSpace ident "(" sepBy(term, ",") ")" : doElem
 syntax (name := requireSomeUintErrorTerm) "requireSomeUintError " term:max ppSpace ident "(" sepBy(term, ",") ")" : term
 syntax "ecmBind " term:max ppSpace term:max ppSpace term:max : doElem
 syntax (priority := high) "unsafe " str " do " doSeq : doElem
-syntax "constructor " "(" sepBy(verityParam, ",") ")" (ppSpace ident "(" sepBy(term, ",") ")")? (ppSpace verityLocalObligations)? " := " term : verityConstructor
-syntax "constructor " "(" sepBy(verityParam, ",") ")" " payable" (ppSpace ident "(" sepBy(term, ",") ")")? (ppSpace verityLocalObligations)? " := " term : verityConstructor
+syntax "constructor " "(" sepBy(verityParam, ",") ")" (ppSpace ident "(" sepBy(term, ",") ")")* (ppSpace verityLocalObligations)? " := " term : verityConstructor
+syntax "constructor " "(" sepBy(verityParam, ",") ")" " payable" (ppSpace ident "(" sepBy(term, ",") ")")* (ppSpace verityLocalObligations)? " := " term : verityConstructor
+-- Parameter-less host constructors may start directly with mixin inits:
+-- `constructor Ownable() Other() := do ...`
+syntax "constructor " (ppSpace ident "(" sepBy(term, ",") ")")+ (ppSpace verityLocalObligations)? " := " term : verityConstructor
+syntax "constructor " "payable" (ppSpace ident "(" sepBy(term, ",") ")")+ (ppSpace verityLocalObligations)? " := " term : verityConstructor
 syntax "receive" (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "fallback" (ppSpace verityLocalObligations)? " := " term : veritySpecialEntrypoint
 syntax "modifier " ident " := " term : verityModifier
@@ -225,7 +229,7 @@ syntax (name := verityIntrinsicCmd)
   ident " := " term ";" ident "[" sepBy(verityIntrinsicObligation, ",") "]" : command
 
 syntax (name := verityContractCmd)
-  "verity_contract " ident (" is " ident)? " where "
+  "verity_contract " ident (" is " ident)? (" include " sepBy1(ident, ","))? " where "
   ("types " verityNewtype+)?
   ("enums " verityEnumDecl+)?
   ("inductive " verityAdtDecl+)?
@@ -241,6 +245,25 @@ syntax (name := verityContractCmd)
   ("linked_externals " verityExternal+)?
   (verityConstructor)?
   (veritySpecialEntrypoint)*
+  (verityModifier)*
+  verityFunction* : command
+
+syntax (name := verityMixinCmd)
+  "verity_mixin " ident " where "
+  ("types " verityNewtype+)?
+  ("enums " verityEnumDecl+)?
+  ("inductive " verityAdtDecl+)?
+  (verityNamespaceSpec)?
+  "storage " verityStorageItem*
+  ("roles " verityRoleDecl+)?
+  (verityStructDecl)*
+  ("errors " verityError+)?
+  ("event_defs " verityEvent+)?
+  ("constants " verityConstant+)?
+  ("immutables " verityImmutable+)?
+  ("interfaces " verityInterface+)?
+  ("linked_externals " verityExternal+)?
+  (verityConstructor)?
   (verityModifier)*
   verityFunction* : command
 

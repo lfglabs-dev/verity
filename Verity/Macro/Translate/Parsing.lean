@@ -609,62 +609,104 @@ def parseFunction (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl
       }
   | _ => throwErrorAt stx "invalid function declaration"
 
+private def constructorInits (parents : Array Ident) (argsArr : Array (Array Term)) :
+    Array (Ident × Array Term) :=
+  parents.zip argsArr
+
+private def firstInit (inits : Array (Ident × Array Term)) :
+    Option Ident × Array Term :=
+  match inits[0]? with
+  | some (name, args) => (some name, args)
+  | none => (none, #[])
+
 def parseConstructor (newtypes : Array NewtypeDecl) (structDecls : Array StructDecl := #[]) (adtDecls : Array AdtDecl := #[]) (stx : Syntax) : CommandElabM ConstructorDecl := do
   match stx with
-  | `(verityConstructor| constructor ($[$params:verityParam],*) payable $parent:ident($[$args:term],*) local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+  | `(verityConstructor| constructor ($[$params:verityParam],*) payable $[$parent:ident($[$args:term],*)]* local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+      let inits := constructorInits parent args
+      let (parentName?, parentArgs) := firstInit inits
       pure {
         params := ← params.mapM (parseParam newtypes structDecls adtDecls)
         isPayable := true
         localObligations := ← obligations.mapM parseLocalObligation
-        parentName? := some parent
-        parentArgs := args
+        parentName? := parentName?
+        parentArgs := parentArgs
+        mixinInits := inits
         body := body
       }
-  | `(verityConstructor| constructor ($[$params:verityParam],*) payable $parent:ident($[$args:term],*) := $body:term) =>
+  | `(verityConstructor| constructor ($[$params:verityParam],*) payable $[$parent:ident($[$args:term],*)]* := $body:term) =>
+      let inits := constructorInits parent args
+      let (parentName?, parentArgs) := firstInit inits
       pure {
         params := ← params.mapM (parseParam newtypes structDecls adtDecls)
         isPayable := true
-        parentName? := some parent
-        parentArgs := args
+        parentName? := parentName?
+        parentArgs := parentArgs
+        mixinInits := inits
         body := body
       }
-  | `(verityConstructor| constructor ($[$params:verityParam],*) $parent:ident($[$args:term],*) local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+  | `(verityConstructor| constructor ($[$params:verityParam],*) $[$parent:ident($[$args:term],*)]* local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+      let inits := constructorInits parent args
+      let (parentName?, parentArgs) := firstInit inits
       pure {
         params := ← params.mapM (parseParam newtypes structDecls adtDecls)
         localObligations := ← obligations.mapM parseLocalObligation
-        parentName? := some parent
-        parentArgs := args
+        parentName? := parentName?
+        parentArgs := parentArgs
+        mixinInits := inits
         body := body
       }
-  | `(verityConstructor| constructor ($[$params:verityParam],*) $parent:ident($[$args:term],*) := $body:term) =>
+  | `(verityConstructor| constructor ($[$params:verityParam],*) $[$parent:ident($[$args:term],*)]* := $body:term) =>
+      let inits := constructorInits parent args
+      let (parentName?, parentArgs) := firstInit inits
       pure {
         params := ← params.mapM (parseParam newtypes structDecls adtDecls)
-        parentName? := some parent
-        parentArgs := args
+        parentName? := parentName?
+        parentArgs := parentArgs
+        mixinInits := inits
         body := body
       }
-  | `(verityConstructor| constructor ($[$params:verityParam],*) payable local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+  | `(verityConstructor| constructor payable $[$parent:ident($[$args:term],*)]* local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+      let inits := constructorInits parent args
+      let (parentName?, parentArgs) := firstInit inits
       pure {
-        params := ← params.mapM (parseParam newtypes structDecls adtDecls)
+        params := #[]
         isPayable := true
         localObligations := ← obligations.mapM parseLocalObligation
+        parentName? := parentName?
+        parentArgs := parentArgs
+        mixinInits := inits
         body := body
       }
-  | `(verityConstructor| constructor ($[$params:verityParam],*) payable := $body:term) =>
+  | `(verityConstructor| constructor payable $[$parent:ident($[$args:term],*)]* := $body:term) =>
+      let inits := constructorInits parent args
+      let (parentName?, parentArgs) := firstInit inits
       pure {
-        params := ← params.mapM (parseParam newtypes structDecls adtDecls)
+        params := #[]
         isPayable := true
+        parentName? := parentName?
+        parentArgs := parentArgs
+        mixinInits := inits
         body := body
       }
-  | `(verityConstructor| constructor ($[$params:verityParam],*) local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+  | `(verityConstructor| constructor $[$parent:ident($[$args:term],*)]* local_obligations [ $[$obligations:verityLocalObligation],* ] := $body:term) =>
+      let inits := constructorInits parent args
+      let (parentName?, parentArgs) := firstInit inits
       pure {
-        params := ← params.mapM (parseParam newtypes structDecls adtDecls)
+        params := #[]
         localObligations := ← obligations.mapM parseLocalObligation
+        parentName? := parentName?
+        parentArgs := parentArgs
+        mixinInits := inits
         body := body
       }
-  | `(verityConstructor| constructor ($[$params:verityParam],*) := $body:term) =>
+  | `(verityConstructor| constructor $[$parent:ident($[$args:term],*)]* := $body:term) =>
+      let inits := constructorInits parent args
+      let (parentName?, parentArgs) := firstInit inits
       pure {
-        params := ← params.mapM (parseParam newtypes structDecls adtDecls)
+        params := #[]
+        parentName? := parentName?
+        parentArgs := parentArgs
+        mixinInits := inits
         body := body
       }
   | _ => throwErrorAt stx "invalid constructor declaration"

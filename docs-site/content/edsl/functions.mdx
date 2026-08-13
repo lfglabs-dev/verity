@@ -177,6 +177,37 @@ wrappers**, **storage namespaces** (`storage_namespace erc7201 "myapp.storage.X"
 and **mapping-of-struct** sugar (`MappingStruct`, `MappingStruct2`). Concrete
 usage shapes are in the [production patterns guide](/guides/production-solidity-patterns).
 
+## Mixins and `include`
+
+Reusable facets are `verity_mixin` modules. A host imports them with
+`include` — this is **not** `is` flatten:
+
+```verity
+verity_mixin Ownable where
+  storage
+    owner : Address := slot 0
+  modifier onlyOwner := do
+    let sender ← msgSender
+    require (sender == (← getStorageAddr owner)) "not owner"
+  function transferOwnership (newOwner : Address) with onlyOwner : Unit := do
+    setStorageAddr owner newOwner
+
+verity_contract Host include Ownable where
+  storage
+    count : Uint256 := slot 1
+  constructor (initialOwner : Address) Ownable(initialOwner) := do
+    setStorage count 0
+  function increment () with onlyOwner : Unit := do
+    setStorage count (add (← getStorage count) 1)
+```
+
+`with onlyOwner` on the host binds the mixin's Lean `onlyOwner` definition
+(same `StorageSlot`). Mixin proofs import into the host. `is Parent` still
+exists and re-elaborates a copied tree; use `include` when proofs must reuse.
+
+Name, slot, role, and modifier clashes fail closed. Mixin slots are not
+remapped. See [Modifiers and inheritance](https://github.com/lfglabs-dev/verity/blob/main/docs/MODIFIERS_AND_INHERITANCE.md).
+
 ## See also
 
 - [Storage & Data](/edsl/storage) — field declarations, immutables seeded in the constructor.

@@ -110,6 +110,14 @@
     "dischargedEdge_roundtrip",
     "unsafeEdge_preserves_state"
   ],
+  "Ownable": [
+    "constructor_sets_owner",
+    "getOwner_meets_spec",
+    "onlyOwner_ok",
+    "onlyOwner_reverts",
+    "transferOwnership_meets_spec_when_owner",
+    "transferOwnership_writes_only"
+  ],
   "Owned": [
     "constructor_getOwner_correct",
     "constructor_meets_spec",
@@ -184,6 +192,14 @@
     "transfer_then_decrement_reverts",
     "transfer_then_increment_reverts",
     "transfer_then_transfer_reverts"
+  ],
+  "OwnedCounterComposed": [
+    "getCount_meets_spec",
+    "increment_meets_spec_when_owner",
+    "increment_preserves_ownable_inv",
+    "increment_preserves_owner",
+    "increment_reverts_when_not_owner",
+    "increment_writes_only_count"
   ],
   "ReentrancyExample": [
     "deposit_maintains_supply",

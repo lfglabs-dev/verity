@@ -1,4 +1,5 @@
 import Contracts.Smoke.Helpers
+import Contracts.Smoke.Include
 import Contracts.Smoke.Intrinsics
 import Contracts.Smoke.Storage
 import Contracts.Smoke.Arithmetic
