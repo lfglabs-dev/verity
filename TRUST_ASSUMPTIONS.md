@@ -164,6 +164,30 @@ High-level semantics can expose intermediate state in reverted computations. EVM
 ### External-Call Gas Discipline (short-term model)
 `Verity.Core.Model.GasCoupling` ties the modeled callee cost to the call's gas allowance: a `GasFaithful` adversary can only succeed within the allowance, must fail (never commit) when over budget, and cannot claim more gas than forwarded. Failure causes (`outOfGas` vs. opaque exceptional halt) are modeling artifacts: `denoteCall_congr`/`denote_congr` prove observations are determined by the adversary's responses alone, so causes cannot leak to the caller — matching the EVM's zero-success-bit observability. The caller-has-enough-gas-for-its-handler assumption is the explicit `CallerCoversAllowance` hypothesis. Opcode-level gas accounting (EIP-150, warm/cold, refunds, stipend) is out of scope for this model and remains a dedicated roadmap lane.
 
+### External-Call Journal (`ContractState.calls`)
+`ContractState.calls` is an append-only journal of observed external calls
+(`Verity.ExternalCall`: site id, kind, target, value, calldata, control,
+returndata). It is a **proof-side observable, not EVM state**: the EVM keeps
+no such record, so nothing about it is claimed by semantic preservation.
+Two deliberate modeling choices in
+`Verity.Core.Model.DenoteExternalCalls.denoteCallJournaled` and the source
+primitive `externalCall` (`Verity.Core.Model.ContractExternalCall`):
+1. **The journal survives caller-side rollback.** A failed or reverted call
+   restores the caller world *except* `calls` — otherwise reverted calls
+   would be unobservable and per-iteration reasoning over retrying loops
+   would be impossible. Consequently `externalCall` never raises a monadic
+   revert; the callee's outcome is reported in-band via
+   `ExternalCallResult.control` (a full monadic revert through
+   `Contract.run` still discards the journal with the rest of the snapshot,
+   matching EVM top-level semantics — `externalCallRequireSuccess` opts into
+   that deliberately).
+2. **The adversary cannot write the journal.** Even a committed
+   `call`/`delegatecall` transition has its `calls` field overwritten with
+   `pre.calls ++ [entry]`: the journal is the caller's observation record,
+   not adversary-controlled state.
+`denoteCall` itself is unchanged; all previously proven world/gas laws hold
+verbatim.
+
 ### Reentrancy Guard (`nonreentrant(lockField)`)
 Functions annotated `nonreentrant(lockField)` are compiled with a
 **transient-storage** reentrancy guard prologue (#1893): an
