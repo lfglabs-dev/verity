@@ -1,5 +1,4 @@
-import Compiler.Proofs.IRGeneration.Function
-import Compiler.Proofs.IRGeneration.ParamLoading
+import Compiler.Proofs.IRGeneration.DispatchGeneric
 
 set_option linter.unnecessarySimpa false
 set_option linter.unusedSimpArgs false
@@ -10,20 +9,6 @@ open Compiler
 open Compiler.CompilationModel
 
 namespace Dispatch
-
-def runtimeContractOfFunctions (name : String) (functions : List IRFunction) : IRContract :=
-  { name := name
-    deploy := []
-    constructorPayable := false
-    functions := functions
-    fallbackEntrypoint := none
-    receiveEntrypoint := none
-    usesMapping := false
-    internalFunctions := [] }
-
-@[simp] theorem runtimeContractOfFunctions_internalFunctions
-    (name : String) (functions : List IRFunction) :
-    (runtimeContractOfFunctions name functions).internalFunctions = [] := rfl
 
 theorem runtimeContractOfFunctions_legacyCompatible
     (name : String) (functions : List IRFunction)
@@ -43,109 +28,6 @@ theorem runtimeContractOfFunctions_disjoint
     DisjointRuntimeContract (runtimeContractOfFunctions name functions) := by
   intro fn hmem
   exact hdisjointBodies fn hmem
-
-private theorem decodeSupportedParamWord_some_of_supported
-    (ty : ParamType) (word : Nat) (hsupported : SupportedExternalParamType ty) :
-    ∃ value, SourceSemantics.decodeSupportedParamWord ty word = some value := by
-  cases ty <;> simp [SupportedExternalParamType, SourceSemantics.decodeSupportedParamWord] at hsupported ⊢
-
-theorem bindSupportedParams_some_of_supported
-    (params : List Param) (args : List Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
-    (hlen : params.length ≤ args.length) :
-    ∃ bindings, SourceSemantics.bindSupportedParams params args = some bindings := by
-  induction params generalizing args with
-  | nil =>
-      exact ⟨[], by simp [SourceSemantics.bindSupportedParams]⟩
-  | cons param rest ih =>
-      cases args with
-      | nil =>
-          cases hlen
-      | cons arg restArgs =>
-          have hparam : SupportedExternalParamType param.ty := hsupported param (by simp)
-          rcases decodeSupportedParamWord_some_of_supported param.ty arg hparam with ⟨value, hdecode⟩
-          have hrestSupported : ∀ next ∈ rest, SupportedExternalParamType next.ty := by
-            intro next hnext
-            exact hsupported next (by simp [hnext])
-          have hrestLen : rest.length ≤ restArgs.length := Nat.le_of_succ_le_succ hlen
-          rcases ih restArgs hrestSupported hrestLen with ⟨bindings, hbindings⟩
-          refine ⟨(param.name, value) :: bindings, ?_⟩
-          simp [SourceSemantics.bindSupportedParams, hdecode, hbindings]
-
-private theorem find_compiledFunction_some_of_forall₂
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (selector : Nat)
-    (internalFunctions : List FunctionSpec := [])
-    {pairs : List (FunctionSpec × Nat)} {irFns : List IRFunction}
-    (hcompiled :
-      List.Forall₂
-        (fun entry irFn =>
-          compileFunctionSpec fields events errors [] entry.2 entry.1
-            (internalFunctions := internalFunctions) = Except.ok irFn)
-        pairs irFns)
-    {fn : FunctionSpec} {sel : Nat}
-    (hfind :
-      pairs.find? (fun entry => entry.2 == selector) = some (fn, sel)) :
-    ∃ irFn,
-      irFns.find? (fun irFn => irFn.selector == selector) = some irFn ∧
-      compileFunctionSpec fields events errors [] sel fn
-        (internalFunctions := internalFunctions) = Except.ok irFn := by
-  induction hcompiled generalizing fn sel with
-  | nil =>
-      simp at hfind
-  | @cons entry irFn pairs irFns hhead hrest ih =>
-      rcases entry with ⟨headFn, headSel⟩
-      by_cases hselEq : headSel = selector
-      · simp [hselEq] at hfind
-        rcases hfind with ⟨rfl, rfl⟩
-        have hhead' : compileFunctionSpec fields events errors [] selector headFn
-            (internalFunctions := internalFunctions) = Except.ok irFn := by
-          simpa [hselEq] using hhead
-        refine ⟨irFn, ?_, hhead'⟩
-        have hselector : irFn.selector = selector := by
-          calc
-            irFn.selector = headSel :=
-              (Function.compileFunctionSpec_ok_metadata_with_internals
-                fields events errors headSel headFn irFn internalFunctions hhead).2.1
-            _ = selector := hselEq
-        simp [hselector]
-      · have hfindRest :
-            pairs.find? (fun entry => entry.2 == selector) = some (fn, sel) := by
-          simpa [hselEq] using hfind
-        rcases ih hfindRest with ⟨irFn', hfindIr, hcompile⟩
-        refine ⟨irFn', ?_, hcompile⟩
-        have hheadSelector : irFn.selector = headSel := by
-          exact (Function.compileFunctionSpec_ok_metadata_with_internals
-            fields events errors headSel headFn irFn internalFunctions hhead).2.1
-        simp [hselEq, hheadSelector, hfindIr]
-
-private theorem find_compiledFunction_none_of_forall₂
-    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (selector : Nat)
-    (internalFunctions : List FunctionSpec := [])
-    {pairs : List (FunctionSpec × Nat)} {irFns : List IRFunction}
-    (hcompiled :
-      List.Forall₂
-        (fun entry irFn =>
-          compileFunctionSpec fields events errors [] entry.2 entry.1
-            (internalFunctions := internalFunctions) = Except.ok irFn)
-        pairs irFns)
-    (hfind :
-      pairs.find? (fun entry => entry.2 == selector) = none) :
-    irFns.find? (fun irFn => irFn.selector == selector) = none := by
-  induction hcompiled with
-  | nil =>
-      simp
-  | @cons entry irFn pairs irFns hhead hrest ih =>
-      rcases entry with ⟨headFn, headSel⟩
-      by_cases hselEq : headSel = selector
-      · simp [hselEq] at hfind
-      · have hfindRest : pairs.find? (fun entry => entry.2 == selector) = none := by
-          simpa [hselEq] using hfind
-        have hheadSelector : irFn.selector = headSel := by
-          exact (Function.compileFunctionSpec_ok_metadata_with_internals
-            fields events errors headSel headFn irFn internalFunctions hhead).2.1
-        simp [hselEq, hheadSelector, ih hfindRest]
 
 theorem interpretContract_correct_of_compiled_functions
     (model : CompilationModel)
@@ -172,110 +54,16 @@ theorem interpretContract_correct_of_compiled_functions
     FunctionBody.sourceResultMatchesIRResult
       (SourceSemantics.interpretContract model selectors tx initialWorld)
       (interpretIR (runtimeContractOfFunctions model.name irFns) tx
-        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  let pairs := SourceSemantics.selectorFunctionPairs model selectors
-  have hinterp :
-      interpretIR (runtimeContractOfFunctions model.name irFns) tx
-        (FunctionBody.initialIRStateForTx model tx initialWorld) =
-      match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
-      | some irFn =>
-          if !irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
-            { success := false
-              returnValue := none
-              finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
-              finalMappings := Compiler.Proofs.storageAsMappings
-                (FunctionBody.initialIRStateForTx model tx initialWorld).storage
-              events := (FunctionBody.initialIRStateForTx model tx initialWorld).events }
-          else if irFn.params.length ≤ tx.args.length then
-            execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)
-          else
-            { success := false
-              returnValue := none
-              finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
-              finalMappings := Compiler.Proofs.storageAsMappings
-                (FunctionBody.initialIRStateForTx model tx initialWorld).storage
-              events := (FunctionBody.initialIRStateForTx model tx initialWorld).events }
-      | none =>
-          { success := false
-            returnValue := none
-            finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
-            finalMappings := Compiler.Proofs.storageAsMappings
-              (FunctionBody.initialIRStateForTx model tx initialWorld).storage
-            events := (FunctionBody.initialIRStateForTx model tx initialWorld).events } := by
-        rfl
-  unfold SourceSemantics.interpretContract SourceSemantics.findFunctionBySelector
-  cases hfindPairs :
-      pairs.find? (fun entry => entry.2 == tx.functionSelector) with
-  | none =>
-      have hfindIr :
-          irFns.find? (fun irFn => irFn.selector == tx.functionSelector) = none :=
-        find_compiledFunction_none_of_forall₂
-          model.fields model.events model.errors tx.functionSelector [] hcompiled hfindPairs
-      rw [hinterp, hfindIr]
-      simp [hfindPairs, FunctionBody.sourceResultMatchesIRResult,
-        SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
-        FunctionBody.encodeStorage_withTransactionContext,
-        FunctionBody.encodeEvents_withTransactionContext]
-  | some pair =>
-      rcases pair with ⟨fn, sel⟩
-      rcases find_compiledFunction_some_of_forall₂
-          model.fields model.events model.errors tx.functionSelector [] hcompiled hfindPairs with
-        ⟨irFn, hfindIr, hcompileFn⟩
-      have hpairMem : (fn, sel) ∈ pairs := List.mem_of_find?_eq_some hfindPairs
-      have hfnMem : fn ∈ selectorDispatchedFunctions model := by
-        simpa [pairs, SourceSemantics.selectorFunctionPairs] using (List.of_mem_zip hpairMem).1
-      have hparamsEq :
-          irFn.params = fn.params.map Param.toIRParam :=
-        Function.compileFunctionSpec_ok_params
-          model.fields model.events model.errors sel fn irFn hcompileFn
-      have hlenEq : irFn.params.length = fn.params.length := by
-        simpa [hparamsEq]
-      have hpayableEq :
-          irFn.payable = fn.isPayable :=
-        Function.compileFunctionSpec_ok_payable
-          model.fields model.events model.errors sel fn irFn hcompileFn
-      by_cases hguard : (!fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true
-      · have hguardIr :
-            (!irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true := by
-          simpa [hpayableEq] using hguard
-        rw [hinterp, hfindIr]
-        simp [hfindPairs, hguard, hguardIr, FunctionBody.sourceResultMatchesIRResult,
-          SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
-          FunctionBody.encodeStorage_withTransactionContext,
-          FunctionBody.encodeEvents_withTransactionContext]
-      ·
-        have hguardFalse :
-            (!fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = false :=
-          Bool.eq_false_iff.2 hguard
-        have hguardIrFalse :
-            (!irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0) = false := by
-          simpa [hpayableEq] using hguardFalse
-        by_cases hlen : fn.params.length ≤ tx.args.length
-        · rcases bindSupportedParams_some_of_supported fn.params tx.args
-              (hparamsSupported fn hfnMem) hlen with ⟨bindings, hbindings⟩
-          have hmatch := hfunction fn sel irFn bindings hfnMem hcompileFn hbindings
-          have hlenIr : irFn.params.length ≤ tx.args.length := by
-            simpa [hlenEq] using hlen
-          rw [hinterp, hfindIr]
-          simpa [hfindPairs, hguardFalse, hguardIrFalse, hlenIr] using hmatch
-        · have hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none := by
-            cases hbind : SourceSemantics.bindSupportedParams fn.params tx.args with
-            | none =>
-                rfl
-            | some bindings =>
-                exfalso
-                exact hlen (ParamLoading.bindSupportedParams_some_length hbind)
-          have hlenIr : ¬ irFn.params.length ≤ tx.args.length := by
-            simpa [hlenEq] using hlen
-          have hbindExternalNone :
-              SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none :=
-            SourceSemantics.bindExternalParams_eq_none_of_not_length_le tx.functionSelector hlen
-          rw [hinterp, hfindIr]
-          simp [SourceSemantics.interpretFunction, hbindNone, hbindExternalNone, hfindPairs, hguardFalse,
-            hguardIrFalse, hlenIr, FunctionBody.sourceResultMatchesIRResult,
-            SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
-            FunctionBody.encodeStorage_withTransactionContext,
-            FunctionBody.encodeEvents_withTransactionContext]
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
+  interpretContract_correct_of_functions_generic
+    (fun fn sel irFn =>
+      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+    model selectors irFns tx initialWorld
+    (fun fn sel irFn hP => by
+      obtain ⟨hp, hs, hpay⟩ := Function.compileFunctionSpec_ok_metadata_with_internals
+        model.fields model.events model.errors sel fn irFn [] hP
+      exact ⟨hp, hs, hpay⟩)
+    hcompiled hparamsSupported hfunction
 
 theorem interpretContractWithInternals_correct_of_compiled_functions
     (model : CompilationModel)
@@ -307,11 +95,6 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
       (SourceSemantics.interpretContract model selectors tx initialWorld)
       (interpretIRWithInternals runtimeContract irFuelSlack tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  let pairs := SourceSemantics.selectorFunctionPairs model selectors
-  have hstate :
-      applyIRTransactionContext tx (FunctionBody.initialIRStateForTx model tx initialWorld) =
-        FunctionBody.initialIRStateForTx model tx initialWorld := by
-    rfl
   have hinterp :
       interpretIRWithInternals runtimeContract irFuelSlack tx
         (FunctionBody.initialIRStateForTx model tx initialWorld) =
@@ -343,79 +126,21 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
             events := (FunctionBody.initialIRStateForTx model tx initialWorld).events } := by
         simp [interpretIRWithInternals, hfunctions, FunctionBody.initialIRStateForTx]
         congr
-  unfold SourceSemantics.interpretContract SourceSemantics.findFunctionBySelector
-  cases hfindPairs :
-      pairs.find? (fun entry => entry.2 == tx.functionSelector) with
-  | none =>
-      have hfindIr :
-          irFns.find? (fun irFn => irFn.selector == tx.functionSelector) = none :=
-        find_compiledFunction_none_of_forall₂
-          model.fields model.events model.errors tx.functionSelector [] hcompiled hfindPairs
-      rw [hinterp, hfindIr]
-      simp [hfindPairs, FunctionBody.sourceResultMatchesIRResult,
-        SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
-        FunctionBody.encodeStorage_withTransactionContext,
-        FunctionBody.encodeEvents_withTransactionContext]
-  | some pair =>
-      rcases pair with ⟨fn, sel⟩
-      rcases find_compiledFunction_some_of_forall₂
-          model.fields model.events model.errors tx.functionSelector [] hcompiled hfindPairs with
-        ⟨irFn, hfindIr, hcompileFn⟩
-      have hpairMem : (fn, sel) ∈ pairs := List.mem_of_find?_eq_some hfindPairs
-      have hfnMem : fn ∈ selectorDispatchedFunctions model := by
-        simpa [pairs, SourceSemantics.selectorFunctionPairs] using (List.of_mem_zip hpairMem).1
-      have hparamsEq :
-          irFn.params = fn.params.map Param.toIRParam :=
-        Function.compileFunctionSpec_ok_params
-          model.fields model.events model.errors sel fn irFn hcompileFn
-      have hlenEq : irFn.params.length = fn.params.length := by
-        simpa [hparamsEq]
-      have hpayableEq :
-          irFn.payable = fn.isPayable :=
-        Function.compileFunctionSpec_ok_payable
-          model.fields model.events model.errors sel fn irFn hcompileFn
-      by_cases hguard : (!fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true
-      · have hguardIr :
-            (!irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true := by
-          simpa [hpayableEq] using hguard
-        rw [hinterp, hfindIr]
-        simp [hfindPairs, hguard, hguardIr, FunctionBody.sourceResultMatchesIRResult,
-          SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
-          FunctionBody.encodeStorage_withTransactionContext,
-          FunctionBody.encodeEvents_withTransactionContext]
-      ·
-        have hguardFalse :
-            (!fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = false :=
-          Bool.eq_false_iff.2 hguard
-        have hguardIrFalse :
-            (!irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0) = false := by
-          simpa [hpayableEq] using hguardFalse
-        by_cases hlen : fn.params.length ≤ tx.args.length
-        · rcases bindSupportedParams_some_of_supported fn.params tx.args
-              (hparamsSupported fn hfnMem) hlen with ⟨bindings, hbindings⟩
-          have hmatch := hfunction fn sel irFn bindings hfnMem hcompileFn hbindings
-          have hlenIr : irFn.params.length ≤ tx.args.length := by
-            simpa [hlenEq] using hlen
-          rw [hinterp, hfindIr]
-          simpa [hfindPairs, hguardFalse, hguardIrFalse, hlenIr] using hmatch
-        · have hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none := by
-            cases hbind : SourceSemantics.bindSupportedParams fn.params tx.args with
-            | none =>
-                rfl
-            | some bindings =>
-                exfalso
-                exact hlen (ParamLoading.bindSupportedParams_some_length hbind)
-          have hlenIr : ¬ irFn.params.length ≤ tx.args.length := by
-            simpa [hlenEq] using hlen
-          have hbindExternalNone :
-              SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none :=
-            SourceSemantics.bindExternalParams_eq_none_of_not_length_le tx.functionSelector hlen
-          rw [hinterp, hfindIr]
-          simp [SourceSemantics.interpretFunction, hbindNone, hbindExternalNone, hfindPairs, hguardFalse,
-            hguardIrFalse, hlenIr, FunctionBody.sourceResultMatchesIRResult,
-            SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
-            FunctionBody.encodeStorage_withTransactionContext,
-            FunctionBody.encodeEvents_withTransactionContext]
+  rw [interpretContract_eq_interpretContractWith]
+  exact interpretContractWith_correct_generic
+    (fun fn sel irFn =>
+      compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
+    (fun fn => SourceSemantics.interpretFunction model fn tx initialWorld)
+    (fun irFn => execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
+      (FunctionBody.initialIRStateForTx model tx initialWorld))
+    model selectors irFns tx initialWorld _
+    (fun fn sel irFn hP => by
+      obtain ⟨hp, hs, hpay⟩ := Function.compileFunctionSpec_ok_metadata_with_internals
+        model.fields model.events model.errors sel fn irFn [] hP
+      exact ⟨hp, hs, hpay⟩)
+    (fun fn hmem hbindNone => interpretFunction_eq_reverted_of_bind_none
+      model fn tx initialWorld (hparamsSupported fn hmem) hbindNone)
+    hcompiled hparamsSupported hinterp hfunction
 
 /-- Helper-aware dispatch skeleton.  This is the populated-runtime analogue of
 `interpretContractWithInternals_correct_of_compiled_functions`, but it keeps
@@ -455,11 +180,6 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
         model selectors helperFuel tx initialWorld)
       (interpretIRWithInternals runtimeContract irFuelSlack tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  let pairs := SourceSemantics.selectorFunctionPairs model selectors
-  have hstate :
-      applyIRTransactionContext tx (FunctionBody.initialIRStateForTx model tx initialWorld) =
-        FunctionBody.initialIRStateForTx model tx initialWorld := by
-    rfl
   have hinterp :
       interpretIRWithInternals runtimeContract irFuelSlack tx
         (FunctionBody.initialIRStateForTx model tx initialWorld) =
@@ -491,78 +211,23 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
             events := (FunctionBody.initialIRStateForTx model tx initialWorld).events } := by
         simp [interpretIRWithInternals, hfunctions, FunctionBody.initialIRStateForTx]
         congr
-  unfold SourceSemantics.interpretContractWithHelpers SourceSemantics.findFunctionBySelector
-  cases hfindPairs :
-      pairs.find? (fun entry => entry.2 == tx.functionSelector) with
-  | none =>
-      have hfindIr :
-          irFns.find? (fun irFn => irFn.selector == tx.functionSelector) = none :=
-        find_compiledFunction_none_of_forall₂
-          model.fields model.events model.errors tx.functionSelector
-          (model.functions.filter (·.isInternal)) hcompiled hfindPairs
-      rw [hinterp, hfindIr]
-      simp [hfindPairs, FunctionBody.sourceResultMatchesIRResult,
-        SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
-        FunctionBody.encodeStorage_withTransactionContext,
-        FunctionBody.encodeEvents_withTransactionContext]
-  | some pair =>
-      rcases pair with ⟨fn, sel⟩
-      rcases find_compiledFunction_some_of_forall₂
-          model.fields model.events model.errors tx.functionSelector
-          (model.functions.filter (·.isInternal)) hcompiled hfindPairs with
-        ⟨irFn, hfindIr, hcompileFn⟩
-      have hpairMem : (fn, sel) ∈ pairs := List.mem_of_find?_eq_some hfindPairs
-      have hfnMem : fn ∈ selectorDispatchedFunctions model := by
-        simpa [pairs, SourceSemantics.selectorFunctionPairs] using (List.of_mem_zip hpairMem).1
-      have hmetadata := Function.compileFunctionSpec_ok_metadata_with_internals
+  rw [interpretContractWithHelpers_eq_interpretContractWith]
+  exact interpretContractWith_correct_generic
+    (fun fn sel irFn =>
+      compileFunctionSpec model.fields model.events model.errors [] sel fn
+        (internalFunctions := model.functions.filter (·.isInternal)) = Except.ok irFn)
+    (fun fn => SourceSemantics.interpretFunctionWithHelpers model helperFuel fn tx initialWorld)
+    (fun irFn => execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
+      (FunctionBody.initialIRStateForTx model tx initialWorld))
+    model selectors irFns tx initialWorld _
+    (fun fn sel irFn hP => by
+      obtain ⟨hp, hs, hpay⟩ := Function.compileFunctionSpec_ok_metadata_with_internals
         model.fields model.events model.errors sel fn irFn
-        (model.functions.filter (·.isInternal)) hcompileFn
-      have hparamsEq : irFn.params = fn.params.map Param.toIRParam := hmetadata.1
-      have hlenEq : irFn.params.length = fn.params.length := by
-        simpa [hparamsEq]
-      have hpayableEq : irFn.payable = fn.isPayable := hmetadata.2.2
-      by_cases hguard :
-          (!fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true
-      · have hguardIr :
-            (!irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true := by
-          simpa [hpayableEq] using hguard
-        rw [hinterp, hfindIr]
-        simp [hfindPairs, hguard, hguardIr, FunctionBody.sourceResultMatchesIRResult,
-          SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
-          FunctionBody.encodeStorage_withTransactionContext,
-          FunctionBody.encodeEvents_withTransactionContext]
-      · have hguardFalse :
-            (!fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = false :=
-          Bool.eq_false_iff.2 hguard
-        have hguardIrFalse :
-            (!irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0) = false := by
-          simpa [hpayableEq] using hguardFalse
-        by_cases hlen : fn.params.length ≤ tx.args.length
-        · rcases bindSupportedParams_some_of_supported fn.params tx.args
-              (hparamsSupported fn hfnMem) hlen with ⟨bindings, hbindings⟩
-          have hmatch := hfunction fn sel irFn bindings hfnMem hcompileFn hbindings
-          have hlenIr : irFn.params.length ≤ tx.args.length := by
-            simpa [hlenEq] using hlen
-          rw [hinterp, hfindIr]
-          simpa [hfindPairs, hguardFalse, hguardIrFalse, hlenIr] using hmatch
-        · have hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none := by
-            cases hbind : SourceSemantics.bindSupportedParams fn.params tx.args with
-            | none => rfl
-            | some bindings =>
-                exfalso
-                exact hlen (ParamLoading.bindSupportedParams_some_length hbind)
-          have hlenIr : ¬ irFn.params.length ≤ tx.args.length := by
-            simpa [hlenEq] using hlen
-          have hbindExternalNone :
-              SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none :=
-            SourceSemantics.bindExternalParams_eq_none_of_not_length_le tx.functionSelector hlen
-          rw [hinterp, hfindIr]
-          simp [SourceSemantics.interpretFunctionWithHelpers, hbindNone, hbindExternalNone, hfindPairs,
-            hguardFalse, hguardIrFalse, hlenIr,
-            FunctionBody.sourceResultMatchesIRResult, SourceSemantics.revertedResult,
-            FunctionBody.initialIRStateForTx,
-            FunctionBody.encodeStorage_withTransactionContext,
-            FunctionBody.encodeEvents_withTransactionContext]
+        (model.functions.filter (·.isInternal)) hP
+      exact ⟨hp, hs, hpay⟩)
+    (fun fn hmem hbindNone => interpretFunctionWithHelpers_eq_reverted_of_bind_none
+      model helperFuel fn tx initialWorld (hparamsSupported fn hmem) hbindNone)
+    hcompiled hparamsSupported hinterp hfunction
 
 /-- Dispatch consumer specialized to the new helper-rich support inventory. -/
 theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper_rich_support
