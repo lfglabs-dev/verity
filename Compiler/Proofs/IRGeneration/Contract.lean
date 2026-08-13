@@ -11,7 +11,7 @@ open Compiler.Yul
 
 namespace Contract
 
-private theorem pickUniqueFunctionByName_eq_ok_none_of_absent
+theorem pickUniqueFunctionByName_eq_ok_none_of_absent
     (name : String) (funcs : List FunctionSpec)
     (habsent : ∀ fn ∈ funcs, fn.name != name) :
     pickUniqueFunctionByName name funcs = Except.ok none := by
@@ -110,7 +110,7 @@ private theorem exists_right_of_forall₂_mem_left
       · rcases ih hmemTail with ⟨y, hy, hRy⟩
         exact ⟨y, by simp [hy], hRy⟩
 
-private theorem filterInternalFunctions_eq_nil_of_all_nonInternal :
+theorem filterInternalFunctions_eq_nil_of_all_nonInternal :
     ∀ (fns : List FunctionSpec),
       (∀ fn ∈ fns, fn.isInternal = false) →
         fns.filter (·.isInternal) = []

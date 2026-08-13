@@ -79,6 +79,7 @@ import Compiler.Proofs.IRGeneration.GuardedCompile
 import Compiler.Proofs.IRGeneration.GuardedContractShape
 import Compiler.Proofs.IRGeneration.GuardedDispatch
 import Compiler.Proofs.IRGeneration.GuardedFunction
+import Compiler.Proofs.IRGeneration.GuardedSpec
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperBodyShape
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
@@ -2091,11 +2092,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ceiProofBackedExecution_checked_empty_body
 
   -- Compiler/Proofs/IRGeneration/Contract.lean
-  -- Compiler.Proofs.IRGeneration.Contract.pickUniqueFunctionByName_eq_ok_none_of_absent  -- private
+  Compiler.Proofs.IRGeneration.Contract.pickUniqueFunctionByName_eq_ok_none_of_absent
   -- Compiler.Proofs.IRGeneration.Contract.compiled_functions_forall₂_of_mapM_ok  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compiled_internal_functions_forall₂_of_mapM_ok  -- private
   -- Compiler.Proofs.IRGeneration.Contract.exists_right_of_forall₂_mem_left  -- private
-  -- Compiler.Proofs.IRGeneration.Contract.filterInternalFunctions_eq_nil_of_all_nonInternal  -- private
+  Compiler.Proofs.IRGeneration.Contract.filterInternalFunctions_eq_nil_of_all_nonInternal
   -- Compiler.Proofs.IRGeneration.Contract.filterInternalFunctions_eq_nil_of_supported  -- private
   -- Compiler.Proofs.IRGeneration.Contract.filterInternalFunctions_eq_nil_of_supported_except_mapping_writes  -- private
   -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_yields_compiled_functions  -- private
@@ -3573,6 +3574,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.acquiredBoundState_eq
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_fallthrough
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_halting
+
+  -- Compiler/Proofs/IRGeneration/GuardedSpec.lean
+  Compiler.Proofs.IRGeneration.SupportedSpecGuarded.noInternalFunctions
+  Compiler.Proofs.IRGeneration.compileValidatedCore_ok_yields_guarded_functions
+  Compiler.Proofs.IRGeneration.compile_ok_yields_guarded_functions
 
   -- Compiler/Proofs/IRGeneration/HelperBodyBridge.lean
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_obeys_internal_helper_summary
@@ -6741,4 +6747,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6281 theorems/lemmas (4410 public, 1871 private, 0 sorry'd)
+-- Total: 6284 theorems/lemmas (4415 public, 1869 private, 0 sorry'd)
