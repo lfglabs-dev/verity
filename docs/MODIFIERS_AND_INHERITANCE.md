@@ -44,7 +44,10 @@ definition; it does not copy the modifier body. Constructor inits
 `M1(args) M2(args)` run the mixin `constructor` values in include order,
 then the host body.
 
-Name, role, modifier, function, and slot clashes fail closed at elaboration.
+Name, role, modifier, function (including internal helpers), error, event,
+constant, immutable, external, type, and slot clashes fail closed at
+elaboration. Mixin modifiers validate against mixin errors/constants; mixin
+immutables are initialized in the host constructor model.
 Mixin slots are absolute as written (including mixin-owned ERC-7201 roots).
 The host does not remap mixin slots. v1 has no `exclude` and no `override`
 on the include path.

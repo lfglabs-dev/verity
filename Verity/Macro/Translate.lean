@@ -2674,7 +2674,13 @@ private def mkSpecCommand
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat)
     (specIdent : Ident := mkIdent (Name.mkSimple "spec"))
-    (translationFields : Array StorageFieldDecl := fields) : CommandElabM Cmd := do
+    (translationFields : Array StorageFieldDecl := fields)
+    (translationErrorDecls : Array ErrorDecl := errorDecls)
+    (translationConstDecls : Array ConstantDecl := constDecls)
+    (translationImmutableDecls : Array ImmutableDecl := immutableDecls)
+    (translationExternalDecls : Array ExternalDecl := externalDecls)
+    (translationFunctions : Array FunctionDecl := functions)
+    (constructorImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM Cmd := do
   let immutableTerms ← immutableDecls.mapM fun imm => do
     let tyTerm ← modelParamTypeTerm imm.ty
     let initTerm ← translatePureExpr fields constDecls #[] (ctor.map (·.params) |>.getD #[]) #[] imm.body
@@ -2691,15 +2697,18 @@ private def mkSpecCommand
   let eventTerms ← eventDecls.mapM mkModelEventTerm
   let externalTerms ← externalDecls.mapM mkModelExternalTerm
   let constructorTerm ←
-    match ctor, immutableDecls.isEmpty with
+    match ctor, constructorImmutableDecls.isEmpty with
     | none, true => `(none)
     | some ctor, _ =>
         let ctorParams ← mkModelParamsTerm ctor.params
         let ctorPayable ← if ctor.isPayable then `(true) else `(false)
         let ctorLocalObligationTerms ←
-          (constructorLocalObligationsWithArithmetic ctor immutableDecls).mapM mkModelLocalObligationTerm
-        let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls ctor.params
-        let ctorBodyTerms ← translateConstructorBodyToStmtTerms translationFields errorDecls constDecls immutableDecls externalDecls functions ctor
+          (constructorLocalObligationsWithArithmetic ctor constructorImmutableDecls).mapM mkModelLocalObligationTerm
+        let immutableInitTerms ← immutableInitStmtTerms
+          translationFields translationConstDecls constructorImmutableDecls ctor.params
+        let ctorBodyTerms ← translateConstructorBodyToStmtTerms
+          translationFields translationErrorDecls translationConstDecls
+          translationImmutableDecls translationExternalDecls translationFunctions ctor
         let enumGuardCount := ctor.params.countP fun param =>
           match param.ty with | .enum _ _ => true | _ => false
         let ctorAllTerms := ctorBodyTerms.take enumGuardCount ++ immutableInitTerms ++
@@ -2711,9 +2720,10 @@ private def mkSpecCommand
           body := [ $[$ctorAllTerms],* ]
         })
     | none, false =>
-        let immutableInitTerms ← immutableInitStmtTerms fields constDecls immutableDecls #[]
+        let immutableInitTerms ← immutableInitStmtTerms
+          translationFields translationConstDecls constructorImmutableDecls #[]
         let ctorLocalObligationTerms ←
-          (synthesizedConstructorLocalObligationsWithArithmetic immutableDecls).mapM mkModelLocalObligationTerm
+          (synthesizedConstructorLocalObligationsWithArithmetic constructorImmutableDecls).mapM mkModelLocalObligationTerm
         `(some {
           params := []
           isPayable := false
@@ -2807,7 +2817,9 @@ private def mkSpecCommand
     let bodyTerms ←
       match modDecl.body with
       | `(term| do $[$elems:doElem]*) =>
-          pure (← (translateDoElems fields constDecls immutableDecls externalDecls errorDecls functions .unit #[] #[] #[] elems)).1
+          pure (← (translateDoElems translationFields translationConstDecls
+            translationImmutableDecls translationExternalDecls
+            translationErrorDecls translationFunctions .unit #[] #[] #[] elems)).1
       | _ => throwErrorAt modDecl.body "modifier body must be a do block"
     let bodyTerms := bodyTerms.push (← `(Compiler.CompilationModel.Stmt.stop))
     `( ({
@@ -3524,6 +3536,30 @@ def expandMixinConstructorForModelPublic
     (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM ConstructorDecl :=
   expandMixinConstructorForModel hostFields hostConsts hostImmutables hostExternals host mixins
 
+/-- Mixin immutable initializers, with constructor-parameter references
+    rewritten to the host init expressions. The host CompilationModel must
+    emit `setImmutable` for these; merge keeps `host.constructor` only. -/
+private def includedMixinImmutablesForHost
+    (hostCtor : Option ConstructorDecl)
+    (mixins : Array (Name × ParsedContractSyntax)) : Array ImmutableDecl :=
+  let inits := hostCtor.map (·.mixinInits) |>.getD #[]
+  mixins.flatMap fun (mixinName, mixin) =>
+    let bindings : Array (String × Syntax) :=
+      match mixin.ctor with
+      | none => #[]
+      | some mixinCtor =>
+          match inits.find? (fun (id, _) => namesMixin (toString id.getId) mixinName) with
+          | none => #[]
+          | some (_, args) =>
+              mixinCtor.params.zip args |>.map fun (param, arg) => (param.name, arg.raw)
+    mixin.immutableDecls.map fun imm =>
+      { imm with body := substitutePureInitializerParams bindings imm.body }
+
+def includedMixinImmutablesForHostPublic
+    (hostCtor : Option ConstructorDecl)
+    (mixins : Array (Name × ParsedContractSyntax)) : Array ImmutableDecl :=
+  includedMixinImmutablesForHost hostCtor mixins
+
 private def resolveIncludedMixin (currentNs : Name) (id : Ident) :
     CommandElabM (Name × ParsedContractSyntax) := do
   let candidates := [currentNs ++ id.getId, id.getId]
@@ -3555,6 +3591,15 @@ private def fieldOccupiedSlots (field : StorageFieldDecl) : Array Nat :=
 private def fieldDeclaredNames (field : StorageFieldDecl) : Array String :=
   #[field.name] ++ field.aliases.toArray
 
+private def pushUniqueIncludeName
+    (kind : String) (mixinName : Name) (name : String) (seen : Array String) :
+    CommandElabM (Array String) := do
+  if seen.contains name then
+    throwError
+      ("include clash: " ++ kind ++ " '" ++ name ++ "' from mixin '" ++
+        toString mixinName ++ "' duplicates a host or earlier mixin " ++ kind)
+  pure (seen.push name)
+
 private def checkIncludeClashes
     (host : ParsedContractSyntax)
     (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM Unit := do
@@ -3566,8 +3611,14 @@ private def checkIncludeClashes
     (host.fields.filter (·.isTransient)).flatMap fieldOccupiedSlots
   let mut seenModNames : Array String := host.modifiers.map (·.name)
   let mut seenRoleNames : Array String := host.roleDecls.map (·.name)
-  let mut seenFnNames : Array String :=
-    host.functions.filterMap fun fn => if fn.isInternal then none else some fn.name
+  -- Internal helpers share the Yul/CompilationModel name key with entrypoints.
+  let mut seenFnNames : Array String := host.functions.map (·.name)
+  let mut seenErrorNames : Array String := host.errorDecls.map (·.name)
+  let mut seenEventNames : Array String := host.eventDecls.map (·.name)
+  let mut seenConstNames : Array String := host.constDecls.map (·.name)
+  let mut seenImmutableNames : Array String := host.immutableDecls.map (·.name)
+  let mut seenExternalNames : Array String := host.externalDecls.map (·.name)
+  let mut seenAdtNames : Array String := host.adtDecls.map (·.name)
   for (mixinName, mixin) in mixins do
     for field in mixin.fields do
       for n in fieldDeclaredNames field do
@@ -3586,18 +3637,23 @@ private def checkIncludeClashes
             throwError s!"include clash: slot {sl} from mixin '{mixinName}' field '{field.name}' overlaps a host or earlier mixin slot"
           seenPersistSlots := seenPersistSlots.push sl
     for modDecl in mixin.modifiers do
-      if seenModNames.contains modDecl.name then
-        throwError s!"include clash: modifier '{modDecl.name}' from mixin '{mixinName}' duplicates a host or earlier mixin modifier"
-      seenModNames := seenModNames.push modDecl.name
+      seenModNames ← pushUniqueIncludeName "modifier" mixinName modDecl.name seenModNames
     for role in mixin.roleDecls do
-      if seenRoleNames.contains role.name then
-        throwError s!"include clash: role '{role.name}' from mixin '{mixinName}' duplicates a host or earlier mixin role"
-      seenRoleNames := seenRoleNames.push role.name
+      seenRoleNames ← pushUniqueIncludeName "role" mixinName role.name seenRoleNames
     for fn in mixin.functions do
-      unless fn.isInternal do
-        if seenFnNames.contains fn.name then
-          throwError s!"include clash: function '{fn.name}' from mixin '{mixinName}' duplicates a host or earlier mixin entrypoint"
-        seenFnNames := seenFnNames.push fn.name
+      seenFnNames ← pushUniqueIncludeName "function" mixinName fn.name seenFnNames
+    for err in mixin.errorDecls do
+      seenErrorNames ← pushUniqueIncludeName "error" mixinName err.name seenErrorNames
+    for ev in mixin.eventDecls do
+      seenEventNames ← pushUniqueIncludeName "event" mixinName ev.name seenEventNames
+    for c in mixin.constDecls do
+      seenConstNames ← pushUniqueIncludeName "constant" mixinName c.name seenConstNames
+    for imm in mixin.immutableDecls do
+      seenImmutableNames ← pushUniqueIncludeName "immutable" mixinName imm.name seenImmutableNames
+    for extDecl in mixin.externalDecls do
+      seenExternalNames ← pushUniqueIncludeName "external" mixinName extDecl.name seenExternalNames
+    for adtDecl in mixin.adtDecls do
+      seenAdtNames ← pushUniqueIncludeName "ADT" mixinName adtDecl.name seenAdtNames
 
 private def checkMixinConstructorInits
     (host : ParsedContractSyntax)
@@ -3639,13 +3695,11 @@ private def finishIncludeContract
   let mixins ← includeIdents.mapM (resolveIncludedMixin currentNs)
   checkIncludeClashes own mixins
   checkMixinConstructorInits own mixins
-  let mixinFnNames := mixins.flatMap fun (_, mixin) =>
-    mixin.functions.filterMap fun fn => if fn.isInternal then none else some fn.name
+  let mixinFnNames := mixins.flatMap fun (_, mixin) => mixin.functions.map (·.name)
   for fn in own.functions do
-    unless fn.isInternal do
-      if mixinFnNames.contains fn.name then
-        throwErrorAt fn.ident
-          s!"include clash: function '{fn.name}' collides with an included mixin entrypoint"
+    if mixinFnNames.contains fn.name then
+      throwErrorAt fn.ident
+        s!"include clash: function '{fn.name}' collides with an included mixin function"
   let mixinModNames := mixinModifierNames mixins
   let localModifiers := own.modifiers.filter fun m => !mixinModNames.contains m.name
   -- Inline only host-local modifiers. Mixin modifiers stay on the function
@@ -4369,7 +4423,8 @@ def mkFunctionCommandsPublic
     (externalDecls : Array ExternalDecl)
     (functions : Array FunctionDecl)
     (fn : FunctionDecl)
-    (resolvedIncludes : Array Name := #[]) : CommandElabM (Array Cmd) := do
+    (resolvedIncludes : Array Name := #[])
+    (boundImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM (Array Cmd) := do
   let fnType ← mkContractFnType fn.params fn.returnTy
   -- Mixin modifiers belong after ABI/enum, init, and role guards, matching
   -- `translateBodyToStmtTerms`. Prefix them onto the source body so those
@@ -4379,7 +4434,10 @@ def mkFunctionCommandsPublic
   let fnRoleGuardedBody ← mkRoleGuardedBody fields roleDecls fnWithMixin
   let fnDecl := { fnWithMixin with body := fnRoleGuardedBody }
   let fnGuardedBody ← mkInitGuardedBody fields fnDecl
-  let fnBody ← mkImmutableBoundBody fields immutableDecls fn fnGuardedBody
+  -- Bind only this contract's immutables. Mixin immutables keep the hidden
+  -- slots computed in the mixin namespace; recomputing them against host
+  -- fields would shift those slots.
+  let fnBody ← mkImmutableBoundBody fields boundImmutableDecls fn fnGuardedBody
   let fnExecutableBody ← rewriteForEachExecutableBody fields externalDecls fn.params fnBody
   -- The parsed body already contains guards for the model path. Re-applying
   -- them outside all executable wrappers makes ABI validation happen before
@@ -4468,8 +4526,14 @@ def mkSpecCommandPublic
     (adtDecls : Array AdtDecl)
     (storageNamespace : Option Nat)
     (specIdent : Ident := mkIdent (Name.mkSimple "spec"))
-    (translationFields : Array StorageFieldDecl := fields) : CommandElabM Cmd :=
-  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace specIdent translationFields
+    (translationFields : Array StorageFieldDecl := fields)
+    (translationErrorDecls : Array ErrorDecl := errorDecls)
+    (translationConstDecls : Array ConstantDecl := constDecls)
+    (translationImmutableDecls : Array ImmutableDecl := immutableDecls)
+    (translationExternalDecls : Array ExternalDecl := externalDecls)
+    (translationFunctions : Array FunctionDecl := functions)
+    (constructorImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM Cmd :=
+  mkSpecCommand contractName fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls ctor modifiers functions adtDecls storageNamespace specIdent translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls
 
 def mkFindIdxFieldSimpCommandsPublic
     (contractIdent : Ident)

@@ -123,4 +123,87 @@ verity_contract IncludeRenamedCtorArgHost include IncludeOwnableMixin where
 
 #check_contract IncludeRenamedCtorArgHost
 
+verity_mixin IncludeErrorMixin where
+  storage
+    owner : Address := slot 0
+
+  errors
+    error NotOwner()
+
+  constructor (initialOwner : Address) := do
+    setStorageAddr owner initialOwner
+
+  modifier onlyOwner := do
+    let sender ← msgSender
+    let currentOwner ← getStorageAddr owner
+    requireError (sender == currentOwner) NotOwner()
+
+  function poke () with onlyOwner : Unit := do
+    pure ()
+
+verity_contract IncludeErrorHost include IncludeErrorMixin where
+  storage
+    count : Uint256 := slot 1
+
+  constructor (initialOwner : Address) IncludeErrorMixin(initialOwner) := do
+    setStorage count 0
+
+  function increment () with onlyOwner modifies(count) : Unit := do
+    let current ← getStorage count
+    setStorage count (add current 1)
+
+#check_contract IncludeErrorHost
+
+verity_mixin IncludeImmutableMixin where
+  storage
+
+  immutables
+    version : Uint256 := seed
+
+  constructor (seed : Uint256) := do
+    let _ := seed
+    pure ()
+
+  function getVersion () : Uint256 := do
+    return version
+
+verity_contract IncludeImmutableHost include IncludeImmutableMixin where
+  storage
+    count : Uint256 := slot 0
+
+  constructor (seed : Uint256) IncludeImmutableMixin(seed) := do
+    setStorage count 0
+
+#check_contract IncludeImmutableHost
+
+verity_mixin IncludeHelperMixinA where
+  storage
+    a : Uint256 := slot 0
+
+  constructor () := do
+    setStorage a 1
+
+  function internal helper (x : Uint256) : Uint256 := do
+    return x
+
+verity_mixin IncludeHelperMixinB where
+  storage
+    b : Uint256 := slot 1
+
+  constructor () := do
+    setStorage b 2
+
+  function internal helper (x : Uint256) : Uint256 := do
+    return x
+
+/--
+error: include clash: function 'helper' from mixin 'Contracts.Smoke.IncludeHelperMixinB' duplicates a host or earlier mixin function
+-/
+#guard_msgs in
+verity_contract IncludeInternalClashRejected include IncludeHelperMixinA, IncludeHelperMixinB where
+  storage
+
+  constructor IncludeHelperMixinA() IncludeHelperMixinB() := do
+    pure ()
+
 end Contracts.Smoke

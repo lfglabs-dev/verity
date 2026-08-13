@@ -1559,9 +1559,10 @@ def mergeConstructorSpecs (mixins : List (Option ConstructorSpec)) (host : Optio
       }
 
 /-- Host CompilationModel is mixin specs (include order) then host fields/functions.
-    The host constructor is already the full sequence (mixin inits with
-    substituted arguments, then the host body); do not concatenate mixin
-    constructor bodies a second time. -/
+    The host constructor is already the full sequence: mixin immutable
+    `setImmutable` statements (with host-substituted initializers), mixin
+    user-ctor bodies with hygienic argument bindings, then the host body.
+    Do not concatenate mixin constructor bodies a second time. -/
 def mergeIncludedSpecs (name : String) (mixins : List CompilationModel) (host : CompilationModel) :
     CompilationModel :=
   { host with

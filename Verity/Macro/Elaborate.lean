@@ -91,14 +91,39 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   validateExternalDeclsPublic externalDecls
   let mut mixinModifiers : Array ModifierDecl := #[]
   let mut mixinFields : Array StorageFieldDecl := #[]
+  let mut mixinErrorDecls : Array ErrorDecl := #[]
+  let mut mixinEventDecls : Array EventDecl := #[]
+  let mut mixinConstDecls : Array ConstantDecl := #[]
+  let mut mixinImmutableDecls : Array ImmutableDecl := #[]
+  let mut mixinExternalDecls : Array ExternalDecl := #[]
+  let mut mixinFunctions : Array FunctionDecl := #[]
+  let mut mixinRoleDecls : Array RoleDecl := #[]
+  let mut mixinParsed : Array (Name × ParsedContractSyntax) := #[]
   for mixinName in resolvedIncludes do
     match (← lookupContractSyntaxPublic mixinName) with
     | some mixin =>
         mixinModifiers := mixinModifiers ++ mixin.modifiers
         mixinFields := mixinFields ++ mixin.fields
+        mixinErrorDecls := mixinErrorDecls ++ mixin.errorDecls
+        mixinEventDecls := mixinEventDecls ++ mixin.eventDecls
+        mixinConstDecls := mixinConstDecls ++ mixin.constDecls
+        mixinImmutableDecls := mixinImmutableDecls ++ mixin.immutableDecls
+        mixinExternalDecls := mixinExternalDecls ++ mixin.externalDecls
+        mixinFunctions := mixinFunctions ++ mixin.functions
+        mixinRoleDecls := mixinRoleDecls ++ mixin.roleDecls
+        mixinParsed := mixinParsed.push (mixinName, mixin)
     | none => pure ()
-  validateFunctionDeclsPublic (mixinFields ++ fields) errorDecls eventDecls constDecls immutableDecls
-    externalDecls ctor (mixinModifiers ++ modifiers) functions
+  let translationFields := mixinFields ++ fields
+  let translationErrorDecls := mixinErrorDecls ++ errorDecls
+  let translationEventDecls := mixinEventDecls ++ eventDecls
+  let translationConstDecls := mixinConstDecls ++ constDecls
+  let translationImmutableDecls := mixinImmutableDecls ++ immutableDecls
+  let translationExternalDecls := mixinExternalDecls ++ externalDecls
+  let translationFunctions := mixinFunctions ++ functions
+  let translationRoleDecls := mixinRoleDecls ++ roleDecls
+  validateFunctionDeclsPublic translationFields translationErrorDecls translationEventDecls
+    translationConstDecls translationImmutableDecls translationExternalDecls ctor
+    (mixinModifiers ++ modifiers) translationFunctions
 
   let declarationNs ← getCurrNamespace
   elabCommand (← `(namespace $contractName))
@@ -146,11 +171,14 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
           elabCommand (← mkHostConstructorDefCommandPublic resolvedIncludes ctorDecl)
       | none => pure ()
 
-    -- Translation (not storage-def emission) must see mixin fields so
-    -- inlined mixin-modifier CompilationModel bodies can resolve slots.
-    let translationFields := mixinFields ++ fields
+    -- Translation (not storage-def emission) must see mixin fields/decls so
+    -- inlined mixin-modifier CompilationModel bodies can resolve slots,
+    -- custom errors, constants, and helpers.
     for fn in functions do
-      let fnCmds ← mkFunctionCommandsPublic translationFields roleDecls errorDecls constDecls immutableDecls externalDecls functions fn resolvedIncludes
+      let fnCmds ← mkFunctionCommandsPublic translationFields translationRoleDecls
+        translationErrorDecls translationConstDecls translationImmutableDecls
+        translationExternalDecls translationFunctions fn resolvedIncludes
+        (boundImmutableDecls := immutableDecls)
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
@@ -160,17 +188,15 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       else mkIdent (Name.mkSimple "host_spec")
     let mut modelCtor := ctor
     if !resolvedIncludes.isEmpty then
-      let mut mixins : Array (Name × ParsedContractSyntax) := #[]
-      for mixinName in resolvedIncludes do
-        match (← lookupContractSyntaxPublic mixinName) with
-        | some mixin => mixins := mixins.push (mixinName, mixin)
-        | none => pure ()
       match ctor with
       | some ctorDecl =>
           modelCtor := some (← expandMixinConstructorForModelPublic
-            translationFields constDecls immutableDecls externalDecls ctorDecl mixins)
+            translationFields translationConstDecls translationImmutableDecls
+            translationExternalDecls ctorDecl mixinParsed)
       | none => pure ()
-    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls modelCtor modifiers functions adtDecls storageNamespace specName translationFields)
+    let constructorImmutableDecls :=
+      includedMixinImmutablesForHostPublic ctor mixinParsed ++ immutableDecls
+    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls modelCtor modifiers functions adtDecls storageNamespace specName translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls)
     if !resolvedIncludes.isEmpty then
       elabCommand (← mkMergedSpecCommandPublic (toString contractName.getId) resolvedIncludes)
 
