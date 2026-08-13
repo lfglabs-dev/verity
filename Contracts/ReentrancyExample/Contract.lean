@@ -204,11 +204,11 @@ theorem withdraw_maintains_supply (amount : Uint256) :
   have h_left :
       ((withdraw amount).runState s).storage totalSupply.slot =
         sub (s.storage totalSupply.slot) amount := by
-    simp [Contract.runState, withdraw, withdrawWithEnv, h_cond2, setStorageSlot, setMappingSlot, balances, totalSupply]
+    simp [Contract.runState, withdraw, withdrawWithEnv, h_cond2, setStorageSlot, setMappingSlot, balances, totalSupply, ContractState.writeSlot, ContractState.writeMap]
   have h_right :
       ((withdraw amount).runState s).storageMap balances.slot s.sender =
         sub (s.storageMap balances.slot s.sender) amount := by
-    simp [Contract.runState, withdraw, withdrawWithEnv, h_cond2, setStorageSlot, setMappingSlot, balances, totalSupply]
+    simp [Contract.runState, withdraw, withdrawWithEnv, h_cond2, setStorageSlot, setMappingSlot, balances, totalSupply, ContractState.writeSlot, ContractState.writeMap]
   -- Reduce to the same subtraction on both sides.
   have h_mid : sub (s.storage totalSupply.slot) amount =
       sub (s.storageMap balances.slot s.sender) amount := by
@@ -223,7 +223,7 @@ theorem withdraw_maintains_supply (amount : Uint256) :
       _ = sub (s.storageMap balances.slot s.sender) amount := h_mid
       _ = ((withdraw amount).runState s).storageMap balances.slot s.sender := by
             symm; exact h_right
-  simpa [supplyInvariant, Contract.runState_eq_snd_run] using h_result
+  simpa [supplyInvariant, Contract.runState_eq_snd_run, ContractState.writeSlot, ContractState.writeMap] using h_result
 
 /-
 DEPOSIT ALSO MAINTAINS INVARIANT
@@ -242,11 +242,11 @@ theorem deposit_maintains_supply (amount : Uint256) :
   have h_left :
       ((deposit amount).runState s).storage totalSupply.slot =
         (s.storage totalSupply.slot) + amount := by
-    simp [Contract.runState, deposit, setStorageSlot, setMappingSlot, balances, totalSupply]
+    simp [Contract.runState, deposit, setStorageSlot, setMappingSlot, balances, totalSupply, ContractState.writeSlot, ContractState.writeMap]
   have h_right :
       ((deposit amount).runState s).storageMap balances.slot s.sender =
         (s.storageMap balances.slot s.sender) + amount := by
-    simp [Contract.runState, deposit, setStorageSlot, setMappingSlot, balances, totalSupply]
+    simp [Contract.runState, deposit, setStorageSlot, setMappingSlot, balances, totalSupply, ContractState.writeSlot, ContractState.writeMap]
   have h_mid : (s.storage totalSupply.slot) + amount =
       (s.storageMap balances.slot s.sender) + amount := by
     simp [h_eq]
@@ -259,7 +259,7 @@ theorem deposit_maintains_supply (amount : Uint256) :
       _ = (s.storageMap balances.slot s.sender) + amount := h_mid
       _ = ((deposit amount).runState s).storageMap balances.slot s.sender := by
             symm; exact h_right
-  simpa [supplyInvariant, Contract.runState_eq_snd_run] using h_result
+  simpa [supplyInvariant, Contract.runState_eq_snd_run, ContractState.writeSlot, ContractState.writeMap] using h_result
 
 end SafeBank
 

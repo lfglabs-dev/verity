@@ -64,11 +64,14 @@ theorem increment_meets_spec (s : ContractState) :
   increment_spec s s' := by
   unfold increment_spec Specs.storageUpdateSpec Specs.sameAddrMapContext
   refine ⟨?_, ?_, ?_⟩
-  · simp [increment, count, getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind]
+  · simp [increment, count, getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind,
+      ContractState.readSlot, ContractState.writeSlot]
   · intro other h_neq
-    simp [increment, count, getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind, h_neq]
+    simp [increment, count, getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind, h_neq,
+      ContractState.readSlot, ContractState.writeSlot]
   · simp [Specs.sameStorageAddr, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext, increment, count,
-      getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind]
+      getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind,
+      ContractState.readSlot, ContractState.writeSlot]
 
 theorem increment_adds_one (s : ContractState) :
   let s' := ((increment).run s).snd
@@ -82,11 +85,14 @@ theorem decrement_meets_spec (s : ContractState) :
   decrement_spec s s' := by
   unfold decrement_spec Specs.storageUpdateSpec Specs.sameAddrMapContext
   refine ⟨?_, ?_, ?_⟩
-  · simp [decrement, count, getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind]
+  · simp [decrement, count, getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind,
+      ContractState.readSlot, ContractState.writeSlot]
   · intro other h_neq
-    simp [decrement, count, getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind, h_neq]
+    simp [decrement, count, getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind, h_neq,
+      ContractState.readSlot, ContractState.writeSlot]
   · simp [Specs.sameStorageAddr, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext, decrement, count,
-      getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind]
+      getStorage, setStorage, Contract.run, ContractResult.snd, Verity.bind, Bind.bind,
+      ContractState.readSlot, ContractState.writeSlot]
 
 theorem decrement_subtracts_one (s : ContractState) :
   let s' := ((decrement).run s).snd

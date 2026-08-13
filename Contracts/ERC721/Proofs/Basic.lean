@@ -18,24 +18,24 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [Contracts.ERC721.«constructor», Contracts.ERC721.owner,
       Contracts.ERC721.totalSupply, Contracts.ERC721.nextTokenId,
-      setStorageAddr, setStorage,
+      setStorageAddr, setStorage, ContractState.writeAddrSlot, ContractState.writeSlot,
       Contract.runState, Verity.bind, Bind.bind]
   · simp [Contracts.ERC721.«constructor», Contracts.ERC721.owner,
       Contracts.ERC721.totalSupply, Contracts.ERC721.nextTokenId,
-      setStorageAddr, setStorage,
+      setStorageAddr, setStorage, ContractState.writeAddrSlot, ContractState.writeSlot,
       Contract.runState, Verity.bind, Bind.bind]
   · simp [Contracts.ERC721.«constructor», Contracts.ERC721.owner,
       Contracts.ERC721.totalSupply, Contracts.ERC721.nextTokenId,
-      setStorageAddr, setStorage,
+      setStorageAddr, setStorage, ContractState.writeAddrSlot, ContractState.writeSlot,
       Contract.runState, Verity.bind, Bind.bind]
   · intro other h_neq
     simp [Contracts.ERC721.«constructor», Contracts.ERC721.owner,
       Contracts.ERC721.totalSupply, Contracts.ERC721.nextTokenId,
-      setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind, h_neq]
+      setStorageAddr, setStorage, ContractState.writeAddrSlot, ContractState.writeSlot, Contract.runState, Verity.bind, Bind.bind, h_neq]
   · intro other h_slot1 h_slot2
     simp [Contracts.ERC721.«constructor», Contracts.ERC721.owner,
       Contracts.ERC721.totalSupply, Contracts.ERC721.nextTokenId,
-      setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind, h_slot1, h_slot2]
+      setStorageAddr, setStorage, ContractState.writeAddrSlot, ContractState.writeSlot, Contract.runState, Verity.bind, Bind.bind, h_slot1, h_slot2]
   · refine ⟨?_, ?_, ?_, ?_, ?_⟩
     · rfl
     · rfl
@@ -43,7 +43,7 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
     · rfl
     · simp [Specs.sameContext, Contracts.ERC721.«constructor», Contracts.ERC721.owner,
         Contracts.ERC721.totalSupply, Contracts.ERC721.nextTokenId,
-        setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind]
+        setStorageAddr, setStorage, ContractState.writeAddrSlot, ContractState.writeSlot, Contract.runState, Verity.bind, Bind.bind]
 
 /-- `balanceOf` returns balances slot 3 at address `addr`. -/
 theorem balanceOf_meets_spec (s : ContractState) (addr : Address) :
@@ -59,7 +59,7 @@ theorem ownerOf_meets_spec (s : ContractState) (tokenId : Uint256) :
     simp [ownerOf_spec, Contracts.ERC721.ownerOf, Contract.run, Verity.bind, Bind.bind,
       getMappingUint, Contracts.ERC721.owners,
       Verity.wordToAddress, Pure.pure, Verity.pure,
-      require, h_owner]
+      require, h_owner, ContractState.readMapUint]
 
 /-- `getApproved` reverts for unminted tokens and returns approval for minted tokens. -/
 theorem getApproved_meets_spec (s : ContractState) (tokenId : Uint256) :
@@ -68,13 +68,13 @@ theorem getApproved_meets_spec (s : ContractState) (tokenId : Uint256) :
     simp [getApproved_spec, Contracts.ERC721.getApproved, Contract.run, Verity.bind, Bind.bind,
       getMappingUint, getMappingUintAddr, Contracts.ERC721.owners, Contracts.ERC721.tokenApprovals,
       Verity.wordToAddress, Pure.pure, Verity.pure,
-      require, h_owner]
+      require, h_owner, ContractState.readMapUint]
 
 /-- `isApprovedForAll` checks nonzero operator-approval flag in slot 6. -/
 theorem isApprovedForAll_meets_spec (s : ContractState) (ownerAddr operator : Address) :
     isApprovedForAll_spec ownerAddr operator ((Contracts.ERC721.isApprovedForAll ownerAddr operator).runValue s) s := by
   simp [isApprovedForAll_spec, Contracts.ERC721.isApprovedForAll, Contract.runValue, Verity.bind, Bind.bind,
-    getMapping2, Contracts.ERC721.operatorApprovals]
+    getMapping2, Contracts.ERC721.operatorApprovals, ContractState.readMap2]
   simp [Pure.pure, Verity.pure]
 
 /-- `setApprovalForAll` writes sender/operator flag and leaves other state unchanged. -/
@@ -86,34 +86,37 @@ theorem setApprovalForAll_meets_spec (s : ContractState) (operator : Address) (a
   · cases approved <;>
       simp [Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
         setMapping2, Contracts.ERC721.Spec.boolToWord,
-        msgSender, Contract.runState, Verity.bind, Bind.bind]
+        msgSender, Contract.runState, Verity.bind, Bind.bind,
+        ContractState.writeMap2]
   · refine ⟨?_, ?_⟩
     · intro o' op' h_neq
       simp [Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
         setMapping2,
-        msgSender, Contract.runState, Verity.bind, Bind.bind, h_neq]
+        msgSender, Contract.runState, Verity.bind, Bind.bind, h_neq,
+        ContractState.writeMap2]
     · intro op' h_neq
       simp [Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
         setMapping2,
-        msgSender, Contract.runState, Verity.bind, Bind.bind, h_neq]
+        msgSender, Contract.runState, Verity.bind, Bind.bind, h_neq,
+        ContractState.writeMap2]
   · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
     · simp [Specs.sameStorage, Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
       setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2]
     · simp [Specs.sameStorageAddr, Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
       setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2]
     · simp [Specs.sameStorageMap, Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
       setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2]
     · simp [Specs.sameStorageMapUint, Contracts.ERC721.setApprovalForAll,
       Contracts.ERC721.operatorApprovals, setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2]
     · simp [Specs.sameStorageArray, Contracts.ERC721.setApprovalForAll,
       Contracts.ERC721.operatorApprovals, setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2]
     · simp [Specs.sameContext, Contracts.ERC721.setApprovalForAll,
       Contracts.ERC721.operatorApprovals, setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2]
 
 end Contracts.ERC721.Proofs

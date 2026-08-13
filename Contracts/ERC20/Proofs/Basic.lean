@@ -24,22 +24,24 @@ private def constructorCompat (initialOwner : Address) : Contract Unit := do
 theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
     constructor_spec initialOwner s ((constructorCompat initialOwner).runState s) := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simp [constructorCompat, ownerSlot, setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind]
-  · simp [constructorCompat, totalSupplySlot, setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind]
+  · simp [constructorCompat, ownerSlot, setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind,
+      ContractState.writeAddrSlot, ContractState.writeSlot]
+  · simp [constructorCompat, totalSupplySlot, setStorageAddr, setStorage, Contract.runState, Verity.bind, Bind.bind,
+      ContractState.writeAddrSlot, ContractState.writeSlot]
   · intro slotIdx h_neq
     simp [constructorCompat, ownerSlot, setStorageAddr, setStorage, Contract.runState, Verity.bind,
-      Bind.bind, h_neq]
+      Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot]
   · intro slotIdx h_neq
     simp [constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage, Contract.runState,
-      Verity.bind, Bind.bind, h_neq]
+      Verity.bind, Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot]
   · simp [Specs.sameStorageMap, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
-      Contract.runState, Verity.bind, Bind.bind]
+      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
   · simp [Specs.sameStorageMap2, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
-      Contract.runState, Verity.bind, Bind.bind]
+      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
   · simp [Specs.sameStorageArray, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
-      Contract.runState, Verity.bind, Bind.bind]
+      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
   · simp [Specs.sameContext, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
-      Contract.runState, Verity.bind, Bind.bind]
+      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
 
 /-- `approve` writes allowance(sender, spender) and leaves other state unchanged. -/
 theorem approve_meets_spec (s : ContractState) (spender : Address) (amount : Uint256) :
@@ -47,14 +49,15 @@ theorem approve_meets_spec (s : ContractState) (spender : Address) (amount : Uin
   unfold approve_spec Specs.storageMap2UpdateSpec Specs.storageMap2UnchangedExceptKeyPair
     Specs.sameStorageAddrMapContext
   refine ⟨?_, ?_, ?_⟩
-  · simp [approve, allowancesSlot, setMapping2, msgSender, Contract.runState, Verity.bind, Bind.bind]
+  · simp [approve, allowancesSlot, setMapping2, msgSender, Contract.runState, Verity.bind, Bind.bind,
+      ContractState.writeMap2]
   · refine ⟨?_, ?_⟩
     · intro o' sp' h_neq
       simp [approve, allowancesSlot, setMapping2, msgSender, Contract.runState, Verity.bind, Bind.bind,
-        h_neq]
+        h_neq, ContractState.writeMap2]
     · intro sp' h_neq
       simp [approve, allowancesSlot, setMapping2, msgSender, Contract.runState, Verity.bind, Bind.bind,
-        h_neq]
+        h_neq, ContractState.writeMap2]
   · refine ⟨?_, ?_, ?_, ?_, ?_⟩
     · rfl
     · rfl
@@ -66,25 +69,25 @@ theorem approve_meets_spec (s : ContractState) (spender : Address) (amount : Uin
 theorem balanceOf_meets_spec (s : ContractState) (addr : Address) :
     balanceOf_spec addr ((balanceOf addr).runValue s) s := by
   simp [balanceOf, balanceOf_spec, Contract.runValue, getMapping, Verity.bind, Bind.bind,
-    Verity.pure, Pure.pure, balancesSlot]
+    Verity.pure, Pure.pure, balancesSlot, ContractState.readMap]
 
 /-- `allowanceOf` returns the value stored in allowances slot 3 for `(owner, spender)`. -/
 theorem allowanceOf_meets_spec (s : ContractState) (ownerAddr spender : Address) :
     allowance_spec ownerAddr spender ((allowanceOf ownerAddr spender).runValue s) s := by
   simp [allowanceOf, allowance_spec, Contract.runValue, getMapping2, Verity.bind, Bind.bind,
-    Verity.pure, Pure.pure, allowancesSlot]
+    Verity.pure, Pure.pure, allowancesSlot, ContractState.readMap2]
 
 /-- `getTotalSupply` returns slot 1. -/
 theorem totalSupply_meets_spec (s : ContractState) :
     totalSupply_spec ((getTotalSupply).runValue s) s := by
   simp [getTotalSupply, totalSupply_spec, Contract.runValue, totalSupply, getStorage, Verity.bind,
-    Bind.bind, Verity.pure, Pure.pure, totalSupplySlot]
+    Bind.bind, Verity.pure, Pure.pure, totalSupplySlot, ContractState.readSlot]
 
 /-- `getOwner` returns owner slot 0. -/
 theorem getOwner_meets_spec (s : ContractState) :
     getOwner_spec ((getOwner).runValue s) s := by
   simp [getOwner, getOwner_spec, Contract.runValue, owner, getStorageAddr, Verity.bind, Bind.bind,
-    Verity.pure, Pure.pure, ownerSlot]
+    Verity.pure, Pure.pure, ownerSlot, ContractState.readAddrSlot]
 
 /-- Helper: unfold `mint` on the successful owner/non-overflow path. -/
 private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uint256)

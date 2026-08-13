@@ -22,7 +22,7 @@ theorem totalAssets_meets_spec (s : ContractState) :
     let result := ((totalAssets).run s).fst
     totalAssets_spec result s := by
   simp [totalAssets, totalAssets_spec, Contract.run, ContractResult.fst, getStorage,
-    Verity.bind, Bind.bind, Verity.pure, Pure.pure, totalAssetsSlot]
+    Verity.bind, Bind.bind, Verity.pure, Pure.pure, totalAssetsSlot, ContractState.readSlot]
 
 theorem totalAssets_preserves_state (s : ContractState) :
     let s' := ((totalAssets).run s).snd
@@ -35,7 +35,7 @@ theorem totalSupply_meets_spec (s : ContractState) :
     let result := ((totalSupply).run s).fst
     totalSupply_spec result s := by
   simp [totalSupply, totalSupply_spec, Contract.run, ContractResult.fst, getStorage,
-    Verity.bind, Bind.bind, Verity.pure, Pure.pure, totalSupplySlot]
+    Verity.bind, Bind.bind, Verity.pure, Pure.pure, totalSupplySlot, ContractState.readSlot]
 
 theorem totalSupply_preserves_state (s : ContractState) :
     let s' := ((totalSupply).run s).snd
@@ -48,7 +48,7 @@ theorem balanceOf_meets_spec (s : ContractState) (addr : Address) :
     let result := ((balanceOf addr).run s).fst
     balanceOf_spec addr result s := by
   simp [balanceOf, balanceOf_spec, Contract.run, ContractResult.fst, getMapping,
-    Verity.bind, Bind.bind, Verity.pure, Pure.pure, shareBalancesSlot]
+    Verity.bind, Bind.bind, Verity.pure, Pure.pure, shareBalancesSlot, ContractState.readMap]
 
 theorem balanceOf_preserves_state (s : ContractState) (addr : Address) :
     let s' := ((balanceOf addr).run s).snd

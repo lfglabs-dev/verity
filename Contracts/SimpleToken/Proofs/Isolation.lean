@@ -110,13 +110,15 @@ private theorem transfer_isolation (s : ContractState) (toAddr : Address) (amoun
     simp [transfer, Contracts.SimpleToken.balancesSlot,
       msgSender, getMapping,
       Verity.require, Verity.pure, Pure.pure, Verity.bind, Bind.bind,
-      Contract.run, ContractResult.snd, h_balance', h_eq]
+      Contract.run, ContractResult.snd, h_balance', h_eq,
+      ContractState.readMap]
   · refine ⟨?_, fun h_ne_slot addr => ?_, ?_⟩
     all_goals simp [transfer, Contracts.SimpleToken.balancesSlot,
         msgSender, getMapping, setMapping, requireSomeUint,
         Verity.require, Verity.bind, Bind.bind, Pure.pure,
         Contract.run, ContractResult.snd,
-        h_balance, h_eq, beq_iff_eq]
+        h_balance, h_eq, beq_iff_eq,
+        ContractState.readMap, ContractState.writeMap]
     all_goals cases safeAdd (s.storageMap 1 toAddr) amount <;>
         simp_all [Verity.require, Verity.pure, Verity.bind]
 

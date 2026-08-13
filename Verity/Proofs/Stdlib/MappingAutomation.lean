@@ -46,12 +46,12 @@ theorem setMapping_runState (slot : StorageSlot (Address → Uint256)) (key : Ad
             (state.knownAddresses s).insert key
           else
             state.knownAddresses s } := by
-  simp [setMapping, Contract.runState]
+  simp [setMapping, Contract.runState, ContractState.writeMap]
 
 /-- After setMapping, getMapping on the same key returns the set value. -/
 theorem setMapping_getMapping_same (slot : StorageSlot (Address → Uint256)) (key : Address) (value : Uint256) (state : ContractState) :
     (getMapping slot key).runValue ((setMapping slot key value).runState state) = value := by
-  simp [getMapping, setMapping, Contract.runState, Contract.runValue]
+  simp [getMapping, setMapping, Contract.runState, Contract.runValue, ContractState.readMap, ContractState.writeMap]
 
 /-- setMapping on one key preserves getMapping on a different key (same slot). -/
 theorem setMapping_getMapping_diff (slot : StorageSlot (Address → Uint256))
@@ -69,7 +69,7 @@ theorem setMapping_preserves_other_slot (slot1 : StorageSlot (Address → Uint25
     (h : slot1.slot ≠ slot2) :
     ((setMapping slot1 key value).runState state).storageMap slot2 =
     state.storageMap slot2 := by
-  simp only [setMapping, ContractState.writeMap, Contract.runState]
+  simp only [setMapping, ContractState.writeMap, Contract.runState, ContractState.writeMap]
   funext addr
   have h_slot : (slot2 == slot1.slot) = false := beq_eq_false_iff_ne.mpr (Ne.symm h)
   simp [h_slot]
@@ -79,7 +79,7 @@ theorem setMapping_knownAddresses_same_slot (slot : StorageSlot (Address → Uin
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).runState state).knownAddresses slot.slot =
       (state.knownAddresses slot.slot).insert key := by
-  simp [setMapping, Contract.runState]
+  simp [setMapping, Contract.runState, ContractState.writeMap]
 
 /-- setMapping preserves knownAddresses for all non-target slots. -/
 theorem setMapping_knownAddresses_other_slot (slot : StorageSlot (Address → Uint256))
@@ -90,7 +90,7 @@ theorem setMapping_knownAddresses_other_slot (slot : StorageSlot (Address → Ui
   by_cases h_eq : slot' = slot.slot
   · exact (h h_eq).elim
   · have h_slot : (slot' == slot.slot) = false := beq_eq_false_iff_ne.mpr h_eq
-    simp [setMapping, Contract.runState, h_eq]
+    simp [setMapping, Contract.runState, h_eq, ContractState.writeMap]
 
 /-- Membership characterization at target slot after setMapping. -/
 theorem setMapping_knownAddresses_mem_iff (slot : StorageSlot (Address → Uint256))
@@ -106,11 +106,11 @@ theorem setMapping_knownAddresses_mem_iff (slot : StorageSlot (Address → Uint2
 
 theorem getMappingUint_runState (slot : StorageSlot (Uint256 → Uint256)) (key : Uint256) (state : ContractState) :
     (getMappingUint slot key).runState state = state := by
-  simp [getMappingUint, Contract.runState]
+  simp [getMappingUint, Contract.runState, ContractState.readMapUint]
 
 theorem getMappingUint_runValue (slot : StorageSlot (Uint256 → Uint256)) (key : Uint256) (state : ContractState) :
     (getMappingUint slot key).runValue state = state.storageMapUint slot.slot key := by
-  simp [getMappingUint, Contract.runValue]
+  simp [getMappingUint, Contract.runValue, ContractState.readMapUint]
 
 /-- setMappingUint updates storageMapUint. -/
 theorem setMappingUint_runState (slot : StorageSlot (Uint256 → Uint256)) (key : Uint256)
@@ -120,13 +120,13 @@ theorem setMappingUint_runState (slot : StorageSlot (Uint256 → Uint256)) (key 
         storageMapUint := fun s k =>
           if s == slot.slot && k == key then value
           else state.storageMapUint s k } := by
-  simp [setMappingUint, Contract.runState]
+  simp [setMappingUint, Contract.runState, ContractState.writeMapUint]
 
 /-- After setMappingUint, getMappingUint on the same key returns the set value. -/
 theorem setMappingUint_getMappingUint_same (slot : StorageSlot (Uint256 → Uint256))
     (key : Uint256) (value : Uint256) (state : ContractState) :
     (getMappingUint slot key).runValue ((setMappingUint slot key value).runState state) = value := by
-  simp [getMappingUint, setMappingUint, Contract.runState, Contract.runValue]
+  simp [getMappingUint, setMappingUint, Contract.runState, Contract.runValue, ContractState.readMapUint, ContractState.writeMapUint]
 
 /-- setMappingUint on one key preserves getMappingUint on a different key (same slot). -/
 theorem setMappingUint_getMappingUint_diff (slot : StorageSlot (Uint256 → Uint256))
@@ -186,11 +186,11 @@ theorem setMappingUint_preserves_knownAddresses (slot : StorageSlot (Uint256 →
 
 theorem getMapping2_runState (slot : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) (state : ContractState) :
     (getMapping2 slot key1 key2).runState state = state := by
-  simp [getMapping2, Contract.runState]
+  simp [getMapping2, Contract.runState, ContractState.readMap2]
 
 theorem getMapping2_runValue (slot : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) (state : ContractState) :
     (getMapping2 slot key1 key2).runValue state = state.storageMap2 slot.slot key1 key2 := by
-  simp [getMapping2, Contract.runValue]
+  simp [getMapping2, Contract.runValue, ContractState.readMap2]
 
 /-- setMapping2 updates storageMap2. -/
 theorem setMapping2_runState (slot : StorageSlot (Address → Address → Uint256))
@@ -200,13 +200,13 @@ theorem setMapping2_runState (slot : StorageSlot (Address → Address → Uint25
         storageMap2 := fun s addr1 addr2 =>
           if s == slot.slot && addr1 == key1 && addr2 == key2 then value
           else state.storageMap2 s addr1 addr2 } := by
-  simp [setMapping2, Contract.runState]
+  simp [setMapping2, Contract.runState, ContractState.writeMap2]
 
 /-- After setMapping2, getMapping2 on the same keys returns the set value. -/
 theorem setMapping2_getMapping2_same (slot : StorageSlot (Address → Address → Uint256))
     (key1 key2 : Address) (value : Uint256) (state : ContractState) :
     (getMapping2 slot key1 key2).runValue ((setMapping2 slot key1 key2 value).runState state) = value := by
-  simp [getMapping2, setMapping2, Contract.runState, Contract.runValue]
+  simp [getMapping2, setMapping2, Contract.runState, Contract.runValue, ContractState.readMap2, ContractState.writeMap2]
 
 /-- setMapping2 with different first key preserves getMapping2. -/
 theorem setMapping2_getMapping2_diff_key1 (slot : StorageSlot (Address → Address → Uint256))

@@ -27,6 +27,7 @@ private theorem onlyOwner_reverts (s : ContractState) (h : s.sender ≠ s.storag
     onlyOwner s = ContractResult.revert "Caller is not the owner" s := by
   simp [onlyOwner, isOwner, owner, msgSender, getStorageAddr,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
+    ContractState.readAddrSlot,
     address_beq_false_of_ne s.sender (s.storageAddr 0) h]
 
 private theorem guarded_reverts (f : Unit → Contract α) (s : ContractState)
@@ -40,21 +41,23 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   constructor_spec initialOwner s s' := by
   refine ⟨?_, ?_, ?_⟩
-  · simp [setStorageAddr, owner, Contract.run, ContractResult.snd]
-  · intro slotIdx h_neq
-    simp [setStorageAddr, owner, Contract.run, ContractResult.snd, h_neq]
   · simp [setStorageAddr, owner, Contract.run, ContractResult.snd,
+      ContractState.writeAddrSlot]
+  · intro slotIdx h_neq
+    simp [setStorageAddr, owner, Contract.run, ContractResult.snd, h_neq, ContractState.writeAddrSlot, ContractState.readAddrSlot, ContractState.writeSlot, ContractState.readSlot]
+  · simp [setStorageAddr, owner, Contract.run, ContractResult.snd,
+      ContractState.writeAddrSlot,
       Specs.sameStorageMapContext, Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
 
 theorem constructor_sets_owner (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   s'.storageAddr 0 = initialOwner := by
-  simp [setStorageAddr, owner, Contract.run, ContractResult.snd]
+  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot, ContractState.readAddrSlot, ContractState.writeSlot, ContractState.readSlot]
 
 theorem constructor_preserves_count (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   s'.storage = s.storage := by
-  simp [setStorageAddr, owner, Contract.run, ContractResult.snd]
+  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot, ContractState.readAddrSlot, ContractState.writeSlot, ContractState.readSlot]
 
 /-! ## Read Operation Correctness -/
 
@@ -329,6 +332,8 @@ theorem constructor_increment_getCount (s : ContractState) (initialOwner : Addre
   simp only [setStorageAddr, increment, owner, count,
     getCount, getStorage, getStorageAddr, setStorage, setStorageAddr,
     msgSender, Verity.require, Verity.pure, Verity.bind,
+    ContractState.writeAddrSlot, ContractState.readAddrSlot,
+    ContractState.writeSlot, ContractState.readSlot,
     Bind.bind, Pure.pure, Contract.run, ContractResult.snd, ContractResult.fst]
   simp [h_sender]
 

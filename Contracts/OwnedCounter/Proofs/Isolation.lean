@@ -64,7 +64,8 @@ All successful operations preserve sender and thisAddress.
 /-- Constructor preserves context. -/
 theorem constructor_context_preserved (s : ContractState) (initialOwner : Address) :
   context_preserved s ((setStorageAddr owner initialOwner).run s).snd := by
-  simp [context_preserved, Specs.sameContext, setStorageAddr, owner, Contract.run, ContractResult.snd]
+  simp [context_preserved, Specs.sameContext, setStorageAddr, owner, Contract.run, ContractResult.snd,
+    ContractState.writeAddrSlot]
 
 /-- Increment preserves context (when authorized). -/
 theorem increment_context_preserved (s : ContractState)
@@ -108,7 +109,7 @@ doesn't use mappings at all).
 /-- Constructor preserves mapping storage. -/
 theorem constructor_preserves_map_storage (s : ContractState) (initialOwner : Address) :
   ((setStorageAddr owner initialOwner).run s).snd.storageMap = s.storageMap := by
-  simp [setStorageAddr, owner, Contract.run, ContractResult.snd]
+  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot]
 
 /-- Increment preserves mapping storage. -/
 theorem increment_preserves_map_storage (s : ContractState)

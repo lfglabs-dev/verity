@@ -395,17 +395,17 @@ def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : Contra
     (s.writeArray slot vs).readArray slot' = s.readArray slot' := by
   simp [readArray, writeArray, h]
 
--- Until the C5 storage-representation flip, the lenses stay default-simp
--- transparent so the existing raw-field proof surface keeps working unchanged.
--- C5 removes this attribute and migrates proofs onto `storage_simps`.
-attribute [simp] readSlot writeSlot readAddrSlot writeAddrSlot readTransient
-  writeTransient readMap writeMap readMapUint writeMapUint readMap2 writeMap2
-  readArray writeArray
+-- C5 step 2: the lenses are no longer default-simp transparent.  Proofs
+-- normalize lens reads over lens writes through the `storage_simps` simp set
+-- (laws only — it deliberately does NOT unfold lenses to the raw record
+-- representation, so it survives the C5 step-3 flip).  Proofs that genuinely
+-- need the current raw representation unfold a specific lens by name
+-- (`simp [ContractState.writeSlot]`); those sites are the step-3 burn-down.
 
 end ContractState
 
 -- Default zero state — all storage zero, empty addresses, no events.
--- Use `{ defaultState with sender := "0xAlice" }` to customize individual fields.
+-- Use `{ defaultState with sender := Address.ofNat 0xA11CE }` to customize fields.
 def defaultState : ContractState where
   storage := fun _ => 0
   transientStorage := fun _ => 0
@@ -508,6 +508,34 @@ set_option warning.simp.varHead false in
     rfl
   | revert msg s0 =>
     simp [hcs] at h
+
+/-- A reverting prefix makes the whole bind revert to the pre-call snapshot. -/
+theorem bind_run_revert {α β : Type} (ma : Contract α) (f : α → Contract β)
+    (s : ContractState) (msg : String)
+    (h : ma.run s = ContractResult.revert msg s) :
+    (bind ma f).run s = ContractResult.revert msg s := by
+  unfold Contract.run at h
+  cases hma : ma s with
+  | success _ _ =>
+      simp [hma] at h
+  | revert msg' _ =>
+      simp [bind, Contract.run, hma] at h ⊢
+      subst h
+      rfl
+
+/-- If `ma` succeeds without changing state, `run (bind ma f)` is `run (f a)`. -/
+theorem bind_run_success {α β : Type} (ma : Contract α) (f : α → Contract β)
+    (s : ContractState) (a : α)
+    (h : ma.run s = ContractResult.success a s) :
+    (bind ma f).run s = (f a).run s := by
+  unfold Contract.run at h
+  cases hma : ma s with
+  | success a' s' =>
+      simp [hma] at h
+      rcases h with ⟨rfl, rfl⟩
+      simp [bind, Contract.run, hma]
+  | revert _ _ =>
+      simp [hma] at h
 
 @[simp] theorem pure_run (a : α) (state : ContractState) :
   (pure a : Contract α).run state = ContractResult.success a state := rfl
@@ -818,7 +846,7 @@ def setFixedStorageArrayElement {α : Type} [StorageArrayElem α]
     (h : (state.storageArray s.slot)[index.val]? = some value) :
     (getStorageArrayElement s index).run state =
       ContractResult.success (StorageArrayElem.fromWord value) state := by
-  simp [Contract.run, getStorageArrayElement, h]
+  simp [Contract.run, getStorageArrayElement, ContractState.readArray, h]
 
 @[simp] theorem getStorageArrayElement_run_none {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α)) (index : Uint256)
@@ -826,7 +854,7 @@ def setFixedStorageArrayElement {α : Type} [StorageArrayElem α]
     (h : (state.storageArray s.slot)[index.val]? = none) :
     (getStorageArrayElement s index).run state =
       ContractResult.revert "Storage array index out of bounds" state := by
-  simp [Contract.run, getStorageArrayElement, h]
+  simp [Contract.run, getStorageArrayElement, ContractState.readArray, h]
 
 @[simp] theorem pushStorageArray_run {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α)) (value : α)
@@ -843,13 +871,13 @@ def setFixedStorageArrayElement {α : Type} [StorageArrayElem α]
     (popStorageArray s).run state = ContractResult.success () { state with
       storageArray := fun slot => if slot == s.slot then updated else state.storageArray slot
     } := by
-  simp [Contract.run, popStorageArray, h]
+  simp [Contract.run, popStorageArray, ContractState.readArray, ContractState.writeArray, h]
 
 @[simp] theorem popStorageArray_run_none {α : Type} (s : StorageSlot (List α)) (state : ContractState)
     (h : storageArrayDropLast? (state.storageArray s.slot) = none) :
     (popStorageArray s).run state =
       ContractResult.revert "Storage array pop on empty array" state := by
-  simp [Contract.run, popStorageArray, h]
+  simp [Contract.run, popStorageArray, ContractState.readArray, h]
 
 @[simp] theorem setStorageArrayElement_run_some {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α))
@@ -858,7 +886,7 @@ def setFixedStorageArrayElement {α : Type} [StorageArrayElem α]
     (setStorageArrayElement s index value).run state = ContractResult.success () { state with
       storageArray := fun slot => if slot == s.slot then updated else state.storageArray slot
     } := by
-  simp [Contract.run, setStorageArrayElement, h]
+  simp [Contract.run, setStorageArrayElement, ContractState.readArray, ContractState.writeArray, h]
 
 @[simp] theorem setStorageArrayElement_run_none {α : Type} [StorageArrayElem α]
     (s : StorageSlot (List α))
@@ -866,7 +894,7 @@ def setFixedStorageArrayElement {α : Type} [StorageArrayElem α]
     (h : storageArraySetAt (state.storageArray s.slot) index.val (StorageArrayElem.toWord value) = none) :
     (setStorageArrayElement s index value).run state =
       ContractResult.revert "Storage array index out of bounds" state := by
-  simp [Contract.run, setStorageArrayElement, h]
+  simp [Contract.run, setStorageArrayElement, ContractState.readArray, h]
 
 -- Event emission (#153)
 def emitEvent (name : String) (args : List Uint256) (indexedArgs : List Uint256 := []) : Contract Unit :=

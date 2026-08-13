@@ -30,12 +30,13 @@ theorem getBalance_meets_spec (s : ContractState) (addr : Address) :
   getBalance_spec addr result s := by
   unfold getBalance
   simp [getBalance_spec, Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run, getMapping,
-    balances]
+    balances, ContractState.readMap]
 
 theorem getBalance_returns_balance (s : ContractState) (addr : Address) :
   ((getBalance addr).run s).fst = s.storageMap 0 addr := by
   unfold getBalance
-  simp [Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run, getMapping, balances]
+  simp [Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run, getMapping, balances,
+    ContractState.readMap]
 
 theorem getBalance_preserves_state (s : ContractState) (addr : Address) :
   ((getBalance addr).run s).snd = s := by
@@ -161,7 +162,7 @@ theorem withdraw_decreases_balance (s : ContractState) (amount : Uint256)
 theorem withdraw_reverts_insufficient (s : ContractState) (amount : Uint256)
   (h_insufficient : ¬(s.storageMap 0 s.sender >= amount)) :
   ∃ msg, (withdraw amount).run s = ContractResult.revert msg s := by
-  simp [withdraw, msgSender, getMapping, balances,
+  simp [withdraw, msgSender, getMapping, balances, ContractState.readMap,
     Verity.require, Verity.bind, Bind.bind, Contract.run,
     show (s.storageMap 0 s.sender >= amount) = false from by
       simp [ge_iff_le] at h_insufficient ⊢; omega]
@@ -275,7 +276,7 @@ theorem transfer_increases_recipient (s : ContractState) (toAddr : Address) (amo
 theorem transfer_reverts_insufficient (s : ContractState) (toAddr : Address) (amount : Uint256)
   (h_insufficient : ¬(s.storageMap 0 s.sender >= amount)) :
   ∃ msg, (transfer toAddr amount).run s = ContractResult.revert msg s := by
-  simp [transfer, msgSender, getMapping, balances,
+  simp [transfer, msgSender, getMapping, balances, ContractState.readMap,
     Verity.require, Verity.bind, Bind.bind, Contract.run,
     show (s.storageMap 0 s.sender >= amount) = false from by
       simp [ge_iff_le] at h_insufficient ⊢; omega]
@@ -356,7 +357,7 @@ theorem deposit_getBalance_correct (s : ContractState) (amount : Uint256) :
   rw [deposit_unfold]
   unfold getBalance
   simp [ContractResult.snd, Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run,
-    getMapping, balances]
+    getMapping, balances, ContractState.readMap]
 
 /-! ## Summary of Proven Properties
 
