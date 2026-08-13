@@ -122,22 +122,6 @@ theorem filterInternalFunctions_eq_nil_of_all_nonInternal :
         exact hall fn' (by simp [hmem])
       simp [hfn, filterInternalFunctions_eq_nil_of_all_nonInternal rest hrest]
 
-private theorem filterInternalFunctions_eq_nil_of_supported
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors) :
-    model.functions.filter (·.isInternal) = [] := by
-  exact filterInternalFunctions_eq_nil_of_all_nonInternal model.functions
-    (hSupported.noInternalFunctions)
-
-private theorem filterInternalFunctions_eq_nil_of_supported_except_mapping_writes
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpecExceptMappingWrites model selectors) :
-    model.functions.filter (·.isInternal) = [] := by
-  exact filterInternalFunctions_eq_nil_of_all_nonInternal model.functions
-    (hSupported.noInternalFunctions)
-
 private theorem compileValidatedCore_ok_yields_compiled_functions
     (model : CompilationModel)
     (selectors : List Nat)
@@ -149,51 +133,17 @@ private theorem compileValidatedCore_ok_yields_compiled_functions
         compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
       (SourceSemantics.selectorFunctionPairs model selectors)
       ir.functions := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_supported model selectors hSupported
-  unfold compileValidatedCore at hcore
-  rw [hSupported.normalizedFields,
-    hSupported.noAdtTypes, hSupported.noEvents, hSupported.noErrors,
-    hnoInternalFns, hfallback, hreceive, hSupported.surface.noTemplateIntrinsics] at hcore
-  simp only [bind, Except.bind, pure, Except.pure] at hcore
-  rw [ContractShape.guardedFunctionsMapM_eq model.fields [] [] [] [] _
-    (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
-  rcases hmap :
-      ((model.functions.filter
-          (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-        (fun x => compileFunctionSpec model.fields [] [] [] x.2 x.1) with _ | irFns
-  · simp [hmap] at hcore
-  · simp [hmap] at hcore
-    rcases hctor :
-        compileConstructor model.fields [] [] [] model.constructor with _ | deployStmts
-    · simp [hctor] at hcore
-      cases hcore
-    · simp [hctor] at hcore
-      have hfunctions : ir.functions = irFns := by
-        injection hcore with hir
-        cases hir
-        rfl
-      have hcompiled :
-          List.Forall₂
-            (fun (entry : FunctionSpec × Nat) irFn =>
-              compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
-            ((model.functions.filter
-                (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors)
-            irFns :=
-        by
-          simpa [hSupported.noEvents, hSupported.noErrors] using
-            (compiled_functions_forall₂_of_mapM_ok model.fields [] [] _ _ hmap)
-      simpa [SourceSemantics.selectorFunctionPairs, selectorDispatchedFunctions,
-        hfunctions] using hcompiled
+  obtain ⟨irFns, deployStmts, hmap, hctor, hir⟩ :=
+    ContractShape.compileValidatedCore_ok_inv
+      model selectors ir hSupported.noFallback hSupported.noReceive
+      hSupported.noInternalFunctions
+      (ContractShape.supportedSpec_entries_lock_free hSupported)
+      hSupported.surface.noTemplateIntrinsics hcore
+  rw [hSupported.normalizedFields, hSupported.noAdtTypes] at hmap
+  have hcompiled := compiled_functions_forall₂_of_mapM_ok
+    model.fields model.events model.errors _ _ hmap
+  simpa [SourceSemantics.selectorFunctionPairs, selectorDispatchedFunctions,
+    hir] using hcompiled
 
 private theorem compileValidatedCore_ok_yields_compiled_functions_except_mapping_writes
     (model : CompilationModel)
@@ -206,51 +156,17 @@ private theorem compileValidatedCore_ok_yields_compiled_functions_except_mapping
         compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
       (SourceSemantics.selectorFunctionPairs model selectors)
       ir.functions := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_supported_except_mapping_writes model selectors hSupported
-  unfold compileValidatedCore at hcore
-  rw [hSupported.normalizedFields,
-    hSupported.noAdtTypes, hSupported.noEvents, hSupported.noErrors,
-    hnoInternalFns, hfallback, hreceive, hSupported.surface.noTemplateIntrinsics] at hcore
-  simp only [bind, Except.bind, pure, Except.pure] at hcore
-  rw [ContractShape.guardedFunctionsMapM_eq model.fields [] [] [] [] _
-    (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcore
-  rcases hmap :
-      ((model.functions.filter
-          (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-        (fun x => compileFunctionSpec model.fields [] [] [] x.2 x.1) with _ | irFns
-  · simp [hmap] at hcore
-  · simp [hmap] at hcore
-    rcases hctor :
-        compileConstructor model.fields [] [] [] model.constructor with _ | deployStmts
-    · simp [hctor] at hcore
-      cases hcore
-    · simp [hctor] at hcore
-      have hfunctions : ir.functions = irFns := by
-        injection hcore with hir
-        cases hir
-        rfl
-      have hcompiled :
-          List.Forall₂
-            (fun (entry : FunctionSpec × Nat) irFn =>
-              compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
-            ((model.functions.filter
-                (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors)
-            irFns :=
-        by
-          simpa [hSupported.noEvents, hSupported.noErrors] using
-            (compiled_functions_forall₂_of_mapM_ok model.fields [] [] _ _ hmap)
-      simpa [SourceSemantics.selectorFunctionPairs, selectorDispatchedFunctions,
-        hfunctions] using hcompiled
+  obtain ⟨irFns, deployStmts, hmap, hctor, hir⟩ :=
+    ContractShape.compileValidatedCore_ok_inv
+      model selectors ir hSupported.noFallback hSupported.noReceive
+      hSupported.noInternalFunctions
+      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)
+      hSupported.surface.noTemplateIntrinsics hcore
+  rw [hSupported.normalizedFields, hSupported.noAdtTypes] at hmap
+  have hcompiled := compiled_functions_forall₂_of_mapM_ok
+    model.fields model.events model.errors _ _ hmap
+  simpa [SourceSemantics.selectorFunctionPairs, selectorDispatchedFunctions,
+    hir] using hcompiled
 
 private theorem compileValidatedCore_ok_yields_internalFunctions_nil
     (model : CompilationModel)
@@ -259,48 +175,20 @@ private theorem compileValidatedCore_ok_yields_internalFunctions_nil
     (ir : IRContract)
     (hcore : compileValidatedCore model selectors = Except.ok ir) :
     ir.internalFunctions = [] := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_supported model selectors hSupported
-  have harray : contractUsesArrayElement model = false :=
+  obtain ⟨irFns, deployStmts, hmap, hctor, hir⟩ :=
+    ContractShape.compileValidatedCore_ok_inv
+      model selectors ir hSupported.noFallback hSupported.noReceive
+      hSupported.noInternalFunctions
+      (ContractShape.supportedSpec_entries_lock_free hSupported)
+      hSupported.surface.noTemplateIntrinsics hcore
+  rw [hir]
+  exact ContractShape.coreHelperInternalFunctions_eq_nil model
     hSupported.contractUsesArrayElement_eq_false
-  have hstorageArray : contractUsesStorageArrayElement model = false :=
     hSupported.contractUsesStorageArrayElement_eq_false
-  have hdynamicBytesEq : contractUsesDynamicBytesEq model = false :=
     hSupported.contractUsesDynamicBytesEq_eq_false
-  have hmulDiv512 : contractUsesMulDiv512 model = false :=
     hSupported.contractUsesMulDiv512_eq_false
-  have hparamDyn : contractUsesParamDynamicHeadWord model = false :=
     hSupported.contractUsesParamDynamicHeadWord_eq_false
-  unfold compileValidatedCore at hcore
-  rw [hSupported.normalizedFields, hfallback, hreceive,
-    contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
-    hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
-    hSupported.noCheckedArithmetic,
-    hnoInternalFns, hSupported.noAdtTypes, hSupported.surface.noTemplateIntrinsics] at hcore
-  simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcore
-  rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
-    (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
-  rcases hmap :
-      ((model.functions.filter
-          (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-        (fun x => compileFunctionSpec model.fields model.events model.errors [] x.2 x.1) with _ | irFns
-  · simp [hmap] at hcore
-  · rcases hctor :
-        compileConstructor model.fields model.events model.errors [] model.constructor with _ | deployStmts
-    · simp [hmap, hctor] at hcore
-      cases hcore
-    · simp [hmap, hctor] at hcore
-      cases hcore
-      rfl
+    hSupported.noCheckedArithmetic
 
 private theorem compileValidatedCore_ok_yields_noFallbackEntrypoint
     (model : CompilationModel)
@@ -309,36 +197,13 @@ private theorem compileValidatedCore_ok_yields_noFallbackEntrypoint
     (ir : IRContract)
     (hcore : compileValidatedCore model selectors = Except.ok ir) :
     ir.fallbackEntrypoint = none := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_supported model selectors hSupported
-  unfold compileValidatedCore at hcore
-  rw [hnoInternalFns, hfallback, hreceive, hSupported.surface.noTemplateIntrinsics] at hcore
-  simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure] at hcore
-  rw [ContractShape.guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
-    model.events model.errors model.adtTypes [] _
-    (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
-  rcases hmap :
-      ((model.functions.filter
-          (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-        (fun x => compileFunctionSpec (applySlotAliasRanges model.fields model.slotAliasRanges)
-          model.events model.errors model.adtTypes x.2 x.1) with _ | irFns
-  · simp [hmap] at hcore
-  · rcases hctor :
-        compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
-          model.events model.errors model.adtTypes model.constructor with _ | deployStmts
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
-      cases hcore
-      rfl
+  obtain ⟨irFns, deployStmts, hmap, hctor, hir⟩ :=
+    ContractShape.compileValidatedCore_ok_inv
+      model selectors ir hSupported.noFallback hSupported.noReceive
+      hSupported.noInternalFunctions
+      (ContractShape.supportedSpec_entries_lock_free hSupported)
+      hSupported.surface.noTemplateIntrinsics hcore
+  rw [hir]
 
 private theorem compileValidatedCore_ok_yields_noReceiveEntrypoint
     (model : CompilationModel)
@@ -347,36 +212,13 @@ private theorem compileValidatedCore_ok_yields_noReceiveEntrypoint
     (ir : IRContract)
     (hcore : compileValidatedCore model selectors = Except.ok ir) :
     ir.receiveEntrypoint = none := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_supported model selectors hSupported
-  unfold compileValidatedCore at hcore
-  rw [hnoInternalFns, hfallback, hreceive, hSupported.surface.noTemplateIntrinsics] at hcore
-  simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure] at hcore
-  rw [ContractShape.guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
-    model.events model.errors model.adtTypes [] _
-    (ContractShape.supportedSpec_entries_lock_free hSupported)] at hcore
-  rcases hmap :
-      ((model.functions.filter
-          (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-        (fun x => compileFunctionSpec (applySlotAliasRanges model.fields model.slotAliasRanges)
-          model.events model.errors model.adtTypes x.2 x.1) with _ | irFns
-  · simp [hmap] at hcore
-  · rcases hctor :
-        compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
-          model.events model.errors model.adtTypes model.constructor with _ | deployStmts
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
-    · simp [hmap, hctor, Pure.pure, Except.pure] at hcore
-      cases hcore
-      rfl
+  obtain ⟨irFns, deployStmts, hmap, hctor, hir⟩ :=
+    ContractShape.compileValidatedCore_ok_inv
+      model selectors ir hSupported.noFallback hSupported.noReceive
+      hSupported.noInternalFunctions
+      (ContractShape.supportedSpec_entries_lock_free hSupported)
+      hSupported.surface.noTemplateIntrinsics hcore
+  rw [hir]
 
 theorem supported_params_of_supportedSpec
     (model : CompilationModel)
@@ -634,56 +476,21 @@ theorem compile_ok_yields_internalFunctions_nil_except_mapping_writes
     (ir : IRContract)
     (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
     ir.internalFunctions = [] := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_supported_except_mapping_writes model selectors hSupported
-  have harray : contractUsesArrayElement model = false :=
+  have hcore := ContractShape.compile_ok_yields_core model selectors ir hcompile
+  obtain ⟨irFns, deployStmts, hmap, hctor, hir⟩ :=
+    ContractShape.compileValidatedCore_ok_inv
+      model selectors ir hSupported.noFallback hSupported.noReceive
+      hSupported.noInternalFunctions
+      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)
+      hSupported.surface.noTemplateIntrinsics hcore
+  rw [hir]
+  exact ContractShape.coreHelperInternalFunctions_eq_nil model
     hSupported.contractUsesArrayElement_eq_false
-  have hstorageArray : contractUsesStorageArrayElement model = false :=
     hSupported.contractUsesStorageArrayElement_eq_false
-  have hdynamicBytesEq : contractUsesDynamicBytesEq model = false :=
     hSupported.contractUsesDynamicBytesEq_eq_false
-  have hmulDiv512 : contractUsesMulDiv512 model = false :=
     hSupported.contractUsesMulDiv512_eq_false
-  have hparamDyn : contractUsesParamDynamicHeadWord model = false :=
     hSupported.contractUsesParamDynamicHeadWord_eq_false
-  have hcheckedArithmetic : contractUsesCheckedArithmetic model = false :=
     hSupported.noCheckedArithmetic
-  unfold CompilationModel.compile at hcompile
-  simp only [bind, Except.bind] at hcompile
-  rcases hvalidate : validateCompileInputs model selectors with _ | validated
-  · simp [hvalidate] at hcompile
-  · simp [hvalidate] at hcompile
-    unfold compileValidatedCore at hcompile
-    rw [hSupported.normalizedFields, hfallback, hreceive,
-      contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
-      hstorageArray, hdynamicBytesEq, hmulDiv512, hparamDyn,
-      hcheckedArithmetic,
-      hnoInternalFns, hSupported.noAdtTypes, hSupported.surface.noTemplateIntrinsics] at hcompile
-    simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
-    rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
-      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile
-    rcases hmap :
-        ((model.functions.filter
-            (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-          (fun x => compileFunctionSpec model.fields model.events model.errors [] x.2 x.1) with _ | irFns
-    · simp [hmap] at hcompile
-    · rcases hctor :
-          compileConstructor model.fields model.events model.errors [] model.constructor with _ | deployStmts
-      · simp [hmap, hctor] at hcompile
-        cases hcompile
-      · simp [hmap, hctor] at hcompile
-        injection hcompile with hir
-        cases hir
-        rfl
 
 theorem compile_ok_yields_noFallbackEntrypoint_except_mapping_writes
     (model : CompilationModel)
@@ -692,48 +499,14 @@ theorem compile_ok_yields_noFallbackEntrypoint_except_mapping_writes
     (ir : IRContract)
     (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
     ir.fallbackEntrypoint = none := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_supported_except_mapping_writes model selectors hSupported
-  have harray : contractUsesArrayElement model = false :=
-    hSupported.contractUsesArrayElement_eq_false
-  have hstorageArray : contractUsesStorageArrayElement model = false :=
-    hSupported.contractUsesStorageArrayElement_eq_false
-  have hdynamicBytesEq : contractUsesDynamicBytesEq model = false :=
-    hSupported.contractUsesDynamicBytesEq_eq_false
-  unfold CompilationModel.compile at hcompile
-  simp only [bind, Except.bind] at hcompile
-  rcases hvalidate : validateCompileInputs model selectors with _ | validated
-  · simp [hvalidate] at hcompile
-  · simp [hvalidate] at hcompile
-    unfold compileValidatedCore at hcompile
-    rw [hSupported.normalizedFields, hfallback, hreceive,
-      contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
-      hstorageArray, hdynamicBytesEq, hnoInternalFns, hSupported.noAdtTypes, hSupported.surface.noTemplateIntrinsics] at hcompile
-    simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
-    rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
-      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile
-    rcases hmap :
-        ((model.functions.filter
-            (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-          (fun x => compileFunctionSpec model.fields model.events model.errors [] x.2 x.1) with _ | irFns
-    · simp [hmap] at hcompile
-    · rcases hctor :
-          compileConstructor model.fields model.events model.errors [] model.constructor with _ | deployStmts
-      · simp [hmap, hctor] at hcompile
-        cases hcompile
-      · simp [hmap, hctor] at hcompile
-        injection hcompile with hir
-        cases hir
-        rfl
+  have hcore := ContractShape.compile_ok_yields_core model selectors ir hcompile
+  obtain ⟨irFns, deployStmts, hmap, hctor, hir⟩ :=
+    ContractShape.compileValidatedCore_ok_inv
+      model selectors ir hSupported.noFallback hSupported.noReceive
+      hSupported.noInternalFunctions
+      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)
+      hSupported.surface.noTemplateIntrinsics hcore
+  rw [hir]
 
 theorem compile_ok_yields_noReceiveEntrypoint_except_mapping_writes
     (model : CompilationModel)
@@ -742,48 +515,14 @@ theorem compile_ok_yields_noReceiveEntrypoint_except_mapping_writes
     (ir : IRContract)
     (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
     ir.receiveEntrypoint = none := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_supported_except_mapping_writes model selectors hSupported
-  have harray : contractUsesArrayElement model = false :=
-    hSupported.contractUsesArrayElement_eq_false
-  have hstorageArray : contractUsesStorageArrayElement model = false :=
-    hSupported.contractUsesStorageArrayElement_eq_false
-  have hdynamicBytesEq : contractUsesDynamicBytesEq model = false :=
-    hSupported.contractUsesDynamicBytesEq_eq_false
-  unfold CompilationModel.compile at hcompile
-  simp only [bind, Except.bind] at hcompile
-  rcases hvalidate : validateCompileInputs model selectors with _ | validated
-  · simp [hvalidate] at hcompile
-  · simp [hvalidate] at hcompile
-    unfold compileValidatedCore at hcompile
-    rw [hSupported.normalizedFields, hfallback, hreceive,
-      contractUsesPlainArrayElement, contractUsesArrayElementWord, harray,
-      hstorageArray, hdynamicBytesEq, hnoInternalFns, hSupported.noAdtTypes, hSupported.surface.noTemplateIntrinsics] at hcompile
-    simp only [bind, Except.bind, pure, Except.pure, List.mapM_nil] at hcompile
-    rw [ContractShape.guardedFunctionsMapM_eq model.fields model.events model.errors [] [] _
-      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)] at hcompile
-    rcases hmap :
-        ((model.functions.filter
-            (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-          (fun x => compileFunctionSpec model.fields model.events model.errors [] x.2 x.1) with _ | irFns
-    · simp [hmap] at hcompile
-    · rcases hctor :
-          compileConstructor model.fields model.events model.errors [] model.constructor with _ | deployStmts
-      · simp [hmap, hctor] at hcompile
-        cases hcompile
-      · simp [hmap, hctor] at hcompile
-        injection hcompile with hir
-        cases hir
-        rfl
+  have hcore := ContractShape.compile_ok_yields_core model selectors ir hcompile
+  obtain ⟨irFns, deployStmts, hmap, hctor, hir⟩ :=
+    ContractShape.compileValidatedCore_ok_inv
+      model selectors ir hSupported.noFallback hSupported.noReceive
+      hSupported.noInternalFunctions
+      (ContractShape.supportedSpecExceptMappingWrites_entries_lock_free hSupported)
+      hSupported.surface.noTemplateIntrinsics hcore
+  rw [hir]
 
 -- NOTE: compileValidatedCore_ok_yields_supportedRuntimeHelperTableInterface and
 -- compile_ok_yields_supportedRuntimeHelperTableInterface are BLOCKED by missing

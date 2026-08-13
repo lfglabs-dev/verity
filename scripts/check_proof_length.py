@@ -404,12 +404,11 @@ ALLOWLIST: set[str] = {
     "supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety",
     # --- Legacy compatibility and dispatch ---
     "interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir_closed",
-    # Constructor-bearing compile output adds one extra compileConstructor split
-    # to these component extractors; the surrounding Forall₂ proof shape remains
-    # unchanged and does not factor cleanly without duplicating mapM plumbing.
-    "compileValidatedCore_ok_yields_compiled_functions",
-    "compileValidatedCore_ok_yields_compiled_functions_except_mapping_writes",
-    "compile_ok_yields_internalFunctions_nil_except_mapping_writes",
+    # master compileValidatedCore inversion: pins every field of the output
+    # record in one pass (mapM + constructor + record shape); all per-projection
+    # shape lemmas are one-line derivations of it, so splitting it would just
+    # reintroduce the per-projection duplication it removed.
+    "compileValidatedCore_ok_inv",
     "compile_preserves_semantics",
     "compile_preserves_semantics_except_mapping_writes",
     "compile_preserves_semantics_except_mapping_writes_stmtSafety",
@@ -1045,7 +1044,6 @@ ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"^simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR$",
         r"^compileStmt_setStructMember2_singleSlot_nonzero_bridged$",
         r"^compileStmtList_append_eq$",
-        r"^compile_ok_yields_noReceiveEntrypoint_except_mapping_writes$",
     )
 )
 
