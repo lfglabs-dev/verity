@@ -60,6 +60,10 @@ ALLOWLIST: set[str] = {
     # executable mirror; splitting per constructor would break the mutual
     # recursion with the Cases/Dflt/List companions.
     "spliceSimCheck_sound",
+    # predicate-generic dispatcher correctness: faithful clone of the
+    # dispatcher case analysis with the compile predicate abstracted; the
+    # branch structure mirrors interpretContract_correct_of_compiled_functions.
+    "interpretContract_correct_of_functions_generic",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
     # against the corresponding exhaustive expression definitions.

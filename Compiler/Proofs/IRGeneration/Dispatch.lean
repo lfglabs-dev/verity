@@ -49,7 +49,7 @@ private theorem decodeSupportedParamWord_some_of_supported
     ∃ value, SourceSemantics.decodeSupportedParamWord ty word = some value := by
   cases ty <;> simp [SupportedExternalParamType, SourceSemantics.decodeSupportedParamWord] at hsupported ⊢
 
-private theorem bindSupportedParams_some_of_supported
+theorem bindSupportedParams_some_of_supported
     (params : List Param) (args : List Nat)
     (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
     (hlen : params.length ≤ args.length) :

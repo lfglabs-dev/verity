@@ -77,6 +77,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
 import Compiler.Proofs.IRGeneration.GuardedCompile
 import Compiler.Proofs.IRGeneration.GuardedContractShape
+import Compiler.Proofs.IRGeneration.GuardedDispatch
 import Compiler.Proofs.IRGeneration.GuardedFunction
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperBodyShape
@@ -2317,7 +2318,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_legacyCompatible
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_disjoint
   -- Compiler.Proofs.IRGeneration.Dispatch.decodeSupportedParamWord_some_of_supported  -- private
-  -- Compiler.Proofs.IRGeneration.Dispatch.bindSupportedParams_some_of_supported  -- private
+  Compiler.Proofs.IRGeneration.Dispatch.bindSupportedParams_some_of_supported
   -- Compiler.Proofs.IRGeneration.Dispatch.find_compiledFunction_some_of_forall₂  -- private
   -- Compiler.Proofs.IRGeneration.Dispatch.find_compiledFunction_none_of_forall₂  -- private
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions
@@ -3559,6 +3560,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.attachNonReentrantGuard_metadata
   Compiler.Proofs.IRGeneration.compileGuardedFunctionSpec_ok_metadata
   Compiler.Proofs.IRGeneration.guarded_functions_forall₂_of_mapM_ok
+
+  -- Compiler/Proofs/IRGeneration/GuardedDispatch.lean
+  -- Compiler.Proofs.IRGeneration.find_function_some_of_forall₂_generic  -- private
+  -- Compiler.Proofs.IRGeneration.find_function_none_of_forall₂_generic  -- private
+  Compiler.Proofs.IRGeneration.interpretContract_correct_of_functions_generic
+  Compiler.Proofs.IRGeneration.interpretContract_correct_of_compiled_guarded_functions
 
   -- Compiler/Proofs/IRGeneration/GuardedFunction.lean
   Compiler.Proofs.IRGeneration.execResultToIRResult_releasedResult
@@ -6734,4 +6741,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6277 theorems/lemmas (4407 public, 1870 private, 0 sorry'd)
+-- Total: 6281 theorems/lemmas (4410 public, 1871 private, 0 sorry'd)
