@@ -166,6 +166,39 @@ structure Event where
   indexedArgs : List Uint256    -- Indexed topic arguments
   deriving Repr
 
+-- External-call journal: core-level observables for calls that cross the
+-- contract boundary. Mirrors the denotational call model
+-- (`Verity.Core.Model.DenoteExternalCalls`) without importing it, the same
+-- way `Event` mirrors log emission (#153).
+
+/-- The EVM external-call opcode family, as recorded in the journal. -/
+inductive ExternalCallKind where
+  | call
+  | staticcall
+  | delegatecall
+  deriving DecidableEq, Repr
+
+/-- The control component of an external call's outcome. `failure` is a zero
+success bit without a revert payload; `revert` carries its payload through
+`returndata`. -/
+inductive ExternalCallControl where
+  | success
+  | failure
+  | revert
+  deriving DecidableEq, Repr
+
+/-- One entry of the external-call journal: everything a caller can observe
+at a call boundary — who was called, how, with what, and what came back. -/
+structure ExternalCall where
+  siteId : Nat
+  kind : ExternalCallKind
+  target : Nat
+  value : Nat := 0
+  calldata : List Nat := []
+  control : ExternalCallControl
+  returndata : List Nat := []
+  deriving DecidableEq, Repr
+
 -- State monad for contract execution
 structure ContractState where
   storage : Nat → Uint256                -- Uint256 storage mapping
@@ -197,6 +230,16 @@ structure ContractState where
   memory : Nat → Uint256 := fun _ => 0     -- EVM memory (word-addressed, zero-initialized)
   knownAddresses : Nat → FiniteAddressSet  -- Tracked addresses per storage slot (for sum properties)
   events : List Event := []  -- Emitted events, append-only log (#153)
+  /-- Observed external calls, append-only journal. Journaled call
+      denotations (`DenoteExternalCalls.denoteCallJournaled`) append here and
+      preserve the journal across caller-side rollback of a failed or
+      reverted call: the world is restored *except* this field, otherwise
+      reverted calls would be unobservable. A full monadic revert through
+      `Contract.run` still restores the pre-call snapshot including the
+      journal, which is why the source primitive `externalCall` reports the
+      callee's outcome in-band (`ExternalCallResult.control`) instead of
+      raising a monadic revert. -/
+  calls : List ExternalCall := []
 
 namespace ContractState
 
