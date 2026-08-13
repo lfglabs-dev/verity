@@ -23,7 +23,7 @@ section Generic
 variable (P : FunctionSpec → Nat → IRFunction → Prop)
 
 /-- Selector alignment of `find?` under any selector-faithful predicate. -/
-private theorem find_function_some_of_forall₂_generic
+theorem find_function_some_of_forall₂_generic
     (hsel : ∀ fn sel irFn, P fn sel irFn → irFn.selector = sel)
     (selector : Nat)
     {pairs : List (FunctionSpec × Nat)} {irFns : List IRFunction}
@@ -55,7 +55,7 @@ private theorem find_function_some_of_forall₂_generic
           hsel headFn headSel irFn hhead
         simp [hselEq, hheadSelector, hfindIr]
 
-private theorem find_function_none_of_forall₂_generic
+theorem find_function_none_of_forall₂_generic
     (hsel : ∀ fn sel irFn, P fn sel irFn → irFn.selector = sel)
     (selector : Nat)
     {pairs : List (FunctionSpec × Nat)} {irFns : List IRFunction}

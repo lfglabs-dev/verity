@@ -175,6 +175,24 @@ sibling entrypoint.
   unchanged. Trust-boundary prose is in the "Cross-Function Reentrancy Gate"
   section of `TRUST_ASSUMPTIONS.md`.
 
+## External-Call Journal (2026-08)
+
+- `ContractState.calls` (`Verity.ExternalCall` entries) is a new append-only,
+  defaulted field: a proof-side observable of external-call boundaries, not
+  EVM state. No semantic-preservation claim covers it.
+- `DenoteExternalCalls.denoteCall` is unchanged; the journal is added by the
+  definitionally layered `denoteCallJournaled` / `denoteJournaled`, so all
+  previously proven world/gas/rollback laws hold verbatim.
+- Source-level observation is `DenoteExternalCalls.externalCall :
+  AdversaryModel → CallSite → Contract ExternalCallResult`
+  (`Verity/Core/Model/ContractExternalCall.lean`), which reports
+  callee failure/revert in-band and never raises a monadic revert;
+  `externalCallRequireSuccess` opts into bubbling snapshot rollback.
+- Semantic choices (journal survives caller-side rollback; adversary cannot
+  write the journal) are documented in `TRUST_ASSUMPTIONS.md` §"External-Call
+  Journal".
+- **Axiom-free**: `AXIOMS.md` unchanged.
+
 ## Audit Artifacts
 
 | Artifact | Purpose | Check |

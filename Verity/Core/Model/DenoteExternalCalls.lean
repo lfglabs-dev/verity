@@ -48,6 +48,8 @@ inductive ExternalCallResult where
   | revert (returndata : List Nat)
   deriving DecidableEq, Repr
 
+instance : Inhabited ExternalCallResult := ⟨.success []⟩
+
 namespace ExternalCallResult
 
 def returndata : ExternalCallResult → List Nat
@@ -246,6 +248,153 @@ theorem denote_nested (adversary : AdversaryModel) (state : CallState)
       let outerResult := denoteCall adversary outer state
       let innerResult := denoteCall adversary (inner outerResult.result) outerResult.state
       ((outerResult.result, innerResult.result), innerResult.state) := rfl
+
+/-! ## Journaled denotation
+
+`denoteCall` leaves no trace of the boundary crossing in the caller world.
+The journaled variant additionally appends one `Verity.ExternalCall` entry to
+`ContractState.calls` per call.  Two deliberate semantic choices:
+
+* **The journal survives rollback.**  Failure and revert restore the caller
+  world *except* the journal — otherwise reverted calls would be
+  unobservable, and per-iteration reasoning over retrying loops (e.g. the
+  MinFirst allocation loop) would be impossible.
+* **The adversary cannot touch the journal.**  Even on a committed `call` /
+  `delegatecall` success, the post-call journal is forced to
+  `pre.calls ++ [entry]`, regardless of what `stateTransition` did to the
+  `calls` field.  The journal is the caller's observation record, not
+  adversary-controlled state.
+
+`denoteCall` itself is unchanged, so every existing world/gas law holds
+verbatim; the journaled lemmas below characterize the delta. -/
+
+/-- Journal projections of the model-level call kinds and controls. -/
+def CallKind.toJournal : CallKind → Verity.ExternalCallKind
+  | .call => .call
+  | .staticcall => .staticcall
+  | .delegatecall => .delegatecall
+
+def CallControl.toJournal : CallControl → Verity.ExternalCallControl
+  | .success => .success
+  | .failure => .failure
+  | .revert => .revert
+
+/-- The journal entry recorded for one call site and its observed result. -/
+def journalEntry (site : CallSite) (result : ExternalCallResult) :
+    Verity.ExternalCall :=
+  { siteId := site.siteId
+    kind := site.kind.toJournal
+    target := site.target
+    value := site.value
+    calldata := site.calldata
+    control := result.control.toJournal
+    returndata := result.returndata }
+
+/-- Denote one external call and record it in the caller world's journal. -/
+def denoteCallJournaled (adversary : AdversaryModel) (site : CallSite)
+    (state : CallState) : CallObservation :=
+  let observation := denoteCall adversary site state
+  { observation with
+    state :=
+      { observation.state with
+        world :=
+          { observation.state.world with
+            calls := state.world.calls ++ [journalEntry site observation.result] } } }
+
+@[simp] theorem denoteCallJournaled_result (adversary : AdversaryModel)
+    (site : CallSite) (state : CallState) :
+    (denoteCallJournaled adversary site state).result =
+      (denoteCall adversary site state).result := rfl
+
+@[simp] theorem denoteCallJournaled_gasUsed (adversary : AdversaryModel)
+    (site : CallSite) (state : CallState) :
+    (denoteCallJournaled adversary site state).gasUsed =
+      (denoteCall adversary site state).gasUsed := rfl
+
+@[simp] theorem denoteCallJournaled_gasRemaining (adversary : AdversaryModel)
+    (site : CallSite) (state : CallState) :
+    (denoteCallJournaled adversary site state).state.gasRemaining =
+      (denoteCall adversary site state).state.gasRemaining := rfl
+
+@[simp] theorem denoteCallJournaled_returndata (adversary : AdversaryModel)
+    (site : CallSite) (state : CallState) :
+    (denoteCallJournaled adversary site state).state.returndata =
+      (denoteCall adversary site state).state.returndata := rfl
+
+/-- The journaled world is the plain-denotation world with exactly one entry
+appended to the journal — the adversary's committed transition cannot leak
+into `calls`. -/
+theorem denoteCallJournaled_world (adversary : AdversaryModel)
+    (site : CallSite) (state : CallState) :
+    (denoteCallJournaled adversary site state).state.world =
+      { (denoteCall adversary site state).state.world with
+        calls := state.world.calls ++
+          [journalEntry site (denoteCall adversary site state).result] } := rfl
+
+/-- Append law: one call appends exactly one journal entry. -/
+@[simp] theorem denoteCallJournaled_calls (adversary : AdversaryModel)
+    (site : CallSite) (state : CallState) :
+    (denoteCallJournaled adversary site state).state.world.calls =
+      state.world.calls ++
+        [journalEntry site (denoteCall adversary site state).result] := rfl
+
+/-- Rollback preserves the journal: a failed or reverted mutable call
+restores the caller world except the appended entry. -/
+theorem denoteCallJournaled_rollback_world (adversary : AdversaryModel)
+    (site : CallSite) (state : CallState) (data : List Nat)
+    (hkind : site.kind = .call ∨ site.kind = .delegatecall)
+    (hresult : adversary.result site state.world = .failure data ∨
+      adversary.result site state.world = .revert data) :
+    (denoteCallJournaled adversary site state).state.world =
+      { state.world with
+        calls := state.world.calls ++
+          [journalEntry site (denoteCall adversary site state).result] } := by
+  rw [denoteCallJournaled_world]
+  rcases hresult with h | h
+  · rw [denoteCall_failure_world adversary site state data hkind h]
+  · rw [denoteCall_revert_world adversary site state data hkind h]
+
+/-- A static call preserves the caller world except the appended entry. -/
+theorem denoteCallJournaled_staticcall_world (adversary : AdversaryModel)
+    (site : CallSite) (state : CallState) (h : site.kind = .staticcall) :
+    (denoteCallJournaled adversary site state).state.world =
+      { state.world with
+        calls := state.world.calls ++
+          [journalEntry site (denoteCall adversary site state).result] } := by
+  rw [denoteCallJournaled_world,
+    denoteCall_staticcall_world adversary site state h]
+
+/-- Journaled denotation of a call program: every boundary crossing along the
+program is recorded, in order. -/
+def denoteJournaled : CallProgram α → AdversaryModel → CallState → α × CallState
+  | .pure value, _, state => (value, state)
+  | .bind site next, adversary, state =>
+      let observation := denoteCallJournaled adversary site state
+      denoteJournaled (next observation) adversary observation.state
+
+@[simp] theorem denoteJournaled_pure (adversary : AdversaryModel)
+    (state : CallState) (value : α) :
+    denoteJournaled (.pure value) adversary state = (value, state) := rfl
+
+theorem denoteJournaled_bind (adversary : AdversaryModel) (state : CallState)
+    (site : CallSite) (next : CallObservation → CallProgram α) :
+    denoteJournaled (.bind site next) adversary state =
+      let observation := denoteCallJournaled adversary site state
+      denoteJournaled (next observation) adversary observation.state := rfl
+
+/-- Monotonicity: a program only ever extends the journal. The witness is the
+ordered trace of the calls the program performed. -/
+theorem denoteJournaled_calls_monotone (program : CallProgram α)
+    (adversary : AdversaryModel) (state : CallState) :
+    ∃ trace, (denoteJournaled program adversary state).2.world.calls =
+      state.world.calls ++ trace := by
+  induction program generalizing state with
+  | pure value => exact ⟨[], by simp⟩
+  | bind site next ih =>
+      obtain ⟨trace, htrace⟩ :=
+        ih (denoteCallJournaled adversary site state) (denoteCallJournaled adversary site state).state
+      exact ⟨journalEntry site (denoteCall adversary site state).result :: trace, by
+        simpa [denoteJournaled_bind, denoteCallJournaled_calls] using htrace⟩
 
 /-! ## Bridge to the existing non-call denotation -/
 

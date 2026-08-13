@@ -76,6 +76,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
 import Compiler.Proofs.IRGeneration.GuardedCompile
+import Compiler.Proofs.IRGeneration.GuardedContract
 import Compiler.Proofs.IRGeneration.GuardedContractShape
 import Compiler.Proofs.IRGeneration.GuardedDispatch
 import Compiler.Proofs.IRGeneration.GuardedFunction
@@ -3558,14 +3559,22 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compileFunctionSpec_body_shape
   Compiler.Proofs.IRGeneration.compileGuardedFunctionSpec_inv
 
+  -- Compiler/Proofs/IRGeneration/GuardedContract.lean
+  Compiler.Proofs.IRGeneration.revertedResult_setLock
+  Compiler.Proofs.IRGeneration.interpretContractWith_correct_of_functions_generic
+  Compiler.Proofs.IRGeneration.SupportedFunctionGuarded.paramsSupported
+  Compiler.Proofs.IRGeneration.supported_params_of_supportedSpecGuarded
+  Compiler.Proofs.IRGeneration.guardedFunctionChoice_bindFail
+  Compiler.Proofs.IRGeneration.compile_preserves_semantics_guarded
+
   -- Compiler/Proofs/IRGeneration/GuardedContractShape.lean
   Compiler.Proofs.IRGeneration.attachNonReentrantGuard_metadata
   Compiler.Proofs.IRGeneration.compileGuardedFunctionSpec_ok_metadata
   Compiler.Proofs.IRGeneration.guarded_functions_forall₂_of_mapM_ok
 
   -- Compiler/Proofs/IRGeneration/GuardedDispatch.lean
-  -- Compiler.Proofs.IRGeneration.find_function_some_of_forall₂_generic  -- private
-  -- Compiler.Proofs.IRGeneration.find_function_none_of_forall₂_generic  -- private
+  Compiler.Proofs.IRGeneration.find_function_some_of_forall₂_generic
+  Compiler.Proofs.IRGeneration.find_function_none_of_forall₂_generic
   Compiler.Proofs.IRGeneration.interpretContract_correct_of_functions_generic
   Compiler.Proofs.IRGeneration.interpretContract_correct_of_compiled_guarded_functions
 
@@ -6757,4 +6766,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6291 theorems/lemmas (4422 public, 1869 private, 0 sorry'd)
+-- Total: 6297 theorems/lemmas (4430 public, 1867 private, 0 sorry'd)

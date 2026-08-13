@@ -65,6 +65,7 @@ ALLOWLIST: set[str] = {
     # branch structure mirrors interpretContract_correct_of_compiled_functions.
     "interpretContract_correct_of_functions_generic",
     "compileValidatedCore_ok_yields_guarded_functions",
+    "interpretContractWith_correct_of_functions_generic",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
     # against the corresponding exhaustive expression definitions.
