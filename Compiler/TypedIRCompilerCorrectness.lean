@@ -1127,7 +1127,7 @@ theorem compile_setStorage_literal_semantics
       .ok { init with world := execSourceSetStorageLiteral init.world slot n } := by
   simp [execCompiledSetStorageLiteral, execSourceSetStorageLiteral,
     compileStmts_single_setStorage_literal_run, hfind, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel]
+  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.writeSlot]
 
 /-- Semantic-preservation theorem for the supported two-statement subset:
 compiling and running `letVar tmp (literal n); setStorage fieldName (localVar tmp)`
@@ -1144,7 +1144,7 @@ theorem compile_let_setStorage_local_literal_semantics
             vars := init.vars.set { id := 0, ty := Ty.uint256 } (n : Verity.Core.Uint256) }) := by
   simp [execCompiledLetSetStorageLocalLiteral, execSourceSetStorageLiteral,
     compileStmts_let_literal_setStorage_local_run, hfind, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel]
+  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.writeSlot]
 
 /-- Semantic-preservation theorem for a broader supported three-statement subset:
 compiling and running
@@ -1164,7 +1164,7 @@ theorem compile_let_assign_setStorage_local_literal_semantics
               { id := 1, ty := Ty.uint256 } (m : Verity.Core.Uint256) }) := by
   simp [execCompiledLetAssignSetStorageLocalLiteral, execSourceSetStorageLiteral,
     compileStmts_let_assign_literal_setStorage_local_run, hfind, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel]
+  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.writeSlot]
 
 /-- Semantic-preservation theorem for an arithmetic supported three-statement subset:
 compiling and running
@@ -1186,7 +1186,7 @@ theorem compile_let_assign_add_setStorage_local_literal_semantics
                 ((n : Verity.Core.Uint256).add (m : Verity.Core.Uint256)) }) := by
   simp [execCompiledLetAssignAddSetStorageLocalLiteral, execSourceSetStorageLiteral,
     compileStmts_let_assign_add_literal_setStorage_local_run, hfind, evalTStmts, defaultEvalFuel]
-  simp [evalTStmtsFuel, evalTStmtFuel]
+  simp [evalTStmtsFuel, evalTStmtFuel, Verity.ContractState.writeSlot]
 
 /-- Semantic-preservation theorem for an arithmetic supported three-statement subset:
 compiling and running

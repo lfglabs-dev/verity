@@ -50,6 +50,7 @@ import Compiler.Proofs.HelperStepProofs
 import Compiler.Proofs.IRGeneration.BoundedLoopCheck
 import Compiler.Proofs.IRGeneration.BoundedLoopFuel
 import Compiler.Proofs.IRGeneration.CEISafety
+import Compiler.Proofs.IRGeneration.CompiledNameDiscipline
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
@@ -2139,6 +2140,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.CEIProofBackedExecution.no_local_unsafe_obligations
   Compiler.Proofs.IRGeneration.ceiProofBackedExecution_of_checker
   Compiler.Proofs.IRGeneration.ceiProofBackedExecution_checked_empty_body
+
+  -- Compiler/Proofs/IRGeneration/CompiledNameDiscipline.lean
+  Compiler.Proofs.IRGeneration.pickFreshName_startsWith
+  Compiler.Proofs.IRGeneration.ne_of_startsWith_of_not_startsWith
+  Compiler.Proofs.IRGeneration.loopFreeCheck_sound
+  Compiler.Proofs.IRGeneration.loopFreeCheckCases_sound
+  Compiler.Proofs.IRGeneration.loopFreeCheckDflt_sound
+  Compiler.Proofs.IRGeneration.loopFreeCheckList_sound
 
   -- Compiler/Proofs/IRGeneration/Contract.lean
   Compiler.Proofs.IRGeneration.Contract.pickUniqueFunctionByName_eq_ok_none_of_absent
@@ -6828,4 +6837,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6341 theorems/lemmas (4475 public, 1866 private, 0 sorry'd)
+-- Total: 6347 theorems/lemmas (4481 public, 1866 private, 0 sorry'd)
