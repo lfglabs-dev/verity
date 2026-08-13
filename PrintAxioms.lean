@@ -56,6 +56,7 @@ import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.DynamicAbiRefinement
 import Compiler.Proofs.IRGeneration.ErrorStringPayloadIR
 import Compiler.Proofs.IRGeneration.EventObservable
+import Compiler.Proofs.IRGeneration.FragmentCheck
 import Compiler.Proofs.IRGeneration.FuelBound
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
@@ -2364,6 +2365,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmts_mstore_ptr_expr_block
   Compiler.Proofs.IRGeneration.normalizeEventWord_memInsensitive
   Compiler.Proofs.IRGeneration.scalarEventUnindexedStoresFrom_shape
+
+  -- Compiler/Proofs/IRGeneration/FragmentCheck.lean
+  Compiler.Proofs.IRGeneration.spliceSimCheck_sound
+  Compiler.Proofs.IRGeneration.spliceSimCheckCases_sound
+  Compiler.Proofs.IRGeneration.spliceSimCheckDflt_sound
+  Compiler.Proofs.IRGeneration.spliceSimCheckList_sound
+  Compiler.Proofs.IRGeneration.modeledHaltCheck_sound
 
   -- Compiler/Proofs/IRGeneration/FuelBound.lean
   Compiler.Proofs.IRGeneration.stmtFuelBound_pos
@@ -6720,4 +6728,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6269 theorems/lemmas (4399 public, 1870 private, 0 sorry'd)
+-- Total: 6274 theorems/lemmas (4404 public, 1870 private, 0 sorry'd)
