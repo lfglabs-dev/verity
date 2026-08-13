@@ -197,6 +197,70 @@ theorem addNoWrap {a b : Uint256} (h : a.val + b.val < modulus) :
     (add a b).val = a.val + b.val := by
   simp [add, ofNat, Nat.mod_eq_of_lt h]
 
+/-- Checked subtraction: `some` of the exact difference when `b ≤ a`, `none`
+on underflow — the semantic counterpart of solc-0.8 checked `-` (#1993). -/
+def checkedSub (a b : Uint256) : Option Uint256 :=
+  if b.val ≤ a.val then
+    some ⟨a.val - b.val, Nat.lt_of_le_of_lt (Nat.sub_le _ _) a.isLt⟩
+  else none
+
+/-- A successful checked subtraction is the wrapping subtraction, and its
+value is the exact Nat difference — no wrap occurred. -/
+theorem checkedSub_eq_some {a b c : Uint256}
+    (h : checkedSub a b = some c) :
+    c = sub a b ∧ c.val = a.val - b.val := by
+  unfold checkedSub at h
+  split at h
+  · rename_i hle
+    obtain rfl := Option.some.inj h
+    have hlt : a.val - b.val < modulus :=
+      Nat.lt_of_le_of_lt (Nat.sub_le _ _) a.isLt
+    exact ⟨by simp [sub, hle, ofNat, Nat.mod_eq_of_lt hlt], rfl⟩
+  · cases h
+
+/-- Checked subtraction fails exactly on underflow. -/
+theorem checkedSub_eq_none_iff (a b : Uint256) :
+    checkedSub a b = none ↔ a.val < b.val := by
+  unfold checkedSub
+  split <;> rename_i hle <;> simp <;> omega
+
+/-- Non-underflowing subtraction is exact: the wrapped difference's value is
+the Nat difference. -/
+theorem subNoWrap {a b : Uint256} (h : b.val ≤ a.val) :
+    (sub a b).val = a.val - b.val := by
+  have hlt : a.val - b.val < modulus :=
+    Nat.lt_of_le_of_lt (Nat.sub_le _ _) a.isLt
+  simp [sub, h, ofNat, Nat.mod_eq_of_lt hlt]
+
+/-- Checked multiplication: `some` of the exact product when it fits, `none`
+on overflow — the semantic counterpart of solc-0.8 checked `*` (#1993). -/
+def checkedMul (a b : Uint256) : Option Uint256 :=
+  if h : a.val * b.val < modulus then some ⟨a.val * b.val, h⟩ else none
+
+/-- A successful checked multiplication is the wrapping multiplication, and
+its value is the exact Nat product — no wrap occurred. -/
+theorem checkedMul_eq_some {a b c : Uint256}
+    (h : checkedMul a b = some c) :
+    c = mul a b ∧ c.val = a.val * b.val := by
+  unfold checkedMul at h
+  split at h
+  · rename_i hlt
+    obtain rfl := Option.some.inj h
+    exact ⟨by simp [mul, ofNat, Nat.mod_eq_of_lt hlt], rfl⟩
+  · cases h
+
+/-- Checked multiplication fails exactly on overflow. -/
+theorem checkedMul_eq_none_iff (a b : Uint256) :
+    checkedMul a b = none ↔ modulus ≤ a.val * b.val := by
+  unfold checkedMul
+  split <;> rename_i hlt <;> simp <;> omega
+
+/-- Non-overflowing multiplication is exact: the wrapped product's value is
+the Nat product. -/
+theorem mulNoWrap {a b : Uint256} (h : a.val * b.val < modulus) :
+    (mul a b).val = a.val * b.val := by
+  simp [mul, ofNat, Nat.mod_eq_of_lt h]
+
 -- Overflow detection predicates for safety proofs (on raw Nat values)
 def willAddOverflow (a b : Uint256) : Bool :=
   a.val + b.val ≥ modulus

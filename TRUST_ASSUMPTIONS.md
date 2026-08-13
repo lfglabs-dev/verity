@@ -164,6 +164,27 @@ High-level semantics can expose intermediate state in reverted computations. EVM
 ### External-Call Gas Discipline (short-term model)
 `Verity.Core.Model.GasCoupling` ties the modeled callee cost to the call's gas allowance: a `GasFaithful` adversary can only succeed within the allowance, must fail (never commit) when over budget, and cannot claim more gas than forwarded. Failure causes (`outOfGas` vs. opaque exceptional halt) are modeling artifacts: `denoteCall_congr`/`denote_congr` prove observations are determined by the adversary's responses alone, so causes cannot leak to the caller — matching the EVM's zero-success-bit observability. The caller-has-enough-gas-for-its-handler assumption is the explicit `CallerCoversAllowance` hypothesis. Opcode-level gas accounting (EIP-150, warm/cold, refunds, stipend) is out of scope for this model and remains a dedicated roadmap lane.
 
+### Event Emission (preserved observable, scalar fragment)
+Final-result event preservation — `encodeEvents source.events = ir.events` in
+the transaction's observable result, not merely an intermediate state — is
+**proven** for the scalar fragment by
+`Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_scalar_events`
+and, for the guarded (`nonreentrant`-aware) pipeline, by
+`Compiler.Proofs.IRGeneration.compile_preserves_semantics_guarded_with_scalar_events`
+(`Compiler/Proofs/IRGeneration/GuardedScalarEvents.lean`; on the scalar
+fragment every supported function is lock-free, so the guarded source
+semantics provably collapses to the plain one). Outside the proven fragment:
+- `Stmt.rawLog` emission is not modeled — this is what the machine-readable
+  trust-report slice `notModeledEventEmission` and the `--deny-event-emission`
+  gate flag.
+- Declared `Stmt.emit` outside the scalar fragment (nested under
+  `ite`/`forEach`, non-scalar or more than 3 indexed params, non-atomic
+  args, or inside a function that carries a `nonreentrant` lock) is
+  excluded by the support witness (`SupportedBodyInterfaceWithScalarEvents`)
+  rather than reported in `notModeledEventEmission`: the boundary is
+  machine-checked at the theorem surface, but the trust-report slice does
+  **not** enumerate it — the slice only ever names `rawLog`.
+
 ### External-Call Journal (`ContractState.calls`)
 `ContractState.calls` is an append-only journal of observed external calls
 (`Verity.ExternalCall`: site id, kind, target, value, calldata, control,

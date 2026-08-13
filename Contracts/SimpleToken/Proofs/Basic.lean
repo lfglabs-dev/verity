@@ -166,7 +166,7 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
       knownAddresses := fun slotIdx =>
         if slotIdx == 1 then (s.knownAddresses slotIdx).insert toAddr
         else s.knownAddresses slotIdx,
-      events := s.events } := by
+      events := s.events, calls := s.calls } := by
   have h_safe_bal := safeAdd_some (s.storageMap 1 toAddr) amount h_no_bal_overflow
   have h_safe_sup := safeAdd_some (s.storage 2) amount h_no_sup_overflow
   verity_unfold mint
@@ -309,7 +309,7 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
       knownAddresses := fun slotIdx =>
         if slotIdx == 1 then ((s.knownAddresses slotIdx).insert s.sender).insert toAddr
         else s.knownAddresses slotIdx,
-      events := s.events } := by
+      events := s.events, calls := s.calls } := by
   have h_balance' := uint256_ge_val_le h_balance
   have h_safe := safeAdd_some (s.storageMap 1 toAddr) amount h_no_overflow
   simp only [transfer, Contracts.SimpleToken.balancesSlot,

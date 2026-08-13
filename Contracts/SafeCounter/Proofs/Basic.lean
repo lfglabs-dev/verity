@@ -77,7 +77,7 @@ private theorem increment_unfold (s : ContractState)
       calldata := s.calldata,
       memory := s.memory,
       knownAddresses := s.knownAddresses,
-      events := s.events } := by
+      events := s.events, calls := s.calls } := by
   verity_unfold increment
   simp [count, requireSomeUint, Verity.pure, Pure.pure,
     safeAdd_some (s.storage 0) 1 h_no_overflow]
@@ -145,7 +145,7 @@ private theorem decrement_unfold (s : ContractState)
       calldata := s.calldata,
       memory := s.memory,
       knownAddresses := s.knownAddresses,
-      events := s.events } := by
+      events := s.events, calls := s.calls } := by
   verity_unfold decrement
   simp [count, requireSomeUint, Verity.pure, Pure.pure,
     safeSub_some (s.storage 0) 1 h_no_underflow]
