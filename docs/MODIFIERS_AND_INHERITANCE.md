@@ -46,8 +46,10 @@ then the host body.
 
 Name, role, modifier, function (including internal helpers), error, event,
 constant, immutable, external, type, and slot clashes fail closed at
-elaboration. Mixin modifiers validate against mixin errors/constants; mixin
-immutables are initialized in the host constructor model.
+elaboration. Hidden executable slots used by mixin immutables are reserved.
+`with` applies local and mixin modifiers in declared order. Mixin modifiers
+validate against mixin errors/constants; mixin immutables are initialized in
+the host constructor model.
 Mixin slots are absolute as written (including mixin-owned ERC-7201 roots).
 The host does not remap mixin slots. v1 has no `exclude` and no `override`
 on the include path.

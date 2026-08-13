@@ -169,12 +169,49 @@ verity_mixin IncludeImmutableMixin where
 
 verity_contract IncludeImmutableHost include IncludeImmutableMixin where
   storage
-    count : Uint256 := slot 0
+    count : Uint256 := slot 1
 
   constructor (seed : Uint256) IncludeImmutableMixin(seed) := do
     setStorage count 0
 
 #check_contract IncludeImmutableHost
+
+/--
+error: include clash: slot 0 from mixin 'Contracts.Smoke.IncludeImmutableMixin' immutable 'version' overlaps a host or earlier mixin slot
+-/
+#guard_msgs in
+verity_contract IncludeImmutableSlotClashRejected include IncludeImmutableMixin where
+  storage
+    count : Uint256 := slot 0
+
+  constructor (seed : Uint256) IncludeImmutableMixin(seed) := do
+    setStorage count 0
+
+verity_mixin IncludeOrderMixin where
+  storage
+    flag : Uint256 := slot 0
+
+  constructor () := do
+    setStorage flag 0
+
+  modifier mixinGuard := do
+    let current ← getStorage flag
+    setStorage flag (add current 1)
+
+verity_contract IncludeModifierOrderHost include IncludeOrderMixin where
+  storage
+    last : Uint256 := slot 1
+
+  constructor IncludeOrderMixin() := do
+    setStorage last 0
+
+  modifier localGuard := do
+    setStorage last 7
+
+  function bump () with localGuard, mixinGuard modifies(flag, last) : Unit := do
+    pure ()
+
+#check_contract IncludeModifierOrderHost
 
 verity_mixin IncludeHelperMixinA where
   storage
