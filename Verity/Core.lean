@@ -314,6 +314,86 @@ def readArray (s : ContractState) (slot : Nat) : List Uint256 :=
 def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : ContractState :=
   { s with storageArray := fun sl => if sl == slot then values else s.storageArray sl }
 
+/-!
+### Bulk lenses (C5)
+
+Multi-slot writes used by the denotational layer (aliased packed fields,
+word-spanning writes). Shapes match the historical raw record updates
+exactly (`targets.contains`-guarded function update), so migrating a raw
+site to a bulk lens is definitional. Like the single-slot lenses, these are
+the only sanctioned multi-slot write surface over the storage channels.
+-/
+
+/-- Write `value` at every slot in `targets` (uint channel). -/
+def writeSlots (s : ContractState) (targets : List Nat) (value : Uint256) :
+    ContractState :=
+  { s with storage := fun slot =>
+      if targets.contains slot then value else s.storage slot }
+
+/-- Read-modify-write every slot in `targets` (uint channel). -/
+def modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) : ContractState :=
+  { s with storage := fun slot =>
+      if targets.contains slot then f (s.storage slot) else s.storage slot }
+
+/-- Write `value` at every transient slot in `targets`. -/
+def writeTransientSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) : ContractState :=
+  { s with transientStorage := fun slot =>
+      if targets.contains slot then value else s.transientStorage slot }
+
+/-- Read-modify-write every transient slot in `targets`. -/
+def modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) : ContractState :=
+  { s with transientStorage := fun slot =>
+      if targets.contains slot then f (s.transientStorage slot)
+      else s.transientStorage slot }
+
+/-- Write `value` at every address slot in `targets`. -/
+def writeAddrSlots (s : ContractState) (targets : List Nat) (value : Address) :
+    ContractState :=
+  { s with storageAddr := fun slot =>
+      if targets.contains slot then value else s.storageAddr slot }
+
+/-- Replace the whole uint channel through a transformer. The denotational
+layer's flat-view rebuilds (mapping writes rendered through a `Nat → Nat`
+storage view) are channel-wide, not slot-guarded; this is their sanctioned
+surface. The C5 flip reimplements it as a `.slot`-key-restricted update. -/
+def withStorageChannel (s : ContractState)
+    (f : (Nat → Uint256) → Nat → Uint256) : ContractState :=
+  { s with storage := f s.storage }
+
+/-- Canonical full-state constructor from explicit storage channels. Clients
+building a world from externally supplied channel functions (interpreter
+harnesses, counterexample states) go through this instead of a raw record
+literal, so the C5 flip can rebuild the internal representation from the
+given channels in one place. Non-storage fields start at their defaults and
+are customized by the caller with an ordinary record update. -/
+def ofChannels
+    (uintChannel : Nat → Uint256)
+    (transientChannel : Nat → Uint256 := fun _ => 0)
+    (addrChannel : Nat → Address := fun _ => 0)
+    (mapChannel : Nat → Address → Uint256 := fun _ _ => 0)
+    (mapUintChannel : Nat → Uint256 → Uint256 := fun _ _ => 0)
+    (map2Channel : Nat → Address → Address → Uint256 := fun _ _ _ => 0)
+    (arrayChannel : Nat → List Uint256 := fun _ => [])
+    (sender : Address := 0)
+    (thisAddress : Address := 0)
+    (msgValue : Uint256 := 0)
+    (blockTimestamp : Uint256 := 0) : ContractState :=
+  { storage := uintChannel
+    transientStorage := transientChannel
+    storageAddr := addrChannel
+    storageMap := mapChannel
+    storageMapUint := mapUintChannel
+    storageMap2 := map2Channel
+    storageArray := arrayChannel
+    sender := sender
+    thisAddress := thisAddress
+    msgValue := msgValue
+    blockTimestamp := blockTimestamp
+    knownAddresses := fun _ => Verity.Core.FiniteAddressSet.empty }
+
 @[storage_simps] theorem readSlot_writeSlot_same (s : ContractState) (slot : Nat) (v : Uint256) :
     (s.writeSlot slot v).readSlot slot = v := by
   simp [readSlot, writeSlot]

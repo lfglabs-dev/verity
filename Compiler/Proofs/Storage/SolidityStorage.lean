@@ -77,7 +77,8 @@ def mappingSlotBridgeField (baseSlot : Nat) : Compiler.CompilationModel.Field :=
 
 /-- A slot-reflecting world makes a source read return its actual storage slot. -/
 def mappingSlotBridgeState : SourceSemantics.RuntimeState :=
-  { world := { Verity.defaultState with storage := fun slot => slot }, bindings := [] }
+  { world := Verity.defaultState.withStorageChannel (fun _ => fun slot => slot),
+    bindings := [] }
 
 /-- A source mapping expression evaluated in a slot-reflecting world exposes
     the exact slot passed to `readFieldWord`. -/
@@ -107,7 +108,7 @@ theorem compiledMappingSlotPointer_eq_sourceMappingSlotRead
   simp only [SourceSemantics.evalExpr]
   rw [hfield]
   simp [mappingSlotBridgeField, mappingSlotBridgeState, SourceSemantics.readFieldWord,
-    SourceSemantics.wordNormalize]
+    Verity.ContractState.withStorageChannel, SourceSemantics.wordNormalize]
   change Compiler.Proofs.solidityMappingSlot baseSlot key =
     Compiler.Proofs.solidityMappingSlot baseSlot
       (key % Compiler.Constants.evmModulus) % Compiler.Constants.evmModulus
@@ -234,8 +235,8 @@ def isSourcePackedRead (fields : List Compiler.CompilationModel.Field)
 /-- A runtime state holding `word` in every storage slot, so the bridge observes
     the packed extraction itself rather than slot arithmetic. -/
 def packedReadBridgeState (word : Word) : SourceSemantics.RuntimeState :=
-  { world := { Verity.defaultState with
-                storage := fun _ => Verity.Core.Uint256.ofNat word.toNat },
+  { world := Verity.defaultState.withStorageChannel
+      (fun _ => fun _ => Verity.Core.Uint256.ofNat word.toNat),
     bindings := [] }
 
 /-- The packed read performed by the executable source evaluator. -/
@@ -339,6 +340,7 @@ theorem compiledPackedRead_eq_sourceEvalPackedRead (word : Word) (offset width :
     unfold packedReadBridgeSourceExpr
     rw [SourceSemantics.evalExpr, hfield]
     simp [packedReadBridgeField, packedReadBridgeState,
+      Verity.ContractState.withStorageChannel,
       SourceSemantics.readFieldWord, SourceSemantics.wordNormalize]
   have hextract := uint256_packed_extract (word.toNat % Verity.Core.Uint256.modulus)
     { offset := offset, width := width } hraw hoffset

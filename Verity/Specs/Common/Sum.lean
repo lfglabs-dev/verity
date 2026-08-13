@@ -220,9 +220,7 @@ theorem sumBalances_zero_of_all_zero {slot : Nat} {addrs : FiniteAddressSet}
 theorem balancesFinite_preserved_deposit {slot : Nat} (s : ContractState)
     (addr : Address) (amount : Uint256) :
     balancesFinite slot s →
-    balancesFinite slot { s with
-      storageMap := fun s' a =>
-        if s' == slot && a == addr then amount else s.storageMap s' a,
+    balancesFinite slot { s.writeMap slot addr amount with
       knownAddresses := fun s' =>
         if s' == slot then (s.knownAddresses s').insert addr
         else s.knownAddresses s' } := by
@@ -239,7 +237,7 @@ theorem balancesFinite_preserved_deposit {slot : Nat} (s : ContractState)
   simp only [not_or] at h_not_or
   obtain ⟨h_ne, h_not_orig⟩ := h_not_or
   -- Since addr' ≠ addr, the storageMap if-condition evaluates to false
-  simp only [BEq.beq, decide_true, Bool.true_and]
+  simp only [ContractState.writeMap, BEq.beq, decide_true, Bool.true_and]
   have h_ne' : ¬(decide (addr' = addr) = true) := by simp [h_ne]
   simp [h_ne']
   -- Now the goal reduces to s.storageMap slot addr' = 0, which follows from h_finite

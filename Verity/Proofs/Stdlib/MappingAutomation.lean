@@ -37,10 +37,7 @@ theorem getMapping_runValue (slot : StorageSlot (Address → Uint256)) (key : Ad
 theorem setMapping_runState (slot : StorageSlot (Address → Uint256)) (key : Address)
     (value : Uint256) (state : ContractState) :
     (setMapping slot key value).runState state =
-      { state with
-        storageMap := fun s addr =>
-          if s == slot.slot && addr == key then value
-          else state.storageMap s addr,
+      { state.writeMap slot.slot key value with
         knownAddresses := fun s =>
           if s == slot.slot then
             (state.knownAddresses s).insert key
@@ -116,10 +113,7 @@ theorem getMappingUint_runValue (slot : StorageSlot (Uint256 → Uint256)) (key 
 theorem setMappingUint_runState (slot : StorageSlot (Uint256 → Uint256)) (key : Uint256)
     (value : Uint256) (state : ContractState) :
     (setMappingUint slot key value).runState state =
-      { state with
-        storageMapUint := fun s k =>
-          if s == slot.slot && k == key then value
-          else state.storageMapUint s k } := by
+      state.writeMapUint slot.slot key value := by
   simp [setMappingUint, Contract.runState, ContractState.writeMapUint]
 
 /-- After setMappingUint, getMappingUint on the same key returns the set value. -/
@@ -196,10 +190,7 @@ theorem getMapping2_runValue (slot : StorageSlot (Address → Address → Uint25
 theorem setMapping2_runState (slot : StorageSlot (Address → Address → Uint256))
     (key1 key2 : Address) (value : Uint256) (state : ContractState) :
     (setMapping2 slot key1 key2 value).runState state =
-      { state with
-        storageMap2 := fun s addr1 addr2 =>
-          if s == slot.slot && addr1 == key1 && addr2 == key2 then value
-          else state.storageMap2 s addr1 addr2 } := by
+      state.writeMap2 slot.slot key1 key2 value := by
   simp [setMapping2, Contract.runState, ContractState.writeMap2]
 
 /-- After setMapping2, getMapping2 on the same keys returns the set value. -/

@@ -380,9 +380,7 @@ def writeUintSlots (world : Verity.ContractState) (slots : List Nat) (value : Na
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map wordNormalize
-  { world with
-    storage := fun slot =>
-      if targets.contains slot then word else world.storage slot }
+  world.writeSlots targets word
 
 def writeStorageWordSlot (world : Verity.ContractState) (slot wordOffset value : Nat) :
     Verity.ContractState :=
@@ -410,9 +408,7 @@ def writeAddressSlots (world : Verity.ContractState) (slots : List Nat) (value :
     Verity.ContractState :=
   let addr := Verity.wordToAddress (value : Verity.Core.Uint256)
   let targets := slots.map wordNormalize
-  { world with
-    storageAddr := fun slot =>
-      if targets.contains slot then addr else world.storageAddr slot }
+  world.writeAddrSlots targets addr
 
 def fieldIsTransient (fields : List Field) (name : String) : Bool :=
   match findFieldWithResolvedSlot fields name with
@@ -430,9 +426,7 @@ def writeTransientTargets (world : Verity.ContractState) (targets : List Nat) (v
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := targets.map wordNormalize
-  { world with
-    transientStorage := fun slot =>
-      if targets.contains slot then word else world.transientStorage slot }
+  world.writeTransientSlots targets word
 
 def packedWordWrite (current value : Nat) (packed : PackedBits) : Nat :=
   let maskNat := packedMaskNat packed
