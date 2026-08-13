@@ -76,6 +76,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.Proofs.IRGeneration.GenericInduction.StorageWord
 import Compiler.Proofs.IRGeneration.GuardedCompile
+import Compiler.Proofs.IRGeneration.GuardedContractShape
 import Compiler.Proofs.IRGeneration.GuardedFunction
 import Compiler.Proofs.IRGeneration.HelperBodyBridge
 import Compiler.Proofs.IRGeneration.HelperBodyShape
@@ -3554,6 +3555,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compileFunctionSpec_body_shape
   Compiler.Proofs.IRGeneration.compileGuardedFunctionSpec_inv
 
+  -- Compiler/Proofs/IRGeneration/GuardedContractShape.lean
+  Compiler.Proofs.IRGeneration.attachNonReentrantGuard_metadata
+  Compiler.Proofs.IRGeneration.compileGuardedFunctionSpec_ok_metadata
+  Compiler.Proofs.IRGeneration.guarded_functions_forall₂_of_mapM_ok
+
   -- Compiler/Proofs/IRGeneration/GuardedFunction.lean
   Compiler.Proofs.IRGeneration.execResultToIRResult_releasedResult
   Compiler.Proofs.IRGeneration.prebindRawArgs_transient
@@ -6728,4 +6734,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6274 theorems/lemmas (4404 public, 1870 private, 0 sorry'd)
+-- Total: 6277 theorems/lemmas (4407 public, 1870 private, 0 sorry'd)
