@@ -73,7 +73,10 @@ theorem initialIRStateForTx_setLock (spec : CompilationModel)
        exact congrArg IRStorageWord.ofNat
          (encodeStorageAt_setLock _ world slot 1 o.toNat))
     | (funext o
-       by_cases h : o = slot <;> simp [setLock, h])
+       by_cases h : o = slot
+       · subst o
+         simp
+       · simp [h])
 
 /-- The revert projection ignores transient storage: overlaying the lock on
 the rollback state does not change it. -/
