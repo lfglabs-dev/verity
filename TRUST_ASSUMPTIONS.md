@@ -209,6 +209,28 @@ primitive `externalCall` (`Verity.Core.Model.ContractExternalCall`):
 `denoteCall` itself is unchanged; all previously proven world/gas laws hold
 verbatim.
 
+The **EDSL executable plane** journals through the same field: the linked-call
+primitives (`Contracts.externalCallBind`, `Contracts.callResultWords`,
+`Contracts.tryExternalCallWords`, the `safeTransfer` family) append a
+name-keyed entry (`Contracts.linkedCallEntry`, `siteId`/`target` = 0, exact
+argument words in `calldata`) per call. Trust boundaries of that plane:
+- **Return values are deterministic stubs, not adversary models.** In-band
+  words come from `externalCallStubWord`; the success bit is
+  `externalCallStubSuccess` (`false` only for the reserved callee name
+  `"fail"`). Executable-plane theorems about call *outcomes* are therefore
+  claims about the stub, not about a real callee; adversarial reasoning
+  lives in the model plane (`DenoteExternalCalls`).
+- **`externalCallWords` (pure expression form) does not journal.** It is not
+  monadic, so `externalCall name [args]` used as a pure expression remains
+  observationally silent; only the monadic forms journal. Specs that need
+  call observability must use the monadic primitives.
+- **`callExternal name(args)` surface and the mapping stubs**
+  (`getMappingWord`/`setMappingWord`/`getMappingN`/`setMappingN`) remain
+  unmodeled no-ops at this plane.
+- A full monadic revert through `Contract.run` rolls the journal back with
+  the rest of the snapshot (top-level EVM semantics), unlike the model
+  plane's caller-side rollback survival described above.
+
 ### Reentrancy Guard (`nonreentrant(lockField)`)
 Functions annotated `nonreentrant(lockField)` are compiled with a
 **transient-storage** reentrancy guard prologue (#1893): an

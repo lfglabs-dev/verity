@@ -71,7 +71,8 @@ example :
         defaultState =
       ContractResult.success
         { success := true, returndata := (7 : Uint256) }
-        defaultState := by
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "echo" [7] .success [7]] } := by
   rfl
 
 namespace StatefulExternalSmoke
