@@ -3603,10 +3603,17 @@ private def pushUniqueIncludeName
 private def checkIncludeClashes
     (host : ParsedContractSyntax)
     (mixins : Array (Name × ParsedContractSyntax)) : CommandElabM Unit := do
-  let mut seenFieldNames : Array String := host.fields.flatMap fieldDeclaredNames
+  let hostImmFields :=
+    host.immutableDecls.zipIdx.map fun (imm, idx) =>
+      immutableStorageFieldDecl host.fields imm idx
+  let mut seenFieldNames : Array String :=
+    host.fields.flatMap fieldDeclaredNames ++ hostImmFields.flatMap fieldDeclaredNames
   -- Persistent and transient storage are distinct EVM spaces.
+  -- Executable immutables occupy hidden persistent slots after the
+  -- declaring contract's user fields.
   let mut seenPersistSlots : Array Nat :=
-    (host.fields.filter (fun f => !f.isTransient)).flatMap fieldOccupiedSlots
+    (host.fields.filter (fun f => !f.isTransient)).flatMap fieldOccupiedSlots ++
+      hostImmFields.flatMap fieldOccupiedSlots
   let mut seenTransientSlots : Array Nat :=
     (host.fields.filter (·.isTransient)).flatMap fieldOccupiedSlots
   let mut seenModNames : Array String := host.modifiers.map (·.name)
@@ -3648,8 +3655,22 @@ private def checkIncludeClashes
       seenEventNames ← pushUniqueIncludeName "event" mixinName ev.name seenEventNames
     for c in mixin.constDecls do
       seenConstNames ← pushUniqueIncludeName "constant" mixinName c.name seenConstNames
-    for imm in mixin.immutableDecls do
+    for (imm, idx) in mixin.immutableDecls.zipIdx do
       seenImmutableNames ← pushUniqueIncludeName "immutable" mixinName imm.name seenImmutableNames
+      let immField := immutableStorageFieldDecl mixin.fields imm idx
+      for n in fieldDeclaredNames immField do
+        if seenFieldNames.contains n then
+          throwError
+            ("include clash: field '" ++ n ++ "' from mixin '" ++ toString mixinName ++
+              "' immutable '" ++ imm.name ++ "' duplicates a host or earlier mixin field")
+        seenFieldNames := seenFieldNames.push n
+      for sl in fieldOccupiedSlots immField do
+        if seenPersistSlots.contains sl then
+          throwError
+            ("include clash: slot " ++ toString sl ++ " from mixin '" ++
+              toString mixinName ++ "' immutable '" ++ imm.name ++
+              "' overlaps a host or earlier mixin slot")
+        seenPersistSlots := seenPersistSlots.push sl
     for extDecl in mixin.externalDecls do
       seenExternalNames ← pushUniqueIncludeName "external" mixinName extDecl.name seenExternalNames
     for adtDecl in mixin.adtDecls do
@@ -3702,31 +3723,17 @@ private def finishIncludeContract
         s!"include clash: function '{fn.name}' collides with an included mixin function"
   let mixinModNames := mixinModifierNames mixins
   let localModifiers := own.modifiers.filter fun m => !mixinModNames.contains m.name
-  -- Inline only host-local modifiers. Mixin modifiers stay on the function
-  -- so CompilationModel can emit statements / the elaborator can bind the
-  -- mixin's Lean `def`.
-  let functions ← own.functions.mapM fun fn => do
-    let localUsed := fn.modifiers.filter fun id =>
-      localModifiers.any (fun m => m.name == toString id.getId)
-    let mixinUsed := fn.modifiers.filter fun id =>
-      mixinModNames.contains (toString id.getId)
+  -- Keep the declared modifier sequence. Locals and mixin modifiers are
+  -- applied in that order later (executable calls mixin defs; the model
+  -- inlines every modifier body). Splitting the list would prefix mixin
+  -- guards around already-inlined locals and reverse source order.
+  for fn in own.functions do
     for id in fn.modifiers do
       let n := toString id.getId
       unless localModifiers.any (fun m => m.name == n) || mixinModNames.contains n do
         throwErrorAt id s!"function '{fn.name}' references unknown modifier '{n}'"
-    let inlined ←
-      if localUsed.isEmpty then
-        pure fn
-      else
-        let onlyLocal := { fn with modifiers := localUsed }
-        let arr ← inlineModifierPrefixes localModifiers #[onlyLocal]
-        match arr[0]? with
-        | some inlinedFn => pure { inlinedFn with modifiers := mixinUsed }
-        | none => pure { fn with modifiers := mixinUsed }
-    pure { inlined with modifiers := mixinUsed }
   pure {
     own with
-    functions := functions
     includes := includeIdents
     resolvedIncludes := mixins.map (·.1)
   }
@@ -4316,12 +4323,14 @@ def validateFunctionDeclsPublic
       throwErrorAt fn.ident s!"function '{fn.name}': nonreentrant and cei_safe are mutually exclusive"
     validateFunctionBodyExprTypes fields errorDecls eventDecls constDecls immutableDecls externalDecls functions fn
 
-/-- Prepend calls to included mixin modifier Lean defs. CompilationModel still
-    uses `fn.modifiers` for inlined mixin-modifier statements. -/
+/-- Apply `with` modifiers in declared order: mixin modifiers call the
+    imported Lean `def`; host-local modifiers are inlined (hosts do not
+    emit modifier defs). CompilationModel inlines every modifier body. -/
 def prefixMixinModifierExecutableBody
-    (resolvedIncludes : Array Name) (fn : FunctionDecl) (body : Term) :
+    (resolvedIncludes : Array Name) (fn : FunctionDecl) (body : Term)
+    (hostModifiers : Array ModifierDecl := #[]) :
     CommandElabM Term := do
-  if fn.modifiers.isEmpty || resolvedIncludes.isEmpty then
+  if fn.modifiers.isEmpty || (resolvedIncludes.isEmpty && hostModifiers.isEmpty) then
     return body
   let mut preludes : Array (TSyntax `doElem) := #[]
   for modIdent in fn.modifiers do
@@ -4334,11 +4343,20 @@ def prefixMixinModifierExecutableBody
             if mixin.modifiers.any (fun m => m.name == modName) then
               qual? := some (mixinName ++ modIdent.getId)
         | none => pure ()
-    let target :=
-      match qual? with
-      | some q => mkIdent q
-      | none => modIdent
-    preludes := preludes.push (← `(doElem| $target:ident))
+    match qual? with
+    | some q =>
+        preludes := preludes.push (← `(doElem| $(mkIdent q):ident))
+    | none =>
+        let some localMod := hostModifiers.find? (fun m => m.name == modName)
+          | throwErrorAt modIdent s!"function '{fn.name}' references unknown modifier '{modName}'"
+        let modifierElems ← doElems localMod.body
+        let modifierLocals ← localBinderNames localMod.body.raw
+        if let some captured := modifierLocals.find? (fun name =>
+            fn.params.any (fun param => paramReservesName param name)) then
+          throwErrorAt modIdent
+            s!"modifier '{modName}' local '{captured}' conflicts with a function parameter; rename one of them"
+        preludes := preludes.push (← `(doElem| if true then $[$modifierElems:doElem]* else
+          require false "unreachable modifier scope"))
   match body with
   | `(term| do $[$elems:doElem]*) =>
       `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
@@ -4424,12 +4442,13 @@ def mkFunctionCommandsPublic
     (functions : Array FunctionDecl)
     (fn : FunctionDecl)
     (resolvedIncludes : Array Name := #[])
-    (boundImmutableDecls : Array ImmutableDecl := immutableDecls) : CommandElabM (Array Cmd) := do
+    (boundImmutableDecls : Array ImmutableDecl := immutableDecls)
+    (hostModifiers : Array ModifierDecl := #[]) : CommandElabM (Array Cmd) := do
   let fnType ← mkContractFnType fn.params fn.returnTy
   -- Mixin modifiers belong after ABI/enum, init, and role guards, matching
   -- `translateBodyToStmtTerms`. Prefix them onto the source body so those
   -- wrappers stay outside.
-  let fnBodyWithMixin ← prefixMixinModifierExecutableBody resolvedIncludes fn fn.body
+  let fnBodyWithMixin ← prefixMixinModifierExecutableBody resolvedIncludes fn fn.body hostModifiers
   let fnWithMixin := { fn with body := fnBodyWithMixin }
   let fnRoleGuardedBody ← mkRoleGuardedBody fields roleDecls fnWithMixin
   let fnDecl := { fnWithMixin with body := fnRoleGuardedBody }
@@ -4446,19 +4465,19 @@ def mkFunctionCommandsPublic
   let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"
-  -- CompilationModel inlines mixin modifier statements so `modifies(...)`
-  -- can see the write set. The executable path above still binds the
-  -- mixin's Lean `def` (import, not copy).
-  let mut mixinModifiers : Array ModifierDecl := #[]
+  -- CompilationModel inlines every modifier in declared `with` order so
+  -- `modifies(...)` sees the write set. The executable path still binds
+  -- mixin Lean `def`s (import, not copy) and inlines host-local modifiers.
+  let mut allModifiers : Array ModifierDecl := hostModifiers
   for mixinName in resolvedIncludes do
     match (← lookupContractSyntax mixinName) with
-    | some mixin => mixinModifiers := mixinModifiers ++ mixin.modifiers
+    | some mixin => allModifiers := allModifiers ++ mixin.modifiers
     | none => pure ()
   let modelFn ←
-    if mixinModifiers.isEmpty then
+    if fn.modifiers.isEmpty || allModifiers.isEmpty then
       pure fn
     else
-      let arr ← inlineModifierPrefixes mixinModifiers #[fn]
+      let arr ← inlineModifierPrefixes allModifiers #[fn]
       match arr[0]? with
       | some inlined => pure inlined
       | none => pure fn

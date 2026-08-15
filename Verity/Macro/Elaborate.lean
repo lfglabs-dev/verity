@@ -178,7 +178,7 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       let fnCmds ← mkFunctionCommandsPublic translationFields translationRoleDecls
         translationErrorDecls translationConstDecls translationImmutableDecls
         translationExternalDecls translationFunctions fn resolvedIncludes
-        (boundImmutableDecls := immutableDecls)
+        (boundImmutableDecls := immutableDecls) (hostModifiers := modifiers)
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
