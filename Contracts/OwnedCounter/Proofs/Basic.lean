@@ -44,7 +44,7 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
   · simp [setStorageAddr, owner, Contract.run, ContractResult.snd,
       ContractState.writeAddrSlot]
   · intro slotIdx h_neq
-    simp [setStorageAddr, owner, Contract.run, ContractResult.snd, h_neq, ContractState.writeAddrSlot, ContractState.readAddrSlot, ContractState.writeSlot, ContractState.readSlot]
+    simp [setStorageAddr, owner, Contract.run, ContractResult.snd, h_neq, ContractState.writeAddrSlot]
   · simp [setStorageAddr, owner, Contract.run, ContractResult.snd,
       ContractState.writeAddrSlot,
       Specs.sameStorageMapContext, Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
@@ -52,12 +52,12 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
 theorem constructor_sets_owner (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   s'.storageAddr 0 = initialOwner := by
-  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot, ContractState.readAddrSlot, ContractState.writeSlot, ContractState.readSlot]
+  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot]
 
 theorem constructor_preserves_count (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   s'.storage = s.storage := by
-  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot, ContractState.readAddrSlot, ContractState.writeSlot, ContractState.readSlot]
+  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot]
 
 /-! ## Read Operation Correctness -/
 
@@ -116,7 +116,7 @@ theorem increment_unfold (s : ContractState)
   (increment.run s) = ContractResult.success ()
     (s.writeSlot 1 (EVM.Uint256.add (s.storage 1) 1)) := by
   verity_unfold increment
-  simp [owner, count, h_owner, ContractState.writeSlot]
+  simp [owner, count, h_owner]
 
 theorem increment_meets_spec_when_owner (s : ContractState)
   (h_owner : s.sender = s.storageAddr 0) :
@@ -124,10 +124,10 @@ theorem increment_meets_spec_when_owner (s : ContractState)
   increment_spec s s' := by
   rw [increment_unfold s h_owner]
   refine ⟨?_, ?_, ?_⟩
-  · simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot]
+  · simp [ContractResult.snd, ContractState.writeSlot]
   · intro slotIdx h_neq
-    simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot, h_neq]
-  · simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot, Specs.sameAddrMapContext, Specs.sameStorageAddr,
+    simp [ContractResult.snd, ContractState.writeSlot, h_neq]
+  · simp [ContractResult.snd, ContractState.writeSlot, Specs.sameAddrMapContext, Specs.sameStorageAddr,
       Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
 
 theorem increment_adds_one_when_owner (s : ContractState)
@@ -135,7 +135,7 @@ theorem increment_adds_one_when_owner (s : ContractState)
   let s' := (increment.run s).snd
   s'.storage 1 = EVM.Uint256.add (s.storage 1) 1 := by
   rw [increment_unfold s h_owner]
-  simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot]
+  simp [ContractResult.snd, ContractState.writeSlot]
 
 theorem increment_reverts_when_not_owner (s : ContractState)
   (h_not_owner : s.sender ≠ s.storageAddr 0) :
@@ -150,7 +150,7 @@ theorem decrement_unfold (s : ContractState)
   (decrement.run s) = ContractResult.success ()
     (s.writeSlot 1 (EVM.Uint256.sub (s.storage 1) 1)) := by
   verity_unfold decrement
-  simp [owner, count, h_owner, ContractState.writeSlot]
+  simp [owner, count, h_owner]
 
 theorem decrement_meets_spec_when_owner (s : ContractState)
   (h_owner : s.sender = s.storageAddr 0) :
@@ -158,10 +158,10 @@ theorem decrement_meets_spec_when_owner (s : ContractState)
   decrement_spec s s' := by
   rw [decrement_unfold s h_owner]
   refine ⟨?_, ?_, ?_⟩
-  · simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot]
+  · simp [ContractResult.snd, ContractState.writeSlot]
   · intro slotIdx h_neq
-    simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot, h_neq]
-  · simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot, Specs.sameAddrMapContext, Specs.sameStorageAddr,
+    simp [ContractResult.snd, ContractState.writeSlot, h_neq]
+  · simp [ContractResult.snd, ContractState.writeSlot, Specs.sameAddrMapContext, Specs.sameStorageAddr,
       Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
 
 theorem decrement_subtracts_one_when_owner (s : ContractState)
@@ -169,7 +169,7 @@ theorem decrement_subtracts_one_when_owner (s : ContractState)
   let s' := (decrement.run s).snd
   s'.storage 1 = EVM.Uint256.sub (s.storage 1) 1 := by
   rw [decrement_unfold s h_owner]
-  simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot]
+  simp [ContractResult.snd, ContractState.writeSlot]
 
 theorem decrement_reverts_when_not_owner (s : ContractState)
   (h_not_owner : s.sender ≠ s.storageAddr 0) :
@@ -183,7 +183,7 @@ theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
   (transferOwnership newOwner).run s = ContractResult.success ()
     (s.writeAddrSlot 0 newOwner) := by
   verity_unfold transferOwnership
-  simp [owner, h_owner, ContractState.writeAddrSlot]
+  simp [owner, h_owner]
 
 theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : Address)
   (h_owner : s.sender = s.storageAddr 0 ∧ s.txOrigin = 0) :
@@ -191,10 +191,10 @@ theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : 
   transferOwnership_spec newOwner s s' := by
   rw [transferOwnership_unfold s newOwner h_owner.1]
   refine ⟨?_, ?_, ?_⟩
-  · simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot]
+  · simp [ContractResult.snd, ContractState.writeAddrSlot]
   · intro slotIdx h_neq
-    simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot, h_neq]
-  · simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot, Specs.sameStorageMapContext,
+    simp [ContractResult.snd, ContractState.writeAddrSlot, h_neq]
+  · simp [ContractResult.snd, ContractState.writeAddrSlot, Specs.sameStorageMapContext,
       Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
 
 theorem transferOwnership_changes_owner (s : ContractState) (newOwner : Address)
@@ -202,7 +202,7 @@ theorem transferOwnership_changes_owner (s : ContractState) (newOwner : Address)
   let s' := ((transferOwnership newOwner).run s).snd
   s'.storageAddr 0 = newOwner := by
   rw [transferOwnership_unfold s newOwner h_owner]
-  simp [ContractResult.snd, ContractState.writeSlot, ContractState.writeAddrSlot]
+  simp [ContractResult.snd, ContractState.writeAddrSlot]
 
 theorem transferOwnership_reverts_when_not_owner (s : ContractState) (newOwner : Address)
   (h_not_owner : s.sender ≠ s.storageAddr 0) :

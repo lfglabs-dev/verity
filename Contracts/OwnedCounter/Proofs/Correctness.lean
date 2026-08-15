@@ -32,7 +32,7 @@ private theorem transfer_sender_not_new_owner (s : ContractState) (newOwner : Ad
   let s' := ((transferOwnership newOwner).run s).snd
   s'.sender ≠ s'.storageAddr 0 := by
   rw [transferOwnership_unfold s newOwner h_owner]
-  simp [ContractResult.snd, h_ne]
+  simp [ContractResult.snd, ContractState.writeAddrSlot, h_ne]
 
 /-- After transferring ownership, the old owner cannot increment.
     The guard correctly reads the new owner from storage and rejects. -/

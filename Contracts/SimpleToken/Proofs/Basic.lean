@@ -179,7 +179,7 @@ theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amoun
   · simp -- supply updated
   · refine ⟨?_, ?_⟩
     · intro addr h_neq; simp [h_neq] -- other balances preserved
-    · intro slotIdx h_neq; intro addr; simp [h_neq] -- other mapping slots
+    · intro slotIdx h_neq addr; simp [h_neq] -- other mapping slots
   · intro slotIdx h_neq; simp [h_neq] -- other uint storage
   · trivial -- owner preserved
   · exact Specs.sameContext_rfl _

@@ -57,7 +57,7 @@ private theorem increment_unfold (s : ContractState)
   (h_no_overflow : (s.storage 0 : Nat) + 1 ≤ MAX_UINT256) :
   (increment).run s = ContractResult.success () (s.writeSlot 0 (s.storage 0 + 1)) := by
   verity_unfold increment
-  simp [count, requireSomeUint, Verity.pure, Pure.pure, ContractState.writeSlot,
+  simp [count, requireSomeUint, Verity.pure, Pure.pure, 
     safeAdd_some (s.storage 0) 1 h_no_overflow]
 
 theorem increment_meets_spec (s : ContractState)
@@ -103,7 +103,7 @@ private theorem decrement_unfold (s : ContractState)
   (h_no_underflow : (s.storage 0 : Nat) ≥ 1) :
   (decrement).run s = ContractResult.success () (s.writeSlot 0 (s.storage 0 - 1)) := by
   verity_unfold decrement
-  simp [count, requireSomeUint, Verity.pure, Pure.pure, ContractState.writeSlot,
+  simp [count, requireSomeUint, Verity.pure, Pure.pure, 
     safeSub_some (s.storage 0) 1 h_no_underflow]
 
 theorem decrement_meets_spec (s : ContractState)
