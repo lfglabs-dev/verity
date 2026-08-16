@@ -312,9 +312,12 @@ sibling entrypoint.
 - The freeze baseline shrinks to `Verity/Core.lean` (lens
   implementations) plus `Contracts/TypedIRTests.lean` (IRState field-name
   collisions). `storageWords :=` is forbidden outside `Verity/Core.lean`.
-- Not C5 step 4: there is still no proved `storageKeySlot` /
-  `MappingCoherent` correspondence between these source keys and
-  CompilationModel/Yul slots.
+- Not C5 step 4 complete: `Compiler.Proofs.Storage.MappingCoherence`
+  now defines `storageKeySlot` and address-keyed `MappingCoherent`,
+  with `defaultState_mappingCoherent` and the aligned
+  `writeMap`+`writeSlot` laws (same pair, plus other pairs under an
+  explicit non-alias hypothesis). Global preservation and field-list
+  layout are still open.
 - Zero new axioms.
 
 ## CI Guards
