@@ -190,10 +190,13 @@ Word-valued source storage is one map `StorageKey → Uint256`. The key is
 an injective inductive (`slot` / `contractSlot` / `transient` / `addr` /
 `map` / `mapUint` / `map2`); public accessors keep the old channel names.
 This is a representation change, not a new trust boundary: lens laws use
-constructor injectivity. Solidity keccak slot derivation, and any
-shadow-vs-flat mapping coherence, remain compiler-side (C5 step 4) and are
-**not** assumed here. `storageArray` and `knownAddresses` are still
-separate fields.
+constructor injectivity. Solidity keccak slot derivation lives in
+`Compiler.Proofs.Storage.MappingCoherence.storageKeySlot`. Address-keyed
+shadow-vs-flat agreement (`MappingCoherent`) is defined there and proved
+for `defaultState` and for an aligned `writeMap`+`writeSlot` pair; other
+pairs require an explicit non-alias hypothesis. Keccak injectivity is
+**not** assumed. `storageArray` and `knownAddresses` are still separate
+fields.
 
 ### External-Call Journal (`ContractState.calls`)
 `ContractState.calls` is an append-only journal of observed external calls

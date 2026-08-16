@@ -26,6 +26,10 @@ C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
 not add a keccak-injectivity axiom. Source lens laws use constructor
 injectivity; Solidity slot derivation remains compiler-side.
 
+C5 step 4's first slice (`MappingCoherent`) likewise adds no axiom: other-pair
+preservation is hypothesized by an explicit derived-slot inequality, not by
+keccak injectivity.
+
 ## Eliminated Axioms
 
 ### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)

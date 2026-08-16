@@ -41,11 +41,13 @@ Next: derive the executable shallow program from the deep model
 (`Stmt.denote`, macro retarget per-contract behind a flag), collapse the
 per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
-legacy-compatibility witness chain are already retired), then prove C5
-step 4 — structural `StorageKey` ↔ CompilationModel/Yul slot coherence
-(`storageKeySlot` / shadow-vs-flat `MappingCoherent`). C5 step 3 (canonical
+legacy-compatibility witness chain are already retired), then finish C5
+step 4 — field-list `storageKeySlot` and global `MappingCoherent`
+preservation under finite non-alias certificates. The first slice
+(`Compiler.Proofs.Storage.MappingCoherence`: address-keyed coherence,
+aligned `writeMap`+`writeSlot` laws) is implemented. C5 step 3 (canonical
 `storageWords : StorageKey → Uint256` backing, lens laws by constructor
-injectivity) is implemented; it is the enabler for FixedArray-under-mapping,
+injectivity) is on `main`; it is the enabler for FixedArray-under-mapping,
 dynamic CodeData, arbitrary transient storage and multicall/delegatecall
 (#1962, #1967, #1976, #1889).
 
