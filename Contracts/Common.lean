@@ -633,15 +633,23 @@ def tryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
 def externalCallBind {α : Type} [ExternalArg α] (names : List String) (name : String) (args : List α) : Contract Unit :=
   fun state =>
     let argWords := args.flatMap ExternalArg.toWords
-    let entry := linkedCallEntry name argWords .success
-      (names.map (fun _ => (externalCallStubWord name argWords : Nat)))
-    ContractResult.success () { state with calls := state.calls ++ [entry] }
+    let success := externalCallStubSuccess name
+    let entry := linkedCallEntry name argWords
+      (if success then .success else .failure)
+      (if success then
+        names.map (fun _ => (externalCallStubWord name argWords : Nat))
+      else [])
+    let next := { state with calls := state.calls ++ [entry] }
+    if success then ContractResult.success () next
+    else ContractResult.revert "external call failed" next
 
 /-! ### Run laws for the executable linked-call family
 
-Each primitive succeeds and appends exactly one journal entry, so a
-duplicated, omitted, reordered, or argument-altered call is observably
-different at `ContractState.calls`. All laws are definitional (`rfl`). -/
+Successful primitives append exactly one journal entry, so a duplicated,
+omitted, reordered, or argument-altered call is observably different at
+`ContractState.calls`. A failing `externalCallBind` reverts, and `Contract.run`
+rolls its failure entry back with the rest of the call state. All laws are
+definitional (`rfl`). -/
 
 @[simp] theorem recordLinkedCall_run (entry : ExternalCall) (s : ContractState) :
     (recordLinkedCall entry).run s =
@@ -650,11 +658,15 @@ different at `ContractState.calls`. All laws are definitional (`rfl`). -/
 @[simp] theorem externalCallBind_run {α : Type} [ExternalArg α]
     (names : List String) (name : String) (args : List α) (s : ContractState) :
     (externalCallBind names name args).run s =
-      ContractResult.success ()
-        { s with calls := s.calls ++
-            [linkedCallEntry name (args.flatMap ExternalArg.toWords) .success
-              (names.map fun _ =>
-                (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))] } := rfl
+      if externalCallStubSuccess name then
+        ContractResult.success ()
+          { s with calls := s.calls ++
+              [linkedCallEntry name (args.flatMap ExternalArg.toWords) .success
+                (names.map fun _ =>
+                  (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))] }
+      else ContractResult.revert "external call failed" s := by
+  by_cases h : externalCallStubSuccess name = true <;>
+    simp [Contract.run, externalCallBind, h]
 
 @[simp] theorem callResultWords_run {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (s : ContractState) :
@@ -733,7 +745,9 @@ def erc20WriteEntry (name : String) (token : Address) (args : List Uint256) : Ex
 
 def erc20ReadEntry (name : String) (token : Address) (args : List Uint256)
     (result : Uint256) : ExternalCall :=
-  { linkedCallEntry name args .success [(result : Nat)] with target := token.toNat }
+  { linkedCallEntry name args .success [(result : Nat)] with
+      kind := .staticcall
+      target := token.toNat }
 
 def erc20Read (name : String) (token : Address) (args : List Uint256) : Contract Uint256 :=
   fun state =>

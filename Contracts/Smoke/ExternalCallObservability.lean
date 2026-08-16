@@ -154,13 +154,18 @@ example :
             calls := [Contracts.linkedCallEntry "echo" [37] .success [37]] } := rfl
 
 /-- ERC-20 reads journal the token as target, ABI arguments as calldata, and
-the returned stub word as returndata. -/
+the returned stub word as returndata, using the same `staticcall` kind as the
+compiled ERC-20 modules. -/
 example (token owner : Address) :
     ((Contracts.balanceOf token owner).run defaultState).snd.calls =
       [Contracts.erc20ReadEntry "balanceOf" token
         [Verity.addressToWord owner]
         (Contracts.externalCallStubWord "balanceOf"
           [Verity.addressToWord token, Verity.addressToWord owner])] := rfl
+
+example (token owner : Address) :
+    ((Contracts.balanceOf token owner).run defaultState).snd.calls.map
+      (fun call => call.kind) = [.staticcall] := rfl
 
 example (token owner spender : Address) :
     ((Contracts.allowance token owner spender).run defaultState).snd.calls =
@@ -258,6 +263,13 @@ example :
       ContractResult.success (false, (Inhabited.default : Uint256))
         { defaultState with
             calls := [Contracts.linkedCallEntry "fail" [9] .failure []] } := rfl
+
+/-- Bubbling linked calls do not continue after the reserved failure stub.
+`Contract.run` rolls the failed crossing back to the caller's snapshot. -/
+example (s : ContractState) :
+    (Contracts.externalCallBind ([] : List String) "fail"
+      ([9] : List Uint256)).run s =
+      ContractResult.revert "external call failed" s := rfl
 
 /-- A monadic revert after a call rolls the journal entry back through
 `Contract.run`'s snapshot semantics: a fully reverted execution leaves
