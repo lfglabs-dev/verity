@@ -121,28 +121,7 @@ is fully modeled and can be unfolded in proofs.
 theorem transferOwnership_unfold (s : ContractState) (newOwner : Address)
   (h_owner : s.sender = s.storageAddr owner.slot) :
   (transferOwnership newOwner).run s = ContractResult.success ()
-    { «storage» := s.storage,
-      contractStorage := s.contractStorage,
-      transientStorage := s.transientStorage,
-      storageAddr := fun slotIdx => if (slotIdx == 0) = true then newOwner else s.storageAddr slotIdx,
-      storageMap := s.storageMap,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
-      knownAddresses := s.knownAddresses,
-      events := s.events, calls := s.calls } := by
+    (s.writeAddrSlot 0 newOwner) := by
   verity_unfold transferOwnership with h_owner
   simp [owner]
   exact h_owner

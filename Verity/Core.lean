@@ -204,17 +204,26 @@ structure ExternalCall where
   name : String := ""
   deriving DecidableEq, Repr
 
+/-! Canonical, injective names for every word-valued storage location.
+
+The source model deliberately keeps these names separate from compiler-level
+keccak slot derivation.  Thus the lens laws below use constructor injectivity,
+rather than assuming that a hash is injective. -/
+inductive StorageKey where
+  | slot (slot : Nat)
+  | contractSlot (contract slot : Nat)
+  | transient (slot : Nat)
+  | addr (slot : Nat)
+  | map (slot : Nat) (key : Address)
+  | mapUint (slot : Nat) (key : Uint256)
+  | map2 (slot : Nat) (key1 key2 : Address)
+  deriving DecidableEq, Repr
+
 -- State monad for contract execution
 structure ContractState where
-  storage : Nat → Uint256                -- Uint256 storage mapping
-  /-- Storage worlds for explicitly identified contracts. Contract id `0` is
-      represented by `storage` through the compatibility lenses below. -/
-  contractStorage : Nat → Nat → Uint256 := fun _ _ => 0
-  transientStorage : Nat → Uint256       -- EIP-1153 transient storage mapping
-  storageAddr : Nat → Address            -- Address storage mapping
-  storageMap : Nat → Address → Uint256  -- Mapping storage (Address → Uint256)
-  storageMapUint : Nat → Uint256 → Uint256  -- Uint256-keyed mapping storage (#154)
-  storageMap2 : Nat → Address → Address → Uint256  -- Double mapping storage (#154)
+  /-- The sole word-valued storage backing map. `StorageKey` retains the
+      source-level channel/layout distinction injectively. -/
+  storageWords : StorageKey → Uint256
   storageArray : Nat → List Uint256  -- Dynamic-array storage grouped by base slot (#1571)
   sender : Address
   thisAddress : Address
@@ -259,11 +268,33 @@ slot derivation) is a swap of lens implementations under stable names and
 the `storage_simps` simp set — not another ~1400-site rewrite.
 -/
 
-def readSlot (s : ContractState) (slot : Nat) : Uint256 :=
-  s.storage slot
+def storage (s : ContractState) : Nat → Uint256 :=
+  fun slot => s.storageWords (.slot slot)
+
+/-- Compatibility view for explicitly identified contract worlds. Contract
+    `0` remains the unqualified storage world. -/
+def contractStorage (s : ContractState) : Nat → Nat → Uint256 :=
+  fun contract slot => if contract == 0 then s.storage slot else s.storageWords (.contractSlot contract slot)
+
+def transientStorage (s : ContractState) : Nat → Uint256 :=
+  fun slot => s.storageWords (.transient slot)
+
+def storageAddr (s : ContractState) : Nat → Address :=
+  fun slot => wordToAddress (s.storageWords (.addr slot))
+
+def storageMap (s : ContractState) : Nat → Address → Uint256 :=
+  fun slot key => s.storageWords (.map slot key)
+
+def storageMapUint (s : ContractState) : Nat → Uint256 → Uint256 :=
+  fun slot key => s.storageWords (.mapUint slot key)
+
+def storageMap2 (s : ContractState) : Nat → Address → Address → Uint256 :=
+  fun slot key1 key2 => s.storageWords (.map2 slot key1 key2)
+
+def readSlot (s : ContractState) (slot : Nat) : Uint256 := s.storage slot
 
 def writeSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
-  { s with storage := fun sl => if sl == slot then value else s.storage sl }
+  { s with storageWords := fun key => if key == .slot slot then value else s.storageWords key }
 
 /-- Read a word from a contract-separated storage world. Contract id `0`
     deliberately denotes the legacy, unqualified `storage` world. -/
@@ -276,42 +307,43 @@ def writeContractSlot (s : ContractState) (contract : Nat) (slot : Nat)
     (value : Uint256) : ContractState :=
   if contract == 0 then s.writeSlot slot value
   else
-    { s with contractStorage := fun c sl =>
-        if c == contract && sl == slot then value else s.contractStorage c sl }
+    { s with storageWords := fun key =>
+        if key == .contractSlot contract slot then value else s.storageWords key }
 
 def readAddrSlot (s : ContractState) (slot : Nat) : Address :=
   s.storageAddr slot
 
 def writeAddrSlot (s : ContractState) (slot : Nat) (value : Address) : ContractState :=
-  { s with storageAddr := fun sl => if sl == slot then value else s.storageAddr sl }
+  { s with storageWords := fun key =>
+      if key == .addr slot then addressToWord value else s.storageWords key }
 
 def readTransient (s : ContractState) (slot : Nat) : Uint256 :=
   s.transientStorage slot
 
 def writeTransient (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
-  { s with transientStorage := fun sl => if sl == slot then value else s.transientStorage sl }
+  { s with storageWords := fun key => if key == .transient slot then value else s.storageWords key }
 
 def readMap (s : ContractState) (slot : Nat) (key : Address) : Uint256 :=
   s.storageMap slot key
 
 def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) : ContractState :=
-  { s with storageMap := fun sl k =>
-      if sl == slot && k == key then value else s.storageMap sl k }
+  { s with storageWords := fun storageKey =>
+      if storageKey == .map slot key then value else s.storageWords storageKey }
 
 def readMapUint (s : ContractState) (slot : Nat) (key : Uint256) : Uint256 :=
   s.storageMapUint slot key
 
 def writeMapUint (s : ContractState) (slot : Nat) (key : Uint256) (value : Uint256) : ContractState :=
-  { s with storageMapUint := fun sl k =>
-      if sl == slot && k == key then value else s.storageMapUint sl k }
+  { s with storageWords := fun storageKey =>
+      if storageKey == .mapUint slot key then value else s.storageWords storageKey }
 
 def readMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) : Uint256 :=
   s.storageMap2 slot key1 key2
 
 def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     ContractState :=
-  { s with storageMap2 := fun sl k1 k2 =>
-      if sl == slot && k1 == key1 && k2 == key2 then value else s.storageMap2 sl k1 k2 }
+  { s with storageWords := fun storageKey =>
+      if storageKey == .map2 slot key1 key2 then value else s.storageWords storageKey }
 
 def readArray (s : ContractState) (slot : Nat) : List Uint256 :=
   s.storageArray slot
@@ -332,33 +364,37 @@ the only sanctioned multi-slot write surface over the storage channels.
 /-- Write `value` at every slot in `targets` (uint channel). -/
 def writeSlots (s : ContractState) (targets : List Nat) (value : Uint256) :
     ContractState :=
-  { s with storage := fun slot =>
-      if targets.contains slot then value else s.storage slot }
+  { s with storageWords := fun key => match key with
+      | .slot slot => if targets.contains slot then value else s.storageWords key
+      | _ => s.storageWords key }
 
 /-- Read-modify-write every slot in `targets` (uint channel). -/
 def modifySlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) : ContractState :=
-  { s with storage := fun slot =>
-      if targets.contains slot then f (s.storage slot) else s.storage slot }
+  { s with storageWords := fun key => match key with
+      | .slot slot => if targets.contains slot then f (s.storageWords key) else s.storageWords key
+      | _ => s.storageWords key }
 
 /-- Write `value` at every transient slot in `targets`. -/
 def writeTransientSlots (s : ContractState) (targets : List Nat)
     (value : Uint256) : ContractState :=
-  { s with transientStorage := fun slot =>
-      if targets.contains slot then value else s.transientStorage slot }
+  { s with storageWords := fun key => match key with
+      | .transient slot => if targets.contains slot then value else s.storageWords key
+      | _ => s.storageWords key }
 
 /-- Read-modify-write every transient slot in `targets`. -/
 def modifyTransientSlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) : ContractState :=
-  { s with transientStorage := fun slot =>
-      if targets.contains slot then f (s.transientStorage slot)
-      else s.transientStorage slot }
+  { s with storageWords := fun key => match key with
+      | .transient slot => if targets.contains slot then f (s.storageWords key) else s.storageWords key
+      | _ => s.storageWords key }
 
 /-- Write `value` at every address slot in `targets`. -/
 def writeAddrSlots (s : ContractState) (targets : List Nat) (value : Address) :
     ContractState :=
-  { s with storageAddr := fun slot =>
-      if targets.contains slot then value else s.storageAddr slot }
+  { s with storageWords := fun key => match key with
+      | .addr slot => if targets.contains slot then addressToWord value else s.storageWords key
+      | _ => s.storageWords key }
 
 /-- Replace the whole uint channel through a transformer. The denotational
 layer's flat-view rebuilds (mapping writes rendered through a `Nat → Nat`
@@ -366,7 +402,9 @@ storage view) are channel-wide, not slot-guarded; this is their sanctioned
 surface. The C5 flip reimplements it as a `.slot`-key-restricted update. -/
 def withStorageChannel (s : ContractState)
     (f : (Nat → Uint256) → Nat → Uint256) : ContractState :=
-  { s with storage := f s.storage }
+  { s with storageWords := fun key => match key with
+      | .slot slot => f s.storage slot
+      | _ => s.storageWords key }
 
 /-- Canonical full-state constructor from explicit storage channels. Clients
 building a world from externally supplied channel functions (interpreter
@@ -386,12 +424,14 @@ def ofChannels
     (thisAddress : Address := 0)
     (msgValue : Uint256 := 0)
     (blockTimestamp : Uint256 := 0) : ContractState :=
-  { storage := uintChannel
-    transientStorage := transientChannel
-    storageAddr := addrChannel
-    storageMap := mapChannel
-    storageMapUint := mapUintChannel
-    storageMap2 := map2Channel
+  { storageWords := fun key => match key with
+      | .slot slot => uintChannel slot
+      | .contractSlot _ _ => 0
+      | .transient slot => transientChannel slot
+      | .addr slot => addressToWord (addrChannel slot)
+      | .map slot key => mapChannel slot key
+      | .mapUint slot key => mapUintChannel slot key
+      | .map2 slot key1 key2 => map2Channel slot key1 key2
     storageArray := arrayChannel
     sender := sender
     thisAddress := thisAddress
@@ -492,12 +532,7 @@ end ContractState
 -- Default zero state — all storage zero, empty addresses, no events.
 -- Use `{ defaultState with sender := Address.ofNat 0xA11CE }` to customize fields.
 def defaultState : ContractState where
-  storage := fun _ => 0
-  transientStorage := fun _ => 0
-  storageAddr := fun _ => 0
-  storageMap := fun _ _ => 0
-  storageMapUint := fun _ _ => 0
-  storageMap2 := fun _ _ _ => 0
+  storageWords := fun _ => 0
   storageArray := fun _ => []
   sender := 0
   thisAddress := 0
@@ -715,9 +750,7 @@ def setPackedTransientStorage (s : StorageSlot Uint256) (offset width : Nat)
   (getStorage s).run state = ContractResult.success (state.storage s.slot) state := rfl
 
 @[simp] theorem setStorage_run (s : StorageSlot Uint256) (value : Uint256) (state : ContractState) :
-  (setStorage s value).run state = ContractResult.success () { state with
-    storage := fun slot => if slot == s.slot then value else state.storage slot
-  } := rfl
+  (setStorage s value).run state = ContractResult.success () (state.writeSlot s.slot value) := rfl
 
 -- Storage operations for Address (routed through the canonical lens API)
 def getStorageAddr (s : StorageSlot Address) : Contract Address :=
@@ -730,9 +763,7 @@ def setStorageAddr (s : StorageSlot Address) (value : Address) : Contract Unit :
   (getStorageAddr s).run state = ContractResult.success (state.storageAddr s.slot) state := rfl
 
 @[simp] theorem setStorageAddr_run (s : StorageSlot Address) (value : Address) (state : ContractState) :
-  (setStorageAddr s value).run state = ContractResult.success () { state with
-    storageAddr := fun slot => if slot == s.slot then value else state.storageAddr slot
-  } := rfl
+  (setStorageAddr s value).run state = ContractResult.success () (state.writeAddrSlot s.slot value) := rfl
 
 -- Mapping operations (Address → Uint256), routed through the canonical lens API.
 -- `setMapping` additionally tracks the key in `knownAddresses` (sum properties).
@@ -752,10 +783,7 @@ def setMapping (s : StorageSlot (Address → Uint256)) (key : Address) (value : 
   (getMapping s key).run state = ContractResult.success (state.storageMap s.slot key) state := rfl
 
 @[simp] theorem setMapping_run (s : StorageSlot (Address → Uint256)) (key : Address) (value : Uint256) (state : ContractState) :
-  (setMapping s key value).run state = ContractResult.success () { state with
-    storageMap := fun slot addr =>
-      if slot == s.slot && addr == key then value
-      else state.storageMap slot addr,
+  (setMapping s key value).run state = ContractResult.success () { state.writeMap s.slot key value with
     knownAddresses := fun slot =>
       if slot == s.slot then
         (state.knownAddresses slot).insert key
@@ -792,11 +820,8 @@ def setMapping2 (s : StorageSlot (Address → Address → Uint256)) (key1 key2 :
   (getMapping2 s key1 key2).run state = ContractResult.success (state.storageMap2 s.slot key1 key2) state := rfl
 
 @[simp] theorem setMapping2_run (s : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) (value : Uint256) (state : ContractState) :
-  (setMapping2 s key1 key2 value).run state = ContractResult.success () { state with
-    storageMap2 := fun slot addr1 addr2 =>
-      if slot == s.slot && addr1 == key1 && addr2 == key2 then value
-      else state.storageMap2 slot addr1 addr2
-  } := rfl
+  (setMapping2 s key1 key2 value).run state = ContractResult.success ()
+    (state.writeMap2 s.slot key1 key2 value) := rfl
 
 -- Uint256-keyed mapping operations (#154)
 def getMappingUint (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) : Contract Uint256 :=
@@ -810,11 +835,8 @@ def setMappingUint (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (valu
   (getMappingUint s key).run state = ContractResult.success (state.storageMapUint s.slot key) state := rfl
 
 @[simp] theorem setMappingUint_run (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) (value : Uint256) (state : ContractState) :
-  (setMappingUint s key value).run state = ContractResult.success () { state with
-    storageMapUint := fun slot k =>
-      if slot == s.slot && k == key then value
-      else state.storageMapUint slot k
-  } := rfl
+  (setMappingUint s key value).run state = ContractResult.success ()
+    (state.writeMapUint s.slot key value) := rfl
 
 def getMappingUintAddr (s : StorageSlot (Uint256 → Uint256)) (key : Uint256) : Contract Address :=
   fun state => ContractResult.success (wordToAddress (state.readMapUint s.slot key)) state
@@ -1106,20 +1128,12 @@ concerns of storage-slot guards. -/
 def nonReentrantTransient (lockOffset : Uint256) (body : Contract α) : Contract α :=
   fun s =>
     if s.transientStorage (lockOffset : Nat) == 0 then
-      let sLocked := { s with
-        transientStorage := fun i =>
-          if i == (lockOffset : Nat) then 1 else s.transientStorage i }
+      let sLocked := s.writeTransient (lockOffset : Nat) 1
       match body sLocked with
       | ContractResult.success a s' =>
-          ContractResult.success a
-            { s' with
-              transientStorage := fun i =>
-                if i == (lockOffset : Nat) then 0 else s'.transientStorage i }
+          ContractResult.success a (s'.writeTransient (lockOffset : Nat) 0)
       | ContractResult.revert msg s' =>
-          ContractResult.revert msg
-            { s' with
-              transientStorage := fun i =>
-                if i == (lockOffset : Nat) then 0 else s'.transientStorage i }
+          ContractResult.revert msg (s'.writeTransient (lockOffset : Nat) 0)
     else
       ContractResult.revert "ReentrancyGuardTransient: reentrant call" s
 

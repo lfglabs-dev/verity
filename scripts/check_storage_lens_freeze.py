@@ -58,20 +58,11 @@ SHARED_SCAN_DIRS = ("Verity", "Contracts")
 # canonical `defaultState`/`emitEvent`-style literals; it is the only file
 # meant to keep raw access after the migration completes.
 BASELINE = {
-    # Lens/bulk-lens/ofChannels implementations + defaultState — the
-    # permanent residue the C5 step-3 flip swaps in place.
-    "Verity/Core.lean": 39,
-    # 3 `let storage :=` local-binding false positives + the find?-shaped
-    # transient packed-write arm (non-defeq to a lens; step-3 burn-down).
-    "Verity/Core/Model/Denote.lean": 6,
-    # Concurrent lane (Ownable/composition session) — not ours to migrate.
-    "Contracts/Owned/Proofs/Basic.lean": 8,
+    # `storageArray` remains a separate list-valued field; its implementation
+    # and executable array helpers are the only raw channel-update residue.
+    "Verity/Core.lean": 6,
     # IRState fixture literals (field-name collision false positives).
     "Contracts/TypedIRTests.lean": 3,
-    # `=`-guarded dual-channel writeStorageWordSlot(s) (re-guarding to `==`
-    # would reshape the GenericInduction unfold surface; step-3 burn-down)
-    # + let-binding false positives.
-    "Compiler/Proofs/IRGeneration/SourceSemantics.lean": 7,
 }
 
 

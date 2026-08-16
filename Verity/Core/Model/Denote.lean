@@ -436,13 +436,8 @@ def writeAddressKeyedMappingPackedWordFieldSlots (oracle : DenoteOracle)
     Verity.ContractState :=
   let targets := slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key + wordOffset))
   if fieldIsTransient fields fieldName then
-    let wordAt := fun slot => (world.transientStorage slot).val
-    let updated := targets.map (fun slot => (slot, packedWordWrite (wordAt slot) value packed))
-    { world with
-      transientStorage := fun slot =>
-        match updated.find? (fun entry => entry.fst == slot) with
-        | some (_, word) => word
-        | none => world.transientStorage slot }
+    world.modifyTransientSlots targets
+      (fun current => packedWordWrite current.val value packed)
   else
     writeAddressKeyedMappingPackedWordSlots oracle world slots key wordOffset packed value
 
@@ -563,13 +558,8 @@ def writeAddressKeyedMapping2PackedWordFieldSlots (oracle : DenoteOracle)
   let targets := slots.map (fun slot =>
     wordNormalize (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
   if fieldIsTransient fields fieldName then
-    let wordAt := fun slot => (world.transientStorage slot).val
-    let updated := targets.map (fun slot => (slot, packedWordWrite (wordAt slot) value packed))
-    { world with
-      transientStorage := fun slot =>
-        match updated.find? (fun entry => entry.fst == slot) with
-        | some (_, word) => word
-        | none => world.transientStorage slot }
+    world.modifyTransientSlots targets
+      (fun current => packedWordWrite current.val value packed)
   else
     writeAddressKeyedMapping2PackedWordSlots oracle world slots key1 key2 wordOffset packed value
 
@@ -1252,11 +1242,7 @@ mutual
             let resolvedOffset := wordNormalize resolvedOffset
             .continue {
               state with
-              world := {
-                state.world with
-                transientStorage := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.transientStorage o
-              }
+              world := state.world.writeTransient resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .require cond _ =>
