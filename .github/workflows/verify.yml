@@ -285,7 +285,7 @@ jobs:
     needs: changes
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: [self-hosted, linux, verity, fastlane]
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: checks-${{ github.run_id }}-${{ github.run_attempt }}
