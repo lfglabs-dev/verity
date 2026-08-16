@@ -372,12 +372,12 @@ def writeAddressKeyedMappingSlots (oracle : DenoteOracle)
   | slot :: _ =>
       let keyAddr := Verity.wordToAddress (key : Verity.Core.Uint256)
       let word : Verity.Core.Uint256 := value
-      let storage :=
+      let flatStorage :=
         slots.foldl
           (fun current slot => storeMappingEntryNat oracle current slot key value)
           (storageNatView world)
       (world.withStorageChannel
-          (fun _ => fun s => ((storage (wordNormalize s) : Verity.Core.Uint256)))).writeMap
+          (fun _ => fun s => ((flatStorage (wordNormalize s) : Verity.Core.Uint256)))).writeMap
         slot keyAddr word
 
 def mappingSlotChain (oracle : DenoteOracle) (baseSlot : Nat) (keys : List Nat) : Nat :=
@@ -449,12 +449,12 @@ def writeUintKeyedMappingSlots (oracle : DenoteOracle)
   | slot :: _ =>
       let keyWord : Verity.Core.Uint256 := key
       let word : Verity.Core.Uint256 := value
-      let storage :=
+      let flatStorage :=
         slots.foldl
           (fun current slot => storeMappingEntryNat oracle current slot key value)
           (storageNatView world)
       (world.withStorageChannel
-          (fun _ => fun s => ((storage (wordNormalize s) : Verity.Core.Uint256)))).writeMapUint
+          (fun _ => fun s => ((flatStorage (wordNormalize s) : Verity.Core.Uint256)))).writeMapUint
         slot keyWord word
 
 def writeAddressKeyedMapping2Slots (oracle : DenoteOracle)
@@ -466,13 +466,13 @@ def writeAddressKeyedMapping2Slots (oracle : DenoteOracle)
       let key1Addr := Verity.wordToAddress (key1 : Verity.Core.Uint256)
       let key2Addr := Verity.wordToAddress (key2 : Verity.Core.Uint256)
       let word : Verity.Core.Uint256 := value
-      let storage :=
+      let flatStorage :=
         slots.foldl
           (fun current slot =>
             storeMappingEntryNat oracle current (oracle.mappingSlot slot key1) key2 value)
           (storageNatView world)
       (world.withStorageChannel
-          (fun _ => fun s => ((storage (wordNormalize s) : Verity.Core.Uint256)))).writeMap2
+          (fun _ => fun s => ((flatStorage (wordNormalize s) : Verity.Core.Uint256)))).writeMap2
         slot key1Addr key2Addr word
 
 def writeAddressKeyedMapping2WordSlots (oracle : DenoteOracle)

@@ -1087,8 +1087,7 @@ def storageArrayDropLast? : List Verity.Core.Uint256 → Option (List Verity.Cor
 
 def writeStorageArray (world : Verity.ContractState) (slot : Nat)
     (values : List Verity.Core.Uint256) : Verity.ContractState :=
-  { world with
-    storageArray := fun s => if s == slot then values else world.storageArray s }
+  world.writeArray slot values
 
 /-- Ceiling-division helper matching Solidity's `Math256.ceilDiv`.
     Factored out so the mutual block's equation-lemma derivation stays simple. -/
@@ -6336,6 +6335,6 @@ private def storageArraySourceSpec : CompilationModel :=
           body := [Stmt.storageArrayPop "queue", .stop] } ] }
 
 private def storageArrayInitialWorld : Verity.ContractState :=
-  { Verity.defaultState with storageArray := fun slot => if slot = 7 then [11, 17] else [] }
+  Verity.defaultState.writeArray 7 [11, 17]
 
 end Compiler.Proofs.IRGeneration
