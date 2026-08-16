@@ -43,10 +43,10 @@ per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
 legacy-compatibility witness chain are already retired), then finish C5
 step 4 — remaining field-list cases (bytes32 keys, struct members,
-alias slots) and global `MappingCoherent` preservation under finite
-non-alias certificates. Implemented: address/uint/map2 coherence
-laws, plus `FieldStorageKey` (named field → root/`map`/`mapUint`/`map2`
-`StorageKey` → `storageKeySlot`). C5 step 3 (canonical
+alias slots) and global (all-keys) `MappingCoherent` preservation.
+Implemented: address/uint/map2 coherence laws, `FieldStorageKey`,
+and finite-set address `MappingCoherentOn` under an explicit
+pairwise derived-slot certificate. C5 step 3 (canonical
 `storageWords : StorageKey → Uint256` backing, lens laws by constructor
 injectivity) is on `main`; it is the enabler for FixedArray-under-mapping,
 dynamic CodeData, arbitrary transient storage and multicall/delegatecall

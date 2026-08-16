@@ -320,7 +320,10 @@ sibling entrypoint.
   explicit non-alias hypothesis). `FieldStorageKey` collapses a
   CompilationModel field list to a root `StorageKey` (and typed
   `map` / `mapUint` / `map2` entries) and proves `storageKeySlot`
-  of that key is the resolved slot. Global preservation, bytes32
+  of that key is the resolved slot. Finite-set address
+  `MappingCoherentOn` is preserved by an aligned write under an
+  explicit pairwise derived-slot certificate
+  (`MappingCoherenceOn`). Global (all-keys) preservation, bytes32
   keys, struct members, and alias slots are still open.
 - Zero new axioms.
 
