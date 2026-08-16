@@ -2836,11 +2836,7 @@ private theorem compiledStmtStep_tstore_single_preserves
       let offsetKey := offsetNat % Compiler.Constants.evmModulus
       set runtime' := {
         runtime with
-        world := {
-          runtime.world with
-          transientStorage := fun o =>
-            if o = offsetKey then valueNat else runtime.world.transientStorage o
-        }
+        world := runtime.world.writeTransient offsetKey valueNat
       }
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.tstore offset value) = .continue runtime' := by

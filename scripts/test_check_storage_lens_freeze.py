@@ -50,6 +50,17 @@ class StorageLensFreezeTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("Compiler/Bypass.lean", output)
 
+    def test_rejects_compiler_projected_contract_state_bypass(self) -> None:
+        status, output = self.run_gate({
+            "Compiler/Bypass.lean": (
+                "structure Runtime where world : Verity.ContractState\n"
+                "def bypass (state : Runtime) : Verity.ContractState :=\n"
+                "  { state.world with transientStorage := fun _ => 0 }\n"
+            ),
+        })
+        self.assertEqual(status, 1)
+        self.assertIn("Compiler/Bypass.lean", output)
+
     def test_ignores_compiler_ir_state_field_collision(self) -> None:
         status, output = self.run_gate({
             "Compiler/IRState.lean": (

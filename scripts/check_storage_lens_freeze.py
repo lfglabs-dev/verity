@@ -66,14 +66,20 @@ BASELINE = {
 }
 
 RECORD_UPDATE_RE = re.compile(
-    r"\{\s*([A-Za-z_][\w']*)\s+with\s+(?:«)?(storage|transientStorage)(?:»)?\s*:=",
+    r"\{\s*([A-Za-z_][\w']*(?:\.[A-Za-z_][\w']*)*)\s+with\s+"
+    r"(?:«)?(storage|transientStorage)(?:»)?\s*:=",
     re.MULTILINE,
 )
 CONTRACT_STATE_BINDING_RE = re.compile(
     r"(?:\(|\{|,)\s*([A-Za-z_][\w']*)\s*:\s*(?:Verity\.)?ContractState\b"
 )
+CONTRACT_STATE_FIELD_RE = re.compile(
+    r"\b([A-Za-z_][\w']*)\s*:\s*(?:Verity\.)?ContractState\b"
+)
 CONTRACT_STATE_ASCRIPTION_RE = re.compile(
-    r"\{\s*([A-Za-z_][\w']*)\s+with\s+(?:«)?(?:storage|transientStorage)(?:»)?\s*:=[\s\S]{0,400}?\}\s*:\s*(?:Verity\.)?ContractState\b"
+    r"\{\s*([A-Za-z_][\w']*(?:\.[A-Za-z_][\w']*)*)\s+with\s+"
+    r"(?:«)?(?:storage|transientStorage)(?:»)?\s*:=[\s\S]{0,400}?\}\s*"
+    r":\s*(?:Verity\.)?ContractState\b"
 )
 
 
@@ -90,12 +96,15 @@ def count_sites(path: Path) -> int:
         # `storage` and `transientStorage` are also fields of Compiler's IR
         # states. Count only record updates whose receiver is known to be a
         # source `ContractState`, plus explicitly ascribed ContractState
-        # literals. This catches the source-world bypass without inventing a
-        # baseline for every IR-state update in Compiler proofs.
+        # literals and projections through fields declared as ContractState.
+        # This catches the source-world bypass without inventing a baseline
+        # for every IR-state update in Compiler proofs.
         source_names = set(CONTRACT_STATE_BINDING_RE.findall(text))
         source_names.update(CONTRACT_STATE_ASCRIPTION_RE.findall(text))
+        source_field_names = set(CONTRACT_STATE_FIELD_RE.findall(text))
         count += sum(
             receiver in source_names
+            or receiver.rsplit(".", 1)[-1] in source_field_names
             for receiver, _field in RECORD_UPDATE_RE.findall(text)
         )
     return count
