@@ -441,12 +441,12 @@ def ofChannels
 
 @[storage_simps] theorem readSlot_writeSlot_same (s : ContractState) (slot : Nat) (v : Uint256) :
     (s.writeSlot slot v).readSlot slot = v := by
-  simp [readSlot, writeSlot]
+  simp [readSlot, storage, writeSlot]
 
 @[storage_simps] theorem readSlot_writeSlot_other (s : ContractState) {slot slot' : Nat}
     (h : slot' ≠ slot) (v : Uint256) :
     (s.writeSlot slot v).readSlot slot' = s.readSlot slot' := by
-  simp [readSlot, writeSlot, h]
+  simp [readSlot, storage, writeSlot, h]
 
 @[storage_simps] theorem readContractSlot_zero (s : ContractState) (slot : Nat) :
     s.readContractSlot 0 slot = s.readSlot slot := by
@@ -457,8 +457,8 @@ def ofChannels
     (s.writeContractSlot contract slot v).readContractSlot contract slot = v := by
   by_cases h : contract = 0
   · subst contract
-    simp [readContractSlot, writeContractSlot, readSlot, writeSlot]
-  · simp [readContractSlot, writeContractSlot, h]
+    simp [readContractSlot, readSlot, storage, writeContractSlot, writeSlot]
+  · simp [readContractSlot, contractStorage, writeContractSlot, h]
 
 @[storage_simps] theorem readContractSlot_writeContractSlot_other_contract
     (s : ContractState) {contract contract' slot : Nat} (h : contract' ≠ contract)
@@ -468,48 +468,57 @@ def ofChannels
   by_cases hc : contract = 0
   · subst contract
     have hc' : contract' ≠ 0 := h
-    simp [readContractSlot, writeContractSlot, writeSlot, hc']
+    simp [readContractSlot, contractStorage, writeContractSlot, writeSlot, hc']
   · by_cases hc' : contract' = 0
     · subst contract'
-      simp [readContractSlot, writeContractSlot, readSlot, hc]
-    · simp [readContractSlot, writeContractSlot, hc, hc', h]
+      simp [readContractSlot, writeContractSlot, readSlot, storage, hc]
+    · simp [readContractSlot, contractStorage, writeContractSlot, hc, hc', h]
 
 @[storage_simps] theorem readAddrSlot_writeAddrSlot_same (s : ContractState) (slot : Nat)
     (v : Address) : (s.writeAddrSlot slot v).readAddrSlot slot = v := by
-  simp [readAddrSlot, writeAddrSlot]
+  have hlt : v.toNat < Verity.Core.Uint256.modulus := by
+    calc
+      v.toNat < Verity.Core.Address.modulus := v.isLt
+      _ < Verity.Core.Uint256.modulus := by
+        change 2 ^ 160 < 2 ^ 256
+        exact Nat.pow_lt_pow_right (by decide) (by decide)
+  apply Verity.Core.Address.ext
+  simp [readAddrSlot, storageAddr, writeAddrSlot, wordToAddress, addressToWord]
+  rw [Nat.mod_eq_of_lt hlt]
+  exact Verity.Core.Address.val_mod_modulus v
 
 @[storage_simps] theorem readAddrSlot_writeAddrSlot_other (s : ContractState)
     {slot slot' : Nat} (h : slot' ≠ slot) (v : Address) :
     (s.writeAddrSlot slot v).readAddrSlot slot' = s.readAddrSlot slot' := by
-  simp [readAddrSlot, writeAddrSlot, h]
+  simp [readAddrSlot, storageAddr, writeAddrSlot, h]
 
 @[storage_simps] theorem readTransient_writeTransient_same (s : ContractState) (slot : Nat)
     (v : Uint256) : (s.writeTransient slot v).readTransient slot = v := by
-  simp [readTransient, writeTransient]
+  simp [readTransient, transientStorage, writeTransient]
 
 @[storage_simps] theorem readTransient_writeTransient_other (s : ContractState)
     {slot slot' : Nat} (h : slot' ≠ slot) (v : Uint256) :
     (s.writeTransient slot v).readTransient slot' = s.readTransient slot' := by
-  simp [readTransient, writeTransient, h]
+  simp [readTransient, transientStorage, writeTransient, h]
 
 @[storage_simps] theorem readMap_writeMap_same (s : ContractState) (slot : Nat) (key : Address)
     (v : Uint256) : (s.writeMap slot key v).readMap slot key = v := by
-  simp [readMap, writeMap]
+  simp [readMap, storageMap, writeMap]
 
 @[storage_simps] theorem readMap_writeMap_other_key (s : ContractState) (slot : Nat)
     {key key' : Address} (h : key' ≠ key) (v : Uint256) :
     (s.writeMap slot key v).readMap slot key' = s.readMap slot key' := by
-  simp [readMap, writeMap, h]
+  simp [readMap, storageMap, writeMap, h]
 
 @[storage_simps] theorem readMapUint_writeMapUint_same (s : ContractState) (slot : Nat)
     (key : Uint256) (v : Uint256) :
     (s.writeMapUint slot key v).readMapUint slot key = v := by
-  simp [readMapUint, writeMapUint]
+  simp [readMapUint, storageMapUint, writeMapUint]
 
 @[storage_simps] theorem readMap2_writeMap2_same (s : ContractState) (slot : Nat)
     (key1 key2 : Address) (v : Uint256) :
     (s.writeMap2 slot key1 key2 v).readMap2 slot key1 key2 = v := by
-  simp [readMap2, writeMap2]
+  simp [readMap2, storageMap2, writeMap2]
 
 @[storage_simps] theorem readArray_writeArray_same (s : ContractState) (slot : Nat)
     (vs : List Uint256) : (s.writeArray slot vs).readArray slot = vs := by
