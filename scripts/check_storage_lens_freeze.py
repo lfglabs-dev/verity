@@ -67,8 +67,8 @@ BASELINE = {
 
 RECORD_UPDATE_RE = re.compile(
     r"\{\s*([A-Za-z_][\w']*(?:\.[A-Za-z_][\w']*)*)\s+with\s+"
-    r"(?:«)?(storage|transientStorage)(?:»)?\s*:=",
-    re.MULTILINE,
+    r"(?:(?!\}).)*?\b(?:«)?(storage|transientStorage)(?:»)?\s*:=",
+    re.MULTILINE | re.DOTALL,
 )
 CONTRACT_STATE_BINDING_RE = re.compile(
     r"(?:\(|\{|,)\s*([A-Za-z_][\w']*)\s*:\s*(?:Verity\.)?ContractState\b"
