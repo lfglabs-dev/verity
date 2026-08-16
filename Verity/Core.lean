@@ -136,6 +136,64 @@ abbrev Bytes31 := BytesN 31
 @[simp] def wordToAddress (w : Uint256) : Address :=
   Verity.Core.Address.ofNat (w : Nat)
 
+/-- Replace only the address-sized low bits of a storage word.  Address
+views are lenses into word storage, so reserved upper bits survive writes. -/
+def writeAddressWord (word : Uint256) (value : Address) : Uint256 :=
+  word - addressToWord (wordToAddress word) + addressToWord value
+
+@[simp] theorem writeAddressWord_wordToAddress (word : Uint256) :
+    writeAddressWord word (wordToAddress word) = word := by
+  simpa only [writeAddressWord, Verity.Core.Uint256.add_comm] using
+    Verity.Core.Uint256.sub_add_cancel_left word (addressToWord (wordToAddress word))
+
+@[simp] theorem wordToAddress_writeAddressWord (word : Uint256) (value : Address) :
+    wordToAddress (writeAddressWord word value) = value := by
+  apply Verity.Core.Address.ext
+  change (writeAddressWord word value).val % Verity.Core.Address.modulus = value.val
+  have hvalue : (addressToWord value).val = value.val := by
+    simp [addressToWord, Verity.Core.Uint256.ofNat]
+    exact Nat.mod_eq_of_lt (by
+      calc
+        value.val < Verity.Core.Address.modulus := value.isLt
+        _ < Verity.Core.Uint256.modulus := by
+          change 2 ^ 160 < 2 ^ 256
+          exact Nat.pow_lt_pow_right (by decide) (by decide))
+  have hlow : (addressToWord (wordToAddress word)).val =
+      word.val % Verity.Core.Address.modulus := by
+    simp [addressToWord, wordToAddress, Verity.Core.Uint256.ofNat]
+    exact Nat.mod_eq_of_lt (Nat.lt_trans
+      (Nat.mod_lt _ Verity.Core.Address.modulus_pos)
+      (by
+        change 2 ^ 160 < 2 ^ 256
+        exact Nat.pow_lt_pow_right (by decide) (by decide)))
+  have hsub : (word - addressToWord (wordToAddress word)).val =
+      word.val - word.val % Verity.Core.Address.modulus := by
+    change (Verity.Core.Uint256.sub word (addressToWord (wordToAddress word))).val =
+      word.val - word.val % Verity.Core.Address.modulus
+    rw [Verity.Core.Uint256.subNoWrap]
+    · rw [hlow]
+    · rw [hlow]
+      exact Nat.mod_le _ _
+  have hdiv : Verity.Core.Address.modulus ∣ Verity.Core.Uint256.modulus := by
+    refine ⟨2 ^ 96, ?_⟩
+    change 2 ^ 256 = 2 ^ 160 * 2 ^ 96
+    rw [← Nat.pow_add]
+  change (word - addressToWord (wordToAddress word) + addressToWord value).val %
+      Verity.Core.Address.modulus = value.val
+  rw [show (word - addressToWord (wordToAddress word) + addressToWord value).val =
+      ((word - addressToWord (wordToAddress word)).val + (addressToWord value).val) %
+        Verity.Core.Uint256.modulus by rfl]
+  rw [Nat.mod_mod_of_dvd _ hdiv, hsub, hvalue]
+  have hdecomp : word.val % Verity.Core.Address.modulus +
+      Verity.Core.Address.modulus * (word.val / Verity.Core.Address.modulus) = word.val := by
+    simpa [Nat.mul_comm] using (Nat.mod_add_div word.val Verity.Core.Address.modulus)
+  have hsub' : word.val - word.val % Verity.Core.Address.modulus =
+      Verity.Core.Address.modulus * (word.val / Verity.Core.Address.modulus) := by
+    omega
+  rw [hsub']
+  rw [Nat.add_comm, Nat.add_mul_mod_self_left]
+  exact Nat.mod_eq_of_lt value.isLt
+
 @[simp] def boolToWord (b : Bool) : Uint256 :=
   if b then 1 else 0
 
@@ -315,7 +373,7 @@ def readAddrSlot (s : ContractState) (slot : Nat) : Address :=
 
 def writeAddrSlot (s : ContractState) (slot : Nat) (value : Address) : ContractState :=
   { s with storageWords := fun key =>
-      if key == .addr slot then addressToWord value else s.storageWords key }
+      if key == .addr slot then writeAddressWord (s.storageWords key) value else s.storageWords key }
 
 def readTransient (s : ContractState) (slot : Nat) : Uint256 :=
   s.transientStorage slot
@@ -393,7 +451,8 @@ def modifyTransientSlots (s : ContractState) (targets : List Nat)
 def writeAddrSlots (s : ContractState) (targets : List Nat) (value : Address) :
     ContractState :=
   { s with storageWords := fun key => match key with
-      | .addr slot => if targets.contains slot then addressToWord value else s.storageWords key
+      | .addr slot => if targets.contains slot then writeAddressWord (s.storageWords key) value
+        else s.storageWords key
       | _ => s.storageWords key }
 
 /-- Replace the whole uint channel through a transformer. The denotational
@@ -476,16 +535,23 @@ def ofChannels
 
 @[storage_simps] theorem readAddrSlot_writeAddrSlot_same (s : ContractState) (slot : Nat)
     (v : Address) : (s.writeAddrSlot slot v).readAddrSlot slot = v := by
-  have hlt : v.toNat < Verity.Core.Uint256.modulus := by
-    calc
-      v.toNat < Verity.Core.Address.modulus := v.isLt
-      _ < Verity.Core.Uint256.modulus := by
-        change 2 ^ 160 < 2 ^ 256
-        exact Nat.pow_lt_pow_right (by decide) (by decide)
-  apply Verity.Core.Address.ext
-  simp [readAddrSlot, storageAddr, writeAddrSlot, wordToAddress, addressToWord]
-  rw [Nat.mod_eq_of_lt hlt]
-  exact Verity.Core.Address.val_mod_modulus v
+  simpa [readAddrSlot, storageAddr, writeAddrSlot] using
+    wordToAddress_writeAddressWord (s.storageWords (.addr slot)) v
+
+/-- Address-slot get-put holds even when the canonical backing word has
+nonzero bits above the 160-bit address payload. -/
+@[storage_simps] theorem writeAddrSlot_readAddrSlot (s : ContractState) (slot : Nat) :
+    s.writeAddrSlot slot (s.readAddrSlot slot) = s := by
+  cases s
+  simp only [writeAddrSlot, readAddrSlot, storageAddr]
+  congr
+  funext key
+  by_cases h : key = StorageKey.addr slot
+  · subst key
+    have hself : (StorageKey.addr slot == StorageKey.addr slot) = true := by simp
+    rw [if_pos hself]
+    exact writeAddressWord_wordToAddress _
+  · simp [h]
 
 @[storage_simps] theorem readAddrSlot_writeAddrSlot_other (s : ContractState)
     {slot slot' : Nat} (h : slot' ≠ slot) (v : Address) :
