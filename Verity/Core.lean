@@ -388,6 +388,39 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
   { s with storageWords := fun storageKey =>
       if storageKey == .map slot key then value else s.storageWords storageKey }
 
+/-- Word-slot writes leave the address and mapping compatibility views intact. -/
+@[simp] theorem storageAddr_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).storageAddr = s.storageAddr := by
+  funext addrSlot
+  simp [storageAddr, writeSlot]
+
+@[simp] theorem storageMap_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).storageMap = s.storageMap := by
+  funext mapSlot mapKey
+  simp [storageMap, writeSlot]
+
+/-- Address-slot writes leave word-slot and mapping compatibility views intact. -/
+@[simp] theorem storage_writeAddrSlot (s : ContractState) (slot : Nat) (value : Address) :
+    (s.writeAddrSlot slot value).storage = s.storage := by
+  funext wordSlot
+  simp [storage, writeAddrSlot]
+
+@[simp] theorem storageMap_writeAddrSlot (s : ContractState) (slot : Nat) (value : Address) :
+    (s.writeAddrSlot slot value).storageMap = s.storageMap := by
+  funext mapSlot mapKey
+  simp [storageMap, writeAddrSlot]
+
+/-- Mapping writes leave word-slot and address compatibility views intact. -/
+@[simp] theorem storage_writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) :
+    (s.writeMap slot key value).storage = s.storage := by
+  funext wordSlot
+  simp [storage, writeMap]
+
+@[simp] theorem storageAddr_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) : (s.writeMap slot key value).storageAddr = s.storageAddr := by
+  funext addrSlot
+  simp [storageAddr, writeMap]
+
 def readMapUint (s : ContractState) (slot : Nat) (key : Uint256) : Uint256 :=
   s.storageMapUint slot key
 

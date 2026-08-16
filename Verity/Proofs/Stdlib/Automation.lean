@@ -287,7 +287,7 @@ theorem getStorage_runValue (slot : StorageSlot Uint256) (state : ContractState)
 theorem setStorage_getStorage (slot : StorageSlot Uint256) (value : Uint256) (state : ContractState) :
     (getStorage slot).runValue ((setStorage slot value).runState state) = value := by
   simp [setStorage, getStorage, Contract.runState, Contract.runValue, ContractState.writeSlot,
-    ContractState.readSlot]
+    ContractState.readSlot, ContractState.storage]
 
 -- getStorage for different slot is unchanged after setStorage
 theorem setStorage_getStorage_diff (slot1 slot2 : StorageSlot Uint256) (value : Uint256) (state : ContractState)
@@ -297,7 +297,7 @@ theorem setStorage_getStorage_diff (slot1 slot2 : StorageSlot Uint256) (value : 
   unfold setStorage getStorage Contract.runState Contract.runValue
   by_cases h_eq : slot2.slot = slot1.slot
   · exact (h h_eq.symm).elim
-  · simp [h_eq, ContractState.writeSlot, ContractState.readSlot]
+  · simp [h_eq, ContractState.writeSlot, ContractState.readSlot, ContractState.storage]
 
 /-!
 ## Monadic Composition Lemmas
@@ -960,55 +960,59 @@ like `count` or `storedData`. These eliminate per-contract duplication of
 theorem setStorage_preserves_storageAddr (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.storageAddr = state.storageAddr := by
-  simp
+  change (state.writeSlot slot.slot value).storageAddr = state.storageAddr
+  exact ContractState.storageAddr_writeSlot state slot.slot value
 
 /-- setStorage on any uint256 slot preserves the mapping storage. -/
 theorem setStorage_preserves_storageMap (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.storageMap = state.storageMap := by
-  simp
+  change (state.writeSlot slot.slot value).storageMap = state.storageMap
+  exact ContractState.storageMap_writeSlot state slot.slot value
 
 /-- setStorage on any uint256 slot preserves the sender. -/
 theorem setStorage_preserves_sender (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.sender = state.sender := by
-  simp
+  simp [ContractState.writeSlot]
 
 /-- setStorage on any uint256 slot preserves the contract address. -/
 theorem setStorage_preserves_thisAddress (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.thisAddress = state.thisAddress := by
-  simp
+  simp [ContractState.writeSlot]
 
 /-- setStorage on any uint256 slot preserves other uint256 slots. -/
 theorem setStorage_preserves_other_storage (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) (n : Nat) (h : n ≠ slot.slot) :
     ((setStorage slot value).run state).snd.storage n = state.storage n := by
-  simp [h]
+  simp [ContractState.writeSlot, ContractState.storage, h]
 
 /-- setStorageAddr on any address slot preserves the uint256 storage. -/
 theorem setStorageAddr_preserves_storage (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.storage = state.storage := by
-  simp
+  change (state.writeAddrSlot slot.slot value).storage = state.storage
+  exact ContractState.storage_writeAddrSlot state slot.slot value
 
 /-- setStorageAddr on any address slot preserves the mapping storage. -/
 theorem setStorageAddr_preserves_storageMap (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.storageMap = state.storageMap := by
-  simp
+  change (state.writeAddrSlot slot.slot value).storageMap = state.storageMap
+  exact ContractState.storageMap_writeAddrSlot state slot.slot value
 
 /-- setStorageAddr on any address slot preserves the sender. -/
 theorem setStorageAddr_preserves_sender (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.sender = state.sender := by
-  simp
+  simp [ContractState.writeAddrSlot]
 
 /-- setStorageAddr on any address slot preserves the contract address. -/
 theorem setStorageAddr_preserves_thisAddress (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.thisAddress = state.thisAddress := by
-  simp
+  simp [ContractState.writeAddrSlot]
 
 /-!
 ## Generic setMapping Preservation
@@ -1018,25 +1022,27 @@ theorem setStorageAddr_preserves_thisAddress (slot : StorageSlot Address) (value
 theorem setMapping_preserves_storage (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.storage = state.storage := by
-  simp
+  change (state.writeMap slot.slot key value).storage = state.storage
+  exact ContractState.storage_writeMap state slot.slot key value
 
 /-- setMapping preserves the address storage. -/
 theorem setMapping_preserves_storageAddr (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.storageAddr = state.storageAddr := by
-  simp
+  change (state.writeMap slot.slot key value).storageAddr = state.storageAddr
+  exact ContractState.storageAddr_writeMap state slot.slot key value
 
 /-- setMapping preserves the sender. -/
 theorem setMapping_preserves_sender (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.sender = state.sender := by
-  simp
+  simp [ContractState.writeMap]
 
 /-- setMapping preserves the contract address. -/
 theorem setMapping_preserves_thisAddress (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.thisAddress = state.thisAddress := by
-  simp
+  simp [ContractState.writeMap]
 
 /-!
 ## Generic msgValue / blockTimestamp / blockNumber / knownAddresses Preservation
@@ -1048,67 +1054,67 @@ Storage mutations never touch context fields or (for non-mapping ops) knownAddre
 theorem setStorage_preserves_msgValue (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.msgValue = state.msgValue := by
-  simp
+  simp [ContractState.writeSlot]
 
 /-- setStorageAddr preserves msgValue. -/
 theorem setStorageAddr_preserves_msgValue (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.msgValue = state.msgValue := by
-  simp
+  simp [ContractState.writeAddrSlot]
 
 /-- setMapping preserves msgValue. -/
 theorem setMapping_preserves_msgValue (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.msgValue = state.msgValue := by
-  simp
+  simp [ContractState.writeMap]
 
 /-- setStorage preserves blockTimestamp. -/
 theorem setStorage_preserves_blockTimestamp (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.blockTimestamp = state.blockTimestamp := by
-  simp
+  simp [ContractState.writeSlot]
 
 /-- setStorageAddr preserves blockTimestamp. -/
 theorem setStorageAddr_preserves_blockTimestamp (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.blockTimestamp = state.blockTimestamp := by
-  simp
+  simp [ContractState.writeAddrSlot]
 
 /-- setMapping preserves blockTimestamp. -/
 theorem setMapping_preserves_blockTimestamp (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.blockTimestamp = state.blockTimestamp := by
-  simp
+  simp [ContractState.writeMap]
 
 /-- setStorage preserves blockNumber. -/
 theorem setStorage_preserves_blockNumber (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.blockNumber = state.blockNumber := by
-  simp
+  simp [ContractState.writeSlot]
 
 /-- setStorageAddr preserves blockNumber. -/
 theorem setStorageAddr_preserves_blockNumber (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.blockNumber = state.blockNumber := by
-  simp
+  simp [ContractState.writeAddrSlot]
 
 /-- setMapping preserves blockNumber. -/
 theorem setMapping_preserves_blockNumber (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.blockNumber = state.blockNumber := by
-  simp
+  simp [ContractState.writeMap]
 
 /-- setStorage preserves knownAddresses. -/
 theorem setStorage_preserves_knownAddresses (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.knownAddresses = state.knownAddresses := by
-  simp
+  simp [ContractState.writeSlot]
 
 /-- setStorageAddr preserves knownAddresses. -/
 theorem setStorageAddr_preserves_knownAddresses (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.knownAddresses = state.knownAddresses := by
-  simp
+  simp [ContractState.writeAddrSlot]
 
 /-!
 ## Generic Event Preservation
@@ -1120,19 +1126,19 @@ Storage mutations never touch the `events` append-only log.
 theorem setStorage_preserves_events (slot : StorageSlot Uint256) (value : Uint256)
     (state : ContractState) :
     ((setStorage slot value).run state).snd.events = state.events := by
-  simp
+  simp [ContractState.writeSlot]
 
 /-- setStorageAddr on any address slot preserves the event log. -/
 theorem setStorageAddr_preserves_events (slot : StorageSlot Address) (value : Address)
     (state : ContractState) :
     ((setStorageAddr slot value).run state).snd.events = state.events := by
-  simp
+  simp [ContractState.writeAddrSlot]
 
 /-- setMapping preserves the event log. -/
 theorem setMapping_preserves_events (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.events = state.events := by
-  simp
+  simp [ContractState.writeMap]
 
 /-!
 ## Event Emission Helpers

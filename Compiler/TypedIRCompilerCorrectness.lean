@@ -1780,20 +1780,26 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMapping_letStorage_setMapping_
   by_cases hEq : init.env.sender = init.world.storageAddr ownerSlot
   · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get,
       Verity.ContractState.writeMap, Verity.ContractState.writeSlot]
-    constructor
-    · funext i
-      by_cases hi : i = supplySlot
-      · subst hi
+    funext key
+    cases key with
+    | slot slot =>
+      by_cases h : slot = supplySlot
+      · subst slot
         simp
-        change Verity.Core.Uint256.add (init.world.storage i) (init.vars.uint256 1) =
-          Verity.Core.Uint256.add (init.world.storage i) (init.vars.uint256 1)
+        change Verity.Core.Uint256.add (init.world.storage supplySlot) (init.vars.uint256 1) =
+          Verity.Core.Uint256.add (init.world.storage supplySlot) (init.vars.uint256 1)
         rfl
-      · simp [hi]
-    · funext i a
-      by_cases hia : i = mappingSlot ∧ a = init.vars.address 0
-      · simp [hia]
+      · simp [h]
+    | map slot mapKey =>
+      by_cases h : slot = mappingSlot ∧ mapKey = init.vars.address 0
+      · simp [h]
         exact Verity.Core.Uint256.add_comm _ _
-      · simp [hia]
+      · simp [h]
+    | contractSlot contract slot => simp
+    | transient slot => simp
+    | addr slot => simp
+    | mapUint slot mapKey => simp
+    | map2 slot key1 key2 => simp
   · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get]
 
 /-- Semantic-preservation for the Morpho enableIrm pattern. -/
