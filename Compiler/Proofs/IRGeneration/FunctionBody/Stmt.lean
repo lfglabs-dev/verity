@@ -460,7 +460,10 @@ theorem runtimeStateMatchesIR_setTransientStorage
     funext o
     by_cases ho : o = offset
     · subst ho
-      simp only [ite_true, Verity.Core.Uint256.ofNat, Nat.mod_eq_of_lt hvalue]
+      simp [ite_true, Verity.ContractState.transientStorage_writeTransient_same,
+        Verity.Core.Uint256.ofNat]
+      have hmod : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
+      exact (Nat.mod_eq_of_lt (hmod ▸ hvalue)).symm
     · simp [ho]
       exact congrFun htrans o
 

@@ -3158,6 +3158,39 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     calldataSize := Verity.Core.Uint256.ofNat (tx.args.length * 32)
     calldata := tx.args }
 
+/-- Call-frame updates keep `storageWords`, so the storage views are unchanged. -/
+@[simp] theorem storage_withTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withTransactionContext world tx).storage = world.storage := by
+  funext slot
+  simp [withTransactionContext, Verity.ContractState.storage]
+
+@[simp] theorem storageAddr_withTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withTransactionContext world tx).storageAddr = world.storageAddr := by
+  funext slot
+  simp [withTransactionContext, Verity.ContractState.storageAddr]
+
+@[simp] theorem storageArray_withTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withTransactionContext world tx).storageArray = world.storageArray := rfl
+
+@[simp] theorem storage_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withConstructorTransactionContext world tx).storage = world.storage := by
+  funext slot
+  simp [withConstructorTransactionContext, Verity.ContractState.storage]
+
+@[simp] theorem storageAddr_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withConstructorTransactionContext world tx).storageAddr = world.storageAddr := by
+  funext slot
+  simp [withConstructorTransactionContext, Verity.ContractState.storageAddr]
+
+@[simp] theorem storageArray_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withConstructorTransactionContext world tx).storageArray = world.storageArray := rfl
+
 theorem findDynamicArrayElementAtSlot_withTransactionContext
     (fields : List Field)
     (world : Verity.ContractState)
@@ -3269,9 +3302,9 @@ theorem encodeStorageAt_congr
       encodeStorageAt fields world slot := by
   unfold encodeStorageAt
   split
-  · simp [withTransactionContext]
+  · simp
   · rw [findDynamicArrayElementAtSlot_withTransactionContext]
-    simp [withTransactionContext]
+    simp
 
 @[simp] theorem encodeStorage_withTransactionContext
     (spec : CompilationModel)
@@ -3295,8 +3328,8 @@ theorem encodeStorageAt_congr
     (world1 := withConstructorTransactionContext world tx)
     (world2 := world)
     (slot := slot)
-    (by simp [withConstructorTransactionContext])
-    (by simp [withConstructorTransactionContext])
+    (by simp)
+    (by simp)
     (by simp [withConstructorTransactionContext])
 
 @[simp] theorem encodeStorage_withConstructorTransactionContext

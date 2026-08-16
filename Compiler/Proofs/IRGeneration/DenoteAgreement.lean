@@ -240,7 +240,16 @@ theorem writeAddressKeyedMappingSlots_eq
         SourceSemantics.writeAddressKeyedMappingSlots,
         Verity.ContractState.withStorageChannel, Verity.ContractState.writeMap]
       congr 1
-      exact storage_field_eq_of_rel h
+      funext storageKey
+      by_cases hmap :
+          storageKey =
+            Verity.StorageKey.map slot (Verity.wordToAddress (Verity.Core.Uint256.ofNat k))
+      · subst hmap; simp
+      · simp [hmap]
+        cases storageKey with
+        | slot s =>
+            exact congrFun (storage_field_eq_of_rel h) s
+        | _ => rfl
 
 theorem writeUintKeyedMappingSlots_eq
     (w : Verity.ContractState) (slots : List Nat) (k v : Nat) :
@@ -254,7 +263,15 @@ theorem writeUintKeyedMappingSlots_eq
         SourceSemantics.writeUintKeyedMappingSlots,
         Verity.ContractState.withStorageChannel, Verity.ContractState.writeMapUint]
       congr 1
-      exact storage_field_eq_of_rel h
+      funext storageKey
+      by_cases hmap :
+          storageKey = Verity.StorageKey.mapUint slot (Verity.Core.Uint256.ofNat k)
+      · subst hmap; simp
+      · simp [hmap]
+        cases storageKey with
+        | slot s =>
+            exact congrFun (storage_field_eq_of_rel h) s
+        | _ => rfl
 
 theorem writeAddressKeyedMapping2Slots_eq
     (w : Verity.ContractState) (slots : List Nat) (k1 k2 v : Nat) :
@@ -269,7 +286,18 @@ theorem writeAddressKeyedMapping2Slots_eq
         SourceSemantics.writeAddressKeyedMapping2Slots,
         Verity.ContractState.withStorageChannel, Verity.ContractState.writeMap2]
       congr 1
-      exact storage_field_eq_of_rel h
+      funext storageKey
+      by_cases hmap :
+          storageKey =
+            Verity.StorageKey.map2 slot
+              (Verity.wordToAddress (Verity.Core.Uint256.ofNat k1))
+              (Verity.wordToAddress (Verity.Core.Uint256.ofNat k2))
+      · subst hmap; simp
+      · simp [hmap]
+        cases storageKey with
+        | slot s =>
+            exact congrFun (storage_field_eq_of_rel h) s
+        | _ => rfl
 
 @[simp] theorem fieldIsTransient_eq (fields : List Field) (fieldName : String) :
     Denote.fieldIsTransient fields fieldName =

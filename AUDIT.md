@@ -298,6 +298,25 @@ sibling entrypoint.
   `TypedIRCompilerCorrectness`, and the contract proof suites). No theorem
   statement changed; no semantic change; zero axioms.
 
+## StorageKey Canonical Backing — C5 Step 3 (2026-08)
+
+- `ContractState` now stores word-valued channels in one
+  `storageWords : StorageKey → Uint256` map. `StorageKey` is an injective
+  inductive (`slot` / `contractSlot` / `transient` / `addr` / `map` /
+  `mapUint` / `map2`). Solidity keccak slot derivation stays on the
+  compiler side; lens laws use constructor injectivity, not hash
+  injectivity.
+- Public accessors keep the old names (`storage`, `storageAddr`,
+  `storageMap`, …). Specs that read those views do not change shape.
+  `storageArray` and `knownAddresses` remain separate fields this step.
+- The freeze baseline shrinks to `Verity/Core.lean` (lens
+  implementations) plus `Contracts/TypedIRTests.lean` (IRState field-name
+  collisions). `storageWords :=` is forbidden outside `Verity/Core.lean`.
+- Not C5 step 4: there is still no proved `storageKeySlot` /
+  `MappingCoherent` correspondence between these source keys and
+  CompilationModel/Yul slots.
+- Zero new axioms.
+
 ## CI Guards
 
 - `make check` validates generated reports, bridge coverage synchronization,

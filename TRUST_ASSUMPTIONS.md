@@ -185,6 +185,16 @@ semantics provably collapses to the plain one). Outside the proven fragment:
   machine-checked at the theorem surface, but the trust-report slice does
   **not** enumerate it — the slice only ever names `rawLog`.
 
+### Canonical `StorageKey` backing (`ContractState.storageWords`)
+Word-valued source storage is one map `StorageKey → Uint256`. The key is
+an injective inductive (`slot` / `contractSlot` / `transient` / `addr` /
+`map` / `mapUint` / `map2`); public accessors keep the old channel names.
+This is a representation change, not a new trust boundary: lens laws use
+constructor injectivity. Solidity keccak slot derivation, and any
+shadow-vs-flat mapping coherence, remain compiler-side (C5 step 4) and are
+**not** assumed here. `storageArray` and `knownAddresses` are still
+separate fields.
+
 ### External-Call Journal (`ContractState.calls`)
 `ContractState.calls` is an append-only journal of observed external calls
 (`Verity.ExternalCall`: site id, kind, target, value, calldata, control,

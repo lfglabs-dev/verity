@@ -4210,6 +4210,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams
   Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_none_of_not_length_le
   Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_take_param_length
+  Compiler.Proofs.IRGeneration.SourceSemantics.storage_withTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storageAddr_withTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storageArray_withTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storage_withConstructorTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storageAddr_withConstructorTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storageArray_withConstructorTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_congr_storageArray
   Compiler.Proofs.IRGeneration.SourceSemantics.encodeStorageAt_congr
@@ -6837,4 +6843,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6347 theorems/lemmas (4481 public, 1866 private, 0 sorry'd)
+-- Total: 6353 theorems/lemmas (4487 public, 1866 private, 0 sorry'd)

@@ -410,6 +410,25 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
   simp [storageMap2, writeSlot]
 
 /-- Address-slot writes leave word-slot and mapping compatibility views intact. -/
+@[simp] theorem storage_writeSlot_same (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).storage slot = value := by
+  simp [storage, writeSlot]
+
+@[simp] theorem storage_writeSlot_other (s : ContractState) {slot slot' : Nat}
+    (h : slot' ≠ slot) (value : Uint256) :
+    (s.writeSlot slot value).storage slot' = s.storage slot' := by
+  simp [storage, writeSlot, h]
+
+@[simp] theorem transientStorage_writeTransient_same (s : ContractState) (slot : Nat)
+    (value : Uint256) :
+    (s.writeTransient slot value).transientStorage slot = value := by
+  simp [transientStorage, writeTransient]
+
+@[simp] theorem transientStorage_writeTransient_other (s : ContractState)
+    {slot slot' : Nat} (h : slot' ≠ slot) (value : Uint256) :
+    (s.writeTransient slot value).transientStorage slot' = s.transientStorage slot' := by
+  simp [transientStorage, writeTransient, h]
+
 @[simp] theorem storage_writeAddrSlot (s : ContractState) (slot : Nat) (value : Address) :
     (s.writeAddrSlot slot value).storage = s.storage := by
   funext wordSlot
@@ -429,6 +448,58 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (s.writeAddrSlot slot value).storageMap2 = s.storageMap2 := by
   funext mapSlot mapKey1 mapKey2
   simp [storageMap2, writeAddrSlot]
+
+/-- Same-slot address view after a write. High bits of the backing word
+    are not part of the address payload. -/
+@[simp] theorem storageAddr_writeAddrSlot_same (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).storageAddr slot = value := by
+  simpa [storageAddr, writeAddrSlot] using
+    wordToAddress_writeAddressWord (s.storageWords (.addr slot)) value
+
+@[simp] theorem storageAddr_writeAddrSlot_other (s : ContractState)
+    {slot slot' : Nat} (h : slot' ≠ slot) (value : Address) :
+    (s.writeAddrSlot slot value).storageAddr slot' = s.storageAddr slot' := by
+  simp [storageAddr, writeAddrSlot, h]
+
+@[simp] theorem sender_writeAddrSlot (s : ContractState) (slot : Nat) (value : Address) :
+    (s.writeAddrSlot slot value).sender = s.sender := rfl
+
+@[simp] theorem thisAddress_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).thisAddress = s.thisAddress := rfl
+
+@[simp] theorem storageArray_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).storageArray = s.storageArray := rfl
+
+@[simp] theorem msgValue_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).msgValue = s.msgValue := rfl
+
+@[simp] theorem selfBalance_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).selfBalance = s.selfBalance := rfl
+
+@[simp] theorem blockTimestamp_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).blockTimestamp = s.blockTimestamp := rfl
+
+@[simp] theorem blockNumber_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).blockNumber = s.blockNumber := rfl
+
+@[simp] theorem chainId_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).chainId = s.chainId := rfl
+
+@[simp] theorem blobBaseFee_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).blobBaseFee = s.blobBaseFee := rfl
+
+@[simp] theorem calldataSize_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).calldataSize = s.calldataSize := rfl
 
 /-- Mapping writes leave word-slot and address compatibility views intact. -/
 @[simp] theorem storage_writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) :
@@ -597,6 +668,199 @@ def withStorageChannel (s : ContractState)
   { s with storageWords := fun key => match key with
       | .slot slot => f s.storage slot
       | _ => s.storageWords key }
+
+private theorem mem_of_contains_true {α : Type} [BEq α] [LawfulBEq α]
+    {xs : List α} {x : α} (h : xs.contains x = true) : x ∈ xs :=
+  (List.contains_iff_mem).mp h
+
+private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
+    {xs : List α} {x : α} (h : xs.contains x = false) : x ∉ xs := by
+  intro hmem
+  have := (List.contains_iff_mem).mpr hmem
+  exact Bool.noConfusion (this.symm.trans h)
+
+@[simp] theorem storageArray_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageArray_writeAddrSlots (s : ContractState) (targets : List Nat)
+    (value : Address) :
+    (s.writeAddrSlots targets value).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageArray_writeTransientSlots (s : ContractState)
+    (targets : List Nat) (value : Uint256) :
+    (s.writeTransientSlots targets value).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageArray_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageArray_modifyTransientSlots (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageArray_withStorageChannel (s : ContractState)
+    (f : (Nat → Uint256) → Nat → Uint256) :
+    (s.withStorageChannel f).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageArray_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageArray_writeMapUint (s : ContractState) (slot : Nat)
+    (key value : Uint256) :
+    (s.writeMapUint slot key value).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageArray_writeMap2 (s : ContractState) (slot : Nat)
+    (key1 key2 : Address) (value : Uint256) :
+    (s.writeMap2 slot key1 key2 value).storageArray = s.storageArray := rfl
+
+@[simp] theorem storage_writeSlots_mem (s : ContractState) (targets : List Nat)
+    (value : Uint256) {slot : Nat} (h : targets.contains slot = true) :
+    (s.writeSlots targets value).storage slot = value := by
+  have hmem := mem_of_contains_true h
+  simp [storage, writeSlots, hmem]
+
+@[simp] theorem storage_writeSlots_not_mem (s : ContractState) (targets : List Nat)
+    (value : Uint256) {slot : Nat} (h : targets.contains slot = false) :
+    (s.writeSlots targets value).storage slot = s.storage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storage, writeSlots, hmem]
+
+@[simp] theorem storageAddr_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, writeSlots]
+
+@[simp] theorem transientStorage_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, writeSlots]
+
+@[simp] theorem storage_writeAddrSlots (s : ContractState) (targets : List Nat)
+    (value : Address) :
+    (s.writeAddrSlots targets value).storage = s.storage := by
+  funext slot
+  simp [storage, writeAddrSlots]
+
+@[simp] theorem storageAddr_writeAddrSlots_mem (s : ContractState) (targets : List Nat)
+    (value : Address) {slot : Nat} (h : targets.contains slot = true) :
+    (s.writeAddrSlots targets value).storageAddr slot = value := by
+  have hmem := mem_of_contains_true h
+  simpa [storageAddr, writeAddrSlots, hmem] using
+    wordToAddress_writeAddressWord (s.storageWords (.addr slot)) value
+
+@[simp] theorem storageAddr_writeAddrSlots_not_mem (s : ContractState)
+    (targets : List Nat) (value : Address) {slot : Nat}
+    (h : targets.contains slot = false) :
+    (s.writeAddrSlots targets value).storageAddr slot = s.storageAddr slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storageAddr, writeAddrSlots, hmem]
+
+@[simp] theorem transientStorage_writeAddrSlots (s : ContractState)
+    (targets : List Nat) (value : Address) :
+    (s.writeAddrSlots targets value).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, writeAddrSlots]
+
+@[simp] theorem storage_writeTransientSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeTransientSlots targets value).storage = s.storage := by
+  funext slot
+  simp [storage, writeTransientSlots]
+
+@[simp] theorem storageAddr_writeTransientSlots (s : ContractState)
+    (targets : List Nat) (value : Uint256) :
+    (s.writeTransientSlots targets value).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, writeTransientSlots]
+
+@[simp] theorem transientStorage_writeTransientSlots_mem (s : ContractState)
+    (targets : List Nat) (value : Uint256) {slot : Nat}
+    (h : targets.contains slot = true) :
+    (s.writeTransientSlots targets value).transientStorage slot = value := by
+  have hmem := mem_of_contains_true h
+  simp [transientStorage, writeTransientSlots, hmem]
+
+@[simp] theorem transientStorage_writeTransientSlots_not_mem (s : ContractState)
+    (targets : List Nat) (value : Uint256) {slot : Nat}
+    (h : targets.contains slot = false) :
+    (s.writeTransientSlots targets value).transientStorage slot =
+      s.transientStorage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [transientStorage, writeTransientSlots, hmem]
+
+@[simp] theorem storage_modifySlots_not_mem (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) {slot : Nat} (h : targets.contains slot = false) :
+    (s.modifySlots targets f).storage slot = s.storage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storage, modifySlots, hmem]
+
+@[simp] theorem storage_modifySlots_mem (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) {slot : Nat} (h : targets.contains slot = true) :
+    (s.modifySlots targets f).storage slot = f (s.storage slot) := by
+  have hmem := mem_of_contains_true h
+  simp [storage, modifySlots, hmem]
+
+@[simp] theorem storageAddr_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, modifySlots]
+
+@[simp] theorem transientStorage_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, modifySlots]
+
+@[simp] theorem storage_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).storage = s.storage := by
+  funext slot
+  simp [storage, modifyTransientSlots]
+
+@[simp] theorem storageAddr_modifyTransientSlots (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, modifyTransientSlots]
+
+@[simp] theorem transientStorage_modifyTransientSlots_mem (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) {slot : Nat}
+    (h : targets.contains slot = true) :
+    (s.modifyTransientSlots targets f).transientStorage slot =
+      f (s.transientStorage slot) := by
+  have hmem := mem_of_contains_true h
+  simp [transientStorage, modifyTransientSlots, hmem]
+
+@[simp] theorem transientStorage_modifyTransientSlots_not_mem (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) {slot : Nat}
+    (h : targets.contains slot = false) :
+    (s.modifyTransientSlots targets f).transientStorage slot =
+      s.transientStorage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [transientStorage, modifyTransientSlots, hmem]
+
+@[simp] theorem storage_withStorageChannel (s : ContractState)
+    (f : (Nat → Uint256) → Nat → Uint256) :
+    (s.withStorageChannel f).storage = f s.storage := by
+  funext slot
+  simp [storage, withStorageChannel]
+
+@[simp] theorem storageAddr_withStorageChannel (s : ContractState)
+    (f : (Nat → Uint256) → Nat → Uint256) :
+    (s.withStorageChannel f).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, withStorageChannel]
+
+@[simp] theorem transientStorage_withStorageChannel (s : ContractState)
+    (f : (Nat → Uint256) → Nat → Uint256) :
+    (s.withStorageChannel f).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, withStorageChannel]
 
 /-- Canonical full-state constructor from explicit storage channels. Clients
 building a world from externally supplied channel functions (interpreter

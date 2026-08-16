@@ -67,7 +67,8 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   constructor_spec initialOwner s s' := by
   simp [constructor_spec, owner]
-  refine ⟨rfl, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_⟩
+  · simp
   · intro slotIdx h_neq
     simp [h_neq]
   · simp [Specs.sameStorageMapContext,
@@ -132,7 +133,8 @@ theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : 
   transferOwnership_spec newOwner s s' := by
   rw [transferOwnership_unfold s newOwner h_is_owner]
   simp [transferOwnership_spec, owner, ContractResult.snd]
-  refine ⟨rfl, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_⟩
+  · simp
   · intro slotIdx h_neq
     simp [h_neq]
   · simp [Specs.sameStorageMapContext,

@@ -22,6 +22,10 @@ by replacing the opaque FFI-based keccak256 call with the kernel-computable
 Keccak engine (`Compiler/Keccak/Sponge.lean`), which exposes the 32-byte
 output-length guarantee to Lean's proof system.
 
+C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
+not add a keccak-injectivity axiom. Source lens laws use constructor
+injectivity; Solidity slot derivation remains compiler-side.
+
 ## Eliminated Axioms
 
 ### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)
