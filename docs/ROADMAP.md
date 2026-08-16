@@ -41,11 +41,13 @@ Next: derive the executable shallow program from the deep model
 (`Stmt.denote`, macro retarget per-contract behind a flag), collapse the
 per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
-legacy-compatibility witness chain are already retired), then flatten
-`ContractState`'s typed storage channels into one word-addressed map with
-lens views — the enabler for FixedArray-under-mapping, dynamic CodeData,
-arbitrary transient storage and multicall/delegatecall (#1962, #1967,
-#1976, #1889).
+legacy-compatibility witness chain are already retired), then prove C5
+step 4 — structural `StorageKey` ↔ CompilationModel/Yul slot coherence
+(`storageKeySlot` / shadow-vs-flat `MappingCoherent`). C5 step 3 (canonical
+`storageWords : StorageKey → Uint256` backing, lens laws by constructor
+injectivity) is implemented; it is the enabler for FixedArray-under-mapping,
+dynamic CodeData, arbitrary transient storage and multicall/delegatecall
+(#1962, #1967, #1976, #1889).
 
 ---
 

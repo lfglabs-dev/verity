@@ -5523,8 +5523,7 @@ private def expectedWord : Nat := 1 + 7 * 2 ^ 1 + 9 * 2 ^ 113
 
 private def preservesAdjacentPackedFields : Bool :=
   let world : Verity.ContractState :=
-    { Verity.defaultState with
-      «storage» := fun s => if s == packedSlot then oldWord else 0 }
+    Verity.ContractState.writeSlot Verity.defaultState packedSlot oldWord
   let state : Denote.DenoteState := { world := world, bindings := [] }
   match Denote.execStmt oracle fields state
       (Stmt.setStructMember "deposits" (.literal key) "stake" (.literal 7)) with

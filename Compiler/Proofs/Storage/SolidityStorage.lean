@@ -108,7 +108,7 @@ theorem compiledMappingSlotPointer_eq_sourceMappingSlotRead
   simp only [SourceSemantics.evalExpr]
   rw [hfield]
   simp [mappingSlotBridgeField, mappingSlotBridgeState, SourceSemantics.readFieldWord,
-    Verity.ContractState.withStorageChannel, SourceSemantics.wordNormalize]
+    Verity.ContractState.storage_withStorageChannel, SourceSemantics.wordNormalize]
   change Compiler.Proofs.solidityMappingSlot baseSlot key =
     Compiler.Proofs.solidityMappingSlot baseSlot
       (key % Compiler.Constants.evmModulus) % Compiler.Constants.evmModulus
@@ -340,7 +340,7 @@ theorem compiledPackedRead_eq_sourceEvalPackedRead (word : Word) (offset width :
     unfold packedReadBridgeSourceExpr
     rw [SourceSemantics.evalExpr, hfield]
     simp [packedReadBridgeField, packedReadBridgeState,
-      Verity.ContractState.withStorageChannel,
+      Verity.ContractState.storage_withStorageChannel,
       SourceSemantics.readFieldWord, SourceSemantics.wordNormalize]
   have hextract := uint256_packed_extract (word.toNat % Verity.Core.Uint256.modulus)
     { offset := offset, width := width } hraw hoffset

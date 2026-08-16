@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Storage-lens API freeze gate (C5 step 1).
 
-The C5 storage-representation flip (one word-addressed `Nat -> Uint256` map
+The C5 storage-representation flip (one word-addressed `StorageKey -> Uint256` map
 with Solidity-layout slot derivation) requires that every read/write of
 `Verity.ContractState`'s storage channels go through the canonical lens API
 (`readSlot`/`writeSlot`/`writeMap`/... in `Verity/Core.lean`) instead of raw
@@ -15,16 +15,14 @@ baseline until only `Verity/Core.lean` remains, at which point the flip
 (C5 step 3) can swap the representation under stable lens names.
 
 Scope notes:
-- The six channels unique to `ContractState` (`contractStorage`,
-  `storageAddr`, `storageMap`, `storageMapUint`, `storageMap2`,
-  `storageArray`) are checked repo-wide.
-- `storage :=` / `transientStorage :=` are only checked under `Verity/` and
-  `Contracts/`: under `Compiler/` those field names also belong to
-  `IRState`/`DenoteState`-style records, which are proof-side runtime states,
-  not the source `ContractState`.  Raw `ContractState` writes under
-  `Compiler/` on those two fields are therefore NOT caught by this gate
-  (known v1 boundary; they are enumerated in the baseline where they use a
-  unique channel).
+- `storageWords` is checked repo-wide. It is the canonical word backing
+  field and may only be updated by the implementations in `Verity/Core.lean`.
+- `storage :=` / `transientStorage :=` are checked under `Verity/` and
+  `Contracts/`, and are additionally checked in `Compiler/` when the record
+  receiver is statically declared as `ContractState`. Compiler has unrelated
+  IR runtime records with the same field names, which this small type-aware
+  filter deliberately leaves out rather than freezing a false-positive
+  baseline.
 """
 
 from __future__ import annotations
@@ -36,6 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 UNIQUE_CHANNELS = (
+    "storageWords",
     "contractStorage",
     "storageAddr",
     "storageMap",
@@ -58,21 +57,30 @@ SHARED_SCAN_DIRS = ("Verity", "Contracts")
 # canonical `defaultState`/`emitEvent`-style literals; it is the only file
 # meant to keep raw access after the migration completes.
 BASELINE = {
-    # Lens/bulk-lens/ofChannels implementations + defaultState — the
-    # permanent residue the C5 step-3 flip swaps in place.
-    "Verity/Core.lean": 39,
-    # 3 `let storage :=` local-binding false positives + the find?-shaped
-    # transient packed-write arm (non-defeq to a lens; step-3 burn-down).
-    "Verity/Core/Model/Denote.lean": 6,
-    # Concurrent lane (Ownable/composition session) — not ours to migrate.
-    "Contracts/Owned/Proofs/Basic.lean": 8,
+    # The sole canonical word-map implementation boundary. This includes the
+    # single default-state literal plus the lens implementations (including
+    # bulk lenses); no caller outside this file may update `storageWords`.
+    "Verity/Core.lean": 21,
     # IRState fixture literals (field-name collision false positives).
     "Contracts/TypedIRTests.lean": 3,
-    # `=`-guarded dual-channel writeStorageWordSlot(s) (re-guarding to `==`
-    # would reshape the GenericInduction unfold surface; step-3 burn-down)
-    # + let-binding false positives.
-    "Compiler/Proofs/IRGeneration/SourceSemantics.lean": 7,
 }
+
+RECORD_UPDATE_RE = re.compile(
+    r"\{\s*([A-Za-z_][\w']*(?:\.[A-Za-z_][\w']*)*)\s+with\s+"
+    r"(?:(?!\}).)*?\b(?:«)?(storage|transientStorage)(?:»)?\s*:=",
+    re.MULTILINE | re.DOTALL,
+)
+CONTRACT_STATE_BINDING_RE = re.compile(
+    r"(?:\(|\{|,)\s*([A-Za-z_][\w']*)\s*:\s*(?:Verity\.)?ContractState\b"
+)
+CONTRACT_STATE_FIELD_RE = re.compile(
+    r"\b([A-Za-z_][\w']*)\s*:\s*(?:Verity\.)?ContractState\b"
+)
+CONTRACT_STATE_ASCRIPTION_RE = re.compile(
+    r"\{\s*([A-Za-z_][\w']*(?:\.[A-Za-z_][\w']*)*)\s+with\s+"
+    r"(?:«)?(?:storage|transientStorage)(?:»)?\s*:=[\s\S]{0,400}?\}\s*"
+    r":\s*(?:Verity\.)?ContractState\b"
+)
 
 
 def count_sites(path: Path) -> int:
@@ -81,8 +89,28 @@ def count_sites(path: Path) -> int:
     # Strip line comments to avoid counting documentation.
     text = re.sub(r"--[^\n]*", "", text)
     count = len(UNIQUE_RE.findall(text))
-    if rel.split("/", 1)[0] in SHARED_SCAN_DIRS:
+    top = rel.split("/", 1)[0]
+    if top in SHARED_SCAN_DIRS:
         count += len(SHARED_RE.findall(text))
+    elif top == "Compiler":
+        # `storage` and `transientStorage` are also fields of Compiler's IR
+        # states. Count only record updates whose receiver is known to be a
+        # source `ContractState`, plus explicitly ascribed ContractState
+        # literals and projections through fields declared as ContractState.
+        # This catches the source-world bypass without inventing a baseline
+        # for every IR-state update in Compiler proofs.
+        # `Verity.defaultState` has the concrete source-state type even when
+        # no local binding carries an annotation, so treat a record update
+        # rooted there as a source-world write too.
+        source_names = {"Verity.defaultState"}
+        source_names.update(CONTRACT_STATE_BINDING_RE.findall(text))
+        source_names.update(CONTRACT_STATE_ASCRIPTION_RE.findall(text))
+        source_field_names = set(CONTRACT_STATE_FIELD_RE.findall(text))
+        count += sum(
+            receiver in source_names
+            or receiver.rsplit(".", 1)[-1] in source_field_names
+            for receiver, _field in RECORD_UPDATE_RE.findall(text)
+        )
     return count
 
 

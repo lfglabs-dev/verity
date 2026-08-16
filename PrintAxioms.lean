@@ -3447,6 +3447,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_scope_names
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean
+  -- Compiler.Proofs.IRGeneration.singleton_contains_false  -- private
+  -- Compiler.Proofs.IRGeneration.singleton_contains_true  -- private
   -- Compiler.Proofs.IRGeneration.compileExprWithInternals_nil_ok  -- private
   -- Compiler.Proofs.IRGeneration.compileExprListWithInternals_nil_ok  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_singleton_other  -- private
@@ -3463,6 +3465,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.uint256_add_val_eq_mod  -- private
   Compiler.Proofs.IRGeneration.mappingWordTargetSlot_eq_uint256_add
   Compiler.Proofs.IRGeneration.mapping2WordTargetSlot_eq_uint256_add
+  -- Compiler.Proofs.IRGeneration.mapping2WordTargetSlot_eq_mod  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize_idem  -- private
@@ -3503,6 +3506,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_eq_written  -- private
   -- Compiler.Proofs.IRGeneration.abstractStoreStorageOrMappingMany_eq  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlot  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeStorageWordSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressSlot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlots  -- private
@@ -4210,6 +4214,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams
   Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_none_of_not_length_le
   Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_take_param_length
+  Compiler.Proofs.IRGeneration.SourceSemantics.storage_withTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storageAddr_withTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storageArray_withTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storage_withConstructorTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storageAddr_withConstructorTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.storageArray_withConstructorTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_congr_storageArray
   Compiler.Proofs.IRGeneration.SourceSemantics.encodeStorageAt_congr
@@ -6837,4 +6847,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6347 theorems/lemmas (4481 public, 1866 private, 0 sorry'd)
+-- Total: 6357 theorems/lemmas (4487 public, 1870 private, 0 sorry'd)

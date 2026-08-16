@@ -444,10 +444,7 @@ theorem runtimeStateMatchesIR_setTransientStorage
     (hvalue : value < Verity.Core.Uint256.modulus) :
     runtimeStateMatchesIR fields
       { runtime with
-          world := {
-            runtime.world with
-            transientStorage := fun o => if o = offset then value else runtime.world.transientStorage o
-          } }
+          world := runtime.world.writeTransient offset value }
       { state with
           transientStorage := fun o => if o = offset then value else state.transientStorage o } := by
   cases runtime
@@ -463,7 +460,10 @@ theorem runtimeStateMatchesIR_setTransientStorage
     funext o
     by_cases ho : o = offset
     · subst ho
-      simp only [ite_true, Verity.Core.Uint256.ofNat, Nat.mod_eq_of_lt hvalue]
+      simp [ite_true, Verity.ContractState.transientStorage_writeTransient_same,
+        Verity.Core.Uint256.ofNat]
+      have hmod : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
+      exact (Nat.mod_eq_of_lt (hmod ▸ hvalue)).symm
     · simp [ho]
       exact congrFun htrans o
 
@@ -3451,11 +3451,7 @@ theorem exec_compileStmtList_core
           let offsetKey := offsetNat % Compiler.Constants.evmModulus
           let runtime' :=
             { runtime with
-              world := {
-                runtime.world with
-                transientStorage := fun o =>
-                  if o = offsetKey then valueNat else runtime.world.transientStorage o
-              } }
+              world := runtime.world.writeTransient offsetKey valueNat }
           let state' := { state with
             transientStorage := fun o => if o = offsetKey then valueNat else state.transientStorage o }
           have hvalueLt := evalExpr_lt_evmModulus_core_onExpr hvalue
@@ -3950,11 +3946,7 @@ theorem exec_compileStmtList_core_extraFuel
           let offsetKey := offsetNat % Compiler.Constants.evmModulus
           let runtime' :=
             { runtime with
-              world := {
-                runtime.world with
-                transientStorage := fun o =>
-                  if o = offsetKey then valueNat else runtime.world.transientStorage o
-              } }
+              world := runtime.world.writeTransient offsetKey valueNat }
           let state' := { state with
             transientStorage := fun o => if o = offsetKey then valueNat else state.transientStorage o }
           have hvalueLt := evalExpr_lt_evmModulus_core_onExpr hvalue
@@ -7804,11 +7796,7 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
           let offsetKey := offsetNat % Compiler.Constants.evmModulus
           let runtime' :=
             { runtime with
-              world := {
-                runtime.world with
-                transientStorage := fun o =>
-                  if o = offsetKey then valueNat else runtime.world.transientStorage o
-              } }
+              world := runtime.world.writeTransient offsetKey valueNat }
           let state' := { state with
             transientStorage := fun o => if o = offsetKey then valueNat else state.transientStorage o }
           have hvalueLt := evalExpr_lt_evmModulus_core_of_scope hvalue hexact hinScopeValue hbounded hpresentValue hruntime

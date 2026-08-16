@@ -30,8 +30,8 @@ example (state : Verity.ContractState) (slot : Nat) :
 /-- Legacy single-contract writes update the original storage field. -/
 example (state : Verity.ContractState) (slot : Nat) (value : Verity.Uint256) :
     (state.writeContractSlot 0 slot value).readSlot slot = value := by
-  simp [Verity.ContractState.writeContractSlot, Verity.ContractState.writeSlot,
-    Verity.ContractState.readSlot]
+  simp [Verity.ContractState.writeContractSlot]
+  exact Verity.ContractState.readSlot_writeSlot_same state slot value
 
 /-- A write in one contract world is invisible at the same slot in another. -/
 example (state : Verity.ContractState) (slot : Nat) (value : Verity.Uint256) :

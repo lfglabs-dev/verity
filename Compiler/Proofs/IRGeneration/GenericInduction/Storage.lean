@@ -13,6 +13,14 @@ open Compiler.Yul
 
 attribute [local simp] CompilationModel.compileExprWithInternals_nil_eq
 
+private theorem singleton_contains_false {x y : Nat} (h : y ≠ x) :
+    [x].contains y = false :=
+  Bool.eq_false_iff.2 fun hcont =>
+    h (List.mem_singleton.mp ((List.contains_iff_mem).mp hcont))
+
+private theorem singleton_contains_true (x : Nat) : [x].contains x = true :=
+  (List.contains_iff_mem).mpr (List.mem_singleton.mpr rfl)
+
 private theorem compileExprWithInternals_nil_ok
     {fields : List Field} {dynamicSource : DynamicDataSource} {expr : Expr} {exprIR : YulExpr}
     (h : CompilationModel.compileExpr fields dynamicSource expr = Except.ok exprIR) :
@@ -39,9 +47,12 @@ private theorem encodeStorageAt_writeUintSlots_singleton_other
   apply SourceSemantics.encodeStorageAt_congr
   · have hneq' : query ≠ slot % Compiler.Constants.evmModulus := by
       simpa [SourceSemantics.wordNormalize] using hneq
-    simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots, SourceSemantics.wordNormalize, hneq']
-  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
-  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
+    simp [SourceSemantics.writeUintSlots, SourceSemantics.wordNormalize]
+    have hfalse : [slot % Compiler.Constants.evmModulus].contains query = false :=
+      singleton_contains_false hneq'
+    exact Verity.ContractState.storage_writeSlots_not_mem _ _ _ hfalse
+  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.storageAddr_writeSlots]
+  · simp [SourceSemantics.writeUintSlots]
 
 private theorem encodeStorageAt_writeUintSlots_other
     {fields : List Field}
@@ -54,12 +65,12 @@ private theorem encodeStorageAt_writeUintSlots_other
       query =
       SourceSemantics.encodeStorageAt fields world query := by
   apply SourceSemantics.encodeStorageAt_congr
-  · simp only [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
-    rw [show (slots.map SourceSemantics.wordNormalize).contains query = false from by
-      simpa using hnotMem]
-    simp
-  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
-  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots]
+  · simp only [SourceSemantics.writeUintSlots]
+    have hfalse : (slots.map SourceSemantics.wordNormalize).contains query = false := by
+      simpa [List.contains_iff_mem] using hnotMem
+    exact Verity.ContractState.storage_writeSlots_not_mem _ _ _ hfalse
+  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.storageAddr_writeSlots]
+  · simp [SourceSemantics.writeUintSlots]
 
 set_option maxHeartbeats 800000 in
 private theorem encodeStorageAt_writeUintKeyedMappingSlots_singleton_other
@@ -92,7 +103,9 @@ private theorem encodeStorageAt_writeUintKeyedMappingSlots_singleton_other
       hneq', hslotNe, hqueryMod, SourceSemantics.wordNormalize]
     apply Verity.Core.Uint256.ext
     simp [Verity.Core.Uint256.modulus, Nat.mod_eq_of_lt (world.storage query).isLt]
-  · simp [SourceSemantics.writeUintKeyedMappingSlots]
+  · simp [SourceSemantics.writeUintKeyedMappingSlots,
+      Verity.ContractState.storageAddr_writeMapUint,
+      Verity.ContractState.storageAddr_withStorageChannel]
   · simp [SourceSemantics.writeUintKeyedMappingSlots]
 
 private theorem encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_other
@@ -111,8 +124,14 @@ private theorem encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_oth
         query ≠ SourceSemantics.mappingSlotChain slot keys % Compiler.Constants.evmModulus := by
       simpa [SourceSemantics.wordNormalize] using hneq
     simp [SourceSemantics.writeAddressKeyedMappingChainSlots,
-      SourceSemantics.wordNormalize, hneq']
-  · simp [SourceSemantics.writeAddressKeyedMappingChainSlots]
+      SourceSemantics.wordNormalize]
+    have hfalse :
+        [SourceSemantics.mappingSlotChain slot keys % Compiler.Constants.evmModulus].contains query =
+          false :=
+      singleton_contains_false hneq'
+    exact Verity.ContractState.storage_writeSlots_not_mem _ _ _ hfalse
+  · simp [SourceSemantics.writeAddressKeyedMappingChainSlots,
+      Verity.ContractState.storageAddr_writeSlots]
   · simp [SourceSemantics.writeAddressKeyedMappingChainSlots]
 
 def mappingWordTargetSlot (slot key wordOffset : Nat) : Nat :=
@@ -196,6 +215,13 @@ theorem mapping2WordTargetSlot_eq_uint256_add (slot key1 key2 wordOffset : Nat) 
   unfold mapping2WordTargetSlot SourceSemantics.wordNormalize
   simpa [Compiler.Proofs.abstractMappingSlot_eq_solidity]
 
+private theorem mapping2WordTargetSlot_eq_mod (slot key1 key2 wordOffset : Nat) :
+    mapping2WordTargetSlot slot key1 key2 wordOffset =
+      (Compiler.Proofs.solidityMappingSlot
+        (Compiler.Proofs.solidityMappingSlot slot key1) key2 + wordOffset) %
+        Compiler.Constants.evmModulus := by
+  rw [mapping2WordTargetSlot_eq_uint256_add, uint256_add_val_eq_mod, Nat.add_comm]
+
 private theorem encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_other
     {fields : List Field}
     {world : Verity.ContractState}
@@ -226,9 +252,13 @@ private theorem encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_othe
         exact hEq.trans hslotEq.symm
       exact hneq htarget
     · simp [SourceSemantics.writeAddressKeyedMappingWordSlots, List.map_cons, List.map_nil]
-      intro hbad
-      exact False.elim (hEq hbad)
-  · simp [SourceSemantics.writeAddressKeyedMappingWordSlots]
+      have hfalse :
+          [(Compiler.Proofs.solidityMappingSlot slot key + wordOffset) %
+              Compiler.Constants.evmModulus].contains query = false :=
+        singleton_contains_false hEq
+      exact Verity.ContractState.storage_writeSlots_not_mem _ _ _ hfalse
+  · simp [SourceSemantics.writeAddressKeyedMappingWordSlots,
+      Verity.ContractState.storageAddr_writeSlots]
   · simp [SourceSemantics.writeAddressKeyedMappingWordSlots]
 
 private theorem encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_other
@@ -263,9 +293,13 @@ private theorem encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleto
         exact hEq.trans hslotEq.symm
       exact hneq htarget
     · simp [SourceSemantics.writeAddressKeyedMappingPackedWordSlots, List.map_cons, List.map_nil]
-      intro hbad
-      exact False.elim (hEq hbad)
-  · simp [SourceSemantics.writeAddressKeyedMappingPackedWordSlots]
+      have hfalse :
+          [(Compiler.Proofs.solidityMappingSlot slot key + wordOffset) %
+              Compiler.Constants.evmModulus].contains query = false :=
+        singleton_contains_false hEq
+      exact Verity.ContractState.storage_modifySlots_not_mem _ _ _ hfalse
+  · simp [SourceSemantics.writeAddressKeyedMappingPackedWordSlots,
+      Verity.ContractState.storageAddr_modifySlots]
   · simp [SourceSemantics.writeAddressKeyedMappingPackedWordSlots]
 
 def findResolvedFieldAtSlotCopy (fields : List Field) (slot : Nat) : Option Field :=
@@ -978,7 +1012,10 @@ private theorem encodeStorageAt_writeUintKeyedMappingSlots_singleton_eq_written
     rw [findDynamicArrayElementAtSlotCopy_wordNormalize]
     exact hdyn
   simp only [hdyn']
-  simp only [SourceSemantics.writeUintKeyedMappingSlots, List.foldl_cons, List.foldl_nil]
+  simp only [SourceSemantics.writeUintKeyedMappingSlots]
+  rw [Verity.ContractState.storage_writeMapUint,
+    Verity.ContractState.storage_withStorageChannel]
+  simp only [List.foldl_cons, List.foldl_nil]
   simp only [Compiler.Proofs.abstractStoreMappingEntry, Compiler.Proofs.abstractMappingSlot]
   simp only [IRStorageSlot.ofNat_wordNormalize, ite_true, Verity.Core.Uint256.val_ofNat,
     Compiler.Proofs.IRGeneration.IRStorageWord.toNat_ofNat,
@@ -1026,8 +1063,9 @@ private theorem encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_eq_
     rw [findDynamicArrayElementAtSlotCopy_wordNormalize]
     exact hdyn
   simp only [hdyn']
-  simp only [SourceSemantics.writeAddressKeyedMappingChainSlots, List.map_cons, List.map_nil,
-    List.contains_cons, List.contains_nil, Bool.or_false, beq_iff_eq, ite_true]
+  simp only [SourceSemantics.writeAddressKeyedMappingChainSlots, List.map_cons, List.map_nil]
+  rw [Verity.ContractState.storage_writeSlots_mem _ _ _
+    (singleton_contains_true _)]
   simp only [Verity.Core.Uint256.val_ofNat]
   exact Nat.mod_eq_of_lt hvalue
 
@@ -1216,7 +1254,10 @@ private theorem encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_eq_writ
     rw [findDynamicArrayElementAtSlotCopy_wordNormalize]
     exact hdyn
   simp only [hdyn']
-  simp only [SourceSemantics.writeAddressKeyedMapping2Slots, List.foldl_cons, List.foldl_nil]
+  simp only [SourceSemantics.writeAddressKeyedMapping2Slots]
+  rw [Verity.ContractState.storage_writeMap2,
+    Verity.ContractState.storage_withStorageChannel]
+  simp only [List.foldl_cons, List.foldl_nil]
   simp only [Compiler.Proofs.abstractStoreMappingEntry, Compiler.Proofs.abstractMappingSlot]
   simp only [IRStorageSlot.ofNat_wordNormalize, ite_true, Verity.Core.Uint256.val_ofNat,
     Compiler.Proofs.IRGeneration.IRStorageWord.toNat_ofNat,
@@ -1241,37 +1282,12 @@ private theorem encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_oth
           (Compiler.Proofs.solidityMappingSlot
             (Compiler.Proofs.solidityMappingSlot slot key1) key2 + wordOffset) %
             Compiler.Constants.evmModulus
-    · exfalso
-      have htarget : query = mapping2WordTargetSlot slot key1 key2 wordOffset := by
-        rw [mapping2WordTargetSlot_eq_uint256_add]
-        have hslotEq :
-            (Verity.Core.Uint256.ofNat wordOffset +
-              Verity.Core.Uint256.ofNat
-                (Compiler.Proofs.solidityMappingSlot
-                  (Compiler.Proofs.solidityMappingSlot slot key1) key2)).val =
-            (Compiler.Proofs.solidityMappingSlot
-              (Compiler.Proofs.solidityMappingSlot slot key1) key2 + wordOffset) %
-              Compiler.Constants.evmModulus := by
-          change
-            (wordOffset % Compiler.Constants.evmModulus +
-                Compiler.Proofs.solidityMappingSlot
-                  (Compiler.Proofs.solidityMappingSlot slot key1) key2 %
-                  Compiler.Constants.evmModulus) %
-              Compiler.Constants.evmModulus =
-            (Compiler.Proofs.solidityMappingSlot
-              (Compiler.Proofs.solidityMappingSlot slot key1) key2 + wordOffset) %
-              Compiler.Constants.evmModulus
-          rw [Nat.add_comm]
-          exact (Nat.add_mod
-            (Compiler.Proofs.solidityMappingSlot
-              (Compiler.Proofs.solidityMappingSlot slot key1) key2)
-            wordOffset Compiler.Constants.evmModulus).symm
-        exact hEq.trans hslotEq.symm
-      exact hneq htarget
+    · exact (hneq (hEq.trans (mapping2WordTargetSlot_eq_mod slot key1 key2 wordOffset).symm)).elim
     · simp [SourceSemantics.writeAddressKeyedMapping2WordSlots, List.map_cons, List.map_nil]
-      intro hbad
-      exact False.elim (hEq hbad)
-  · simp [SourceSemantics.writeAddressKeyedMapping2WordSlots]
+      exact Verity.ContractState.storage_writeSlots_not_mem _ _ _
+        (singleton_contains_false hEq)
+  · simp [SourceSemantics.writeAddressKeyedMapping2WordSlots,
+      Verity.ContractState.storageAddr_writeSlots]
   · simp [SourceSemantics.writeAddressKeyedMapping2WordSlots]
 
 private theorem encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_eq_written
@@ -1392,9 +1408,9 @@ private theorem runtimeStateMatchesIR_writeUintSlot
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
       rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' hnotAddr hnotDyn]
-      simp [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
+      simp [SourceSemantics.writeUintSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
         SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-        Verity.Core.UINT256_MODULUS, Verity.Core.Uint256.val_ofNat]
+        Verity.Core.UINT256_MODULUS]
       exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
         (Nat.mod_eq_of_lt hvalue).symm
     · rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
@@ -1403,6 +1419,24 @@ private theorem runtimeStateMatchesIR_writeUintSlot
       exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
         (encodeStorageAt_writeUintSlots_singleton_other
           (IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat hEq)).symm
+
+private theorem encodeStorageAt_writeStorageWordSlots_singleton_other
+    {fields : List Field}
+    {world : Verity.ContractState}
+    {slot query value : Nat}
+    (hneq : query ≠ slot % Compiler.Constants.evmModulus) :
+    SourceSemantics.encodeStorageAt fields
+      (SourceSemantics.writeStorageWordSlots world [slot] 0 value) query =
+      SourceSemantics.encodeStorageAt fields world query := by
+  apply SourceSemantics.encodeStorageAt_congr
+  · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize]
+    exact Verity.ContractState.storage_writeSlots_not_mem _ _ _
+      (singleton_contains_false hneq)
+  · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize]
+    rw [Verity.ContractState.storageAddr_writeAddrSlots_not_mem _ _ _
+      (singleton_contains_false hneq)]
+    rw [Verity.ContractState.storageAddr_writeSlots]
+  · simp [SourceSemantics.writeStorageWordSlots]
 
 private theorem runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
     {fields : List Field}
@@ -1436,7 +1470,7 @@ private theorem runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
       rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' hnotAddr hnotDyn]
       simp [SourceSemantics.writeStorageWordSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
         SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-        Verity.Core.UINT256_MODULUS, Verity.Core.Uint256.val_ofNat]
+        Verity.Core.UINT256_MODULUS]
       exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
         (Nat.mod_eq_of_lt hvalue).symm
     · rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
@@ -1444,13 +1478,10 @@ private theorem runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
       rw [hstorage]
       symm
       refine congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat ?_
-      have hneqNat := IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat hEq
       have hneqNat' : query.toNat ≠ slot % Compiler.Constants.evmModulus := by
-        simpa [SourceSemantics.wordNormalize] using hneqNat
-      apply SourceSemantics.encodeStorageAt_congr
-      · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize, hneqNat']
-      · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize, hneqNat']
-      · simp [SourceSemantics.writeStorageWordSlots]
+        simpa [SourceSemantics.wordNormalize] using
+          IRStorageSlot.ne_toNat_wordNormalize_of_ne_ofNat hEq
+      exact encodeStorageAt_writeStorageWordSlots_singleton_other hneqNat'
 
 private theorem runtimeStateMatchesIR_writeAddressSlot
     {fields : List Field}
@@ -1482,15 +1513,14 @@ private theorem runtimeStateMatchesIR_writeAddressSlot
           (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) = some f from
             by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
       rw [encodeStorageAt_eq_storageAddr_of_resolvedSlot hresolved' haddr hnotDyn]
-      simp [SourceSemantics.writeAddressSlots, Verity.ContractState.writeAddrSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
+      simp [SourceSemantics.writeAddressSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
         SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
         Verity.Core.UINT256_MODULUS,
         Verity.wordToAddress, Verity.Core.Address.ofNat, Verity.Core.Uint256.val_ofNat,
         Verity.Core.Address.modulus, Compiler.Constants.addressMask]
-      rw [Nat.mod_eq_of_lt hvalue]
       refine congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat ?_
       simpa [Compiler.Constants.addressMask, Verity.Core.Address.modulus,
-        Verity.Core.ADDRESS_MODULUS] using
+        Verity.Core.ADDRESS_MODULUS, Nat.mod_eq_of_lt hvalue] using
         (Nat.and_two_pow_sub_one_eq_mod (n := 160) value)
     · rw [Compiler.Proofs.abstractStoreStorageOrMapping_eq]
       simp only [hEq, ↓reduceIte]
@@ -1501,9 +1531,11 @@ private theorem runtimeStateMatchesIR_writeAddressSlot
       have hneqNat' : query.toNat ≠ slot % Compiler.Constants.evmModulus := by
         simpa [SourceSemantics.wordNormalize] using hneqNat
       apply SourceSemantics.encodeStorageAt_congr
-      · simp [SourceSemantics.writeAddressSlots, Verity.ContractState.writeAddrSlots]
-      · simp [SourceSemantics.writeAddressSlots, Verity.ContractState.writeAddrSlots, SourceSemantics.wordNormalize, hneqNat']
-      · simp [SourceSemantics.writeAddressSlots, Verity.ContractState.writeAddrSlots]
+      · simp [SourceSemantics.writeAddressSlots]
+      · simp [SourceSemantics.writeAddressSlots, SourceSemantics.wordNormalize]
+        exact Verity.ContractState.storageAddr_writeAddrSlots_not_mem _ _ _
+          (singleton_contains_false hneqNat')
+      · simp [SourceSemantics.writeAddressSlots]
 
 private theorem runtimeStateMatchesIR_writeUintSlots
     {fields : List Field}
@@ -1547,10 +1579,9 @@ private theorem runtimeStateMatchesIR_writeUintSlots
                 (slot % Verity.Core.Uint256.modulus) = true := by
             simpa [SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
               Verity.Core.UINT256_MODULUS, Verity.Core.Uint256.modulus] using hcontains
-        simp only [SourceSemantics.writeUintSlots, Verity.ContractState.writeSlots, IRStorageSlot.toNat_ofNat_wordNormalize,
-            SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-            Verity.Core.UINT256_MODULUS, hcontains',
-            ↓reduceIte, Verity.Core.Uint256.val_ofNat]
+        simp only [SourceSemantics.writeUintSlots, IRStorageSlot.toNat_ofNat_wordNormalize]
+        rw [Verity.ContractState.storage_writeSlots_mem _ _ _ hcontains]
+        simp only [Verity.Core.Uint256.val_ofNat]
         exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (Nat.mod_eq_of_lt hvalue).symm
       · simp only [hmem, ↓reduceIte]
         rw [hstorage]
@@ -1623,20 +1654,21 @@ private theorem runtimeStateMatchesIR_writeTransientTarget
   · funext query
     rw [hstorage]
     exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
-      (SourceSemantics.encodeStorageAt_congr (by simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots])
-        (by simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots])
-        (by simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots]))
+      (SourceSemantics.encodeStorageAt_congr
+        (by simp [SourceSemantics.writeTransientTargets])
+        (by simp [SourceSemantics.writeTransientTargets])
+        (by simp [SourceSemantics.writeTransientTargets]))
   · funext slot
     by_cases hslot : slot = SourceSemantics.wordNormalize target
     · subst hslot
-      simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots]
+      simp [SourceSemantics.writeTransientTargets]
       exact (Nat.mod_eq_of_lt (by
         simpa [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS,
           Verity.Core.Uint256.modulus] using hvalue)).symm
-    · simp [SourceSemantics.writeTransientTargets, Verity.ContractState.writeTransientSlots, hslot]
-      have hslot' : slot ≠ target % Compiler.Constants.evmModulus := by
+    · have hslot' : slot ≠ target % Compiler.Constants.evmModulus := by
         simpa [SourceSemantics.wordNormalize] using hslot
-      simp [hslot', congrFun htransient slot]
+      simp [SourceSemantics.writeTransientTargets, hslot, hslot']
+      exact congrFun htransient slot
 
 private theorem runtimeStateMatchesIR_writeAddressKeyedMappingChainSlot
     {fields : List Field}
@@ -2836,11 +2868,7 @@ private theorem compiledStmtStep_tstore_single_preserves
       let offsetKey := offsetNat % Compiler.Constants.evmModulus
       set runtime' := {
         runtime with
-        world := {
-          runtime.world with
-          transientStorage := fun o =>
-            if o = offsetKey then valueNat else runtime.world.transientStorage o
-        }
+        world := runtime.world.writeTransient offsetKey valueNat
       }
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.tstore offset value) = .continue runtime' := by
@@ -5222,6 +5250,13 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
                 simp [oldWordNat, storedWordNat,
                   SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
                   htargetNorm, htargetModSelf, hquery, hbeq, hqueryTarget, htransient]
+                have hne :
+                    query ≠
+                      (Compiler.Proofs.solidityMappingSlot slot keyNat + wordOffset) %
+                        Compiler.Constants.evmModulus :=
+                  fun h => hqueryTarget h.symm
+                rw [Verity.ContractState.transientStorage_modifyTransientSlots_not_mem _ _ _
+                  (singleton_contains_false hne)]
                 exact congrFun htransient query
             · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
                 state4, state3, state2, state1] using hsender

@@ -36,12 +36,14 @@ def setLock (slot : Nat) (value : Uint256) (s : ContractState) : ContractState :
 
 @[simp] theorem setLock_reads (slot : Nat) (value : Uint256) (s : ContractState) :
     (setLock slot value s).transientStorage slot = value := by
-  simp [setLock, ContractState.writeTransient]
+  simpa [setLock, ContractState.readTransient] using
+    ContractState.readTransient_writeTransient_same s slot value
 
 @[simp] theorem setLock_reads_other (slot k : Nat) (value : Uint256)
     (s : ContractState) (h : k ≠ slot) :
     (setLock slot value s).transientStorage k = s.transientStorage k := by
-  simp [setLock, ContractState.writeTransient, h]
+  simpa [setLock, ContractState.readTransient] using
+    ContractState.readTransient_writeTransient_other s h value
 
 /-- Executable semantics of a `nonreentrant(slot)` entrypoint. -/
 def guarded (slot : Nat) (body : Contract α) : Contract α :=

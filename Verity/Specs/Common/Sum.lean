@@ -236,11 +236,11 @@ theorem balancesFinite_preserved_deposit {slot : Nat} (s : ContractState)
   have h_not_or := mt (FiniteSet.mem_elements_insert addr' addr (s.knownAddresses slot).addresses).mpr h_not_in
   simp only [not_or] at h_not_or
   obtain ⟨h_ne, h_not_orig⟩ := h_not_or
-  -- Since addr' ≠ addr, the storageMap if-condition evaluates to false
-  simp only [ContractState.writeMap, BEq.beq, decide_true, Bool.true_and]
-  have h_ne' : ¬(decide (addr' = addr) = true) := by simp [h_ne]
-  simp [h_ne']
-  -- Now the goal reduces to s.storageMap slot addr' = 0, which follows from h_finite
+  -- The `knownAddresses` record update does not alter the canonical word
+  -- lens, and constructor injectivity makes the different-key write inert.
+  change (s.writeMap slot addr amount).storageMap slot addr' = 0
+  rw [← ContractState.readMap]
+  rw [ContractState.readMap_writeMap_other_key s slot h_ne amount]
   exact h_finite addr' h_not_orig
 
 end Verity.Specs.Common
