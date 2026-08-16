@@ -933,21 +933,16 @@ def main (args : List String) : IO Unit := do
       | some s => parseStorageMap2 s
       | none => fun _ _ _ => 0 -- Default: empty 2-key mapping storage
 
-    let initialState : ContractState := {
-      «storage» := storageState
-      transientStorage := fun _ => 0
-      storageAddr := storageAddrState
-      storageMap := storageMapState
-      storageMapUint := storageMapUintState
-      storageMap2 := storageMap2State
-      storageArray := fun _ => []
-      sender := senderAddress
-      thisAddress := Verity.Core.Address.ofNat 0xC0437AC7
-      msgValue := valueOpt.getD 0
-      blockTimestamp := timestampOpt.getD 0
-      knownAddresses := fun _ => Verity.Core.FiniteAddressSet.empty
-      events := []
-    }
+    let initialState : ContractState :=
+      ContractState.ofChannels storageState
+        (addrChannel := storageAddrState)
+        (mapChannel := storageMapState)
+        (mapUintChannel := storageMapUintState)
+        (map2Channel := storageMap2State)
+        (sender := senderAddress)
+        (thisAddress := Verity.Core.Address.ofNat 0xC0437AC7)
+        (msgValue := valueOpt.getD 0)
+        (blockTimestamp := timestampOpt.getD 0)
     let contractTypeEnum? : Option ContractType := match contractType with
       | "SimpleStorage" => some ContractType.simpleStorage
       | "LocalObligationMacroSmoke" => some ContractType.localObligationMacroSmoke

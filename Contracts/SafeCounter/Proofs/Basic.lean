@@ -55,31 +55,9 @@ theorem evm_add_eq_of_no_overflow (a b : Uint256) (_h : (a : Nat) + (b : Nat) �
 /-- Helper: unfold increment when no overflow -/
 private theorem increment_unfold (s : ContractState)
   (h_no_overflow : (s.storage 0 : Nat) + 1 ≤ MAX_UINT256) :
-  (increment).run s = ContractResult.success ()
-    { «storage» := fun k => if (k == 0) = true then s.storage 0 + 1 else s.storage k,
-      contractStorage := s.contractStorage,
-      transientStorage := s.transientStorage,
-      storageAddr := s.storageAddr,
-      storageMap := s.storageMap,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
-      knownAddresses := s.knownAddresses,
-      events := s.events, calls := s.calls } := by
+  (increment).run s = ContractResult.success () (s.writeSlot 0 (s.storage 0 + 1)) := by
   verity_unfold increment
-  simp [count, requireSomeUint, Verity.pure, Pure.pure,
+  simp [count, requireSomeUint, Verity.pure, Pure.pure, 
     safeAdd_some (s.storage 0) 1 h_no_overflow]
 
 theorem increment_meets_spec (s : ContractState)
@@ -87,7 +65,7 @@ theorem increment_meets_spec (s : ContractState)
   let s' := ((increment).run s).snd
   increment_spec s s' := by
   rw [increment_unfold s h_no_overflow]
-  simp only [ContractResult.snd, increment_spec]
+  simp only [ContractResult.snd, ContractState.writeSlot, increment_spec]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [evm_add_eq_of_no_overflow (s.storage 0) 1 h_no_overflow]
   · intro k h_ne; simp [beq_iff_eq, h_ne]
@@ -101,7 +79,7 @@ theorem increment_adds_one (s : ContractState)
   let s' := ((increment).run s).snd
   s'.storage 0 = add (s.storage 0) 1 := by
   rw [increment_unfold s h_no_overflow]
-  simp [ContractResult.snd, evm_add_eq_of_no_overflow (s.storage 0) 1 h_no_overflow]
+  simp [ContractResult.snd, ContractState.writeSlot, evm_add_eq_of_no_overflow (s.storage 0) 1 h_no_overflow]
 
 theorem increment_preserves_other_slots (s : ContractState)
   (h_no_overflow : (s.storage 0 : Nat) + 1 ≤ MAX_UINT256)
@@ -109,7 +87,7 @@ theorem increment_preserves_other_slots (s : ContractState)
   let s' := ((increment).run s).snd
   s'.storage k = s.storage k := by
   rw [increment_unfold s h_no_overflow]
-  simp [ContractResult.snd, beq_iff_eq, h_ne]
+  simp [ContractResult.snd, ContractState.writeSlot, beq_iff_eq, h_ne]
 
 theorem increment_reverts_overflow (s : ContractState)
   (h_overflow : (s.storage 0 : Nat) + 1 > MAX_UINT256) :
@@ -123,31 +101,9 @@ theorem increment_reverts_overflow (s : ContractState)
 /-- Helper: unfold decrement when no underflow -/
 private theorem decrement_unfold (s : ContractState)
   (h_no_underflow : (s.storage 0 : Nat) ≥ 1) :
-  (decrement).run s = ContractResult.success ()
-    { «storage» := fun k => if (k == 0) = true then s.storage 0 - 1 else s.storage k,
-      contractStorage := s.contractStorage,
-      transientStorage := s.transientStorage,
-      storageAddr := s.storageAddr,
-      storageMap := s.storageMap,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
-      knownAddresses := s.knownAddresses,
-      events := s.events, calls := s.calls } := by
+  (decrement).run s = ContractResult.success () (s.writeSlot 0 (s.storage 0 - 1)) := by
   verity_unfold decrement
-  simp [count, requireSomeUint, Verity.pure, Pure.pure,
+  simp [count, requireSomeUint, Verity.pure, Pure.pure, 
     safeSub_some (s.storage 0) 1 h_no_underflow]
 
 theorem decrement_meets_spec (s : ContractState)
@@ -155,7 +111,7 @@ theorem decrement_meets_spec (s : ContractState)
   let s' := ((decrement).run s).snd
   decrement_spec s s' := by
   rw [decrement_unfold s h_no_underflow]
-  simp only [ContractResult.snd, decrement_spec]
+  simp only [ContractResult.snd, ContractState.writeSlot, decrement_spec]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [HSub.hSub, sub]
   · intro k h_ne; simp [beq_iff_eq, h_ne]
@@ -169,7 +125,7 @@ theorem decrement_subtracts_one (s : ContractState)
   let s' := ((decrement).run s).snd
   s'.storage 0 = sub (s.storage 0) 1 := by
   rw [decrement_unfold s h_no_underflow]
-  simp [ContractResult.snd, HSub.hSub, sub]
+  simp [ContractResult.snd, ContractState.writeSlot, HSub.hSub, sub]
 
 theorem decrement_preserves_other_slots (s : ContractState)
   (h_no_underflow : (s.storage 0 : Nat) ≥ 1)
@@ -177,7 +133,7 @@ theorem decrement_preserves_other_slots (s : ContractState)
   let s' := ((decrement).run s).snd
   s'.storage k = s.storage k := by
   rw [decrement_unfold s h_no_underflow]
-  simp [ContractResult.snd, beq_iff_eq, h_ne]
+  simp [ContractResult.snd, ContractState.writeSlot, beq_iff_eq, h_ne]
 
 theorem decrement_reverts_underflow (s : ContractState)
   (h_underflow : s.storage 0 = 0) :
@@ -193,7 +149,7 @@ theorem increment_preserves_wellformedness (s : ContractState)
   let s' := ((increment).run s).snd
   WellFormedState s' := by
   rw [increment_unfold s h_no_overflow]
-  simp [ContractResult.snd]
+  simp [ContractResult.snd, ContractState.writeSlot]
   exact ⟨h.sender_nonzero, h.contract_nonzero⟩
 
 theorem decrement_preserves_wellformedness (s : ContractState)
@@ -201,7 +157,7 @@ theorem decrement_preserves_wellformedness (s : ContractState)
   let s' := ((decrement).run s).snd
   WellFormedState s' := by
   rw [decrement_unfold s h_no_underflow]
-  simp [ContractResult.snd]
+  simp [ContractResult.snd, ContractState.writeSlot]
   exact ⟨h.sender_nonzero, h.contract_nonzero⟩
 
 /-! ## Bounds Preservation -/
@@ -211,7 +167,7 @@ theorem increment_preserves_bounds (s : ContractState)
   let s' := ((increment).run s).snd
   count_in_bounds s' := by
   rw [increment_unfold s h_no_overflow]
-  simp [ContractResult.snd, count_in_bounds]
+  simp [ContractResult.snd, ContractState.writeSlot, count_in_bounds]
   have h_bound := Verity.Core.Uint256.val_le_max (s.storage 0 + 1)
   simp [Verity.Core.Uint256.add_comm] at h_bound
   exact h_bound
@@ -222,7 +178,7 @@ theorem decrement_preserves_bounds (s : ContractState)
   let s' := ((decrement).run s).snd
   count_in_bounds s' := by
   rw [decrement_unfold s h_no_underflow]
-  simp [ContractResult.snd, count_in_bounds]
+  simp [ContractResult.snd, ContractState.writeSlot, count_in_bounds]
   exact Verity.Core.Uint256.val_le_max (s.storage 0 - 1)
 
 /-! ## Composition: increment → getCount -/
@@ -232,7 +188,7 @@ theorem increment_getCount_correct (s : ContractState)
   let s' := ((increment).run s).snd
   ((getCount).run s').fst = add (s.storage 0) 1 := by
   rw [increment_unfold s h_no_overflow]
-  simp [getCount_run, ContractResult.snd, evm_add_eq_of_no_overflow (s.storage 0) 1 h_no_overflow]
+  simp [getCount_run, ContractResult.snd, ContractState.writeSlot, evm_add_eq_of_no_overflow (s.storage 0) 1 h_no_overflow]
 
 /-! ## Summary of Proven Properties
 

@@ -214,34 +214,27 @@ def evalTStmtFuel : Nat → TExecState → TStmt → TExecResult
       .ok { s with vars := s.vars.set dst (evalTExpr s rhs) }
   | Nat.succ _, s, .setStorage slot value =>
       let v := evalTExpr s value
-      .ok { s with world := { s.world with
-        storage := fun i => if i == slot then v else s.world.storage i } }
+      .ok { s with world := s.world.writeSlot slot v }
   | Nat.succ _, s, .setStorageAddr slot value =>
       let v := evalTExpr s value
-      .ok { s with world := { s.world with
-        storageAddr := fun i => if i == slot then v else s.world.storageAddr i } }
+      .ok { s with world := s.world.writeAddrSlot slot v }
   | Nat.succ _, s, .setStorageWord slot value =>
       let v := evalTExpr s value
-      .ok { s with world := { s.world with
-        storage := fun i => if i == slot then v else s.world.storage i,
-        storageAddr := fun i => if i == slot then Verity.wordToAddress v else s.world.storageAddr i } }
+      .ok { s with world :=
+        (s.world.writeSlot slot v).writeAddrSlot slot (Verity.wordToAddress v) }
   | Nat.succ _, s, .setMapping slot key value =>
       let k := evalTExpr s key
       let v := evalTExpr s value
-      .ok { s with world := { s.world with
-        storageMap := fun i addr => if i == slot && addr == k then v else s.world.storageMap i addr } }
+      .ok { s with world := s.world.writeMap slot k v }
   | Nat.succ _, s, .setMapping2 slot key1 key2 value =>
       let k1 := evalTExpr s key1
       let k2 := evalTExpr s key2
       let v := evalTExpr s value
-      .ok { s with world := { s.world with
-        storageMap2 := fun i addr1 addr2 =>
-          if i == slot && addr1 == k1 && addr2 == k2 then v else s.world.storageMap2 i addr1 addr2 } }
+      .ok { s with world := s.world.writeMap2 slot k1 k2 v }
   | Nat.succ _, s, .setMappingUint slot key value =>
       let k := evalTExpr s key
       let v := evalTExpr s value
-      .ok { s with world := { s.world with
-        storageMapUint := fun i key' => if i == slot && key' == k then v else s.world.storageMapUint i key' } }
+      .ok { s with world := s.world.writeMapUint slot k v }
   | Nat.succ fuel, s, .if_ cond thenBranch elseBranch =>
       match evalTExpr s cond with
       | true => evalTStmtsFuel fuel s thenBranch

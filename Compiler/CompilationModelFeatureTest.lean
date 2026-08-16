@@ -2364,9 +2364,7 @@ example : storageDynamicArrayPopUsesStorageStmt = true := by native_decide
 
 def storageDynamicArrayExecutableReadsHead : Bool :=
   let seededState : Verity.ContractState :=
-    { Verity.defaultState with
-      storageArray := fun idx =>
-        if idx == (MacroStorageDynamicArray.queue).slot then [11, 17] else [] }
+    Verity.defaultState.writeArray (MacroStorageDynamicArray.queue).slot [11, 17]
   match MacroStorageDynamicArray.firstValue seededState with
   | .success value state =>
       value == 11 && state.storageArray (MacroStorageDynamicArray.queue).slot == [11, 17]
@@ -2385,9 +2383,7 @@ example : storageDynamicArrayExecutableReadRevertsOutOfBounds = true := by nativ
 
 def storageDynamicArrayExecutableSetUpdatesHead : Bool :=
   let seededState : Verity.ContractState :=
-    { Verity.defaultState with
-      storageArray := fun idx =>
-        if idx == (MacroStorageDynamicArray.queue).slot then [11, 17] else [] }
+    Verity.defaultState.writeArray (MacroStorageDynamicArray.queue).slot [11, 17]
   match MacroStorageDynamicArray.setValue0 29 seededState with
   | .success () state =>
       state.storageArray (MacroStorageDynamicArray.queue).slot == [29, 17]
@@ -2406,9 +2402,7 @@ example : storageDynamicArrayExecutableSetRevertsOutOfBounds = true := by native
 
 def storageDynamicArrayExecutablePopShrinksLength : Bool :=
   let seededState : Verity.ContractState :=
-    { Verity.defaultState with
-      storageArray := fun idx =>
-        if idx == (MacroStorageDynamicArray.queue).slot then [11, 17] else [] }
+    Verity.defaultState.writeArray (MacroStorageDynamicArray.queue).slot [11, 17]
   match MacroStorageDynamicArray.popValue seededState with
   | .success () state =>
       state.storageArray (MacroStorageDynamicArray.queue).slot == [11]

@@ -480,11 +480,8 @@ def emit (name : String) (args : List EventArg) : Contract Unit := do
 def setPackedStorage {α : Type} (rootSlot : StorageSlot α) (wordOffset : Nat)
     (word : Uint256) : Contract Unit := fun state =>
   let targetSlot := (rootSlot.slot + wordOffset) % Compiler.Constants.evmModulus
-  ContractResult.success () { state with
-    «storage» := fun target => if target == targetSlot then word else state.storage target,
-    storageAddr := fun target =>
-      if target == targetSlot then wordToAddress word else state.storageAddr target
-  }
+  ContractResult.success ()
+    ((state.writeSlot targetSlot word).writeAddrSlot targetSlot (wordToAddress word))
 def rawLog (topics : List Uint256) (dataOffset dataSize : Uint256) : Contract Unit := fun state =>
   if topics.length > 4 then
     ContractResult.revert s!"rawLog supports at most 4 topics, got {topics.length}" state
@@ -495,9 +492,7 @@ def rawLog (topics : List Uint256) (dataOffset dataSize : Uint256) : Contract Un
     }
 def mstore (_offset _value : Uint256) : Contract Unit := pure ()
 def tstore (offset value : Uint256) : Contract Unit := fun state =>
-  ContractResult.success () { state with
-    transientStorage := fun i => if i == (offset : Nat) then value else state.transientStorage i
-  }
+  ContractResult.success () (state.writeTransient (offset : Nat) value)
 class ExternalArg (α : Type) where
   toWord : α → Uint256
 class ExternalResult (α : Type) where
@@ -715,10 +710,7 @@ def setStructMemberAt {κ α : Type} [StorageKey κ] [StorageWord α]
       match packed with
       | none => word
       | some (offset, width) => encodePackedWord (state.storage targetSlot) word offset width
-    let updatedStorage := fun target => if target == targetSlot then stored else state.storage target
-    ContractResult.success () { state with
-      «storage» := updatedStorage
-    }
+    ContractResult.success () (state.writeSlot targetSlot stored)
 
 def setStructMember2At {κ₁ κ₂ α : Type} [StorageKey κ₁] [StorageKey κ₂] [StorageWord α]
     (baseSlot : Nat) (wordOffset : Nat) (packed : Option (Nat × Nat)) (key1 : κ₁) (key2 : κ₂)
@@ -730,10 +722,7 @@ def setStructMember2At {κ₁ κ₂ α : Type} [StorageKey κ₁] [StorageKey κ
       match packed with
       | none => word
       | some (offset, width) => encodePackedWord (state.storage targetSlot) word offset width
-    let updatedStorage := fun target => if target == targetSlot then stored else state.storage target
-    ContractResult.success () { state with
-      «storage» := updatedStorage
-    }
+    ContractResult.success () (state.writeSlot targetSlot stored)
 
 
 end Contracts

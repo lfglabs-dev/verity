@@ -582,18 +582,7 @@ def counterIncrementIR : List YulStmt :=
   ]
 
 def counterTypedInitWorld : Verity.ContractState :=
-  { «storage» := fun i => if i = 0 then 41 else 0
-    transientStorage := fun _ => 0
-    storageAddr := fun _ => 0
-    storageMap := fun _ _ => 0
-    storageMapUint := fun _ _ => 0
-    storageMap2 := fun _ _ _ => 0
-    sender := 0
-    thisAddress := 0
-    msgValue := 0
-    blockTimestamp := 0
-    knownAddresses := fun _ => Verity.Core.FiniteAddressSet.empty
-    events := [] }
+  Verity.defaultState.writeSlot 0 41
 
 def counterTypedInit : TExecState :=
   { world := counterTypedInitWorld }
@@ -641,18 +630,7 @@ def simpleStorageStoreIR : List YulStmt :=
   [ .exprStmt (.call "sstore" [.lit 0, .ident "value"]) ]
 
 def simpleStorageTypedInitWorld : Verity.ContractState :=
-  { «storage» := fun i => if i = 0 then 5 else 0
-    transientStorage := fun _ => 0
-    storageAddr := fun _ => 0
-    storageMap := fun _ _ => 0
-    storageMapUint := fun _ _ => 0
-    storageMap2 := fun _ _ _ => 0
-    sender := 0
-    thisAddress := 0
-    msgValue := 0
-    blockTimestamp := 0
-    knownAddresses := fun _ => Verity.Core.FiniteAddressSet.empty
-    events := [] }
+  Verity.defaultState.writeSlot 0 5
 
 def simpleStorageTypedInit : TExecState :=
   { world := simpleStorageTypedInitWorld
@@ -880,7 +858,7 @@ example : compiledCounterLoweredFinalSlot = compiledCounterIncrementFinalSlot :=
 
 def compiledCounterDecrementFinalSlot : Option Nat :=
   let initWorld : Verity.ContractState :=
-    { counterTypedInitWorld with «storage» := fun i => if i = 0 then 41 else 0 }
+    counterTypedInitWorld.writeSlot 0 41
   let initTyped : TExecState := { world := initWorld }
   match compileFunctionNamed Contracts.Counter.spec "decrement" with
   | .error _ => none
@@ -891,7 +869,7 @@ def compiledCounterDecrementFinalSlot : Option Nat :=
 
 def compiledCounterDecrementLoweredFinalSlot : Option Nat :=
   let initWorld : Verity.ContractState :=
-    { counterTypedInitWorld with «storage» := fun i => if i = 0 then 41 else 0 }
+    counterTypedInitWorld.writeSlot 0 41
   let initTyped : TExecState := { world := initWorld }
   match compileFunctionNamed Contracts.Counter.spec "decrement" with
   | .error _ => none
@@ -904,7 +882,7 @@ example : compiledCounterDecrementLoweredFinalSlot = compiledCounterDecrementFin
 
 def compiledCounterGetCountReturn : Option Nat :=
   let initWorld : Verity.ContractState :=
-    { counterTypedInitWorld with «storage» := fun i => if i = 0 then 41 else 0 }
+    counterTypedInitWorld.writeSlot 0 41
   let initTyped : TExecState := { world := initWorld }
   match compileFunctionNamed Contracts.Counter.spec "getCount" with
   | .error _ => none
@@ -945,7 +923,7 @@ example : compiledSimpleStorageLoweredFinalSlot = compiledSimpleStorageStoreFina
 
 def compiledSimpleStorageRetrieveReturn : Option Nat :=
   let initWorld : Verity.ContractState :=
-    { simpleStorageTypedInitWorld with «storage» := fun i => if i = 0 then 77 else 0 }
+    simpleStorageTypedInitWorld.writeSlot 0 77
   let initTyped : TExecState := { world := initWorld }
   match compileFunctionNamed Contracts.SimpleStorage.spec "retrieve" with
   | .error _ => none
@@ -994,13 +972,8 @@ def compiledLedgerTransferResult : Option (Nat × Nat) :=
       match block.params with
       | [toParam, amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              -- sender (address 1) has balance 100 in mapping slot 0
-              storageMap := fun i addr =>
-                if i == 0 && addr == 1 then 100
-                else if i == 0 && addr == 2 then 50
-                else 0
-              sender := 1 }
+            -- sender (address 1) has balance 100 in mapping slot 0
+            { (Verity.defaultState.writeMap 0 1 100).writeMap 0 2 50 with sender := 1 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1031,7 +1004,7 @@ def compiledOwnedGetOwnerReturn : Option Nat :=
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with storageAddr := fun i => if i = 0 then 42 else 0 }
+        Verity.defaultState.writeAddrSlot 0 42
       let init : TExecState := { world := initWorld }
       execLoweredReturn 256 (mkIRStateFromTyped init block) block
 
@@ -1056,9 +1029,7 @@ def compiledOwnedTransferOwnershipSuccess : Option Nat :=
       match block.params with
       | [newOwnerParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageAddr := fun i => if i = 0 then 42 else 0
-              sender := 42 }
+            { Verity.defaultState.writeAddrSlot 0 42 with sender := 42 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1079,9 +1050,7 @@ def compiledOwnedTransferOwnershipReverts : Bool :=
       match block.params with
       | [newOwnerParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageAddr := fun i => if i = 0 then 42 else 0
-              sender := 99 }
+            { Verity.defaultState.writeAddrSlot 0 42 with sender := 99 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1120,10 +1089,7 @@ def compiledVaultDepositResult : Option (Nat × Nat × Nat) :=
       match block.params with
       | [amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              «storage» := fun i => if i == 0 || i == 1 then 100 else 0
-              storageMap := fun i addr =>
-                if i == 2 && addr == 1 then 100 else 0
+            { ((Verity.defaultState.writeSlot 0 100).writeSlot 1 100).writeMap 2 1 100 with
               sender := 1 }
           let init : TExecState :=
             { world := initWorld
@@ -1145,10 +1111,7 @@ def compiledVaultWithdrawSuccess : Option (Nat × Nat × Nat) :=
       match block.params with
       | [sharesParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              «storage» := fun i => if i == 0 || i == 1 then 100 else 0
-              storageMap := fun i addr =>
-                if i == 2 && addr == 1 then 100 else 0
+            { ((Verity.defaultState.writeSlot 0 100).writeSlot 1 100).writeMap 2 1 100 with
               sender := 1 }
           let init : TExecState :=
             { world := initWorld
@@ -1170,10 +1133,7 @@ def compiledVaultWithdrawReverts : Bool :=
       match block.params with
       | [sharesParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              «storage» := fun i => if i == 0 || i == 1 then 100 else 0
-              storageMap := fun i addr =>
-                if i == 2 && addr == 1 then 10 else 0
+            { ((Verity.defaultState.writeSlot 0 100).writeSlot 1 100).writeMap 2 1 10 with
               sender := 1 }
           let init : TExecState :=
             { world := initWorld
@@ -1195,10 +1155,7 @@ def compiledLedgerDepositResult : Option Nat :=
       match block.params with
       | [amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 0 && addr == 1 then 100 else 0
-              sender := 1 }
+            { Verity.defaultState.writeMap 0 1 100 with sender := 1 }
           let init : TExecState :=
             { world := initWorld
               vars := { uint256 := fun i =>
@@ -1219,10 +1176,7 @@ def compiledLedgerWithdrawSuccess : Option Nat :=
       match block.params with
       | [amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 0 && addr == 1 then 100 else 0
-              sender := 1 }
+            { Verity.defaultState.writeMap 0 1 100 with sender := 1 }
           let init : TExecState :=
             { world := initWorld
               vars := { uint256 := fun i =>
@@ -1243,10 +1197,7 @@ def compiledLedgerWithdrawReverts : Bool :=
       match block.params with
       | [amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 0 && addr == 1 then 10 else 0
-              sender := 1 }
+            { Verity.defaultState.writeMap 0 1 10 with sender := 1 }
           let init : TExecState :=
             { world := initWorld
               vars := { uint256 := fun i =>
@@ -1265,10 +1216,7 @@ def compiledOwnedCounterIncrementSuccess : Option Nat :=
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with
-          storageAddr := fun i => if i = 0 then 42 else 0
-          «storage» := fun i => if i = 1 then 10 else 0
-          sender := 42 }
+        { (Verity.defaultState.writeAddrSlot 0 42).writeSlot 1 10 with sender := 42 }
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok s => some (s.world.storage 1)
@@ -1283,10 +1231,7 @@ def compiledOwnedCounterIncrementReverts : Bool :=
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with
-          storageAddr := fun i => if i = 0 then 42 else 0
-          «storage» := fun i => if i = 1 then 10 else 0
-          sender := 99 }
+        { (Verity.defaultState.writeAddrSlot 0 42).writeSlot 1 10 with sender := 99 }
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok _ => false
@@ -1310,10 +1255,7 @@ def compiledOwnedCounterTransferOwnershipSuccess : Option (Nat × Nat) :=
       match block.params with
       | [newOwnerParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageAddr := fun i => if i = 0 then 42 else 0
-              «storage» := fun i => if i = 1 then 10 else 0
-              sender := 42 }
+            { (Verity.defaultState.writeAddrSlot 0 42).writeSlot 1 10 with sender := 42 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1334,10 +1276,7 @@ def compiledOwnedCounterTransferOwnershipReverts : Bool :=
       match block.params with
       | [newOwnerParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageAddr := fun i => if i = 0 then 42 else 0
-              «storage» := fun i => if i = 1 then 10 else 0
-              sender := 77 }
+            { (Verity.defaultState.writeAddrSlot 0 42).writeSlot 1 10 with sender := 77 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1381,12 +1320,7 @@ def compiledERC20TransferFromSuccess : Option (Nat × Nat × Nat) :=
       match approveBlock.params, transferFromBlock.params with
       | [spenderParam, approveAmountParam], [fromParam, toParam, transferAmountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 2 && addr == 11 then 100
-                else if i == 2 && addr == 33 then 50
-                else 0
-              sender := 11 }
+            { (Verity.defaultState.writeMap 2 11 100).writeMap 2 33 50 with sender := 11 }
           let approveInit : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1422,14 +1356,8 @@ def compiledERC20TransferFromInfiniteAllowance : Option (Nat × Nat × Nat) :=
       match block.params with
       | [fromParam, toParam, amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 2 && addr == 11 then 100
-                else if i == 2 && addr == 33 then 50
-                else 0
-              storageMap2 := fun i ownerAddr spenderAddr =>
-                if i == 3 && ownerAddr == 11 && spenderAddr == 22 then maxUint256 else 0
-              sender := 22 }
+            { ((Verity.defaultState.writeMap 2 11 100).writeMap 2 33 50).writeMap2 3 11 22
+                maxUint256 with sender := 22 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1455,12 +1383,7 @@ def compiledERC20TransferFromSelfTransfer : Option (Nat × Nat) :=
       match block.params with
       | [fromParam, toParam, amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 2 && addr == 11 then 100 else 0
-              storageMap2 := fun i ownerAddr spenderAddr =>
-                if i == 3 && ownerAddr == 11 && spenderAddr == 22 then 40 else 0
-              sender := 22 }
+            { (Verity.defaultState.writeMap 2 11 100).writeMap2 3 11 22 40 with sender := 22 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1485,14 +1408,8 @@ def compiledERC20TransferFromInsufficientAllowanceReverts : Bool :=
       match block.params with
       | [fromParam, toParam, amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 2 && addr == 11 then 100
-                else if i == 2 && addr == 33 then 50
-                else 0
-              storageMap2 := fun i ownerAddr spenderAddr =>
-                if i == 3 && ownerAddr == 11 && spenderAddr == 22 then 20 else 0
-              sender := 22 }
+            { ((Verity.defaultState.writeMap 2 11 100).writeMap 2 33 50).writeMap2 3 11 22 20
+              with sender := 22 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -1669,9 +1586,7 @@ def compiledERC721ApproveTransferSuccess : Option (Nat × Nat × Nat × Nat) :=
       match mintBlock.params, approveBlock.params, transferBlock.params with
       | [mintToParam], [approvedParam, approveTokenParam], [fromParam, toParam, transferTokenParam] =>
           let mintInitWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageAddr := fun i => if i == 0 then 9 else 0
-              sender := 9 }
+            { Verity.defaultState.writeAddrSlot 0 9 with sender := 9 }
           let mintInit : TExecState :=
             { world := mintInitWorld
               vars := { address := fun i => if i = mintToParam.id then 11 else 0 } }
@@ -1708,9 +1623,7 @@ def compiledERC721TransferUnauthorizedReverts : Bool :=
       match mintBlock.params, transferBlock.params with
       | [mintToParam], [fromParam, toParam, transferTokenParam] =>
           let mintInitWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageAddr := fun i => if i == 0 then 9 else 0
-              sender := 9 }
+            { Verity.defaultState.writeAddrSlot 0 9 with sender := 9 }
           let mintInit : TExecState :=
             { world := mintInitWorld
               vars := { address := fun i => if i = mintToParam.id then 11 else 0 } }
@@ -1741,7 +1654,7 @@ def compiledSafeCounterIncrementSuccess : Option Nat :=
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with «storage» := fun i => if i = 0 then 5 else 0 }
+        Verity.defaultState.writeSlot 0 5
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok s => some (s.world.storage 0)
@@ -1756,7 +1669,7 @@ def compiledSafeCounterDecrementSuccess : Option Nat :=
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with «storage» := fun i => if i = 0 then 5 else 0 }
+        Verity.defaultState.writeSlot 0 5
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok s => some (s.world.storage 0)
@@ -1771,7 +1684,7 @@ def compiledSafeCounterDecrementUnderflow : Bool :=
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with «storage» := fun _ => 0 }
+        Verity.defaultState
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok _ => false
@@ -1786,7 +1699,7 @@ def compiledSafeCounterGetCountReturn : Option Nat :=
   | .error _ => none
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with «storage» := fun i => if i = 0 then 42 else 0 }
+        Verity.defaultState.writeSlot 0 42
       let init : TExecState := { world := initWorld }
       execLoweredReturn 256 (mkIRStateFromTyped init block) block
 
@@ -2471,9 +2384,7 @@ def compiledLedgerGetBalancePreservesState : Bool :=
       match block.params with
       | [addrParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 0 && addr == 42 then 200 else 0 }
+            Verity.defaultState.writeMap 0 42 200
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -2494,9 +2405,7 @@ def compiledSimpleTokenBalanceOfPreservesState : Bool :=
       match block.params with
       | [addrParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 1 && addr == 42 then 500 else 0 }
+            Verity.defaultState.writeMap 1 42 500
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -2515,7 +2424,7 @@ def compiledSimpleTokenTotalSupplyPreservesState : Bool :=
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with «storage» := fun i => if i = 2 then 1000 else 0 }
+        Verity.defaultState.writeSlot 2 1000
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok _ => true
@@ -2530,7 +2439,7 @@ def compiledSimpleTokenOwnerPreservesState : Bool :=
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with storageAddr := fun i => if i = 0 then 42 else 0 }
+        Verity.defaultState.writeAddrSlot 0 42
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok _ => true
@@ -2659,7 +2568,7 @@ def compiledERC20TotalSupplyPreservesState : Bool :=
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with «storage» := fun i => if i = 1 then 42000 else 0 }
+        Verity.defaultState.writeSlot 1 42000
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok _ => true
@@ -2674,7 +2583,7 @@ def compiledERC20OwnerPreservesState : Bool :=
   | .error _ => false
   | .ok block =>
       let initWorld : Verity.ContractState :=
-        { Verity.defaultState with storageAddr := fun i => if i = 0 then 0xDEAD else 0 }
+        Verity.defaultState.writeAddrSlot 0 0xDEAD
       let init : TExecState := { world := initWorld }
       match evalTBlock init block with
       | .ok _ => true
@@ -2691,9 +2600,7 @@ def compiledERC20BalanceOfPreservesState : Bool :=
       match block.params with
       | [addrParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap := fun i addr =>
-                if i == 2 && addr == 42 then 500 else 0 }
+            Verity.defaultState.writeMap 2 42 500
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -2714,9 +2621,7 @@ def compiledERC20AllowanceOfPreservesState : Bool :=
       match block.params with
       | [ownerParam, spenderParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              storageMap2 := fun i a1 a2 =>
-                if i == 3 && a1 == 100 && a2 == 200 then 750 else 0 }
+            Verity.defaultState.writeMap2 3 100 200 750
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i =>
@@ -2739,7 +2644,7 @@ def compiledERC20ApprovePreservesState : Bool :=
       match block.params with
       | [spenderParam, amountParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with storageMap2 := fun _ _ _ => 0 }
+            Verity.defaultState
           let init : TExecState :=
             { world := initWorld
               env := { Verity.Env.ofWorld initWorld with sender := 0xCAFE }
@@ -2770,16 +2675,8 @@ open Compiler.CompilationModel in
 /-- `SimpleToken.mint`: owner path keeps compiled/source multi-read outputs aligned. -/
 private def simpleTokenMintOwnerAgreement : Bool :=
   let init : TExecState :=
-    { world := { Verity.defaultState with
-        storageAddr := fun s => if s = 0 then 0xA11CE else 0,
-        storageMap := fun s addr =>
-          if s = 1 && addr = 0xBEEF then 7
-          else if s = 1 && addr = 0xF00D then 99
-          else 0,
-        «storage» := fun s =>
-          if s = 2 then 100
-          else if s = 9 then 444
-          else 0 }
+    { world := ((((Verity.defaultState.writeAddrSlot 0 0xA11CE).writeMap 1 0xBEEF 7).writeMap
+          1 0xF00D 99).writeSlot 2 100).writeSlot 9 444
       env := { Verity.Env.ofWorld Verity.defaultState with sender := 0xA11CE }
       vars := { address := fun i => if i = 0 then 0xBEEF else 0
                 uint256 := fun i => if i = 1 then 5 else 0 } }
@@ -2829,10 +2726,7 @@ open Compiler.CompilationModel in
 /-- `SimpleToken.mint`: non-owner path reverts identically. -/
 private def simpleTokenMintNonOwnerAgreement : Bool :=
   let init : TExecState :=
-    { world := { Verity.defaultState with
-        storageAddr := fun s => if s = 0 then 0xA11CE else 0,
-        storageMap := fun s addr => if s = 1 && addr = 0xBEEF then 7 else 0,
-        «storage» := fun s => if s = 2 then 100 else 0 }
+    { world := ((Verity.defaultState.writeAddrSlot 0 0xA11CE).writeMap 1 0xBEEF 7).writeSlot 2 100
       env := { Verity.Env.ofWorld Verity.defaultState with sender := 0xBAD }
       vars := { address := fun i => if i = 0 then 0xBEEF else 0
                 uint256 := fun i => if i = 1 then 5 else 0 } }
@@ -2995,16 +2889,8 @@ open Compiler.CompilationModel in
 /-- `ERC20.mint`: owner path keeps compiled/source multi-read outputs aligned. -/
 private def erc20MintOwnerAgreement : Bool :=
   let init : TExecState :=
-    { world := { Verity.defaultState with
-        storageAddr := fun s => if s = 0 then 0xCAFE else 0,
-        storageMap := fun s addr =>
-          if s = 2 && addr = 0xD00D then 11
-          else if s = 2 && addr = 0xABCD then 77
-          else 0,
-        «storage» := fun s =>
-          if s = 1 then 250
-          else if s = 8 then 333
-          else 0 }
+    { world := ((((Verity.defaultState.writeAddrSlot 0 0xCAFE).writeMap 2 0xD00D 11).writeMap
+          2 0xABCD 77).writeSlot 1 250).writeSlot 8 333
       env := { Verity.Env.ofWorld Verity.defaultState with sender := 0xCAFE }
       vars := { address := fun i => if i = 0 then 0xD00D else 0
                 uint256 := fun i => if i = 1 then 9 else 0 } }
@@ -3054,10 +2940,7 @@ open Compiler.CompilationModel in
 /-- `ERC20.mint`: non-owner path reverts identically. -/
 private def erc20MintNonOwnerAgreement : Bool :=
   let init : TExecState :=
-    { world := { Verity.defaultState with
-        storageAddr := fun s => if s = 0 then 0xCAFE else 0,
-        storageMap := fun s addr => if s = 2 && addr = 0xD00D then 11 else 0,
-        «storage» := fun s => if s = 1 then 250 else 0 }
+    { world := ((Verity.defaultState.writeAddrSlot 0 0xCAFE).writeMap 2 0xD00D 11).writeSlot 1 250
       env := { Verity.Env.ofWorld Verity.defaultState with sender := 0xBAD }
       vars := { address := fun i => if i = 0 then 0xD00D else 0
                 uint256 := fun i => if i = 1 then 9 else 0 } }
@@ -3124,7 +3007,7 @@ def compiledERC721GetApprovedRejectsUnminted : Bool :=
       match block.params with
       | [tokenIdParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with storageMapUint := fun _ _ => 0 }
+            Verity.defaultState
           let init : TExecState :=
             { world := initWorld
               vars := { uint256 := fun i =>
@@ -3148,11 +3031,7 @@ def compiledERC721GetApprovedLoadsApproval : Bool :=
           match tVarIdNamed? (block.params ++ block.locals) returnName with
           | some returnVarId =>
               let initWorld : Verity.ContractState :=
-                { Verity.defaultState with
-                  storageMapUint := fun i key =>
-                    if i == 4 && key == 7 then 999
-                    else if i == 5 && key == 7 then 333
-                    else 0 }
+                (Verity.defaultState.writeMapUint 4 7 999).writeMapUint 5 7 333
               let init : TExecState :=
                 { world := initWorld
                   vars := { uint256 := fun i =>
@@ -3203,7 +3082,7 @@ def compiledERC721ApproveRejectsUnminted : Bool :=
       match block.params with
       | [approvedParam, tokenIdParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with sender := 11, storageMapUint := fun _ _ => 0 }
+            { Verity.defaultState with sender := 11 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i => if i = approvedParam.id then 33 else 0,
@@ -3224,10 +3103,7 @@ def compiledERC721ApproveRejectsNonOwner : Bool :=
       match block.params with
       | [approvedParam, tokenIdParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              sender := 11
-              storageMapUint := fun i key =>
-                if i == 4 && key == 7 then 22 else 0 }
+            { Verity.defaultState.writeMapUint 4 7 22 with sender := 11 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i => if i = approvedParam.id then 33 else 0,
@@ -3248,10 +3124,7 @@ def compiledERC721ApproveWritesApproval : Bool :=
       match block.params with
       | [approvedParam, tokenIdParam] =>
           let initWorld : Verity.ContractState :=
-            { Verity.defaultState with
-              sender := 11
-              storageMapUint := fun i key =>
-                if i == 4 && key == 7 then 11 else 0 }
+            { Verity.defaultState.writeMapUint 4 7 11 with sender := 11 }
           let init : TExecState :=
             { world := initWorld
               vars := { address := fun i => if i = approvedParam.id then 33 else 0,

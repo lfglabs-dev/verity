@@ -140,33 +140,11 @@ private theorem mint_unfold (s : ContractState) (toAddr : Address) (amount : Uin
   (h_no_bal_overflow : (s.storageMap 1 toAddr : Nat) + (amount : Nat) ≤ MAX_UINT256)
   (h_no_sup_overflow : (s.storage 2 : Nat) + (amount : Nat) ≤ MAX_UINT256) :
   (mint toAddr amount).run s = ContractResult.success ()
-    { «storage» := fun slotIdx =>
-        if (slotIdx == 2) = true then EVM.Uint256.add (s.storage 2) amount else s.storage slotIdx,
-        contractStorage := s.contractStorage,
-        transientStorage := s.transientStorage,
-        storageAddr := s.storageAddr,
-        storageMap := fun slotIdx addr =>
-        if (slotIdx == 1 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 1 toAddr) amount
-        else s.storageMap slotIdx addr,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
+    { (s.writeMap 1 toAddr (EVM.Uint256.add (s.storageMap 1 toAddr) amount)).writeSlot 2
+        (EVM.Uint256.add (s.storage 2) amount) with
       knownAddresses := fun slotIdx =>
         if slotIdx == 1 then (s.knownAddresses slotIdx).insert toAddr
-        else s.knownAddresses slotIdx,
-      events := s.events, calls := s.calls } := by
+        else s.knownAddresses slotIdx } := by
   have h_safe_bal := safeAdd_some (s.storageMap 1 toAddr) amount h_no_bal_overflow
   have h_safe_sup := safeAdd_some (s.storage 2) amount h_no_sup_overflow
   verity_unfold mint
@@ -195,13 +173,13 @@ theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amoun
   have h_unfold_apply := Contract.eq_of_run_success h_unfold
   simp only [Contract.run, ContractResult.snd, mint_spec]
   rw [h_unfold_apply]
-  simp only [ContractResult.snd]
+  simp only [ContractResult.snd, ContractState.writeSlot, ContractState.writeMap]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp -- balance of 'toAddr' updated
   · simp -- supply updated
   · refine ⟨?_, ?_⟩
     · intro addr h_neq; simp [h_neq] -- other balances preserved
-    · intro slotIdx h_neq; intro addr; simp [h_neq] -- other mapping slots
+    · intro slotIdx h_neq addr; simp [h_neq] -- other mapping slots
   · intro slotIdx h_neq; simp [h_neq] -- other uint storage
   · trivial -- owner preserved
   · exact Specs.sameContext_rfl _
@@ -285,33 +263,11 @@ private theorem transfer_unfold_other (s : ContractState) (toAddr : Address) (am
   (h_ne : s.sender ≠ toAddr)
   (h_no_overflow : (s.storageMap 1 toAddr : Nat) + (amount : Nat) ≤ MAX_UINT256) :
   (transfer toAddr amount).run s = ContractResult.success ()
-    { «storage» := s.storage,
-      contractStorage := s.contractStorage,
-        transientStorage := s.transientStorage,
-        storageAddr := s.storageAddr,
-        storageMap := fun slotIdx addr =>
-        if (slotIdx == 1 && addr == toAddr) = true then EVM.Uint256.add (s.storageMap 1 toAddr) amount
-        else if (slotIdx == 1 && addr == s.sender) = true then EVM.Uint256.sub (s.storageMap 1 s.sender) amount
-        else s.storageMap slotIdx addr,
-      storageMapUint := s.storageMapUint,
-      storageMap2 := s.storageMap2,
-      storageArray := s.storageArray,
-      sender := s.sender,
-      thisAddress := s.thisAddress,
-      txOrigin := s.txOrigin,
-      msgValue := s.msgValue,
-      selfBalance := s.selfBalance,
-      blockTimestamp := s.blockTimestamp,
-      blockNumber := s.blockNumber,
-      chainId := s.chainId,
-      blobBaseFee := s.blobBaseFee,
-      calldataSize := s.calldataSize,
-      calldata := s.calldata,
-      memory := s.memory,
+    { (s.writeMap 1 s.sender (EVM.Uint256.sub (s.storageMap 1 s.sender) amount)).writeMap 1 toAddr
+        (EVM.Uint256.add (s.storageMap 1 toAddr) amount) with
       knownAddresses := fun slotIdx =>
         if slotIdx == 1 then ((s.knownAddresses slotIdx).insert s.sender).insert toAddr
-        else s.knownAddresses slotIdx,
-      events := s.events, calls := s.calls } := by
+        else s.knownAddresses slotIdx } := by
   have h_balance' := uint256_ge_val_le h_balance
   have h_safe := safeAdd_some (s.storageMap 1 toAddr) amount h_no_overflow
   simp only [transfer, Contracts.SimpleToken.balancesSlot,
@@ -350,7 +306,7 @@ theorem transfer_meets_spec_when_sufficient (s : ContractState) (toAddr : Addres
     have h_unfold_apply := Contract.eq_of_run_success h_unfold
     simp only [Contract.run, ContractResult.snd, transfer_spec]
     rw [h_unfold_apply]
-    simp only [ContractResult.snd]
+    simp only [ContractResult.snd, ContractState.writeSlot, ContractState.writeMap]
     have h_ne' := address_beq_false_of_ne s.sender toAddr h_eq
     refine ⟨h_balance, ?_, ?_, ?_, ?_, ?_⟩
     · simp [h_ne'] -- sender balance decreased

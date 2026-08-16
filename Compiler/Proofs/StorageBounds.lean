@@ -91,19 +91,18 @@ theorem storageArrayDropLast_length (arr : List Uint256) (arr' : List Uint256)
 /-- Mirrors the private definition in `SourceSemantics.lean`. -/
 def writeStorageArray (world : Verity.ContractState) (slot : Nat)
     (values : List Uint256) : Verity.ContractState :=
-  { world with
-    storageArray := fun s => if s == slot then values else world.storageArray s }
+  world.writeArray slot values
 
 theorem writeStorageArray_same_slot (world : Verity.ContractState) (slot : Nat)
     (values : List Uint256) :
     (writeStorageArray world slot values).storageArray slot = values := by
-  simp [writeStorageArray, BEq.beq]
+  simp [writeStorageArray, Verity.ContractState.writeArray, BEq.beq]
 
 theorem writeStorageArray_other_slot (world : Verity.ContractState) (slot slot' : Nat)
     (values : List Uint256) (h : slot' ≠ slot) :
     (writeStorageArray world slot values).storageArray slot' = world.storageArray slot' := by
   unfold writeStorageArray
-  simp
+  simp [Verity.ContractState.writeArray]
   omega
 
 theorem writeStorageArray_storage_unchanged (world : Verity.ContractState) (slot : Nat)
