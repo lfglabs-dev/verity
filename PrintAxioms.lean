@@ -109,6 +109,7 @@ import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.Storage.FieldStorageKey
 import Compiler.Proofs.Storage.MappingCoherence
+import Compiler.Proofs.Storage.MappingCoherenceOn
 import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.Storage.StructArrayStorage
 import Compiler.Proofs.StorageBounds
@@ -4685,6 +4686,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_mapUint
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_map2
 
+  -- Compiler/Proofs/Storage/MappingCoherenceOn.lean
+  Compiler.Proofs.Storage.MappingCoherenceOn.mappingCoherentOn_of_mappingCoherent
+  Compiler.Proofs.Storage.MappingCoherenceOn.defaultState_mappingCoherentOn
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMap_aligned_preserves_at_same
+  Compiler.Proofs.Storage.MappingCoherenceOn.storageKey_map_ne_of_pair_ne
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMap_aligned_preserves_at_other
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMap_aligned_preserves_on
+
   -- Compiler/Proofs/Storage/SolidityStorage.lean
   Compiler.Proofs.Storage.mappingSlot_preimage
   Compiler.Proofs.Storage.compiledMappingSlotPointer_eq_mappingSlotPointer
@@ -6880,4 +6889,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6384 theorems/lemmas (4514 public, 1870 private, 0 sorry'd)
+-- Total: 6390 theorems/lemmas (4520 public, 1870 private, 0 sorry'd)
