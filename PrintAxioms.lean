@@ -4660,6 +4660,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_map
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_slot
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_transient
+  Compiler.Proofs.Storage.MappingCoherence.defaultState_mappingCoherentUint
+  Compiler.Proofs.Storage.MappingCoherence.writeMapUint_aligned_same
+  Compiler.Proofs.Storage.MappingCoherence.writeMapUint_aligned_other
+  Compiler.Proofs.Storage.MappingCoherence.defaultState_mappingCoherentMap2
+  Compiler.Proofs.Storage.MappingCoherence.writeMap2_aligned_same
+  Compiler.Proofs.Storage.MappingCoherence.writeMap2_aligned_other
+  Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_mapUint
+  Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_map2
 
   -- Compiler/Proofs/Storage/SolidityStorage.lean
   Compiler.Proofs.Storage.mappingSlot_preimage
@@ -6856,4 +6864,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6363 theorems/lemmas (4493 public, 1870 private, 0 sorry'd)
+-- Total: 6371 theorems/lemmas (4501 public, 1870 private, 0 sorry'd)

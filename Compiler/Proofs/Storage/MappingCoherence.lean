@@ -90,4 +90,100 @@ theorem storageKeySlot_slot (n : Nat) : storageKeySlot (.slot n) = some n := rfl
 theorem storageKeySlot_transient (n : Nat) : storageKeySlot (.transient n) = none :=
   rfl
 
+/-- Uint-keyed mapping shadow agrees with the flat channel at the derived slot. -/
+def MappingCoherentUint (s : ContractState) : Prop :=
+  ∀ (slot : Nat) (key : Uint256),
+    s.storageMapUint slot key = s.storage (solidityMappingSlot slot key.val)
+
+theorem defaultState_mappingCoherentUint : MappingCoherentUint defaultState := by
+  intro slot key
+  simp [MappingCoherentUint, storageMapUint, storage, defaultState]
+
+theorem writeMapUint_aligned_same (s : ContractState) (slot : Nat) (key v : Uint256) :
+    ((s.writeMapUint slot key v).writeSlot (solidityMappingSlot slot key.val) v).storageMapUint
+        slot key =
+      ((s.writeMapUint slot key v).writeSlot (solidityMappingSlot slot key.val) v).storage
+        (solidityMappingSlot slot key.val) := by
+  simp [storageMapUint_writeSlot, storageMapUint, writeMapUint, storage, writeSlot,
+    storage_writeMapUint]
+
+theorem writeMapUint_aligned_other (s : ContractState) (slot : Nat) (key v : Uint256)
+    (slot' : Nat) (key' : Uint256)
+    (hcoh : s.storageMapUint slot' key' = s.storage (solidityMappingSlot slot' key'.val))
+    (hkey : StorageKey.mapUint slot' key' ≠ StorageKey.mapUint slot key)
+    (hslot : solidityMappingSlot slot' key'.val ≠ solidityMappingSlot slot key.val) :
+    ((s.writeMapUint slot key v).writeSlot (solidityMappingSlot slot key.val) v).storageMapUint
+        slot' key' =
+      ((s.writeMapUint slot key v).writeSlot (solidityMappingSlot slot key.val) v).storage
+        (solidityMappingSlot slot' key'.val) := by
+  have hmap :
+      ((s.writeMapUint slot key v).writeSlot (solidityMappingSlot slot key.val) v).storageMapUint
+          slot' key' =
+        s.storageMapUint slot' key' := by
+    simp [storageMapUint_writeSlot, storageMapUint, writeMapUint, writeSlot, hkey]
+  have hflat :
+      ((s.writeMapUint slot key v).writeSlot (solidityMappingSlot slot key.val) v).storage
+          (solidityMappingSlot slot' key'.val) =
+        s.storage (solidityMappingSlot slot' key'.val) := by
+    rw [storage_writeSlot_other (s := s.writeMapUint slot key v) hslot v, storage_writeMapUint]
+  exact (hmap.trans hcoh).trans hflat.symm
+
+/-- Double-address mapping shadow agrees with the nested derived slot. -/
+def MappingCoherentMap2 (s : ContractState) : Prop :=
+  ∀ (slot : Nat) (k1 k2 : Address),
+    s.storageMap2 slot k1 k2 =
+      s.storage (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
+
+theorem defaultState_mappingCoherentMap2 : MappingCoherentMap2 defaultState := by
+  intro slot k1 k2
+  simp [MappingCoherentMap2, storageMap2, storage, defaultState]
+
+theorem writeMap2_aligned_same (s : ContractState) (slot : Nat) (k1 k2 : Address)
+    (v : Uint256) :
+    ((s.writeMap2 slot k1 k2 v).writeSlot
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) v).storageMap2
+        slot k1 k2 =
+      ((s.writeMap2 slot k1 k2 v).writeSlot
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) v).storage
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) := by
+  simp [storageMap2_writeSlot, storageMap2, writeMap2, storage, writeSlot, storage_writeMap2]
+
+theorem writeMap2_aligned_other (s : ContractState) (slot : Nat) (k1 k2 : Address)
+    (v : Uint256) (slot' : Nat) (k1' k2' : Address)
+    (hcoh : s.storageMap2 slot' k1' k2' =
+      s.storage (abstractNestedMappingSlot slot' (addressToWord k1').val (addressToWord k2').val))
+    (hkey : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2)
+    (hslot :
+      abstractNestedMappingSlot slot' (addressToWord k1').val (addressToWord k2').val ≠
+        abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) :
+    ((s.writeMap2 slot k1 k2 v).writeSlot
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
+        v).storageMap2 slot' k1' k2' =
+      ((s.writeMap2 slot k1 k2 v).writeSlot
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) v).storage
+        (abstractNestedMappingSlot slot' (addressToWord k1').val (addressToWord k2').val) := by
+  have hmap :
+      ((s.writeMap2 slot k1 k2 v).writeSlot
+          (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
+          v).storageMap2 slot' k1' k2' =
+        s.storageMap2 slot' k1' k2' := by
+    simp [storageMap2_writeSlot, storageMap2, writeMap2, writeSlot, hkey]
+  have hflat :
+      ((s.writeMap2 slot k1 k2 v).writeSlot
+          (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
+          v).storage
+          (abstractNestedMappingSlot slot' (addressToWord k1').val (addressToWord k2').val) =
+        s.storage
+          (abstractNestedMappingSlot slot' (addressToWord k1').val (addressToWord k2').val) := by
+    rw [storage_writeSlot_other (s := s.writeMap2 slot k1 k2 v) hslot v, storage_writeMap2]
+  exact (hmap.trans hcoh).trans hflat.symm
+
+theorem storageKeySlot_mapUint (slot : Nat) (key : Uint256) :
+    storageKeySlot (.mapUint slot key) = some (solidityMappingSlot slot key.val) := rfl
+
+theorem storageKeySlot_map2 (slot : Nat) (k1 k2 : Address) :
+    storageKeySlot (.map2 slot k1 k2) =
+      some (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) :=
+  rfl
+
 end Compiler.Proofs.Storage.MappingCoherence

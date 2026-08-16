@@ -314,8 +314,9 @@ sibling entrypoint.
   collisions). `storageWords :=` is forbidden outside `Verity/Core.lean`.
 - Not C5 step 4 complete: `Compiler.Proofs.Storage.MappingCoherence`
   now defines `storageKeySlot` and address-keyed `MappingCoherent`,
-  with `defaultState_mappingCoherent` and the aligned
-  `writeMap`+`writeSlot` laws (same pair, plus other pairs under an
+  with `defaultState_mappingCoherent` / `MappingCoherentUint` /
+  `MappingCoherentMap2` and the aligned `writeMap`/`writeMapUint`/
+  `writeMap2`+`writeSlot` laws (same pair, plus other pairs under an
   explicit non-alias hypothesis). Global preservation and field-list
   layout are still open.
 - Zero new axioms.
