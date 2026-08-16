@@ -21,6 +21,9 @@ namespace Verity.Proofs.Stdlib.MappingAutomation
 open Verity
 open Verity.Proofs.Stdlib.Automation
 
+attribute [local simp] ContractState.storage ContractState.storageAddr
+  ContractState.storageMap ContractState.storageMapUint ContractState.storageMap2
+
 /-!
 ## Address-Keyed Mapping Lemmas (Address → Uint256)
 -/
@@ -57,8 +60,7 @@ theorem setMapping_getMapping_diff (slot : StorageSlot (Address → Uint256))
     state.storageMap slot.slot key2 := by
   simp only [getMapping, setMapping, ContractState.readMap, ContractState.writeMap,
     Contract.runState, Contract.runValue]
-  have : (key2 == key1) = false := beq_eq_false_iff_ne.mpr (Ne.symm h)
-  simp [this]
+  simp [Ne.symm h]
 
 /-- setMapping preserves storageMap on a different slot. -/
 theorem setMapping_preserves_other_slot (slot1 : StorageSlot (Address → Uint256))
@@ -68,8 +70,7 @@ theorem setMapping_preserves_other_slot (slot1 : StorageSlot (Address → Uint25
     state.storageMap slot2 := by
   simp only [setMapping, ContractState.writeMap, Contract.runState, ContractState.writeMap]
   funext addr
-  have h_slot : (slot2 == slot1.slot) = false := beq_eq_false_iff_ne.mpr (Ne.symm h)
-  simp [h_slot]
+  simp [Ne.symm h]
 
 /-- setMapping updates knownAddresses at the target slot by inserting the key. -/
 theorem setMapping_knownAddresses_same_slot (slot : StorageSlot (Address → Uint256))
@@ -129,8 +130,7 @@ theorem setMappingUint_getMappingUint_diff (slot : StorageSlot (Uint256 → Uint
     state.storageMapUint slot.slot key2 := by
   simp only [getMappingUint, setMappingUint, ContractState.readMapUint,
     ContractState.writeMapUint, Contract.runState, Contract.runValue]
-  have : (key2 == key1) = false := beq_eq_false_iff_ne.mpr (Ne.symm h)
-  simp [this]
+  simp [Ne.symm h]
 
 /-- setMappingUint preserves uint256 storage. -/
 theorem setMappingUint_preserves_storage (slot : StorageSlot (Uint256 → Uint256))
@@ -206,8 +206,7 @@ theorem setMapping2_getMapping2_diff_key1 (slot : StorageSlot (Address → Addre
     state.storageMap2 slot.slot k1' k2' := by
   simp only [getMapping2, setMapping2, ContractState.readMap2, ContractState.writeMap2,
     Contract.runState, Contract.runValue]
-  have : (k1' == k1) = false := beq_eq_false_iff_ne.mpr (Ne.symm h)
-  simp [this]
+  simp [Ne.symm h]
 
 /-- setMapping2 with different second key preserves getMapping2. -/
 theorem setMapping2_getMapping2_diff_key2 (slot : StorageSlot (Address → Address → Uint256))
@@ -216,8 +215,7 @@ theorem setMapping2_getMapping2_diff_key2 (slot : StorageSlot (Address → Addre
     state.storageMap2 slot.slot k1 k2' := by
   simp only [getMapping2, setMapping2, ContractState.readMap2, ContractState.writeMap2,
     Contract.runState, Contract.runValue]
-  have : (k2' == k2) = false := beq_eq_false_iff_ne.mpr (Ne.symm h)
-  simp [this]
+  simp [Ne.symm h]
 
 /-- setMapping2 preserves uint256 storage. -/
 theorem setMapping2_preserves_storage (slot : StorageSlot (Address → Address → Uint256))
@@ -309,13 +307,15 @@ theorem setMapping2_preserves_blockNumber (slot : StorageSlot (Address → Addre
 theorem setMapping_preserves_storageMapUint (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.storageMapUint = state.storageMapUint := by
-  simp
+  change (state.writeMap slot.slot key value).storageMapUint = state.storageMapUint
+  exact ContractState.storageMapUint_writeMap state slot.slot key value
 
 /-- setMapping preserves double mapping storage. -/
 theorem setMapping_preserves_storageMap2 (slot : StorageSlot (Address → Uint256))
     (key : Address) (value : Uint256) (state : ContractState) :
     ((setMapping slot key value).run state).snd.storageMap2 = state.storageMap2 := by
-  simp
+  change (state.writeMap slot.slot key value).storageMap2 = state.storageMap2
+  exact ContractState.storageMap2_writeMap state slot.slot key value
 
 /-!
 ## Cross-Type Preservation: setStorage vs additional mapping types
