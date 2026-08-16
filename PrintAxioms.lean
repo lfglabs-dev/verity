@@ -107,6 +107,7 @@ import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.Storage.FieldStorageKey
 import Compiler.Proofs.Storage.MappingCoherence
 import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.Storage.StructArrayStorage
@@ -4653,12 +4654,27 @@ end Verity.AxiomAudit
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
 
+  -- Compiler/Proofs/Storage/FieldStorageKey.lean
+  Compiler.Proofs.Storage.FieldStorageKey.storageKeySlot_fieldRootKey
+  Compiler.Proofs.Storage.FieldStorageKey.fieldListRootKey_eq
+  Compiler.Proofs.Storage.FieldStorageKey.storageKeySlot_fieldListRootKey
+  Compiler.Proofs.Storage.FieldStorageKey.fieldRootKey_uint256
+  Compiler.Proofs.Storage.FieldStorageKey.fieldRootKey_address
+  Compiler.Proofs.Storage.FieldStorageKey.fieldRootKey_mappingTyped
+  Compiler.Proofs.Storage.FieldStorageKey.fieldRootKey_transient
+  Compiler.Proofs.Storage.FieldStorageKey.storageKeySlot_fieldMapKey
+  Compiler.Proofs.Storage.FieldStorageKey.storageKeySlot_fieldMapUintKey
+  Compiler.Proofs.Storage.FieldStorageKey.storageKeySlot_fieldMap2Key
+
   -- Compiler/Proofs/Storage/MappingCoherence.lean
   Compiler.Proofs.Storage.MappingCoherence.defaultState_mappingCoherent
   Compiler.Proofs.Storage.MappingCoherence.writeMap_aligned_same
   Compiler.Proofs.Storage.MappingCoherence.writeMap_aligned_other
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_map
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_slot
+  Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_addr
+  Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_contractSlot_zero
+  Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_contractSlot_nonzero
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_transient
   Compiler.Proofs.Storage.MappingCoherence.defaultState_mappingCoherentUint
   Compiler.Proofs.Storage.MappingCoherence.writeMapUint_aligned_same
@@ -6864,4 +6880,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6371 theorems/lemmas (4501 public, 1870 private, 0 sorry'd)
+-- Total: 6384 theorems/lemmas (4514 public, 1870 private, 0 sorry'd)
