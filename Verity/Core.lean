@@ -613,6 +613,24 @@ def readArray (s : ContractState) (slot : Nat) : List Uint256 :=
 def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : ContractState :=
   { s with storageArray := fun sl => if sl == slot then values else s.storageArray sl }
 
+@[simp] theorem storage_writeArray (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).storage = s.storage := rfl
+
+@[simp] theorem storageArray_writeArray_same (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).storageArray slot = values := by
+  simp [writeArray]
+
+@[simp] theorem storageArray_writeArray_other (s : ContractState)
+    {slot slot' : Nat} (h : slot' ≠ slot) (values : List Uint256) :
+    (s.writeArray slot values).storageArray slot' = s.storageArray slot' := by
+  simp [writeArray, h]
+
+@[simp] theorem storageArray_writeSlot (s : ContractState) (slot : Nat)
+    (value : Uint256) :
+    (s.writeSlot slot value).storageArray = s.storageArray := rfl
+
 /-!
 ### Bulk lenses (C5)
 
@@ -843,6 +861,52 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
       s.transientStorage slot := by
   have hmem := not_mem_of_contains_false h
   simp [transientStorage, modifyTransientSlots, hmem]
+
+@[simp] theorem sender_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).sender = s.sender := rfl
+@[simp] theorem thisAddress_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).thisAddress = s.thisAddress := rfl
+@[simp] theorem msgValue_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).msgValue = s.msgValue := rfl
+@[simp] theorem selfBalance_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).selfBalance = s.selfBalance := rfl
+@[simp] theorem blockTimestamp_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).blockTimestamp = s.blockTimestamp := rfl
+@[simp] theorem blockNumber_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).blockNumber = s.blockNumber := rfl
+@[simp] theorem chainId_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).chainId = s.chainId := rfl
+@[simp] theorem blobBaseFee_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).blobBaseFee = s.blobBaseFee := rfl
+@[simp] theorem calldataSize_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).calldataSize = s.calldataSize := rfl
+@[simp] theorem events_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).events = s.events := rfl
+@[simp] theorem memory_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).memory = s.memory := rfl
+@[simp] theorem txOrigin_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).txOrigin = s.txOrigin := rfl
+@[simp] theorem calldata_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).calldata = s.calldata := rfl
+@[simp] theorem knownAddresses_modifyTransientSlots (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).knownAddresses = s.knownAddresses := rfl
+@[simp] theorem calls_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).calls = s.calls := rfl
 
 @[simp] theorem storage_withStorageChannel (s : ContractState)
     (f : (Nat → Uint256) → Nat → Uint256) :
