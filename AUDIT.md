@@ -324,7 +324,9 @@ sibling entrypoint.
   `MappingCoherentOn` is preserved by an aligned write under an
   explicit pairwise derived-slot certificate
   (`MappingCoherenceOn`), including uint and nested-address lists.
-  Global (all-keys) preservation, bytes32 keys, struct members, and
+  Address-keyed `mappingStruct` / `mappingStruct2` members collapse
+  to `mappingSlotLocation` / `nestedMappingSlotLocation`. Global
+  (all-keys) preservation, bytes32 keys, packed bit-ranges, and
   alias slots are still open.
 - Zero new axioms.
 
