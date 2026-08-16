@@ -317,8 +317,11 @@ sibling entrypoint.
   with `defaultState_mappingCoherent` / `MappingCoherentUint` /
   `MappingCoherentMap2` and the aligned `writeMap`/`writeMapUint`/
   `writeMap2`+`writeSlot` laws (same pair, plus other pairs under an
-  explicit non-alias hypothesis). Global preservation and field-list
-  layout are still open.
+  explicit non-alias hypothesis). `FieldStorageKey` collapses a
+  CompilationModel field list to a root `StorageKey` (and typed
+  `map` / `mapUint` / `map2` entries) and proves `storageKeySlot`
+  of that key is the resolved slot. Global preservation, bytes32
+  keys, struct members, and alias slots are still open.
 - Zero new axioms.
 
 ## CI Guards
