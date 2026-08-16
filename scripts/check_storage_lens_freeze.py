@@ -99,7 +99,11 @@ def count_sites(path: Path) -> int:
         # literals and projections through fields declared as ContractState.
         # This catches the source-world bypass without inventing a baseline
         # for every IR-state update in Compiler proofs.
-        source_names = set(CONTRACT_STATE_BINDING_RE.findall(text))
+        # `Verity.defaultState` has the concrete source-state type even when
+        # no local binding carries an annotation, so treat a record update
+        # rooted there as a source-world write too.
+        source_names = {"Verity.defaultState"}
+        source_names.update(CONTRACT_STATE_BINDING_RE.findall(text))
         source_names.update(CONTRACT_STATE_ASCRIPTION_RE.findall(text))
         source_field_names = set(CONTRACT_STATE_FIELD_RE.findall(text))
         count += sum(
