@@ -119,12 +119,12 @@ theorem double_send_observable (token toAddr : Address) (amount : Uint256)
       ((Contracts.safeTransfer token toAddr amount).run s).snd.calls := by
   intro h
   have hlen := congrArg List.length h
-  have : (s.calls ++ [Contracts.linkedCallEntry "safeTransfer"
-      [Verity.addressToWord token, Verity.addressToWord toAddr, amount]] ++
-      [Contracts.linkedCallEntry "safeTransfer"
-        [Verity.addressToWord token, Verity.addressToWord toAddr, amount]]).length =
-      (s.calls ++ [Contracts.linkedCallEntry "safeTransfer"
-        [Verity.addressToWord token, Verity.addressToWord toAddr, amount]]).length := hlen
+  have : (s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
+      [Verity.addressToWord toAddr, amount]] ++
+      [Contracts.erc20WriteEntry "safeTransfer" token
+        [Verity.addressToWord toAddr, amount]]).length =
+      (s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
+        [Verity.addressToWord toAddr, amount]]).length := hlen
   simp only [List.length_append, List.length_cons, List.length_nil] at this
   omega
 
@@ -143,6 +143,78 @@ example :
       [Contracts.linkedCallEntry "quote" [3, 4] .success
         [(Contracts.externalCallStubWord "quote" [3, 4] : Nat)]] := rfl
 
+/-- Successful `tryExternalCall` returns the same decoded word that its
+journal exposes as returndata. This distinguishes the old default-return
+mutant even when the call itself succeeded. -/
+example :
+    ((Contracts.tryExternalCallWords "echo" [37] :
+        Contract (Bool × Uint256)).run defaultState) =
+      ContractResult.success (true, 37)
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "echo" [37] .success [37]] } := rfl
+
+/-- Dynamic array encoding is length-delimited and retains every element. -/
+example : ExternalArg.toWords (#[11, 12] : Array Uint256) = [2, 11, 12] := rfl
+
+/-- Same-length array content mutations are observable at the journal. -/
+theorem same_length_array_mutation_observable (s : ContractState) :
+    ((Contracts.externalCallBind ([] : List String) "arrayArg"
+        [(#[11, 12] : Array Uint256)]).run s).snd.calls ≠
+      ((Contracts.externalCallBind ([] : List String) "arrayArg"
+        [(#[11, 13] : Array Uint256)]).run s).snd.calls := by
+  show s.calls ++ [Contracts.linkedCallEntry "arrayArg" [2, 11, 12]] ≠
+      s.calls ++ [Contracts.linkedCallEntry "arrayArg" [2, 11, 13]]
+  intro h
+  have hpair := List.append_cancel_left h
+  have hhead : Contracts.linkedCallEntry "arrayArg" [2, 11, 12] =
+      Contracts.linkedCallEntry "arrayArg" [2, 11, 13] := by
+    simpa using congrArg
+      (List.headD · (Contracts.linkedCallEntry "arrayArg" [2, 11, 12])) hpair
+  exact absurd hhead (by decide)
+
+/-- Dynamic byte encoding is length-delimited and retains every byte. -/
+example : ExternalArg.toWords (⟨#[0x11, 0x12]⟩ : ByteArray) = [2, 0x11, 0x12] := rfl
+
+/-- Same-length byte content mutations are observable at the journal. -/
+theorem same_length_bytes_mutation_observable (s : ContractState) :
+    ((Contracts.externalCallBind ([] : List String) "bytesArg"
+        [(⟨#[0x11, 0x12]⟩ : ByteArray)]).run s).snd.calls ≠
+      ((Contracts.externalCallBind ([] : List String) "bytesArg"
+        [(⟨#[0x11, 0x13]⟩ : ByteArray)]).run s).snd.calls := by
+  show s.calls ++ [Contracts.linkedCallEntry "bytesArg" [2, 0x11, 0x12]] ≠
+      s.calls ++ [Contracts.linkedCallEntry "bytesArg" [2, 0x11, 0x13]]
+  intro h
+  have hpair := List.append_cancel_left h
+  have hhead : Contracts.linkedCallEntry "bytesArg" [2, 0x11, 0x12] =
+      Contracts.linkedCallEntry "bytesArg" [2, 0x11, 0x13] := by
+    simpa using congrArg
+      (List.headD · (Contracts.linkedCallEntry "bytesArg" [2, 0x11, 0x12])) hpair
+  exact absurd hhead (by decide)
+
+/-- ERC-20 wrappers journal the token as the actual call target and only the
+wrapper arguments as calldata. -/
+example (token toAddr : Address) (amount : Uint256) :
+    ((Contracts.safeTransfer token toAddr amount).run defaultState).snd.calls =
+      [{ siteId := 0, kind := .call, target := token.toNat, value := 0
+         calldata := [Core.Uint256.ofNat toAddr.toNat, amount], control := .success
+         returndata := [], name := "safeTransfer" }] := by
+  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
+
+example (token fromAddr toAddr : Address) (amount : Uint256) :
+    ((Contracts.safeTransferFrom token fromAddr toAddr amount).run defaultState).snd.calls =
+      [{ siteId := 0, kind := .call, target := token.toNat, value := 0
+         calldata := [Core.Uint256.ofNat fromAddr.toNat,
+           Core.Uint256.ofNat toAddr.toNat, amount], control := .success
+         returndata := [], name := "safeTransferFrom" }] := by
+  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
+
+example (token spender : Address) (amount : Uint256) :
+    ((Contracts.safeApprove token spender amount).run defaultState).snd.calls =
+      [{ siteId := 0, kind := .call, target := token.toNat, value := 0
+         calldata := [Core.Uint256.ofNat spender.toNat, amount], control := .success
+         returndata := [], name := "safeApprove" }] := by
+  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
+
 /-- The reserved `"fail"` callee journals a failure-control entry with no
 returndata, and reports `success := false` in-band. -/
 example :
@@ -155,6 +227,13 @@ example :
         Contract (Contracts.Call.Result Uint256)).run defaultState) =
       ContractResult.success
         { success := false, returndata := (Inhabited.default : Uint256) }
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "fail" [9] .failure []] } := rfl
+
+example :
+    ((Contracts.tryExternalCallWords "fail" [9] :
+        Contract (Bool × Uint256)).run defaultState) =
+      ContractResult.success (false, (Inhabited.default : Uint256))
         { defaultState with
             calls := [Contracts.linkedCallEntry "fail" [9] .failure []] } := rfl
 

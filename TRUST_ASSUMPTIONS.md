@@ -211,15 +211,20 @@ verbatim.
 
 The **EDSL executable plane** journals through the same field: the linked-call
 primitives (`Contracts.externalCallBind`, `Contracts.callResultWords`,
-`Contracts.tryExternalCallWords`, the `safeTransfer` family) append a
-name-keyed entry (`Contracts.linkedCallEntry`, `siteId`/`target` = 0, exact
-argument words in `calldata`) per call. Trust boundaries of that plane:
+`Contracts.tryExternalCallWords`, the `safeTransfer` family) append one entry
+per call. General linked calls are name-keyed (`Contracts.linkedCallEntry`,
+`siteId`/`target` = 0). ERC-20 writes record the token as `target`, their actual
+wrapper arguments as `calldata`, and the wrapper name. `ExternalArg.toWords`
+retains scalar values and length-prefixes arrays/byte arrays before their full
+recursive content; this is a deterministic journal-word encoding, not a claim
+of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
 - **Return values are deterministic stubs, not adversary models.** In-band
   words come from `externalCallStubWord`; the success bit is
   `externalCallStubSuccess` (`false` only for the reserved callee name
-  `"fail"`). Executable-plane theorems about call *outcomes* are therefore
-  claims about the stub, not about a real callee; adversarial reasoning
-  lives in the model plane (`DenoteExternalCalls`).
+  `"fail"`). Supported single-word results decode that same word; aggregate
+  and no-result stubs use their inhabited default. Executable-plane theorems
+  about call *outcomes* are therefore claims about the stub, not about a real
+  callee; adversarial reasoning lives in the model plane (`DenoteExternalCalls`).
 - **`externalCallWords` (pure expression form) does not journal.** It is not
   monadic, so `externalCall name [args]` used as a pure expression remains
   observationally silent; only the monadic forms journal. Specs that need

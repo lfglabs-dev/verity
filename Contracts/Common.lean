@@ -493,30 +493,39 @@ def rawLog (topics : List Uint256) (dataOffset dataSize : Uint256) : Contract Un
 def mstore (_offset _value : Uint256) : Contract Unit := pure ()
 def tstore (offset value : Uint256) : Contract Unit := fun state =>
   ContractResult.success () (state.writeTransient (offset : Nat) value)
+/-- Canonical journal-word encoding for executable external-call arguments.
+Scalars occupy one word. Dynamic values start with their element/byte count
+and retain every recursively encoded element, making equal-length content
+mutations observable without claiming byte-for-byte EVM ABI layout. -/
 class ExternalArg (α : Type) where
-  toWord : α → Uint256
+  toWords : α → List Uint256
 class ExternalResult (α : Type) where
   fromWord : Uint256 → α
+/-- Aggregate/no-result executable stubs have no single-word decoding. Keep
+their historical inhabited default; concrete scalar decoders below have the
+normal higher priority and therefore return the journaled stub word. -/
+instance (priority := 100) [Inhabited α] : ExternalResult α where
+  fromWord _ := Inhabited.default
 instance : ExternalArg Uint256 where
-  toWord value := value
+  toWords value := [value]
 instance : ExternalArg Uint16 where
-  toWord value := value.toUint256
+  toWords value := [value.toUint256]
 instance : ExternalArg (UIntN bits) where
-  toWord value := value.toUint256
+  toWords value := [value.toUint256]
 instance : ExternalArg (IntN bits) where
-  toWord value := value.toUint256
+  toWords value := [value.toUint256]
 instance : ExternalArg (BytesN bytes) where
-  toWord value := value.toUint256
+  toWords value := [value.toUint256]
 instance : ExternalArg Int256 where
-  toWord value := value.word
+  toWords value := [value.word]
 instance : ExternalArg Address where
-  toWord value := value.toNat
+  toWords value := [value.toNat]
 instance : ExternalArg Bool where
-  toWord value := if value then 1 else 0
+  toWords value := [if value then 1 else 0]
 instance [ExternalArg α] : ExternalArg (Array α) where
-  toWord values := values.size
+  toWords values := values.size :: (values.toList.flatMap ExternalArg.toWords)
 instance : ExternalArg ByteArray where
-  toWord bytes := bytes.size
+  toWords bytes := bytes.size :: (bytes.data.toList.map (fun byte => (byte.toNat : Uint256)))
 instance : ExternalResult Uint256 where
   fromWord value := value
 instance : ExternalResult Uint16 where
@@ -609,17 +618,21 @@ def callResultWords {α : Type} [ExternalResult α] [Inhabited α] (name : Strin
     (if success then [(word : Nat)] else [])
   ContractResult.success { success := success, returndata := payload }
     { state with calls := state.calls ++ [entry] }
-def tryExternalCallWords {α : Type} [Inhabited α] (name : String) (args : List Uint256) : Contract (Bool × α) :=
+def tryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
+    (name : String) (args : List Uint256) : Contract (Bool × α) :=
   fun state =>
     let success := externalCallStubSuccess name
+    let word := externalCallStubWord name args
+    let payload : α :=
+      if success then ExternalResult.fromWord word else Inhabited.default
     let entry := linkedCallEntry name args
       (if success then .success else .failure)
-      (if success then [(externalCallStubWord name args : Nat)] else [])
-    ContractResult.success (success, (Inhabited.default : α))
+      (if success then [(word : Nat)] else [])
+    ContractResult.success (success, payload)
       { state with calls := state.calls ++ [entry] }
 def externalCallBind {α : Type} [ExternalArg α] (names : List String) (name : String) (args : List α) : Contract Unit :=
   fun state =>
-    let argWords := args.map ExternalArg.toWord
+    let argWords := args.flatMap ExternalArg.toWords
     let entry := linkedCallEntry name argWords .success
       (names.map (fun _ => (externalCallStubWord name argWords : Nat)))
     ContractResult.success () { state with calls := state.calls ++ [entry] }
@@ -639,9 +652,9 @@ different at `ContractState.calls`. All laws are definitional (`rfl`). -/
     (externalCallBind names name args).run s =
       ContractResult.success ()
         { s with calls := s.calls ++
-            [linkedCallEntry name (args.map ExternalArg.toWord) .success
+            [linkedCallEntry name (args.flatMap ExternalArg.toWords) .success
               (names.map fun _ =>
-                (externalCallStubWord name (args.map ExternalArg.toWord) : Nat))] } := rfl
+                (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))] } := rfl
 
 @[simp] theorem callResultWords_run {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (s : ContractState) :
@@ -659,10 +672,14 @@ different at `ContractState.calls`. All laws are definitional (`rfl`). -/
                 [(externalCallStubWord name args : Nat)]
               else [])] } := rfl
 
-@[simp] theorem tryExternalCallWords_run {α : Type} [Inhabited α]
+@[simp] theorem tryExternalCallWords_run {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (s : ContractState) :
     (tryExternalCallWords (α := α) name args).run s =
-      ContractResult.success (externalCallStubSuccess name, (Inhabited.default : α))
+      ContractResult.success
+        (externalCallStubSuccess name,
+          if externalCallStubSuccess name then
+            ExternalResult.fromWord (externalCallStubWord name args)
+          else Inhabited.default)
         { s with calls := s.calls ++
             [linkedCallEntry name args
               (if externalCallStubSuccess name then .success else .failure)
@@ -674,17 +691,20 @@ private def erc20ReadStubWord (name : String) (args : List Uint256) : Uint256 :=
   externalCallStubWord name args
 macro_rules
   | `(term| externalCall $name:ident [ $[$args:term],* ]) =>
-      `(externalCallWords $(Lean.quote (toString name.getId)) [ $[ExternalArg.toWord $args],* ])
+      `(externalCallWords $(Lean.quote (toString name.getId))
+          (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| externalCall $name:str [ $[$args:term],* ]) =>
-      `(externalCallWords $name [ $[ExternalArg.toWord $args],* ])
+      `(externalCallWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| callResult $name:str [ $[$args:term],* ]) =>
-      `(callResultWords $name [ $[ExternalArg.toWord $args],* ])
+      `(callResultWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| callResult $name:ident [ $[$args:term],* ]) =>
-      `(callResultWords $(Lean.quote (toString name.getId)) [ $[ExternalArg.toWord $args],* ])
+      `(callResultWords $(Lean.quote (toString name.getId))
+          (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| tryExternalCall $name:str [ $[$args:term],* ]) =>
-      `(tryExternalCallWords $name [ $[ExternalArg.toWord $args],* ])
+      `(tryExternalCallWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| tryExternalCall $name:ident [ $[$args:term],* ]) =>
-      `(tryExternalCallWords $(Lean.quote (toString name.getId)) [ $[ExternalArg.toWord $args],* ])
+      `(tryExternalCallWords $(Lean.quote (toString name.getId))
+          (List.flatten [ $[ExternalArg.toWords $args],* ]))
 def getMappingWord (_slot : StorageSlot (Uint256 → Uint256)) (_key _wordOffset : Uint256) :
     Contract Uint256 := pure 0
 def setMappingWord (_slot : StorageSlot (Uint256 → Uint256)) (_key _wordOffset _value : Uint256) :
@@ -708,45 +728,47 @@ def setStructMember {κ α : Type} (_field : String) (_key : κ) (_member : Stri
     Contract Unit := pure ()
 def setStructMember2 {κ₁ κ₂ α : Type}
     (_field : String) (_key1 : κ₁) (_key2 : κ₂) (_member : String) (_value : α) : Contract Unit := pure ()
+def erc20WriteEntry (name : String) (token : Address) (args : List Uint256) : ExternalCall :=
+  { linkedCallEntry name args with target := token.toNat }
+
 def safeTransfer (token toAddr : Address) (amount : Uint256) : Contract Unit :=
-  recordLinkedCall (linkedCallEntry "safeTransfer"
-    [Verity.addressToWord token, Verity.addressToWord toAddr, amount])
+  recordLinkedCall (erc20WriteEntry "safeTransfer" token
+    [Verity.addressToWord toAddr, amount])
 def safeTransferFrom (token fromAddr toAddr : Address) (amount : Uint256) : Contract Unit :=
-  recordLinkedCall (linkedCallEntry "safeTransferFrom"
-    [Verity.addressToWord token, Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount])
+  recordLinkedCall (erc20WriteEntry "safeTransferFrom" token
+    [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount])
 def safeApprove (token spender : Address) (amount : Uint256) : Contract Unit :=
-  recordLinkedCall (linkedCallEntry "safeApprove"
-    [Verity.addressToWord token, Verity.addressToWord spender, amount])
+  recordLinkedCall (erc20WriteEntry "safeApprove" token
+    [Verity.addressToWord spender, amount])
 def legacyStringSafeTransfer (token toAddr : Address) (amount : Uint256) : Contract Unit :=
-  recordLinkedCall (linkedCallEntry "legacyStringSafeTransfer"
-    [Verity.addressToWord token, Verity.addressToWord toAddr, amount])
+  recordLinkedCall (erc20WriteEntry "legacyStringSafeTransfer" token
+    [Verity.addressToWord toAddr, amount])
 def legacyStringSafeTransferFrom (token fromAddr toAddr : Address) (amount : Uint256) : Contract Unit :=
-  recordLinkedCall (linkedCallEntry "legacyStringSafeTransferFrom"
-    [Verity.addressToWord token, Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount])
+  recordLinkedCall (erc20WriteEntry "legacyStringSafeTransferFrom" token
+    [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount])
 
 @[simp] theorem safeTransfer_run (token toAddr : Address) (amount : Uint256) (s : ContractState) :
     (safeTransfer token toAddr amount).run s =
       ContractResult.success ()
         { s with calls := s.calls ++
-            [linkedCallEntry "safeTransfer"
-              [Verity.addressToWord token, Verity.addressToWord toAddr, amount]] } := rfl
+            [erc20WriteEntry "safeTransfer" token
+              [Verity.addressToWord toAddr, amount]] } := rfl
 
 @[simp] theorem safeTransferFrom_run (token fromAddr toAddr : Address) (amount : Uint256)
     (s : ContractState) :
     (safeTransferFrom token fromAddr toAddr amount).run s =
       ContractResult.success ()
         { s with calls := s.calls ++
-            [linkedCallEntry "safeTransferFrom"
-              [Verity.addressToWord token, Verity.addressToWord fromAddr,
-                Verity.addressToWord toAddr, amount]] } := rfl
+            [erc20WriteEntry "safeTransferFrom" token
+              [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]] } := rfl
 
 @[simp] theorem safeApprove_run (token spender : Address) (amount : Uint256)
     (s : ContractState) :
     (safeApprove token spender amount).run s =
       ContractResult.success ()
         { s with calls := s.calls ++
-            [linkedCallEntry "safeApprove"
-              [Verity.addressToWord token, Verity.addressToWord spender, amount]] } := rfl
+            [erc20WriteEntry "safeApprove" token
+              [Verity.addressToWord spender, amount]] } := rfl
 
 def balanceOf (token owner : Address) : Contract Uint256 := pure <| erc20ReadStubWord "balanceOf" [token.toNat, owner.toNat]
 def allowance (token owner spender : Address) : Contract Uint256 := pure <| erc20ReadStubWord "allowance" [token.toNat, owner.toNat, spender.toNat]
