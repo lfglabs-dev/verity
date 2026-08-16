@@ -193,6 +193,47 @@ sibling entrypoint.
   Journal".
 - **Axiom-free**: `AXIOMS.md` unchanged.
 
+## EDSL Executable Plane: Linked External Calls Journal (2026-08)
+
+- The EDSL executable stubs for linked external calls are no longer silent:
+  `Contracts.externalCallBind`, `Contracts.callResultWords`,
+  `Contracts.tryExternalCallWords`, and the `safeTransfer`/`safeApprove`
+  family now append a `Verity.ExternalCall` entry to `ContractState.calls`
+  (via `Contracts.linkedCallEntry`/`recordLinkedCall`). Previously they were
+  `pure ()`-shaped no-ops, so any executable-plane theorem "about" an
+  external call was vacuously insensitive to duplicated, omitted, reordered,
+  renamed, or argument-mutated calls.
+- General linked externals are name-keyed (address bound at link time), so
+  `ExternalCall` gained a defaulted `name : String := ""` field; model-plane
+  entries (`DenoteExternalCalls.journalEntry`) leave it `""` and are otherwise
+  unchanged. Their executable-plane `siteId`/`target` are `0`. ERC-20 write
+  wrappers instead record the token address as `target` and the actual wrapper
+  arguments (excluding that target) as `calldata`; all retain the wrapper name.
+  Journal position records call order.
+- `ExternalArg.toWords` is a canonical, content-preserving journal encoding:
+  scalars occupy one word, while arrays and byte arrays carry a length prefix
+  followed by every recursively encoded element/byte. It deliberately does not
+  claim byte-for-byte EVM ABI layout, but unlike the former size-only word it
+  distinguishes same-length content mutations.
+- In-band results remain deterministic stubs (`externalCallStubWord`);
+  `callResultWords` and successful `tryExternalCallWords` with a supported
+  single-word result decode and return the same word recorded in journal
+  returndata. Aggregate/no-result executable stubs retain their inhabited
+  default, as do failures. Both report
+  `success := (name != "fail")` (`externalCallStubSuccess`), giving specs a
+  reserved name to exercise failure paths. `externalCallWords` (the pure
+  expression form) still returns the stub word without journaling — it is
+  not monadic and cannot observe state; this remaining gap is documented in
+  `TRUST_ASSUMPTIONS.md`.
+- The model plane (`DenoteExternalCalls`, `ContractExternalCall`,
+  `ExternalCallResult.control`) is untouched; all its laws hold verbatim.
+- Discriminating evidence: `Contracts/Smoke/ExternalCallObservability.lean`
+  separates duplicated/omitted/reordered/renamed/zeroed-arg and equal-length
+  dynamic-content mutants over arbitrary pre-states, pins returned-value /
+  returndata agreement and ERC-20 targets/calldata, and pins the
+  revert-rolls-back-journal behaviour of `Contract.run`.
+- **Axiom-free**: `AXIOMS.md` unchanged.
+
 ## Guarded Event Preservation + Checked Arithmetic Completion (2026-08)
 
 - `Compiler/Proofs/IRGeneration/GuardedScalarEvents.lean`:

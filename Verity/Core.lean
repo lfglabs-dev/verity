@@ -197,6 +197,11 @@ structure ExternalCall where
   calldata : List Nat := []
   control : ExternalCallControl
   returndata : List Nat := []
+  /-- Linked-external name for entries journaled by the EDSL executable
+  plane, where callees are keyed by name rather than address (the address
+  is bound at link time). Address-keyed model-plane entries
+  (`DenoteExternalCalls.journalEntry`) leave it empty. -/
+  name : String := ""
   deriving DecidableEq, Repr
 
 -- State monad for contract execution

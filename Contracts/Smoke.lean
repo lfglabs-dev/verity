@@ -8,6 +8,7 @@ import Contracts.Smoke.StructsAndArrays
 import Contracts.Smoke.HelperCalls
 import Contracts.Smoke.StructMappings
 import Contracts.Smoke.ExternalCalls
+import Contracts.Smoke.ExternalCallObservability
 import Contracts.Smoke.ExternalCallInBodySmoke
 import Contracts.Smoke.SpecGenAndChecks
 import Contracts.Smoke.Effects
