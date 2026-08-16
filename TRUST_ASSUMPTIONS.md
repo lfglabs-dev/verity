@@ -198,9 +198,10 @@ defined there and proved for `defaultState` and for an aligned
 `writeMap*`+`writeSlot` pair; other pairs require an explicit
 non-alias hypothesis. A CompilationModel field list collapses to those
 keys via `FieldStorageKey` (root plus typed `map`/`mapUint`/`map2`
-entries). A finite list of address-keyed pairs stays coherent under
-an aligned write when the list carries an explicit pairwise
-derived-slot certificate (`MappingCoherentOn`); that is not a
+entries). A finite list of address-, uint-, or nested-address pairs
+stays coherent under an aligned write when the list carries an
+explicit pairwise derived-slot certificate (`MappingCoherentOn` /
+`MappingCoherentUintOn` / `MappingCoherentMap2On`); that is not a
 global (all-keys) claim. Keccak injectivity is **not** assumed.
 `storageArray` and `knownAddresses` are still separate fields.
 

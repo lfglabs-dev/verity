@@ -27,10 +27,10 @@ not add a keccak-injectivity axiom. Source lens laws use constructor
 injectivity; Solidity slot derivation remains compiler-side.
 
 C5 step 4's mapping-coherence, field-list, and finite-set slices
-likewise add no axiom: other-pair and finite-list preservation is
-hypothesized by an explicit derived-slot inequality, not by keccak
-injectivity. `FieldStorageKey` is a constructor match on
-`FieldType` / `isTransient`.
+likewise add no axiom: other-pair and finite-list preservation
+(address / uint / map2) is hypothesized by an explicit derived-slot
+inequality, not by keccak injectivity. `FieldStorageKey` is a
+constructor match on `FieldType` / `isTransient`.
 
 ## Eliminated Axioms
 
