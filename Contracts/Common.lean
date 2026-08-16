@@ -731,6 +731,16 @@ def setStructMember2 {κ₁ κ₂ α : Type}
 def erc20WriteEntry (name : String) (token : Address) (args : List Uint256) : ExternalCall :=
   { linkedCallEntry name args with target := token.toNat }
 
+def erc20ReadEntry (name : String) (token : Address) (args : List Uint256)
+    (result : Uint256) : ExternalCall :=
+  { linkedCallEntry name args .success [(result : Nat)] with target := token.toNat }
+
+def erc20Read (name : String) (token : Address) (args : List Uint256) : Contract Uint256 :=
+  fun state =>
+    let result := erc20ReadStubWord name (Verity.addressToWord token :: args)
+    ContractResult.success result
+      { state with calls := state.calls ++ [erc20ReadEntry name token args result] }
+
 def safeTransfer (token toAddr : Address) (amount : Uint256) : Contract Unit :=
   recordLinkedCall (erc20WriteEntry "safeTransfer" token
     [Verity.addressToWord toAddr, amount])
@@ -770,9 +780,36 @@ def legacyStringSafeTransferFrom (token fromAddr toAddr : Address) (amount : Uin
             [erc20WriteEntry "safeApprove" token
               [Verity.addressToWord spender, amount]] } := rfl
 
-def balanceOf (token owner : Address) : Contract Uint256 := pure <| erc20ReadStubWord "balanceOf" [token.toNat, owner.toNat]
-def allowance (token owner spender : Address) : Contract Uint256 := pure <| erc20ReadStubWord "allowance" [token.toNat, owner.toNat, spender.toNat]
-def totalSupply (token : Address) : Contract Uint256 := pure <| erc20ReadStubWord "totalSupply" [token.toNat]
+def balanceOf (token owner : Address) : Contract Uint256 :=
+  erc20Read "balanceOf" token [Verity.addressToWord owner]
+def allowance (token owner spender : Address) : Contract Uint256 :=
+  erc20Read "allowance" token
+    [Verity.addressToWord owner, Verity.addressToWord spender]
+def totalSupply (token : Address) : Contract Uint256 := erc20Read "totalSupply" token []
+
+@[simp] theorem balanceOf_run (token owner : Address) (s : ContractState) :
+    (balanceOf token owner).run s =
+      let result := erc20ReadStubWord "balanceOf"
+        [Verity.addressToWord token, Verity.addressToWord owner]
+      ContractResult.success result
+        { s with calls := s.calls ++
+            [erc20ReadEntry "balanceOf" token [Verity.addressToWord owner] result] } := rfl
+
+@[simp] theorem allowance_run (token owner spender : Address) (s : ContractState) :
+    (allowance token owner spender).run s =
+      let result := erc20ReadStubWord "allowance"
+        [Verity.addressToWord token, Verity.addressToWord owner,
+          Verity.addressToWord spender]
+      ContractResult.success result
+        { s with calls := s.calls ++
+            [erc20ReadEntry "allowance" token
+              [Verity.addressToWord owner, Verity.addressToWord spender] result] } := rfl
+
+@[simp] theorem totalSupply_run (token : Address) (s : ContractState) :
+    (totalSupply token).run s =
+      let result := erc20ReadStubWord "totalSupply" [Verity.addressToWord token]
+      ContractResult.success result
+        { s with calls := s.calls ++ [erc20ReadEntry "totalSupply" token [] result] } := rfl
 def forEach (_name : String) (_count : Uint256) (body : Contract Unit) : Contract Unit := body
 def blockTimestamp : Contract Uint256 := Verity.blockTimestamp
 def blockNumber : Contract Uint256 := Verity.blockNumber

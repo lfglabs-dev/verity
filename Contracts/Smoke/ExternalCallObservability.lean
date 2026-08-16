@@ -153,6 +153,28 @@ example :
         { defaultState with
             calls := [Contracts.linkedCallEntry "echo" [37] .success [37]] } := rfl
 
+/-- ERC-20 reads journal the token as target, ABI arguments as calldata, and
+the returned stub word as returndata. -/
+example (token owner : Address) :
+    ((Contracts.balanceOf token owner).run defaultState).snd.calls =
+      [Contracts.erc20ReadEntry "balanceOf" token
+        [Verity.addressToWord owner]
+        (Contracts.externalCallStubWord "balanceOf"
+          [Verity.addressToWord token, Verity.addressToWord owner])] := rfl
+
+example (token owner spender : Address) :
+    ((Contracts.allowance token owner spender).run defaultState).snd.calls =
+      [Contracts.erc20ReadEntry "allowance" token
+        [Verity.addressToWord owner, Verity.addressToWord spender]
+        (Contracts.externalCallStubWord "allowance"
+          [Verity.addressToWord token, Verity.addressToWord owner,
+            Verity.addressToWord spender])] := rfl
+
+example (token : Address) :
+    ((Contracts.totalSupply token).run defaultState).snd.calls =
+      [Contracts.erc20ReadEntry "totalSupply" token []
+        (Contracts.externalCallStubWord "totalSupply" [Verity.addressToWord token])] := rfl
+
 /-- Dynamic array encoding is length-delimited and retains every element. -/
 example : ExternalArg.toWords (#[11, 12] : Array Uint256) = [2, 11, 12] := rfl
 
