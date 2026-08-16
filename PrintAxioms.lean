@@ -4693,6 +4693,18 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherenceOn.storageKey_map_ne_of_pair_ne
   Compiler.Proofs.Storage.MappingCoherenceOn.writeMap_aligned_preserves_at_other
   Compiler.Proofs.Storage.MappingCoherenceOn.writeMap_aligned_preserves_on
+  Compiler.Proofs.Storage.MappingCoherenceOn.mappingCoherentUintOn_of_mappingCoherentUint
+  Compiler.Proofs.Storage.MappingCoherenceOn.defaultState_mappingCoherentUintOn
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMapUint_aligned_preserves_at_same
+  Compiler.Proofs.Storage.MappingCoherenceOn.storageKey_mapUint_ne_of_pair_ne
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMapUint_aligned_preserves_at_other
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMapUint_aligned_preserves_on
+  Compiler.Proofs.Storage.MappingCoherenceOn.mappingCoherentMap2On_of_mappingCoherentMap2
+  Compiler.Proofs.Storage.MappingCoherenceOn.defaultState_mappingCoherentMap2On
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMap2_aligned_preserves_at_same
+  Compiler.Proofs.Storage.MappingCoherenceOn.storageKey_map2_ne_of_pair_ne
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMap2_aligned_preserves_at_other
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMap2_aligned_preserves_on
 
   -- Compiler/Proofs/Storage/SolidityStorage.lean
   Compiler.Proofs.Storage.mappingSlot_preimage
@@ -6889,4 +6901,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6390 theorems/lemmas (4520 public, 1870 private, 0 sorry'd)
+-- Total: 6402 theorems/lemmas (4532 public, 1870 private, 0 sorry'd)

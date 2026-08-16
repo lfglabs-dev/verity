@@ -45,8 +45,9 @@ legacy-compatibility witness chain are already retired), then finish C5
 step 4 — remaining field-list cases (bytes32 keys, struct members,
 alias slots) and global (all-keys) `MappingCoherent` preservation.
 Implemented: address/uint/map2 coherence laws, `FieldStorageKey`,
-and finite-set address `MappingCoherentOn` under an explicit
-pairwise derived-slot certificate. C5 step 3 (canonical
+and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
+`MappingCoherentMap2On` under explicit pairwise derived-slot
+certificates. C5 step 3 (canonical
 `storageWords : StorageKey → Uint256` backing, lens laws by constructor
 injectivity) is on `main`; it is the enabler for FixedArray-under-mapping,
 dynamic CodeData, arbitrary transient storage and multicall/delegatecall
