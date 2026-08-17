@@ -35,8 +35,7 @@ constructor match on `FieldType` / `isTransient`; struct-member
 slots add `wordOffset` via `mappingSlotLocation`. Compatibility
 `aliasSlots` are extra compiler slots, not extra source keys.
 bytes32-keyed maps use the same keccak preimage as uint256 keys
-and do not add a `StorageKey` constructor. Mixed `address`/`uint256`
-nestings likewise add no constructor. Packed extract is a shift and
+and do not add a `StorageKey` constructor. Remaining `MappingType.nested` pairs likewise add no constructor. Packed extract is a shift and
 mask on that word, not a new axiom.
 
 ## Eliminated Axioms

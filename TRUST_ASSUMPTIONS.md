@@ -204,7 +204,8 @@ collapse to `mappingSlotLocation` / `nestedMappingSlotLocation`
 are extra compiler write targets; only the resolved head has a
 `StorageKey`. bytes32-keyed maps collapse to `solidityMappingSlot`
 of the 32-byte word; there is no `StorageKey.mapBytes32`. Mixed
-`address`/`uint256` nestings collapse to `abstractNestedMappingSlot`.
+All nine `MappingType.nested` key-type pairs collapse to
+`abstractNestedMappingSlot`.
 Packed subfields extract from the same `storageKeySlot` word; they
 are not a different slot.
 A finite list of address-, uint-, or nested-address pairs
