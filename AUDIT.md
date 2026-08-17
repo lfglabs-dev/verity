@@ -329,10 +329,10 @@ sibling entrypoint.
   `aliasSlots` are extra compiler write targets; the resolved head is
   the field's `storageKeySlot`. Cross-channel finite-set preservation
   (aligned write on one mapping channel vs another channel's list)
-  takes an explicit derived-slot inequality. Global (all-keys)
-  preservation is still open. Packed subfields extract from the
-  `storageKeySlot` word (`packedExtract`); compiler packed-read
-  composition with SolidityStorage remains open.
+  takes an explicit derived-slot inequality. Packed subfields extract
+  from the `storageKeySlot` word (`packedExtract`); compiler packed-read
+  composition with SolidityStorage is `fieldPackedExtract_eq_compiledPackedRead`
+  (`width < 256`). Global (all-keys) preservation remains open.
   `FieldEncode` derives `findResolvedFieldAtSlot` from
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
   and unpacked, then identifies that slot with `encodeStorageAt`. bytes32-keyed

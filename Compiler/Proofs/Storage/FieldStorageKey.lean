@@ -479,4 +479,20 @@ theorem fieldPackedExtract_writeSlot_same
   rw [fieldPackedExtract_eq htr hpk]
   simp [storage, writeSlot]
 
+/-- Same formula as the Yul packed read (`div` then `mod 2^width`). -/
+theorem packedExtract_eq_mod (word : Nat) (pb : PackedBits)
+    (hwidth : pb.width < 256) :
+    packedExtract word pb = (word / 2 ^ pb.offset) % 2 ^ pb.width := by
+  unfold packedExtract packedMaskNat
+  have : ¬pb.width ≥ 256 := Nat.not_le.mpr hwidth
+  simp [this, Nat.and_two_pow_sub_one_eq_mod]
+
+theorem fieldPackedExtract_eq_mod
+    {s : ContractState} {f : Field} {slot : Nat} {pb : PackedBits}
+    (htr : f.isTransient = false) (hpk : f.packedBits = some pb)
+    (hwidth : pb.width < 256) :
+    fieldPackedExtract s f slot =
+      some ((s.storage slot).val / 2 ^ pb.offset % 2 ^ pb.width) := by
+  rw [fieldPackedExtract_eq htr hpk, packedExtract_eq_mod _ _ hwidth]
+
 end Compiler.Proofs.Storage.FieldStorageKey
