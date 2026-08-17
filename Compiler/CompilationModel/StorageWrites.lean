@@ -172,6 +172,8 @@ def compileSetStorageArrayElement (fields : List Field) (dynamicSource : Dynamic
   match findFieldWithResolvedSlot fields field with
   | some (f, slot) => match f.ty with
     | .fixedArrayUint128 size =>
+      let loadBuiltin := if f.isTransient then "tload" else "sload"
+      let storeBuiltin := if f.isTransient then "tstore" else "sstore"
       let baseSlots := slot :: f.aliasSlots
       let packedOffsetExpr := YulExpr.call "mul" [
         YulExpr.call "mod" [YulExpr.ident "__array_index", YulExpr.lit 2], YulExpr.lit 128]
@@ -180,8 +182,8 @@ def compileSetStorageArrayElement (fields : List Field) (dynamicSource : Dynamic
         let packedSlot := YulExpr.call "add" [YulExpr.lit baseSlot,
           YulExpr.call "div" [YulExpr.ident "__array_index", YulExpr.lit 2]]
         YulStmt.block [
-          YulStmt.let_ "__packed_old" (YulExpr.call "sload" [packedSlot]),
-          YulStmt.exprStmt (YulExpr.call "sstore" [packedSlot, YulExpr.call "or" [
+          YulStmt.let_ "__packed_old" (YulExpr.call loadBuiltin [packedSlot]),
+          YulStmt.exprStmt (YulExpr.call storeBuiltin [packedSlot, YulExpr.call "or" [
             YulExpr.call "and" [YulExpr.ident "__packed_old", YulExpr.call "not" [
               YulExpr.call "shl" [packedOffset, YulExpr.hex (2^128 - 1)]]],
             YulExpr.call "shl" [packedOffset,

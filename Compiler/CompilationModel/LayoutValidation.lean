@@ -288,6 +288,7 @@ def firstMappingPackedBits (fields : List Field) :
         | FieldType.mappingStruct2 _ _ _, some _ => some f.name
         | FieldType.adt _ _, some _ => some f.name
         | FieldType.fixedArrayUint128 _, some _ => some f.name
+        | FieldType.mappingFixedArray _ _, some _ => some f.name
         | _, _ => go rest
   go fields
 

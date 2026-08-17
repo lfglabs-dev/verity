@@ -98,6 +98,7 @@ def fieldTypeToParamType : FieldType → ParamType
   | FieldType.mappingTyped _ => ParamType.uint256
   | FieldType.mappingStruct _ _ => ParamType.uint256
   | FieldType.mappingStruct2 _ _ _ => ParamType.uint256
+  | FieldType.mappingFixedArray _ _ => ParamType.uint256
 
 private def resolveReturns (context : String) (legacy : Option ParamType)
     (returns : List ParamType) : Except String (List ParamType) := do

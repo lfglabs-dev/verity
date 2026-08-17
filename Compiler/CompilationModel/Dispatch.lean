@@ -585,16 +585,16 @@ private def validateCompileInputsBeforeFieldWriteConflict
       throw s!"Compilation error: field '{fieldName}' cannot declare packedBits in {spec.name} ({issue623Ref}). Packed subfields are only supported for value-word fields."
   | none =>
       pure ()
-  match spec.fields.find? (fun field => field.isTransient &&
-      match field.ty with | .fixedArrayUint128 _ => true | _ => false) with
-  | some field =>
-      throw s!"Compilation error: transient fixed array field '{field.name}' is unsupported in {spec.name}; fixedArrayUint128 lowering uses persistent storage."
-  | none =>
-      pure ()
   match spec.fields.find? (fun field =>
       match field.ty with | .fixedArrayUint128 0 => true | _ => false) with
   | some field =>
       throw s!"Compilation error: fixed storage array field '{field.name}' must have positive size in {spec.name}."
+  | none =>
+      pure ()
+  match spec.fields.find? (fun field =>
+      match field.ty with | .mappingFixedArray _ 0 => true | _ => false) with
+  | some field =>
+      throw s!"Compilation error: mapping-fixed-array field '{field.name}' must have positive size in {spec.name}."
   | none =>
       pure ()
   match firstUnsupportedStorageArrayElemType spec.fields with
@@ -835,7 +835,8 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
       [])
   let storageArrayElementHelpers :=
     if storageArrayHelpersRequired then
-      [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper]
+      [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper,
+        checkedTransientFixedUint128ArrayElementHelper]
     else
       []
   let dynamicBytesEqHelpers :=

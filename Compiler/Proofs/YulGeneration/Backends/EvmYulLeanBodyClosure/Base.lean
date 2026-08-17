@@ -1076,7 +1076,7 @@ theorem compileStmt_setStorage_singleSlot_pure_bridged
   cases hty : f.ty with
   | adt name maxFields =>
       exact False.elim (hNotAdt name maxFields hty)
-  | uint256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
+  | uint256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 | mappingFixedArray =>
       cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hExpr, hty] at hOk
@@ -1117,7 +1117,7 @@ theorem compileStmt_setStorage_singleSlot_pure_noFuncDefs
   cases hty : f.ty with
   | adt name maxFields =>
       exact False.elim (hNotAdt name maxFields hty)
-  | uint256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 =>
+  | uint256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 | mappingFixedArray =>
       cases hExpr : compileExprWithInternals fields dynamicSource [] value with
       | error err =>
           simp [hExpr, hty] at hOk

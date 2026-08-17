@@ -131,6 +131,9 @@ inductive FieldType
       `mapping(K1 => mapping(K2 => Struct))`.
       Access members via `Expr.structMember2` / `Stmt.setStructMember2`. -/
   | mappingStruct2 (outerKey : MappingKeyType) (innerKey : MappingKeyType) (members : List StructMember)
+  /-- `mapping(K => uint256[N])`. Elements live at
+      `keccak256(abi.encode(key, slot)) + i` (one word per element). -/
+  | mappingFixedArray (keyType : MappingKeyType) (size : Nat)
   deriving Repr, BEq
 
 structure Field where
@@ -1803,6 +1806,7 @@ def isMapping (fields : List Field) (name : String) : Bool :=
     | FieldType.mappingTyped _ => true
     | FieldType.mappingStruct _ _ => true
     | FieldType.mappingStruct2 _ _ _ => true
+    | FieldType.mappingFixedArray _ _ => true
     | _ => false
 
 theorem isMapping_false_of_findFieldWithResolvedSlot_address
@@ -1857,6 +1861,20 @@ def findStructMembers (fields : List Field) (name : String) : Option (List Struc
 -- Helper: Look up a named struct member from the members list.
 def findStructMember (members : List StructMember) (memberName : String) : Option StructMember :=
   members.find? (·.name == memberName)
+
+/-- Size of a `mapping(K => uint256[N])` field, if that is the declared type. -/
+def mappingFixedArraySize (fields : List Field) (name : String) : Option Nat :=
+  fields.find? (·.name == name) |>.bind fun f =>
+    match f.ty with
+    | FieldType.mappingFixedArray _ size => some size
+    | _ => none
+
+/-- Compile-time element index is in range for a mapping-fixed-array field. -/
+def mappingFixedArrayIndexInBounds (fields : List Field) (name : String)
+    (idx : Nat) : Bool :=
+  match mappingFixedArraySize fields name with
+  | some size => decide (idx < size)
+  | none => false
 
 
 end Compiler.CompilationModel

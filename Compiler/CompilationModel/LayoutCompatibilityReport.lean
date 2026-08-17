@@ -47,6 +47,8 @@ private def fieldTypeSummary : FieldType → String
       s!"mappingStruct({mappingKeyTypeString keyType};members={members.length})"
   | .mappingStruct2 outer inner members =>
       s!"mappingStruct({mappingKeyTypeString outer},{mappingKeyTypeString inner};members={members.length})"
+  | .mappingFixedArray keyType size =>
+      s!"mapping({mappingKeyTypeString keyType}=>uint256[{size}])"
 
 private structure FieldLayoutInfo where
   name : String

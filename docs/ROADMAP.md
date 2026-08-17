@@ -83,7 +83,15 @@ C5 step 3 (canonical
 `storageWords : StorageKey → Uint256` backing, lens laws by constructor
 injectivity) is on `main`; it is the enabler for FixedArray-under-mapping,
 dynamic CodeData, arbitrary transient storage and multicall/delegatecall
-(#1962, #1967, #1976, #1889).
+(#1962, #1967, #1976, #1889). Landed increment: `FieldType.mappingFixedArray`
+(`mapping(K => uint256[N])` at `mappingSlot + i`); typed CodeData/SSTORE2
+`STOP` prefix and offset-1 reads including empty/short/dynamic payloads;
+transient `fixedArrayUint128` lowers to `tload`/`tstore` and stays off the
+persistent `storageKeySlot` map; first-class `denoteSelfDelegateCalls`
+(self-`delegatecall` sequence with shared world, rollback, returndata
+bubble). Compiled FunctionSpec multicall remains #2365. ECM
+`selfDelegateMulticallBytes` is unchanged. `solidityMappingSlot_injective`
+remains the one documented Lean axiom.
 
 ---
 

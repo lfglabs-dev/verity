@@ -79,6 +79,13 @@ private def fieldTypeJson : FieldType → String
         ("keys", jsonArray [jsonString (mappingKeyTypeString outer), jsonString (mappingKeyTypeString inner)]),
         ("members", jsonArray (members.map structMemberJson))
       ]
+  | .mappingFixedArray keyType size =>
+      jsonObject [
+        ("kind", jsonString "mappingFixedArray"),
+        ("keys", jsonArray [jsonString (mappingKeyTypeString keyType)]),
+        ("elemType", jsonString "uint256"),
+        ("size", jsonNat size)
+      ]
 
 private def reservedSlotRangeJson (range : ReservedSlotRange) : String :=
   jsonObject [
@@ -149,6 +156,7 @@ private def familyKindString : FieldType → String
       if (mappingTypeKeyTypes mt).length ≥ 2 then "nestedMapping" else "mapping"
   | .mappingStruct _ _ => "mappingStruct"
   | .mappingStruct2 _ _ _ => "nestedMappingStruct"
+  | .mappingFixedArray _ _ => "mappingFixedArray"
 
 /-- Symbolic keccak preimage description used as the per-family
     non-collision justification. `null` for plain scalars, where
@@ -169,6 +177,8 @@ private def familyKeccakPreimage : FieldType → Nat → String
       jsonString s!"keccak256(key || slot={slot}) + wordOffset [keys: {mappingKeyTypeString keyType}]"
   | .mappingStruct2 outerKey innerKey _, slot =>
       jsonString s!"keccak256(innerKey || keccak256(outerKey || slot={slot})) + wordOffset [keys: {mappingKeyTypeString outerKey}, {mappingKeyTypeString innerKey}]"
+  | .mappingFixedArray keyType size, slot =>
+      jsonString s!"keccak256(key || slot={slot}) + i [keys: {mappingKeyTypeString keyType}; size: {size}]"
 
 /-- Maximum struct word offset for mapping-struct families, or `null`. -/
 private def familyStructWordRange : FieldType → String

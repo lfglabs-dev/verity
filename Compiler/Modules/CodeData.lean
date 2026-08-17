@@ -69,6 +69,15 @@ def sstore2PrefixOffset : YulExpr := YulExpr.lit sstore2PrefixBytes
 def sstore2RuntimeSize (payloadSize : YulExpr) : YulExpr :=
   YulExpr.call "add" [sstore2PrefixOffset, payloadSize]
 
+theorem sstore2PrefixBytes_eq : sstore2PrefixBytes = 1 := rfl
+
+theorem sstore2PrefixOffset_eq : sstore2PrefixOffset = YulExpr.lit 1 := rfl
+
+theorem sstore2RuntimeSize_adds_prefix (payloadSize : YulExpr) :
+    sstore2RuntimeSize payloadSize =
+      YulExpr.call "add" [YulExpr.lit 1, payloadSize] :=
+  rfl
+
 def codeDataPayloadSupported (payload : FrameLayout) : Bool :=
   if layoutHasRuntimeSize payload then
     layoutRuntimeSourcesSupported payload
