@@ -278,6 +278,43 @@ def bindExternalParamsFrom (selector : Nat) (calldata : List Nat)
         (headOffset + paramHeadSize param.ty)
       some (here ++ tail)
 
+/-- The semantic counterpart of the compiler's length-prefixed dynamic
+calldata loader for a `bytes` parameter.  Given the same checked head word,
+tail length word, and byte-tail bound that the generated loader establishes,
+the dispatcher binds exactly its six loader locals.
+
+This is intentionally a one-parameter refinement boundary: the next dispatch
+slice composes it with `execIRStmts` for `genDynamicParamLoads`, then lifts it
+over the parameter list. -/
+theorem bindExternalParam_bytes_refines_dynamic_loader
+    {selector : Nat} {calldata : List Nat}
+    {headSize baseOffset headOffset relativeOffset length : Nat} {name : String}
+    (hhead : externalWordAt? selector calldata headOffset = some relativeOffset)
+    (hheadBound : headSize ≤ relativeOffset)
+    (htailBound : baseOffset + relativeOffset + 32 ≤ externalCalldataSize calldata)
+    (hlength : externalWordAt? selector calldata (baseOffset + relativeOffset) = some length)
+    (hpayloadBound :
+      length ≤ externalCalldataSize calldata - (baseOffset + relativeOffset + 32)) :
+    bindExternalParam selector calldata headSize baseOffset headOffset
+      { name := name, ty := ParamType.bytes } =
+      some
+        [ (s!"{name}_offset", relativeOffset)
+        , (s!"{name}_abs_offset", baseOffset + relativeOffset)
+        , (s!"{name}_length", length)
+        , (s!"{name}_tail_head_end", baseOffset + relativeOffset + 32)
+        , (s!"{name}_tail_remaining",
+            externalCalldataSize calldata - (baseOffset + relativeOffset + 32))
+        , (s!"{name}_data_offset", baseOffset + relativeOffset + 32) ] := by
+  have hnotTailOutOfBounds : ¬ baseOffset + relativeOffset + 32 > externalCalldataSize calldata := by
+    omega
+  have hnotHeadInTail : ¬ relativeOffset < headSize := by
+    omega
+  have hdecodeBytes : decodeSupportedParamWord ParamType.bytes =<< some relativeOffset = none := rfl
+  simp [bindExternalParam, externalDynamicPayloadShape?,
+    decodeLengthPrefixedDynamicParam?, DynamicPayloadShape.fitsLength,
+    dynamicParamBindings, hhead, hdecodeBytes, hnotHeadInTail, hnotTailOutOfBounds, hlength,
+    hpayloadBound]
+
 /-- Witness that one external ABI parameter is accepted by `bindExternalParam`
 at a particular absolute head offset. -/
 def ExternalParamBindingWitness
