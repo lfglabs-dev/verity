@@ -336,8 +336,10 @@ sibling entrypoint.
   `storageKeySlot` with the flat slot `MappingCoherent*` /
   `MappingCoherentOn*` reads.
   A lone `writeSlot` preserves a finite `*On` list under an explicit
-  listed-vs-written slot inequality. Global (all-keys) preservation
-  remains open.
+  listed-vs-written slot inequality. A lone `writeTransient` preserves
+  the same lists by constructor injectivity (`StorageKey.transient`
+  vs persistent `.slot` / `.map` / `.mapUint` / `.map2`); no slot
+  inequality. Global (all-keys) preservation remains open.
   `FieldEncode` derives `findResolvedFieldAtSlot` from
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
   and unpacked, then identifies that slot with `encodeStorageAt`.

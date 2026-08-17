@@ -42,7 +42,10 @@ it instantiates `MappingCoherent*` / `MappingCoherentOn*` at the
 named field's derived slot. `encodeStorageAt` on an unoccupied
 mapping slot is the same shadow, still under an explicit
 non-occupation hypothesis. Lone `writeSlot` preservation of a
-finite list is the same explicit slot inequality. `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
+finite list is the same explicit slot inequality. Lone
+`writeTransient` preservation adds no axiom: constructor
+injectivity separates transient from persistent keys.
+`FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
 from no write-slot conflict plus constructor facts.
 
 ## Eliminated Axioms

@@ -8,6 +8,10 @@
   under an explicit derived-slot inequality between the written slot
   and every listed pair.
 
+  A lone `writeTransient` preserves every finite `*On` list by
+  constructor injectivity (`StorageKey.transient` vs persistent
+  `.slot` / `.map` / `.mapUint` / `.map2`). No slot inequality.
+
   This is not global preservation. A certificate for every pair would
   be keccak injectivity on an unbounded preimage set.
 -/
@@ -399,6 +403,53 @@ theorem writeSlot_preserves_mappingCoherentMap2On
       (s.writeSlot n v).storage (mappingMap2Slot p.1 p.2.1 p.2.2) =
         s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) :=
     storage_writeSlot_other (s := s) (hna p hp) v
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+/-- Transient writes leave persistent mapping views and flat word
+    slots unchanged. Constructor injectivity of `StorageKey.transient`
+    vs `.slot` / `.map` / `.mapUint` / `.map2`; no slot inequality
+    and not keccak injectivity. -/
+theorem writeTransient_preserves_mappingCoherentOn
+    (s : ContractState) (pairs : List (Nat × Address)) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentOn s pairs) :
+    MappingCoherentOn (s.writeTransient n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeTransient n v).storageMap p.1 p.2 = s.storageMap p.1 p.2 := by
+    simp [storageMap, writeTransient]
+  have hflat :
+      (s.writeTransient n v).storage (mappingAddrSlot p.1 p.2) =
+        s.storage (mappingAddrSlot p.1 p.2) := by
+    simp [storage, writeTransient]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeTransient_preserves_mappingCoherentUintOn
+    (s : ContractState) (pairs : List (Nat × Uint256)) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentUintOn s pairs) :
+    MappingCoherentUintOn (s.writeTransient n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeTransient n v).storageMapUint p.1 p.2 = s.storageMapUint p.1 p.2 := by
+    simp [storageMapUint, writeTransient]
+  have hflat :
+      (s.writeTransient n v).storage (mappingUintSlot p.1 p.2) =
+        s.storage (mappingUintSlot p.1 p.2) := by
+    simp [storage, writeTransient]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeTransient_preserves_mappingCoherentMap2On
+    (s : ContractState) (pairs : List (Nat × Address × Address)) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentMap2On s pairs) :
+    MappingCoherentMap2On (s.writeTransient n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeTransient n v).storageMap2 p.1 p.2.1 p.2.2 =
+        s.storageMap2 p.1 p.2.1 p.2.2 := by
+    simp [storageMap2, writeTransient]
+  have hflat :
+      (s.writeTransient n v).storage (mappingMap2Slot p.1 p.2.1 p.2.2) =
+        s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) := by
+    simp [storage, writeTransient]
   exact (hmap.trans (hcoh p hp)).trans hflat.symm
 
 end Compiler.Proofs.Storage.MappingCoherenceOn
