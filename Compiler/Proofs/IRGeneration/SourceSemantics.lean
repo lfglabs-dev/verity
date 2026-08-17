@@ -3209,6 +3209,11 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     (world : Verity.ContractState) (tx : IRTransaction) :
     (withConstructorTransactionContext world tx).transientStorage = world.transientStorage := rfl
 
+@[simp] theorem transientStorage_at_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) (slot : Nat) :
+    (withConstructorTransactionContext world tx).transientStorage slot =
+      world.transientStorage slot := rfl
+
 theorem findDynamicArrayElementAtSlot_withTransactionContext
     (fields : List Field)
     (world : Verity.ContractState)

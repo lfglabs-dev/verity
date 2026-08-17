@@ -84,13 +84,19 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _
   | .mappingUint _ a | .mappingChain _ [a] | .structMember _ a _
   | .storageArrayElement _ a
-  | .memoryArrayElement _ a
   | .arrayElement _ a
   | .arrayElementDynamicWord _ a _
   | .arrayElementDynamicDataOffset _ a
   | .arrayElementDynamicMemberLength _ a _
   | .arrayElementDynamicMemberDataOffset _ a _ =>
       bindAgree (denote_evalExpr_eq fields s a) fun _ => rfl
+  | .memoryArrayElement name a =>
+      bindAgree (denote_evalExpr_eq fields s a) fun idx => by
+        simp only [Denote.evalExpr, SourceSemantics.evalExpr, toRuntimeState_bindings,
+          toRuntimeState_world]
+        rcases hBinding : Denote.dynamicArrayBinding? s.bindings name with _ | ⟨dataOffset, length⟩
+        · rfl
+        · by_cases hidx : idx < length <;> simp [hBinding, hidx]
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b
   | .byte a b | .signextend a b | .eq a b | .ge a b | .gt a b | .sgt a b
