@@ -175,7 +175,7 @@ theorem compiledStructMemberSlot_eq_sourceStructMemberSlotRead
     unfold sourceStructMemberSlotRead
     rw [SourceSemantics.evalExpr]
     simp only [SourceSemantics.evalExpr, hfield, hmembers, structBridgeMember,
-      structMemberBridgeState, Verity.ContractState.storage_withStorageChannel,
+      structMemberBridgeState,
       SourceSemantics.wordNormalize_eq_mod, Nat.mod_eq_of_lt hkey]
     simp only [structBridgeField, SourceSemantics.readFieldWord,
       SourceSemantics.wordNormalize]

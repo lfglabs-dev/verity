@@ -69,7 +69,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .literal _ | .param _ | .immutable _ | .constructorArg _ | .storage _ | .storageAddr _
   | .mappingChain _ [] | .mappingChain _ (_ :: _ :: _ :: _) | .localVar _
   | .storageArrayLength _ | .dynamicBytesEq ..
-  | .memoryArrayLength _ | .memoryArrayElement .. | .paramDynamicMemberLength ..
+  | .memoryArrayLength _ | .paramDynamicMemberLength ..
   | .paramDynamicMemberDataOffset .. | .paramDynamicMemberElement ..
   | .paramDynamicStaticComposite .. | .paramDynamicHeadWord ..
   | .arrayLength _ | .arrayElementWord ..
@@ -84,6 +84,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _
   | .mappingUint _ a | .mappingChain _ [a] | .structMember _ a _
   | .storageArrayElement _ a
+  | .memoryArrayElement _ a
   | .arrayElement _ a
   | .arrayElementDynamicWord _ a _
   | .arrayElementDynamicDataOffset _ a
@@ -245,7 +246,7 @@ theorem writeAddressKeyedMappingSlots_eq
           storageKey =
             Verity.StorageKey.map slot (Verity.wordToAddress (Verity.Core.Uint256.ofNat k))
       · subst hmap; simp
-      · simp [hmap]
+      · simp
         cases storageKey with
         | slot s =>
             exact congrFun (storage_field_eq_of_rel h) s
@@ -293,7 +294,7 @@ theorem writeAddressKeyedMapping2Slots_eq
               (Verity.wordToAddress (Verity.Core.Uint256.ofNat k1))
               (Verity.wordToAddress (Verity.Core.Uint256.ofNat k2))
       · subst hmap; simp
-      · simp [hmap]
+      · simp
         cases storageKey with
         | slot s =>
             exact congrFun (storage_field_eq_of_rel h) s
