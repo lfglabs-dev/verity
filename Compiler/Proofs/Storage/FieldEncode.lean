@@ -117,4 +117,18 @@ theorem encodeStorageAt_fieldMapUintKey
       (s.storageMapUint slot key).val := by
   rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot key]
 
+theorem encodeStorageAt_fieldMap2Key
+    {fields : List Field} {s : ContractState} {slot : Nat} {k1 k2 : Address}
+    (hcoh : MappingCoherentMap2 s)
+    (hresolved :
+      findResolvedFieldAtSlot fields
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) = none)
+    (hdyn :
+      findDynamicArrayElementAtSlot fields s
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) = none) :
+    encodeStorageAt fields s
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) =
+      (s.storageMap2 slot k1 k2).val := by
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot k1 k2]
+
 end Compiler.Proofs.Storage.FieldEncode
