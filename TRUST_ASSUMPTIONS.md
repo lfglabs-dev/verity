@@ -275,6 +275,23 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
 - **`callExternal name(args)` surface and the mapping stubs**
   (`getMappingWord`/`setMappingWord`/`getMappingN`/`setMappingN`) remain
   unmodeled no-ops at this plane.
+- **`externalCallBindTo` journals target and value and debits ETH
+  on success.** It is still a stub for the callee return word
+  (`externalCallStubWord`). Real callee state is the model-plane
+  `AdversaryModel` / `Verity.MultiContract` hop, not this stub.
+- **Base `FunctionSpec` denotation (`Denote.evalExpr` /
+  `execStmt`) still treats raw `Expr.call` and
+  `Stmt.externalCallBind` as outside the SourceSemantics-agreeing
+  fragment.** The widened fragment is
+  `DenoteFunctionCalls.denoteFunctionWithCalls`.
+- **Base `withTransactionContext` still does not credit
+  `selfBalance`.** Payable FunctionSpec denotation uses
+  `withPayableCallContext`. Multi-contract hops use
+  `MultiContract.withCallContext`. A call that uses neither still
+  has a stale balance.
+- **`MultiContract` Bus → Gateway → Vault → (Lido | request) is a
+  model ensemble**, not a compiled protocol and not an L2
+  preservation claim.
 - A full monadic revert through `Contract.run` rolls the journal back with
   the rest of the snapshot (top-level EVM semantics), unlike the model
   plane's caller-side rollback survival described above.

@@ -598,6 +598,15 @@ def linkedCallEntry (name : String) (argWords : List Uint256)
     returndata := returndata
     name := name }
 
+/-- Address- and value-keyed journal entry for the ETH-aware bind. -/
+def linkedCallEntryTo (name : String) (target : Address) (value : Uint256)
+    (argWords : List Uint256)
+    (control : ExternalCallControl := .success)
+    (returndata : List Nat := []) : ExternalCall :=
+  { linkedCallEntry name argWords control returndata with
+    target := target.toNat
+    value := value.val }
+
 /-- Append one entry to the `ContractState.calls` journal. This is the sole
 observable-effect primitive of the executable linked-call family; a
 subsequent monadic revert rolls the entry back through `Contract.run`'s
@@ -643,6 +652,32 @@ def externalCallBind {α : Type} [ExternalArg α] (names : List String) (name : 
     if success then ContractResult.success () next
     else ContractResult.revert "external call failed" next
 
+/-- Linked bind with explicit target and ETH value. Debits `selfBalance`
+    only on success; insufficient balance or a failing stub reverts the
+    pre-call world (including the journal). Callee state lives in
+    `Verity.MultiContract`, not in this single-world stub. -/
+def externalCallBindTo {α : Type} [ExternalArg α]
+    (target : Address) (value : Uint256)
+    (names : List String) (name : String) (args : List α) : Contract Unit :=
+  fun state =>
+    if value ≤ state.selfBalance then
+      let argWords := args.flatMap ExternalArg.toWords
+      let success := externalCallStubSuccess name
+      let entry := linkedCallEntryTo name target value argWords
+        (if success then .success else .failure)
+        (if success then
+          names.map (fun _ => (externalCallStubWord name argWords : Nat))
+        else [])
+      if success then
+        ContractResult.success ()
+          { state with
+            selfBalance := state.selfBalance - value
+            calls := state.calls ++ [entry] }
+      else
+        ContractResult.revert "external call failed" state
+    else
+      ContractResult.revert "insufficient balance" state
+
 /-! ### Run laws for the executable linked-call family
 
 Successful primitives append exactly one journal entry, so a duplicated,
@@ -667,6 +702,28 @@ definitional (`rfl`). -/
       else ContractResult.revert "external call failed" s := by
   by_cases h : externalCallStubSuccess name = true <;>
     simp [Contract.run, externalCallBind, h]
+
+theorem externalCallBindTo_run {α : Type} [ExternalArg α]
+    (target : Address) (value : Uint256)
+    (names : List String) (name : String) (args : List α) (s : ContractState) :
+    (externalCallBindTo target value names name args).run s =
+      if value ≤ s.selfBalance then
+        if externalCallStubSuccess name then
+          ContractResult.success ()
+            { s with
+              selfBalance := s.selfBalance - value
+              calls := s.calls ++
+                [linkedCallEntryTo name target value (args.flatMap ExternalArg.toWords)
+                  .success
+                  (names.map fun _ =>
+                    (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))] }
+        else ContractResult.revert "external call failed" s
+      else ContractResult.revert "insufficient balance" s := by
+  by_cases hbal : value ≤ s.selfBalance
+  · by_cases h : externalCallStubSuccess name = true
+    · simp [Contract.run, externalCallBindTo, hbal, h, linkedCallEntryTo]
+    · simp [Contract.run, externalCallBindTo, hbal, h]
+  · simp [Contract.run, externalCallBindTo, hbal]
 
 @[simp] theorem callResultWords_run {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (s : ContractState) :

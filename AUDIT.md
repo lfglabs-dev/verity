@@ -193,6 +193,30 @@ sibling entrypoint.
   Journal".
 - **Axiom-free**: `AXIOMS.md` unchanged.
 
+## FunctionSpec Calls, ETH Value, Multi-Contract World (2026-08)
+
+- `Denote.evalExpr` / `execStmt` still map `Expr.call` and
+  `Stmt.externalCallBind` to `none` / `.revert`, so
+  `DenoteAgreement` stays definitional against `SourceSemantics`.
+  The widened fragment is `Verity.Core.Model.DenoteFunctionCalls`:
+  `evalExprCall` / `execExternalCallBind` take a `CallEnv`
+  (`AdversaryModel` + link-time target / value / siteId), debit
+  `selfBalance` only on a successful `call`, and journal the real
+  target and value.
+- Base `withTransactionContext` is unchanged (keeps
+  `DenoteAgreement` / `_frame_holds` stable). Payable calls use
+  `withPayableCallContext`, which credits `selfBalance` with
+  `msg.value`. `MultiContract.withCallContext` does the same on
+  each hop.
+- EDSL `Contracts.externalCallBind` stays name-keyed (`target`/`value`
+  = 0). `externalCallBindTo` records target and value and debits ETH
+  on success. Callee state is not in that single-world stub.
+- `Verity.MultiContract` is a finite `Address → ContractState` world
+  with ETH-valued hops. The P-ETH-1 ensemble is
+  Bus → Gateway → Vault → (Lido | request). Model-plane only: those
+  names are not compiled contracts and not an L2 claim.
+- Zero new axioms.
+
 ## EDSL Executable Plane: Linked External Calls Journal (2026-08)
 
 - The EDSL executable stubs for linked external calls are no longer silent:

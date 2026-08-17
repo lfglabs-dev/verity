@@ -55,7 +55,13 @@ as extra compiler write targets),
 and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 `MappingCoherentMap2On` under explicit pairwise derived-slot
 certificates, including cross-channel aligned-write, lone
-`writeSlot`, and lone `writeTransient` preservation. C5 step 3 (canonical
+`writeSlot`, and lone `writeTransient` preservation. FunctionSpec
+raw/linked calls with target, value and ETH debit are denoted in
+`DenoteFunctionCalls` (base `evalExpr`/`execStmt` stay
+`none`/`.revert` so `DenoteAgreement` holds). Payable calls credit
+`selfBalance` via `withPayableCallContext`. `MultiContract` models
+Bus → Gateway → Vault → (Lido | request) as an ETH-valued hop
+ensemble; it is not an L2 claim. C5 step 3 (canonical
 `storageWords : StorageKey → Uint256` backing, lens laws by constructor
 injectivity) is on `main`; it is the enabler for FixedArray-under-mapping,
 dynamic CodeData, arbitrary transient storage and multicall/delegatecall

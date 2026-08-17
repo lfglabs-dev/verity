@@ -10,6 +10,7 @@ import Contracts.Smoke.StructMappings
 import Contracts.Smoke.ExternalCalls
 import Contracts.Smoke.ExternalCallObservability
 import Contracts.Smoke.ExternalCallInBodySmoke
+import Contracts.Smoke.ExternalCallValue
 import Contracts.Smoke.SpecGenAndChecks
 import Contracts.Smoke.Effects
 import Contracts.Smoke.Namespaces
