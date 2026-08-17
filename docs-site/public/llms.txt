@@ -25,7 +25,7 @@ EDSL  -->  CompilationModel  -->  IR  -->  Yul  -->  EVM bytecode
 
 Every transition inside the proof envelope is either fully verified or recorded as an explicit assumption in the per-build trust report. The Yul-to-bytecode step is delegated to `solc --strict-assembly`.
 
-**Layer 2**: Generic whole-contract theorem for the supported fragment. 0 axioms. 0 documented Lean axioms remain (AXIOMS.md). Internal helper calls exist at the source level, and helper-summary proof reuse is available in source-semantics lemmas, but that reuse is not yet fully consumed through the generic body/IR theorem path. ECMs, typed interface calls, external calls, and low-level call/returndata mechanics are trust-reported or compiler-supported rather than fully proof-modeled. Constructors, fallback/receive, events/logs, typed errors, proxy/delegatecall, local obligations, and richer storage-layout features remain outside the generic proof fragment or partial. `forEach` proof support is partial: zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops are proved; positive non-empty loop bodies and nonliteral bounds are not yet proved.
+**Layer 2**: Generic whole-contract theorem for the supported fragment. 0 axioms. 1 documented Lean axiom remains project-wide (`solidityMappingSlot_injective`; Layer 2 still 0). Internal helper calls exist at the source level, and helper-summary proof reuse is available in source-semantics lemmas, but that reuse is not yet fully consumed through the generic body/IR theorem path. ECMs, typed interface calls, external calls, and low-level call/returndata mechanics are trust-reported or compiler-supported rather than fully proof-modeled. Constructors, fallback/receive, events/logs, typed errors, proxy/delegatecall, local obligations, and richer storage-layout features remain outside the generic proof fragment or partial. `forEach` proof support is partial: zero-bound loops with supported bodies and arbitrary literal-bound empty-body loops are proved; positive non-empty loop bodies and nonliteral bounds are not yet proved.
 
 ## Quick facts
 
@@ -34,7 +34,7 @@ Every transition inside the proof envelope is either fully verified or recorded 
 - **Core Size**: 1098 lines
 - **Verified Contracts**: 15 (Counter, ERC20, ERC721, Ledger, LocalObligationMacroSmoke, Ownable, Owned, OwnedCounter, OwnedCounterComposed, ReentrancyExample, ReentrancyRelyGuarantee, SafeCounter, SimpleStorage, SimpleToken, Vault)
 - **Theorems**: 314 across 15 categories, 314 fully proven
-- **Axioms**: 0 documented Lean axioms (see AXIOMS.md)
+- **Axioms**: 1 documented Lean axiom (`solidityMappingSlot_injective`; see AXIOMS.md)
 - **Tests**: 528 Foundry tests, 239 property tests
 - **Build**: `lake build` verifies all proofs
 - **Repository**: https://github.com/lfglabs-dev/verity

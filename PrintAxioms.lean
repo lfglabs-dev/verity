@@ -4637,6 +4637,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.LoopSimulation.forEach_sum_over_array
 
   -- Compiler/Proofs/MappingSlot.lean
+  Compiler.Proofs.solidityMappingSlot_ne
   Compiler.Proofs.abstractMappingSlot_eq_solidity
   Compiler.Proofs.abstractMappingTag_eq_zero
   Compiler.Proofs.abstractDecodeMappingSlot_eq_none
@@ -4655,6 +4656,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.solidityMappingSlot_lt_evmModulus
   Compiler.Proofs.mappingSlotLocation_zero
   Compiler.Proofs.abstractMappingSlot_lt_evmModulus
+  Compiler.Proofs.abstractNestedMappingSlot_injective
+  Compiler.Proofs.abstractNestedMappingSlot_ne
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
 
@@ -4738,6 +4741,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherence.writeMap2_aligned_other
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_mapUint
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_map2
+  Compiler.Proofs.Storage.MappingCoherence.addressToWord_injective
+  Compiler.Proofs.Storage.MappingCoherence.mappingAddrSlot_ne_of_map_ne
+  Compiler.Proofs.Storage.MappingCoherence.mappingUintSlot_ne_of_mapUint_ne
+  Compiler.Proofs.Storage.MappingCoherence.mappingMap2Slot_ne_of_map2_ne
+  Compiler.Proofs.Storage.MappingCoherence.writeMap_aligned_preserves_mappingCoherent
 
   -- Compiler/Proofs/Storage/MappingCoherenceOn.lean
   Compiler.Proofs.Storage.MappingCoherenceOn.mappingCoherentOn_of_mappingCoherent
@@ -6966,4 +6974,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6458 theorems/lemmas (4588 public, 1870 private, 0 sorry'd)
+-- Total: 6466 theorems/lemmas (4596 public, 1870 private, 0 sorry'd)

@@ -16,7 +16,7 @@ Yul
 EVM Bytecode
 ```
 
-The repository currently has 0 `sorry` placeholders across the `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules that participate in the verified compiler stack. Layer 2 (Source → IR) and Layer 3 (IR → Yul) proof scripts are fully discharged, and it now has 0 documented Lean axioms. See [AXIOMS.md](AXIOMS.md) for details. Audit evidence and generated trust-boundary artifacts are indexed in [AUDIT.md](AUDIT.md).
+The repository currently has 0 `sorry` placeholders across the `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules that participate in the verified compiler stack. Layer 2 (Source → IR) and Layer 3 (IR → Yul) proof scripts are fully discharged, and it now has 1 documented Lean axiom (`solidityMappingSlot_injective`). See [AXIOMS.md](AXIOMS.md) for details. Audit evidence and generated trust-boundary artifacts are indexed in [AUDIT.md](AUDIT.md).
 
 ## What's Verified
 
@@ -38,7 +38,7 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 
 ### 2. Lean Axioms
 - **Role**: Bridge remaining proof obligations not yet fully discharged.
-- **Status**: 0 documented axioms in [AXIOMS.md](AXIOMS.md). The mapping-slot range axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 generic body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge remains an explicit theorem hypothesis rather than a Lean axiom.
+- **Status**: 1 documented axiom in [AXIOMS.md](AXIOMS.md): `solidityMappingSlot_injective` (collision-resistance of `keccak256(abi.encode(key, base))`, not keccak injectivity on all inputs). The mapping-slot *range* axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 generic body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge remains an explicit theorem hypothesis rather than a Lean axiom.
 - **Mitigation**: CI axiom reporting and location checks enforce explicit tracking.
 
 ### 3. Keccak-based Selector Computation
@@ -224,8 +224,11 @@ stays coherent under an aligned write when the list carries an
 explicit pairwise derived-slot certificate (`MappingCoherentOn` /
 `MappingCoherentUintOn` / `MappingCoherentMap2On`); that is not a
 global (all-keys) claim. Cross-channel preservation of another
-list likewise takes an explicit derived-slot inequality. Keccak
-injectivity is **not** assumed.
+list likewise takes an explicit derived-slot inequality. Global
+aligned `writeMap`+`writeSlot` preservation of `MappingCoherent`
+uses `solidityMappingSlot_injective` (64-byte ABI preimage
+collision-resistance). Keccak injectivity on arbitrary byte
+strings is **not** assumed.
 `storageArray` and `knownAddresses` are still separate fields.
 
 ### External-Call Journal (`ContractState.calls`)
