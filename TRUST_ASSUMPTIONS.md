@@ -198,7 +198,9 @@ defined there and proved for `defaultState` and for an aligned
 `writeMap*`+`writeSlot` pair; other pairs require an explicit
 non-alias hypothesis. A CompilationModel field list collapses to those
 keys via `FieldStorageKey` (root plus typed `map`/`mapUint`/`map2`
-entries). A finite list of address-, uint-, or nested-address pairs
+entries). Address-keyed `mappingStruct` / `mappingStruct2` members
+collapse to `mappingSlotLocation` / `nestedMappingSlotLocation`
+(base mapping slot plus `wordOffset`). A finite list of address-, uint-, or nested-address pairs
 stays coherent under an aligned write when the list carries an
 explicit pairwise derived-slot certificate (`MappingCoherentOn` /
 `MappingCoherentUintOn` / `MappingCoherentMap2On`); that is not a

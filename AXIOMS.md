@@ -30,7 +30,8 @@ C5 step 4's mapping-coherence, field-list, and finite-set slices
 likewise add no axiom: other-pair and finite-list preservation
 (address / uint / map2) is hypothesized by an explicit derived-slot
 inequality, not by keccak injectivity. `FieldStorageKey` is a
-constructor match on `FieldType` / `isTransient`.
+constructor match on `FieldType` / `isTransient`; struct-member
+slots add `wordOffset` via `mappingSlotLocation`.
 
 ## Eliminated Axioms
 

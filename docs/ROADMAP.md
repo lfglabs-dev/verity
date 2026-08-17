@@ -42,9 +42,10 @@ Next: derive the executable shallow program from the deep model
 per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
 legacy-compatibility witness chain are already retired), then finish C5
-step 4 — remaining field-list cases (bytes32 keys, struct members,
+step 4 — remaining field-list cases (bytes32 keys, packed bit-ranges,
 alias slots) and global (all-keys) `MappingCoherent` preservation.
-Implemented: address/uint/map2 coherence laws, `FieldStorageKey`,
+Implemented: address/uint/map2 coherence laws, `FieldStorageKey`
+(including address-keyed mappingStruct member slots),
 and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 `MappingCoherentMap2On` under explicit pairwise derived-slot
 certificates. C5 step 3 (canonical
