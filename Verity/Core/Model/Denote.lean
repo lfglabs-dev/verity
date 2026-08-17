@@ -44,7 +44,12 @@ semantic definition.
    `SourceSemantics.interpretFunction` for specs whose event declarations do
    not affect encoding (in particular for `spec.events = []`); declared-event
    topic/scratch-memory modelling stays in the proof layer for now.
-3. **Mapping write storage view.** `SourceSemantics` threads address/uint
+3. **Mutable word-array memory.** Memory-backed `uint256[]` locals use the
+   compiler's paired `<name>_data_offset` / `<name>_length` bindings. Length
+   and checked element reads are denoted against `ContractState.memory`, so
+   preceding `mstore` statements (including `setMemoryArrayElement`) are
+   observable to later reads and bounded loops.
+4. **Mapping write storage view.** `SourceSemantics` threads address/uint
    keyed mapping writes through the proof-layer `IRStorageSlot`/`IRStorageWord`
    wrappers (which are `UInt256` with `2^256` modulus). Here the same fold is
    expressed directly on word-normalized `Nat` slots; the two are extensionally
@@ -52,9 +57,9 @@ semantic definition.
 
 ## Outside the initial denotation fragment
 
-Exactly the constructs `SourceSemantics` itself maps to `none`/`.revert`:
-dynamic memory-array expressions (`memoryArrayLength`, `memoryArrayElement`,
-`arrayElementDynamic*`, `paramDynamic*`), `forkIfAtLeast`, `mappingChain`
+Exactly the constructs `SourceSemantics` itself maps to `none`/`.revert`, apart
+from the memory-backed word arrays intentionally widened here:
+`arrayElementDynamic*`, `paramDynamic*`, `forkIfAtLeast`, `mappingChain`
 reads with zero or three-plus keys (one/two-key reads and writes are
 supported), and every `Expr`/`Stmt` constructor not listed
 in the arms below (raw calls, ABI re-encoding returns, ECM, unsafe Yul,
@@ -617,8 +622,15 @@ abbrev arrayElementDynamicMemberElement? :=
 
 def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState) :
     Expr → Option Nat
-  | .memoryArrayLength _ => none
-  | .memoryArrayElement _ _ => none
+  | .memoryArrayLength name =>
+      lookupBinding? state.bindings s!"{name}_length"
+  | .memoryArrayElement name index => do
+      let idx ← evalExpr oracle fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      if idx < length then
+        some (state.world.memory (wordNormalize (dataOffset + 32 * idx))).val
+      else
+        none
   | .arrayLength name =>
       lookupBinding? state.bindings s!"{name}_length"
   | .arrayElement name index => do
@@ -1471,5 +1483,26 @@ example :
     (denoteFunction dummyOracle (smokeSpec [.require (.literal 0) "always fails"])
       (smokeFn [.require (.literal 0) "always fails"]) smokeTx
       Verity.defaultState).success = false := by native_decide
+
+example :
+    let world := { Verity.defaultState with
+      memory := fun offset => if offset = 96 then 41 else 0 }
+    let state : DenoteState :=
+      { world := world
+        bindings := [("xs_data_offset", 96), ("xs_length", 2)] }
+    evalExpr dummyOracle [] state (.memoryArrayLength "xs") = some 2 ∧
+      evalExpr dummyOracle [] state (.memoryArrayElement "xs" (.literal 0)) = some 41 ∧
+      evalExpr dummyOracle [] state (.memoryArrayElement "xs" (.literal 2)) = none := by
+  native_decide
+
+example :
+    let body :=
+      [ Stmt.letVar "xs_data_offset" (.literal 96)
+      , Stmt.letVar "xs_length" (.literal 1)
+      , Stmt.mstore (.literal 96) (.literal 77)
+      , Stmt.return (.memoryArrayElement "xs" (.literal 0)) ]
+    (denoteFunction dummyOracle (smokeSpec body) (smokeFn body)
+      smokeTx Verity.defaultState).returnValue = some 77 := by
+  native_decide
 
 end Compiler.CompilationModel.Denote
