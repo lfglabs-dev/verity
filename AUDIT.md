@@ -327,8 +327,10 @@ sibling entrypoint.
   Address-keyed `mappingStruct` / `mappingStruct2` members collapse
   to `mappingSlotLocation` / `nestedMappingSlotLocation`. Compatibility
   `aliasSlots` are extra compiler write targets; the resolved head is
-  the field's `storageKeySlot`. Global (all-keys) preservation, bytes32
-  keys, and packed bit-ranges are still open.
+  the field's `storageKeySlot`. Cross-channel finite-set preservation
+  (aligned write on one mapping channel vs another channel's list)
+  takes an explicit derived-slot inequality. Global (all-keys)
+  preservation, bytes32 keys, and packed bit-ranges are still open.
 - Zero new axioms.
 
 ## CI Guards

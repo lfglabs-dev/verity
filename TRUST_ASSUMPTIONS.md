@@ -206,7 +206,9 @@ are extra compiler write targets; only the resolved head has a
 stays coherent under an aligned write when the list carries an
 explicit pairwise derived-slot certificate (`MappingCoherentOn` /
 `MappingCoherentUintOn` / `MappingCoherentMap2On`); that is not a
-global (all-keys) claim. Keccak injectivity is **not** assumed.
+global (all-keys) claim. Cross-channel preservation of another
+list likewise takes an explicit derived-slot inequality. Keccak
+injectivity is **not** assumed.
 `storageArray` and `knownAddresses` are still separate fields.
 
 ### External-Call Journal (`ContractState.calls`)
