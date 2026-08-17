@@ -6,6 +6,7 @@
 -/
 
 import Compiler.Proofs.Storage.FieldStorageKey
+import Compiler.Proofs.Storage.MappingCoherence
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.CompilationModel.LayoutValidation
@@ -17,6 +18,7 @@ open Verity.ContractState
 open Compiler.CompilationModel
 open Compiler.Proofs.Storage.FieldStorageKey
 open Compiler.Proofs.Storage.MappingCoherence
+open Compiler.Proofs
 open Compiler.Proofs.IRGeneration
 open Compiler.Proofs.IRGeneration.SourceSemantics
 
@@ -80,5 +82,39 @@ theorem encodeStorageAt_fieldRootKey_address
     by rw [storageKeySlot_fieldRootKey, htr]; rfl,
     encodeStorageAt_of_resolved_address
       (findResolvedFieldAtSlot_of_fieldRoot hnoConflict hfind htr hunpacked) hty⟩
+
+/-- A slot that is not a named field and not a dynamic-array element
+    is the flat `storage` word. Mapping-derived keccak slots usually
+    look like this. -/
+theorem encodeStorageAt_of_unresolved
+    {fields : List Field} {world : ContractState} {slot : Nat}
+    (hresolved : findResolvedFieldAtSlot fields slot = none)
+    (hdyn : findDynamicArrayElementAtSlot fields world slot = none) :
+    encodeStorageAt fields world slot = (world.storage slot).val := by
+  simp [encodeStorageAt, hresolved, hdyn]
+
+theorem encodeStorageAt_fieldMapKey
+    {fields : List Field} {s : ContractState} {slot : Nat} {key : Address}
+    (hcoh : MappingCoherent s)
+    (hresolved :
+      findResolvedFieldAtSlot fields
+        (solidityMappingSlot slot (addressToWord key).val) = none)
+    (hdyn :
+      findDynamicArrayElementAtSlot fields s
+        (solidityMappingSlot slot (addressToWord key).val) = none) :
+    encodeStorageAt fields s (solidityMappingSlot slot (addressToWord key).val) =
+      (s.storageMap slot key).val := by
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot key]
+
+theorem encodeStorageAt_fieldMapUintKey
+    {fields : List Field} {s : ContractState} {slot : Nat} {key : Uint256}
+    (hcoh : MappingCoherentUint s)
+    (hresolved :
+      findResolvedFieldAtSlot fields (solidityMappingSlot slot key.val) = none)
+    (hdyn :
+      findDynamicArrayElementAtSlot fields s (solidityMappingSlot slot key.val) = none) :
+    encodeStorageAt fields s (solidityMappingSlot slot key.val) =
+      (s.storageMapUint slot key).val := by
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot key]
 
 end Compiler.Proofs.Storage.FieldEncode

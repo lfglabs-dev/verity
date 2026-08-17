@@ -211,7 +211,8 @@ are not a different slot. For `width < 256` that extract is the
 `compiledPackedRead` of the storage word. A named mapping field's
 derived `storageKeySlot` is the flat slot `MappingCoherent*`
 compares against, including a finite listed pair
-(`MappingCoherentOn`). `encodeStorageAt` at a persistent unpacked uint256 or address field
+(`MappingCoherentOn`). An unoccupied keccak-derived mapping slot
+encodes as that shadow via `encodeStorageAt`. `encodeStorageAt` at a persistent unpacked uint256 or address field
 is the corresponding lens once `firstFieldWriteSlotConflict` is
 none; `findResolvedFieldAtSlot` is derived, not hypothesized.
 A finite list of address-, uint-, or nested-address pairs
