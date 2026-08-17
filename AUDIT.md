@@ -338,7 +338,9 @@ sibling entrypoint.
   Global (all-keys) preservation remains open.
   `FieldEncode` derives `findResolvedFieldAtSlot` from
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
-  and unpacked, then identifies that slot with `encodeStorageAt`. bytes32-keyed
+  and unpacked, then identifies that slot with `encodeStorageAt`.
+  An unoccupied mapping-derived slot encodes as the `MappingCoherent*`
+  shadow. bytes32-keyed
   maps collapse to `solidityMappingSlot` of the 32-byte word (no
   `StorageKey.mapBytes32`). All nine `MappingType.nested` key-type
   pairs collapse to `abstractNestedMappingSlot`.

@@ -39,7 +39,9 @@ and do not add a `StorageKey` constructor. Remaining `MappingType.nested` pairs 
 mask on that word, not a new axiom. Equality with `compiledPackedRead`
 is a `width < 256` calculation. `FieldCoherence` adds no axiom:
 it instantiates `MappingCoherent*` / `MappingCoherentOn*` at the
-named field's derived slot. `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
+named field's derived slot. `encodeStorageAt` on an unoccupied
+mapping slot is the same shadow, still under an explicit
+non-occupation hypothesis. `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
 from no write-slot conflict plus constructor facts.
 
 ## Eliminated Axioms
