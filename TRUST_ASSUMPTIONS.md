@@ -208,7 +208,9 @@ All nine `MappingType.nested` key-type pairs collapse to
 `abstractNestedMappingSlot`.
 Packed subfields extract from the same `storageKeySlot` word; they
 are not a different slot. For `width < 256` that extract is the
-`compiledPackedRead` of the storage word. `encodeStorageAt` at a persistent unpacked uint256 or address field
+`compiledPackedRead` of the storage word. A named mapping field's
+derived `storageKeySlot` is the flat slot `MappingCoherent*`
+compares against. `encodeStorageAt` at a persistent unpacked uint256 or address field
 is the corresponding lens once `firstFieldWriteSlotConflict` is
 none; `findResolvedFieldAtSlot` is derived, not hypothesized.
 A finite list of address-, uint-, or nested-address pairs

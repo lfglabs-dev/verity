@@ -37,7 +37,8 @@ slots add `wordOffset` via `mappingSlotLocation`. Compatibility
 bytes32-keyed maps use the same keccak preimage as uint256 keys
 and do not add a `StorageKey` constructor. Remaining `MappingType.nested` pairs likewise add no constructor. Packed extract is a shift and
 mask on that word, not a new axiom. Equality with `compiledPackedRead`
-is a `width < 256` calculation. `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
+is a `width < 256` calculation. `FieldCoherence` adds no axiom:
+it instantiates `MappingCoherent*` at the named field's derived slot. `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
 from no write-slot conflict plus constructor facts.
 
 ## Eliminated Axioms
