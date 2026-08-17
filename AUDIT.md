@@ -334,8 +334,8 @@ sibling entrypoint.
   `storageKeySlot` word (`packedExtract`); compiler packed-read
   composition with SolidityStorage remains open. bytes32-keyed
   maps collapse to `solidityMappingSlot` of the 32-byte word (no
-  `StorageKey.mapBytes32`). Mixed `address`/`uint256` nestings
-  collapse to `abstractNestedMappingSlot`.
+  `StorageKey.mapBytes32`). All nine `MappingType.nested` key-type
+  pairs collapse to `abstractNestedMappingSlot`.
 - Zero new axioms.
 
 ## CI Guards

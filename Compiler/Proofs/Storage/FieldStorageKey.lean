@@ -8,8 +8,8 @@
   `nestedMappingSlotLocation`. Compatibility `aliasSlots` are extra
   compiler write targets; only the resolved head has a StorageKey.
   bytes32-keyed maps collapse to `solidityMappingSlot` of the 32-byte
-  word (no `StorageKey.mapBytes32`). Mixed-key nestings
-  (`address`/`uint256`) collapse to `abstractNestedMappingSlot`.
+  word (no `StorageKey.mapBytes32`). All nine `MappingType.nested`
+  key-type pairs collapse to `abstractNestedMappingSlot`.
   Packed bit-ranges extract from the same `storageKeySlot` word
   (`packedExtract`). Compiler packed-read composition with
   SolidityStorage and global MappingCoherent preservation stay open.
@@ -172,6 +172,106 @@ theorem fieldMapUintAddrSlot_eq
     fieldMapUintAddrSlot f slot k1 k2 =
       some (abstractNestedMappingSlot slot k1.val (addressToWord k2).val) := by
   simp [fieldMapUintAddrSlot, htr, hty]
+
+/-- Remaining `MappingType.nested` pairs collapse to `abstractNestedMappingSlot`.
+    Word keys (uint256 / bytes32) use `.val`; address keys use `addressToWord`. -/
+def fieldMapUintUintSlot (f : Field) (resolvedSlot : Nat) (k1 k2 : Uint256) : Option Nat :=
+  if f.isTransient then none
+  else
+    match f.ty with
+    | .mappingTyped (.nested .uint256 .uint256) =>
+      some (abstractNestedMappingSlot resolvedSlot k1.val k2.val)
+    | _ => none
+
+def fieldMapBytes32Bytes32Slot (f : Field) (resolvedSlot : Nat) (k1 k2 : Uint256) : Option Nat :=
+  if f.isTransient then none
+  else
+    match f.ty with
+    | .mappingTyped (.nested .bytes32 .bytes32) =>
+      some (abstractNestedMappingSlot resolvedSlot k1.val k2.val)
+    | _ => none
+
+def fieldMapAddrBytes32Slot (f : Field) (resolvedSlot : Nat) (k1 : Address) (k2 : Uint256) :
+    Option Nat :=
+  if f.isTransient then none
+  else
+    match f.ty with
+    | .mappingTyped (.nested .address .bytes32) =>
+      some (abstractNestedMappingSlot resolvedSlot (addressToWord k1).val k2.val)
+    | _ => none
+
+def fieldMapBytes32AddrSlot (f : Field) (resolvedSlot : Nat) (k1 : Uint256) (k2 : Address) :
+    Option Nat :=
+  if f.isTransient then none
+  else
+    match f.ty with
+    | .mappingTyped (.nested .bytes32 .address) =>
+      some (abstractNestedMappingSlot resolvedSlot k1.val (addressToWord k2).val)
+    | _ => none
+
+def fieldMapUintBytes32Slot (f : Field) (resolvedSlot : Nat) (k1 k2 : Uint256) : Option Nat :=
+  if f.isTransient then none
+  else
+    match f.ty with
+    | .mappingTyped (.nested .uint256 .bytes32) =>
+      some (abstractNestedMappingSlot resolvedSlot k1.val k2.val)
+    | _ => none
+
+def fieldMapBytes32UintSlot (f : Field) (resolvedSlot : Nat) (k1 k2 : Uint256) : Option Nat :=
+  if f.isTransient then none
+  else
+    match f.ty with
+    | .mappingTyped (.nested .bytes32 .uint256) =>
+      some (abstractNestedMappingSlot resolvedSlot k1.val k2.val)
+    | _ => none
+
+theorem fieldMapUintUintSlot_eq
+    {f : Field} {slot : Nat} {k1 k2 : Uint256}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingTyped (.nested .uint256 .uint256)) :
+    fieldMapUintUintSlot f slot k1 k2 =
+      some (abstractNestedMappingSlot slot k1.val k2.val) := by
+  simp [fieldMapUintUintSlot, htr, hty]
+
+theorem fieldMapBytes32Bytes32Slot_eq
+    {f : Field} {slot : Nat} {k1 k2 : Uint256}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingTyped (.nested .bytes32 .bytes32)) :
+    fieldMapBytes32Bytes32Slot f slot k1 k2 =
+      some (abstractNestedMappingSlot slot k1.val k2.val) := by
+  simp [fieldMapBytes32Bytes32Slot, htr, hty]
+
+theorem fieldMapAddrBytes32Slot_eq
+    {f : Field} {slot : Nat} {k1 : Address} {k2 : Uint256}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingTyped (.nested .address .bytes32)) :
+    fieldMapAddrBytes32Slot f slot k1 k2 =
+      some (abstractNestedMappingSlot slot (addressToWord k1).val k2.val) := by
+  simp [fieldMapAddrBytes32Slot, htr, hty]
+
+theorem fieldMapBytes32AddrSlot_eq
+    {f : Field} {slot : Nat} {k1 : Uint256} {k2 : Address}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingTyped (.nested .bytes32 .address)) :
+    fieldMapBytes32AddrSlot f slot k1 k2 =
+      some (abstractNestedMappingSlot slot k1.val (addressToWord k2).val) := by
+  simp [fieldMapBytes32AddrSlot, htr, hty]
+
+theorem fieldMapUintBytes32Slot_eq
+    {f : Field} {slot : Nat} {k1 k2 : Uint256}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingTyped (.nested .uint256 .bytes32)) :
+    fieldMapUintBytes32Slot f slot k1 k2 =
+      some (abstractNestedMappingSlot slot k1.val k2.val) := by
+  simp [fieldMapUintBytes32Slot, htr, hty]
+
+theorem fieldMapBytes32UintSlot_eq
+    {f : Field} {slot : Nat} {k1 k2 : Uint256}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingTyped (.nested .bytes32 .uint256)) :
+    fieldMapBytes32UintSlot f slot k1 k2 =
+      some (abstractNestedMappingSlot slot k1.val k2.val) := by
+  simp [fieldMapBytes32UintSlot, htr, hty]
 
 /-- Persistent `mapping(bytes32 => uint256)` entry. There is no
     `StorageKey.mapBytes32`; Solidity ABI-encodes the 32-byte word

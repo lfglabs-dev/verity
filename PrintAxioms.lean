@@ -4668,6 +4668,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.FieldStorageKey.storageKeySlot_fieldMap2Key
   Compiler.Proofs.Storage.FieldStorageKey.fieldMapAddrUintSlot_eq
   Compiler.Proofs.Storage.FieldStorageKey.fieldMapUintAddrSlot_eq
+  Compiler.Proofs.Storage.FieldStorageKey.fieldMapUintUintSlot_eq
+  Compiler.Proofs.Storage.FieldStorageKey.fieldMapBytes32Bytes32Slot_eq
+  Compiler.Proofs.Storage.FieldStorageKey.fieldMapAddrBytes32Slot_eq
+  Compiler.Proofs.Storage.FieldStorageKey.fieldMapBytes32AddrSlot_eq
+  Compiler.Proofs.Storage.FieldStorageKey.fieldMapUintBytes32Slot_eq
+  Compiler.Proofs.Storage.FieldStorageKey.fieldMapBytes32UintSlot_eq
   Compiler.Proofs.Storage.FieldStorageKey.fieldMapBytes32Slot_eq
   Compiler.Proofs.Storage.FieldStorageKey.fieldStructMemberBytes32Slot_eq
   Compiler.Proofs.Storage.FieldStorageKey.fieldStructMemberBytes32Slot_eq_base_add
@@ -6923,4 +6929,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6424 theorems/lemmas (4554 public, 1870 private, 0 sorry'd)
+-- Total: 6430 theorems/lemmas (4560 public, 1870 private, 0 sorry'd)
