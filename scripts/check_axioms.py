@@ -31,7 +31,7 @@ LEAN_BUILTIN_AXIOMS = frozenset([
 ])
 
 DOCUMENTED_AXIOMS = frozenset([
-    # Zero project axioms — solidityMappingSlot_lt_evmModulus eliminated via kernel Keccak
+    "Compiler.Proofs.solidityMappingSlot_injective",
 ])
 
 FORBIDDEN_AXIOMS = frozenset([

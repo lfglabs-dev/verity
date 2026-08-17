@@ -217,7 +217,7 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 0 `sorry` remaining across `Compiler/**/*.lean` and `Verity/**/*.lean` proof modules.
 5266 theorems/lemmas (3645 public, 1621 private) verified by `lake build PrintAxioms`.
 
-0 documented Lean axioms remain. The former mapping-slot range axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge is tracked as an explicit theorem hypothesis rather than a Lean axiom.
+1 documented Lean axiom remains: `solidityMappingSlot_injective` (mapping-slot ABI preimage collision-resistance). The former mapping-slot *range* axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge is tracked as an explicit theorem hypothesis rather than a Lean axiom. Layer 2 itself still has 0 axioms.
 
 ## Differential Testing
 

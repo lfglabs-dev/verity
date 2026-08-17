@@ -13,24 +13,17 @@ Axioms are exceptional. When an axiom exists, it must have:
 
 ## Current Axioms
 
-**None.** Verity has zero project-level Lean axioms.
-
-- Active axioms: 0
-
-The last remaining axiom (`solidityMappingSlot_lt_evmModulus`) was eliminated
-by replacing the opaque FFI-based keccak256 call with the kernel-computable
-Keccak engine (`Compiler/Keccak/Sponge.lean`), which exposes the 32-byte
-output-length guarantee to Lean's proof system.
+- Active axioms: 1
 
 C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
 not add a keccak-injectivity axiom. Source lens laws use constructor
 injectivity; Solidity slot derivation remains compiler-side.
 
-C5 step 4's mapping-coherence, field-list, and finite-set slices
-likewise add no axiom: other-pair and finite-list preservation
-(address / uint / map2, including cross-channel lists) is
-hypothesized by an explicit derived-slot inequality, not by keccak
-injectivity. `FieldStorageKey` is a
+C5 step 4's finite-set slices still use explicit derived-slot
+inequalities. Global aligned-write `MappingCoherent` preservation
+depends on `solidityMappingSlot_injective` below — collision-resistance
+of the 64-byte ABI mapping preimage, **not** injectivity of keccak256
+on arbitrary byte strings. `FieldStorageKey` is a
 constructor match on `FieldType` / `isTransient`; struct-member
 slots add `wordOffset` via `mappingSlotLocation`. Compatibility
 `aliasSlots` are extra compiler slots, not extra source keys.
@@ -53,6 +46,40 @@ FunctionSpec call denotation (`DenoteFunctionCalls`), ETH-valued
 `selfBalance`, and `MultiContract` add no axiom: callee behaviour
 is an explicit `AdversaryModel` / `calleeStep` parameter, not an
 assumed transition.
+
+### 1. `solidityMappingSlot_injective`
+
+**Location**: `Compiler/Proofs/MappingSlot.lean:65`
+
+**Statement**:
+```lean
+axiom solidityMappingSlot_injective
+    (base₁ key₁ base₂ key₂ : Nat) :
+    solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →
+    base₁ = base₂ ∧ key₁ = key₂
+```
+
+**Justification**:
+`solidityMappingSlot base key` is `keccak256(abi.encode(key, base))` —
+a 64-byte ABI preimage. Distinct `(base, key)` pairs colliding would
+alias two Solidity mapping entries onto one EVM word. Solidity's
+layout makes the same collision-resistance assumption. This is **not**
+a claim that keccak256 is injective on all `ByteArray`s (256-bit
+output, infinite domain).
+
+**Risk**: Medium. A keccak collision on this preimage family would
+make the global `MappingCoherent` preservation theorem false. Finite
+listed-pair certificates remain valid without the axiom.
+
+**CI validation**:
+- `scripts/check_axioms.py` location + count check
+- `DOCUMENTED_AXIOMS` in that script
+- Kernel Keccak output is already cross-checked against FFI/EVM keccak
+
+**Elimination path**:
+Replace with a theorem if a restricted-domain injectivity proof
+becomes available, or keep as an explicit cryptographic assumption
+and stop calling C5 step 4 axiom-free.
 
 ## Eliminated Axioms
 
@@ -357,7 +384,7 @@ proof exists.
 
 ## Trust Summary
 
-- Active project-level axioms: 0
+- Active project-level axioms: 1
 - Production blockers from project-level axioms: 0
 - Consumer intrinsic obligations: owned and documented by consumer packages
 - Enforcement: `scripts/check_axioms.py` ensures this file tracks exact source locations.

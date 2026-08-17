@@ -12,8 +12,9 @@
   constructor injectivity (`StorageKey.transient` vs persistent
   `.slot` / `.map` / `.mapUint` / `.map2`). No slot inequality.
 
-  This is not global preservation. A certificate for every pair would
-  be keccak injectivity on an unbounded preimage set.
+  Global `MappingCoherent` aligned-write preservation lives in
+  `MappingCoherence.writeMap_aligned_preserves_mappingCoherent` and
+  depends on `solidityMappingSlot_injective`. This file stays finite-set.
 -/
 
 import Compiler.Proofs.Storage.MappingCoherence
