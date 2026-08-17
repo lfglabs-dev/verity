@@ -71,6 +71,47 @@ def abiScalarNormalize : ParamType → Nat → Nat
     abiScalarNormalize (ParamType.newtypeOf name baseType) v =
       abiScalarNormalize baseType v := rfl
 
+/-- The ABI head word for one scalar argument.  Every scalar in this fragment
+occupies one 32-byte ABI head slot; the word value is its ABI normalization.
+
+This deliberately exposes words rather than a byte list: the Yul backend's
+`mstore` observable is word-addressed, and the bridge lemmas below establish
+that its stored words are precisely these heads. -/
+def abiEncodeScalarHead (ty : ParamType) (value : Nat) : Nat :=
+  abiScalarNormalize ty value
+
+/-- ABI head encoding for a sequence of scalar arguments.  Keeping the type
+tag paired with its value makes concatenation structural and avoids any
+implicit positional convention at typed ABI boundaries. -/
+def abiEncodeScalarHeads (args : List (ParamType × Nat)) : List Nat :=
+  args.map (fun arg => abiEncodeScalarHead arg.1 arg.2)
+
+@[simp] theorem abiEncodeScalarHead_uint256 (value : Nat) :
+    abiEncodeScalarHead .uint256 value = value := rfl
+
+/-- ABI addresses are left-zero-padded: only their low 160 bits occupy the
+rightmost portion of the 256-bit head word. -/
+@[simp] theorem abiEncodeScalarHead_address (value : Nat) :
+    abiEncodeScalarHead .address value =
+      ((value % Compiler.Constants.evmModulus) &&& Compiler.Constants.addressMask) := rfl
+
+/-- ABI booleans are canonical full words, zero for false and one for true. -/
+@[simp] theorem abiEncodeScalarHead_bool (value : Nat) :
+    abiEncodeScalarHead .bool value =
+      (if value % Compiler.Constants.evmModulus = 0 then 0 else 1) := rfl
+
+/-- `bytes32` already fills a complete ABI head word, so it has no padding or
+sign-extension transformation. -/
+@[simp] theorem abiEncodeScalarHead_bytes32 (value : Nat) :
+    abiEncodeScalarHead .bytes32 value = value := rfl
+
+/-- Scalar ABI heads compose by concatenation, as required for the static
+head portion of `abi.encode(a₁, …, aₙ)`. -/
+theorem abiEncodeScalarHeads_append (left right : List (ParamType × Nat)) :
+    abiEncodeScalarHeads (left ++ right) =
+      abiEncodeScalarHeads left ++ abiEncodeScalarHeads right := by
+  simp [abiEncodeScalarHeads]
+
 private theorem lit_255_mod_evm :
     (255 : Nat) % Compiler.Constants.evmModulus = 255 :=
   Nat.mod_eq_of_lt (by norm_num [Compiler.Constants.evmModulus])
