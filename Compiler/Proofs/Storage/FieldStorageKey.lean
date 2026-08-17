@@ -10,15 +10,19 @@
   bytes32-keyed maps collapse to `solidityMappingSlot` of the 32-byte
   word (no `StorageKey.mapBytes32`). Mixed-key nestings
   (`address`/`uint256`) collapse to `abstractNestedMappingSlot`.
-  Packed bit-ranges and global MappingCoherent preservation stay open.
+  Packed bit-ranges extract from the same `storageKeySlot` word
+  (`packedExtract`). Compiler packed-read composition with
+  SolidityStorage and global MappingCoherent preservation stay open.
 -/
 
 import Compiler.Proofs.Storage.MappingCoherence
 import Verity.Core.Model.Types
+import Compiler.CompilationModel.ValidationHelpers
 
 namespace Compiler.Proofs.Storage.FieldStorageKey
 
 open Verity
+open Verity.ContractState
 open Compiler.CompilationModel
 open Compiler.Proofs.Storage.MappingCoherence
 open Compiler.Proofs
@@ -332,5 +336,47 @@ theorem storageKeySlot_head_of_fieldWriteSlots
       storageKeySlot (fieldRootKey f slot) := by
   rw [findFieldWriteSlots_of_resolved h, storageKeySlot_fieldRootKey, htr]
   rfl
+
+/-- Packed subfield extract: shift then mask. Lives in the same word as
+    `storageKeySlot`, not a different slot. -/
+def packedExtract (word : Nat) (pb : PackedBits) : Nat :=
+  Nat.land (word / (2 ^ pb.offset)) (packedMaskNat pb)
+
+def fieldPackedExtract (s : ContractState) (f : Field) (resolvedSlot : Nat) : Option Nat :=
+  match f.packedBits with
+  | none => none
+  | some pb =>
+    match storageKeySlot (fieldRootKey f resolvedSlot) with
+    | none => none
+    | some slot => some (packedExtract (s.storage slot).val pb)
+
+theorem packedBits_same_storageKeySlot
+    {f : Field} {slot : Nat} {pb : PackedBits}
+    (htr : f.isTransient = false) (_hpk : f.packedBits = some pb) :
+    storageKeySlot (fieldRootKey f slot) = some slot := by
+  rw [storageKeySlot_fieldRootKey, htr]
+  rfl
+
+theorem fieldPackedExtract_eq
+    {s : ContractState} {f : Field} {slot : Nat} {pb : PackedBits}
+    (htr : f.isTransient = false) (hpk : f.packedBits = some pb) :
+    fieldPackedExtract s f slot = some (packedExtract (s.storage slot).val pb) := by
+  simp [fieldPackedExtract, hpk, packedBits_same_storageKeySlot htr hpk]
+
+theorem fieldPackedExtract_writeSlot_other
+    {s : ContractState} {f : Field} {slot slot' : Nat} {v : Uint256} {pb : PackedBits}
+    (htr : f.isTransient = false) (hpk : f.packedBits = some pb)
+    (hne : slot ≠ slot') :
+    fieldPackedExtract (s.writeSlot slot' v) f slot = fieldPackedExtract s f slot := by
+  rw [fieldPackedExtract_eq htr hpk, fieldPackedExtract_eq htr hpk]
+  simp [storage_writeSlot_other (s := s) (slot := slot') (slot' := slot) hne]
+
+theorem fieldPackedExtract_writeSlot_same
+    {s : ContractState} {f : Field} {slot : Nat} {v : Uint256} {pb : PackedBits}
+    (htr : f.isTransient = false) (hpk : f.packedBits = some pb) :
+    fieldPackedExtract (s.writeSlot slot v) f slot =
+      some (packedExtract v.val pb) := by
+  rw [fieldPackedExtract_eq htr hpk]
+  simp [storage, writeSlot]
 
 end Compiler.Proofs.Storage.FieldStorageKey

@@ -4678,6 +4678,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.FieldStorageKey.findFieldWriteSlotsCopyFrom_of_resolved
   Compiler.Proofs.Storage.FieldStorageKey.findFieldWriteSlots_of_resolved
   Compiler.Proofs.Storage.FieldStorageKey.storageKeySlot_head_of_fieldWriteSlots
+  Compiler.Proofs.Storage.FieldStorageKey.packedBits_same_storageKeySlot
+  Compiler.Proofs.Storage.FieldStorageKey.fieldPackedExtract_eq
+  Compiler.Proofs.Storage.FieldStorageKey.fieldPackedExtract_writeSlot_other
+  Compiler.Proofs.Storage.FieldStorageKey.fieldPackedExtract_writeSlot_same
 
   -- Compiler/Proofs/Storage/MappingCoherence.lean
   Compiler.Proofs.Storage.MappingCoherence.defaultState_mappingCoherent
@@ -6919,4 +6923,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6420 theorems/lemmas (4550 public, 1870 private, 0 sorry'd)
+-- Total: 6424 theorems/lemmas (4554 public, 1870 private, 0 sorry'd)
