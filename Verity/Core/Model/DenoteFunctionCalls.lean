@@ -344,6 +344,69 @@ theorem callFunction_eq (env : CallEnv) (spec : CompilationModel)
         (runFunctionInFrame env spec fn selector))) :=
   rfl
 
+/-! ## Atomic compiled multi-call transactions -/
+
+/-- One call in a transaction program.  Unlike `CalleeExecution`, the result
+and post-state are not inputs: they are computed from this `FunctionSpec` by
+`callFunction`. -/
+structure CompiledCall where
+  env : CallEnv
+  spec : CompilationModel
+  fn : FunctionSpec
+  selector : Nat
+  caller : Address
+  callee : Address
+  site : CallSite
+
+inductive TransactionControl where
+  | success
+  | invalidCall (index : Nat)
+  | callFailed (index : Nat) (result : ExternalCallResult)
+  deriving Repr
+
+structure TransactionExecution where
+  control : TransactionControl
+  world : Verity.MultiContract.MultiWorld
+  calls : List Verity.MultiContract.FramedCallObservation
+
+/-- Execute a finite sequence of compiled calls in one shared world.  Every
+successful call commits into the input of the next call.  An invalid frame,
+failure, or revert restores the transaction-entry world, including all
+callee state and ETH balances committed by earlier calls. -/
+def denoteTransactionFrom (before current : Verity.MultiContract.MultiWorld) :
+    Nat → List CompiledCall →
+      List Verity.MultiContract.FramedCallObservation → TransactionExecution
+  | _, [], observations =>
+      { control := .success, world := current, calls := observations.reverse }
+  | index, c :: rest, observations =>
+      match callFunction c.env c.spec c.fn c.selector current
+          c.caller c.callee c.site with
+      | none =>
+          { control := .invalidCall index, world := before,
+            calls := observations.reverse }
+      | some observation =>
+          if observation.result.succeeded then
+            denoteTransactionFrom before observation.world (index + 1) rest
+              (observation :: observations)
+          else
+            { control := .callFailed index observation.result, world := before,
+              calls := (observation :: observations).reverse }
+
+def denoteTransaction (before : Verity.MultiContract.MultiWorld)
+    (program : List CompiledCall) : TransactionExecution :=
+  denoteTransactionFrom before before 0 program []
+
+theorem denoteTransaction_nil (before : Verity.MultiContract.MultiWorld) :
+    (denoteTransaction before []).world = before :=
+  rfl
+
+theorem denoteTransaction_invalid_first_rolls_back
+    (before : Verity.MultiContract.MultiWorld) (c : CompiledCall)
+    (h : callFunction c.env c.spec c.fn c.selector before
+      c.caller c.callee c.site = none) :
+    (denoteTransaction before [c]).world = before := by
+  simp [denoteTransaction, denoteTransactionFrom, h]
+
 /-! ## Laws -/
 
 theorem debitSelfBalance_none_of_lt (w : ContractState) (value : Nat)
