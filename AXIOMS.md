@@ -34,6 +34,8 @@ injectivity. `FieldStorageKey` is a
 constructor match on `FieldType` / `isTransient`; struct-member
 slots add `wordOffset` via `mappingSlotLocation`. Compatibility
 `aliasSlots` are extra compiler slots, not extra source keys.
+bytes32-keyed maps use the same keccak preimage as uint256 keys
+and do not add a `StorageKey` constructor.
 
 ## Eliminated Axioms
 

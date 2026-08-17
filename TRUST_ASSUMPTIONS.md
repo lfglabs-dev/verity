@@ -202,7 +202,8 @@ entries). Address-keyed `mappingStruct` / `mappingStruct2` members
 collapse to `mappingSlotLocation` / `nestedMappingSlotLocation`
 (base mapping slot plus `wordOffset`). Compatibility `aliasSlots`
 are extra compiler write targets; only the resolved head has a
-`StorageKey`. A finite list of address-, uint-, or nested-address pairs
+`StorageKey`. bytes32-keyed maps collapse to `solidityMappingSlot`
+of the 32-byte word; there is no `StorageKey.mapBytes32`. A finite list of address-, uint-, or nested-address pairs
 stays coherent under an aligned write when the list carries an
 explicit pairwise derived-slot certificate (`MappingCoherentOn` /
 `MappingCoherentUintOn` / `MappingCoherentMap2On`); that is not a
