@@ -92,11 +92,30 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
       bindAgree (denote_evalExpr_eq fields s a) fun _ => rfl
   | .memoryArrayElement name a =>
       bindAgree (denote_evalExpr_eq fields s a) fun idx => by
-        simp only [Denote.evalExpr, SourceSemantics.evalExpr, toRuntimeState_bindings,
-          toRuntimeState_world]
-        rcases hBinding : Denote.dynamicArrayBinding? s.bindings name with _ | ⟨dataOffset, length⟩
-        · rfl
-        · by_cases hidx : idx < length <;> simp [hBinding, hidx]
+        have hB1 :
+            Denote.dynamicArrayBinding? s.bindings name =
+              SourceSemantics.dynamicArrayBinding? (toRuntimeState s).bindings name := by
+          simp [toRuntimeState_bindings,
+            Denote.dynamicArrayBinding?, SourceSemantics.dynamicArrayBinding?]
+        have hB2 :
+            (fun hx => (Denote.dynamicArrayBinding? s.bindings name).bind
+              fun p => some (s.world.memory
+                (Verity.wordNormalize (p.1 + 32 * hx))).val) idx =
+              (SourceSemantics.dynamicArrayBinding? (toRuntimeState s).bindings name).bind
+                fun p => some (s.world.memory
+                  (SourceSemantics.wordNormalize (p.1 + 32 * idx))).val := by
+          cases hBinding : Denote.dynamicArrayBinding? s.bindings name with
+          | none =>
+              rw [hBinding] at hB1 ⊢
+              have := hB1.symm
+              simp_all [SourceSemantics.dynamicArrayBinding?,
+                Denote.dynamicArrayBinding?]
+          | some p =>
+              rw [hBinding, hB1]
+              simp [SourceSemantics.dynamicArrayBinding?, Denote.dynamicArrayBinding?]
+        have hIdx := hB2.trans_eq rfl
+        simp [Denote.evalExpr, SourceSemantics.evalExpr, toRuntimeState_bindings] at hIdx ⊢
+        exact hIdx
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b
   | .byte a b | .signextend a b | .eq a b | .ge a b | .gt a b | .sgt a b
