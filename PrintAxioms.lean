@@ -2457,6 +2457,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.modeledHaltCheck_sound
 
   -- Compiler/Proofs/IRGeneration/FuelBound.lean
+  Compiler.Proofs.IRGeneration.ExecutesWithinStmt.mono
+  Compiler.Proofs.IRGeneration.ExecutesWithinStmts.mono
   Compiler.Proofs.IRGeneration.stmtFuelBound_pos
   Compiler.Proofs.IRGeneration.stmtsFuelBound_pos
   Compiler.Proofs.IRGeneration.stmtFuelBound_le_stmtsFuelBound
@@ -2466,6 +2468,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmts_stable
   Compiler.Proofs.IRGeneration.execIRStmts_stable_of_le
   Compiler.Proofs.IRGeneration.execIRStmt_stable_of_le
+  Compiler.Proofs.IRGeneration.execIRStmt_eq_of_executesWithin
+  Compiler.Proofs.IRGeneration.execIRStmts_eq_of_executesWithin
 
   -- Compiler/Proofs/IRGeneration/Function.lean
   -- Compiler.Proofs.IRGeneration.Function.yulStmtList_length_le_sizeOf  -- private
@@ -4076,7 +4080,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ParamLoading.drop_succ_eq_of_drop_eq_cons  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.supportedExternalParamType_cases  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue  -- private
-  -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue_extraFuel  -- private
+  Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue_extraFuel
   -- Compiler.Proofs.IRGeneration.ParamLoading.land_mod_evm_right  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_word_passthrough  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uintN  -- private
@@ -6992,4 +6996,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6484 theorems/lemmas (4614 public, 1870 private, 0 sorry'd)
+-- Total: 6488 theorems/lemmas (4619 public, 1869 private, 0 sorry'd)

@@ -69,6 +69,34 @@ def LoopFreeList : List YulStmt → Prop
 
 end
 
+/-- A loop-free statement certified to execute within `fuel`. -/
+def ExecutesWithinStmt (fuel : Nat) (stmt : YulStmt) : Prop :=
+  LoopFree stmt ∧ stmtFuelBound stmt ≤ fuel
+
+/-- A loop-free statement list certified to execute within `fuel`. -/
+def ExecutesWithinStmts (fuel : Nat) (stmts : List YulStmt) : Prop :=
+  LoopFreeList stmts ∧ stmtsFuelBound stmts ≤ fuel
+
+namespace ExecutesWithinStmt
+
+/-- A statement certificate remains valid when the available fuel increases. -/
+theorem mono {fuel fuel' : Nat} {stmt : YulStmt}
+    (h : ExecutesWithinStmt fuel stmt) (hle : fuel ≤ fuel') :
+    ExecutesWithinStmt fuel' stmt :=
+  ⟨h.1, h.2.trans hle⟩
+
+end ExecutesWithinStmt
+
+namespace ExecutesWithinStmts
+
+/-- A statement-list certificate remains valid when the available fuel increases. -/
+theorem mono {fuel fuel' : Nat} {stmts : List YulStmt}
+    (h : ExecutesWithinStmts fuel stmts) (hle : fuel ≤ fuel') :
+    ExecutesWithinStmts fuel' stmts :=
+  ⟨h.1, h.2.trans hle⟩
+
+end ExecutesWithinStmts
+
 /-- Bounds are positive: a bound of `stmtFuelBound` always survives the
 `succ` pattern of the interpreter. -/
 theorem stmtFuelBound_pos (stmt : YulStmt) : 0 < stmtFuelBound stmt := by
@@ -317,5 +345,18 @@ theorem execIRStmt_stable_of_le (stmt : YulStmt) (hLF : LoopFree stmt)
     execIRStmt_stable stmt hLF _ state,
     show G = stmtFuelBound stmt + (G - stmtFuelBound stmt) from by omega,
     execIRStmt_stable stmt hLF _ state]
+
+/-- Executions at any two certified fuels for a statement are equal. -/
+theorem execIRStmt_eq_of_executesWithin (stmt : YulStmt) (F G : Nat) (state : IRState)
+    (hF : ExecutesWithinStmt F stmt) (hG : ExecutesWithinStmt G stmt) :
+    execIRStmt F state stmt = execIRStmt G state stmt :=
+  execIRStmt_stable_of_le stmt hF.1 F G state hF.2 hG.2
+
+/-- Executions at any two certified fuels for a statement list are equal. -/
+theorem execIRStmts_eq_of_executesWithin (stmts : List YulStmt) (F G : Nat)
+    (state : IRState) (hF : ExecutesWithinStmts F stmts)
+    (hG : ExecutesWithinStmts G stmts) :
+    execIRStmts F state stmts = execIRStmts G state stmts :=
+  execIRStmts_stable_of_le stmts hF.1 F G state hF.2 hG.2
 
 end Compiler.Proofs.IRGeneration
