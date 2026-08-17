@@ -200,7 +200,9 @@ non-alias hypothesis. A CompilationModel field list collapses to those
 keys via `FieldStorageKey` (root plus typed `map`/`mapUint`/`map2`
 entries). Address-keyed `mappingStruct` / `mappingStruct2` members
 collapse to `mappingSlotLocation` / `nestedMappingSlotLocation`
-(base mapping slot plus `wordOffset`). A finite list of address-, uint-, or nested-address pairs
+(base mapping slot plus `wordOffset`). Compatibility `aliasSlots`
+are extra compiler write targets; only the resolved head has a
+`StorageKey`. A finite list of address-, uint-, or nested-address pairs
 stays coherent under an aligned write when the list carries an
 explicit pairwise derived-slot certificate (`MappingCoherentOn` /
 `MappingCoherentUintOn` / `MappingCoherentMap2On`); that is not a

@@ -325,9 +325,10 @@ sibling entrypoint.
   explicit pairwise derived-slot certificate
   (`MappingCoherenceOn`), including uint and nested-address lists.
   Address-keyed `mappingStruct` / `mappingStruct2` members collapse
-  to `mappingSlotLocation` / `nestedMappingSlotLocation`. Global
-  (all-keys) preservation, bytes32 keys, packed bit-ranges, and
-  alias slots are still open.
+  to `mappingSlotLocation` / `nestedMappingSlotLocation`. Compatibility
+  `aliasSlots` are extra compiler write targets; the resolved head is
+  the field's `storageKeySlot`. Global (all-keys) preservation, bytes32
+  keys, and packed bit-ranges are still open.
 - Zero new axioms.
 
 ## CI Guards
