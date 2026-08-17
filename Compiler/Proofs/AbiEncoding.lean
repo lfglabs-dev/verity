@@ -565,6 +565,159 @@ theorem abiHeadSize_static_scalars_eq
     abiHeadSize tys = 32 * tys.length := by
   simpa [abiHeadSize] using foldl_eventHeadWordSize_static_scalar_eq tys 0 h
 
+/-! ## Dynamic ABI argument layout
+
+The byte-level emit and revert encoders write words with `mstore`, so this
+small specification deliberately uses ABI *words*.  `AbiBytes.dataWords` is
+the already-packed, right-zero-padded sequence of data words for a byte
+string; `AbiBytes.WellFormed` records the one fact a byte packer must supply.
+This keeps the head/tail layout independent of a particular memory byte
+packer, while making the ABI length word and every offset explicit.
+-/
+
+/-- A bytes value represented by its byte length and its packed ABI data
+words.  The last word, when partial, is right-zero-padded by the producer. -/
+structure AbiBytes where
+  byteLength : Nat
+  dataWords : List Nat
+
+/-- Packed bytes occupy one word per (possibly partial) 32-byte chunk. -/
+def AbiBytes.WellFormed (value : AbiBytes) : Prop :=
+  value.dataWords.length = (value.byteLength + 31) / 32
+
+/-- The dynamic argument fragment needed by #2082: bytes and arrays whose
+elements are scalar ABI words.  A scalar array is the ABI dynamic-array case,
+so its tail starts with the element count. -/
+inductive AbiArg where
+  | scalar (ty : ParamType) (value : Nat)
+  | bytes (value : AbiBytes)
+  | scalarArray (elementType : ParamType) (values : List Nat)
+
+namespace AbiArg
+
+def isDynamic : AbiArg → Bool
+  | .scalar _ _ => false
+  | .bytes _ | .scalarArray _ _ => true
+
+/-- The tail of a dynamic argument.  Both supported dynamic forms have a
+length word followed by ABI words. -/
+def tail : AbiArg → List Nat
+  | .scalar _ _ => []
+  | .bytes value => value.byteLength :: value.dataWords
+  | .scalarArray elementType values =>
+      values.length :: values.map (abiScalarNormalize elementType)
+
+def tailSize (arg : AbiArg) : Nat := arg.tail.length * 32
+
+@[simp] theorem tail_scalar (ty : ParamType) (value : Nat) :
+    (.scalar ty value : AbiArg).tail = [] := rfl
+
+@[simp] theorem tail_bytes (value : AbiBytes) :
+    (.bytes value : AbiArg).tail = value.byteLength :: value.dataWords := rfl
+
+@[simp] theorem tail_scalarArray (elementType : ParamType) (values : List Nat) :
+    (.scalarArray elementType values : AbiArg).tail =
+      values.length :: values.map (abiScalarNormalize elementType) := rfl
+
+theorem scalarArray_elements_lt_evm (elementType : ParamType) (values : List Nat)
+    (hscalar : IsStaticScalarParamType elementType) :
+    ∀ word ∈ (.scalarArray elementType values : AbiArg).tail.tail,
+      word < Compiler.Constants.evmModulus := by
+  intro word hword
+  simp only [tail_scalarArray, List.tail_cons] at hword
+  rcases List.mem_map.1 hword with ⟨value, hvalue, rfl⟩
+  exact abiScalarNormalize_lt_evm elementType value hscalar
+
+end AbiArg
+
+/-- Total size in bytes of the dynamic tails in argument order. -/
+def abiDynamicTailSize (args : List AbiArg) : Nat :=
+  (args.map AbiArg.tailSize).sum
+
+/-- The head words for `args`, given the byte address at which their tails
+begin.  Dynamic heads are offsets relative to the beginning of the argument
+block, exactly as required by the ABI. -/
+def abiEncodeArgHeads : List AbiArg → Nat → List Nat
+  | [], _ => []
+  | .scalar ty value :: rest, tailOffset =>
+      abiEncodeScalarHead ty value :: abiEncodeArgHeads rest tailOffset
+  | arg@(.bytes _) :: rest, tailOffset =>
+      tailOffset :: abiEncodeArgHeads rest (tailOffset + arg.tailSize)
+  | arg@(.scalarArray _ _) :: rest, tailOffset =>
+      tailOffset :: abiEncodeArgHeads rest (tailOffset + arg.tailSize)
+
+/-- ABI encoding of the complete argument block: all heads, followed by tails
+in their original argument order. -/
+def abiEncodeArgs (args : List AbiArg) : List Nat :=
+  abiEncodeArgHeads args (32 * args.length) ++ args.flatMap AbiArg.tail
+
+@[simp] theorem abiEncodeArgHeads_length (args : List AbiArg) (tailOffset : Nat) :
+    (abiEncodeArgHeads args tailOffset).length = args.length := by
+  induction args generalizing tailOffset with
+  | nil => rfl
+  | cons arg rest ih =>
+      cases arg <;> simp [abiEncodeArgHeads, ih]
+
+/-- Every argument contributes exactly one head word, including dynamic
+arguments whose head is an offset. -/
+theorem abiEncodeArgs_headSize (args : List AbiArg) :
+    (abiEncodeArgHeads args (32 * args.length)).length * 32 = 32 * args.length := by
+  rw [abiEncodeArgHeads_length]
+
+/-- The byte offset of the tail belonging to the argument at `index`.  It is
+the fixed head area plus the tails of earlier arguments. -/
+def abiTailOffset (args : List AbiArg) (index : Nat) : Nat :=
+  32 * args.length + abiDynamicTailSize (args.take index)
+
+private theorem abiDynamicTailSize_cons (arg : AbiArg) (args : List AbiArg) :
+    abiDynamicTailSize (arg :: args) = arg.tailSize + abiDynamicTailSize args := by
+  simp [abiDynamicTailSize, AbiArg.tailSize, Nat.mul_add, Nat.add_mul]
+
+/-- A dynamic head is the actual byte offset at which its tail starts.  The
+induction also preserves tail order, because preceding tail sizes are added
+left-to-right. -/
+theorem abiEncodeArgHeads_dynamic_offset
+    (prefix args : List AbiArg) (arg : AbiArg) (suffix : List AbiArg)
+    (hdynamic : arg.isDynamic = true) :
+    (abiEncodeArgHeads (prefix ++ arg :: suffix) (32 * (prefix ++ arg :: suffix).length)).get?
+        prefix.length =
+      some (abiTailOffset (prefix ++ arg :: suffix) prefix.length) := by
+  induction prefix generalizing args with
+  | nil =>
+      cases arg <;> simp [AbiArg.isDynamic] at hdynamic ⊢
+  | cons first rest ih =>
+      cases first <;>
+        simp [abiEncodeArgHeads, abiTailOffset, abiDynamicTailSize_cons,
+          List.take_succ_cons, ih, Nat.mul_add, Nat.add_assoc, Nat.add_left_comm,
+          Nat.add_comm]
+
+/-- The tail portion of an appended argument list composes by append. -/
+theorem abiEncodeArgs_tails_append (left right : List AbiArg) :
+    (left ++ right).flatMap AbiArg.tail =
+      left.flatMap AbiArg.tail ++ right.flatMap AbiArg.tail := by
+  simp
+
+/-- Head composition for adjacent argument blocks.  The second block's
+dynamic offsets are translated by the first block's tail size. -/
+theorem abiEncodeArgHeads_append (left right : List AbiArg) (tailOffset : Nat) :
+    abiEncodeArgHeads (left ++ right) tailOffset =
+      abiEncodeArgHeads left tailOffset ++
+        abiEncodeArgHeads right (tailOffset + abiDynamicTailSize left) := by
+  induction left generalizing tailOffset with
+  | nil => simp [abiEncodeArgHeads, abiDynamicTailSize]
+  | cons arg rest ih =>
+      cases arg <;>
+        simp [abiEncodeArgHeads, abiDynamicTailSize_cons, ih, Nat.add_assoc]
+
+theorem abiEncodeArgs_append (left right : List AbiArg) :
+    abiEncodeArgs (left ++ right) =
+      abiEncodeArgHeads left (32 * (left.length + right.length)) ++
+      abiEncodeArgHeads right (32 * (left.length + right.length) + abiDynamicTailSize left) ++
+      left.flatMap AbiArg.tail ++ right.flatMap AbiArg.tail := by
+  simp only [abiEncodeArgs, List.length_append, abiEncodeArgHeads_append,
+    abiEncodeArgs_tails_append]
+  ac_rfl
+
 section Examples
 
 private def exampleState : IRState :=
