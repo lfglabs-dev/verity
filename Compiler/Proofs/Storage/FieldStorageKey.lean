@@ -5,8 +5,10 @@
   Mapping-entry constructors cover the typed cases that already have a
   StorageKey (`map` / `mapUint` / `map2`). Address-keyed mappingStruct
   / mappingStruct2 members collapse to `mappingSlotLocation` /
-  `nestedMappingSlotLocation`. bytes32 keys, packed bit-ranges, alias
-  slots, and global MappingCoherent preservation stay open.
+  `nestedMappingSlotLocation`. Compatibility `aliasSlots` are extra
+  compiler write targets; only the resolved head has a StorageKey.
+  bytes32 keys, packed bit-ranges, and global MappingCoherent
+  preservation stay open.
 -/
 
 import Compiler.Proofs.Storage.MappingCoherence
@@ -202,5 +204,43 @@ theorem fieldStructMember2Slot_eq_storageKeySlot_add
         (base + m.wordOffset) % Compiler.Constants.evmModulus := by
   simp [fieldStructMember2Slot_eq htr hty hmem, storageKeySlot,
     nestedMappingSlotLocation, abstractNestedMappingSlot, abstractMappingSlot]
+
+/-- `findFieldWriteSlots` is the resolved slot cons the compatibility
+    aliases. Aliases have no `StorageKey`. -/
+theorem findFieldWriteSlotsCopyFrom_of_resolved
+    (fields : List Field) (idx : Nat) (name : String) {f : Field} {slot : Nat}
+    (h : findFieldWithResolvedSlotCopyFrom fields idx name = some (f, slot)) :
+    findFieldWriteSlotsCopyFrom fields idx name = some (slot :: f.aliasSlots) := by
+  induction fields generalizing idx with
+  | nil =>
+    simp [findFieldWithResolvedSlotCopyFrom] at h
+  | cons hd tl ih =>
+    simp only [findFieldWithResolvedSlotCopyFrom, findFieldWriteSlotsCopyFrom] at h ⊢
+    split
+    · next hname =>
+      simp [hname] at h
+      rcases h with ⟨rfl, rfl⟩
+      rfl
+    · next hname =>
+      simp [hname] at h
+      exact ih (idx + 1) h
+
+theorem findFieldWriteSlots_of_resolved
+    {fields : List Field} {name : String} {f : Field} {slot : Nat}
+    (h : findFieldWithResolvedSlot fields name = some (f, slot)) :
+    findFieldWriteSlots fields name = some (slot :: f.aliasSlots) := by
+  rw [findFieldWriteSlots_eq_CopyFrom, findFieldWithResolvedSlot_eq_CopyFrom] at *
+  exact findFieldWriteSlotsCopyFrom_of_resolved fields 0 name h
+
+/-- The persistent field's `storageKeySlot` is the head of the write-slot
+    list. Aliases are extra compiler slots, not extra source keys. -/
+theorem storageKeySlot_head_of_fieldWriteSlots
+    {fields : List Field} {name : String} {f : Field} {slot : Nat}
+    (h : findFieldWithResolvedSlot fields name = some (f, slot))
+    (htr : f.isTransient = false) :
+    (findFieldWriteSlots fields name).bind List.head? =
+      storageKeySlot (fieldRootKey f slot) := by
+  rw [findFieldWriteSlots_of_resolved h, storageKeySlot_fieldRootKey, htr]
+  rfl
 
 end Compiler.Proofs.Storage.FieldStorageKey
