@@ -1,5 +1,6 @@
 import Verity.Core.Model.Denote
 import Verity.Core.Model.DenoteExternalCalls
+import Verity.Core.Model.MultiContract
 
 /-!
 # FunctionSpec denotation of raw and linked external calls
@@ -271,22 +272,57 @@ mutual
         | .revert => .revert
 end
 
-/-- Canonical FunctionSpec denotation with raw / linked calls in-fragment. -/
-def denoteFunctionWithCalls (env : CallEnv) (spec : CompilationModel)
+/-- Execution-level result retained for composition into an explicit callee
+frame.  Unlike `DenoteResult`, this keeps the actual post-world. -/
+structure FunctionExecution where
+  result : ExternalCallResult
+  world : ContractState
+
+/-- Execute a FunctionSpec with raw / linked calls in-fragment. -/
+def executeFunctionWithCalls (env : CallEnv) (spec : CompilationModel)
     (fn : FunctionSpec) (tx : DenoteTransaction) (initialWorld : ContractState) :
-    DenoteResult :=
+    FunctionExecution :=
   let worldWithTx := withPayableCallContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
-  | none => revertedResult env.oracle spec worldWithTx
+  | none => { result := .revert [], world := worldWithTx }
   | some bindings =>
       match execStmtListWithCalls env fields
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector }
           fn.body with
-      | .continue state => successResult env.oracle spec state.world none
-      | .stop state => successResult env.oracle spec state.world none
-      | .return value state => successResult env.oracle spec state.world (some value)
-      | .revert => revertedResult env.oracle spec worldWithTx
+      | .continue state | .stop state =>
+          { result := .success [], world := state.world }
+      | .return value state =>
+          { result := .success [value], world := state.world }
+      | .revert => { result := .revert [], world := worldWithTx }
+
+/-- Canonical FunctionSpec denotation, projected from the composable
+execution result so the two semantics cannot drift. -/
+def denoteFunctionWithCalls (env : CallEnv) (spec : CompilationModel)
+    (fn : FunctionSpec) (tx : DenoteTransaction) (initialWorld : ContractState) :
+    DenoteResult :=
+  let execution := executeFunctionWithCalls env spec fn tx initialWorld
+  match execution.result with
+  | .success [] => successResult env.oracle spec execution.world none
+  | .success (word :: _) => successResult env.oracle spec execution.world (some word)
+  | .failure _ | .revert _ => revertedResult env.oracle spec execution.world
+
+/-- Adapt a source-shaped FunctionSpec execution to the official framed
+multi-contract boundary.  The frame's pre-credit callee snapshot is supplied
+to the function denotation; `msg.value` is credited exactly once by its
+payable transaction context. -/
+def runFunctionInFrame (env : CallEnv) (spec : CompilationModel)
+    (fn : FunctionSpec) (selector : Nat)
+    (frame : Verity.MultiContract.CallFrame) :
+    Verity.MultiContract.CalleeExecution :=
+  let execution := executeFunctionWithCalls env spec fn
+    { sender := frame.caller.toNat
+      msgValue := frame.site.value
+      thisAddress := frame.callee.toNat
+      functionSelector := selector
+      args := frame.site.calldata }
+    frame.calleeBefore
+  { result := execution.result, post := execution.world }
 
 /-! ## Laws -/
 
