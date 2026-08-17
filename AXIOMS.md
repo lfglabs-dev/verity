@@ -41,7 +41,8 @@ is a `width < 256` calculation. `FieldCoherence` adds no axiom:
 it instantiates `MappingCoherent*` / `MappingCoherentOn*` at the
 named field's derived slot. `encodeStorageAt` on an unoccupied
 mapping slot is the same shadow, still under an explicit
-non-occupation hypothesis. `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
+non-occupation hypothesis. Lone `writeSlot` preservation of a
+finite list is the same explicit slot inequality. `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
 from no write-slot conflict plus constructor facts.
 
 ## Eliminated Axioms

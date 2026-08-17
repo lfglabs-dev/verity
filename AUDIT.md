@@ -335,7 +335,9 @@ sibling entrypoint.
   (`width < 256`). `FieldCoherence` identifies a named mapping field's
   `storageKeySlot` with the flat slot `MappingCoherent*` /
   `MappingCoherentOn*` reads.
-  Global (all-keys) preservation remains open.
+  A lone `writeSlot` preserves a finite `*On` list under an explicit
+  listed-vs-written slot inequality. Global (all-keys) preservation
+  remains open.
   `FieldEncode` derives `findResolvedFieldAtSlot` from
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
   and unpacked, then identifies that slot with `encodeStorageAt`.
