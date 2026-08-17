@@ -48,6 +48,12 @@ injectivity separates transient from persistent keys.
 `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
 from no write-slot conflict plus constructor facts.
 
+FunctionSpec call denotation (`DenoteFunctionCalls`), ETH-valued
+`externalCallBindTo`, `withPayableCallContext` crediting
+`selfBalance`, and `MultiContract` add no axiom: callee behaviour
+is an explicit `AdversaryModel` / `calleeStep` parameter, not an
+assumed transition.
+
 ## Eliminated Axioms
 
 ### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)
