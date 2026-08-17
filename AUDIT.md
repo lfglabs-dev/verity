@@ -229,8 +229,10 @@ sibling entrypoint.
   preserve both snapshots (apart from the caller's append-only observation).
 - `DenoteFunctionCalls.executeFunctionWithCalls` retains the FunctionSpec
   post-world and execution control. `runFunctionInFrame` is the first
-  source-shaped adapter into the framed boundary; the legacy `DenoteResult`
-  projection is derived from the same execution.
+  source-shaped adapter into the framed boundary; `callFunction` is the
+  official checked composition and does not accept a separately supplied
+  observation or post-state. The legacy `DenoteResult` projection is derived
+  from the same execution.
 - This slice deliberately supports ordinary `call` only. `staticcall` and
   `delegatecall` need distinct frame invariants before admission.
 - Zero new axioms.

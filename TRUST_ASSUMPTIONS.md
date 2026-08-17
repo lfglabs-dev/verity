@@ -299,7 +299,9 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
   journal from one `CalleeExecution`; failed/reverted executions restore the
   caller/callee snapshots apart from the caller observation. The first
   official adapter executes a source-shaped `FunctionSpec` through
-  `DenoteFunctionCalls.runFunctionInFrame`. This boundary currently rejects
+  `DenoteFunctionCalls.callFunction`; unlike the lower-level executor callback,
+  that entrypoint does not accept injected control, returndata, or post-state.
+  This boundary currently rejects
   `staticcall`, `delegatecall`, self-calls, and target/address mismatches;
   admitting those requires their distinct frame invariants rather than
   pretending ordinary-call semantics apply.

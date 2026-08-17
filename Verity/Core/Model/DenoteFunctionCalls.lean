@@ -324,6 +324,26 @@ def runFunctionInFrame (env : CallEnv) (spec : CompilationModel)
     frame.calleeBefore
   { result := execution.result, post := execution.world }
 
+/-- Official source-shaped multi-contract call path.  Frame construction,
+FunctionSpec execution, value transfer, commit/rollback, returndata, and the
+call journal are composed here; callers cannot supply an observed result or
+post-state independently of the executed function. -/
+def callFunction (env : CallEnv) (spec : CompilationModel)
+    (fn : FunctionSpec) (selector : Nat) (world : Verity.MultiContract.MultiWorld)
+    (caller callee : Address) (site : CallSite) :
+    Option Verity.MultiContract.FramedCallObservation :=
+  Verity.MultiContract.call world caller callee site
+    (runFunctionInFrame env spec fn selector)
+
+theorem callFunction_eq (env : CallEnv) (spec : CompilationModel)
+    (fn : FunctionSpec) (selector : Nat) (world : Verity.MultiContract.MultiWorld)
+    (caller callee : Address) (site : CallSite) :
+    callFunction env spec fn selector world caller callee site = (do
+      let frame ← Verity.MultiContract.callEntry world caller callee site
+      some (Verity.MultiContract.executeCall world frame
+        (runFunctionInFrame env spec fn selector))) :=
+  rfl
+
 /-! ## Laws -/
 
 theorem debitSelfBalance_none_of_lt (w : ContractState) (value : Nat)

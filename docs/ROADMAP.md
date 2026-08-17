@@ -70,7 +70,9 @@ ensemble; it is not an L2 claim.
 `MultiContract.CallFrame` now separates caller/callee snapshots and the
 callee entry context; execution-produced control/returndata drive commit,
 checked rollback, and journaling. `runFunctionInFrame` adapts an actual
-source-shaped `FunctionSpec` execution to that boundary. The honest generic
+source-shaped `FunctionSpec` execution to that boundary, and `callFunction`
+is the checked composition that accepts no injected observation/post-state.
+The honest generic
 boundary currently admits ordinary cross-account `call` only; static and
 delegate frame invariants plus SupportedSpec/L2 wiring remain next.
 C5 step 3 (canonical
