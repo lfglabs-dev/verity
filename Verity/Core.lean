@@ -409,6 +409,68 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
   funext mapSlot mapKey1 mapKey2
   simp [storageMap2, writeSlot]
 
+@[simp] theorem sender_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).thisAddress = s.thisAddress := rfl
+@[simp] theorem txOrigin_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).txOrigin = s.txOrigin := rfl
+@[simp] theorem msgValue_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).msgValue = s.msgValue := rfl
+@[simp] theorem selfBalance_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).selfBalance = s.selfBalance := rfl
+@[simp] theorem blockTimestamp_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).blockTimestamp = s.blockTimestamp := rfl
+@[simp] theorem blockNumber_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).blockNumber = s.blockNumber := rfl
+@[simp] theorem chainId_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).chainId = s.chainId := rfl
+@[simp] theorem blobBaseFee_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).blobBaseFee = s.blobBaseFee := rfl
+@[simp] theorem calldataSize_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).calldataSize = s.calldataSize := rfl
+@[simp] theorem calldata_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).calldata = s.calldata := rfl
+@[simp] theorem memory_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).memory = s.memory := rfl
+@[simp] theorem knownAddresses_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).knownAddresses = s.knownAddresses := rfl
+@[simp] theorem events_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).events = s.events := rfl
+@[simp] theorem calls_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).calls = s.calls := rfl
+
+@[simp] theorem storageWords_writeSlot (s : ContractState) (slot : Nat) (value : Uint256)
+    (key : StorageKey) :
+    (s.writeSlot slot value).storageWords key =
+      if key == .slot slot then value else s.storageWords key := rfl
+
+/-- Compatibility views reduce through a `storageWords` record update. Contract
+    proofs that unfold `writeSlot`/`writeAddrSlot`/`writeMap` land on this form. -/
+@[simp] theorem storage_set_storageWords (s : ContractState) (f : StorageKey → Uint256)
+    (n : Nat) :
+    { s with storageWords := f }.storage n = f (.slot n) := rfl
+
+@[simp] theorem storageAddr_set_storageWords (s : ContractState) (f : StorageKey → Uint256)
+    (n : Nat) :
+    { s with storageWords := f }.storageAddr n = wordToAddress (f (.addr n)) := rfl
+
+@[simp] theorem storageMap_set_storageWords (s : ContractState) (f : StorageKey → Uint256)
+    (n : Nat) (key : Address) :
+    { s with storageWords := f }.storageMap n key = f (.map n key) := rfl
+
+@[simp] theorem storageMapUint_set_storageWords (s : ContractState)
+    (f : StorageKey → Uint256) (n : Nat) (key : Uint256) :
+    { s with storageWords := f }.storageMapUint n key = f (.mapUint n key) := rfl
+
+@[simp] theorem storageMap2_set_storageWords (s : ContractState)
+    (f : StorageKey → Uint256) (n : Nat) (key1 key2 : Address) :
+    { s with storageWords := f }.storageMap2 n key1 key2 = f (.map2 n key1 key2) := rfl
+
+@[simp] theorem transientStorage_set_storageWords (s : ContractState)
+    (f : StorageKey → Uint256) (n : Nat) :
+    { s with storageWords := f }.transientStorage n = f (.transient n) := rfl
+
 /-- Address-slot writes leave word-slot and mapping compatibility views intact. -/
 @[simp] theorem storage_writeSlot_same (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).storage slot = value := by
@@ -522,6 +584,64 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
   funext mapSlot mapKey1 mapKey2
   simp [storageMap2, writeMap]
 
+@[simp] theorem storageMap_writeMap_same (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).storageMap slot key = value := by
+  simp [storageMap, writeMap]
+
+@[simp] theorem storageMap_writeMap_other_key (s : ContractState) (slot : Nat)
+    {key key' : Address} (h : key' ≠ key) (value : Uint256) :
+    (s.writeMap slot key value).storageMap slot key' = s.storageMap slot key' := by
+  simp [storageMap, writeMap, h]
+
+@[simp] theorem sender_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).thisAddress = s.thisAddress := rfl
+@[simp] theorem txOrigin_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).txOrigin = s.txOrigin := rfl
+@[simp] theorem msgValue_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).msgValue = s.msgValue := rfl
+@[simp] theorem selfBalance_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).selfBalance = s.selfBalance := rfl
+@[simp] theorem blockTimestamp_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).blockTimestamp = s.blockTimestamp := rfl
+@[simp] theorem blockNumber_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).blockNumber = s.blockNumber := rfl
+@[simp] theorem chainId_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).chainId = s.chainId := rfl
+@[simp] theorem blobBaseFee_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).blobBaseFee = s.blobBaseFee := rfl
+@[simp] theorem calldataSize_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).calldataSize = s.calldataSize := rfl
+@[simp] theorem calldata_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).calldata = s.calldata := rfl
+@[simp] theorem knownAddresses_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).knownAddresses = s.knownAddresses := rfl
+@[simp] theorem events_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).events = s.events := rfl
+@[simp] theorem calls_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).calls = s.calls := rfl
+
+@[simp] theorem storageWords_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) (storageKey : StorageKey) :
+    (s.writeMap slot key value).storageWords storageKey =
+      if storageKey == .map slot key then value else s.storageWords storageKey := rfl
+
 def readMapUint (s : ContractState) (slot : Nat) (key : Uint256) : Uint256 :=
   s.storageMapUint slot key
 
@@ -591,6 +711,22 @@ def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Ui
     (value : Uint256) : (s.writeMap2 slot key1 key2 value).storageMapUint = s.storageMapUint := by
   funext mapSlot mapKey
   simp [storageMapUint, writeMap2]
+
+@[simp] theorem storageMap2_writeMap2_same (s : ContractState) (slot : Nat)
+    (key1 key2 : Address) (value : Uint256) :
+    (s.writeMap2 slot key1 key2 value).storageMap2 slot key1 key2 = value := by
+  simp [storageMap2, writeMap2]
+
+@[simp] theorem storageMap2_writeMap2_other (s : ContractState) (slot : Nat)
+    {key1 key1' key2 key2' : Address} (h : key1' ≠ key1 ∨ key2' ≠ key2)
+    (value : Uint256) :
+    (s.writeMap2 slot key1 key2 value).storageMap2 slot key1' key2' =
+      s.storageMap2 slot key1' key2' := by
+  simp [storageMap2, writeMap2]
+  intro hkey
+  cases h with
+  | inl h1 => exact (h1 hkey.1).elim
+  | inr h2 => exact (h2 hkey.2).elim
 
 @[simp] theorem sender_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).sender = s.sender := rfl
@@ -696,6 +832,55 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
   intro hmem
   have := (List.contains_iff_mem).mpr hmem
   exact Bool.noConfusion (this.symm.trans h)
+
+@[simp] theorem sender_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).thisAddress = s.thisAddress := rfl
+@[simp] theorem selfBalance_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).selfBalance = s.selfBalance := rfl
+@[simp] theorem calldata_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).calldata = s.calldata := rfl
+@[simp] theorem calldataSize_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).calldataSize = s.calldataSize := rfl
+@[simp] theorem msgValue_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).msgValue = s.msgValue := rfl
+
+@[simp] theorem sender_writeAddrSlots (s : ContractState) (targets : List Nat)
+    (value : Address) :
+    (s.writeAddrSlots targets value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writeAddrSlots (s : ContractState) (targets : List Nat)
+    (value : Address) :
+    (s.writeAddrSlots targets value).thisAddress = s.thisAddress := rfl
+@[simp] theorem calldata_writeAddrSlots (s : ContractState) (targets : List Nat)
+    (value : Address) :
+    (s.writeAddrSlots targets value).calldata = s.calldata := rfl
+
+@[simp] theorem sender_writeTransientSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeTransientSlots targets value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writeTransientSlots (s : ContractState)
+    (targets : List Nat) (value : Uint256) :
+    (s.writeTransientSlots targets value).thisAddress = s.thisAddress := rfl
+@[simp] theorem calldata_writeTransientSlots (s : ContractState)
+    (targets : List Nat) (value : Uint256) :
+    (s.writeTransientSlots targets value).calldata = s.calldata := rfl
+
+@[simp] theorem sender_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).sender = s.sender := rfl
+@[simp] theorem thisAddress_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).thisAddress = s.thisAddress := rfl
+@[simp] theorem calldata_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).calldata = s.calldata := rfl
 
 @[simp] theorem storageArray_writeSlots (s : ContractState) (targets : List Nat)
     (value : Uint256) :
