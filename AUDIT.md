@@ -332,7 +332,9 @@ sibling entrypoint.
   takes an explicit derived-slot inequality. Global (all-keys)
   preservation is still open. Packed subfields extract from the
   `storageKeySlot` word (`packedExtract`); compiler packed-read
-  composition with SolidityStorage remains open. bytes32-keyed
+  composition with SolidityStorage remains open.
+  `FieldEncode` names the `storageKeySlot` / `encodeStorageAt` seam
+  when `findResolvedFieldAtSlot` agrees (explicit hypothesis). bytes32-keyed
   maps collapse to `solidityMappingSlot` of the 32-byte word (no
   `StorageKey.mapBytes32`). All nine `MappingType.nested` key-type
   pairs collapse to `abstractNestedMappingSlot`.
