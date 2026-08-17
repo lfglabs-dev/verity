@@ -1,11 +1,12 @@
 /-
-  C5 step 4 (first slice): structural StorageKey → Solidity-slot collapse
-  and shadow-vs-flat mapping coherence.
+  C5 step 4: structural StorageKey → Solidity-slot collapse and
+  shadow-vs-flat mapping coherence, complete under
+  `solidityMappingSlot_injective`.
 
   Source `StorageKey` constructors stay injective. Keccak layout lives only
-  here, on the compiler side. Global preservation of `MappingCoherent` is
-  not claimed without `solidityMappingSlot_injective`. That axiom is
-  ABI mapping-preimage collision-resistance, not keccak-on-all-bytes.
+  here. Global aligned `writeMap*` preservation uses the axiom (ABI
+  mapping-preimage collision-resistance, not keccak-on-all-bytes).
+  Lone `writeSlot` takes an image-avoidance `∀`.
 -/
 
 import Verity.Core
@@ -260,5 +261,149 @@ theorem writeMap_aligned_preserves_mappingCoherent
       intro heq; injection heq with hs' _; exact hs hs'
     exact writeMap_aligned_other s slot key v slot' key' (hcoh slot' key')
       hkey (mappingAddrSlot_ne_of_map_ne hkey)
+
+theorem writeMapUint_aligned_preserves_mappingCoherentUint
+    (s : ContractState) (slot : Nat) (key v : Uint256)
+    (hcoh : MappingCoherentUint s) :
+    MappingCoherentUint
+      ((s.writeMapUint slot key v).writeSlot
+        (solidityMappingSlot slot key.val) v) := by
+  intro slot' key'
+  by_cases hs : slot' = slot
+  · by_cases hk : (key' : Nat) = (key : Nat)
+    · have hk' : key' = key := Core.Uint256.ext hk
+      simpa [hs, hk'] using writeMapUint_aligned_same s slot key v
+    · have hkey : StorageKey.mapUint slot' key' ≠ StorageKey.mapUint slot key := by
+        intro heq; injection heq with _ hk'; exact hk (congrArg (fun w : Uint256 => (w : Nat)) hk')
+      exact writeMapUint_aligned_other s slot key v slot' key' (hcoh slot' key')
+        hkey (mappingUintSlot_ne_of_mapUint_ne hkey)
+  · have hkey : StorageKey.mapUint slot' key' ≠ StorageKey.mapUint slot key := by
+      intro heq; injection heq with hs' _; exact hs hs'
+    exact writeMapUint_aligned_other s slot key v slot' key' (hcoh slot' key')
+      hkey (mappingUintSlot_ne_of_mapUint_ne hkey)
+
+set_option maxHeartbeats 800000 in
+theorem writeMap2_aligned_preserves_mappingCoherentMap2
+    (s : ContractState) (slot : Nat) (k1 k2 : Address) (v : Uint256)
+    (hcoh : MappingCoherentMap2 s) :
+    MappingCoherentMap2
+      ((s.writeMap2 slot k1 k2 v).writeSlot
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
+        v) := by
+  intro slot' k1' k2'
+  by_cases hs : slot' = slot
+  · by_cases h1 : k1' = k1
+    · by_cases h2 : k2' = k2
+      · simpa [hs, h1, h2] using writeMap2_aligned_same s slot k1 k2 v
+      · have hkey : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2 := by
+          intro heq; injection heq with _ _ hk2; exact h2 hk2
+        exact writeMap2_aligned_other s slot k1 k2 v slot' k1' k2'
+          (hcoh slot' k1' k2') hkey (mappingMap2Slot_ne_of_map2_ne hkey)
+    · have hkey : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2 := by
+        intro heq; injection heq with _ hk1 _; exact h1 hk1
+      exact writeMap2_aligned_other s slot k1 k2 v slot' k1' k2'
+        (hcoh slot' k1' k2') hkey (mappingMap2Slot_ne_of_map2_ne hkey)
+  · have hkey : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2 := by
+      intro heq; injection heq with hs' _ _; exact hs hs'
+    exact writeMap2_aligned_other s slot k1 k2 v slot' k1' k2'
+      (hcoh slot' k1' k2') hkey (mappingMap2Slot_ne_of_map2_ne hkey)
+
+/-- Transient writes never touch persistent `.slot` / `.map*`. Constructor
+    injectivity; no keccak hypothesis. -/
+theorem writeTransient_preserves_mappingCoherent
+    (s : ContractState) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherent s) :
+    MappingCoherent (s.writeTransient n v) := by
+  intro slot key
+  have hmap : (s.writeTransient n v).storageMap slot key = s.storageMap slot key := by
+    simp [storageMap, writeTransient]
+  have hflat :
+      (s.writeTransient n v).storage
+        (solidityMappingSlot slot (addressToWord key).val) =
+        s.storage (solidityMappingSlot slot (addressToWord key).val) := by
+    simp [storage, writeTransient]
+  exact (hmap.trans (hcoh slot key)).trans hflat.symm
+
+theorem writeTransient_preserves_mappingCoherentUint
+    (s : ContractState) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentUint s) :
+    MappingCoherentUint (s.writeTransient n v) := by
+  intro slot key
+  have hmap :
+      (s.writeTransient n v).storageMapUint slot key = s.storageMapUint slot key := by
+    simp [storageMapUint, writeTransient]
+  have hflat :
+      (s.writeTransient n v).storage (solidityMappingSlot slot key.val) =
+        s.storage (solidityMappingSlot slot key.val) := by
+    simp [storage, writeTransient]
+  exact (hmap.trans (hcoh slot key)).trans hflat.symm
+
+theorem writeTransient_preserves_mappingCoherentMap2
+    (s : ContractState) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentMap2 s) :
+    MappingCoherentMap2 (s.writeTransient n v) := by
+  intro slot k1 k2
+  have hmap :
+      (s.writeTransient n v).storageMap2 slot k1 k2 = s.storageMap2 slot k1 k2 := by
+    simp [storageMap2, writeTransient]
+  have hflat :
+      (s.writeTransient n v).storage
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) =
+        s.storage
+          (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) := by
+    simp [storage, writeTransient]
+  exact (hmap.trans (hcoh slot k1 k2)).trans hflat.symm
+
+/-- A lone `writeSlot` preserves global address-map coherence when the
+    written word is not any address-mapping derived slot. The `∀` is that
+    image-avoidance certificate; the axiom does not discharge it. -/
+theorem writeSlot_preserves_mappingCoherent
+    (s : ContractState) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherent s)
+    (hna : ∀ mapSlot mapKey,
+      solidityMappingSlot mapSlot (addressToWord mapKey).val ≠ n) :
+    MappingCoherent (s.writeSlot n v) := by
+  intro mapSlot mapKey
+  have hmap : (s.writeSlot n v).storageMap mapSlot mapKey = s.storageMap mapSlot mapKey := by
+    rw [storageMap_writeSlot]
+  have hflat :
+      (s.writeSlot n v).storage
+        (solidityMappingSlot mapSlot (addressToWord mapKey).val) =
+        s.storage (solidityMappingSlot mapSlot (addressToWord mapKey).val) :=
+    storage_writeSlot_other (s := s) (hna mapSlot mapKey) v
+  exact (hmap.trans (hcoh mapSlot mapKey)).trans hflat.symm
+
+theorem writeSlot_preserves_mappingCoherentUint
+    (s : ContractState) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentUint s)
+    (hna : ∀ mapSlot mapKey, solidityMappingSlot mapSlot (mapKey : Nat) ≠ n) :
+    MappingCoherentUint (s.writeSlot n v) := by
+  intro mapSlot mapKey
+  have hmap :
+      (s.writeSlot n v).storageMapUint mapSlot mapKey = s.storageMapUint mapSlot mapKey := by
+    rw [storageMapUint_writeSlot]
+  have hflat :
+      (s.writeSlot n v).storage (solidityMappingSlot mapSlot (mapKey : Nat)) =
+        s.storage (solidityMappingSlot mapSlot (mapKey : Nat)) :=
+    storage_writeSlot_other (s := s) (hna mapSlot mapKey) v
+  exact (hmap.trans (hcoh mapSlot mapKey)).trans hflat.symm
+
+theorem writeSlot_preserves_mappingCoherentMap2
+    (s : ContractState) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentMap2 s)
+    (hna : ∀ mapSlot mk1 mk2,
+      abstractNestedMappingSlot mapSlot (addressToWord mk1).val (addressToWord mk2).val ≠ n) :
+    MappingCoherentMap2 (s.writeSlot n v) := by
+  intro mapSlot mk1 mk2
+  have hmap :
+      (s.writeSlot n v).storageMap2 mapSlot mk1 mk2 = s.storageMap2 mapSlot mk1 mk2 := by
+    rw [storageMap2_writeSlot]
+  have hflat :
+      (s.writeSlot n v).storage
+        (abstractNestedMappingSlot mapSlot (addressToWord mk1).val (addressToWord mk2).val) =
+        s.storage
+          (abstractNestedMappingSlot mapSlot (addressToWord mk1).val (addressToWord mk2).val) :=
+    storage_writeSlot_other (s := s) (hna mapSlot mk1 mk2) v
+  exact (hmap.trans (hcoh mapSlot mk1 mk2)).trans hflat.symm
 
 end Compiler.Proofs.Storage.MappingCoherence

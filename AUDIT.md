@@ -336,7 +336,8 @@ sibling entrypoint.
 - The freeze baseline shrinks to `Verity/Core.lean` (lens
   implementations) plus `Contracts/TypedIRTests.lean` (IRState field-name
   collisions). `storageWords :=` is forbidden outside `Verity/Core.lean`.
-- Not C5 step 4 complete: `Compiler.Proofs.Storage.MappingCoherence`
+- C5 step 4 complete under `solidityMappingSlot_injective`
+  (not axiom-free): `Compiler.Proofs.Storage.MappingCoherence`
   now defines `storageKeySlot` and address-keyed `MappingCoherent`,
   with `defaultState_mappingCoherent` / `MappingCoherentUint` /
   `MappingCoherentMap2` and the aligned `writeMap`/`writeMapUint`/
@@ -363,10 +364,12 @@ sibling entrypoint.
   listed-vs-written slot inequality. A lone `writeTransient` preserves
   the same lists by constructor injectivity (`StorageKey.transient`
   vs persistent `.slot` / `.map` / `.mapUint` / `.map2`); no slot
-  inequality. Global aligned `writeMap`+`writeSlot` preservation of
-  `MappingCoherent` uses `solidityMappingSlot_injective`. Lone
-  `writeSlot` all-keys remains open. C5 step 4 is not axiom-free
-  complete.
+  inequality. Global aligned `writeMap` / `writeMapUint` /
+  `writeMap2`+`writeSlot` preserves `MappingCoherent*`.
+  `writeTransient` preserves the globals by constructor injectivity.
+  A lone `writeSlot` preserves a global under an explicit
+  image-avoidance `∀` (derived slot ≠ written word). Finite `*On`
+  lists lift from the globals without a pairwise certificate.
   `FieldEncode` derives `findResolvedFieldAtSlot` from
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
   and unpacked, then identifies that slot with `encodeStorageAt`.

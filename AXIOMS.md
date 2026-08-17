@@ -19,11 +19,12 @@ C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
 not add a keccak-injectivity axiom. Source lens laws use constructor
 injectivity; Solidity slot derivation remains compiler-side.
 
-C5 step 4's finite-set slices still use explicit derived-slot
-inequalities. Global aligned-write `MappingCoherent` preservation
-depends on `solidityMappingSlot_injective` below — collision-resistance
-of the 64-byte ABI mapping preimage, **not** injectivity of keccak256
-on arbitrary byte strings. `FieldStorageKey` is a
+C5 step 4 is complete under `solidityMappingSlot_injective` below —
+collision-resistance of the 64-byte ABI mapping preimage, **not**
+injectivity of keccak256 on arbitrary byte strings. Finite-set
+slices remain valid without the axiom. Global aligned `writeMap*`
+preservation uses the axiom; lone `writeSlot` still takes an
+image-avoidance `∀`. `FieldStorageKey` is a
 constructor match on `FieldType` / `isTransient`; struct-member
 slots add `wordOffset` via `mappingSlotLocation`. Compatibility
 `aliasSlots` are extra compiler slots, not extra source keys.
