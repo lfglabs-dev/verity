@@ -363,7 +363,10 @@ sibling entrypoint.
   listed-vs-written slot inequality. A lone `writeTransient` preserves
   the same lists by constructor injectivity (`StorageKey.transient`
   vs persistent `.slot` / `.map` / `.mapUint` / `.map2`); no slot
-  inequality. Global (all-keys) preservation remains open.
+  inequality. Global aligned `writeMap`+`writeSlot` preservation of
+  `MappingCoherent` uses `solidityMappingSlot_injective`. Lone
+  `writeSlot` all-keys remains open. C5 step 4 is not axiom-free
+  complete.
   `FieldEncode` derives `findResolvedFieldAtSlot` from
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
   and unpacked, then identifies that slot with `encodeStorageAt`.

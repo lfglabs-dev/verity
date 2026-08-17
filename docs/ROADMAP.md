@@ -42,7 +42,9 @@ Next: derive the executable shallow program from the deep model
 per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
 legacy-compatibility witness chain are already retired), then finish C5
-step 4 — remaining global (all-keys) `MappingCoherent` preservation.
+step 4 — global aligned `MappingCoherent` preservation now depends on
+`solidityMappingSlot_injective`; lone-`writeSlot` all-keys remains
+open and is not claimed.
 Implemented: address/uint/map2 coherence laws, `FieldStorageKey`
 (including address-keyed mappingStruct member slots,
 bytes32-keyed compiler slots, all `MappingType.nested` key-type
@@ -55,7 +57,10 @@ as extra compiler write targets),
 and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 `MappingCoherentMap2On` under explicit pairwise derived-slot
 certificates, including cross-channel aligned-write, lone
-`writeSlot`, and lone `writeTransient` preservation. FunctionSpec
+`writeSlot`, and lone `writeTransient` preservation. Global
+aligned `writeMap`+`writeSlot` preservation of `MappingCoherent`
+is `writeMap_aligned_preserves_mappingCoherent`, under
+`solidityMappingSlot_injective`. FunctionSpec
 raw/linked calls with target, value and ETH debit are denoted in
 `DenoteFunctionCalls` (base `evalExpr`/`execStmt` stay
 `none`/`.revert` so `DenoteAgreement` holds). Payable calls credit

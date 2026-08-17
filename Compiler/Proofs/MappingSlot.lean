@@ -13,7 +13,7 @@ Mapping slot abstraction used by proof interpreters.
 
 The active backend is keccak-faithful (`solidityMappingSlot`).
 
-## Axiom elimination (zero-axiom target)
+## Range axiom eliminated; slot collision-resistance is axiomatic
 
 The mapping-slot definition now uses the kernel-computable `KeccakEngine.keccak256`
 so that the output-length bound is structurally provable. The FFI version (`ffi.KEC`)
@@ -56,6 +56,25 @@ private def solidityMappingSlot_ffi (baseSlot key : Nat) : Nat :=
 @[implemented_by solidityMappingSlot_ffi]
 def solidityMappingSlot (baseSlot key : Nat) : Nat :=
   EvmYul.fromByteArrayBigEndian (KeccakEngine.keccak256 (abiEncodeMappingSlot baseSlot key))
+
+/-- Collision-resistance of Solidity mapping-slot derivation
+    `keccak256(abi.encode(key, baseSlot))`.
+
+    **Not** injectivity of keccak256 on arbitrary `ByteArray`s (256-bit
+    output, infinite domain). See `AXIOMS.md`. -/
+axiom solidityMappingSlot_injective
+    (base₁ key₁ base₂ key₂ : Nat) :
+    solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →
+    base₁ = base₂ ∧ key₁ = key₂
+
+theorem solidityMappingSlot_ne {base₁ key₁ base₂ key₂ : Nat}
+    (h : base₁ ≠ base₂ ∨ key₁ ≠ key₂) :
+    solidityMappingSlot base₁ key₁ ≠ solidityMappingSlot base₂ key₂ := by
+  intro heq
+  rcases solidityMappingSlot_injective base₁ key₁ base₂ key₂ heq with ⟨hb, hk⟩
+  cases h with
+  | inl hbase => exact hbase hb
+  | inr hkey => exact hkey hk
 
 /-- Active proof-model mapping slot encoding backend. -/
 def abstractMappingSlot (baseSlot key : Nat) : Nat := solidityMappingSlot baseSlot key
@@ -249,6 +268,33 @@ theorem solidityMappingSlot_lt_evmModulus (baseSlot key : Nat) :
 theorem abstractMappingSlot_lt_evmModulus (baseSlot key : Nat) :
     abstractMappingSlot baseSlot key < Compiler.Constants.evmModulus :=
   solidityMappingSlot_lt_evmModulus baseSlot key
+
+theorem abstractNestedMappingSlot_injective
+    (base₁ key₁ key₂ base₂ key₁' key₂' : Nat)
+    (h : abstractNestedMappingSlot base₁ key₁ key₂ =
+      abstractNestedMappingSlot base₂ key₁' key₂') :
+    base₁ = base₂ ∧ key₁ = key₁' ∧ key₂ = key₂' := by
+  have hinj :=
+    solidityMappingSlot_injective
+      (solidityMappingSlot base₁ key₁) key₂
+      (solidityMappingSlot base₂ key₁') key₂' (by
+        simpa [abstractNestedMappingSlot, abstractMappingSlot] using h)
+  rcases hinj with ⟨hinner, hkey2⟩
+  rcases solidityMappingSlot_injective base₁ key₁ base₂ key₁' hinner with ⟨hbase, hkey1⟩
+  exact ⟨hbase, hkey1, hkey2⟩
+
+theorem abstractNestedMappingSlot_ne
+    {base₁ key₁ key₂ base₂ key₁' key₂' : Nat}
+    (h : base₁ ≠ base₂ ∨ key₁ ≠ key₁' ∨ key₂ ≠ key₂') :
+    abstractNestedMappingSlot base₁ key₁ key₂ ≠
+      abstractNestedMappingSlot base₂ key₁' key₂' := by
+  intro heq
+  rcases abstractNestedMappingSlot_injective base₁ key₁ key₂ base₂ key₁' key₂' heq
+    with ⟨hb, hk1, hk2⟩
+  rcases h with h | h | h
+  · exact h hb
+  · exact h hk1
+  · exact h hk2
 
 theorem solidityMappingSlot_add_lt_evmModulus (baseSlot key wordOffset : Nat)
     (h : wordOffset < Compiler.Constants.evmModulus - solidityMappingSlot baseSlot key) :

@@ -588,7 +588,8 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
     required={
         "AXIOMS": [
             "### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)",
-            "- Active axioms: 0",
+            "- Active axioms: 1",
+            "`solidityMappingSlot_injective`",
         ],
         "COMPILER_PROOFS_README": [
             "Generic whole-contract theorem",
@@ -613,7 +614,7 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
             "Layer 2: SUPPORTED-FRAGMENT GENERIC THEOREM -- CompilationModel → IR",
             "A generic whole-contract theorem is proved for the current supported `CompilationModel` fragment.",
             "former generic body-simulation axiom has been eliminated",
-            "it now has 0 documented Lean axioms",
+            "it now has 1 documented Lean axiom",
             "explicit theorem hypothesis rather than a Lean axiom",
         ],
         "DOCS_SITE_COMPILER": [
@@ -636,7 +637,7 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
         ],
         "LLMS": [
             "Generic whole-contract theorem for the supported fragment. 0 axioms.",
-            "0 documented Lean axioms",
+            "1 documented Lean axiom",
         ],
     },
     forbidden={
@@ -648,7 +649,7 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
             "### 2. `supported_function_body_correct_from_exact_state`",
             "supported_function_body_correct_from_exact_state",
             "- Active axioms: 3",
-            "- Active axioms: 1",
+            "- Active axioms: 0",
         ],
         "VERIFICATION_STATUS": [
             "## Layer 2: CompilationModel → IR — COMPLETE",
@@ -679,7 +680,6 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
             "2 documented axioms in [AXIOMS.md](AXIOMS.md): 1 selector axiom and 1 generic non-core Layer 2 axiom",
             "Layer 3: GENERIC SURFACE, 1 axiom — IR → Yul",
             "1 Layer 3 dispatch bridge axiom",
-            "it now has 1 documented Lean axiom",
         ],
         "DOCS_SITE_COMPILER": [
             "**Layer 2 framework proof**: `CompilationModel -> IR` preserves semantics.",
@@ -696,7 +696,6 @@ LAYER2_BOUNDARY = SnippetSyncEntry(
             "3 documented axioms",
             "4 documented axioms",
             "partial generic CompilationModel -> IR boundary",
-            "1 documented Lean axiom",
         ],
     },
     missing_message=(

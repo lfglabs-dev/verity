@@ -4,8 +4,8 @@
 
   Source `StorageKey` constructors stay injective. Keccak layout lives only
   here, on the compiler side. Global preservation of `MappingCoherent` is
-  not claimed: that needs finite non-alias certificates, because keccak
-  injectivity is not assumed.
+  not claimed without `solidityMappingSlot_injective`. That axiom is
+  ABI mapping-preimage collision-resistance, not keccak-on-all-bytes.
 -/
 
 import Verity.Core
@@ -193,5 +193,72 @@ theorem storageKeySlot_map2 (slot : Nat) (k1 k2 : Address) :
     storageKeySlot (.map2 slot k1 k2) =
       some (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) :=
   rfl
+
+theorem addressToWord_injective {a b : Address}
+    (h : addressToWord a = addressToWord b) : a = b := by
+  apply Core.Address.ext
+  have hval :
+      a.toNat % Core.Uint256.modulus = b.toNat % Core.Uint256.modulus := by
+    simpa [addressToWord, Core.Uint256.val_ofNat] using
+      congrArg Core.Uint256.val h
+  have ha : a.toNat < Core.Uint256.modulus :=
+    Nat.lt_trans a.isLt (by decide : Core.ADDRESS_MODULUS < Core.Uint256.modulus)
+  have hb : b.toNat < Core.Uint256.modulus :=
+    Nat.lt_trans b.isLt (by decide : Core.ADDRESS_MODULUS < Core.Uint256.modulus)
+  rw [Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb] at hval
+  simpa [Core.Address.toNat] using hval
+
+theorem mappingAddrSlot_ne_of_map_ne {slot slot' : Nat} {key key' : Address}
+    (h : StorageKey.map slot' key' ≠ StorageKey.map slot key) :
+    solidityMappingSlot slot' (addressToWord key').val ≠
+      solidityMappingSlot slot (addressToWord key).val := by
+  intro heq
+  rcases solidityMappingSlot_injective slot' (addressToWord key').val
+      slot (addressToWord key).val heq with ⟨hs, hk⟩
+  apply h
+  rw [hs, addressToWord_injective (Core.Uint256.ext hk)]
+
+theorem mappingUintSlot_ne_of_mapUint_ne {slot slot' : Nat} {key key' : Uint256}
+    (h : StorageKey.mapUint slot' key' ≠ StorageKey.mapUint slot key) :
+    solidityMappingSlot slot' key'.val ≠ solidityMappingSlot slot key.val := by
+  intro heq
+  rcases solidityMappingSlot_injective slot' key'.val slot key.val heq with ⟨hs, hk⟩
+  apply h
+  rw [hs, Core.Uint256.ext hk]
+
+theorem mappingMap2Slot_ne_of_map2_ne
+    {slot slot' : Nat} {k1 k1' k2 k2' : Address}
+    (h : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2) :
+    abstractNestedMappingSlot slot' (addressToWord k1').val (addressToWord k2').val ≠
+      abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val := by
+  intro heq
+  rcases abstractNestedMappingSlot_injective slot' (addressToWord k1').val
+      (addressToWord k2').val slot (addressToWord k1).val (addressToWord k2).val heq
+    with ⟨hs, hk1, hk2⟩
+  apply h
+  rw [hs, addressToWord_injective (Core.Uint256.ext hk1),
+    addressToWord_injective (Core.Uint256.ext hk2)]
+
+/-- Global aligned-write preservation. Other-pair slot inequality comes
+    from `solidityMappingSlot_injective`, not from a listed certificate.
+    Not injectivity of keccak on all ByteArrays. -/
+theorem writeMap_aligned_preserves_mappingCoherent
+    (s : ContractState) (slot : Nat) (key : Address) (v : Uint256)
+    (hcoh : MappingCoherent s) :
+    MappingCoherent
+      ((s.writeMap slot key v).writeSlot
+        (solidityMappingSlot slot (addressToWord key).val) v) := by
+  intro slot' key'
+  by_cases hs : slot' = slot
+  · by_cases hk : key' = key
+    · simpa [hs, hk] using writeMap_aligned_same s slot key v
+    · have hkey : StorageKey.map slot' key' ≠ StorageKey.map slot key := by
+        intro heq; injection heq with _ hk'; exact hk hk'
+      exact writeMap_aligned_other s slot key v slot' key' (hcoh slot' key')
+        hkey (mappingAddrSlot_ne_of_map_ne hkey)
+  · have hkey : StorageKey.map slot' key' ≠ StorageKey.map slot key := by
+      intro heq; injection heq with hs' _; exact hs hs'
+    exact writeMap_aligned_other s slot key v slot' key' (hcoh slot' key')
+      hkey (mappingAddrSlot_ne_of_map_ne hkey)
 
 end Compiler.Proofs.Storage.MappingCoherence
