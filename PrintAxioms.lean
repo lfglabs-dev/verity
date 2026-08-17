@@ -107,6 +107,7 @@ import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.Storage.FieldCoherence
 import Compiler.Proofs.Storage.FieldEncode
 import Compiler.Proofs.Storage.FieldPackedCompile
 import Compiler.Proofs.Storage.FieldStorageKey
@@ -4657,6 +4658,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
 
+  -- Compiler/Proofs/Storage/FieldCoherence.lean
+  Compiler.Proofs.Storage.FieldCoherence.fieldMapKey_coherent_storageKeySlot
+  Compiler.Proofs.Storage.FieldCoherence.fieldMapUintKey_coherent_storageKeySlot
+  Compiler.Proofs.Storage.FieldCoherence.fieldMap2Key_coherent_storageKeySlot
+
   -- Compiler/Proofs/Storage/FieldEncode.lean
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_of_resolved_uint256
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_of_resolved_address
@@ -6944,4 +6950,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6439 theorems/lemmas (4569 public, 1870 private, 0 sorry'd)
+-- Total: 6442 theorems/lemmas (4572 public, 1870 private, 0 sorry'd)

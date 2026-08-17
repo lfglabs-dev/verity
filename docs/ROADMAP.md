@@ -47,8 +47,9 @@ Implemented: address/uint/map2 coherence laws, `FieldStorageKey`
 (including address-keyed mappingStruct member slots,
 bytes32-keyed compiler slots, all `MappingType.nested` key-type
 pairs, packed word extract identified with `compiledPackedRead`,
-`findResolvedFieldAtSlot` from a named field plus no-conflict, and
-compatibility `aliasSlots`
+`findResolvedFieldAtSlot` from a named field plus no-conflict,
+named mapping fields vs `MappingCoherent*`, and compatibility
+`aliasSlots`
 as extra compiler write targets),
 and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 `MappingCoherentMap2On` under explicit pairwise derived-slot
