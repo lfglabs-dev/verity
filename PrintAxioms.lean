@@ -1051,6 +1051,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_address
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_newtypeOf
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHead_uint256
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHead_address
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHead_bool
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHead_bytes32
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHeads_append
   -- Compiler.Proofs.AbiEncoding.lit_255_mod_evm  -- private
   -- Compiler.Proofs.AbiEncoding.lit_65535_mod_evm  -- private
   -- Compiler.Proofs.AbiEncoding.addressMask_mod_evm  -- private
@@ -6991,4 +6996,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6483 theorems/lemmas (4614 public, 1869 private, 0 sorry'd)
+-- Total: 6488 theorems/lemmas (4619 public, 1869 private, 0 sorry'd)
