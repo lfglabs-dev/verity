@@ -4676,6 +4676,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldMapKey
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldMapUintKey
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldMap2Key
+  Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldMapKey_on
+  Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldMapUintKey_on
+  Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldMap2Key_on
 
   -- Compiler/Proofs/Storage/FieldPackedCompile.lean
   Compiler.Proofs.Storage.FieldPackedCompile.packedExtract_eq_yulReadPackedWord
@@ -6957,4 +6960,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6449 theorems/lemmas (4579 public, 1870 private, 0 sorry'd)
+-- Total: 6452 theorems/lemmas (4582 public, 1870 private, 0 sorry'd)
