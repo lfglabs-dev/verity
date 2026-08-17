@@ -40,34 +40,6 @@ theorem guardedFunctionChoice_eq_of_none (model : CompilationModel)
   unfold guardedFunctionChoice
   rw [h]
 
-/-- On a contract whose selector-dispatched functions are all lock-free, the
-guarded source contract semantics is the plain source contract semantics. -/
-theorem interpretGuardedContract_eq_of_lock_free (model : CompilationModel)
-    (selectors : List Nat) (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (hlockfree : ∀ fn ∈ selectorDispatchedFunctions model,
-      fn.nonReentrantLock = none) :
-    interpretGuardedContract model selectors tx initialWorld =
-      sourceContractSemantics model selectors tx initialWorld := by
-  unfold interpretGuardedContract interpretContractWith
-    sourceContractSemantics SourceSemantics.interpretContract
-  cases hfind : SourceSemantics.findFunctionBySelector model selectors
-      tx.functionSelector with
-  | none => rfl
-  | some fn =>
-      have hfn : fn ∈ selectorDispatchedFunctions model :=
-        SourceSemantics.findFunctionBySelector_mem_selectorDispatchedFunctions
-          hfind
-      simp only [guardedFunctionChoice, hlockfree fn hfn]
-
-/-- Every scalar-event-supported dispatch target is lock-free. -/
-theorem lock_free_of_supportedSpecWithScalarEvents
-    (model : CompilationModel) (selectors : List Nat)
-    (hSupported : SupportedSpecWithScalarEvents model selectors) :
-    ∀ fn ∈ selectorDispatchedFunctions model, fn.nonReentrantLock = none :=
-  fun _fn hfn =>
-    (hSupported.supportedFunctionOfSelectorDispatched hfn).noNonReentrant
-
 /-- Guarded whole-contract event preservation on the scalar-event fragment:
 the guarded source semantics of a scalar-event-supported contract matches the
 compiled IR's final result — including the observable event equality
@@ -82,6 +54,8 @@ theorem compile_preserves_semantics_guarded_with_scalar_events
     (htxNormalized : Function.TxContextNormalized tx)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hlockfree : ∀ fn ∈ selectorDispatchedFunctions model,
+      fn.nonReentrantLock = none)
     (hfuelPos : 0 < hSupported.helperFuel)
     (hhelperFree :
       ∀ fn, fn ∈ selectorDispatchedFunctions model →
@@ -95,8 +69,7 @@ theorem compile_preserves_semantics_guarded_with_scalar_events
       (interpretGuardedContract model selectors tx initialWorld)
       (interpretIR ir tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  rw [interpretGuardedContract_eq_of_lock_free model selectors tx initialWorld
-    (lock_free_of_supportedSpecWithScalarEvents model selectors hSupported)]
+  rw [interpretGuardedContract_eq_of_lock_free model selectors tx initialWorld hlockfree]
   have hcontract := compile_preserves_semantics_with_scalar_events
     model selectors hSupported ir tx initialWorld htxNormalized
     hcalldataSizeFits hcompile hfuelPos hhelperFree hstmtDisjoint
@@ -116,6 +89,8 @@ theorem guarded_scalar_events_final_events_eq
     (htxNormalized : Function.TxContextNormalized tx)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hlockfree : ∀ fn ∈ selectorDispatchedFunctions model,
+      fn.nonReentrantLock = none)
     (hfuelPos : 0 < hSupported.helperFuel)
     (hhelperFree :
       ∀ fn, fn ∈ selectorDispatchedFunctions model →
@@ -129,7 +104,7 @@ theorem guarded_scalar_events_final_events_eq
       (interpretIR ir tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)).events :=
   (compile_preserves_semantics_guarded_with_scalar_events model selectors
-    hSupported ir tx initialWorld htxNormalized hcalldataSizeFits hcompile
+    hSupported ir tx initialWorld htxNormalized hcalldataSizeFits hcompile hlockfree
     hfuelPos hhelperFree hstmtDisjoint).2.2.2
 
 end Compiler.Proofs.IRGeneration

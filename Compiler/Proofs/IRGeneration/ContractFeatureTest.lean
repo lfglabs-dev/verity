@@ -52,7 +52,7 @@ private def literalMappingWrite_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
-      noNonReentrant := rfl
+      lockResolved := by simp [literalMappingWriteFunction]
       params :=
         { namesNodup := by decide
           supported := by
@@ -1298,7 +1298,7 @@ private def scalarEventSmoke_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
-      noNonReentrant := rfl
+      lockResolved := by simp [scalarEventSmokeFunction]
       params :=
         { namesNodup := by decide
           supported := by intro param hparam; cases hparam

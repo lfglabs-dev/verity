@@ -47,9 +47,7 @@ def SupportedFunction.toGuarded {spec : CompilationModel} {fn : FunctionSpec}
     (h : SupportedFunction spec fn) : SupportedFunctionGuarded spec fn where
   nonInternal := h.nonInternal
   nonSpecialEntrypoint := h.nonSpecialEntrypoint
-  lockResolved := fun lockField hlock => by
-    rw [h.noNonReentrant] at hlock
-    cases hlock
+  lockResolved := h.lockResolved
   params := h.params
   returns := h.returns
   body := h.body

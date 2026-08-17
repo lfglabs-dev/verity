@@ -673,7 +673,7 @@ def helperA_supportedFunctionWithHelpers :
     SupportedFunctionWithHelpers twoHelperSpec helperA := by
   refine {
     nonSpecialEntrypoint := by simp [helperA, isInteropEntrypointName]
-    noNonReentrant := rfl
+    lockResolved := by simp [helperA]
     params := ?_
     returns := ?_
     body := .helperRich helperA_supportedHelperRichBodyFragment
@@ -687,7 +687,7 @@ private def helperB_supportedFunctionWithHelpers :
     SupportedFunctionWithHelpers twoHelperSpec helperB := by
   refine {
     nonSpecialEntrypoint := by simp [helperB, isInteropEntrypointName]
-    noNonReentrant := rfl
+    lockResolved := by simp [helperB]
     params := ?_
     returns := ?_
     body := .internalHelper helperB_support.toWitness.summary
@@ -701,7 +701,7 @@ private def expressionHelper_supportedFunctionWithHelpers :
     SupportedFunctionWithHelpers twoHelperSpec expressionHelper := by
   refine {
     nonSpecialEntrypoint := by simp [expressionHelper, isInteropEntrypointName]
-    noNonReentrant := rfl
+    lockResolved := by simp [expressionHelper]
     params := ?_
     returns := ?_
     body := .internalHelper expressionHelper_support.toWitness.summary }
@@ -742,7 +742,7 @@ private def expressionHelperCaller_supportedFunctionWithHelpers :
     SupportedFunctionWithHelpers twoHelperSpec expressionHelperCaller := by
   refine {
     nonSpecialEntrypoint := by simp [expressionHelperCaller, isInteropEntrypointName]
-    noNonReentrant := rfl
+    lockResolved := by simp [expressionHelperCaller]
     params := ?_
     returns := ?_
     body := .helperRich expressionHelperCaller_supportedHelperRichBodyFragment
