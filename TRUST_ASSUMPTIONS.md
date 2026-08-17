@@ -212,7 +212,9 @@ are not a different slot. For `width < 256` that extract is the
 derived `storageKeySlot` is the flat slot `MappingCoherent*`
 compares against, including a finite listed pair
 (`MappingCoherentOn`). An unoccupied keccak-derived mapping slot
-encodes as that shadow via `encodeStorageAt`. `encodeStorageAt` at a persistent unpacked uint256 or address field
+encodes as that shadow via `encodeStorageAt`. A lone flat
+`writeSlot` keeps a listed pair coherent when the written word
+is distinct from that pair's derived slot. `encodeStorageAt` at a persistent unpacked uint256 or address field
 is the corresponding lens once `firstFieldWriteSlotConflict` is
 none; `findResolvedFieldAtSlot` is derived, not hypothesized.
 A finite list of address-, uint-, or nested-address pairs

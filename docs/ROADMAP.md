@@ -54,7 +54,8 @@ compatibility `aliasSlots`
 as extra compiler write targets),
 and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 `MappingCoherentMap2On` under explicit pairwise derived-slot
-certificates, including cross-channel aligned-write preservation. C5 step 3 (canonical
+certificates, including cross-channel aligned-write and lone
+`writeSlot` preservation. C5 step 3 (canonical
 `storageWords : StorageKey → Uint256` backing, lens laws by constructor
 injectivity) is on `main`; it is the enabler for FixedArray-under-mapping,
 dynamic CodeData, arbitrary transient storage and multicall/delegatecall

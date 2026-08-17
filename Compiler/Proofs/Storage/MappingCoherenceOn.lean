@@ -353,4 +353,52 @@ theorem writeMap2_aligned_preserves_uintOn
     rw [storage_writeSlot_other (s := s.writeMap2 slot k1 k2 v) (hna p hp) v, storage_writeMap2]
   exact (hmap.trans (hcoh p hp)).trans hflat.symm
 
+/-- A lone flat `writeSlot` preserves a finite address-map list when every
+    listed derived slot is distinct from the written word. Not keccak
+    injectivity and not global preservation. -/
+theorem writeSlot_preserves_mappingCoherentOn
+    (s : ContractState) (pairs : List (Nat × Address)) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentOn s pairs)
+    (hna : ∀ p ∈ pairs, mappingAddrSlot p.1 p.2 ≠ n) :
+    MappingCoherentOn (s.writeSlot n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeSlot n v).storageMap p.1 p.2 = s.storageMap p.1 p.2 := by
+    simp [storageMap, writeSlot]
+  have hflat :
+      (s.writeSlot n v).storage (mappingAddrSlot p.1 p.2) =
+        s.storage (mappingAddrSlot p.1 p.2) :=
+    storage_writeSlot_other (s := s) (hna p hp) v
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeSlot_preserves_mappingCoherentUintOn
+    (s : ContractState) (pairs : List (Nat × Uint256)) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentUintOn s pairs)
+    (hna : ∀ p ∈ pairs, mappingUintSlot p.1 p.2 ≠ n) :
+    MappingCoherentUintOn (s.writeSlot n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeSlot n v).storageMapUint p.1 p.2 = s.storageMapUint p.1 p.2 := by
+    simp [storageMapUint, writeSlot]
+  have hflat :
+      (s.writeSlot n v).storage (mappingUintSlot p.1 p.2) =
+        s.storage (mappingUintSlot p.1 p.2) :=
+    storage_writeSlot_other (s := s) (hna p hp) v
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeSlot_preserves_mappingCoherentMap2On
+    (s : ContractState) (pairs : List (Nat × Address × Address)) (n : Nat) (v : Uint256)
+    (hcoh : MappingCoherentMap2On s pairs)
+    (hna : ∀ p ∈ pairs, mappingMap2Slot p.1 p.2.1 p.2.2 ≠ n) :
+    MappingCoherentMap2On (s.writeSlot n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeSlot n v).storageMap2 p.1 p.2.1 p.2.2 = s.storageMap2 p.1 p.2.1 p.2.2 := by
+    simp [storageMap2, writeSlot]
+  have hflat :
+      (s.writeSlot n v).storage (mappingMap2Slot p.1 p.2.1 p.2.2) =
+        s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) :=
+    storage_writeSlot_other (s := s) (hna p hp) v
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
 end Compiler.Proofs.Storage.MappingCoherenceOn
