@@ -4746,6 +4746,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherence.mappingUintSlot_ne_of_mapUint_ne
   Compiler.Proofs.Storage.MappingCoherence.mappingMap2Slot_ne_of_map2_ne
   Compiler.Proofs.Storage.MappingCoherence.writeMap_aligned_preserves_mappingCoherent
+  Compiler.Proofs.Storage.MappingCoherence.writeMapUint_aligned_preserves_mappingCoherentUint
+  Compiler.Proofs.Storage.MappingCoherence.writeMap2_aligned_preserves_mappingCoherentMap2
+  Compiler.Proofs.Storage.MappingCoherence.writeTransient_preserves_mappingCoherent
+  Compiler.Proofs.Storage.MappingCoherence.writeTransient_preserves_mappingCoherentUint
+  Compiler.Proofs.Storage.MappingCoherence.writeTransient_preserves_mappingCoherentMap2
+  Compiler.Proofs.Storage.MappingCoherence.writeSlot_preserves_mappingCoherent
+  Compiler.Proofs.Storage.MappingCoherence.writeSlot_preserves_mappingCoherentUint
+  Compiler.Proofs.Storage.MappingCoherence.writeSlot_preserves_mappingCoherentMap2
 
   -- Compiler/Proofs/Storage/MappingCoherenceOn.lean
   Compiler.Proofs.Storage.MappingCoherenceOn.mappingCoherentOn_of_mappingCoherent
@@ -4778,6 +4786,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherenceOn.writeTransient_preserves_mappingCoherentOn
   Compiler.Proofs.Storage.MappingCoherenceOn.writeTransient_preserves_mappingCoherentUintOn
   Compiler.Proofs.Storage.MappingCoherenceOn.writeTransient_preserves_mappingCoherentMap2On
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMap_aligned_preserves_on_of_mappingCoherent
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMapUint_aligned_preserves_uintOn_of_mappingCoherentUint
+  Compiler.Proofs.Storage.MappingCoherenceOn.writeMap2_aligned_preserves_map2On_of_mappingCoherentMap2
 
   -- Compiler/Proofs/Storage/SolidityStorage.lean
   Compiler.Proofs.Storage.mappingSlot_preimage
@@ -6974,4 +6985,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6466 theorems/lemmas (4596 public, 1870 private, 0 sorry'd)
+-- Total: 6477 theorems/lemmas (4607 public, 1870 private, 0 sorry'd)

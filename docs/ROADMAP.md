@@ -41,10 +41,14 @@ Next: derive the executable shallow program from the deep model
 (`Stmt.denote`, macro retarget per-contract behind a flag), collapse the
 per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
-legacy-compatibility witness chain are already retired), then finish C5
-step 4 — global aligned `MappingCoherent` preservation now depends on
-`solidityMappingSlot_injective`; lone-`writeSlot` all-keys remains
-open and is not claimed.
+legacy-compatibility witness chain are already retired), C5 step 4 is implemented under `solidityMappingSlot_injective`
+(ABI mapping-preimage collision-resistance, not keccak-on-all-bytes):
+global aligned `writeMap*`+`writeSlot` preserves `MappingCoherent` /
+`MappingCoherentUint` / `MappingCoherentMap2`; any finite `*On` list
+lifts from that; `writeTransient` preserves the globals by constructor
+injectivity; a lone `writeSlot` preserves a global when the written
+word avoids every derived mapping slot. `storageArray` and
+`knownAddresses` remain separate fields (not a step-4 obligation).
 Implemented: address/uint/map2 coherence laws, `FieldStorageKey`
 (including address-keyed mappingStruct member slots,
 bytes32-keyed compiler slots, all `MappingType.nested` key-type
@@ -58,8 +62,8 @@ and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 `MappingCoherentMap2On` under explicit pairwise derived-slot
 certificates, including cross-channel aligned-write, lone
 `writeSlot`, and lone `writeTransient` preservation. Global
-aligned `writeMap`+`writeSlot` preservation of `MappingCoherent`
-is `writeMap_aligned_preserves_mappingCoherent`, under
+aligned `writeMap*`+`writeSlot` preservation of `MappingCoherent*`
+and the `*_of_mappingCoherent*` On-lifts are under
 `solidityMappingSlot_injective`. FunctionSpec
 raw/linked calls with target, value and ETH debit are denoted in
 `DenoteFunctionCalls` (base `evalExpr`/`execStmt` stay

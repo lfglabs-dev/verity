@@ -12,9 +12,10 @@
   constructor injectivity (`StorageKey.transient` vs persistent
   `.slot` / `.map` / `.mapUint` / `.map2`). No slot inequality.
 
-  Global `MappingCoherent` aligned-write preservation lives in
-  `MappingCoherence.writeMap_aligned_preserves_mappingCoherent` and
-  depends on `solidityMappingSlot_injective`. This file stays finite-set.
+  Global aligned-write preservation of `MappingCoherent*` lives in
+  `MappingCoherence` under `solidityMappingSlot_injective`. This file
+  still has finite-set certificates; `*_of_mappingCoherent*` lifts the
+  global theorems to any list without a pairwise inequality.
 -/
 
 import Compiler.Proofs.Storage.MappingCoherence
@@ -452,5 +453,37 @@ theorem writeTransient_preserves_mappingCoherentMap2On
         s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) := by
     simp [storage, writeTransient]
   exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+/-- Any finite list is coherent after an aligned address write if the
+    whole world was. No pairwise certificate. -/
+theorem writeMap_aligned_preserves_on_of_mappingCoherent
+    (s : ContractState) (pairs : List (Nat × Address))
+    (slot : Nat) (key : Address) (v : Uint256)
+    (hcoh : MappingCoherent s) :
+    MappingCoherentOn
+      ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v)
+      pairs :=
+  mappingCoherentOn_of_mappingCoherent _ _
+    (writeMap_aligned_preserves_mappingCoherent s slot key v hcoh)
+
+theorem writeMapUint_aligned_preserves_uintOn_of_mappingCoherentUint
+    (s : ContractState) (pairs : List (Nat × Uint256))
+    (slot : Nat) (key v : Uint256)
+    (hcoh : MappingCoherentUint s) :
+    MappingCoherentUintOn
+      ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v)
+      pairs :=
+  mappingCoherentUintOn_of_mappingCoherentUint _ _
+    (writeMapUint_aligned_preserves_mappingCoherentUint s slot key v hcoh)
+
+theorem writeMap2_aligned_preserves_map2On_of_mappingCoherentMap2
+    (s : ContractState) (pairs : List (Nat × Address × Address))
+    (slot : Nat) (k1 k2 : Address) (v : Uint256)
+    (hcoh : MappingCoherentMap2 s) :
+    MappingCoherentMap2On
+      ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v)
+      pairs :=
+  mappingCoherentMap2On_of_mappingCoherentMap2 _ _
+    (writeMap2_aligned_preserves_mappingCoherentMap2 s slot k1 k2 v hcoh)
 
 end Compiler.Proofs.Storage.MappingCoherenceOn

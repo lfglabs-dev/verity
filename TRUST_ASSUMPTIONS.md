@@ -224,11 +224,12 @@ stays coherent under an aligned write when the list carries an
 explicit pairwise derived-slot certificate (`MappingCoherentOn` /
 `MappingCoherentUintOn` / `MappingCoherentMap2On`); that is not a
 global (all-keys) claim. Cross-channel preservation of another
-list likewise takes an explicit derived-slot inequality. Global
-aligned `writeMap`+`writeSlot` preservation of `MappingCoherent`
-uses `solidityMappingSlot_injective` (64-byte ABI preimage
-collision-resistance). Keccak injectivity on arbitrary byte
-strings is **not** assumed.
+list likewise takes an explicit derived-slot inequality. C5 step 4
+is complete under `solidityMappingSlot_injective`: global aligned
+`writeMap*`+`writeSlot` preserves `MappingCoherent*`;
+`writeTransient` preserves them by constructor injectivity; a lone
+`writeSlot` needs an image-avoidance `∀`. Keccak injectivity on
+arbitrary byte strings is **not** assumed.
 `storageArray` and `knownAddresses` are still separate fields.
 
 ### External-Call Journal (`ContractState.calls`)
