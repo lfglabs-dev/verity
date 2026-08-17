@@ -100,7 +100,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
         have hB2 :
             (fun hx => (Denote.dynamicArrayBinding? s.bindings name).bind
               fun p => some (s.world.memory
-                (Verity.wordNormalize (p.1 + 32 * hx))).val) idx =
+                (Denote.wordNormalize (p.1 + 32 * hx))).val) idx =
               (SourceSemantics.dynamicArrayBinding? (toRuntimeState s).bindings name).bind
                 fun p => some (s.world.memory
                   (SourceSemantics.wordNormalize (p.1 + 32 * idx))).val := by
