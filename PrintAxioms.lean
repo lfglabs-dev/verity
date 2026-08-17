@@ -4226,6 +4226,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.storage_withConstructorTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.storageAddr_withConstructorTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.storageArray_withConstructorTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.transientStorage_withConstructorTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.findDynamicArrayElementAtSlot_congr_storageArray
   Compiler.Proofs.IRGeneration.SourceSemantics.encodeStorageAt_congr
@@ -6974,4 +6975,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6466 theorems/lemmas (4596 public, 1870 private, 0 sorry'd)
+-- Total: 6467 theorems/lemmas (4597 public, 1870 private, 0 sorry'd)
