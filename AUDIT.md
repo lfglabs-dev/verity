@@ -333,8 +333,9 @@ sibling entrypoint.
   preservation is still open. Packed subfields extract from the
   `storageKeySlot` word (`packedExtract`); compiler packed-read
   composition with SolidityStorage remains open.
-  `FieldEncode` names the `storageKeySlot` / `encodeStorageAt` seam
-  when `findResolvedFieldAtSlot` agrees (explicit hypothesis). bytes32-keyed
+  `FieldEncode` derives `findResolvedFieldAtSlot` from
+  `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
+  and unpacked, then identifies that slot with `encodeStorageAt`. bytes32-keyed
   maps collapse to `solidityMappingSlot` of the 32-byte word (no
   `StorageKey.mapBytes32`). All nine `MappingType.nested` key-type
   pairs collapse to `abstractNestedMappingSlot`.
