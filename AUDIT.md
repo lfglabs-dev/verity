@@ -333,7 +333,8 @@ sibling entrypoint.
   from the `storageKeySlot` word (`packedExtract`); compiler packed-read
   composition with SolidityStorage is `fieldPackedExtract_eq_compiledPackedRead`
   (`width < 256`). `FieldCoherence` identifies a named mapping field's
-  `storageKeySlot` with the flat slot `MappingCoherent*` reads.
+  `storageKeySlot` with the flat slot `MappingCoherent*` /
+  `MappingCoherentOn*` reads.
   Global (all-keys) preservation remains open.
   `FieldEncode` derives `findResolvedFieldAtSlot` from
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
