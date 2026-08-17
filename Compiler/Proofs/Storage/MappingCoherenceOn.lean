@@ -4,8 +4,12 @@
   `writeMap`+`writeSlot` when every other listed pair carries an explicit
   derived-slot inequality.
 
-  This is not global preservation. A certificate for every address-keyed
-  pair would be keccak injectivity on an unbounded preimage set.
+  Cross-channel aligned writes preserve another channel's finite list
+  under an explicit derived-slot inequality between the written slot
+  and every listed pair.
+
+  This is not global preservation. A certificate for every pair would
+  be keccak injectivity on an unbounded preimage set.
 -/
 
 import Compiler.Proofs.Storage.MappingCoherence
@@ -220,5 +224,133 @@ theorem writeMap2_aligned_preserves_on
   · exact writeMap2_aligned_preserves_at_other s slot k1 k2 v p.1 p.2.1 p.2.2
       (hcoh p hp') (storageKey_map2_ne_of_pair_ne hpeq)
       (hna p hp' (slot, k1, k2) hp hpeq)
+
+/-- Cross-channel: an aligned address-map write preserves a uint-keyed
+    finite list when every listed derived slot is distinct from the
+    written one. Not keccak injectivity. -/
+theorem writeMap_aligned_preserves_uintOn
+    (s : ContractState) (pairs : List (Nat × Uint256))
+    (slot : Nat) (key : Address) (v : Uint256)
+    (hcoh : MappingCoherentUintOn s pairs)
+    (hna : ∀ p ∈ pairs, mappingUintSlot p.1 p.2 ≠ mappingAddrSlot slot key) :
+    MappingCoherentUintOn
+      ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v)
+      pairs := by
+  intro p hp
+  have hmap :
+      ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v).storageMapUint p.1 p.2 =
+        s.storageMapUint p.1 p.2 := by
+    simp [storageMapUint, writeMap, writeSlot]
+  have hflat :
+      ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v).storage
+        (mappingUintSlot p.1 p.2) =
+        s.storage (mappingUintSlot p.1 p.2) := by
+    rw [storage_writeSlot_other (s := s.writeMap slot key v) (hna p hp) v, storage_writeMap]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeMap_aligned_preserves_map2On
+    (s : ContractState) (pairs : List (Nat × Address × Address))
+    (slot : Nat) (key : Address) (v : Uint256)
+    (hcoh : MappingCoherentMap2On s pairs)
+    (hna : ∀ p ∈ pairs, mappingMap2Slot p.1 p.2.1 p.2.2 ≠ mappingAddrSlot slot key) :
+    MappingCoherentMap2On
+      ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v)
+      pairs := by
+  intro p hp
+  have hmap :
+      ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v).storageMap2
+          p.1 p.2.1 p.2.2 =
+        s.storageMap2 p.1 p.2.1 p.2.2 := by
+    simp [storageMap2, writeMap, writeSlot]
+  have hflat :
+      ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v).storage
+        (mappingMap2Slot p.1 p.2.1 p.2.2) =
+        s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) := by
+    rw [storage_writeSlot_other (s := s.writeMap slot key v) (hna p hp) v, storage_writeMap]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeMapUint_aligned_preserves_addrOn
+    (s : ContractState) (pairs : List (Nat × Address))
+    (slot : Nat) (key v : Uint256)
+    (hcoh : MappingCoherentOn s pairs)
+    (hna : ∀ p ∈ pairs, mappingAddrSlot p.1 p.2 ≠ mappingUintSlot slot key) :
+    MappingCoherentOn
+      ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v)
+      pairs := by
+  intro p hp
+  have hmap :
+      ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v).storageMap p.1 p.2 =
+        s.storageMap p.1 p.2 := by
+    simp [storageMap, writeMapUint, writeSlot]
+  have hflat :
+      ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v).storage
+        (mappingAddrSlot p.1 p.2) =
+        s.storage (mappingAddrSlot p.1 p.2) := by
+    rw [storage_writeSlot_other (s := s.writeMapUint slot key v) (hna p hp) v,
+      storage_writeMapUint]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeMapUint_aligned_preserves_map2On
+    (s : ContractState) (pairs : List (Nat × Address × Address))
+    (slot : Nat) (key v : Uint256)
+    (hcoh : MappingCoherentMap2On s pairs)
+    (hna : ∀ p ∈ pairs, mappingMap2Slot p.1 p.2.1 p.2.2 ≠ mappingUintSlot slot key) :
+    MappingCoherentMap2On
+      ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v)
+      pairs := by
+  intro p hp
+  have hmap :
+      ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v).storageMap2
+          p.1 p.2.1 p.2.2 =
+        s.storageMap2 p.1 p.2.1 p.2.2 := by
+    simp [storageMap2, writeMapUint, writeSlot]
+  have hflat :
+      ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v).storage
+        (mappingMap2Slot p.1 p.2.1 p.2.2) =
+        s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) := by
+    rw [storage_writeSlot_other (s := s.writeMapUint slot key v) (hna p hp) v,
+      storage_writeMapUint]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeMap2_aligned_preserves_addrOn
+    (s : ContractState) (pairs : List (Nat × Address))
+    (slot : Nat) (k1 k2 : Address) (v : Uint256)
+    (hcoh : MappingCoherentOn s pairs)
+    (hna : ∀ p ∈ pairs, mappingAddrSlot p.1 p.2 ≠ mappingMap2Slot slot k1 k2) :
+    MappingCoherentOn
+      ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v)
+      pairs := by
+  intro p hp
+  have hmap :
+      ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v).storageMap p.1 p.2 =
+        s.storageMap p.1 p.2 := by
+    simp [storageMap, writeMap2, writeSlot]
+  have hflat :
+      ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v).storage
+        (mappingAddrSlot p.1 p.2) =
+        s.storage (mappingAddrSlot p.1 p.2) := by
+    rw [storage_writeSlot_other (s := s.writeMap2 slot k1 k2 v) (hna p hp) v, storage_writeMap2]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeMap2_aligned_preserves_uintOn
+    (s : ContractState) (pairs : List (Nat × Uint256))
+    (slot : Nat) (k1 k2 : Address) (v : Uint256)
+    (hcoh : MappingCoherentUintOn s pairs)
+    (hna : ∀ p ∈ pairs, mappingUintSlot p.1 p.2 ≠ mappingMap2Slot slot k1 k2) :
+    MappingCoherentUintOn
+      ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v)
+      pairs := by
+  intro p hp
+  have hmap :
+      ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v).storageMapUint
+          p.1 p.2 =
+        s.storageMapUint p.1 p.2 := by
+    simp [storageMapUint, writeMap2, writeSlot]
+  have hflat :
+      ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v).storage
+        (mappingUintSlot p.1 p.2) =
+        s.storage (mappingUintSlot p.1 p.2) := by
+    rw [storage_writeSlot_other (s := s.writeMap2 slot k1 k2 v) (hna p hp) v, storage_writeMap2]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
 
 end Compiler.Proofs.Storage.MappingCoherenceOn
