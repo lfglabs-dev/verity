@@ -1115,15 +1115,44 @@ theorem initialIRStateForTx_matches_constructor_runtime
       Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS] using
         hcalldataSizeFits
   have htxOriginWord := addressWord_roundtrip_of_lt_addressModulus htxOrigin
-  refine ⟨?_, ?_⟩
+  refine ⟨?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, rfl, rfl, ?_, ?_, rfl, ?_⟩
   · simpa [FunctionBody.initialIRStateForTx, SourceSemantics.effectiveFields,
       SourceSemantics.encodeStorage] using
       (SourceSemantics.encodeStorage_withConstructorTransactionContext model initialWorld tx).symm
-  · simp [FunctionBody.initialIRStateForTx,
-      SourceSemantics.withConstructorTransactionContext, Verity.wordToAddress, hsenderWord, hthisWord,
-      htxOriginWord, Nat.mod_eq_of_lt hmsgValue, Nat.mod_eq_of_lt htimestamp, Nat.mod_eq_of_lt hnumber,
-      Nat.mod_eq_of_lt hchain, Nat.mod_eq_of_lt hblob]
-    exact hcalldataSizeFits'
+  · simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext,
+      Verity.wordToAddress]
+    symm
+    exact hsenderWord
+  · simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext]
+    symm
+    exact Nat.mod_eq_of_lt hmsgValue
+  · simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext,
+      Verity.wordToAddress]
+    symm
+    exact hthisWord
+  · simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext]
+    symm
+    exact Nat.mod_eq_of_lt htimestamp
+  · simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext]
+    symm
+    exact Nat.mod_eq_of_lt hnumber
+  · simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext]
+    symm
+    exact Nat.mod_eq_of_lt hchain
+  · simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext]
+    symm
+    exact Nat.mod_eq_of_lt hblob
+  · simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext,
+      Verity.wordToAddress]
+    symm
+    exact htxOriginWord
+  · have hmodulus : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
+    simp only [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext,
+      Verity.Core.Uint256.ofNat, hmodulus]
+    exact Nat.mod_eq_of_lt hcalldataSizeFits'
+  · funext o
+    simp [FunctionBody.initialIRStateForTx, SourceSemantics.withConstructorTransactionContext]
+  · rfl
 
 theorem initialIRStateForTx_matches_bound_constructor_runtime
     (model : CompilationModel)

@@ -110,8 +110,8 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .ite c t e =>
       bindAgree (denote_evalExpr_eq fields s c) fun v => by
         by_cases h : (v != 0) = true
-        · simpa [h] using denote_evalExpr_eq fields s t
-        · simpa [h] using denote_evalExpr_eq fields s e
+        · simpa using denote_evalExpr_eq fields s t
+        · simpa using denote_evalExpr_eq fields s e
 
 theorem denote_evalExprList_eq (fields : List Field) (s : DenoteState) :
     ∀ es : List Expr,
