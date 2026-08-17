@@ -295,7 +295,17 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
   has a stale balance.
 - **`MultiContract` Bus → Gateway → Vault → (Lido | request) is a
   model ensemble**, not a compiled protocol and not an L2
-  preservation claim.
+  preservation claim. The generic `CallFrame` / `executeCall` boundary now
+  obtains control, returndata, the committed callee post-state, and the caller
+  journal from one `CalleeExecution`; failed/reverted executions restore the
+  caller/callee snapshots apart from the caller observation. The first
+  official adapter executes a source-shaped `FunctionSpec` through
+  `DenoteFunctionCalls.callFunction`; unlike the lower-level executor callback,
+  that entrypoint does not accept injected control, returndata, or post-state.
+  This boundary currently rejects
+  `staticcall`, `delegatecall`, self-calls, and target/address mismatches;
+  admitting those requires their distinct frame invariants rather than
+  pretending ordinary-call semantics apply.
 - A full monadic revert through `Contract.run` rolls the journal back with
   the rest of the snapshot (top-level EVM semantics), unlike the model
   plane's caller-side rollback survival described above.

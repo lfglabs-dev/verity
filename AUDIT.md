@@ -217,6 +217,26 @@ sibling entrypoint.
   names are not compiled contracts and not an L2 claim.
 - Zero new axioms.
 
+## Execution-Backed External Call Frames (2026-08)
+
+- `MultiContract.CallFrame` retains distinct caller-before, callee-before, and
+  callee-entry states. `callEntry` checks distinct accounts, `call` kind,
+  target/address agreement, and sufficient caller balance before producing a
+  frame.
+- `MultiContract.executeCall` consumes a `CalleeExecution`; its produced
+  control and returndata determine commit/rollback and the journal entry.
+  Success commits the caller debit and callee post-state. Failure/revert
+  preserve both snapshots (apart from the caller's append-only observation).
+- `DenoteFunctionCalls.executeFunctionWithCalls` retains the FunctionSpec
+  post-world and execution control. `runFunctionInFrame` is the first
+  source-shaped adapter into the framed boundary; `callFunction` is the
+  official checked composition and does not accept a separately supplied
+  observation or post-state. The legacy `DenoteResult` projection is derived
+  from the same execution.
+- This slice deliberately supports ordinary `call` only. `staticcall` and
+  `delegatecall` need distinct frame invariants before admission.
+- Zero new axioms.
+
 ## EDSL Executable Plane: Linked External Calls Journal (2026-08)
 
 - The EDSL executable stubs for linked external calls are no longer silent:
