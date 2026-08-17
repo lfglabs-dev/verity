@@ -1116,8 +1116,15 @@ private abbrev arrayElementDynamicMemberElement? :=
   DynamicAbi.arrayElementDynamicMemberElement?
 
 def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
-  | .memoryArrayLength _ => none
-  | .memoryArrayElement _ _ => none
+  | .memoryArrayLength name =>
+      lookupBinding? state.bindings s!"{name}_length"
+  | .memoryArrayElement name index => do
+      let idx ← evalExpr fields state index
+      let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+      if idx < length then
+        some (state.world.memory (wordNormalize (dataOffset + 32 * idx))).val
+      else
+        none
   | .arrayLength name =>
       lookupBinding? state.bindings s!"{name}_length"
   | .arrayElement name index => do
@@ -1618,7 +1625,8 @@ private theorem evalExpr_memoryArrayLength
     (fields : List Field)
     (state : RuntimeState)
     (name : String) :
-    evalExpr fields state (.memoryArrayLength name) = none := rfl
+    evalExpr fields state (.memoryArrayLength name) =
+      lookupBinding? state.bindings s!"{name}_length" := rfl
 
 private theorem evalExpr_dynamicBytesEq
     (fields : List Field)
@@ -2071,7 +2079,13 @@ private theorem evalExpr_memoryArrayElement
     (state : RuntimeState)
     (name : String)
     (index : Expr) :
-    evalExpr fields state (.memoryArrayElement name index) = none := rfl
+    evalExpr fields state (.memoryArrayElement name index) =
+      (do let idx ← evalExpr fields state index
+          let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+          if idx < length then
+            some (state.world.memory (wordNormalize (dataOffset + 32 * idx))).val
+          else
+            none) := rfl
 
 private theorem evalExpr_arrayElementWord
     (fields : List Field)
@@ -3191,6 +3205,15 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     (world : Verity.ContractState) (tx : IRTransaction) :
     (withConstructorTransactionContext world tx).storageArray = world.storageArray := rfl
 
+@[simp] theorem transientStorage_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withConstructorTransactionContext world tx).transientStorage = world.transientStorage := rfl
+
+@[simp] theorem transientStorage_at_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) (slot : Nat) :
+    (withConstructorTransactionContext world tx).transientStorage slot =
+      world.transientStorage slot := rfl
+
 theorem findDynamicArrayElementAtSlot_withTransactionContext
     (fields : List Field)
     (world : Verity.ContractState)
@@ -3897,6 +3920,15 @@ mutual
         let off ← evalExprWithHelpers spec fields fuel state offExpr
         let size ← evalExprWithHelpers spec fields fuel state sizeExpr
         some (keccakMemorySlice state.world.memory off size)
+    | .memoryArrayLength name =>
+        lookupBinding? state.bindings s!"{name}_length"
+    | .memoryArrayElement name index => do
+        let idx ← evalExprWithHelpers spec fields fuel state index
+        let (dataOffset, length) ← dynamicArrayBinding? state.bindings name
+        if idx < length then
+          some (state.world.memory (wordNormalize (dataOffset + 32 * idx))).val
+        else
+          none
     | .arrayLength name =>
         lookupBinding? state.bindings s!"{name}_length"
     | .arrayElement name index => do
@@ -3944,8 +3976,6 @@ mutual
     | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
     | .paramDynamicMemberLength _ _
     | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
-    | .memoryArrayLength _
-    | .memoryArrayElement _ _
     | .arrayElementWord _ _ _ _
     | .extcodesize _ | .returndataSize | .returndataOptionalBoolAt _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
@@ -5313,7 +5343,11 @@ mutual
     | arrayElement _ b =>
         simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | memoryArrayElement _ b =>
-        simp [evalExprWithHelpers, evalExpr_memoryArrayElement]
+        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
+        have hb :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state b hsurface
+        simp [evalExprWithHelpers, evalExpr_memoryArrayElement, hb,
+          SourceSemantics.wordNormalize_eq_mod]
     | arrayElementWord _ b _ _ =>
         simp [evalExprWithHelpers, evalExpr_arrayElementWord]
     | arrayElementDynamicWord _ b _ =>

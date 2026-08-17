@@ -69,7 +69,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .literal _ | .param _ | .immutable _ | .constructorArg _ | .storage _ | .storageAddr _
   | .mappingChain _ [] | .mappingChain _ (_ :: _ :: _ :: _) | .localVar _
   | .storageArrayLength _ | .dynamicBytesEq ..
-  | .memoryArrayLength _ | .memoryArrayElement .. | .paramDynamicMemberLength ..
+  | .memoryArrayLength _ | .paramDynamicMemberLength ..
   | .paramDynamicMemberDataOffset .. | .paramDynamicMemberElement ..
   | .paramDynamicStaticComposite .. | .paramDynamicHeadWord ..
   | .arrayLength _ | .arrayElementWord ..
@@ -90,6 +90,32 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .arrayElementDynamicMemberLength _ a _
   | .arrayElementDynamicMemberDataOffset _ a _ =>
       bindAgree (denote_evalExpr_eq fields s a) fun _ => rfl
+  | .memoryArrayElement name a =>
+      bindAgree (denote_evalExpr_eq fields s a) fun idx => by
+        have hB1 :
+            Denote.dynamicArrayBinding? s.bindings name =
+              SourceSemantics.dynamicArrayBinding? (toRuntimeState s).bindings name := by
+          simp [toRuntimeState_bindings,
+            Denote.dynamicArrayBinding?, SourceSemantics.dynamicArrayBinding?]
+        have hB2 :
+            (fun hx => (Denote.dynamicArrayBinding? s.bindings name).bind
+              fun p => some (s.world.memory
+                (Verity.wordNormalize (p.1 + 32 * hx))).val) idx =
+              (SourceSemantics.dynamicArrayBinding? (toRuntimeState s).bindings name).bind
+                fun p => some (s.world.memory
+                  (SourceSemantics.wordNormalize (p.1 + 32 * idx))).val := by
+          cases hBinding : Denote.dynamicArrayBinding? s.bindings name with
+          | none =>
+              rw [hBinding] at hB1 ⊢
+              have := hB1.symm
+              simp_all [SourceSemantics.dynamicArrayBinding?,
+                Denote.dynamicArrayBinding?]
+          | some p =>
+              rw [hBinding, hB1]
+              simp [SourceSemantics.dynamicArrayBinding?, Denote.dynamicArrayBinding?]
+        have hIdx := hB2.trans_eq rfl
+        simp [Denote.evalExpr, SourceSemantics.evalExpr, toRuntimeState_bindings] at hIdx ⊢
+        exact hIdx
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b
   | .byte a b | .signextend a b | .eq a b | .ge a b | .gt a b | .sgt a b
@@ -245,7 +271,7 @@ theorem writeAddressKeyedMappingSlots_eq
           storageKey =
             Verity.StorageKey.map slot (Verity.wordToAddress (Verity.Core.Uint256.ofNat k))
       · subst hmap; simp
-      · simp [hmap]
+      · simp
         cases storageKey with
         | slot s =>
             exact congrFun (storage_field_eq_of_rel h) s
@@ -293,7 +319,7 @@ theorem writeAddressKeyedMapping2Slots_eq
               (Verity.wordToAddress (Verity.Core.Uint256.ofNat k1))
               (Verity.wordToAddress (Verity.Core.Uint256.ofNat k2))
       · subst hmap; simp
-      · simp [hmap]
+      · simp
         cases storageKey with
         | slot s =>
             exact congrFun (storage_field_eq_of_rel h) s

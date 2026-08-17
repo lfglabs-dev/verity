@@ -1123,7 +1123,7 @@ theorem initialIRStateForTx_matches_constructor_runtime
       SourceSemantics.withConstructorTransactionContext, Verity.wordToAddress, hsenderWord, hthisWord,
       htxOriginWord, Nat.mod_eq_of_lt hmsgValue, Nat.mod_eq_of_lt htimestamp, Nat.mod_eq_of_lt hnumber,
       Nat.mod_eq_of_lt hchain, Nat.mod_eq_of_lt hblob]
-    exact hcalldataSizeFits'
+    exact ⟨rfl, hcalldataSizeFits'⟩
 
 theorem initialIRStateForTx_matches_bound_constructor_runtime
     (model : CompilationModel)
