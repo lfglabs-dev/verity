@@ -39,29 +39,6 @@ def interpretGuardedContract (spec : CompilationModel) (selectors : List Nat)
   interpretContractWith (guardedFunctionChoice spec tx initialWorld)
     spec selectors tx initialWorld
 
-/-- On a contract whose selector-dispatched functions are lock-free, guarded
-source semantics is definitionally the legacy plain source semantics.  This is
-the migration bridge for plain-source consumers: the guarded theorem may be
-used without changing their observable source result once lock freedom is
-supplied explicitly at the theorem boundary. -/
-theorem interpretGuardedContract_eq_of_lock_free (model : CompilationModel)
-    (selectors : List Nat) (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (hlockfree : ∀ fn ∈ selectorDispatchedFunctions model,
-      fn.nonReentrantLock = none) :
-    interpretGuardedContract model selectors tx initialWorld =
-      sourceContractSemantics model selectors tx initialWorld := by
-  unfold interpretGuardedContract interpretContractWith
-    sourceContractSemantics SourceSemantics.interpretContract
-  cases hfind : SourceSemantics.findFunctionBySelector model selectors
-      tx.functionSelector with
-  | none => rfl
-  | some fn =>
-      have hfn : fn ∈ selectorDispatchedFunctions model :=
-        SourceSemantics.findFunctionBySelector_mem_selectorDispatchedFunctions
-          hfind
-      simp only [guardedFunctionChoice, hlockfree fn hfn]
-
 /-- The reverted result ignores the lock overlay. -/
 theorem revertedResult_setLock (spec : CompilationModel)
     (world : Verity.ContractState) (slot : Nat) (v : Verity.Uint256) :
@@ -179,34 +156,5 @@ theorem compile_preserves_semantics_guarded
     (fun fn hmem hbindNone => guardedFunctionChoice_bindFail model tx
       initialWorld fn (hparamsSupported fn hmem) hbindNone)
     hcompiled hparamsSupported hfunction
-
-/-- Plain-source corollary of the guarded whole-contract theorem.  In
-particular, this isolates the only condition under which preserving the old
-plain source semantics is sound after annotations became admissible. -/
-theorem compile_preserves_semantics_of_guarded_lock_free
-    (model : CompilationModel) (selectors : List Nat)
-    (hSupported : SupportedSpecGuarded model selectors)
-    (ir : IRContract) (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
-    (hfunction :
-      ∀ fn sel irFn bindings,
-        fn ∈ selectorDispatchedFunctions model →
-        compileGuardedFunctionSpec model.fields model.events model.errors []
-          [] sel fn = Except.ok irFn →
-        SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
-        FunctionBody.sourceResultMatchesIRResult
-          (guardedFunctionChoice model tx initialWorld fn)
-          (execIRFunction irFn tx.args
-            (FunctionBody.initialIRStateForTx model tx initialWorld)))
-    (hlockfree : ∀ fn ∈ selectorDispatchedFunctions model,
-      fn.nonReentrantLock = none) :
-    FunctionBody.sourceResultMatchesIRResult
-      (sourceContractSemantics model selectors tx initialWorld)
-      (interpretIR ir tx
-        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  rw [← interpretGuardedContract_eq_of_lock_free model selectors tx initialWorld hlockfree]
-  exact compile_preserves_semantics_guarded model selectors hSupported ir tx
-    initialWorld hcompile hfunction
 
 end Compiler.Proofs.IRGeneration
