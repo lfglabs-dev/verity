@@ -108,6 +108,7 @@ import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.Storage.FieldEncode
+import Compiler.Proofs.Storage.FieldPackedCompile
 import Compiler.Proofs.Storage.FieldStorageKey
 import Compiler.Proofs.Storage.MappingCoherence
 import Compiler.Proofs.Storage.MappingCoherenceOn
@@ -4663,6 +4664,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldRootKey_uint256
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldRootKey_address
 
+  -- Compiler/Proofs/Storage/FieldPackedCompile.lean
+  Compiler.Proofs.Storage.FieldPackedCompile.packedExtract_eq_yulReadPackedWord
+  Compiler.Proofs.Storage.FieldPackedCompile.fieldPackedExtract_eq_compiledPackedRead
+
   -- Compiler/Proofs/Storage/FieldStorageKey.lean
   Compiler.Proofs.Storage.FieldStorageKey.storageKeySlot_fieldRootKey
   Compiler.Proofs.Storage.FieldStorageKey.fieldListRootKey_eq
@@ -4696,6 +4701,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.FieldStorageKey.fieldPackedExtract_eq
   Compiler.Proofs.Storage.FieldStorageKey.fieldPackedExtract_writeSlot_other
   Compiler.Proofs.Storage.FieldStorageKey.fieldPackedExtract_writeSlot_same
+  Compiler.Proofs.Storage.FieldStorageKey.packedExtract_eq_mod
+  Compiler.Proofs.Storage.FieldStorageKey.fieldPackedExtract_eq_mod
 
   -- Compiler/Proofs/Storage/MappingCoherence.lean
   Compiler.Proofs.Storage.MappingCoherence.defaultState_mappingCoherent
@@ -6937,4 +6944,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6435 theorems/lemmas (4565 public, 1870 private, 0 sorry'd)
+-- Total: 6439 theorems/lemmas (4569 public, 1870 private, 0 sorry'd)
