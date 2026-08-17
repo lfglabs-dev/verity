@@ -42,13 +42,13 @@ Next: derive the executable shallow program from the deep model
 per-function `_bridge` theorems into one AST-induction theorem
 (`GenericInduction/LegacyCompatibility` and the compile-derived
 legacy-compatibility witness chain are already retired), then finish C5
-step 4 — remaining packed compiler-read composition, the
-`findResolvedFieldAtSlot` uniqueness proof, and global (all-keys)
-`MappingCoherent` preservation.
+step 4 — remaining packed compiler-read composition and global
+(all-keys) `MappingCoherent` preservation.
 Implemented: address/uint/map2 coherence laws, `FieldStorageKey`
 (including address-keyed mappingStruct member slots,
 bytes32-keyed compiler slots, all `MappingType.nested` key-type
-pairs, packed word extract, and compatibility `aliasSlots`
+pairs, packed word extract, `findResolvedFieldAtSlot` from a named
+field plus no-conflict, and compatibility `aliasSlots`
 as extra compiler write targets),
 and finite-set `MappingCoherentOn` / `MappingCoherentUintOn` /
 `MappingCoherentMap2On` under explicit pairwise derived-slot

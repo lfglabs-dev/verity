@@ -207,9 +207,9 @@ of the 32-byte word; there is no `StorageKey.mapBytes32`. Mixed
 All nine `MappingType.nested` key-type pairs collapse to
 `abstractNestedMappingSlot`.
 Packed subfields extract from the same `storageKeySlot` word; they
-are not a different slot. `encodeStorageAt` at a resolved uint256 or
-address field is the corresponding lens when
-`findResolvedFieldAtSlot` is hypothesized.
+are not a different slot. `encodeStorageAt` at a persistent unpacked uint256 or address field
+is the corresponding lens once `firstFieldWriteSlotConflict` is
+none; `findResolvedFieldAtSlot` is derived, not hypothesized.
 A finite list of address-, uint-, or nested-address pairs
 stays coherent under an aligned write when the list carries an
 explicit pairwise derived-slot certificate (`MappingCoherentOn` /

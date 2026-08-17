@@ -4659,6 +4659,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/Storage/FieldEncode.lean
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_of_resolved_uint256
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_of_resolved_address
+  Compiler.Proofs.Storage.FieldEncode.findResolvedFieldAtSlot_of_fieldRoot
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldRootKey_uint256
   Compiler.Proofs.Storage.FieldEncode.encodeStorageAt_fieldRootKey_address
 
@@ -6936,4 +6937,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6434 theorems/lemmas (4564 public, 1870 private, 0 sorry'd)
+-- Total: 6435 theorems/lemmas (4565 public, 1870 private, 0 sorry'd)
