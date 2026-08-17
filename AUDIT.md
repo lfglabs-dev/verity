@@ -330,7 +330,9 @@ sibling entrypoint.
   the field's `storageKeySlot`. Cross-channel finite-set preservation
   (aligned write on one mapping channel vs another channel's list)
   takes an explicit derived-slot inequality. Global (all-keys)
-  preservation, bytes32 keys, and packed bit-ranges are still open.
+  preservation, mixed-key nestings, and packed bit-ranges are still
+  open. bytes32-keyed maps collapse to `solidityMappingSlot` of the
+  32-byte word (no `StorageKey.mapBytes32`).
 - Zero new axioms.
 
 ## CI Guards

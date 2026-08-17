@@ -7,8 +7,9 @@
   / mappingStruct2 members collapse to `mappingSlotLocation` /
   `nestedMappingSlotLocation`. Compatibility `aliasSlots` are extra
   compiler write targets; only the resolved head has a StorageKey.
-  bytes32 keys, packed bit-ranges, and global MappingCoherent
-  preservation stay open.
+  bytes32-keyed maps collapse to `solidityMappingSlot` of the 32-byte
+  word (no `StorageKey.mapBytes32`). Packed bit-ranges and global
+  MappingCoherent preservation stay open.
 -/
 
 import Compiler.Proofs.Storage.MappingCoherence
@@ -129,6 +130,57 @@ theorem storageKeySlot_fieldMap2Key
     Option.bind (fieldMap2Key f slot k1 k2) storageKeySlot =
       some (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) := by
   simp [fieldMap2Key, htr, hty, storageKeySlot]
+
+/-- Persistent `mapping(bytes32 => uint256)` entry. There is no
+    `StorageKey.mapBytes32`; Solidity ABI-encodes the 32-byte word
+    the same way as a uint256 key. The collapse is the compiler slot. -/
+def fieldMapBytes32Slot (f : Field) (resolvedSlot : Nat) (key : Uint256) : Option Nat :=
+  if f.isTransient then none
+  else
+    match f.ty with
+    | .mappingTyped (.simple .bytes32) => some (solidityMappingSlot resolvedSlot key.val)
+    | _ => none
+
+theorem fieldMapBytes32Slot_eq
+    {f : Field} {slot : Nat} {key : Uint256}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingTyped (.simple .bytes32)) :
+    fieldMapBytes32Slot f slot key = some (solidityMappingSlot slot key.val) := by
+  simp [fieldMapBytes32Slot, htr, hty]
+
+/-- Persistent `mapping(bytes32 => Struct)` member word. -/
+def fieldStructMemberBytes32Slot (f : Field) (resolvedSlot : Nat) (key : Uint256)
+    (memberName : String) : Option Nat :=
+  if f.isTransient then none
+  else
+    match f.ty with
+    | .mappingStruct .bytes32 members =>
+      match findStructMember members memberName with
+      | some m =>
+        some (mappingSlotLocation resolvedSlot key.val m.wordOffset)
+      | none => none
+    | _ => none
+
+theorem fieldStructMemberBytes32Slot_eq
+    {f : Field} {slot : Nat} {key : Uint256} {memberName : String}
+    {members : List StructMember} {m : StructMember}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingStruct .bytes32 members)
+    (hmem : findStructMember members memberName = some m) :
+    fieldStructMemberBytes32Slot f slot key memberName =
+      some (mappingSlotLocation slot key.val m.wordOffset) := by
+  simp [fieldStructMemberBytes32Slot, htr, hty, hmem]
+
+theorem fieldStructMemberBytes32Slot_eq_base_add
+    {f : Field} {slot : Nat} {key : Uint256} {memberName : String}
+    {members : List StructMember} {m : StructMember}
+    (htr : f.isTransient = false)
+    (hty : f.ty = .mappingStruct .bytes32 members)
+    (hmem : findStructMember members memberName = some m) :
+    fieldStructMemberBytes32Slot f slot key memberName =
+      some ((solidityMappingSlot slot key.val + m.wordOffset) %
+        Compiler.Constants.evmModulus) := by
+  simp [fieldStructMemberBytes32Slot_eq htr hty hmem, mappingSlotLocation]
 
 /-- Persistent `mapping(address => Struct)` member word. There is no
     StorageKey constructor for a struct member; the collapse is the
