@@ -197,7 +197,7 @@
   "expected_job_timeouts": {
     "closed-pr-cleanup": 5,
     "changes": 5,
-    "checks": 20,
+    "checks": 45,
     "timeout-watchdog": 5,
     "build": "${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '60' || '35') }}",
     "build-audits": 20,

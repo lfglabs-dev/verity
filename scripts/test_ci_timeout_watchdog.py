@@ -16,10 +16,11 @@ import ci_timeout_watchdog as watchdog
 
 class TimeoutWatchdogTests(unittest.TestCase):
     def test_checks_timeout_covers_healthy_runtime_envelope(self) -> None:
-        # Recent healthy checks jobs have taken up to 7.5 minutes. Keep enough
-        # bounded headroom for normal variance and include checks in the
-        # watchdog's default 20-minute-and-above policy.
-        self.assertGreaterEqual(watchdog.load_timeouts()["checks"], 20)
+        # Recent healthy checks jobs have taken up to 7.5 minutes on the warm
+        # main cache, but cold per-PR cache buckets have exceeded 20 minutes
+        # (PR #2362 cancelled at 20m20s). Cover the cold-cache envelope while
+        # keeping the job bounded.
+        self.assertGreaterEqual(watchdog.load_timeouts()["checks"], 45)
 
     def test_load_timeouts_extracts_top_level_job_timeouts(self) -> None:
         workflow = textwrap.dedent(
