@@ -1101,6 +1101,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.eventHeadWordSize_static_scalar_eq_32
   -- Compiler.Proofs.AbiEncoding.foldl_eventHeadWordSize_static_scalar_eq  -- private
   Compiler.Proofs.AbiEncoding.abiHeadSize_static_scalars_eq
+  Compiler.Proofs.AbiEncoding.AbiArg.tail_scalar
+  Compiler.Proofs.AbiEncoding.AbiArg.tail_bytes
+  Compiler.Proofs.AbiEncoding.AbiArg.tail_scalarArray
+  Compiler.Proofs.AbiEncoding.AbiArg.scalarArray_elements_lt_evm
+  Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_length
+  Compiler.Proofs.AbiEncoding.abiEncodeArgs_headSize
+  -- Compiler.Proofs.AbiEncoding.abiDynamicTailSize_cons  -- private
+  Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_dynamic_offset
+  Compiler.Proofs.AbiEncoding.abiEncodeArgs_tails_append
+  Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_append
+  Compiler.Proofs.AbiEncoding.abiEncodeArgs_append
 
   -- Compiler/Proofs/ArithmeticProfile.lean
   Compiler.Proofs.ArithmeticProfile.modulus_is_2_pow_256
@@ -6996,4 +7007,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6488 theorems/lemmas (4619 public, 1869 private, 0 sorry'd)
+-- Total: 6499 theorems/lemmas (4629 public, 1870 private, 0 sorry'd)
