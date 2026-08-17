@@ -7,6 +7,7 @@
 
 import Compiler.Proofs.Storage.FieldStorageKey
 import Compiler.Proofs.Storage.MappingCoherence
+import Compiler.Proofs.Storage.MappingCoherenceOn
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
 import Compiler.CompilationModel.LayoutValidation
@@ -18,6 +19,7 @@ open Verity.ContractState
 open Compiler.CompilationModel
 open Compiler.Proofs.Storage.FieldStorageKey
 open Compiler.Proofs.Storage.MappingCoherence
+open Compiler.Proofs.Storage.MappingCoherenceOn
 open Compiler.Proofs
 open Compiler.Proofs.IRGeneration
 open Compiler.Proofs.IRGeneration.SourceSemantics
@@ -130,5 +132,52 @@ theorem encodeStorageAt_fieldMap2Key
         (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) =
       (s.storageMap2 slot k1 k2).val := by
   rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot k1 k2]
+
+theorem encodeStorageAt_fieldMapKey_on
+    {fields : List Field} {s : ContractState} {slot : Nat} {key : Address}
+    {pairs : List (Nat × Address)}
+    (hcoh : MappingCoherentOn s pairs)
+    (hp : (slot, key) ∈ pairs)
+    (hresolved :
+      findResolvedFieldAtSlot fields
+        (solidityMappingSlot slot (addressToWord key).val) = none)
+    (hdyn :
+      findDynamicArrayElementAtSlot fields s
+        (solidityMappingSlot slot (addressToWord key).val) = none) :
+    encodeStorageAt fields s (solidityMappingSlot slot (addressToWord key).val) =
+      (s.storageMap slot key).val := by
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh (slot, key) hp]
+  rfl
+
+theorem encodeStorageAt_fieldMapUintKey_on
+    {fields : List Field} {s : ContractState} {slot : Nat} {key : Uint256}
+    {pairs : List (Nat × Uint256)}
+    (hcoh : MappingCoherentUintOn s pairs)
+    (hp : (slot, key) ∈ pairs)
+    (hresolved :
+      findResolvedFieldAtSlot fields (solidityMappingSlot slot key.val) = none)
+    (hdyn :
+      findDynamicArrayElementAtSlot fields s (solidityMappingSlot slot key.val) = none) :
+    encodeStorageAt fields s (solidityMappingSlot slot key.val) =
+      (s.storageMapUint slot key).val := by
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh (slot, key) hp]
+  rfl
+
+theorem encodeStorageAt_fieldMap2Key_on
+    {fields : List Field} {s : ContractState} {slot : Nat} {k1 k2 : Address}
+    {pairs : List (Nat × Address × Address)}
+    (hcoh : MappingCoherentMap2On s pairs)
+    (hp : (slot, k1, k2) ∈ pairs)
+    (hresolved :
+      findResolvedFieldAtSlot fields
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) = none)
+    (hdyn :
+      findDynamicArrayElementAtSlot fields s
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) = none) :
+    encodeStorageAt fields s
+        (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) =
+      (s.storageMap2 slot k1 k2).val := by
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh (slot, k1, k2) hp]
+  rfl
 
 end Compiler.Proofs.Storage.FieldEncode

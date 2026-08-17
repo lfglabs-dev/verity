@@ -340,7 +340,7 @@ sibling entrypoint.
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
   and unpacked, then identifies that slot with `encodeStorageAt`.
   An unoccupied mapping-derived slot (address, uint, or map2) encodes
-  as the `MappingCoherent*` shadow. bytes32-keyed
+  as the `MappingCoherent*` / `MappingCoherentOn*` shadow. bytes32-keyed
   maps collapse to `solidityMappingSlot` of the 32-byte word (no
   `StorageKey.mapBytes32`). All nine `MappingType.nested` key-type
   pairs collapse to `abstractNestedMappingSlot`.
