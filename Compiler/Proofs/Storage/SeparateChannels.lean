@@ -7,6 +7,10 @@
   Not a fold into `storageWords`. Dynamic-array length-plus-keccak(slot)
   layout is a later representation change. Mapping-key tracking
   (`knownAddresses`) is only mutated by `setMapping`.
+
+  These theorems live here, not in `Verity.Core`, so they are not on
+  the default `simp` surface (eta-expanding `ContractState` there
+  breaks Frames and contract Basic proofs).
 -/
 
 import Compiler.Proofs.Storage.MappingCoherence
@@ -23,61 +27,61 @@ open Compiler.Proofs.Storage.MappingCoherenceOn
 theorem storageArray_independent_of_writeSlot
     (s : ContractState) (n : Nat) (v : Uint256) :
     (s.writeSlot n v).storageArray = s.storageArray :=
-  storageArray_writeSlot s n v
+  rfl
 
 theorem storageArray_independent_of_writeAddrSlot
     (s : ContractState) (n : Nat) (v : Address) :
     (s.writeAddrSlot n v).storageArray = s.storageArray :=
-  storageArray_writeAddrSlot s n v
+  rfl
 
 theorem storageArray_independent_of_writeTransient
     (s : ContractState) (n : Nat) (v : Uint256) :
     (s.writeTransient n v).storageArray = s.storageArray :=
-  storageArray_writeTransient s n v
+  rfl
 
 theorem storageArray_independent_of_writeMap
     (s : ContractState) (slot : Nat) (key : Address) (v : Uint256) :
     (s.writeMap slot key v).storageArray = s.storageArray :=
-  storageArray_writeMap s slot key v
+  rfl
 
 /-- Array writes leave the word backing and every word-channel view
     unchanged. -/
 theorem storageWords_independent_of_writeArray
     (s : ContractState) (n : Nat) (vs : List Uint256) :
     (s.writeArray n vs).storageWords = s.storageWords :=
-  storageWords_writeArray s n vs
+  rfl
 
 theorem storage_independent_of_writeArray
     (s : ContractState) (n : Nat) (vs : List Uint256) :
     (s.writeArray n vs).storage = s.storage :=
-  storage_writeArray s n vs
+  rfl
 
 /-- Mapping-key tracking is independent of word, address, transient,
     and array writes. Only `setMapping` inserts keys. -/
 theorem knownAddresses_independent_of_writeSlot
     (s : ContractState) (n : Nat) (v : Uint256) :
     (s.writeSlot n v).knownAddresses = s.knownAddresses :=
-  knownAddresses_writeSlot s n v
+  rfl
 
 theorem knownAddresses_independent_of_writeAddrSlot
     (s : ContractState) (n : Nat) (v : Address) :
     (s.writeAddrSlot n v).knownAddresses = s.knownAddresses :=
-  knownAddresses_writeAddrSlot s n v
+  rfl
 
 theorem knownAddresses_independent_of_writeTransient
     (s : ContractState) (n : Nat) (v : Uint256) :
     (s.writeTransient n v).knownAddresses = s.knownAddresses :=
-  knownAddresses_writeTransient s n v
+  rfl
 
 theorem knownAddresses_independent_of_writeArray
     (s : ContractState) (n : Nat) (vs : List Uint256) :
     (s.writeArray n vs).knownAddresses = s.knownAddresses :=
-  knownAddresses_writeArray s n vs
+  rfl
 
 theorem knownAddresses_independent_of_writeMap
     (s : ContractState) (slot : Nat) (key : Address) (v : Uint256) :
     (s.writeMap slot key v).knownAddresses = s.knownAddresses :=
-  knownAddresses_writeMap s slot key v
+  rfl
 
 /-- Non-mapping writes that never touch `StorageKey.slot` preserve
     global mapping coherence with no image-avoidance `∀`. -/
