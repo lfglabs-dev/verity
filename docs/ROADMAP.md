@@ -47,8 +47,12 @@ global aligned `writeMap*`+`writeSlot` preserves `MappingCoherent` /
 `MappingCoherentUint` / `MappingCoherentMap2`; any finite `*On` list
 lifts from that; `writeTransient` preserves the globals by constructor
 injectivity; a lone `writeSlot` preserves a global when the written
-word avoids every derived mapping slot. `storageArray` and
-`knownAddresses` remain separate fields (not a step-4 obligation).
+word avoids every derived mapping slot. That image-avoidance is
+discharged for `writeAddrSlot` and `writeArray` (they never write
+`StorageKey.slot`). `storageArray` and
+`knownAddresses` remain separate fields with proved independence
+from the word-channel lenses (`Compiler.Proofs.Storage.SeparateChannels`;
+not a step-4 fold).
 Implemented: address/uint/map2 coherence laws, `FieldStorageKey`
 (including address-keyed mappingStruct member slots,
 bytes32-keyed compiler slots, all `MappingType.nested` key-type

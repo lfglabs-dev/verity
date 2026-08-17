@@ -733,6 +733,84 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
     (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).storageArray = s.storageArray := rfl
 
+/-!
+### Separate-channel independence (C5 residual)
+
+`storageArray` and `knownAddresses` stay their own `ContractState` fields
+(not folded into `storageWords`). The laws below make that an evidenced
+status: word-channel lenses leave both fields alone, and `writeArray`
+leaves every word-channel view and `knownAddresses` alone. Only
+`setMapping` inserts into `knownAddresses`.
+-/
+
+@[simp] theorem storageArray_writeTransient (s : ContractState) (slot : Nat)
+    (value : Uint256) :
+    (s.writeTransient slot value).storageArray = s.storageArray := rfl
+
+@[simp] theorem knownAddresses_writeSlot (s : ContractState) (slot : Nat)
+    (value : Uint256) :
+    (s.writeSlot slot value).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_writeTransient (s : ContractState) (slot : Nat)
+    (value : Uint256) :
+    (s.writeTransient slot value).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_writeArray (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_writeMap (s : ContractState) (slot : Nat)
+    (key : Address) (value : Uint256) :
+    (s.writeMap slot key value).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_writeSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writeSlots targets value).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_writeAddrSlots (s : ContractState)
+    (targets : List Nat) (value : Address) :
+    (s.writeAddrSlots targets value).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_writeTransientSlots (s : ContractState)
+    (targets : List Nat) (value : Uint256) :
+    (s.writeTransientSlots targets value).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem knownAddresses_withStorageChannel (s : ContractState)
+    (f : (Nat → Uint256) → Nat → Uint256) :
+    (s.withStorageChannel f).knownAddresses = s.knownAddresses := rfl
+
+@[simp] theorem storageWords_writeArray (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).storageWords = s.storageWords := rfl
+
+@[simp] theorem storageAddr_writeArray (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).storageAddr = s.storageAddr := rfl
+
+@[simp] theorem storageMap_writeArray (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).storageMap = s.storageMap := rfl
+
+@[simp] theorem storageMapUint_writeArray (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).storageMapUint = s.storageMapUint := rfl
+
+@[simp] theorem storageMap2_writeArray (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).storageMap2 = s.storageMap2 := rfl
+
+@[simp] theorem transientStorage_writeArray (s : ContractState) (slot : Nat)
+    (values : List Uint256) :
+    (s.writeArray slot values).transientStorage = s.transientStorage := rfl
+
 @[simp] theorem storage_writeSlots_mem (s : ContractState) (targets : List Nat)
     (value : Uint256) {slot : Nat} (h : targets.contains slot = true) :
     (s.writeSlots targets value).storage slot = value := by
