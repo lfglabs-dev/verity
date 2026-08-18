@@ -240,6 +240,21 @@ Status legend:
 | Event ABI parity for indexed dynamic/tuple payloads | supported | supported | supported | supported | supported |
 | Storage layout controls (packing + explicit slots) | partial | partial | partial | partial | partial |
 | ABI JSON artifact generation | partial | partial | n/a | partial | partial |
+| Dynamic-array element slot derivation (`keccak256(bytes32(slot)) + index`) | unsupported | supported | unsupported | partial | unsupported |
+
+The dynamic-array row records a *model* divergence, not a codegen gap. The
+source semantics
+(`Compiler/Proofs/IRGeneration/SourceSemantics.lean:330-350`,
+`findDynamicArrayElementAtSlot`) places element `i` of the array rooted at
+slot `s` at `solidityMappingSlot s i` = `keccak256(abi.encode(i, s))` — the
+64-byte *mapping* preimage — while the Yul layout
+(`Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`,
+`storageArrayBasePointer` / `storageArrayElementPointer`) uses the real
+Solidity `keccak256(bytes32(s)) + i`. The missing feature is an
+array-element slot derivation of that second form in the source semantics.
+Nothing asserts the two equal; the global storage-coherence collapse
+returns `none` at dynamic-array roots instead
+(`Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_slot_dynamicArray`).
 
 Diagnostics policy for unsupported constructs:
 1. Report the exact unsupported construct at compile time.

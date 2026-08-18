@@ -232,6 +232,47 @@ is complete under `solidityMappingSlot_injective`: global aligned
 for `writeAddrSlot` and `writeArray` (they never write
 `StorageKey.slot`). Keccak injectivity on
 arbitrary byte strings is **not** assumed.
+The all-keys (`∀ StorageKey`) form of that claim is
+`Compiler.Proofs.Storage.MappingCoherentGlobal.MappingCoherentAllKeys`,
+stated against the field-list collapse
+`storageKeySlot : List Field → StorageKey → Option (Channel × Nat)`
+(`Channel` = `persistent` / `address` / `transient` / `contract c`; the
+model does not identify `contractSlot 0` with `slot`). The declared
+layout is load-bearing, not decoration: a mapping key collapses only
+when the resolved field at its base slot declares the matching
+`MappingType`, so two mapping channels cannot share a base slot and
+`solidityMappingSlot_injective` separates their derived images.
+Aligned `writeMap` / `writeMapUint` / `writeMap2` + `writeSlot`,
+`writeAddrSlot`, and `writeTransient` preserve it; a lone `writeSlot`
+takes the same image-avoidance `∀` (`DerivedMappingSlotsAvoid`). The
+simple-vs-nested cross case additionally takes an explicit per-contract
+layout certificate `MappingBasesNotDerived` (a declared mapping base
+slot is not itself keccak-derived) — a hypothesis discharged per
+contract, not an axiom. Under that invariant the lens read equals the
+flat `encodeStorageAt` read at the derived slot
+(`readMap_eq_encodeStorageAt_of_coherent` and the `mapUint` / `map2`
+variants), reusing the same non-occupation hypotheses `FieldEncode`
+already takes.
+
+**Known divergence — dynamic-array element slots (`unsupported`).**
+The source model and the Yul model derive dynamic-array element
+addresses differently and are **not** reconciled here.
+`Compiler/Proofs/IRGeneration/SourceSemantics.lean:330-350`
+(`findDynamicArrayElementAtSlot`) places element `i` of the array
+rooted at slot `s` at `solidityMappingSlot s i` =
+`keccak256(abi.encode(i, s))`, a 64-byte mapping preimage.
+`Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`
+(`storageArrayBasePointer` / `storageArrayElementPointer`) uses the
+real Solidity layout `keccak256(bytes32(s)) + i`, a 32-byte preimage
+plus an arithmetic offset. Missing feature, precisely: *the source
+semantics has no array-element slot derivation of the form
+`keccak256(bytes32(slot)) + index`* — it reuses the mapping
+derivation. No shim asserts the two equal. Containment:
+`storageKeySlot` returns `none` at a persistent root whose resolved
+field is a `dynamicArray`
+(`storageKeySlot_slot_dynamicArray`), so `MappingCoherentAllKeys`
+claims nothing about dynamic-array roots; `encodeStorageAt` reads a
+list length there, not a word.
 `storageArray` and `knownAddresses` are still separate fields;
 word-channel / array-channel independence is proved in
 `Compiler.Proofs.Storage.SeparateChannels`.

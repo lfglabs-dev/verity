@@ -43,6 +43,19 @@ finite list is the same explicit slot inequality. Lone
 injectivity separates transient from persistent keys.
 `FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
 from no write-slot conflict plus constructor facts.
+The all-keys global (`MappingCoherentGlobal.MappingCoherentAllKeys`,
+final slice of C5 step 4) adds no axiom either: cross-channel
+separation is the declared layout (`fieldMapKindAt` is a function of
+the base slot, so distinct mapping shapes force distinct base slots)
+plus the same `solidityMappingSlot_injective`. The simple-vs-nested
+cross case takes an explicit `MappingBasesNotDerived` layout
+certificate and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
+both are hypotheses of the existing image-avoidance shape, discharged
+per contract. Dynamic-array element slots are **not** covered: the
+source and Yul derivations diverge and the collapse returns `none` at
+dynamic-array roots rather than claiming an equality — see the
+`unsupported` row in `TRUST_ASSUMPTIONS.md` and
+`docs/VERIFICATION_STATUS.md`.
 
 FunctionSpec call denotation (`DenoteFunctionCalls`), ETH-valued
 `externalCallBindTo`, `withPayableCallContext` crediting
