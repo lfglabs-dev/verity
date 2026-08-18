@@ -77,6 +77,16 @@ inductive StmtListScopeDiscipline (fieldNames : List String) : List String → L
       FunctionBody.exprBoundNamesInScope value scope →
       StmtListScopeDiscipline fieldNames (stmtNextScope scope (.tstore offset value)) rest →
       StmtListScopeDiscipline fieldNames scope (.tstore offset value :: rest)
+  | calldatacopy {scope : List String} {destOffset sourceOffset size : Expr} {rest : List Stmt} :
+      FunctionBody.ExprCompileCore destOffset →
+      FunctionBody.exprBoundNamesInScope destOffset scope →
+      FunctionBody.ExprCompileCore sourceOffset →
+      FunctionBody.exprBoundNamesInScope sourceOffset scope →
+      FunctionBody.ExprCompileCore size →
+      FunctionBody.exprBoundNamesInScope size scope →
+      StmtListScopeDiscipline fieldNames
+        (stmtNextScope scope (.calldatacopy destOffset sourceOffset size)) rest →
+      StmtListScopeDiscipline fieldNames scope (.calldatacopy destOffset sourceOffset size :: rest)
   | ite {scope : List String} {cond : Expr} {thenBranch elseBranch rest : List Stmt} :
       FunctionBody.ExprCompileCore cond →
       FunctionBody.exprBoundNamesInScope cond scope →
@@ -1491,6 +1501,41 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
               (by intro other hmem
                   exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
               (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
+  | calldatacopy hcoreDest hcoreSource hcoreSize hrest ih =>
+      rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
+        ⟨nextLocalScope, hstmt, hrestValidate⟩
+      have hstmt' := hstmt
+      unfold validateScopedStmtIdentifiers at hstmt'
+      revert hstmt'
+      rcases hDestVal : validateScopedExprIdentifiers context params paramScope dynamicParams
+          immutableNames localScope constructorArgCount _ with _ | _
+      · intro h; simp [bind, Except.bind] at h
+      · simp only [hDestVal, bind, Except.bind]
+        rcases hSourceVal : validateScopedExprIdentifiers context params paramScope dynamicParams
+          immutableNames localScope constructorArgCount _ with _ | _
+        · intro h; simp [hSourceVal, bind, Except.bind] at h
+        · simp only [hSourceVal, bind, Except.bind]
+          rcases hSizeVal : validateScopedExprIdentifiers context params paramScope dynamicParams
+            immutableNames localScope constructorArgCount _ with _ | _
+          · intro h; simp [hSizeVal, bind, Except.bind] at h
+          · simp only [hSizeVal, bind, Except.bind, pure, Except.pure]
+            intro h; cases h
+            exact StmtListScopeDiscipline.calldatacopy
+              hcoreDest
+              (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
+                hcoreDest hDestVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
+              hcoreSource
+              (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
+                hcoreSource hSourceVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
+              hcoreSize
+              (exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
+                hcoreSize hSizeVal hparamsInScope hlocalsInScope hconstructorArgsInScope)
+              (ih hrestValidate
+                (by intro other hmem
+                    exact mem_stmtNextScope_of_mem_scope (hparamsInScope other hmem))
+                (by intro other hmem
+                    exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
+                (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
   | ite hcondCore hthenCore helseCore hrest ihThen ihElse ihRest =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -1868,6 +1913,32 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
             (by intro name hname
                 exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
             other hmem
+  | calldatacopy hcoreDest hcoreSource hcoreSize hrest ih =>
+      rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
+        ⟨nextLocalScope, hstmt, hrestValidate⟩
+      have hstmt' := hstmt
+      unfold validateScopedStmtIdentifiers at hstmt'
+      revert hstmt'
+      rcases hDestVal : validateScopedExprIdentifiers context params paramScope dynamicParams
+          immutableNames localScope constructorArgCount _ with _ | _
+      · intro h; simp [bind, Except.bind] at h
+      · simp only [hDestVal, bind, Except.bind]
+        rcases hSourceVal : validateScopedExprIdentifiers context params paramScope dynamicParams
+          immutableNames localScope constructorArgCount _ with _ | _
+        · intro h; simp [hSourceVal, bind, Except.bind] at h
+        · simp only [hSourceVal, bind, Except.bind]
+          rcases hSizeVal : validateScopedExprIdentifiers context params paramScope dynamicParams
+            immutableNames localScope constructorArgCount _ with _ | _
+          · intro h; simp [hSizeVal, bind, Except.bind] at h
+          · simp only [hSizeVal, bind, Except.bind, pure, Except.pure]
+            intro h; cases h
+            intro other hmem
+            exact ih hrestValidate
+              (by intro name hname
+                  exact mem_stmtNextScope_of_mem_scope (hparamsInScope name hname))
+              (by intro name hname
+                  exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
+              other hmem
   | ite hcondCore hthenCore helseCore hrest ihThen ihElse ihRest =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -2182,6 +2253,17 @@ theorem stmtListScopeDiscipline_scope_names
       · right; right; left; exact hassign
       · right; right; right; exact hfld
   | tstore hcoreOffset hinScopeOffset hcoreValue hinScopeValue _ ih =>
+      intro other hmem
+      simp only [List.foldl] at hmem
+      have htail := ih other hmem
+      simp [stmtNextScope, collectStmtBindNames, collectStmtListBindNames,
+        collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
+      rcases htail with hscope | hbind | hassign | hfld
+      · left; exact hscope
+      · right; left; exact hbind
+      · right; right; left; exact hassign
+      · right; right; right; exact hfld
+  | calldatacopy hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize _ ih =>
       intro other hmem
       simp only [List.foldl] at hmem
       have htail := ih other hmem
