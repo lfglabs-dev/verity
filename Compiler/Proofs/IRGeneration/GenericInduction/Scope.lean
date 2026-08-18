@@ -145,6 +145,12 @@ inductive StmtListScopeCore (fieldNames : List String) : List Stmt → Prop wher
       FunctionBody.ExprCompileCore value →
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.tstore offset value :: rest)
+  | calldatacopy {destOffset sourceOffset size : Expr} {rest : List Stmt} :
+      FunctionBody.ExprCompileCore destOffset →
+      FunctionBody.ExprCompileCore sourceOffset →
+      FunctionBody.ExprCompileCore size →
+      StmtListScopeCore fieldNames rest →
+      StmtListScopeCore fieldNames (.calldatacopy destOffset sourceOffset size :: rest)
   | ite {cond : Expr} {thenBranch elseBranch rest : List Stmt} :
       FunctionBody.ExprCompileCore cond →
       StmtListScopeCore fieldNames thenBranch →
@@ -454,6 +460,14 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
             (by simpa [stmtTouchesUnsupportedContractSurface] using hor.1))
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
               (by simpa [stmtTouchesUnsupportedContractSurface] using hor.2)) ihRest
+      | calldatacopy destOffset sourceOffset size =>
+          simp only [stmtTouchesUnsupportedContractSurface,
+            Bool.or_eq_false_iff] at hstmtSurface
+          exact .calldatacopy
+            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.1)
+            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
+            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
+            ihRest
       | ite cond thenBranch elseBranch =>
           simp only [stmtTouchesUnsupportedContractSurface,
             Bool.or_eq_false_iff] at hstmtSurface
@@ -598,6 +612,14 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
               (by simpa [stmtTouchesUnsupportedContractSurface] using hor.2))
             (ih hrestSurface htail)
+      | calldatacopy destOffset sourceOffset size =>
+          simp only [stmtTouchesUnsupportedContractSurface,
+            Bool.or_eq_false_iff] at hstmtSurface
+          exact StmtListScopeCore.calldatacopy
+            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.1)
+            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
+            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
+            (ih hrestSurface htail)
       | ite cond thenBranch elseBranch =>
           simp only [stmtTouchesUnsupportedContractSurface,
             Bool.or_eq_false_iff] at hstmtSurface
@@ -654,7 +676,7 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
       | setStructMember _ _ _ _ | setStructMember2 _ _ _ _ _
       | storageArrayPush _ _ | storageArrayPop _ | setStorageArrayElement _ _ _
       | requireError _ _ _ | revertError _ _ | panicCode _ | returnValues _ | returnArray _
-      | returnBytes _ | returnStorageWords _ | returnCodeData _ | calldatacopy _ _ _
+      | returnBytes _ | returnStorageWords _ | returnCodeData _
       | returndataCopy _ _ _ | revertReturndata
       | emit _ _ | internalCall _ _ | internalCallAssign _ _ _
       | rawLog _ _ _ | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _

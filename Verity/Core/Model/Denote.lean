@@ -116,6 +116,13 @@ def calldataloadWord (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat
       ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) %
         Compiler.Constants.evmModulus
 
+/-- Mirrors `Compiler.Proofs.YulGeneration.calldatacopyWritesAt`. -/
+def calldatacopyWritesAt (dst size offset : Nat) : Prop :=
+  dst ≤ offset ∧ offset < dst + 32 * (size / 32) ∧ (offset - dst) % 32 = 0
+
+instance (dst size offset : Nat) : Decidable (calldatacopyWritesAt dst size offset) := by
+  unfold calldatacopyWritesAt; infer_instance
+
 /-! ## Slot alias expansion (mirroring `Compiler.CompilationModel.LayoutValidation`) -/
 
 def dedupNatPreserve (xs : List Nat) : List Nat :=
@@ -1257,6 +1264,22 @@ mutual
               world := state.world.writeTransient resolvedOffset resolvedValue
             }
         | _, _ => .revert
+    | state, .calldatacopy destOffset sourceOffset size =>
+        match evalExpr oracle fields state destOffset, evalExpr oracle fields state sourceOffset,
+            evalExpr oracle fields state size with
+        | some dst, some src, some sz =>
+            .continue {
+              state with
+              world := {
+                state.world with
+                memory := fun o =>
+                  if calldatacopyWritesAt dst sz o then
+                    Verity.Core.Uint256.ofNat
+                      (calldataloadWord state.selector state.world.calldata (src + (o - dst)))
+                  else state.world.memory o
+              }
+            }
+        | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr oracle fields state cond with
         | some resolved =>
