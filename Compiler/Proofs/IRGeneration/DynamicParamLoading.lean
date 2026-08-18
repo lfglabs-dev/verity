@@ -26,28 +26,31 @@ namespace DynamicParamLoading
 
 /-! ## Generated variable names are pairwise distinct -/
 
-private theorem append_right_ne_of_ne {a b : String} (prefix_ : String) (h : a ≠ b) :
-    prefix_ ++ a ≠ prefix_ ++ b := by
+/-- Suffixes of different lengths cannot produce the same string under a shared
+prefix — enough to separate every generated loader local, since the six suffixes
+all have distinct lengths. -/
+private theorem append_right_ne_of_length_ne {a b : String} (prefix_ : String)
+    (h : a.length ≠ b.length) : prefix_ ++ a ≠ prefix_ ++ b := by
   intro heq
   apply h
-  have hdata : (prefix_ ++ a).data = (prefix_ ++ b).data := by rw [heq]
-  simp only [String.data_append, List.append_cancel_left_eq] at hdata
-  exact String.ext hdata
+  have hlen := congrArg String.length heq
+  rw [String.length_append, String.length_append] at hlen
+  omega
 
 private theorem length_ne_tailHeadEnd (name : String) :
     s!"{name}_length" ≠ s!"{name}_tail_head_end" := by
-  simpa using append_right_ne_of_ne (prefix_ := name) (a := "_length")
-    (b := "_tail_head_end") (by decide)
+  show name ++ "_length" ≠ name ++ "_tail_head_end"
+  exact append_right_ne_of_length_ne name (by decide)
 
 private theorem length_ne_tailRemaining (name : String) :
     s!"{name}_length" ≠ s!"{name}_tail_remaining" := by
-  simpa using append_right_ne_of_ne (prefix_ := name) (a := "_length")
-    (b := "_tail_remaining") (by decide)
+  show name ++ "_length" ≠ name ++ "_tail_remaining"
+  exact append_right_ne_of_length_ne name (by decide)
 
 private theorem tailHeadEnd_ne_tailRemaining (name : String) :
     s!"{name}_tail_head_end" ≠ s!"{name}_tail_remaining" := by
-  simpa using append_right_ne_of_ne (prefix_ := name) (a := "_tail_head_end")
-    (b := "_tail_remaining") (by decide)
+  show name ++ "_tail_head_end" ≠ name ++ "_tail_remaining"
+  exact append_right_ne_of_length_ne name (by decide)
 
 /-! ## Local `IRState` variable lemmas -/
 
@@ -71,8 +74,9 @@ private theorem getVar_setVar_of_ne (state : IRState) (bound query : String) (va
         · have hq : ¬ (entry.1 == query) = true := by
             simp only [beq_iff_eq, hentry]
             exact fun h => hne h.symm
-          simp [List.filter, List.find?, hentry, hq, ih]
-        · simp [List.filter, List.find?, hentry, ih]
+          simp [List.filter, List.find?, hentry, hq, hbound, ih]
+        · have hkeep : (entry.1 != bound) = true := by simpa [bne_iff_ne] using hentry
+          simp [List.filter, List.find?, hkeep, ih]
   simp [IRState.getVar, IRState.setVar, List.find?, hbound, hfilter]
 
 @[simp] private theorem setVar_calldata (state : IRState) (name : String) (value : Nat) :
@@ -134,7 +138,7 @@ private theorem externalWordAt?_eq_calldataloadWord
   rw [calldataloadWord_eq]
   by_cases hbounds :
       4 ≤ offset ∧ offset + 32 ≤ DynamicAbi.externalCalldataSize calldata
-  · simpa [DynamicAbi.externalWordAt?, hbounds] using h.symm
+  · simpa [DynamicAbi.externalWordAt?, hbounds] using h
   · simp [DynamicAbi.externalWordAt?, hbounds] at h
 
 /-- The bindings `DynamicAbi.bindExternalParam` produces for a `bytes` external
@@ -295,9 +299,9 @@ theorem exec_bytesLoaderStmts_then
         (baseOffset + relativeOffset)).setVar nLength length)).getVar nAbs =
         some (baseOffset + relativeOffset) := by
       rw [getVar_setVar_of_ne _ _ _ _ (by
-        simpa [hnAbs, hnLength] using
-          (append_right_ne_of_ne (prefix_ := name) (a := "_abs_offset") (b := "_length")
-            (by decide))), getVar_setVar_self]
+        rw [hnAbs, hnLength]
+        show name ++ "_abs_offset" ≠ name ++ "_length"
+        exact append_right_ne_of_length_ne name (by decide)), getVar_setVar_self]
     simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget,
       Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
       Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
@@ -339,9 +343,9 @@ theorem exec_bytesLoaderStmts_then
               (baseOffset + relativeOffset + 32))).getVar nLength = some length := by
       rw [getVar_setVar_of_ne _ _ _ _ hLenNeTr, getVar_setVar_of_ne _ _ _ _ hLenNeThe,
         getVar_setVar_self]
-    have hnot : ¬ length % Compiler.Constants.evmModulus <
-        (4 + state.calldata.length * 32 - (baseOffset + relativeOffset + 32)) %
-          Compiler.Constants.evmModulus := by
+    -- `gt(length, tailRemaining)` is false: the payload fits in the tail.
+    have hnot : ¬ (4 + state.calldata.length * 32 - (baseOffset + relativeOffset + 32)) %
+        Compiler.Constants.evmModulus < length % Compiler.Constants.evmModulus := by
       rw [Nat.mod_eq_of_lt hLengthLt, Nat.mod_eq_of_lt hTrLt]
       omega
     simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self, hgetLength,
@@ -587,7 +591,7 @@ theorem exec_genParamLoadBodyFrom_external_then
               rw [hgen, List.append_assoc, hfuel, hstep, applyBindingsToIRState_append]
               rw [show (genRest ++ rest).length + extraFuel + 1 =
                   genRest.length + rest.length + extraFuel + 1 by
-                simp [List.length_append]; omega]
+                simp [List.length_append]]
               exact hih
 
 /-! ### End-to-end: the emitted entrypoint prologue implements `bindExternalParams` -/
