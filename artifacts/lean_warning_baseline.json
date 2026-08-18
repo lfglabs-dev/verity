@@ -1,6 +1,10 @@
 {
-  "by_file": {},
-  "by_message": {},
+  "by_file": {
+    "Verity/Core.lean": 3
+  },
+  "by_message": {
+    "try 'simp' instead of 'simpa'": 3
+  },
   "schema_version": 1,
-  "total_warnings": 0
+  "total_warnings": 3
 }
