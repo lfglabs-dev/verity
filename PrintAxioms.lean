@@ -23,6 +23,7 @@ import Contracts.Owned.Proofs.Correctness
 import Contracts.OwnedCounter.Proofs.Basic
 import Contracts.OwnedCounter.Proofs.Correctness
 import Contracts.OwnedCounter.Proofs.Isolation
+import Contracts.OwnedCounter.Proofs.StorageCoherence
 import Contracts.OwnedCounterComposed.Proofs.Basic
 import Contracts.SafeCounter.Proofs.Basic
 import Contracts.SafeCounter.Proofs.Correctness
@@ -119,6 +120,7 @@ import Compiler.Proofs.Storage.FieldStorageKey
 import Compiler.Proofs.Storage.MappingCoherence
 import Compiler.Proofs.Storage.MappingCoherenceOn
 import Compiler.Proofs.Storage.MappingCoherentAllKeys
+import Compiler.Proofs.Storage.MappingCoherentExec
 import Compiler.Proofs.Storage.SeparateChannels
 import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.Storage.StructArrayStorage
@@ -504,6 +506,23 @@ end Verity.AxiomAudit
   Contracts.OwnedCounter.Proofs.Isolation.increment_preserves_map_storage
   Contracts.OwnedCounter.Proofs.Isolation.decrement_preserves_map_storage
   Contracts.OwnedCounter.Proofs.Isolation.transferOwnership_preserves_map_storage
+
+  -- Contracts/OwnedCounter/Proofs/StorageCoherence.lean
+  Contracts.OwnedCounter.Proofs.StorageCoherence.findResolvedFieldAtStorageSlot_go_mem
+  Contracts.OwnedCounter.Proofs.StorageCoherence.findResolvedFieldAtSlot_mem
+  Contracts.OwnedCounter.Proofs.StorageCoherence.fieldMapKindAt_eq_none
+  Contracts.OwnedCounter.Proofs.StorageCoherence.storageKeySlot_not_mappingEntry
+  Contracts.OwnedCounter.Proofs.StorageCoherence.mappingBasesNotDerived
+  Contracts.OwnedCounter.Proofs.StorageCoherence.derivedMappingSlotsAvoid
+  Contracts.OwnedCounter.Proofs.StorageCoherence.constructor_preservesCoherence
+  Contracts.OwnedCounter.Proofs.StorageCoherence.increment_preservesCoherence
+  Contracts.OwnedCounter.Proofs.StorageCoherence.decrement_preservesCoherence
+  Contracts.OwnedCounter.Proofs.StorageCoherence.transferOwnership_preservesCoherence
+  Contracts.OwnedCounter.Proofs.StorageCoherence.getCount_preservesCoherence
+  Contracts.OwnedCounter.Proofs.StorageCoherence.getOwner_preservesCoherence
+  Contracts.OwnedCounter.Proofs.StorageCoherence.Call.step_preservesCoherence
+  Contracts.OwnedCounter.Proofs.StorageCoherence.run_preservesCoherence
+  Contracts.OwnedCounter.Proofs.StorageCoherence.coherent_of_genesis
 
   -- Contracts/OwnedCounterComposed/Proofs/Basic.lean
   Contracts.OwnedCounterComposed.Proofs.increment_reverts_when_not_owner
@@ -4986,6 +5005,19 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherentGlobal.readMap2_eq_encodeStorageAt_of_coherent
   Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_slot_dynamicArray
 
+  -- Compiler/Proofs/Storage/MappingCoherentExec.lean
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_of_stateless
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_pure
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_bind
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_run
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_getStorage
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_getStorageAddr
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_getMapping
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_msgSender
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_require
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_setStorage
+  Compiler.Proofs.Storage.MappingCoherentExec.preservesCoherence_setStorageAddr
+
   -- Compiler/Proofs/Storage/SeparateChannels.lean
   Compiler.Proofs.Storage.SeparateChannels.storageArray_independent_of_writeSlot
   Compiler.Proofs.Storage.SeparateChannels.storageArray_independent_of_writeAddrSlot
@@ -7199,4 +7231,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6670 theorems/lemmas (4769 public, 1901 private, 0 sorry'd)
+-- Total: 6696 theorems/lemmas (4795 public, 1901 private, 0 sorry'd)

@@ -16,10 +16,10 @@
   },
   "theorems": {
     "categories": 15,
-    "coverage_percent": 81,
+    "coverage_percent": 78,
     "covered": 255,
-    "excluded": 59,
-    "non_stdlib_total": 314,
+    "excluded": 74,
+    "non_stdlib_total": 329,
     "per_contract": {
       "Counter": 31,
       "ERC20": 22,
@@ -28,7 +28,7 @@
       "LocalObligationMacroSmoke": 4,
       "Ownable": 6,
       "Owned": 23,
-      "OwnedCounter": 48,
+      "OwnedCounter": 63,
       "OwnedCounterComposed": 6,
       "ReentrancyExample": 5,
       "ReentrancyRelyGuarantee": 10,
@@ -37,9 +37,9 @@
       "SimpleToken": 61,
       "Vault": 9
     },
-    "proven": 314,
+    "proven": 329,
     "stdlib": 0,
-    "total": 314
+    "total": 329
   },
   "toolchain": {
     "lean": "leanprover/lean4:v4.31.0",

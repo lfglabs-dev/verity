@@ -31,7 +31,7 @@ EVM Bytecode
 | SafeCounter | 25 | Complete | `Contracts/SafeCounter/Proofs/` |
 | Owned | 23 | Complete | `Contracts/Owned/Proofs/` |
 | Ownable | 6 | Complete | `Contracts/Ownable/Proofs/` |
-| OwnedCounter | 48 | Complete | `Contracts/OwnedCounter/Proofs/` |
+| OwnedCounter | 63 | Complete | `Contracts/OwnedCounter/Proofs/` |
 | OwnedCounterComposed | 6 | Complete | `Contracts/OwnedCounterComposed/Proofs/` |
 | Ledger | 33 | Complete | `Contracts/Ledger/Proofs/` |
 | LocalObligationMacroSmoke | 4 | Baseline | `Contracts/LocalObligationMacroSmoke/Proofs/` |
@@ -42,9 +42,9 @@ EVM Bytecode
 | ReentrancyExample | 5 | Complete | `Contracts/ReentrancyExample/Contract.lean` |
 | ReentrancyRelyGuarantee | 10 | Semantic | `Contracts/ReentrancyRelyGuarantee/Contract.lean` |
 | CryptoHash | 0 | No specs | `Contracts/CryptoHash/Contract.lean` |
-| **Total** | **314** | **✅ 100%** | — |
+| **Total** | **329** | **✅ 100%** | — |
 
-> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (314 total properties).
+> **Note**: Stdlib (0 internal proof-automation properties) is excluded from the contract-spec theorem table above but included in overall coverage statistics (329 total properties).
 
 Layer 1 uses macro-generated EDSL-to-`CompilationModel` bridge theorems backed by a generic typed-IR compilation-correctness theorem ([`TypedIRCompilerCorrectness.lean`](../Compiler/TypedIRCompilerCorrectness.lean)). Tuple/bytes/fixed-array/dynamic-array/string parameters now stay inside that proof path when they are carried as ABI head words/offsets. Advanced constructs beyond that typed-IR head-word surface (linked libraries, ECMs, fully custom ABI behavior) are still expressed directly in `CompilationModel` and trusted at that boundary. Higher-order internal helpers (function-pointer parameters, [#1747](https://github.com/lfglabs-dev/verity/issues/1747)) are eliminated by a compile-time monomorphization pre-pass that runs before any lowering, so the `CompilationModel` only ever contains first-order helpers: these calls are covered by the existing first-order proof path and introduce no new boundary trust.
 
@@ -201,7 +201,7 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 | Ledger | 100% (33/33) | 0 |
 | LocalObligationMacroSmoke | 100% (4/4) | 0 |
 | SimpleStorage | 95% (19/20) | 1 proof-only |
-| OwnedCounter | 92% (44/48) | 4 proof-only |
+| OwnedCounter | 70% (44/63) | 19 proof-only |
 | Owned | 87% (20/23) | 3 proof-only |
 | Ownable | 0% (0/6) | 6 proof-only |
 | OwnedCounterComposed | 0% (0/6) | 6 proof-only |
@@ -209,11 +209,11 @@ Also note that the macro-generated `*_semantic_preservation` theorems are not co
 | Counter | 74% (23/31) | 8 proof-only |
 | Stdlib | 0% (0/0) | 0 proof-only |
 
-**Status**: 81% coverage (255/314), 59 remaining exclusions all proof-only
+**Status**: 78% coverage (255/329), 74 remaining exclusions all proof-only
 
-- **Total Properties**: 314
+- **Total Properties**: 329
 - **Covered**: 255
-- **Excluded**: 59 (all proof-only)
+- **Excluded**: 74 (all proof-only)
 
 **Proof-Only Properties (59 exclusions)**: Internal proof machinery that cannot be tested in Foundry.
 
