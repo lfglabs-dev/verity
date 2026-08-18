@@ -44,20 +44,21 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
   · simp [setStorageAddr, owner, Contract.run, ContractResult.snd,
       ContractState.writeAddrSlot]
   · intro slotIdx h_neq
-    simp [setStorageAddr, owner, Contract.run, ContractResult.snd, h_neq, ContractState.writeAddrSlot]
+    simp [setStorageAddr, owner, Contract.run, ContractResult.snd, h_neq, ContractState.writeAddrSlot, ContractState.storageAddr]
   · simp [setStorageAddr, owner, Contract.run, ContractResult.snd,
       ContractState.writeAddrSlot,
-      Specs.sameStorageMapContext, Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
+      Specs.sameStorageMapContext, Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext,
+      ContractState.storage, ContractState.storageMap]
 
 theorem constructor_sets_owner (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   s'.storageAddr 0 = initialOwner := by
-  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot]
+  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot, ContractState.storage]
 
 theorem constructor_preserves_count (s : ContractState) (initialOwner : Address) :
   let s' := ((setStorageAddr owner initialOwner).run s).snd
   s'.storage = s.storage := by
-  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot]
+  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot, ContractState.storage]
 
 /-! ## Read Operation Correctness -/
 
@@ -126,9 +127,10 @@ theorem increment_meets_spec_when_owner (s : ContractState)
   refine ⟨?_, ?_, ?_⟩
   · simp [ContractResult.snd, ContractState.writeSlot]
   · intro slotIdx h_neq
-    simp [ContractResult.snd, ContractState.writeSlot, h_neq]
+    simp [ContractResult.snd, ContractState.writeSlot, h_neq, ContractState.storage]
   · simp [ContractResult.snd, ContractState.writeSlot, Specs.sameAddrMapContext, Specs.sameStorageAddr,
-      Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
+      Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext,
+      ContractState.storageAddr, ContractState.storageMap]
 
 theorem increment_adds_one_when_owner (s : ContractState)
   (h_owner : s.sender = s.storageAddr 0) :
@@ -160,9 +162,10 @@ theorem decrement_meets_spec_when_owner (s : ContractState)
   refine ⟨?_, ?_, ?_⟩
   · simp [ContractResult.snd, ContractState.writeSlot]
   · intro slotIdx h_neq
-    simp [ContractResult.snd, ContractState.writeSlot, h_neq]
+    simp [ContractResult.snd, ContractState.writeSlot, h_neq, ContractState.storage]
   · simp [ContractResult.snd, ContractState.writeSlot, Specs.sameAddrMapContext, Specs.sameStorageAddr,
-      Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
+      Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext,
+      ContractState.storageAddr, ContractState.storageMap]
 
 theorem decrement_subtracts_one_when_owner (s : ContractState)
   (h_owner : s.sender = s.storageAddr 0) :
@@ -193,9 +196,10 @@ theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : 
   refine ⟨?_, ?_, ?_⟩
   · simp [ContractResult.snd, ContractState.writeAddrSlot]
   · intro slotIdx h_neq
-    simp [ContractResult.snd, ContractState.writeAddrSlot, h_neq]
+    simp [ContractResult.snd, ContractState.writeAddrSlot, h_neq, ContractState.storageAddr]
   · simp [ContractResult.snd, ContractState.writeAddrSlot, Specs.sameStorageMapContext,
-      Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext]
+      Specs.sameStorage, Specs.sameStorageMap, Specs.sameStorageArray, Specs.sameContext,
+      ContractState.storage, ContractState.storageMap]
 
 theorem transferOwnership_changes_owner (s : ContractState) (newOwner : Address)
   (h_owner : s.sender = s.storageAddr 0) :
@@ -272,7 +276,7 @@ theorem constructor_increment_getCount (s : ContractState) (initialOwner : Addre
     ContractState.writeAddrSlot, ContractState.readAddrSlot,
     ContractState.writeSlot, ContractState.readSlot,
     Bind.bind, Pure.pure, Contract.run, ContractResult.snd, ContractResult.fst]
-  simp [h_sender]
+  simp [h_sender, ContractState.storageAddr, ContractState.storage, ContractState.storageMap]
 
 /-! ## Summary of Proven Properties
 

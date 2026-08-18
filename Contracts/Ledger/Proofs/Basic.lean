@@ -62,12 +62,12 @@ theorem deposit_meets_spec (s : ContractState) (amount : Uint256) :
   rw [deposit_unfold]
   unfold deposit_spec Specs.storageMapUpdateSpec
   refine ⟨?_, ?_, ?_⟩
-  · simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq]
+  · simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, ContractState.storageMap]
   · refine ⟨?_, ?_⟩
     · intro addr h_ne
-      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne]
+      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne, ContractState.storageMap, ContractState.storage]
     · intro slotIdx h_ne addr
-      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne]
+      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne, ContractState.storageMap, ContractState.storage]
   · exact ⟨rfl, rfl, rfl, Specs.sameContext_rfl _⟩
 
 theorem deposit_increases_balance (s : ContractState) (amount : Uint256) :
@@ -80,7 +80,7 @@ theorem deposit_preserves_other_balances (s : ContractState) (amount : Uint256)
   let s' := ((deposit amount).run s).snd
   s'.storageMap 0 addr = s.storageMap 0 addr := by
   rw [deposit_unfold]
-  simp [ContractResult.snd, ContractState.writeMap, h_ne]
+  simp [ContractResult.snd, ContractState.writeMap, h_ne, ContractState.storageMap]
 
 /-! ## Withdraw Correctness -/
 
@@ -102,12 +102,12 @@ theorem withdraw_meets_spec (s : ContractState) (amount : Uint256)
   rw [withdraw_unfold s amount h_balance]
   unfold withdraw_spec Specs.storageMapUpdateSpec
   refine ⟨?_, ?_, ?_⟩
-  · simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq]
+  · simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, ContractState.storageMap]
   · refine ⟨?_, ?_⟩
     · intro addr h_ne
-      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne]
+      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne, ContractState.storageMap, ContractState.storage]
     · intro slotIdx h_ne addr
-      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne]
+      simp [ContractResult.snd, ContractState.writeMap, beq_iff_eq, h_ne, ContractState.storageMap, ContractState.storage]
   · exact ⟨rfl, rfl, rfl, Specs.sameContext_rfl _⟩
 
 theorem withdraw_decreases_balance (s : ContractState) (amount : Uint256)
@@ -172,15 +172,15 @@ theorem transfer_meets_spec (s : ContractState) (toAddr : Address) (amount : Uin
     simp only [ContractResult.snd, transfer_spec]
     have h_ne' := address_beq_false_of_ne s.sender toAddr h_eq
     refine ⟨?_, ?_, ?_, ?_⟩
-    · simp [ContractState.writeMap, h_ne', h_eq]
-    · simp [ContractState.writeMap, h_ne']
-    · simp [ContractState.writeMap, h_ne']
+    · simp [ContractState.writeMap, h_ne', h_eq, ContractState.storageMap]
+    · simp [ContractState.writeMap, h_ne', ContractState.storageMap, ContractState.storage]
+    · simp [ContractState.writeMap, h_ne', ContractState.storageMap, ContractState.storage]
       refine ⟨?_, ?_⟩
       · intro addr h_ne_sender h_ne_to
-        simp [h_ne_sender, h_ne_to]
+        simp [h_ne_sender, h_ne_to, ContractState.storageMap]
       · intro slotIdx h_slot addr
-        simp [h_slot]
-    · simp [ContractState.writeMap, Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext]
+        simp [h_slot, ContractState.storageMap, ContractState.storage]
+    · simp [ContractState.writeMap, Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext, ContractState.storageMap, ContractState.storage, ContractState.storageAddr]
 
 theorem transfer_self_preserves_balance (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
@@ -237,14 +237,14 @@ theorem deposit_preserves_non_mapping (s : ContractState) (amount : Uint256) :
   let s' := ((deposit amount).run s).snd
   non_mapping_storage_unchanged s s' := by
   rw [deposit_unfold]
-  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray]
+  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, ContractState.storage, ContractState.storageAddr]
 
 theorem withdraw_preserves_non_mapping (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
   let s' := ((withdraw amount).run s).snd
   non_mapping_storage_unchanged s s' := by
   rw [withdraw_unfold s amount h_balance]
-  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray]
+  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, ContractState.storage, ContractState.storageAddr]
 
 theorem deposit_preserves_wellformedness (s : ContractState) (amount : Uint256)
   (h : WellFormedState s) :
@@ -270,7 +270,7 @@ theorem deposit_getBalance_correct (s : ContractState) (amount : Uint256) :
   rw [deposit_unfold]
   unfold getBalance
   simp [ContractResult.snd, ContractState.writeMap, Verity.bind, Bind.bind, Verity.pure, Pure.pure, Contract.run,
-    getMapping, balances, ContractState.readMap]
+    getMapping, balances, ContractState.readMap, ContractState.storageMap]
 
 /-! ## Summary of Proven Properties
 

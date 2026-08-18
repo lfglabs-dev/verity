@@ -35,7 +35,9 @@ theorem transferOwnership_writes_only (s : ContractState) (newOwner : Address)
   simp [transferOwnership, footprint, WritesOnly, owner,
     msgSender, getStorageAddr, setStorageAddr, ContractState.readAddrSlot,
     ContractState.writeAddrSlot, Verity.require, Verity.bind, Bind.bind,
-    Contract.run, ContractResult.snd, h_owner, Specs.sameContext]
+    Contract.run, ContractResult.snd, h_owner, Specs.sameContext,
+    ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
+    ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage]
   intro _ hneq heq
   exact (hneq heq).elim
 
@@ -49,7 +51,9 @@ theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : 
     Contract.run, ContractResult.snd, h_owner,
     Specs.storageAddrUpdateSpec, Specs.storageAddrUnchangedExcept,
     Specs.sameStorageMapContext, Specs.sameStorage, Specs.sameStorageMap,
-    Specs.sameStorageArray, Specs.sameContext]
+    Specs.sameStorageArray, Specs.sameContext,
+    ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
+    ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage]
   intro _ hneq heq
   exact (hneq heq).elim
 

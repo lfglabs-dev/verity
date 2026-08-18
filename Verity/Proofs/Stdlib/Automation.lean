@@ -142,12 +142,16 @@ macro_rules
       `(tactic| (rw [$h]; simp [ContractResult.snd,
         ContractState.writeSlot, ContractState.writeAddrSlot,
         ContractState.writeMap, ContractState.writeMapUint,
-        ContractState.writeMap2, ContractState.writeTransient]))
+        ContractState.writeMap2, ContractState.writeTransient,
+        ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
+        ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage]))
   | `(tactic| verity_frame $h:rwRule with $extra:simpLemma) =>
       `(tactic| (rw [$h]; simp [ContractResult.snd,
         ContractState.writeSlot, ContractState.writeAddrSlot,
         ContractState.writeMap, ContractState.writeMapUint,
-        ContractState.writeMap2, ContractState.writeTransient, $extra]))
+        ContractState.writeMap2, ContractState.writeTransient,
+        ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
+        ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage, $extra]))
   | `(tactic| verity_spec $spec:simpLemma using $h:rwRule) =>
       `(tactic|
         (rw [$h]

@@ -30,14 +30,14 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
       ContractState.writeAddrSlot, ContractState.writeSlot]
   · intro slotIdx h_neq
     simp [constructorCompat, ownerSlot, setStorageAddr, setStorage, Contract.runState, Verity.bind,
-      Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot]
+      Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storageAddr]
   · intro slotIdx h_neq
     simp [constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage, Contract.runState,
-      Verity.bind, Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot]
+      Verity.bind, Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storage]
   · simp [Specs.sameStorageMap, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
-      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
+      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storageMap]
   · simp [Specs.sameStorageMap2, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
-      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
+      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storageMap2]
   · simp [Specs.sameStorageArray, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
       Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
   · simp [Specs.sameContext, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
@@ -54,10 +54,10 @@ theorem approve_meets_spec (s : ContractState) (spender : Address) (amount : Uin
   · refine ⟨?_, ?_⟩
     · intro o' sp' h_neq
       simp [approve, allowancesSlot, setMapping2, msgSender, Contract.runState, Verity.bind, Bind.bind,
-        h_neq, ContractState.writeMap2]
+        h_neq, ContractState.writeMap2, ContractState.storageMap2]
     · intro sp' h_neq
       simp [approve, allowancesSlot, setMapping2, msgSender, Contract.runState, Verity.bind, Bind.bind,
-        h_neq, ContractState.writeMap2]
+        h_neq, ContractState.writeMap2, ContractState.storageMap2]
   · refine ⟨?_, ?_, ?_, ?_, ?_⟩
     · rfl
     · rfl
@@ -125,15 +125,15 @@ theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amoun
   simp only [Contract.runState, mint_spec]
   rw [h_unfold_apply]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simp [ContractState.writeSlot, ContractState.writeMap]
-  · simp [ContractState.writeSlot, ContractState.writeMap]
+  · simp [ContractState.writeSlot, ContractState.writeMap, ContractState.storageMap, ContractState.storage]
+  · simp [ContractState.writeSlot, ContractState.writeMap, ContractState.storageMap, ContractState.storage]
   · refine ⟨?_, ?_⟩
     · intro addr h_ne
-      simp [ContractState.writeSlot, ContractState.writeMap, h_ne]
+      simp [ContractState.writeSlot, ContractState.writeMap, h_ne, ContractState.storageMap, ContractState.storage]
     · intro slotIdx h_ne addr
-      simp [ContractState.writeSlot, ContractState.writeMap, h_ne]
+      simp [ContractState.writeSlot, ContractState.writeMap, h_ne, ContractState.storageMap, ContractState.storage]
   · intro slotIdx h_ne
-    simp [ContractState.writeSlot, ContractState.writeMap, h_ne]
+    simp [ContractState.writeSlot, ContractState.writeMap, h_ne, ContractState.storageMap, ContractState.storage]
   · rfl
   · rfl
   · rfl
@@ -215,14 +215,14 @@ theorem transfer_meets_spec_when_sufficient (s : ContractState) (toAddr : Addres
     rw [h_unfold_apply]
     have h_ne' := address_beq_false_of_ne s.sender toAddr h_eq
     refine ⟨h_balance, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-    · simp [ContractState.writeMap, h_ne', h_eq]
-    · simp [ContractState.writeMap, h_ne']
-    · simp [ContractState.writeMap, h_ne']
+    · simp [ContractState.writeMap, h_ne', h_eq, ContractState.storageMap]
+    · simp [ContractState.writeMap, h_ne', ContractState.storageMap, ContractState.storage]
+    · simp [ContractState.writeMap, h_ne', ContractState.storageMap, ContractState.storage]
       refine ⟨?_, ?_⟩
       · intro addr h_ne_sender h_ne_to
-        simp [h_ne_sender, h_ne_to]
+        simp [h_ne_sender, h_ne_to, ContractState.storageMap]
       · intro slotIdx h_neq addr'
-        simp [h_neq]
+        simp [h_neq, ContractState.storageMap, ContractState.storage]
     · trivial
     · trivial
     · rfl
