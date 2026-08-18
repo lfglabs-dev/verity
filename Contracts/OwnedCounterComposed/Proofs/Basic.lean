@@ -35,8 +35,7 @@ theorem increment_meets_spec_when_owner (s : ContractState)
     Specs.storageUpdateSpec, Specs.storageUnchangedExcept,
     Specs.sameAddrMapContext, Specs.sameStorageAddr, Specs.sameStorageMap,
     Specs.sameStorageArray, Specs.sameContext]
-  intro _ hneq heq
-  exact (hneq heq).elim
+  simp_all [ContractState.storage_unfold, ContractState.storageAddr_unfold, ContractState.storageMap_unfold, ContractState.storageMapUint_unfold, ContractState.storageMap2_unfold, ContractState.transientStorage_unfold]
 
 theorem increment_preserves_owner (s : ContractState)
     (h_owner : s.sender = s.storageAddr (StorageSlot.slot owner)) :
@@ -46,7 +45,7 @@ theorem increment_preserves_owner (s : ContractState)
   simp only [increment, Bind.bind]
   rw [bind_run_success onlyOwner _ s () hok]
   simp [count, getStorage, setStorage, ContractState.readSlot, ContractState.writeSlot,
-    Verity.bind, Contract.run, ContractResult.snd]
+    Verity.bind, Contract.run, ContractResult.snd, ContractState.storageAddr]
 
 theorem increment_writes_only_count (s : ContractState)
     (h_owner : s.sender = s.storageAddr (StorageSlot.slot owner)) :
@@ -57,8 +56,7 @@ theorem increment_writes_only_count (s : ContractState)
   simp [countFootprint, WritesOnly, count, getStorage, setStorage,
     ContractState.readSlot, ContractState.writeSlot,
     Verity.bind, Contract.run, ContractResult.snd, Specs.sameContext]
-  intro _ hneq heq
-  exact (hneq heq).elim
+  simp_all [ContractState.storage_unfold, ContractState.storageAddr_unfold, ContractState.storageMap_unfold, ContractState.storageMapUint_unfold, ContractState.storageMap2_unfold, ContractState.transientStorage_unfold]
 
 theorem increment_preserves_ownable_inv (s : ContractState)
     (h_owner : s.sender = s.storageAddr (StorageSlot.slot owner))

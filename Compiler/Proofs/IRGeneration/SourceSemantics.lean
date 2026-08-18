@@ -1094,7 +1094,7 @@ def writeStorageArray (world : Verity.ContractState) (slot : Nat)
 private def ceilDivVal (lhs rhs : Verity.Core.Uint256) : Nat :=
   if lhs == 0 then 0 else ((lhs - 1) / rhs + 1).val
 
-private abbrev dynamicArrayBinding? :=
+abbrev dynamicArrayBinding? :=
   DynamicAbi.dynamicArrayBinding?
 
 private abbrev arrayElement? :=
