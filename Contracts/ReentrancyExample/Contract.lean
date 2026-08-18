@@ -118,11 +118,11 @@ theorem vulnerable_attack_exists :
     , callOracle := fun _ _ => 1 }
   refine ⟨s, env, ?_⟩
   constructor
-  · simp [s, balances, ContractState.ofChannels]
+  · simp [s, balances, ContractState.ofChannels, ContractState.storageMap]
   constructor
-  · simp [s, totalSupply, ContractState.ofChannels]
+  · simp [s, totalSupply, ContractState.ofChannels, ContractState.storage]
   constructor
-  · simp [s, supplyInvariant, balances, totalSupply, ContractState.ofChannels]
+  · simp [s, supplyInvariant, balances, totalSupply, ContractState.ofChannels, ContractState.storage, ContractState.storageMap]
   ·
     have h_neq : (1 : Uint256) ≠ (0 : Uint256) := by decide
     -- After simplification, the invariant reduces to `1 = 0`, which is false.

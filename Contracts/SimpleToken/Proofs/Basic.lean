@@ -53,7 +53,7 @@ theorem setMapping_updates_balance (s : ContractState) (addr : Address) (value :
   let slotIdx : StorageSlot (Address → Uint256) := Contracts.SimpleToken.balancesSlot
   let s' := ((setMapping slotIdx addr value).run s).snd
   s'.storageMap 1 addr = value := by
-  simp [setMapping, Contracts.SimpleToken.balancesSlot]
+  simp [setMapping, Contracts.SimpleToken.balancesSlot, ContractState.storageMap]
 
 /-- getMapping reads a balance -/
 theorem getMapping_reads_balance (s : ContractState) (addr : Address) :
@@ -81,7 +81,7 @@ theorem setMapping_preserves_other_addresses (s : ContractState) (slot_val : Sto
   (addr value : _) (other_addr : Address) (h : other_addr ≠ addr) :
   let s' := ((setMapping slot_val addr value).run s).snd
   s'.storageMap slot_val.«slot» other_addr = s.storageMap slot_val.«slot» other_addr := by
-  simp [setMapping, h]
+  simp [setMapping, h, ContractState.storageMap]
 
 /-! ## Constructor Correctness -/
 
@@ -89,18 +89,21 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
   let s' := ((simpleTokenConstructor initialOwner).run s).snd
   constructor_spec initialOwner s s' := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
-  · rfl
+  · simp [simpleTokenConstructor, Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.totalSupplySlot,
+      setStorage, setStorageAddr, Contract.run, ContractResult.snd, Verity.bind, Bind.bind,
+      Verity.pure, Pure.pure, ContractState.writeAddrSlot, ContractState.writeSlot,
+      ContractState.storageAddr]
   · rfl
   · intro slotIdx h_neq
     verity_unfold simpleTokenConstructor
     simp only [Contracts.SimpleToken.ownerSlot,
       Contracts.SimpleToken.totalSupplySlot]
-    simp [h_neq]
+    simp [h_neq, ContractState.storageAddr, ContractState.storage]
   · intro slotIdx h_neq
     verity_unfold simpleTokenConstructor
     simp only [Contracts.SimpleToken.ownerSlot,
       Contracts.SimpleToken.totalSupplySlot]
-    simp [h_neq]
+    simp [h_neq, ContractState.storageAddr, ContractState.storage]
   · rfl
   ·
     refine ⟨?_, ?_⟩
@@ -175,12 +178,12 @@ theorem mint_meets_spec_when_owner (s : ContractState) (toAddr : Address) (amoun
   rw [h_unfold_apply]
   simp only [ContractResult.snd, ContractState.writeSlot, ContractState.writeMap]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
-  · simp -- balance of 'toAddr' updated
-  · simp -- supply updated
+  · simp [ContractState.storageMap, ContractState.storage] -- balance of 'toAddr' updated
+  · simp [ContractState.storage, ContractState.storageMap] -- supply updated
   · refine ⟨?_, ?_⟩
-    · intro addr h_neq; simp [h_neq] -- other balances preserved
-    · intro slotIdx h_neq addr; simp [h_neq] -- other mapping slots
-  · intro slotIdx h_neq; simp [h_neq] -- other uint storage
+    · intro addr h_neq; simp [h_neq, ContractState.storageMap] -- other balances preserved
+    · intro slotIdx h_neq addr; simp [h_neq, ContractState.storageMap] -- other mapping slots
+  · intro slotIdx h_neq; simp [h_neq, ContractState.storage] -- other uint storage
   · trivial -- owner preserved
   · exact Specs.sameContext_rfl _
 
@@ -301,7 +304,10 @@ theorem transfer_meets_spec_when_sufficient (s : ContractState) (toAddr : Addres
     · simp [h_eq, beq_iff_eq, Specs.storageMapUnchangedExceptKeyAtSlot,
         Specs.storageMapUnchangedExceptKey, Specs.storageMapUnchangedExceptSlot]
     · rfl
-    · simp [Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext]
+    · simp [Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext,
+      ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
+      ContractState.writeMap, ContractState.storageMap_unfold, ContractState.storage_unfold,
+      ContractState.storageAddr_unfold]
   · have h_unfold := transfer_unfold_other s toAddr amount h_balance h_eq (h_no_overflow h_eq)
     have h_unfold_apply := Contract.eq_of_run_success h_unfold
     simp only [Contract.run, ContractResult.snd, transfer_spec]
@@ -309,15 +315,22 @@ theorem transfer_meets_spec_when_sufficient (s : ContractState) (toAddr : Addres
     simp only [ContractResult.snd, ContractState.writeSlot, ContractState.writeMap]
     have h_ne' := address_beq_false_of_ne s.sender toAddr h_eq
     refine ⟨h_balance, ?_, ?_, ?_, ?_, ?_⟩
-    · simp [h_ne'] -- sender balance decreased
-    · simp [h_ne'] -- recipient balance increased
-    · simp [h_ne'] -- other balances/slots preserved
+    · simp (config := {zetaDelta := true}) [h_ne', h_eq, ContractState.writeMap,
+      ContractState.storageMap, ContractState.storage, ContractState.storageAddr,
+      ContractState.storageMap_unfold, ContractState.storage_unfold] -- sender balance decreased
+    · simp (config := {zetaDelta := true}) [h_ne', h_eq, ContractState.writeMap,
+      ContractState.storageMap, ContractState.storage, ContractState.storageAddr,
+      ContractState.storageMap_unfold, ContractState.storage_unfold] -- recipient balance increased
+    · simp [h_ne', ContractState.storageMap, ContractState.storage] -- other balances/slots preserved
       refine ⟨?_, ?_⟩
-      · intro addr h_ne_sender h_ne_to; simp [h_ne_sender, h_ne_to]
-      · intro slotIdx h_neq addr'; simp [h_neq]
+      · intro addr h_ne_sender h_ne_to; simp [h_ne_sender, h_ne_to, ContractState.storageMap]
+      · intro slotIdx h_neq addr'; simp [h_neq, ContractState.storageMap, ContractState.storage]
     · -- owner preserved
       trivial
-    · simp [Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext]
+    · simp [Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext,
+      ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
+      ContractState.writeMap, ContractState.storageMap_unfold, ContractState.storage_unfold,
+      ContractState.storageAddr_unfold]
 
 theorem transfer_preserves_supply_when_sufficient (s : ContractState) (toAddr : Address) (amount : Uint256)
   (h_balance : s.storageMap 1 s.sender ≥ amount)
@@ -446,7 +459,12 @@ theorem constructor_getOwner_correct (s : ContractState) (initialOwner : Address
   verity_unfold simpleTokenConstructor with getOwner
   simp only [Contracts.SimpleToken.ownerSlot,
     Contracts.SimpleToken.totalSupplySlot]
-  rfl
+  simp [simpleTokenConstructor, getOwner, msgSender, Contracts.SimpleToken.ownerSlot,
+    Contracts.SimpleToken.totalSupplySlot, setStorageAddr, setStorage, getStorageAddr,
+    Contract.run, Contract.runValue, ContractResult.snd, ContractResult.fst,
+    Verity.bind, Bind.bind, Verity.pure, Pure.pure, Verity.require, beq_iff_eq,
+    ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.readAddrSlot,
+    ContractState.storageAddr, ContractState.storage_unfold, ContractState.storageAddr_unfold]
 
 /-! ## Invariant Preservation -/
 
