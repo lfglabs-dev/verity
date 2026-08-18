@@ -144,14 +144,16 @@ macro_rules
         ContractState.writeMap, ContractState.writeMapUint,
         ContractState.writeMap2, ContractState.writeTransient,
         ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
-        ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage]))
+        ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage,
+        ContractState.storage_unfold, ContractState.storageAddr_unfold, ContractState.storageMap_unfold, ContractState.storageMapUint_unfold, ContractState.storageMap2_unfold, ContractState.transientStorage_unfold]))
   | `(tactic| verity_frame $h:rwRule with $extra:simpLemma) =>
       `(tactic| (rw [$h]; simp [ContractResult.snd,
         ContractState.writeSlot, ContractState.writeAddrSlot,
         ContractState.writeMap, ContractState.writeMapUint,
         ContractState.writeMap2, ContractState.writeTransient,
         ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
-        ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage, $extra]))
+        ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage,
+        ContractState.storage_unfold, ContractState.storageAddr_unfold, ContractState.storageMap_unfold, ContractState.storageMapUint_unfold, ContractState.storageMap2_unfold, ContractState.transientStorage_unfold, $extra]))
   | `(tactic| verity_spec $spec:simpLemma using $h:rwRule) =>
       `(tactic|
         (rw [$h]

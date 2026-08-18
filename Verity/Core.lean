@@ -369,6 +369,23 @@ def storage (s : ContractState) : Nat → Uint256 :=
 theorem storageWords_slot (s : ContractState) (n : Nat) :
     s.storageWords (.slot n) = s.storage n := rfl
 
+/-! Partial-application unfold lemmas for the storage views. Unlike the
+`storage.eq_1`-style equation lemmas, these rewrite partially applied views
+(`s.storageMap`), which `simp [ContractState.storageMap]` cannot. Passed
+explicitly at contract proof sites; deliberately not default `@[simp]`. -/
+theorem storage_unfold (s : ContractState) :
+    s.storage = fun n => s.storageWords (.slot n) := rfl
+theorem storageAddr_unfold (s : ContractState) :
+    s.storageAddr = fun n => wordToAddress (s.storageWords (.addr n)) := rfl
+theorem storageMap_unfold (s : ContractState) :
+    s.storageMap = fun n key => s.storageWords (.map n key) := rfl
+theorem storageMapUint_unfold (s : ContractState) :
+    s.storageMapUint = fun n key => s.storageWords (.mapUint n key) := rfl
+theorem storageMap2_unfold (s : ContractState) :
+    s.storageMap2 = fun n key1 key2 => s.storageWords (.map2 n key1 key2) := rfl
+theorem transientStorage_unfold (s : ContractState) :
+    s.transientStorage = fun n => s.storageWords (.transient n) := rfl
+
 /-- Compatibility view for explicitly identified contract worlds. Contract
     `0` remains the unqualified storage world. -/
 def contractStorage (s : ContractState) : Nat → Nat → Uint256 :=

@@ -102,16 +102,16 @@ theorem setApprovalForAll_meets_spec (s : ContractState) (operator : Address) (a
   · refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
     · simp [Specs.sameStorage, Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
       setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2, ContractState.storage]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2, ContractState.storage, ContractState.storage_unfold]
     · simp [Specs.sameStorageAddr, Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
       setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2, ContractState.storageAddr]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2, ContractState.storageAddr, ContractState.storageAddr_unfold]
     · simp [Specs.sameStorageMap, Contracts.ERC721.setApprovalForAll, Contracts.ERC721.operatorApprovals,
       setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2, ContractState.storageMap]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2, ContractState.storageMap, ContractState.storageMap_unfold]
     · simp [Specs.sameStorageMapUint, Contracts.ERC721.setApprovalForAll,
       Contracts.ERC721.operatorApprovals, setMapping2,
-      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2, ContractState.storageMapUint]
+      msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2, ContractState.storageMapUint, ContractState.storageMapUint_unfold]
     · simp [Specs.sameStorageArray, Contracts.ERC721.setApprovalForAll,
       Contracts.ERC721.operatorApprovals, setMapping2,
       msgSender, Contract.runState, Verity.bind, Bind.bind, ContractState.writeMap2]

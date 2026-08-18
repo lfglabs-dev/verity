@@ -35,9 +35,11 @@ theorem constructor_meets_spec (s : ContractState) (initialOwner : Address) :
     simp [constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage, Contract.runState,
       Verity.bind, Bind.bind, h_neq, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storage]
   · simp [Specs.sameStorageMap, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
-      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storageMap]
+      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storageMap,
+      ContractState.storageMap_unfold]
   · simp [Specs.sameStorageMap2, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
-      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storageMap2]
+      Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot, ContractState.storageMap2,
+      ContractState.storageMap2_unfold]
   · simp [Specs.sameStorageArray, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,
       Contract.runState, Verity.bind, Bind.bind, ContractState.writeAddrSlot, ContractState.writeSlot]
   · simp [Specs.sameContext, constructorCompat, ownerSlot, totalSupplySlot, setStorageAddr, setStorage,

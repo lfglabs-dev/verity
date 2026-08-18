@@ -38,8 +38,7 @@ theorem transferOwnership_writes_only (s : ContractState) (newOwner : Address)
     Contract.run, ContractResult.snd, h_owner, Specs.sameContext,
     ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
     ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage]
-  intro _ hneq heq
-  exact (hneq heq).elim
+  simp_all
 
 theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : Address)
     (h_owner : s.sender = s.storageAddr (StorageSlot.slot owner)) :
@@ -54,8 +53,7 @@ theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : 
     Specs.sameStorageArray, Specs.sameContext,
     ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
     ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage]
-  intro _ hneq heq
-  exact (hneq heq).elim
+  simp_all
 
 theorem getOwner_meets_spec (s : ContractState) :
     getOwner_spec ((getOwner).run s).fst s := by

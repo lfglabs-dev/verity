@@ -180,7 +180,8 @@ theorem transfer_meets_spec (s : ContractState) (toAddr : Address) (amount : Uin
         simp [h_ne_sender, h_ne_to, ContractState.storageMap]
       · intro slotIdx h_slot addr
         simp [h_slot, ContractState.storageMap, ContractState.storage]
-    · simp [ContractState.writeMap, Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext, ContractState.storageMap, ContractState.storage, ContractState.storageAddr]
+    · simp [ContractState.writeMap, Specs.sameStorageAddrContext, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, Specs.sameContext, ContractState.storageMap, ContractState.storage, ContractState.storageAddr,
+      ContractState.storageMap_unfold, ContractState.storage_unfold, ContractState.storageAddr_unfold]
 
 theorem transfer_self_preserves_balance (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
@@ -237,14 +238,18 @@ theorem deposit_preserves_non_mapping (s : ContractState) (amount : Uint256) :
   let s' := ((deposit amount).run s).snd
   non_mapping_storage_unchanged s s' := by
   rw [deposit_unfold]
-  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, ContractState.storage, ContractState.storageAddr]
+  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, ContractState.storage, ContractState.storageAddr,
+    ContractState.storageMap_unfold, ContractState.storage_unfold, ContractState.storageAddr_unfold,
+    ContractState.storageMap]
 
 theorem withdraw_preserves_non_mapping (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount) :
   let s' := ((withdraw amount).run s).snd
   non_mapping_storage_unchanged s s' := by
   rw [withdraw_unfold s amount h_balance]
-  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, ContractState.storage, ContractState.storageAddr]
+  simp [ContractResult.snd, ContractState.writeMap, non_mapping_storage_unchanged, Specs.sameStorage, Specs.sameStorageAddr, Specs.sameStorageArray, ContractState.storage, ContractState.storageAddr,
+    ContractState.storageMap_unfold, ContractState.storage_unfold, ContractState.storageAddr_unfold,
+    ContractState.storageMap]
 
 theorem deposit_preserves_wellformedness (s : ContractState) (amount : Uint256)
   (h : WellFormedState s) :
