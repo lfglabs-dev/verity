@@ -6278,6 +6278,10 @@ def NativeMappingFreeSideConditionForBridgedStraightStmt :
   | .exprStmt (.call "revert" [offsetExpr, sizeExpr]) =>
       NativeMappingFreeBridgedExpr offsetExpr ∧
         NativeMappingFreeBridgedExpr sizeExpr
+  | .exprStmt (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr]) =>
+      NativeMappingFreeSideConditionForBridgedExpr destOffset ∧
+        NativeMappingFreeSideConditionForBridgedExpr sourceOffset ∧
+        NativeMappingFreeSideConditionForBridgedExpr sizeExpr
   | .exprStmt (.call func args) =>
       Compiler.Proofs.YulGeneration.isYulLogName func = true →
         ∀ arg, arg ∈ args → NativeMappingFreeSideConditionForBridgedExpr arg
@@ -6355,6 +6359,13 @@ theorem NativeMappingFreePreservableStraightStmt.of_bridgedStraightStmt
         NativeMappingFreePreservableStraightStmt.expr_tstore offsetExpr valExpr
           (NativeMappingFreeBridgedExpr.of_bridgedExpr hOffset hSide.1)
           (NativeMappingFreeBridgedExpr.of_bridgedExpr hVal hSide.2)
+  | expr_calldatacopy destOffset sourceOffset sizeExpr hDest hSource hSize =>
+      exact
+        NativeMappingFreePreservableStraightStmt.expr_calldatacopy destOffset
+          sourceOffset sizeExpr
+          (NativeMappingFreeBridgedExpr.of_bridgedExpr hDest hSide.1)
+          (NativeMappingFreeBridgedExpr.of_bridgedExpr hSource hSide.2.1)
+          (NativeMappingFreeBridgedExpr.of_bridgedExpr hSize hSide.2.2)
   | expr_stop =>
       exact NativeMappingFreePreservableStraightStmt.expr_stop
   | expr_return offsetExpr sizeExpr hOffset hSize =>
@@ -6539,6 +6550,9 @@ theorem NativePreservableStraightStmt.of_bridgedStraightStmt
       exact NativePreservableStraightStmt.expr_mstore offsetExpr valExpr hOffset hVal
   | expr_tstore offsetExpr valExpr hOffset hVal =>
       exact NativePreservableStraightStmt.expr_tstore offsetExpr valExpr hOffset hVal
+  | expr_calldatacopy destOffset sourceOffset sizeExpr hDest hSource hSize =>
+      exact NativePreservableStraightStmt.expr_calldatacopy destOffset sourceOffset
+        sizeExpr hDest hSource hSize
   | expr_stop =>
       exact NativePreservableStraightStmt.expr_stop
   | expr_return offsetExpr sizeExpr hOffset hSize =>

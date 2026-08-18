@@ -134,6 +134,9 @@ inductive BridgedSafeStmts
   | tstore {isInternal : Bool} {stmts : List Stmt}
       (hStmts : BridgedSourceTstoreStmts stmts) :
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
+  | calldatacopy {isInternal : Bool} {stmts : List Stmt}
+      (hStmts : BridgedSourceCalldatacopyStmts stmts) :
+      BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
   | storageArrayPush {isInternal : Bool} {stmts : List Stmt}
       (hStmts : BridgedSourceStorageArrayPushStmts fields stmts) :
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
@@ -554,6 +557,24 @@ theorem bridgedSafeStmts_tstoreSingle_of_exprCompileCore
     subst stmt
     exact bridgedSourceTstoreStmt_of_exprCompileCore hOffset hValue)
 
+/-- The singleton `calldatacopy` shape exposed by
+    `SupportedFragment.calldatacopySingle` is a native safe body whenever its
+    three arguments are compile-core expressions. -/
+theorem bridgedSafeStmts_calldatacopySingle_of_exprCompileCore
+    {fields : List Field} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} {destOffset sourceOffset size : Expr}
+    (hDest : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore destOffset)
+    (hSource : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore sourceOffset)
+    (hSize : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore size) :
+    BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal
+      [Stmt.calldatacopy destOffset sourceOffset size] :=
+  BridgedSafeStmts.calldatacopy (by
+    intro stmt hMem
+    simp only [List.mem_singleton] at hMem
+    subst stmt
+    exact bridgedSourceCalldatacopyStmt_of_exprCompileCore hDest hSource hSize)
+
 /-- Singleton native safe-body package for a single-slot `setMapping` write. -/
 theorem bridgedSafeStmts_setMappingSingleSlot
     {fields : List Field} {errors : List ErrorDef}
@@ -963,6 +984,8 @@ theorem BridgedSafeStmts.toBridgedSource
       exact fun stmt hMem => .mstore (hStmts stmt hMem)
   | tstore hStmts =>
       exact fun stmt hMem => .tstore (hStmts stmt hMem)
+  | calldatacopy hStmts =>
+      exact fun stmt hMem => .calldatacopy (hStmts stmt hMem)
   | storageArrayPush hStmts =>
       exact fun stmt hMem => .storageArrayPush (hStmts stmt hMem)
   | storageArrayPop hStmts =>

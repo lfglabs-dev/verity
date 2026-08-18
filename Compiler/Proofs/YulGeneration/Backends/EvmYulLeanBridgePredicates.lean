@@ -76,6 +76,11 @@ inductive BridgedStraightStmt : Compiler.Yul.YulStmt → Prop
   | expr_tstore (offsetExpr valExpr : Compiler.Yul.YulExpr)
       (hOffset : BridgedExpr offsetExpr) (hVal : BridgedExpr valExpr) :
       BridgedStraightStmt (.exprStmt (.call "tstore" [offsetExpr, valExpr]))
+  | expr_calldatacopy (destOffset sourceOffset sizeExpr : Compiler.Yul.YulExpr)
+      (hDest : BridgedExpr destOffset) (hSource : BridgedExpr sourceOffset)
+      (hSize : BridgedExpr sizeExpr) :
+      BridgedStraightStmt
+        (.exprStmt (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr]))
   | expr_stop : BridgedStraightStmt (.exprStmt (.call "stop" []))
   | expr_return (offsetExpr sizeExpr : Compiler.Yul.YulExpr)
       (hOffset : BridgedExpr offsetExpr) (hSize : BridgedExpr sizeExpr) :

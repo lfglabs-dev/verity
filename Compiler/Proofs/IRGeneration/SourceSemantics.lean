@@ -2597,8 +2597,9 @@ mutual
                 state.world with
                 memory := fun o =>
                   if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                    Compiler.Proofs.YulGeneration.calldataloadWord
-                      state.selector state.world.calldata (src + (o - dst))
+                    Verity.Core.Uint256.ofNat
+                      (Compiler.Proofs.YulGeneration.calldataloadWord
+                        state.selector state.world.calldata (src + (o - dst)))
                   else state.world.memory o
               }
             }
@@ -2897,8 +2898,9 @@ mutual
                 state.world with
                 memory := fun o =>
                   if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                    Compiler.Proofs.YulGeneration.calldataloadWord
-                      state.selector state.world.calldata (src + (o - dst))
+                    Verity.Core.Uint256.ofNat
+                      (Compiler.Proofs.YulGeneration.calldataloadWord
+                        state.selector state.world.calldata (src + (o - dst)))
                   else state.world.memory o
               }
             }
@@ -4265,8 +4267,9 @@ mutual
                 state.world with
                 memory := fun o =>
                   if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                    Compiler.Proofs.YulGeneration.calldataloadWord
-                      state.selector state.world.calldata (src + (o - dst))
+                    Verity.Core.Uint256.ofNat
+                      (Compiler.Proofs.YulGeneration.calldataloadWord
+                        state.selector state.world.calldata (src + (o - dst)))
                   else state.world.memory o
               }
             }
@@ -5715,6 +5718,27 @@ mutual
       evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state offset hsurface.1,
       evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state value hsurface.2]
 
+  private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_calldatacopy
+      (spec : CompilationModel)
+      (fields : List Field)
+      (fuel : Nat)
+      (state : RuntimeState)
+      (destOffset sourceOffset size : Expr)
+      (hsurface :
+        stmtTouchesUnsupportedHelperSurface (.calldatacopy destOffset sourceOffset size)
+          = false) :
+      execStmtWithHelpers spec fields fuel state (.calldatacopy destOffset sourceOffset size) =
+        execStmtWithEvents fields spec.events state
+          (.calldatacopy destOffset sourceOffset size) := by
+    simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+    simp [execStmtWithHelpers, execStmtWithEvents,
+      evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state destOffset
+        hsurface.1.1,
+      evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state sourceOffset
+        hsurface.1.2,
+      evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state size
+        hsurface.2]
+
   private theorem expr_sizeOf_pos (expr : Expr) : 0 < sizeOf expr := by
     cases expr <;> simp
 
@@ -5914,7 +5938,9 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .returnBytes _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnStorageWords _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnCodeData _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .calldatacopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .calldatacopy destOffset sourceOffset size =>
+      exact execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_calldatacopy
+        spec fields fuel state destOffset sourceOffset size hsurface
   | .returndataCopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
   | .emit _ args =>
