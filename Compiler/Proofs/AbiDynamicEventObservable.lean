@@ -230,7 +230,7 @@ theorem dynEmitHeadExprs_eval :
       DynEmitDenotes state args abiArgs →
       evalIRExprs state (dynEmitHeadExprs args tailOffset) =
         some (abiEncodeArgHeads abiArgs tailOffset)
-  | [], [], _, _, _ => rfl
+  | [], [], _, _, _ => by simp [dynEmitHeadExprs, abiEncodeArgHeads, evalIRExprs]
   | [], _ :: _, _, _, h => absurd h (by simp [DynEmitDenotes])
   | _ :: _, [], _, _, h => absurd h (by simp [DynEmitDenotes])
   | arg :: args, abiArg :: abiArgs, state, tailOffset, h => by
@@ -266,7 +266,7 @@ theorem dynEmitTailExprs_eval :
       DynEmitDenotes state args abiArgs →
       evalIRExprs state (args.flatMap DynEmitArg.tailExprs) =
         some (abiArgs.flatMap AbiArg.tail)
-  | [], [], _, _ => rfl
+  | [], [], _, _ => by simp [evalIRExprs]
   | [], _ :: _, _, h => absurd h (by simp [DynEmitDenotes])
   | _ :: _, [], _, h => absurd h (by simp [DynEmitDenotes])
   | arg :: args, abiArg :: abiArgs, state, h => by
@@ -362,7 +362,7 @@ theorem dynEmitUnindexedStores_exec (args : List DynEmitArg) (abiArgs : List Abi
     show (abiEncodeArgs abiArgs).length + fuel + 1 =
       (abiWordWrites 0 (dynEmitPayloadExprs args)).length + fuel + 1 from by
         rw [abiWordWrites_length, hlen],
-    hblock, abiWordWrites_zip_eq_abiBlockWrites _ _ p 0 (by rw [hlen, abiWordWrites_length]),
+    hblock, abiWordWrites_zip_eq_abiBlockWrites _ _ p 0 hlen.symm,
     Nat.add_zero]
 
 /-- The log data payload of the dynamic block is exactly `abiEncodeArgs`. -/
@@ -512,7 +512,7 @@ theorem dynamicEmitPayload_log_observable
     (abiEncodeScalarHeads (eventAbiScalarArgs indexed indexedValues)) mid
     (YulExpr.ident "__evt_data_tail") p (32 * (abiEncodeArgs abiArgs).length) topic0 fuel
     (by rw [hmid]; exact hptr) (by rw [hmid]; exact htopic0)
-    (by rw [hmid]; exact hdataTail) hindexedLen
+    (by rw [hmid]; simpa [evalIRExpr, IRState.getVar] using hdataTail) hindexedLen
     (scalarEventIndexedTopicParts_eval indexed indexedValues mid hsupportIndexed
       (by rw [hmid, evalIRExprs_mem_insensitive _ hmiIndexed state _]; exact hindexedVals))
   rw [execIRStmts_block_then_stmt _ _ _ _ _ _ _ _
