@@ -1117,6 +1117,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_length
   Compiler.Proofs.AbiEncoding.abiEncodeArgs_headSize
   -- Compiler.Proofs.AbiEncoding.abiDynamicTailSize_cons  -- private
+  -- Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_getElem?_dynamic  -- private
   Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_dynamic_offset
   Compiler.Proofs.AbiEncoding.abiEncodeArgs_tails_append
   Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_append
@@ -7016,4 +7017,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6505 theorems/lemmas (4635 public, 1870 private, 0 sorry'd)
+-- Total: 6506 theorems/lemmas (4635 public, 1871 private, 0 sorry'd)
