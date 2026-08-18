@@ -580,7 +580,13 @@ theorem interpretContractWith_correct_of_functions_generic_external
 /-- Widened dispatcher correctness for `interpretContract`, generic over the
 per-entry compile predicate.  Parameter supportedness enters only through
 `hbindTotal`, so this covers `bytes` (and every other shape the external ABI
-binder decodes) in addition to the scalars. -/
+binder decodes) in addition to the scalars.
+
+`hbindTotal` is not free for a dynamic parameter: unlike the scalar case it
+does not follow from arity, since a malformed offset or a truncated tail makes
+the binder fail.  `Compiler/Proofs/IRGeneration/DispatchBytesParam.lean`
+discharges it at `bytes` from the ABI encoder, which is what makes the
+instantiation there non-vacuous. -/
 theorem interpretContract_correct_of_functions_generic_external
     (model : CompilationModel) (selectors : List Nat)
     (irFns : List IRFunction) (tx : IRTransaction)
