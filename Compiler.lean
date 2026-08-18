@@ -31,6 +31,8 @@ import Compiler.Keccak.SpongeProperties
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.AbiEncoding
+import Compiler.Proofs.AbiMemoryLayout
+import Compiler.Proofs.AbiEventObservable
 import Compiler.Proofs.ExecutionSummary
 import Compiler.Proofs.StorageLens
 import Compiler.Proofs.IRGeneration.Expr

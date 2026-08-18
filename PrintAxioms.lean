@@ -42,6 +42,8 @@ import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
 import Compiler.Proofs.AbiEncoding
+import Compiler.Proofs.AbiEventObservable
+import Compiler.Proofs.AbiMemoryLayout
 import Compiler.Proofs.ArithmeticProfile
 import Compiler.Proofs.EndToEnd.Base
 import Compiler.Proofs.EndToEnd.SimpleStorage
@@ -1151,6 +1153,52 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.AbiEncoding.abiEncodeArgs_getD_tail_first  -- private
   Compiler.Proofs.AbiEncoding.bindExternalParam_bytes_of_abiEncodeArgs
   Compiler.Proofs.AbiEncoding.bindExternalParams_bytes_of_abiEncodeArgs
+
+  -- Compiler/Proofs/AbiEventObservable.lean
+  -- Compiler.Proofs.AbiEventObservable.land_mod_evm_right  -- private
+  -- Compiler.Proofs.AbiEventObservable.uint256OfNat_mod_evm  -- private
+  Compiler.Proofs.AbiEventObservable.normalizeEventWord_uintN_eval
+  Compiler.Proofs.AbiEventObservable.normalizeEventWord_bytesN_eval
+  Compiler.Proofs.AbiEventObservable.normalizeEventWord_intN_eval
+  Compiler.Proofs.AbiEventObservable.normalizeEventWord_eval_abiScalarNormalize
+  Compiler.Proofs.AbiEventObservable.eventAbiScalarArgs_nil
+  Compiler.Proofs.AbiEventObservable.eventAbiScalarArgs_cons
+  Compiler.Proofs.AbiEventObservable.evalIRExprs_normalizeEventWord_map
+  Compiler.Proofs.AbiEventObservable.scalarEventIndexedTopicParts_snd
+  Compiler.Proofs.AbiEventObservable.scalarEventIndexedTopicParts_eval
+  Compiler.Proofs.AbiEventObservable.scalarEventWrites_snd
+  Compiler.Proofs.AbiEventObservable.scalarEventWrites_fst
+  Compiler.Proofs.AbiEventObservable.scalarEventWrites_memInsensitive
+  Compiler.Proofs.AbiEventObservable.scalarEventWrites_length
+  Compiler.Proofs.AbiEventObservable.evalIRExprs_length
+  Compiler.Proofs.AbiEventObservable.scalarEventUnindexedStores_length
+  Compiler.Proofs.AbiEventObservable.abiEncodeScalarHeads_eventAbiScalarArgs_length
+  Compiler.Proofs.AbiEventObservable.scalarEventWrites_zip_eq_abiBlockWrites
+  Compiler.Proofs.AbiEventObservable.scalarEventUnindexedStores_exec
+  Compiler.Proofs.AbiEventObservable.scalarEventUnindexedStores_logDataWords
+  Compiler.Proofs.AbiEventObservable.eventUnindexedHeadSize_scalar
+  -- Compiler.Proofs.AbiEventObservable.evalIRExprs_nil_inv  -- private
+  -- Compiler.Proofs.AbiEventObservable.evalIRExprs_cons_inv  -- private
+  Compiler.Proofs.AbiEventObservable.eventLogStmt_exec
+  -- Compiler.Proofs.AbiEventObservable.execIRStmts_block_then_stmt  -- private
+  Compiler.Proofs.AbiEventObservable.scalarEmitPayload_log_observable
+
+  -- Compiler/Proofs/AbiMemoryLayout.lean
+  Compiler.Proofs.AbiMemoryLayout.abiBlockWrites_nil
+  Compiler.Proofs.AbiMemoryLayout.abiBlockWrites_cons
+  Compiler.Proofs.AbiMemoryLayout.abiBlockWrites_length
+  Compiler.Proofs.AbiMemoryLayout.abiBlockWrites_eq_zip
+  -- Compiler.Proofs.AbiMemoryLayout.abiBlockWrites_key_ge  -- private
+  Compiler.Proofs.AbiMemoryLayout.applyWrites_hit
+  Compiler.Proofs.AbiMemoryLayout.applyWrites_abiBlockWrites_head
+  Compiler.Proofs.AbiMemoryLayout.yulLogDataWords_abiBlockWrites
+  Compiler.Proofs.AbiMemoryLayout.applyWrites_abiBlockWrites_getElem
+  Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_length
+  Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_memory_layout
+  Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_memory_head
+  Compiler.Proofs.AbiMemoryLayout.abiEncodeArgs_memory_layout
+  Compiler.Proofs.AbiMemoryLayout.abiEncodeArgs_memory_head
+  Compiler.Proofs.AbiMemoryLayout.abiEncodeArgs_memory_dynamic_offset_points_at_tail
 
   -- Compiler/Proofs/ArithmeticProfile.lean
   Compiler.Proofs.ArithmeticProfile.modulus_is_2_pow_256
@@ -7183,4 +7231,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6654 theorems/lemmas (4759 public, 1895 private, 0 sorry'd)
+-- Total: 6696 theorems/lemmas (4795 public, 1901 private, 0 sorry'd)
