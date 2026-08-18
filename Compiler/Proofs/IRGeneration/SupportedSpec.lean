@@ -25,20 +25,21 @@ def SupportedExternalScalarParamType : ParamType → Prop
   | _ => False
 
 /-- ABI parameter types admitted by external dispatch, widened past the
-single-head-word scalars to the length-prefixed dynamic `bytes` parameter
-(verity#2085).
+single-head-word scalars to the length-prefixed dynamic `bytes` and `string`
+parameters (verity#2085).
 
-`bytes` is deliberately *not* decodable by `decodeSupportedParamWord`: it has no
-single-word value. Its head word is a relative tail offset, and the generated
-calldata loader binds six locals (`_offset`, `_abs_offset`, `_length`,
+Neither `bytes` nor `string` is decodable by `decodeSupportedParamWord`: they
+have no single-word value. Their head word is a relative tail offset, and the
+generated calldata loader binds six locals (`_offset`, `_abs_offset`, `_length`,
 `_tail_head_end`, `_tail_remaining`, `_data_offset`) that
-`DynamicAbi.bindExternalParam` reproduces semantically. Consumers that need an
-actual scalar head word — the native-backend static-scalar bridge and the legacy
-Yul compatibility witnesses — keep requiring
+`DynamicAbi.bindExternalParam` reproduces semantically. `string` is encoded
+byte-for-byte like `bytes`, so it reuses the same loader and the same binder
+lemmas. Consumers that need an actual scalar head word — the native-backend
+static-scalar bridge and the legacy Yul compatibility witnesses — keep requiring
 `SupportedExternalScalarParamType`. -/
 def SupportedExternalParamType : ParamType → Prop
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
-  | .address | .bytes32 | .bool | .bytes => True
+  | .address | .bytes32 | .bool | .bytes | .string => True
   | _ => False
 
 theorem SupportedExternalParamType_of_scalar {ty : ParamType}
@@ -50,16 +51,20 @@ theorem SupportedExternalParamType_of_scalar {ty : ParamType}
 theorem SupportedExternalParamType_bytes :
     SupportedExternalParamType ParamType.bytes := trivial
 
-/-- The widened admission set is exactly the scalar set plus `bytes`. This is the
-case split every downstream calldata-loading execution lemma performs. -/
-theorem supportedExternalParamType_scalar_or_bytes {ty : ParamType}
+theorem SupportedExternalParamType_string :
+    SupportedExternalParamType ParamType.string := trivial
+
+/-- The widened admission set is exactly the scalar set plus the two bytes-like
+dynamic types. This is the case split every downstream calldata-loading
+execution lemma performs. -/
+theorem supportedExternalParamType_scalar_or_bytesLike {ty : ParamType}
     (hsupported : SupportedExternalParamType ty) :
-    SupportedExternalScalarParamType ty ∨ ty = ParamType.bytes := by
+    SupportedExternalScalarParamType ty ∨ ty = ParamType.bytes ∨ ty = ParamType.string := by
   cases ty <;> simp [SupportedExternalParamType] at hsupported <;>
     simp [SupportedExternalScalarParamType]
 
-/-- Widened parameter lists still have 32-byte ABI head words: `bytes`
-contributes a one-word relative tail pointer to the head area. -/
+/-- Widened parameter lists still have 32-byte ABI head words: `bytes` and
+`string` each contribute a one-word relative tail pointer to the head area. -/
 theorem supportedExternalParamType_headSize_eq_32 {ty : ParamType}
     (hsupported : SupportedExternalParamType ty) : paramHeadSize ty = 32 := by
   cases ty <;> simp [SupportedExternalParamType] at hsupported <;> simp [paramHeadSize]
@@ -84,11 +89,12 @@ def externalParamScalarProofSupported (ty : ParamType) : Bool :=
 
 /-- Compile-driven decision procedure for the widened external-parameter
 admission set. The scalar half still delegates to the compiler's
-`isScalarParamType`; `bytes` is the one constructor this slice adds, and it is
-named explicitly so any future compiler-side change to dynamic-parameter routing
-shows up at the agreement oracle below rather than drifting silently. -/
+`isScalarParamType`; `bytes` and `string` are the two constructors admitted on
+top of it, and they are named explicitly so any future compiler-side change to
+dynamic-parameter routing shows up at the agreement oracle below rather than
+drifting silently. -/
 def externalParamProofSupported : ParamType → Bool
-  | ParamType.bytes => true
+  | ParamType.bytes | ParamType.string => true
   | ty => isScalarParamType ty
 
 /-- Proof-side scalar-return-profile predicate tied to the compiler's scalar

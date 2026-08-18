@@ -65,6 +65,7 @@ import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.DispatchBytesParam
 import Compiler.Proofs.IRGeneration.DispatchGeneric
+import Compiler.Proofs.IRGeneration.DispatchStringParam
 import Compiler.Proofs.IRGeneration.DynamicAbiRefinement
 import Compiler.Proofs.IRGeneration.DynamicParamLoading
 import Compiler.Proofs.IRGeneration.ErrorStringPayloadIR
@@ -1176,6 +1177,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.AbiEncoding.abiEncodeArgs_getD_tail_first  -- private
   Compiler.Proofs.AbiEncoding.bindExternalParam_bytes_of_abiEncodeArgs
   Compiler.Proofs.AbiEncoding.bindExternalParams_bytes_of_abiEncodeArgs
+  Compiler.Proofs.AbiEncoding.bindExternalParams_string_of_abiEncodeArgs
 
   -- Compiler/Proofs/AbiEventObservable.lean
   -- Compiler.Proofs.AbiEventObservable.land_mod_evm_right  -- private
@@ -2549,6 +2551,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.interpretContractWith_correct_of_functions_generic_external
   Compiler.Proofs.IRGeneration.interpretContract_correct_of_functions_generic_external
 
+  -- Compiler/Proofs/IRGeneration/DispatchStringParam.lean
+  Compiler.Proofs.IRGeneration.StringParamDispatch.bindExternalParams_total_of_string_calldata
+  Compiler.Proofs.IRGeneration.StringParamDispatch.interpretContract_correct_of_functions_string_param
+
   -- Compiler/Proofs/IRGeneration/DynamicAbiRefinement.lean
   Compiler.Proofs.IRGeneration.DynamicAbiRefinement.arrayElementDynamicHeadOffset?_index_oob
   Compiler.Proofs.IRGeneration.DynamicAbiRefinement.arrayElementDynamicMemberDataOffset_eq_length_pos_add_word
@@ -2566,6 +2572,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.setVar_selector  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.execIRStmts_cons_continue  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.genSingleParamLoad_bytes
+  Compiler.Proofs.IRGeneration.DynamicParamLoading.genSingleParamLoad_string
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.calldataloadWord_eq  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.externalWordAt?_eq_calldataloadWord  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_bytesLoaderStmts_then
@@ -2577,6 +2584,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DynamicParamLoading.applyBindingsToIRState_calldata
   Compiler.Proofs.IRGeneration.DynamicParamLoading.applyBindingsToIRState_selector
   Compiler.Proofs.IRGeneration.DynamicParamLoading.bytesLoaderStmts_length
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_bytesLikeParamLoad_then  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_genSingleParamLoad_external_then
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_genParamLoadBodyFrom_external_then
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.headSizeFoldl_go  -- private
@@ -4527,7 +4535,8 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/SupportedSpec.lean
   Compiler.Proofs.IRGeneration.SupportedExternalParamType_of_scalar
   Compiler.Proofs.IRGeneration.SupportedExternalParamType_bytes
-  Compiler.Proofs.IRGeneration.supportedExternalParamType_scalar_or_bytes
+  Compiler.Proofs.IRGeneration.SupportedExternalParamType_string
+  Compiler.Proofs.IRGeneration.supportedExternalParamType_scalar_or_bytesLike
   Compiler.Proofs.IRGeneration.supportedExternalParamType_headSize_eq_32
   Compiler.Proofs.IRGeneration.eventParamSourceShapeProofSupported_of_scalar
   Compiler.Proofs.IRGeneration.SupportedExternalParamType_iff_externalParamScalarProofSupported
@@ -7254,4 +7263,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6716 theorems/lemmas (4812 public, 1904 private, 0 sorry'd)
+-- Total: 6722 theorems/lemmas (4817 public, 1905 private, 0 sorry'd)

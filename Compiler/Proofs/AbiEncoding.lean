@@ -930,6 +930,56 @@ theorem bindExternalParams_bytes_of_abiEncodeArgs
   simp only [bindExternalParamsFrom, hbase]
   rfl
 
+/-- The same round trip at a `string` parameter.  A `string` argument block is
+byte-for-byte an `AbiArg.bytes` block — offset word, length word, right-padded
+payload — so the encoder is reused rather than duplicated, and only the binder
+side changes type (`bindExternalParam_string_eq_bytes`). -/
+theorem bindExternalParams_string_of_abiEncodeArgs
+    (selector : Nat) (name : String) (value : AbiBytes)
+    (hwf : value.WellFormed)
+    (hsize : 4 + 32 * (abiEncodeArgs [AbiArg.bytes value]).length <
+      Compiler.Constants.evmModulus) :
+    bindExternalParams selector [{ name := name, ty := ParamType.string }]
+        (abiEncodeArgs [AbiArg.bytes value]) =
+      some
+        [ (s!"{name}_offset", 32)
+        , (s!"{name}_abs_offset", 36)
+        , (s!"{name}_length", value.byteLength)
+        , (s!"{name}_tail_head_end", 68)
+        , (s!"{name}_tail_remaining", 32 * value.dataWords.length)
+        , (s!"{name}_data_offset", 68) ] := by
+  have hbase := bindExternalParam_bytes_of_abiEncodeArgs selector name [] value [] hwf
+    (by simpa using hsize)
+  simp only [List.nil_append, List.length_nil, List.length_cons, List.flatMap_nil,
+    Nat.mul_zero, Nat.add_zero, Nat.zero_add, abiTailOffset, List.take_zero,
+    abiDynamicTailSize, List.map_nil, List.sum_nil] at hbase
+  have hcdlen : (abiEncodeArgs [AbiArg.bytes value]).length = 1 + (1 + value.dataWords.length) := by
+    simp [abiEncodeArgs]
+    omega
+  have hlen : ([{ name := name, ty := ParamType.string }] : List Param).length ≤
+      (abiEncodeArgs [AbiArg.bytes value]).length := by
+    rw [hcdlen]
+    simp
+  have hsupp : bindSupportedParams [{ name := name, ty := ParamType.string }]
+      (abiEncodeArgs [AbiArg.bytes value]) = none := by
+    have : (abiEncodeArgs [AbiArg.bytes value]) ≠ [] := by
+      intro hnil
+      rw [hnil] at hcdlen
+      simp only [List.length_nil] at hcdlen
+      omega
+    match hcd : abiEncodeArgs [AbiArg.bytes value] with
+    | [] => exact absurd hcd this
+    | w :: rest => simp [bindSupportedParams, decodeSupportedParamWord]
+  unfold bindExternalParams
+  rw [if_pos hlen, hsupp]
+  show bindExternalParamsFrom selector (abiEncodeArgs [AbiArg.bytes value])
+    (paramHeadSizeList [ParamType.string]) 4 [{ name := name, ty := ParamType.string }] 4 = _
+  have hhs : paramHeadSizeList [ParamType.string] = 32 * 1 := by
+    simp [paramHeadSizeList, paramHeadSize]
+  rw [hhs]
+  simp only [bindExternalParamsFrom, bindExternalParam_string_eq_bytes, hbase]
+  rfl
+
 end BytesRoundTrip
 
 section Examples
