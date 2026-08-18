@@ -435,7 +435,7 @@ sibling entrypoint.
   Yul layout uses `keccak256(bytes32(s)) + i`
   (`Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`); the collapse
   returns `none` at dynamic-array roots
-  (`storageKeySlot_slot_dynamicArray`). Zero new axioms.
+  (`storageKeySlot_slot_dynamicArray`).
 - Zero new axioms.
 
 ## CI Guards
