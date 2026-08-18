@@ -5308,6 +5308,29 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           hcore'.1 hstate'.1 hcalls'.1
       · exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed value
           hcore'.2 hstate'.2 hcalls'.2
+  | calldatacopy destOffset sourceOffset size =>
+      simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff]
+      have hcore' :
+          (exprTouchesUnsupportedCoreSurface destOffset = false ∧
+              exprTouchesUnsupportedCoreSurface sourceOffset = false) ∧
+            exprTouchesUnsupportedCoreSurface size = false := by
+        simpa [stmtTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] using hcore
+      have hstate' :
+          (exprTouchesUnsupportedStateSurface destOffset = false ∧
+              exprTouchesUnsupportedStateSurface sourceOffset = false) ∧
+            exprTouchesUnsupportedStateSurface size = false := by
+        simpa [stmtTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] using hstate
+      have hcalls' :
+          (exprTouchesUnsupportedCallSurface destOffset = false ∧
+              exprTouchesUnsupportedCallSurface sourceOffset = false) ∧
+            exprTouchesUnsupportedCallSurface size = false := by
+        simpa [stmtTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] using hcalls
+      exact ⟨⟨exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed destOffset
+          hcore'.1.1 hstate'.1.1 hcalls'.1.1,
+        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed sourceOffset
+          hcore'.1.2 hstate'.1.2 hcalls'.1.2⟩,
+        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed size
+          hcore'.2 hstate'.2 hcalls'.2⟩
   | ite cond thenBranch elseBranch =>
       simp only [stmtTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
       simp only [stmtTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
