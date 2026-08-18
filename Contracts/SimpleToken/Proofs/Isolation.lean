@@ -34,8 +34,10 @@ private theorem constructor_isolation (s : ContractState) (initialOwner : Addres
     ContractState.writeAddrSlot, ContractState.writeSlot,
     Contracts.SimpleToken.ownerSlot, Contracts.SimpleToken.totalSupplySlot,
     Verity.bind, Bind.bind, Contract.run, ContractResult.snd]
-  refine ⟨fun h_ne => ?_, fun _ => trivial, fun h_ne => ?_⟩ <;>
-    simp [beq_iff_eq, h_ne]
+  refine ⟨fun h_ne => ?_, fun _ => ?_, fun h_ne => ?_⟩
+  · simp [beq_iff_eq, h_ne, ContractState.storage_unfold]
+  · simp [ContractState.storageMap_unfold]
+  · simp [beq_iff_eq, h_ne, ContractState.storageAddr_unfold]
 
 /-- Constructor only writes Uint256 slotIdx 2 (supply). -/
 theorem constructor_supply_storage_isolated (s : ContractState) (initialOwner : Address)
@@ -74,9 +76,13 @@ private theorem mint_isolation (s : ContractState) (toAddr : Address) (amount : 
     h_owner, beq_self_eq_true, ite_true]
   unfold Stdlib.Math.requireSomeUint
   cases safeAdd (s.storageMap 1 toAddr) amount <;>
-    simp_all [Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure, beq_iff_eq]
-  cases safeAdd (s.storage 2) amount <;>
-    simp_all [Verity.require, Verity.pure, Verity.bind]
+    simp_all [Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure, beq_iff_eq,
+      ContractState.storage_unfold, ContractState.storageAddr_unfold,
+      ContractState.storageMap_unfold]
+  cases safeAdd (s.storageWords (StorageKey.slot 2)) amount <;>
+    simp_all [Verity.require, Verity.pure, Verity.bind,
+      ContractState.storage_unfold, ContractState.storageAddr_unfold,
+      ContractState.storageMap_unfold]
 
 /-- Mint only writes Uint256 slotIdx 2. -/
 theorem mint_supply_storage_isolated (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -120,7 +126,9 @@ private theorem transfer_isolation (s : ContractState) (toAddr : Address) (amoun
         h_balance, h_eq, beq_iff_eq,
         ContractState.readMap, ContractState.writeMap]
     all_goals cases safeAdd (s.storageMap 1 toAddr) amount <;>
-        simp_all [Verity.require, Verity.pure, Verity.bind]
+        simp_all [Verity.require, Verity.pure, Verity.bind,
+      ContractState.storage_unfold, ContractState.storageAddr_unfold,
+      ContractState.storageMap_unfold]
 
 /-- Transfer doesn't write any Uint256 slotIdx (supply unchanged). -/
 theorem transfer_supply_storage_isolated (s : ContractState) (toAddr : Address) (amount : Uint256)

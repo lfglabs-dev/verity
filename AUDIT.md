@@ -355,6 +355,14 @@ sibling entrypoint.
   `storageArray` and `knownAddresses` remain separate fields this step;
   independence from the word-channel lenses is now proved
   (`Compiler.Proofs.Storage.SeparateChannels`).
+- Four-feature increment (not a C5 fold): `FieldType.mappingFixedArray`
+  compiles element reads/writes at `mappingSlot(slot, key) + i`;
+  CodeData/SSTORE2 layout theorems pin the `STOP` prefix and offset-1
+  read; transient `fixedArrayUint128` uses `tload`/`tstore` and
+  `fieldRootKey` maps it to `StorageKey.transient` (`storageKeySlot =
+  none`); `denoteSelfDelegateCalls` is a first-class self-delegate
+  sequence (not the ECM, not #2365's compiled `FunctionSpec` path).
+  Zero new axioms.
 - The freeze baseline shrinks to `Verity/Core.lean` (lens
   implementations) plus `Contracts/TypedIRTests.lean` (IRState field-name
   collisions). `storageWords :=` is forbidden outside `Verity/Core.lean`.

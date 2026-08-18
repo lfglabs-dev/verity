@@ -76,6 +76,7 @@ private def fieldTypeToTy : FieldType → Except String Ty
   | .mappingTyped _ => Except.ok Ty.uint256
   | .mappingStruct _ _ => Except.ok Ty.uint256
   | .mappingStruct2 _ _ _ => Except.ok Ty.uint256
+  | .mappingFixedArray _ _ => Except.ok Ty.uint256
 
 private def asUInt256 (e : SomeTExpr) : Except String (TExpr Ty.uint256) :=
   match e with

@@ -60,7 +60,8 @@ def reservedExternalNames
       []
   let storageArrayHelpers :=
     if storageArrayHelpersRequired then
-      [checkedStorageArrayElementHelperName, checkedFixedUint128ArrayElementHelperName]
+      [checkedStorageArrayElementHelperName, checkedFixedUint128ArrayElementHelperName,
+        checkedTransientFixedUint128ArrayElementHelperName]
     else
       []
   let dynamicBytesEqHelpers :=

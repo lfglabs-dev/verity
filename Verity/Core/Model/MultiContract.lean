@@ -159,6 +159,127 @@ def call (w : MultiWorld) (caller callee : Address) (site : CallSite)
   let frame ← callEntry w caller callee site
   some (executeCall w frame runCallee)
 
+/-! ## First-class self-delegatecall sequence
+
+Ordinary `callEntry` rejects `caller = callee` and `kind ≠ .call` (the
+#2362 ordinary-call frame). Self-delegate multicall is a different
+path: same address, `delegatecall`, no ETH transfer. Success commits
+the body post-state on that one account; failure/revert restores the
+sequence-entry world and bubbles returndata. This is not the ECM
+`selfDelegateMulticallBytes` assumption and not #2365's compiled
+`FunctionSpec` transaction. -/
+
+def selfDelegateEntry (w : MultiWorld) (addr : Address) (site : CallSite) :
+    Option CallFrame :=
+  let st := lookup w addr
+  if site.kind != .delegatecall then none
+  else if site.target != addr.toNat then none
+  else if site.value != 0 then none
+  else
+    some
+      { caller := addr
+        callee := addr
+        site := site
+        callerBefore := st
+        calleeBefore := st
+        -- DELEGATECALL runs the callee code in the caller's frame: `msg.sender`
+        -- and `msg.value` are inherited from the executing frame, not reset.
+        -- `site.value = 0` above only records that DELEGATECALL carries no
+        -- value argument; it does not zero the inherited `msg.value`.
+        calleeEntry := { st with thisAddress := addr } }
+
+/-- Same-account commit: success replaces `addr` with `post` (plus journal);
+    failure/revert restore the pre-call snapshot and still journal. -/
+def executeSelfDelegate (w : MultiWorld) (addr : Address) (frame : CallFrame)
+    (runBody : CallFrame → CalleeExecution) : FramedCallObservation :=
+  let execution := runBody frame
+  let entry := framedJournalEntry frame execution.result
+  let journaled : ContractState :=
+    { (match execution.result with
+        | .success _ => execution.post
+        | .failure _ | .revert _ => frame.callerBefore) with
+      calls := frame.callerBefore.calls ++ [entry] }
+  { frame := frame, result := execution.result, world := upsert w addr journaled }
+
+def selfDelegate (w : MultiWorld) (addr : Address) (site : CallSite)
+    (runBody : CallFrame → CalleeExecution) : Option FramedCallObservation := do
+  let frame ← selfDelegateEntry w addr site
+  some (executeSelfDelegate w addr frame runBody)
+
+inductive SelfDelegateControl where
+  | success
+  | invalidCall (index : Nat)
+  | callFailed (index : Nat) (result : ExternalCallResult)
+  deriving Repr, DecidableEq
+
+structure SelfDelegateExecution where
+  control : SelfDelegateControl
+  world : MultiWorld
+  calls : List FramedCallObservation
+
+/-- Run a list of self-delegate sites against one address. Successful
+    steps thread `observation.world`. Invalid frame, failure, or revert
+    restores `before` and records the failed result (returndata bubble). -/
+def denoteSelfDelegateCallsFrom (before current : MultiWorld) (addr : Address)
+    (runBody : CallFrame → CalleeExecution) :
+    Nat → List CallSite → List FramedCallObservation → SelfDelegateExecution
+  | _, [], observations =>
+      { control := .success, world := current, calls := observations.reverse }
+  | index, site :: rest, observations =>
+      match selfDelegate current addr site runBody with
+      | none =>
+          { control := .invalidCall index, world := before,
+            calls := observations.reverse }
+      | some observation =>
+          if observation.result.succeeded then
+            denoteSelfDelegateCallsFrom before observation.world addr runBody
+              (index + 1) rest (observation :: observations)
+          else
+            { control := .callFailed index observation.result, world := before,
+              calls := (observation :: observations).reverse }
+
+def denoteSelfDelegateCalls (before : MultiWorld) (addr : Address)
+    (program : List CallSite) (runBody : CallFrame → CalleeExecution) :
+    SelfDelegateExecution :=
+  denoteSelfDelegateCallsFrom before before addr runBody 0 program []
+
+theorem denoteSelfDelegateCalls_nil (before : MultiWorld) (addr : Address)
+    (runBody : CallFrame → CalleeExecution) :
+    (denoteSelfDelegateCalls before addr [] runBody).world = before :=
+  rfl
+
+theorem selfDelegateEntry_rejects_ordinary_call
+    (w : MultiWorld) (addr : Address) (site : CallSite)
+    (h : site.kind = .call) :
+    selfDelegateEntry w addr site = none := by
+  simp [selfDelegateEntry, h]
+
+theorem denoteSelfDelegateCalls_invalid_first_rolls_back
+    (before : MultiWorld) (addr : Address) (site : CallSite)
+    (runBody : CallFrame → CalleeExecution)
+    (h : selfDelegate before addr site runBody = none) :
+    (denoteSelfDelegateCalls before addr [site] runBody).world = before := by
+  simp [denoteSelfDelegateCalls, denoteSelfDelegateCallsFrom, h]
+
+theorem denoteSelfDelegateCalls_failed_first_rolls_back
+    (before : MultiWorld) (addr : Address) (site : CallSite)
+    (runBody : CallFrame → CalleeExecution)
+    (obs : FramedCallObservation)
+    (h : selfDelegate before addr site runBody = some obs)
+    (hfail : obs.result.succeeded = false) :
+    (denoteSelfDelegateCalls before addr [site] runBody).world = before := by
+  simp [denoteSelfDelegateCalls, denoteSelfDelegateCallsFrom, h, hfail]
+
+theorem denoteSelfDelegateCalls_failed_bubbles_result
+    (before : MultiWorld) (addr : Address) (site : CallSite)
+    (runBody : CallFrame → CalleeExecution)
+    (obs : FramedCallObservation)
+    (h : selfDelegate before addr site runBody = some obs)
+    (hfail : obs.result.succeeded = false) :
+    (denoteSelfDelegateCalls before addr [site] runBody).control =
+      .callFailed 0 obs.result := by
+  simp [denoteSelfDelegateCalls, denoteSelfDelegateCallsFrom, h, hfail]
+
 /-! ## P-ETH-1 ensemble: Bus → Gateway → Vault → (Lido | request) -/
 
 def busAddr : Address := (1 : Address)

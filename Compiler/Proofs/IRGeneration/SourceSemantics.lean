@@ -3257,6 +3257,8 @@ theorem findDynamicArrayElementAtSlot_withTransactionContext
           simpa [findDynamicArrayElementAtSlot.go, withTransactionContext, hty] using ih (idx + 1)
       | mappingStruct2 outerKey innerKey members =>
           simpa [findDynamicArrayElementAtSlot.go, withTransactionContext, hty] using ih (idx + 1)
+      | mappingFixedArray keyType size =>
+          simpa [findDynamicArrayElementAtSlot.go, withTransactionContext, hty] using ih (idx + 1)
 
 theorem findDynamicArrayElementAtSlot_congr_storageArray
     (fields : List Field)
@@ -3300,6 +3302,8 @@ theorem findDynamicArrayElementAtSlot_congr_storageArray
       | mappingStruct keyType members =>
           simpa [findDynamicArrayElementAtSlot.go, hty] using ih (idx + 1)
       | mappingStruct2 outerKey innerKey members =>
+          simpa [findDynamicArrayElementAtSlot.go, hty] using ih (idx + 1)
+      | mappingFixedArray keyType size =>
           simpa [findDynamicArrayElementAtSlot.go, hty] using ih (idx + 1)
 
 theorem encodeStorageAt_congr

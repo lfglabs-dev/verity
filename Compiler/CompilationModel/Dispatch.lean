@@ -523,6 +523,7 @@ private def validateCompileInputsBeforeFieldWriteConflict
     validateCustomErrorArgShapesInFunction fn spec.errors
     validateInternalCallShapesInFunction spec.functions fn
     validateExternalCallTargetsInFunction spec.externals fn
+    validateMappingFixedArrayBoundsInStmts spec.fields fn.body
     -- Fail-closed cross-function reentrancy gate. Runs last so structural
     -- well-formedness errors (call shape/target above) win over the policy
     -- check; the gate only judges otherwise well-formed external calls.
@@ -537,6 +538,7 @@ private def validateCompileInputsBeforeFieldWriteConflict
       ctor.body.forM (validateEventArgShapesInStmt "constructor" ctor.params spec.events)
       ctor.body.forM (validateCustomErrorArgShapesInStmt "constructor" ctor.params spec.errors)
       ctor.body.forM (validateInternalCallShapesInStmt spec.functions "constructor" ctor.params)
+      validateMappingFixedArrayBoundsInStmts spec.fields ctor.body
   for ext in spec.externals do
     let _ ← externalFunctionReturns ext
     validateInteropExternalSpec ext
@@ -585,16 +587,16 @@ private def validateCompileInputsBeforeFieldWriteConflict
       throw s!"Compilation error: field '{fieldName}' cannot declare packedBits in {spec.name} ({issue623Ref}). Packed subfields are only supported for value-word fields."
   | none =>
       pure ()
-  match spec.fields.find? (fun field => field.isTransient &&
-      match field.ty with | .fixedArrayUint128 _ => true | _ => false) with
-  | some field =>
-      throw s!"Compilation error: transient fixed array field '{field.name}' is unsupported in {spec.name}; fixedArrayUint128 lowering uses persistent storage."
-  | none =>
-      pure ()
   match spec.fields.find? (fun field =>
       match field.ty with | .fixedArrayUint128 0 => true | _ => false) with
   | some field =>
       throw s!"Compilation error: fixed storage array field '{field.name}' must have positive size in {spec.name}."
+  | none =>
+      pure ()
+  match spec.fields.find? (fun field =>
+      match field.ty with | .mappingFixedArray _ 0 => true | _ => false) with
+  | some field =>
+      throw s!"Compilation error: mapping-fixed-array field '{field.name}' must have positive size in {spec.name}."
   | none =>
       pure ()
   match firstUnsupportedStorageArrayElemType spec.fields with
@@ -835,7 +837,8 @@ def compileValidatedCore (spec : CompilationModel) (selectors : List Nat)
       [])
   let storageArrayElementHelpers :=
     if storageArrayHelpersRequired then
-      [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper]
+      [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper,
+        checkedTransientFixedUint128ArrayElementHelper]
     else
       []
   let dynamicBytesEqHelpers :=

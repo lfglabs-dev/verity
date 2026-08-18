@@ -199,7 +199,8 @@ def coreHelperInternalFunctions (model : CompilationModel) :
     else
       [])) ++
   (if contractUsesStorageArrayElement model then
-    [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper]
+    [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper,
+      checkedTransientFixedUint128ArrayElementHelper]
   else
     []) ++
   (if contractUsesDynamicBytesEq model then

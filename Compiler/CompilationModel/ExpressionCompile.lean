@@ -543,7 +543,12 @@ def compileExprWithInternals (fields : List Field)
                 ← compileExprWithInternals fields dynamicSource internalFunctions index
               ])
           | .fixedArrayUint128 size => do
-              pure (YulExpr.call checkedFixedUint128ArrayElementHelperName [
+              let helper :=
+                if f.isTransient then
+                  checkedTransientFixedUint128ArrayElementHelperName
+                else
+                  checkedFixedUint128ArrayElementHelperName
+              pure (YulExpr.call helper [
                 YulExpr.lit slot, YulExpr.lit size,
                 ← compileExprWithInternals fields dynamicSource internalFunctions index
               ])

@@ -151,15 +151,15 @@ example :
         some { offset := 0, width := 128 }, []⟩] = some "badPackedArray" := by
   rfl
 
-private def badTransientFixedArraySpec : Compiler.CompilationModel.CompilationModel :=
-  { name := "BadTransientFixedArray"
+private def transientFixedArraySpec : Compiler.CompilationModel.CompilationModel :=
+  { name := "TransientFixedArray"
     fields := [⟨"items", .fixedArrayUint128 2, true, some 0, none, []⟩]
     «constructor» := none
     functions := [] }
 
 example :
-    Compiler.CompilationModel.validateCompileInputs badTransientFixedArraySpec [] =
-      .error "Compilation error: transient fixed array field 'items' is unsupported in BadTransientFixedArray; fixedArrayUint128 lowering uses persistent storage." := by
+    Compiler.CompilationModel.validateCompileInputs transientFixedArraySpec [] =
+      .ok () := by
   native_decide
 
 verity_contract PackedStorageSpillSmoke where

@@ -1055,7 +1055,7 @@ theorem compileExpr_bridgedSource
                     (bridgedExpr_storageLoad_lit f.isTransient slot) packed.offset
                     (packedMaskNat packed)
           | uint256 | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct
-            | mappingStruct2 | adt =>
+            | mappingStruct2 | mappingFixedArray | adt =>
               simp [hTy] at hOk
         · simp at hOk
   | storageArrayLength fieldName =>
@@ -1068,7 +1068,7 @@ theorem compileExpr_bridgedSource
             simp [hTy, Pure.pure, Except.pure] at hOk
             subst out
             exact bridgedExpr_sload_lit slot
-        | uint256 | address | fixedArrayUint128 | mappingTyped | mappingStruct | mappingStruct2 | adt =>
+        | uint256 | address | fixedArrayUint128 | mappingTyped | mappingStruct | mappingStruct2 | mappingFixedArray | adt =>
             simp [hTy] at hOk
       · simp at hOk
   | adtTag adtName storageField =>

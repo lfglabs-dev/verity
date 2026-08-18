@@ -459,7 +459,8 @@ theorem constructor_getOwner_correct (s : ContractState) (initialOwner : Address
   verity_unfold simpleTokenConstructor with getOwner
   simp only [Contracts.SimpleToken.ownerSlot,
     Contracts.SimpleToken.totalSupplySlot]
-  simp [simpleTokenConstructor, getOwner, msgSender, Contracts.SimpleToken.ownerSlot,
+  simp [simpleTokenConstructor, getOwner, Contracts.SimpleToken.owner, msgSender,
+    Contracts.SimpleToken.ownerSlot,
     Contracts.SimpleToken.totalSupplySlot, setStorageAddr, setStorage, getStorageAddr,
     Contract.run, Contract.runValue, ContractResult.snd, ContractResult.fst,
     Verity.bind, Bind.bind, Verity.pure, Pure.pure, Verity.require, beq_iff_eq,

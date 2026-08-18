@@ -164,6 +164,7 @@ where
     | .mappingTyped _ => "mapping"
     | .mappingStruct _ _ => "mapping"
     | .mappingStruct2 _ _ _ => "mapping"
+    | .mappingFixedArray _ _ => "mapping"
   renderStorageArrayElemType : StorageArrayElemType → String
     | .uint256 => "uint256"
     | .address => "address"
