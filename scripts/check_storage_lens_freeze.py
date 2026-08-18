@@ -60,7 +60,10 @@ BASELINE = {
     # The sole canonical word-map implementation boundary. This includes the
     # single default-state literal plus the lens implementations (including
     # bulk lenses); no caller outside this file may update `storageWords`.
-    "Verity/Core.lean": 21,
+    # The count also covers the `*_set_storageWords` projection simp lemmas,
+    # whose *statements* mention `{ s with storageWords := f }` and so read as
+    # raw sites here; they are lens metatheory, not storage bypasses.
+    "Verity/Core.lean": 33,
     # IRState fixture literals (field-name collision false positives).
     "Contracts/TypedIRTests.lean": 3,
 }

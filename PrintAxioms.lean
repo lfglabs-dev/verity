@@ -34,6 +34,7 @@ import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
+import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
@@ -652,6 +653,14 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
 
+  -- Verity/Proofs/CheckedExternalCallConsumer.lean
+  Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
+  Verity.Proofs.CheckedExternalCallConsumer.lido_submit_success_world
+  Verity.Proofs.CheckedExternalCallConsumer.lido_submit_success_returndata
+  Verity.Proofs.CheckedExternalCallConsumer.lido_submit_success_caller_balance
+  Verity.Proofs.CheckedExternalCallConsumer.lido_submit_success_callee_transition
+  Verity.Proofs.CheckedExternalCallConsumer.lido_submit_revert_rolls_back
+
   -- Verity/Proofs/LoopSimulationResultAware.lean
   Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_append_of_earlyExit
   Verity.Proofs.LoopSimulationResultAware.forEach_rel_execForEachLoop_result_aware
@@ -1052,6 +1061,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_address
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_bool
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_newtypeOf
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHead_uint256
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHead_address
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHead_bool
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHead_bytes32
+  Compiler.Proofs.AbiEncoding.abiEncodeScalarHeads_append
   -- Compiler.Proofs.AbiEncoding.lit_255_mod_evm  -- private
   -- Compiler.Proofs.AbiEncoding.lit_65535_mod_evm  -- private
   -- Compiler.Proofs.AbiEncoding.addressMask_mod_evm  -- private
@@ -1097,6 +1111,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.eventHeadWordSize_static_scalar_eq_32
   -- Compiler.Proofs.AbiEncoding.foldl_eventHeadWordSize_static_scalar_eq  -- private
   Compiler.Proofs.AbiEncoding.abiHeadSize_static_scalars_eq
+  Compiler.Proofs.AbiEncoding.AbiArg.tail_scalar
+  Compiler.Proofs.AbiEncoding.AbiArg.tail_bytes
+  Compiler.Proofs.AbiEncoding.AbiArg.tail_scalarArray
+  Compiler.Proofs.AbiEncoding.AbiArg.scalarArray_elements_lt_evm
+  Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_length
+  Compiler.Proofs.AbiEncoding.abiEncodeArgs_headSize
+  -- Compiler.Proofs.AbiEncoding.abiDynamicTailSize_cons  -- private
+  Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_dynamic_offset
+  Compiler.Proofs.AbiEncoding.abiEncodeArgs_tails_append
+  Compiler.Proofs.AbiEncoding.abiEncodeArgHeads_append
+  Compiler.Proofs.AbiEncoding.abiEncodeArgs_append
 
   -- Compiler/Proofs/ArithmeticProfile.lean
   Compiler.Proofs.ArithmeticProfile.modulus_is_2_pow_256
@@ -2453,6 +2478,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.modeledHaltCheck_sound
 
   -- Compiler/Proofs/IRGeneration/FuelBound.lean
+  Compiler.Proofs.IRGeneration.ExecutesWithinStmt.mono
+  Compiler.Proofs.IRGeneration.ExecutesWithinStmts.mono
   Compiler.Proofs.IRGeneration.stmtFuelBound_pos
   Compiler.Proofs.IRGeneration.stmtsFuelBound_pos
   Compiler.Proofs.IRGeneration.stmtFuelBound_le_stmtsFuelBound
@@ -2462,6 +2489,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmts_stable
   Compiler.Proofs.IRGeneration.execIRStmts_stable_of_le
   Compiler.Proofs.IRGeneration.execIRStmt_stable_of_le
+  Compiler.Proofs.IRGeneration.execIRStmt_eq_of_executesWithin
+  Compiler.Proofs.IRGeneration.execIRStmts_eq_of_executesWithin
 
   -- Compiler/Proofs/IRGeneration/Function.lean
   -- Compiler.Proofs.IRGeneration.Function.yulStmtList_length_le_sizeOf  -- private
@@ -4072,7 +4101,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ParamLoading.drop_succ_eq_of_drop_eq_cons  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.supportedExternalParamType_cases  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue  -- private
-  -- Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue_extraFuel  -- private
+  Compiler.Proofs.IRGeneration.ParamLoading.execIRStmts_cons_of_execIRStmt_continue_extraFuel
   -- Compiler.Proofs.IRGeneration.ParamLoading.land_mod_evm_right  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_word_passthrough  -- private
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genScalarLoad_supported_then_uintN  -- private
@@ -7018,4 +7047,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6507 theorems/lemmas (4637 public, 1870 private, 0 sorry'd)
+-- Total: 6533 theorems/lemmas (4663 public, 1870 private, 0 sorry'd)

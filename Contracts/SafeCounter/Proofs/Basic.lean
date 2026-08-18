@@ -68,7 +68,7 @@ theorem increment_meets_spec (s : ContractState)
   simp only [ContractResult.snd, ContractState.writeSlot, increment_spec]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [evm_add_eq_of_no_overflow (s.storage 0) 1 h_no_overflow]
-  · intro k h_ne; simp [beq_iff_eq, h_ne]
+  · intro k h_ne; simp [beq_iff_eq, h_ne, ContractState.storage]
   · rfl
   · rfl
   · rfl
@@ -87,7 +87,7 @@ theorem increment_preserves_other_slots (s : ContractState)
   let s' := ((increment).run s).snd
   s'.storage k = s.storage k := by
   rw [increment_unfold s h_no_overflow]
-  simp [ContractResult.snd, ContractState.writeSlot, beq_iff_eq, h_ne]
+  simp [ContractResult.snd, ContractState.writeSlot, beq_iff_eq, h_ne, ContractState.storage]
 
 theorem increment_reverts_overflow (s : ContractState)
   (h_overflow : (s.storage 0 : Nat) + 1 > MAX_UINT256) :
@@ -114,7 +114,7 @@ theorem decrement_meets_spec (s : ContractState)
   simp only [ContractResult.snd, ContractState.writeSlot, decrement_spec]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [HSub.hSub, sub]
-  · intro k h_ne; simp [beq_iff_eq, h_ne]
+  · intro k h_ne; simp [beq_iff_eq, h_ne, ContractState.storage]
   · rfl
   · rfl
   · rfl
@@ -133,7 +133,7 @@ theorem decrement_preserves_other_slots (s : ContractState)
   let s' := ((decrement).run s).snd
   s'.storage k = s.storage k := by
   rw [decrement_unfold s h_no_underflow]
-  simp [ContractResult.snd, ContractState.writeSlot, beq_iff_eq, h_ne]
+  simp [ContractResult.snd, ContractState.writeSlot, beq_iff_eq, h_ne, ContractState.storage]
 
 theorem decrement_reverts_underflow (s : ContractState)
   (h_underflow : s.storage 0 = 0) :

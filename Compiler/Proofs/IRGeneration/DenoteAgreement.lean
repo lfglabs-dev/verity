@@ -88,7 +88,8 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .arrayElementDynamicWord _ a _
   | .arrayElementDynamicDataOffset _ a
   | .arrayElementDynamicMemberLength _ a _
-  | .arrayElementDynamicMemberDataOffset _ a _
+  | .arrayElementDynamicMemberDataOffset _ a _ =>
+      bindAgree (denote_evalExpr_eq fields s a) fun _ => rfl
   | .memoryArrayElement _ a =>
       bindAgree (denote_evalExpr_eq fields s a) fun _ => rfl
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b

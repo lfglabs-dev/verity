@@ -44,7 +44,8 @@ theorem transferOwnership_preserves_wellformedness (s : ContractState) (newOwner
   let s' := ((transferOwnership newOwner).run s).snd
   WellFormedState s' := by
   verity_frame (transferOwnership_unfold s newOwner h_owner)
-  exact ⟨h_owner ▸ h.sender_nonzero, h.contract_nonzero, h_new⟩
+  exact ⟨h_owner ▸ h.sender_nonzero, h.contract_nonzero,
+    by simp [owner, ContractState.storageAddr, ContractState.writeAddrSlot, h_new]⟩
 
 /-! ## End-to-End Composition -/
 
@@ -58,7 +59,8 @@ theorem constructor_transferOwnership_getOwner (s : ContractState) (initialOwner
   simp [setStorageAddr, transferOwnership, owner, getOwner,
     msgSender, getStorageAddr, ContractState.readAddrSlot, ContractState.writeAddrSlot,
     Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
-    Contract.run, ContractResult.snd, ContractResult.fst, h_sender]
+    Contract.run, ContractResult.snd, ContractResult.fst, h_sender,
+    ContractState.storageAddr]
 
 /-- After ownership transfer, the previous owner can no longer transfer.
     Proves that ownership is truly transferred, not just copied. -/

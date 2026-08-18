@@ -135,7 +135,7 @@ private theorem execIRStmts_cons_of_execIRStmt_continue
       execIRStmts (rest.length + 1) next rest := by
   simp [execIRStmts, hstmt]
 
-private theorem execIRStmts_cons_of_execIRStmt_continue_extraFuel
+theorem execIRStmts_cons_of_execIRStmt_continue_extraFuel
     (extraFuel : Nat)
     (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
     (hstmt : execIRStmt (rest.length + extraFuel + 1) state stmt = .continue next) :
