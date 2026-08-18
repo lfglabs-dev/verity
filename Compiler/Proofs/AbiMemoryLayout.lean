@@ -116,6 +116,24 @@ theorem applyWrites_hit (k word : Nat) :
             (rest ++ (k, word) :: post) k from rfl,
         applyWrites_hit k word rest post _ hpost]
 
+/-- The first slot of a block survives the rest of the block, because every
+later write lands at least 32 bytes higher. -/
+theorem applyWrites_abiBlockWrites_head (word : Nat) (rest : List Nat) (base : Nat)
+    (mem : Nat → Nat)
+    (hfit : base + 32 + 32 * rest.length ≤ Compiler.Constants.evmModulus) :
+    applyWrites mem (abiBlockWrites base (word :: rest))
+        (base % Compiler.Constants.evmModulus) = word := by
+  have hbase : base < Compiler.Constants.evmModulus := by omega
+  have hkeys : ∀ ow ∈ abiBlockWrites (base + 32) rest,
+      ow.1 ≠ base % Compiler.Constants.evmModulus := by
+    intro ow hmem
+    have := abiBlockWrites_key_ge rest (base + 32) hfit ow hmem
+    rw [Nat.mod_eq_of_lt hbase]
+    omega
+  simpa using
+    applyWrites_hit (base % Compiler.Constants.evmModulus) word []
+      (abiBlockWrites (base + 32) rest) mem hkeys
+
 /-- **Memory layout of a word block.**  Reading `words.length` consecutive
 words back from `base` returns exactly the words written, provided the block
 does not wrap the 256-bit address space. -/
@@ -129,9 +147,6 @@ theorem yulLogDataWords_abiBlockWrites :
   | nil => intro base mem _; simp [yulLogDataWords]
   | cons word rest ih =>
       intro base mem hfit
-      have hbase : base < Compiler.Constants.evmModulus := by
-        simp only [List.length_cons] at hfit
-        omega
       have hfit' : base + 32 + 32 * rest.length ≤ Compiler.Constants.evmModulus := by
         simp only [List.length_cons] at hfit
         omega
@@ -144,19 +159,7 @@ theorem yulLogDataWords_abiBlockWrites :
       have hsplit :
           applyWrites mem (abiBlockWrites base (word :: rest)) =
             applyWrites shadowed (abiBlockWrites (base + 32) rest) := rfl
-      -- the head slot survives the tail block: every later key is ≥ base + 32
-      have hhead :
-          applyWrites mem (abiBlockWrites base (word :: rest))
-              (base % Compiler.Constants.evmModulus) = word := by
-        have hkeys : ∀ ow ∈ abiBlockWrites (base + 32) rest,
-            ow.1 ≠ base % Compiler.Constants.evmModulus := by
-          intro ow hmem
-          have := abiBlockWrites_key_ge rest (base + 32) hfit' ow hmem
-          rw [Nat.mod_eq_of_lt hbase]
-          omega
-        simpa using
-          applyWrites_hit (base % Compiler.Constants.evmModulus) word []
-            (abiBlockWrites (base + 32) rest) mem hkeys
+      have hhead := applyWrites_abiBlockWrites_head word rest base mem hfit'
       have htail := ih (base + 32) shadowed hfit'
       rw [yulLogDataWords, hcount, List.range_succ_eq_map]
       simp only [List.map_cons, List.map_map, Nat.zero_mul, Nat.add_zero, hhead,

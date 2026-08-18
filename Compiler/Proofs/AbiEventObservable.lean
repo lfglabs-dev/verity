@@ -38,7 +38,7 @@ open Compiler.Proofs.AbiMemoryLayout
 `Compiler/Proofs/AbiEncoding.lean` already pins `normalizeEventWord` to
 `abiScalarNormalize` for the fixed-width scalar types. The parametric ones
 (`uintN`, `intN`, `bytesN`) are added here so the bridge covers every type
-`eventParamScalarCompileSupported` admits. -/
+accepted by `eventParamScalarCompileSupported`. -/
 
 private theorem land_mod_evm_right (a b : Nat) :
     (a % Compiler.Constants.evmModulus) &&& (b % Compiler.Constants.evmModulus) =
@@ -271,6 +271,40 @@ theorem evalIRExprs_length :
               obtain rfl : v :: vs = values := by simpa using hvals
               simp [evalIRExprs_length es state vs hvs]
 
+@[simp] theorem scalarEventUnindexedStores_length
+    (entries : List (EventParam × Expr × YulExpr)) :
+    (scalarEventUnindexedStores entries).length = entries.length := by
+  rw [show scalarEventUnindexedStores entries = _ from
+    scalarEventUnindexedStoresFrom_shape entries 0]
+  simp
+
+theorem abiEncodeScalarHeads_eventAbiScalarArgs_length
+    (entries : List (EventParam × Expr × YulExpr)) (values : List Nat)
+    (hlen : values.length = entries.length) :
+    (abiEncodeScalarHeads (eventAbiScalarArgs entries values)).length = entries.length := by
+  simp [abiEncodeScalarHeads, eventAbiScalarArgs, hlen]
+
+/-- The pointer-relative store keys of a scalar event block are the 32-byte
+stride addresses of an ABI word block based at the event pointer. -/
+theorem scalarEventWrites_zip_eq_abiBlockWrites
+    (entries : List (EventParam × Expr × YulExpr)) (words : List Nat) (p : Nat)
+    (hsize : ∀ entry ∈ entries, eventHeadWordSize entry.1.ty = 32)
+    (hwords : words.length = entries.length) :
+    ((scalarEventWrites entries 0).map
+        (fun ov => (p + ov.1) % Compiler.Constants.evmModulus)).zip words =
+      abiBlockWrites p words := by
+  rw [abiBlockWrites_eq_zip, hwords]
+  congr 1
+  rw [show ((scalarEventWrites entries 0).map
+      (fun ov => (p + ov.1) % Compiler.Constants.evmModulus)) =
+    ((scalarEventWrites entries 0).map (·.1)).map
+      (fun o => (p + o) % Compiler.Constants.evmModulus) from by
+      rw [List.map_map]; rfl]
+  rw [scalarEventWrites_fst entries 0 hsize, List.map_map]
+  apply List.map_congr_left
+  intro i _
+  simp only [Function.comp_apply, Nat.zero_add]
+
 /-- Running the compiled unindexed-store block from `__evt_ptr = p` leaves
 memory holding the slice-1 ABI head block of the unindexed arguments. -/
 theorem scalarEventUnindexedStores_exec
@@ -288,9 +322,7 @@ theorem scalarEventUnindexedStores_exec
           (abiBlockWrites p (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values))) } := by
   have hlen : values.length = unindexed.length :=
     (evalIRExprs_length _ state values hvals).trans (by simp)
-  have hheads : (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values)).length =
-      unindexed.length := by
-    simp [abiEncodeScalarHeads, eventAbiScalarArgs, hlen]
+  have hheads := abiEncodeScalarHeads_eventAbiScalarArgs_length unindexed values hlen
   have hwritesVals : evalIRExprs state ((scalarEventWrites unindexed 0).map (·.2)) =
       some (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values)) := by
     rw [scalarEventWrites_snd]
@@ -298,22 +330,6 @@ theorem scalarEventUnindexedStores_exec
   have hblock := execIRStmts_mstore_ptr_expr_block "__evt_ptr" p (scalarEventWrites unindexed 0)
     (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values)) fuel state hptr
     (scalarEventWrites_memInsensitive unindexed 0 hmi) hwritesVals
-  have hwritesEq :
-      ((scalarEventWrites unindexed 0).map
-          (fun ov => (p + ov.1) % Compiler.Constants.evmModulus)).zip
-            (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values)) =
-        abiBlockWrites p (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values)) := by
-    rw [abiBlockWrites_eq_zip, hheads]
-    congr 1
-    rw [show ((scalarEventWrites unindexed 0).map
-        (fun ov => (p + ov.1) % Compiler.Constants.evmModulus)) =
-      ((scalarEventWrites unindexed 0).map (·.1)).map
-        (fun o => (p + o) % Compiler.Constants.evmModulus) from by
-        rw [List.map_map]; rfl]
-    rw [scalarEventWrites_fst unindexed 0 hsize, List.map_map]
-    apply List.map_congr_left
-    intro i _
-    simp only [Function.comp_apply, Nat.zero_add]
   rw [show scalarEventUnindexedStores unindexed =
       (scalarEventWrites unindexed 0).map (fun ov =>
         YulStmt.exprStmt (.call "mstore"
@@ -321,7 +337,7 @@ theorem scalarEventUnindexedStores_exec
       scalarEventUnindexedStoresFrom_shape unindexed 0,
     show unindexed.length + fuel + 1 = (scalarEventWrites unindexed 0).length + fuel + 1 from by
       rw [scalarEventWrites_length],
-    hblock, hwritesEq]
+    hblock, scalarEventWrites_zip_eq_abiBlockWrites unindexed _ p hsize hheads]
 
 /-- The log data payload of the compiled scalar `emit` block is exactly the
 slice-1 ABI encoding of the unindexed arguments. -/
@@ -340,9 +356,7 @@ theorem scalarEventUnindexedStores_logDataWords
       abiEncodeScalarHeads (eventAbiScalarArgs unindexed values) := by
   have hlen : values.length = unindexed.length :=
     (evalIRExprs_length _ state values hvals).trans (by simp)
-  have hheads : (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values)).length =
-      unindexed.length := by
-    simp [abiEncodeScalarHeads, eventAbiScalarArgs, hlen]
+  have hheads := abiEncodeScalarHeads_eventAbiScalarArgs_length unindexed values hlen
   have hrun := scalarEventUnindexedStores_exec unindexed values fuel state p hptr hsupport
     hsize hmi hvals
   rw [hexec] at hrun
@@ -384,6 +398,22 @@ theorem eventUnindexedHeadSize_scalar :
     unindexed.map (fun entry => eventHeadWordSize entry.1.ty) from rfl, hmap, hfold]
   simp
 
+private theorem evalIRExprs_nil_inv (state : IRState) (values : List Nat)
+    (h : evalIRExprs state [] = some values) : values = [] := by
+  simpa [evalIRExprs] using h.symm
+
+private theorem evalIRExprs_cons_inv (state : IRState) (e : YulExpr) (es : List YulExpr)
+    (values : List Nat) (h : evalIRExprs state (e :: es) = some values) :
+    ∃ v vs, evalIRExpr state e = some v ∧ evalIRExprs state es = some vs ∧
+      values = v :: vs := by
+  simp only [evalIRExprs, Option.bind_eq_bind] at h
+  cases he : evalIRExpr state e with
+  | none => rw [he] at h; simp at h
+  | some v =>
+      cases hes : evalIRExprs state es with
+      | none => rw [he, hes] at h; simp at h
+      | some vs => exact ⟨v, vs, rfl, rfl, by rw [he, hes] at h; simpa using h.symm⟩
+
 /-- The compiled `logN` statement records `topic0` followed by the evaluated
 indexed topics, over the data window `[__evt_ptr, __evt_ptr + dataSize)`. -/
 theorem eventLogStmt_exec
@@ -398,52 +428,50 @@ theorem eventLogStmt_exec
         (YulStmt.exprStmt (YulExpr.call (eventLogFunction indexed.length)
           (eventLogArgs (YulExpr.lit dataSize) (scalarEventIndexedTopicParts indexed)))) =
       .continue (state.appendYulLog p dataSize (topic0 :: topics)) := by
-  rcases indexed with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨d, rest⟩⟩⟩⟩
-  · obtain rfl : topics = [] := by
-      simpa [scalarEventIndexedTopicParts, evalIRExprs] using htopics.symm
+  rcases indexed with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨d, rest⟩⟩⟩⟩ <;>
+    simp only [scalarEventIndexedTopicParts, List.map_cons, List.map_nil] at htopics
+  · obtain rfl := evalIRExprs_nil_inv _ _ htopics
     simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
       scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0]
-  · simp only [scalarEventIndexedTopicParts, List.map_cons, List.map_nil,
-      evalIRExprs, Option.bind_eq_bind] at htopics
-    cases ha : evalIRExpr state (normalizeEventWord a.1.ty a.2.2) with
-    | none => rw [ha] at htopics; simp at htopics
-    | some ta =>
-        rw [ha] at htopics
-        obtain rfl : topics = [ta] := by
-          simpa [evalIRExprs] using htopics.symm
-        simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
-          scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, ha]
-  · simp only [scalarEventIndexedTopicParts, List.map_cons, List.map_nil,
-      evalIRExprs, Option.bind_eq_bind] at htopics
-    cases ha : evalIRExpr state (normalizeEventWord a.1.ty a.2.2) with
-    | none => rw [ha] at htopics; simp at htopics
-    | some ta =>
-        cases hb : evalIRExpr state (normalizeEventWord b.1.ty b.2.2) with
-        | none => rw [ha, hb] at htopics; simp at htopics
-        | some tb =>
-            rw [ha, hb] at htopics
-            obtain rfl : topics = [ta, tb] := by
-              simpa [evalIRExprs] using htopics.symm
-            simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
-              scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, ha, hb]
-  · simp only [scalarEventIndexedTopicParts, List.map_cons, List.map_nil,
-      evalIRExprs, Option.bind_eq_bind] at htopics
-    cases ha : evalIRExpr state (normalizeEventWord a.1.ty a.2.2) with
-    | none => rw [ha] at htopics; simp at htopics
-    | some ta =>
-        cases hb : evalIRExpr state (normalizeEventWord b.1.ty b.2.2) with
-        | none => rw [ha, hb] at htopics; simp at htopics
-        | some tb =>
-            cases hc : evalIRExpr state (normalizeEventWord c.1.ty c.2.2) with
-            | none => rw [ha, hb, hc] at htopics; simp at htopics
-            | some tc =>
-                rw [ha, hb, hc] at htopics
-                obtain rfl : topics = [ta, tb, tc] := by
-                  simpa [evalIRExprs] using htopics.symm
-                simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
-                  scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0,
-                  ha, hb, hc]
+  · obtain ⟨ta, _, ha, h0, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ htopics
+    obtain rfl := evalIRExprs_nil_inv _ _ h0
+    simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
+      scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, ha]
+  · obtain ⟨ta, _, ha, h1, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ htopics
+    obtain ⟨tb, _, hb, h0, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ h1
+    obtain rfl := evalIRExprs_nil_inv _ _ h0
+    simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
+      scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, ha, hb]
+  · obtain ⟨ta, _, ha, h2, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ htopics
+    obtain ⟨tb, _, hb, h1, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ h2
+    obtain ⟨tc, _, hc, h0, rfl⟩ := evalIRExprs_cons_inv _ _ _ _ h1
+    obtain rfl := evalIRExprs_nil_inv _ _ h0
+    simp [execIRStmt, isYulLogName, eventLogFunction, eventLogArgs,
+      scalarEventIndexedTopicParts, evalIRExprs, evalIRExpr, hptr, htopic0, ha, hb, hc]
   · simp at hindexed
+
+/-- Fuel bookkeeping for a straight-line block followed by one more statement:
+`execIRStmts_append_continue` hands the surplus fuel to the tail, and the tail
+here is a single statement. -/
+private theorem execIRStmts_block_then_stmt
+    (block : List YulStmt) (last : YulStmt) (n fuel : Nat)
+    (state mid final result : IRState) (hlen : block.length = n)
+    (hblock : execIRStmts (n + fuel + 2) state block = .continue mid)
+    (hlast : execIRStmt (fuel + 1) mid last = .continue result)
+    (hexec : execIRStmts (n + fuel + 2) state (block ++ [last]) = .continue final) :
+    final = result := by
+  rw [execIRStmts_append_continue _ block (n + fuel + 2) state mid hblock, hlen,
+    show n + fuel + 2 - n = (fuel + 1) + 1 from by omega,
+    show execIRStmts ((fuel + 1) + 1) mid [last] =
+      (match execIRStmt (fuel + 1) mid last with
+        | .continue s => execIRStmts (fuel + 1) s []
+        | .return v s => .return v s
+        | .stop s => .stop s
+        | .revert s => .revert s) from rfl,
+    hlast] at hexec
+  simp only [execIRStmts] at hexec
+  injection hexec with hfinal
+  exact hfinal.symm
 
 /-- **Slice-3 LOG threading.** Running the compiled scalar `emit` payload —
 the unindexed `mstore` block followed by the `logN` instruction — appends
@@ -457,17 +485,13 @@ theorem scalarEmitPayload_log_observable
     (hptr : state.getVar "__evt_ptr" = some p)
     (htopic0 : state.getVar "__evt_topic0" = some topic0)
     (hindexedLen : indexed.length ≤ 3)
-    (hsupportIndexed :
-      ∀ entry ∈ indexed, eventParamScalarCompileSupported entry.1.ty = true)
-    (hsupportUnindexed :
-      ∀ entry ∈ unindexed, eventParamScalarCompileSupported entry.1.ty = true)
-    (hsizeUnindexed : ∀ entry ∈ unindexed, eventHeadWordSize entry.1.ty = 32)
-    (hmiIndexed : MemInsensitiveExprs (indexed.map (fun entry => entry.2.2)))
-    (hmiUnindexed : MemInsensitiveExprs (unindexed.map (fun entry => entry.2.2)))
-    (hindexedVals :
-      evalIRExprs state (indexed.map (fun entry => entry.2.2)) = some indexedValues)
-    (hunindexedVals :
-      evalIRExprs state (unindexed.map (fun entry => entry.2.2)) = some unindexedValues)
+    (hsupportIndexed : ∀ e ∈ indexed, eventParamScalarCompileSupported e.1.ty = true)
+    (hsupportUnindexed : ∀ e ∈ unindexed, eventParamScalarCompileSupported e.1.ty = true)
+    (hsizeUnindexed : ∀ e ∈ unindexed, eventHeadWordSize e.1.ty = 32)
+    (hmiIndexed : MemInsensitiveExprs (indexed.map (fun e => e.2.2)))
+    (hmiUnindexed : MemInsensitiveExprs (unindexed.map (fun e => e.2.2)))
+    (hindexedVals : evalIRExprs state (indexed.map (fun e => e.2.2)) = some indexedValues)
+    (hunindexedVals : evalIRExprs state (unindexed.map (fun e => e.2.2)) = some unindexedValues)
     (hfit : p + 32 * unindexed.length ≤ Compiler.Constants.evmModulus)
     (hexec : execIRStmts (unindexed.length + fuel + 2) state
       (scalarEventUnindexedStores unindexed ++
@@ -477,68 +501,30 @@ theorem scalarEmitPayload_log_observable
     final.events = state.events ++
       [(topic0 :: abiEncodeScalarHeads (eventAbiScalarArgs indexed indexedValues)) ++
         abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues)] := by
-  have hstoresLen : (scalarEventUnindexedStores unindexed).length = unindexed.length := by
-    rw [show scalarEventUnindexedStores unindexed =
-      (scalarEventWrites unindexed 0).map (fun ov =>
-        YulStmt.exprStmt (.call "mstore"
-          [.call "add" [.ident "__evt_ptr", .lit ov.1], ov.2])) from
-      scalarEventUnindexedStoresFrom_shape unindexed 0]
-    simp
   have hrunStores : execIRStmts (unindexed.length + fuel + 2) state
-      (scalarEventUnindexedStores unindexed) =
-        .continue { state with
-          memory := applyWrites state.memory
-            (abiBlockWrites p
-              (abiEncodeScalarHeads
-                (eventAbiScalarArgs unindexed unindexedValues))) } :=
+      (scalarEventUnindexedStores unindexed) = .continue { state with
+        memory := applyWrites state.memory (abiBlockWrites p
+          (abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues))) } :=
     scalarEventUnindexedStores_exec unindexed unindexedValues (fuel + 1) state p hptr
       hsupportUnindexed hsizeUnindexed hmiUnindexed hunindexedVals
   obtain ⟨mid, hmid⟩ : ∃ m : IRState, m = { state with
-      memory := applyWrites state.memory
-        (abiBlockWrites p
-          (abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues))) } := ⟨_, rfl⟩
+      memory := applyWrites state.memory (abiBlockWrites p
+        (abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues))) } := ⟨_, rfl⟩
   rw [← hmid] at hrunStores
-  -- Data words: the ABI block written by the stores, read back at the pointer.
   have hdata : yulLogDataWords mid.memory p (eventUnindexedHeadSize unindexed) =
       abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues) := by
     rw [eventUnindexedHeadSize_scalar unindexed hsizeUnindexed]
     exact scalarEventUnindexedStores_logDataWords unindexed unindexedValues (fuel + 1) state p
       mid hptr hsupportUnindexed hsizeUnindexed hmiUnindexed hunindexedVals hfit hrunStores
-  -- Topics: evaluated in `mid`, which differs from `state` only in memory.
-  have hindexedValsMid :
-      evalIRExprs mid (indexed.map (fun entry => entry.2.2)) = some indexedValues := by
-    rw [hmid, evalIRExprs_mem_insensitive _ hmiIndexed state _]
-    exact hindexedVals
-  have htopics := scalarEventIndexedTopicParts_eval indexed indexedValues mid
-    hsupportIndexed hindexedValsMid
-  have hptrMid : mid.getVar "__evt_ptr" = some p := by rw [hmid]; exact hptr
-  have htopic0Mid : mid.getVar "__evt_topic0" = some topic0 := by rw [hmid]; exact htopic0
   have hrunLog := eventLogStmt_exec indexed
     (abiEncodeScalarHeads (eventAbiScalarArgs indexed indexedValues)) mid p
-    (eventUnindexedHeadSize unindexed) topic0 fuel
-    hptrMid htopic0Mid hindexedLen htopics
-  rw [execIRStmts_append_continue _ (scalarEventUnindexedStores unindexed)
-      (unindexed.length + fuel + 2) state mid hrunStores,
-    hstoresLen,
-    show unindexed.length + fuel + 2 - unindexed.length = fuel + 2 from by omega,
-    show fuel + 2 = (fuel + 1) + 1 from rfl] at hexec
-  rw [show execIRStmts ((fuel + 1) + 1) mid
-      [YulStmt.exprStmt (YulExpr.call (eventLogFunction indexed.length)
-        (eventLogArgs (YulExpr.lit (eventUnindexedHeadSize unindexed))
-          (scalarEventIndexedTopicParts indexed)))] =
-      (match execIRStmt (fuel + 1) mid
-          (YulStmt.exprStmt (YulExpr.call (eventLogFunction indexed.length)
-            (eventLogArgs (YulExpr.lit (eventUnindexedHeadSize unindexed))
-              (scalarEventIndexedTopicParts indexed)))) with
-        | .continue s => execIRStmts (fuel + 1) s []
-        | .return v s => .return v s
-        | .stop s => .stop s
-        | .revert s => .revert s) from rfl,
-    hrunLog] at hexec
-  simp only [execIRStmts] at hexec
-  injection hexec with hfinal
-  have hevents : mid.events = state.events := by rw [hmid]
-  rw [← hfinal]
-  simp only [IRState.appendYulLog_events, encodeYulLogEvent, hdata, hevents]
+    (eventUnindexedHeadSize unindexed) topic0 fuel (by rw [hmid]; exact hptr)
+    (by rw [hmid]; exact htopic0) hindexedLen
+    (scalarEventIndexedTopicParts_eval indexed indexedValues mid hsupportIndexed
+      (by rw [hmid, evalIRExprs_mem_insensitive _ hmiIndexed state _]; exact hindexedVals))
+  rw [execIRStmts_block_then_stmt _ _ _ _ _ _ _ _
+    (scalarEventUnindexedStores_length unindexed) hrunStores hrunLog hexec]
+  simp only [IRState.appendYulLog_events, encodeYulLogEvent, hdata,
+    show mid.events = state.events from by rw [hmid]]
 
 end Compiler.Proofs.AbiEventObservable
