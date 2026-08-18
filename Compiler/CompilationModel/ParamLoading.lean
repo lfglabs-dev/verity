@@ -28,11 +28,14 @@ private def dynamicArrayElementStrideWords (elemTy : ParamType) : Nat :=
     length word followed by data. Dynamic tuples (structs containing nested
     dynamic members) do not — their offset pointer dereferences directly
     to the first head word of the tuple's encoding. (verity#1839) -/
-private def isLengthPrefixedDynamicShape : ParamType → Bool
+def isLengthPrefixedDynamicShape : ParamType → Bool
   | ParamType.bytes | ParamType.string | ParamType.array _ => true
   | _ => false
 
-private def genDynamicParamLoads
+/-- Statement block emitted for a dynamically encoded external parameter. Public
+so the IR-execution refinement proofs can step through the generated loader
+(verity#2085). -/
+def genDynamicParamLoads
     (loadWord : YulExpr → YulExpr) (sizeExpr : YulExpr) (headSize : Nat)
     (baseOffset : Nat) (name : String) (ty : ParamType) (headOffset : Nat) :
     List YulStmt :=

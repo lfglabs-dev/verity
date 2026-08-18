@@ -32,7 +32,7 @@ theorem interpretContract_correct_of_compiled_guarded_functions
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →

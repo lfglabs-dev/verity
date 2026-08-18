@@ -63,21 +63,21 @@ theorem bindSupportedParams_some_length
               exact Nat.succ_le_succ (ih hrest)
 
 theorem supportedParamHeadSize_eq_32
-    {ty : ParamType} (hsupported : SupportedExternalParamType ty) :
+    {ty : ParamType} (hsupported : SupportedExternalScalarParamType ty) :
     paramHeadSize ty = 32 := by
-  cases ty <;> simp [SupportedExternalParamType] at hsupported <;>
+  cases ty <;> simp [SupportedExternalScalarParamType] at hsupported <;>
     simp [paramHeadSize]
 
 theorem supportedScalarHeadSize_eq
     (params : List Param)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty) :
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty) :
     (params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0 = 32 * params.length := by
   induction params with
   | nil =>
       simp
   | cons param rest ih =>
-      have hparam : SupportedExternalParamType param.ty := hsupported param (by simp)
-      have hrest : ∀ next ∈ rest, SupportedExternalParamType next.ty := by
+      have hparam : SupportedExternalScalarParamType param.ty := hsupported param (by simp)
+      have hrest : ∀ next ∈ rest, SupportedExternalScalarParamType next.ty := by
         intro next hnext
         exact hsupported next (by simp [hnext])
       calc
@@ -121,12 +121,12 @@ private theorem drop_succ_eq_of_drop_eq_cons
     _ = rest := by simp [hdrop]
 
 private theorem supportedExternalParamType_cases
-    {ty : ParamType} (hsupported : SupportedExternalParamType ty) :
+    {ty : ParamType} (hsupported : SupportedExternalScalarParamType ty) :
     ty = .uint256 ∨ ty = .int256 ∨ ty = .uint8 ∨ ty = .uint16 ∨
       (∃ bits, ty = .uintN bits) ∨ (∃ bits, ty = .intN bits) ∨
       (∃ bytes, ty = .bytesN bytes) ∨
       ty = .address ∨ ty = .bytes32 ∨ ty = .bool := by
-  cases ty <;> simp [SupportedExternalParamType] at hsupported ⊢
+  cases ty <;> simp [SupportedExternalScalarParamType] at hsupported ⊢
 
 private theorem execIRStmts_cons_of_execIRStmt_continue
     (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
@@ -376,7 +376,7 @@ private theorem exec_genScalarLoad_supported_then_bool
 
 theorem exec_genScalarLoad_supported_then
     (state : IRState) (rest : List YulStmt) (name : String) (ty : ParamType) (idx value extraFuel : Nat)
-    (hsupported : SupportedExternalParamType ty)
+    (hsupported : SupportedExternalScalarParamType ty)
     (hdecode : SourceSemantics.decodeSupportedParamWord ty (state.calldata.getD idx 0) = some value) :
     execIRStmts ((genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) name ty (4 + 32 * idx)).length +
         rest.length + extraFuel + 1)
@@ -432,7 +432,7 @@ theorem bindSupportedParams_names_nodup
 
 private theorem exec_minInputSizeCheck_supported_noop
     (fuel : Nat) (state : IRState) (params : List Param)
-    (_hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (_hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (hlen : params.length ≤ state.calldata.length) :
     execIRStmt (Nat.succ fuel) state
@@ -453,7 +453,7 @@ theorem exec_genParamLoadBodyFrom_supported_then
     (state : IRState) (rest : List YulStmt) (headSize baseOffset : Nat)
     (params : List Param) (idx : Nat)
     (bindings : List (String × Nat)) (extraFuel : Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hbind : SourceSemantics.bindSupportedParams params (state.calldata.drop idx) = some bindings) :
     execIRStmts ((genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
         (YulExpr.call "calldatasize" []) headSize baseOffset params (4 + 32 * idx)).length +
@@ -472,8 +472,8 @@ theorem exec_genParamLoadBodyFrom_supported_then
       | nil =>
           simp [SourceSemantics.bindSupportedParams, hdrop] at hbind
       | cons arg restArgs =>
-          have hparam : SupportedExternalParamType param.ty := hsupported param (by simp)
-          have hrestSupported : ∀ next ∈ restParams, SupportedExternalParamType next.ty := by
+          have hparam : SupportedExternalScalarParamType param.ty := hsupported param (by simp)
+          have hrestSupported : ∀ next ∈ restParams, SupportedExternalScalarParamType next.ty := by
             intro next hnext
             exact hsupported next (by simp [hnext])
           cases hdecode : SourceSemantics.decodeSupportedParamWord param.ty arg <;>
@@ -738,7 +738,7 @@ theorem exec_genParamLoadBodyFrom_supported_then
 
 theorem exec_genParamLoads_supported
     (state : IRState) (params : List Param) (bindings : List (String × Nat))
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams params state.calldata = some bindings) :
     execIRStmts ((genParamLoads params).length + 1) state (genParamLoads params) =
@@ -775,7 +775,7 @@ theorem exec_genParamLoads_supported
 theorem exec_genParamLoads_supported_then_extraFuel
     (state : IRState) (params : List Param) (bindings : List (String × Nat))
     (rest : List YulStmt) (extraFuel : Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams params state.calldata = some bindings) :
     execIRStmts ((genParamLoads params).length + rest.length + extraFuel + 1) state
@@ -832,7 +832,7 @@ theorem exec_genParamLoads_supported_then_extraFuel
 theorem exec_genParamLoads_supported_then
     (state : IRState) (params : List Param) (bindings : List (String × Nat))
     (rest : List YulStmt)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams params state.calldata = some bindings) :
     execIRStmts ((genParamLoads params).length + rest.length + 1) state (genParamLoads params ++ rest) =

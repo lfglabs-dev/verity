@@ -43,13 +43,13 @@ def runtimeContractOfFunctions (name : String) (functions : List IRFunction) : I
     (runtimeContractOfFunctions name functions).internalFunctions = [] := rfl
 
 private theorem decodeSupportedParamWord_some_of_supported
-    (ty : ParamType) (word : Nat) (hsupported : SupportedExternalParamType ty) :
+    (ty : ParamType) (word : Nat) (hsupported : SupportedExternalScalarParamType ty) :
     ∃ value, SourceSemantics.decodeSupportedParamWord ty word = some value := by
-  cases ty <;> simp [SupportedExternalParamType, SourceSemantics.decodeSupportedParamWord] at hsupported ⊢
+  cases ty <;> simp [SupportedExternalScalarParamType, SourceSemantics.decodeSupportedParamWord] at hsupported ⊢
 
 theorem bindSupportedParams_some_of_supported
     (params : List Param) (args : List Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hlen : params.length ≤ args.length) :
     ∃ bindings, SourceSemantics.bindSupportedParams params args = some bindings := by
   induction params generalizing args with
@@ -60,9 +60,9 @@ theorem bindSupportedParams_some_of_supported
       | nil =>
           cases hlen
       | cons arg restArgs =>
-          have hparam : SupportedExternalParamType param.ty := hsupported param (by simp)
+          have hparam : SupportedExternalScalarParamType param.ty := hsupported param (by simp)
           rcases decodeSupportedParamWord_some_of_supported param.ty arg hparam with ⟨value, hdecode⟩
-          have hrestSupported : ∀ next ∈ rest, SupportedExternalParamType next.ty := by
+          have hrestSupported : ∀ next ∈ rest, SupportedExternalScalarParamType next.ty := by
             intro next hnext
             exact hsupported next (by simp [hnext])
           have hrestLen : rest.length ≤ restArgs.length := Nat.le_of_succ_le_succ hlen
@@ -70,10 +70,21 @@ theorem bindSupportedParams_some_of_supported
           refine ⟨(param.name, value) :: bindings, ?_⟩
           simp [SourceSemantics.bindSupportedParams, hdecode, hbindings]
 
+/-- External binding is arity-faithful: it only succeeds when the ABI head has
+at least one word per declared parameter. -/
+theorem bindExternalParams_some_length
+    {selector : Nat} {params : List Param} {args : List Nat}
+    {bindings : List (String × Nat)}
+    (hbind : SourceSemantics.bindExternalParams selector params args = some bindings) :
+    params.length ≤ args.length := by
+  by_contra hlen
+  rw [SourceSemantics.bindExternalParams_eq_none_of_not_length_le selector hlen] at hbind
+  cases hbind
+
 /-- Under supported parameter types, binding only fails on arity. -/
 theorem not_length_le_of_bindSupportedParams_none
     (params : List Param) (args : List Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hbindNone : SourceSemantics.bindSupportedParams params args = none) :
     ¬ params.length ≤ args.length := by
   intro hle
@@ -105,7 +116,7 @@ def interpretContractWith
 theorem interpretFunction_eq_reverted_of_bind_none
     (model : CompilationModel) (fn : FunctionSpec) (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
-    (hsupported : ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none) :
     SourceSemantics.interpretFunction model fn tx initialWorld =
       SourceSemantics.revertedResult model
@@ -117,12 +128,39 @@ theorem interpretFunction_eq_reverted_of_bind_none
   unfold SourceSemantics.interpretFunction
   rw [hext]
 
+/-- `interpretFunction` reverts whenever external ABI binding fails.  Unlike
+`interpretFunction_eq_reverted_of_bind_none` this needs no supportedness
+hypothesis: `interpretFunction` matches on `bindExternalParams` directly. -/
+theorem interpretFunction_eq_reverted_of_bindExternal_none
+    (model : CompilationModel) (fn : FunctionSpec) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (hbindNone :
+      SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none) :
+    SourceSemantics.interpretFunction model fn tx initialWorld =
+      SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx) := by
+  unfold SourceSemantics.interpretFunction
+  rw [hbindNone]
+
+/-- `interpretFunctionWithHelpers` reverts whenever external ABI binding
+fails. -/
+theorem interpretFunctionWithHelpers_eq_reverted_of_bindExternal_none
+    (model : CompilationModel) (fuel : Nat) (fn : FunctionSpec)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hbindNone :
+      SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none) :
+    SourceSemantics.interpretFunctionWithHelpers model fuel fn tx initialWorld =
+      SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx) := by
+  unfold SourceSemantics.interpretFunctionWithHelpers
+  rw [hbindNone]
+
 /-- `interpretFunctionWithHelpers` reverts on binding failure (under
 supported params). -/
 theorem interpretFunctionWithHelpers_eq_reverted_of_bind_none
     (model : CompilationModel) (fuel : Nat) (fn : FunctionSpec)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
-    (hsupported : ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none) :
     SourceSemantics.interpretFunctionWithHelpers model fuel fn tx initialWorld =
       SourceSemantics.revertedResult model
@@ -216,11 +254,17 @@ theorem find_function_none_of_forall₂_generic
           hsel headFn headSel irFn hhead
         simp [hselEq, hheadSelector, ih hfindRest]
 
-/-- The master dispatcher correctness skeleton: generic over the compile
-predicate `P`, the per-function source semantics `S`, and the IR-side
-executor `runFn`.  The `hinterp` equation pins the interpreter's dispatch
-shape; every concrete dispatcher theorem in the stack derives from this. -/
-theorem interpretContractWith_correct_generic
+/-- The master dispatcher correctness skeleton, phrased over the *external*
+ABI binder `bindExternalParams`.  This is the widened form: it covers every
+parameter shape the external binder understands (scalars and the
+length-prefixed dynamic ones such as `bytes`), because supportedness enters
+only through `hbindTotal` — "arity suffices for binding to succeed" — rather
+than through a syntactic predicate on `ParamType`.
+
+Generic over the compile predicate `P`, the per-function source semantics `S`,
+and the IR-side executor `runFn`.  The `hinterp` equation pins the
+interpreter's dispatch shape. -/
+theorem interpretContractWith_correct_generic_external
     (S : FunctionSpec → SourceSemantics.SourceContractResult)
     (runFn : IRFunction → IRResult)
     (model : CompilationModel) (selectors : List Nat)
@@ -231,14 +275,17 @@ theorem interpretContractWith_correct_generic
       irFn.params = fn.params.map Param.toIRParam ∧
         irFn.selector = sel ∧ irFn.payable = fn.isPayable)
     (hSbindFail : ∀ fn, fn ∈ selectorDispatchedFunctions model →
-      SourceSemantics.bindSupportedParams fn.params tx.args = none →
+      SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none →
       S fn = SourceSemantics.revertedResult model
         (SourceSemantics.withTransactionContext initialWorld tx))
     (hcompiled : List.Forall₂ (fun entry irFn => P entry.1 entry.2 irFn)
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
-    (hparamsSupported :
+    (hbindTotal :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        fn.params.length ≤ tx.args.length →
+        ∃ bindings,
+          SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args =
+            some bindings)
     (hinterp : irResult =
       match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
       | some irFn =>
@@ -269,7 +316,8 @@ theorem interpretContractWith_correct_generic
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
         P fn sel irFn →
-        SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
+        SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args =
+          some bindings →
         FunctionBody.sourceResultMatchesIRResult (S fn) (runFn irFn)) :
     FunctionBody.sourceResultMatchesIRResult
       (interpretContractWith S model selectors tx initialWorld)
@@ -317,18 +365,15 @@ theorem interpretContractWith_correct_generic
             (!irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0) = false := by
           simpa [hpayableEq] using hguardFalse
         by_cases hlen : fn.params.length ≤ tx.args.length
-        · rcases bindSupportedParams_some_of_supported fn.params tx.args
-              (hparamsSupported fn hfnMem) hlen with ⟨bindings, hbindings⟩
+        · rcases hbindTotal fn hfnMem hlen with ⟨bindings, hbindings⟩
           have hmatch := hfunction fn sel irFn bindings hfnMem hPfn hbindings
           have hlenIr : irFn.params.length ≤ tx.args.length := by
             simpa [hlenEq] using hlen
           rw [hinterp, hfindIr]
           simpa [hfindPairs, hguardFalse, hguardIrFalse, hlenIr] using hmatch
-        · have hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none := by
-            cases hbind : SourceSemantics.bindSupportedParams fn.params tx.args with
-            | none => rfl
-            | some bindings =>
-                exact absurd (ParamLoading.bindSupportedParams_some_length hbind) hlen
+        · have hbindNone :
+              SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none :=
+            SourceSemantics.bindExternalParams_eq_none_of_not_length_le _ hlen
           have hlenIr : ¬ irFn.params.length ≤ tx.args.length := by
             simpa [hlenEq] using hlen
           rw [hinterp, hfindIr]
@@ -338,6 +383,86 @@ theorem interpretContractWith_correct_generic
             SourceSemantics.revertedResult, FunctionBody.initialIRStateForTx,
             FunctionBody.encodeStorage_withTransactionContext,
             FunctionBody.encodeEvents_withTransactionContext]
+
+/-- The scalar dispatcher correctness skeleton, now a corollary of the widened
+external one: for scalar parameters the external binder agrees with
+`bindSupportedParams`, so the syntactic supportedness predicate discharges
+`hbindTotal`. -/
+theorem interpretContractWith_correct_generic
+    (S : FunctionSpec → SourceSemantics.SourceContractResult)
+    (runFn : IRFunction → IRResult)
+    (model : CompilationModel) (selectors : List Nat)
+    (irFns : List IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (irResult : IRResult)
+    (hmeta : ∀ fn sel irFn, P fn sel irFn →
+      irFn.params = fn.params.map Param.toIRParam ∧
+        irFn.selector = sel ∧ irFn.payable = fn.isPayable)
+    (hSbindFail : ∀ fn, fn ∈ selectorDispatchedFunctions model →
+      SourceSemantics.bindSupportedParams fn.params tx.args = none →
+      S fn = SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx))
+    (hcompiled : List.Forall₂ (fun entry irFn => P entry.1 entry.2 irFn)
+      (SourceSemantics.selectorFunctionPairs model selectors) irFns)
+    (hparamsSupported :
+      ∀ fn ∈ selectorDispatchedFunctions model,
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
+    (hinterp : irResult =
+      match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
+      | some irFn =>
+          if !irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
+            { success := false
+              returnValue := none
+              finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
+              finalMappings := Compiler.Proofs.storageAsMappings
+                (FunctionBody.initialIRStateForTx model tx initialWorld).storage
+              events := (FunctionBody.initialIRStateForTx model tx initialWorld).events }
+          else if irFn.params.length ≤ tx.args.length then
+            runFn irFn
+          else
+            { success := false
+              returnValue := none
+              finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
+              finalMappings := Compiler.Proofs.storageAsMappings
+                (FunctionBody.initialIRStateForTx model tx initialWorld).storage
+              events := (FunctionBody.initialIRStateForTx model tx initialWorld).events }
+      | none =>
+          { success := false
+            returnValue := none
+            finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
+            finalMappings := Compiler.Proofs.storageAsMappings
+              (FunctionBody.initialIRStateForTx model tx initialWorld).storage
+            events := (FunctionBody.initialIRStateForTx model tx initialWorld).events })
+    (hfunction :
+      ∀ fn sel irFn bindings,
+        fn ∈ selectorDispatchedFunctions model →
+        P fn sel irFn →
+        SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
+        FunctionBody.sourceResultMatchesIRResult (S fn) (runFn irFn)) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretContractWith S model selectors tx initialWorld)
+      irResult := by
+  refine interpretContractWith_correct_generic_external P S runFn model selectors irFns tx
+    initialWorld irResult hmeta ?_ hcompiled ?_ hinterp ?_
+  · intro fn hfnMem hbindNone
+    refine hSbindFail fn hfnMem ?_
+    cases hbind : SourceSemantics.bindSupportedParams fn.params tx.args with
+    | none => rfl
+    | some bindings =>
+        rw [SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams
+          tx.functionSelector hbind] at hbindNone
+        cases hbindNone
+  · intro fn hfnMem hlen
+    rcases bindSupportedParams_some_of_supported fn.params tx.args
+      (hparamsSupported fn hfnMem) hlen with ⟨bindings, hbindings⟩
+    exact ⟨bindings, SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams
+      tx.functionSelector hbindings⟩
+  · intro fn sel irFn bindings hfnMem hPfn hbindExt
+    rcases bindSupportedParams_some_of_supported fn.params tx.args
+      (hparamsSupported fn hfnMem)
+      (Dispatch.bindExternalParams_some_length hbindExt) with
+      ⟨scalarBindings, hscalar⟩
+    exact hfunction fn sel irFn scalarBindings hfnMem hPfn hscalar
 
 /-- Source-parametric dispatcher correctness against `interpretIR`: the
 master skeleton with the executor fixed to `execIRFunction` (the `hinterp`
@@ -358,7 +483,7 @@ theorem interpretContractWith_correct_of_functions_generic
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -389,7 +514,7 @@ theorem interpretContract_correct_of_functions_generic
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -410,6 +535,94 @@ theorem interpretContract_correct_of_functions_generic
     (fun fn hmem hbindNone => interpretFunction_eq_reverted_of_bind_none
       model fn tx initialWorld (hparamsSupported fn hmem) hbindNone)
     hcompiled hparamsSupported hfunction
+
+/-- Widened source-parametric dispatcher correctness against `interpretIR`:
+the external skeleton with the executor fixed to `execIRFunction`. -/
+theorem interpretContractWith_correct_of_functions_generic_external
+    (S : FunctionSpec → SourceSemantics.SourceContractResult)
+    (model : CompilationModel) (selectors : List Nat)
+    (irFns : List IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (hmeta : ∀ fn sel irFn, P fn sel irFn →
+      irFn.params = fn.params.map Param.toIRParam ∧
+        irFn.selector = sel ∧ irFn.payable = fn.isPayable)
+    (hSbindFail : ∀ fn, fn ∈ selectorDispatchedFunctions model →
+      SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args = none →
+      S fn = SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx))
+    (hcompiled : List.Forall₂ (fun entry irFn => P entry.1 entry.2 irFn)
+      (SourceSemantics.selectorFunctionPairs model selectors) irFns)
+    (hbindTotal :
+      ∀ fn ∈ selectorDispatchedFunctions model,
+        fn.params.length ≤ tx.args.length →
+        ∃ bindings,
+          SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args =
+            some bindings)
+    (hfunction :
+      ∀ fn sel irFn bindings,
+        fn ∈ selectorDispatchedFunctions model →
+        P fn sel irFn →
+        SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args =
+          some bindings →
+        FunctionBody.sourceResultMatchesIRResult (S fn)
+          (execIRFunction irFn tx.args
+            (FunctionBody.initialIRStateForTx model tx initialWorld))) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretContractWith S model selectors tx initialWorld)
+      (interpretIR (runtimeContractOfFunctions model.name irFns) tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
+  interpretContractWith_correct_generic_external P S
+    (fun irFn => execIRFunction irFn tx.args
+      (FunctionBody.initialIRStateForTx model tx initialWorld))
+    model selectors irFns tx initialWorld _
+    hmeta hSbindFail hcompiled hbindTotal rfl hfunction
+
+/-- Widened dispatcher correctness for `interpretContract`, generic over the
+per-entry compile predicate.  Parameter supportedness enters only through
+`hbindTotal`, so this covers `bytes` (and every other shape the external ABI
+binder decodes) in addition to the scalars.
+
+`hbindTotal` is not free for a dynamic parameter: unlike the scalar case it
+does not follow from arity, since a malformed offset or a truncated tail makes
+the binder fail.  `Compiler/Proofs/IRGeneration/DispatchBytesParam.lean`
+discharges it at `bytes` from the ABI encoder, which is what makes the
+instantiation there non-vacuous. -/
+theorem interpretContract_correct_of_functions_generic_external
+    (model : CompilationModel) (selectors : List Nat)
+    (irFns : List IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (hmeta : ∀ fn sel irFn, P fn sel irFn →
+      irFn.params = fn.params.map Param.toIRParam ∧
+        irFn.selector = sel ∧ irFn.payable = fn.isPayable)
+    (hcompiled : List.Forall₂ (fun entry irFn => P entry.1 entry.2 irFn)
+      (SourceSemantics.selectorFunctionPairs model selectors) irFns)
+    (hbindTotal :
+      ∀ fn ∈ selectorDispatchedFunctions model,
+        fn.params.length ≤ tx.args.length →
+        ∃ bindings,
+          SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args =
+            some bindings)
+    (hfunction :
+      ∀ fn sel irFn bindings,
+        fn ∈ selectorDispatchedFunctions model →
+        P fn sel irFn →
+        SourceSemantics.bindExternalParams tx.functionSelector fn.params tx.args =
+          some bindings →
+        FunctionBody.sourceResultMatchesIRResult
+          (SourceSemantics.interpretFunction model fn tx initialWorld)
+          (execIRFunction irFn tx.args
+            (FunctionBody.initialIRStateForTx model tx initialWorld))) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.interpretContract model selectors tx initialWorld)
+      (interpretIR (runtimeContractOfFunctions model.name irFns) tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  rw [interpretContract_eq_interpretContractWith]
+  exact interpretContractWith_correct_of_functions_generic_external P
+    (fun fn => SourceSemantics.interpretFunction model fn tx initialWorld)
+    model selectors irFns tx initialWorld hmeta
+    (fun fn _ hbindNone => interpretFunction_eq_reverted_of_bindExternal_none
+      model fn tx initialWorld hbindNone)
+    hcompiled hbindTotal hfunction
 
 end Generic
 

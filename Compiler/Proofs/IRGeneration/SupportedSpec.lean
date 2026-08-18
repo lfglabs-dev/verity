@@ -19,28 +19,77 @@ open Compiler.CompilationModel
 
 /-- ABI parameter types admitted by the first whole-contract Layer 2 fragment.
 Only single-head-word scalars are included for the initial generic theorem. -/
-def SupportedExternalParamType : ParamType → Prop
+def SupportedExternalScalarParamType : ParamType → Prop
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 | .bool => True
   | _ => False
+
+/-- ABI parameter types admitted by external dispatch, widened past the
+single-head-word scalars to the length-prefixed dynamic `bytes` parameter
+(verity#2085).
+
+`bytes` is deliberately *not* decodable by `decodeSupportedParamWord`: it has no
+single-word value. Its head word is a relative tail offset, and the generated
+calldata loader binds six locals (`_offset`, `_abs_offset`, `_length`,
+`_tail_head_end`, `_tail_remaining`, `_data_offset`) that
+`DynamicAbi.bindExternalParam` reproduces semantically. Consumers that need an
+actual scalar head word — the native-backend static-scalar bridge and the legacy
+Yul compatibility witnesses — keep requiring
+`SupportedExternalScalarParamType`. -/
+def SupportedExternalParamType : ParamType → Prop
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool | .bytes => True
+  | _ => False
+
+theorem SupportedExternalParamType_of_scalar {ty : ParamType}
+    (hscalar : SupportedExternalScalarParamType ty) :
+    SupportedExternalParamType ty := by
+  cases ty <;> simp [SupportedExternalScalarParamType] at hscalar <;>
+    simp [SupportedExternalParamType]
+
+theorem SupportedExternalParamType_bytes :
+    SupportedExternalParamType ParamType.bytes := trivial
+
+/-- The widened admission set is exactly the scalar set plus `bytes`. This is the
+case split every downstream calldata-loading execution lemma performs. -/
+theorem supportedExternalParamType_scalar_or_bytes {ty : ParamType}
+    (hsupported : SupportedExternalParamType ty) :
+    SupportedExternalScalarParamType ty ∨ ty = ParamType.bytes := by
+  cases ty <;> simp [SupportedExternalParamType] at hsupported <;>
+    simp [SupportedExternalScalarParamType]
+
+/-- Widened parameter lists still have 32-byte ABI head words: `bytes`
+contributes a one-word relative tail pointer to the head area. -/
+theorem supportedExternalParamType_headSize_eq_32 {ty : ParamType}
+    (hsupported : SupportedExternalParamType ty) : paramHeadSize ty = 32 := by
+  cases ty <;> simp [SupportedExternalParamType] at hsupported <;> simp [paramHeadSize]
 
 /-- Return profiles admitted by the first whole-contract Layer 2 fragment.
 The initial theorem only targets zero-return or single-head-word-return entrypoints. -/
 def SupportedExternalReturnProfile : List ParamType → Prop
   | [] => True
-  | [ty] => SupportedExternalParamType ty
+  | [ty] => SupportedExternalScalarParamType ty
   | _ => False
 
 /-- Proof-side scalar-parameter predicate tied to the compiler's actual gating
 function `isScalarParamType`. Mirrors the `eventParamScalarProofSupported` /
 `eventParamScalarCompileSupported` pattern: instead of duplicating the case
 list in the proof layer, the proof-side name delegates to the compile-side
-Bool so the two cannot drift apart. The hand-restated `SupportedExternalParamType`
+Bool so the two cannot drift apart. The hand-restated `SupportedExternalScalarParamType`
 Prop is retained for existing call sites; the agreement theorem
 `SupportedExternalParamType_iff_externalParamScalarProofSupported` proves they
 denote the same set of types. -/
 def externalParamScalarProofSupported (ty : ParamType) : Bool :=
   isScalarParamType ty
+
+/-- Compile-driven decision procedure for the widened external-parameter
+admission set. The scalar half still delegates to the compiler's
+`isScalarParamType`; `bytes` is the one constructor this slice adds, and it is
+named explicitly so any future compiler-side change to dynamic-parameter routing
+shows up at the agreement oracle below rather than drifting silently. -/
+def externalParamProofSupported : ParamType → Bool
+  | ParamType.bytes => true
+  | ty => isScalarParamType ty
 
 /-- Proof-side scalar-return-profile predicate tied to the compiler's scalar
 gating function. Encodes the "zero or one single-word return" envelope of
@@ -72,17 +121,26 @@ theorem eventParamSourceShapeProofSupported_of_scalar :
         eventParamSourceShapeProofSupported ty = true
   | _ty, _hsupport => rfl
 
-/-- Agreement oracle: the hand-restated `SupportedExternalParamType` Prop holds
+/-- Agreement oracle: the hand-restated `SupportedExternalScalarParamType` Prop holds
 iff the compile-driven `externalParamScalarProofSupported` Bool is `true`.
 This is the meaning-preservation lemma for the conversion pattern: any future
 relaxation/tightening of `isScalarParamType` becomes visible at the proof
 boundary, instead of silently drifting from a hand-written enumeration. -/
 theorem SupportedExternalParamType_iff_externalParamScalarProofSupported
     (ty : ParamType) :
-    SupportedExternalParamType ty ↔ externalParamScalarProofSupported ty = true := by
+    SupportedExternalScalarParamType ty ↔ externalParamScalarProofSupported ty = true := by
   cases ty <;>
-    simp [SupportedExternalParamType, externalParamScalarProofSupported,
+    simp [SupportedExternalScalarParamType, externalParamScalarProofSupported,
       isScalarParamType]
+
+/-- Agreement oracle for the widened admission set (verity#2085): the
+hand-restated `SupportedExternalParamType` Prop holds iff the compile-driven
+`externalParamProofSupported` Bool is `true`. -/
+theorem SupportedExternalParamType_iff_externalParamProofSupported
+    (ty : ParamType) :
+    SupportedExternalParamType ty ↔ externalParamProofSupported ty = true := by
+  cases ty <;>
+    simp [SupportedExternalParamType, externalParamProofSupported, isScalarParamType]
 
 /-- Agreement oracle for the return-profile shape. -/
 theorem SupportedExternalReturnProfile_iff_externalReturnProfileProofSupported
@@ -885,7 +943,7 @@ def selectorDispatchedFunctions (spec : CompilationModel) : List FunctionSpec :=
 current whole-contract theorem. -/
 structure SupportedParamProfile (params : List Param) : Prop where
   namesNodup : (params.map (·.name)).Nodup
-  supported : ∀ param ∈ params, SupportedExternalParamType param.ty
+  supported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty
   calldataThreshold : 4 + params.length * 32 < Compiler.Constants.evmModulus
 
 /-- Return-profile interface for selector-dispatched entrypoints covered by the
@@ -3030,7 +3088,7 @@ theorem SupportedConstructor.paramNamesNodup
 theorem SupportedConstructor.paramsSupported
     {spec : CompilationModel} {ctor : ConstructorSpec}
     (hSupported : SupportedConstructor spec ctor) :
-    ∀ param ∈ ctor.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ ctor.params, SupportedExternalScalarParamType param.ty :=
   hSupported.params.supported
 
 theorem SupportedConstructor.stmtList_ctorBody
@@ -3201,7 +3259,7 @@ theorem SupportedFunction.paramNamesNodup
 theorem SupportedFunction.paramsSupported
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunction spec fn) :
-    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
   hSupported.params.supported
 
 theorem SupportedFunction.paramCalldataThreshold
@@ -3227,7 +3285,7 @@ theorem SupportedFunctionWithScalarEvents.paramNamesNodup
 theorem SupportedFunctionWithScalarEvents.paramsSupported
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunctionWithScalarEvents spec fn) :
-    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
   hSupported.params.supported
 
 theorem SupportedFunctionWithScalarEvents.paramCalldataThreshold
@@ -3253,7 +3311,7 @@ theorem SupportedFunctionExceptMappingWrites.paramNamesNodup
 theorem SupportedFunctionExceptMappingWrites.paramsSupported
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunctionExceptMappingWrites spec fn) :
-    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
   hSupported.params.supported
 
 theorem SupportedFunctionExceptMappingWrites.paramCalldataThreshold
@@ -7511,7 +7569,7 @@ theorem SupportedSpec.selectorFunctionParamsSupported
     (hSupported : SupportedSpec spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
-    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
   (hSupported.supportedFunctionOfSelectorDispatched hfn).params.supported
 
 theorem SupportedSpecWithHelpers.selectorFunctionParamsSupported
@@ -7519,7 +7577,7 @@ theorem SupportedSpecWithHelpers.selectorFunctionParamsSupported
     (hSupported : SupportedSpecWithHelpers spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
-    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
   (hSupported.supportedFunctionOfSelectorDispatched hfn).params.supported
 
 theorem SupportedSpec.selectorFunctionParamCalldataThreshold
@@ -7535,7 +7593,7 @@ theorem SupportedSpecExceptMappingWrites.selectorFunctionParamsSupported
     (hSupported : SupportedSpecExceptMappingWrites spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
-    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
   (hSupported.supportedFunctionOfSelectorDispatched hfn).params.supported
 
 theorem SupportedSpecExceptMappingWrites.selectorFunctionParamCalldataThreshold
@@ -7551,7 +7609,7 @@ theorem SupportedSpecWithScalarEvents.selectorFunctionParamsSupported
     (hSupported : SupportedSpecWithScalarEvents spec selectors)
     {fn : FunctionSpec}
     (hfn : fn ∈ selectorDispatchedFunctions spec) :
-    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
   (hSupported.supportedFunctionOfSelectorDispatched hfn).params.supported
 
 theorem SupportedSpecWithScalarEvents.selectorFunctionParamCalldataThreshold
