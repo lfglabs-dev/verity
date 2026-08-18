@@ -4869,6 +4869,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_mapUint
   Compiler.Proofs.Storage.MappingCoherentGlobal.nested_ne_simple
   Compiler.Proofs.Storage.MappingCoherentGlobal.simple_ne_of_base_ne
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_aligned_map_case
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_aligned_mapUint_case
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_aligned_map2_case
   Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_aligned_preserves_mappingCoherentAllKeys
   Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_aligned_preserves_mappingCoherentAllKeys
   Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_aligned_preserves_mappingCoherentAllKeys
@@ -7093,4 +7096,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6576 theorems/lemmas (4705 public, 1871 private, 0 sorry'd)
+-- Total: 6579 theorems/lemmas (4708 public, 1871 private, 0 sorry'd)
