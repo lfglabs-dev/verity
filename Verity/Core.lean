@@ -277,6 +277,43 @@ inductive StorageKey where
   | map2 (slot : Nat) (key1 key2 : Address)
   deriving DecidableEq, Repr
 
+namespace StorageKey
+
+@[simp] theorem slot_ne_addr (n m : Nat) : slot n ≠ addr m := by intro h; cases h
+@[simp] theorem addr_ne_slot (n m : Nat) : addr n ≠ slot m := by intro h; cases h
+@[simp] theorem slot_ne_map (n m : Nat) (k : Address) : slot n ≠ map m k := by intro h; cases h
+@[simp] theorem map_ne_slot (n : Nat) (k : Address) (m : Nat) : map n k ≠ slot m := by intro h; cases h
+@[simp] theorem slot_ne_map2 (n m : Nat) (k1 k2 : Address) : slot n ≠ map2 m k1 k2 := by intro h; cases h
+@[simp] theorem map2_ne_slot (n : Nat) (k1 k2 : Address) (m : Nat) : map2 n k1 k2 ≠ slot m := by intro h; cases h
+@[simp] theorem slot_ne_mapUint (n m : Nat) (k : Uint256) : slot n ≠ mapUint m k := by intro h; cases h
+@[simp] theorem mapUint_ne_slot (n : Nat) (k : Uint256) (m : Nat) : mapUint n k ≠ slot m := by intro h; cases h
+@[simp] theorem slot_ne_transient (n m : Nat) : slot n ≠ transient m := by intro h; cases h
+@[simp] theorem transient_ne_slot (n m : Nat) : transient n ≠ slot m := by intro h; cases h
+@[simp] theorem slot_ne_contractSlot (n c m : Nat) : slot n ≠ contractSlot c m := by intro h; cases h
+@[simp] theorem contractSlot_ne_slot (c n m : Nat) : contractSlot c n ≠ slot m := by intro h; cases h
+@[simp] theorem addr_ne_map (n m : Nat) (k : Address) : addr n ≠ map m k := by intro h; cases h
+@[simp] theorem map_ne_addr (n : Nat) (k : Address) (m : Nat) : map n k ≠ addr m := by intro h; cases h
+@[simp] theorem addr_ne_map2 (n m : Nat) (k1 k2 : Address) : addr n ≠ map2 m k1 k2 := by intro h; cases h
+@[simp] theorem map2_ne_addr (n : Nat) (k1 k2 : Address) (m : Nat) : map2 n k1 k2 ≠ addr m := by intro h; cases h
+@[simp] theorem addr_ne_mapUint (n m : Nat) (k : Uint256) : addr n ≠ mapUint m k := by intro h; cases h
+@[simp] theorem mapUint_ne_addr (n : Nat) (k : Uint256) (m : Nat) : mapUint n k ≠ addr m := by intro h; cases h
+@[simp] theorem addr_ne_transient (n m : Nat) : addr n ≠ transient m := by intro h; cases h
+@[simp] theorem transient_ne_addr (n m : Nat) : transient n ≠ addr m := by intro h; cases h
+@[simp] theorem addr_ne_contractSlot (n c m : Nat) : addr n ≠ contractSlot c m := by intro h; cases h
+@[simp] theorem contractSlot_ne_addr (c n m : Nat) : contractSlot c n ≠ addr m := by intro h; cases h
+@[simp] theorem map_ne_map2 (n : Nat) (k : Address) (m : Nat) (k1 k2 : Address) :
+    map n k ≠ map2 m k1 k2 := by intro h; cases h
+@[simp] theorem map2_ne_map (n : Nat) (k1 k2 : Address) (m : Nat) (k : Address) :
+    map2 n k1 k2 ≠ map m k := by intro h; cases h
+@[simp] theorem map_ne_transient (n : Nat) (k : Address) (m : Nat) : map n k ≠ transient m := by intro h; cases h
+@[simp] theorem transient_ne_map (n : Nat) (m : Nat) (k : Address) : transient n ≠ map m k := by intro h; cases h
+@[simp] theorem map2_ne_transient (n : Nat) (k1 k2 : Address) (m : Nat) :
+    map2 n k1 k2 ≠ transient m := by intro h; cases h
+@[simp] theorem transient_ne_map2 (n : Nat) (m : Nat) (k1 k2 : Address) :
+    transient n ≠ map2 m k1 k2 := by intro h; cases h
+
+end StorageKey
+
 -- State monad for contract execution
 structure ContractState where
   /-- The sole word-valued storage backing map. `StorageKey` retains the
@@ -328,6 +365,9 @@ the `storage_simps` simp set — not another ~1400-site rewrite.
 
 def storage (s : ContractState) : Nat → Uint256 :=
   fun slot => s.storageWords (.slot slot)
+
+@[simp] theorem storageWords_slot (s : ContractState) (n : Nat) :
+    s.storageWords (.slot n) = s.storage n := rfl
 
 /-- Compatibility view for explicitly identified contract worlds. Contract
     `0` remains the unqualified storage world. -/
@@ -451,25 +491,52 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (n : Nat) :
     { s with storageWords := f }.storage n = f (.slot n) := rfl
 
+@[simp] theorem storage_set_storageWords_fun (s : ContractState) (f : StorageKey → Uint256) :
+    { s with storageWords := f }.storage = fun n => f (.slot n) := rfl
+
 @[simp] theorem storageAddr_set_storageWords (s : ContractState) (f : StorageKey → Uint256)
     (n : Nat) :
     { s with storageWords := f }.storageAddr n = wordToAddress (f (.addr n)) := rfl
+
+@[simp] theorem storageAddr_set_storageWords_fun (s : ContractState)
+    (f : StorageKey → Uint256) :
+    { s with storageWords := f }.storageAddr = fun n => wordToAddress (f (.addr n)) := rfl
 
 @[simp] theorem storageMap_set_storageWords (s : ContractState) (f : StorageKey → Uint256)
     (n : Nat) (key : Address) :
     { s with storageWords := f }.storageMap n key = f (.map n key) := rfl
 
+@[simp] theorem storageMap_set_storageWords_fun (s : ContractState)
+    (f : StorageKey → Uint256) :
+    { s with storageWords := f }.storageMap = fun n key => f (.map n key) := rfl
+
 @[simp] theorem storageMapUint_set_storageWords (s : ContractState)
     (f : StorageKey → Uint256) (n : Nat) (key : Uint256) :
     { s with storageWords := f }.storageMapUint n key = f (.mapUint n key) := rfl
+
+@[simp] theorem storageMapUint_set_storageWords_fun (s : ContractState)
+    (f : StorageKey → Uint256) :
+    { s with storageWords := f }.storageMapUint = fun n key => f (.mapUint n key) := rfl
 
 @[simp] theorem storageMap2_set_storageWords (s : ContractState)
     (f : StorageKey → Uint256) (n : Nat) (key1 key2 : Address) :
     { s with storageWords := f }.storageMap2 n key1 key2 = f (.map2 n key1 key2) := rfl
 
+@[simp] theorem storageMap2_set_storageWords_fun (s : ContractState)
+    (f : StorageKey → Uint256) :
+    { s with storageWords := f }.storageMap2 = fun n key1 key2 => f (.map2 n key1 key2) := rfl
+
 @[simp] theorem transientStorage_set_storageWords (s : ContractState)
     (f : StorageKey → Uint256) (n : Nat) :
     { s with storageWords := f }.transientStorage n = f (.transient n) := rfl
+
+@[simp] theorem transientStorage_set_storageWords_fun (s : ContractState)
+    (f : StorageKey → Uint256) :
+    { s with storageWords := f }.transientStorage = fun n => f (.transient n) := rfl
+
+@[simp] theorem Address.ofNat_writeAddressWord (word : Uint256) (value : Address) :
+    Address.ofNat (writeAddressWord word value).val = value :=
+  wordToAddress_writeAddressWord word value
 
 /-- Address-slot writes leave word-slot and mapping compatibility views intact. -/
 @[simp] theorem storage_writeSlot_same (s : ContractState) (slot : Nat) (value : Uint256) :
@@ -716,17 +783,6 @@ def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Ui
     (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).storageMap2 slot key1 key2 = value := by
   simp [storageMap2, writeMap2]
-
-@[simp] theorem storageMap2_writeMap2_other (s : ContractState) (slot : Nat)
-    {key1 key1' key2 key2' : Address} (h : key1' ≠ key1 ∨ key2' ≠ key2)
-    (value : Uint256) :
-    (s.writeMap2 slot key1 key2 value).storageMap2 slot key1' key2' =
-      s.storageMap2 slot key1' key2' := by
-  simp [storageMap2, writeMap2]
-  intro hkey
-  cases h with
-  | inl h1 => exact (h1 hkey.1).elim
-  | inr h2 => exact (h2 hkey.2).elim
 
 @[simp] theorem sender_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).sender = s.sender := rfl

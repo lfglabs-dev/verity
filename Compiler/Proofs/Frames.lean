@@ -913,7 +913,9 @@ theorem writeUintSlots_preserves_storage_except
     (writeUintSlots world slots value).storage slot = world.storage slot := by
   have hcontains : (slots.map wordNormalize).contains slot = false := by
     simpa [List.elem_eq_contains] using hslot
-  simp [writeUintSlots, hcontains]
+  simpa [writeUintSlots] using
+    Verity.ContractState.storage_writeSlots_not_mem world (slots.map wordNormalize)
+      (value : Verity.Core.Uint256) hcontains
 
 theorem writeStorageWordSlots_preserves_storage_except
     (world : Verity.ContractState) (slots : List Nat) (wordOffset value slot : Nat)
@@ -922,7 +924,10 @@ theorem writeStorageWordSlots_preserves_storage_except
   have hcontains :
       (slots.map (fun base => wordNormalize (base + wordOffset))).contains slot = false := by
     simpa [List.elem_eq_contains] using hslot
-  simp [writeStorageWordSlots, hcontains]
+  simp [writeStorageWordSlots, Verity.ContractState.storage_writeAddrSlots]
+  exact Verity.ContractState.storage_writeSlots_not_mem world
+    (slots.map (fun base => wordNormalize (base + wordOffset)))
+    (value : Verity.Core.Uint256) hcontains
 
 theorem writeStorageWordSlots_preserves_address_except
     (world : Verity.ContractState) (slots : List Nat) (wordOffset value slot : Nat)
@@ -932,7 +937,12 @@ theorem writeStorageWordSlots_preserves_address_except
   have hcontains :
       (slots.map (fun base => wordNormalize (base + wordOffset))).contains slot = false := by
     simpa [List.elem_eq_contains] using hslot
-  simp [writeStorageWordSlots, hcontains]
+  simp [writeStorageWordSlots, Verity.ContractState.storageAddr_writeSlots]
+  exact Verity.ContractState.storageAddr_writeAddrSlots_not_mem
+    (world.writeSlots (slots.map (fun base => wordNormalize (base + wordOffset)))
+      (value : Verity.Core.Uint256))
+    (slots.map (fun base => wordNormalize (base + wordOffset)))
+    (Verity.wordToAddress (value : Verity.Core.Uint256)) hcontains
 
 theorem writeAddressSlots_preserves_address_except
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat)
@@ -940,7 +950,9 @@ theorem writeAddressSlots_preserves_address_except
     (writeAddressSlots world slots value).storageAddr slot = world.storageAddr slot := by
   have hcontains : (slots.map wordNormalize).contains slot = false := by
     simpa [List.elem_eq_contains] using hslot
-  simp [writeAddressSlots, hcontains]
+  simpa [writeAddressSlots] using
+    Verity.ContractState.storageAddr_writeAddrSlots_not_mem world
+      (slots.map wordNormalize) (Verity.wordToAddress (value : Verity.Core.Uint256)) hcontains
 
 theorem writeUintFieldSlots_preserves_storage_except
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
@@ -957,11 +969,19 @@ theorem writeUintFieldSlots_preserves_storage_except
   | some result =>
       rcases result with ⟨field, resolvedSlot⟩
       generalize hpacked : field.packedBits = packed
-      cases packed <;> simp only [writeUintFieldSlots, hfind, hpacked] <;> split
-      · simp [writeTransientTargets]
-      · exact writeUintSlots_preserves_storage_except world slots value slot hslot
-      · simp
-      · simp [hcontains]
+      cases packed with
+      | none =>
+          simp only [writeUintFieldSlots, hfind, hpacked]
+          split
+          · simp [writeTransientTargets]
+          · exact writeUintSlots_preserves_storage_except world slots value slot hslot
+      | some packedBits =>
+          simp only [writeUintFieldSlots, hfind, hpacked]
+          split
+          · simp [Verity.ContractState.storage_modifyTransientSlots]
+          · exact Verity.ContractState.storage_modifySlots_not_mem world
+              (slots.map wordNormalize)
+              (fun current => packedWordWrite current.val value packedBits) hcontains
 
 theorem writeUintFieldSlots_preserves_address
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
