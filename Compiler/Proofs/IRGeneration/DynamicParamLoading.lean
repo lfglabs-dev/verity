@@ -125,6 +125,18 @@ theorem genSingleParamLoad_bytes
   simp [genSingleParamLoad, genDynamicParamLoads, isLengthPrefixedDynamicShape,
     bytesLoaderStmts, hbase]
 
+/-- `string` is emitted through the very same loader as `bytes`: both are
+length-prefixed dynamic shapes, and `genDynamicParamLoads` branches on the
+shape, not on the type. -/
+theorem genSingleParamLoad_string
+    (loadWord : YulExpr → YulExpr) (sizeExpr : YulExpr)
+    (headSize baseOffset : Nat) (name : String) (headOffset : Nat)
+    (hbase : ¬ (baseOffset == 0) = true) :
+    genSingleParamLoad loadWord sizeExpr headSize baseOffset name ParamType.string headOffset =
+      bytesLoaderStmts loadWord sizeExpr headSize baseOffset name headOffset := by
+  simp [genSingleParamLoad, genDynamicParamLoads, isLengthPrefixedDynamicShape,
+    bytesLoaderStmts, hbase]
+
 /-! ## Executing the generated `bytes` loader -/
 
 private theorem calldataloadWord_eq (selector : Nat) (calldata : List Nat) (offset : Nat) :
@@ -452,10 +464,42 @@ theorem applyBindingsToIRState_append (state : IRState) (xs ys : List (String ×
     (headSize baseOffset : Nat) (name : String) (headOffset : Nat) :
     (bytesLoaderStmts loadWord sizeExpr headSize baseOffset name headOffset).length = 9 := rfl
 
+/-- The bytes-like half of the per-parameter composition, phrased over the two
+facts `bytes` and `string` share: the emitted block is the length-prefixed
+loader, and the binder assigned it the `bytes` bindings. -/
+private theorem exec_bytesLikeParamLoad_then
+    (state : IRState) (rest : List YulStmt) (headSize baseOffset : Nat)
+    (name : String) (ty : ParamType) (idx extraFuel : Nat) (here : List (String × Nat))
+    (hcalldataSize :
+      DynamicAbi.externalCalldataSize state.calldata < Compiler.Constants.evmModulus)
+    (hstmts : genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset name ty (4 + 32 * idx) =
+      bytesLoaderStmts (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset name (4 + 32 * idx))
+    (hbind : DynamicAbi.bindExternalParam state.selector state.calldata headSize baseOffset
+      (4 + 32 * idx) { name := name, ty := ParamType.bytes } = some here) :
+    execIRStmts ((genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset name ty
+        (4 + 32 * idx)).length + rest.length + extraFuel + 1) state
+      (genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset name ty
+        (4 + 32 * idx) ++ rest) =
+      execIRStmts (rest.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState state here) rest := by
+  obtain ⟨relativeOffset, length, hhead, hheadBound, htailBound, hlength,
+    hpayloadBound, hhere⟩ := DynamicAbi.bindExternalParam_bytes_eq_some_inv hbind
+  subst hhere
+  rw [hstmts]
+  have hexec := exec_bytesLoaderStmts_then state rest name headSize baseOffset
+    (4 + 32 * idx) relativeOffset length extraFuel hcalldataSize hhead hheadBound
+    htailBound hlength hpayloadBound
+  simpa [bytesParamBindings, bytesLoaderStmts, Nat.add_comm, Nat.add_left_comm,
+    Nat.add_assoc] using hexec
+
 /-- Executing the statements emitted for one supported external parameter lands
 on exactly the bindings `DynamicAbi.bindExternalParam` assigns to it. This is
-the per-parameter composition: `bytes` goes through the loader refinement,
-scalars through the existing single-word lemma. -/
+the per-parameter composition: `bytes` and `string` go through the loader
+refinement, scalars through the existing single-word lemma. -/
 theorem exec_genSingleParamLoad_external_then
     (state : IRState) (rest : List YulStmt) (headSize baseOffset : Nat)
     (param : Param) (idx extraFuel : Nat) (here : List (String × Nat))
@@ -473,7 +517,8 @@ theorem exec_genSingleParamLoad_external_then
         (4 + 32 * idx) ++ rest) =
       execIRStmts (rest.length + extraFuel + 1)
         (ParamLoading.applyBindingsToIRState state here) rest := by
-  rcases supportedExternalParamType_scalar_or_bytes hsupported with hscalar | hbytes
+  rcases supportedExternalParamType_scalar_or_bytesLike hsupported with
+    hscalar | hbytes | hstring
   · obtain ⟨word, value, hword, hdecode, hhere⟩ :=
       DynamicAbi.bindExternalParam_scalar_eq_some_inv (decode_total_of_scalar hscalar) hbind
     have hwordEq : word = state.calldata.getD idx 0 % Compiler.Constants.evmModulus := by
@@ -495,19 +540,20 @@ theorem exec_genSingleParamLoad_external_then
       cases param
       simp_all
     rw [hparam] at hbind
-    obtain ⟨relativeOffset, length, hhead, hheadBound, htailBound, hlength,
-      hpayloadBound, hhere⟩ := DynamicAbi.bindExternalParam_bytes_eq_some_inv hbind
-    subst hhere
-    rw [hbytes, genSingleParamLoad_bytes _ _ _ _ _ _ hbase]
-    have hexec := exec_bytesLoaderStmts_then state rest param.name headSize baseOffset
-      (4 + 32 * idx) relativeOffset length extraFuel hcalldataSize hhead hheadBound
-      htailBound hlength hpayloadBound
-    simpa [bytesParamBindings, bytesLoaderStmts, Nat.add_comm, Nat.add_left_comm,
-      Nat.add_assoc] using hexec
+    exact exec_bytesLikeParamLoad_then state rest headSize baseOffset param.name param.ty idx
+      extraFuel here hcalldataSize (by rw [hbytes]; exact genSingleParamLoad_bytes _ _ _ _ _ _ hbase)
+      hbind
+  · have hparam : param = { name := param.name, ty := ParamType.string } := by
+      cases param
+      simp_all
+    rw [hparam, DynamicAbi.bindExternalParam_string_eq_bytes] at hbind
+    exact exec_bytesLikeParamLoad_then state rest headSize baseOffset param.name param.ty idx
+      extraFuel here hcalldataSize
+      (by rw [hstring]; exact genSingleParamLoad_string _ _ _ _ _ _ hbase) hbind
 
 /-- The parameter-list lift: the whole emitted calldata-decoding block executes
 to exactly the bindings the dispatcher's external ABI binder computes, for any
-mixture of supported scalars and `bytes`. -/
+mixture of supported scalars, `bytes` and `string`. -/
 theorem exec_genParamLoadBodyFrom_external_then
     (headSize baseOffset : Nat) (hbase : ¬ (baseOffset == 0) = true)
     (params : List Param) :
@@ -681,10 +727,10 @@ private theorem scalars_of_bindSupportedParams :
 /-- End-to-end refinement for the generated entrypoint prologue: whatever
 bindings the dispatcher's external ABI binder produces, executing the emitted
 calldata-decoding block reaches exactly that variable environment — for any
-mixture of supported scalars and `bytes` parameters (verity#2085).
+mixture of supported scalars, `bytes` and `string` parameters (verity#2085).
 
 Together with `interpretContract_correct_of_functions_generic_external` this is
-the composition that admits `bytes` into external dispatch. -/
+the composition that admits `bytes` and `string` into external dispatch. -/
 theorem exec_genParamLoads_external
     (state : IRState) (params : List Param) (bindings : List (String × Nat))
     (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)

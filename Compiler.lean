@@ -40,6 +40,7 @@ import Compiler.Proofs.IRGeneration.SupportedFragment
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.Dispatch
 import Compiler.Proofs.IRGeneration.DispatchBytesParam
+import Compiler.Proofs.IRGeneration.DispatchStringParam
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody
 import Compiler.Proofs.IRGeneration.ParamLoading

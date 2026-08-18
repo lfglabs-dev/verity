@@ -452,6 +452,81 @@ theorem bindExternalParam_bytes_eq_some_inv
       unfold dynamicParamBindings
       rw [habs, htailHead, htailRem, hdata]
 
+/-- `string` and `bytes` bind identically. The ABI encodes both as a relative
+tail offset in the head area and a length-prefixed payload in the tail; the two
+types differ only in the textual signature that feeds the selector hash, never
+in the encoding of an argument block. Every `string` fact below is therefore
+routed through the `bytes` lemmas rather than reproved (verity#2085). -/
+theorem bindExternalParam_string_eq_bytes
+    (selector : Nat) (calldata : List Nat)
+    (headSize baseOffset headOffset : Nat) (name : String) :
+    bindExternalParam selector calldata headSize baseOffset headOffset
+        { name := name, ty := ParamType.string } =
+      bindExternalParam selector calldata headSize baseOffset headOffset
+        { name := name, ty := ParamType.bytes } := by
+  have hstring :
+      decodeSupportedParamWord ParamType.string =<<
+        externalWordAt? selector calldata headOffset = none := by
+    cases externalWordAt? selector calldata headOffset <;> rfl
+  have hbytes :
+      decodeSupportedParamWord ParamType.bytes =<<
+        externalWordAt? selector calldata headOffset = none := by
+    cases externalWordAt? selector calldata headOffset <;> rfl
+  simp only [bindExternalParam]
+  rw [hstring, hbytes]
+
+/-- The `string` counterpart of `bindExternalParam_bytes_refines_dynamic_loader`:
+the same checked head word, tail length word and payload bound make the
+dispatcher bind the same six loader locals. -/
+theorem bindExternalParam_string_refines_dynamic_loader
+    {selector : Nat} {calldata : List Nat}
+    {headSize baseOffset headOffset relativeOffset length : Nat} {name : String}
+    (hhead : externalWordAt? selector calldata headOffset = some relativeOffset)
+    (hheadBound : headSize ≤ relativeOffset)
+    (htailBound : baseOffset + relativeOffset + 32 ≤ externalCalldataSize calldata)
+    (hlength : externalWordAt? selector calldata (baseOffset + relativeOffset) = some length)
+    (hpayloadBound :
+      length ≤ externalCalldataSize calldata - (baseOffset + relativeOffset + 32)) :
+    bindExternalParam selector calldata headSize baseOffset headOffset
+      { name := name, ty := ParamType.string } =
+      some
+        [ (s!"{name}_offset", relativeOffset)
+        , (s!"{name}_abs_offset", baseOffset + relativeOffset)
+        , (s!"{name}_length", length)
+        , (s!"{name}_tail_head_end", baseOffset + relativeOffset + 32)
+        , (s!"{name}_tail_remaining",
+            externalCalldataSize calldata - (baseOffset + relativeOffset + 32))
+        , (s!"{name}_data_offset", baseOffset + relativeOffset + 32) ] := by
+  rw [bindExternalParam_string_eq_bytes]
+  exact bindExternalParam_bytes_refines_dynamic_loader hhead hheadBound htailBound hlength
+    hpayloadBound
+
+/-- Converse of `bindExternalParam_string_refines_dynamic_loader`, mirroring
+`bindExternalParam_bytes_eq_some_inv`: a successful `string` binding is exactly
+the six loader locals and certifies the bounds the generated loader checks. -/
+theorem bindExternalParam_string_eq_some_inv
+    {selector : Nat} {calldata : List Nat}
+    {headSize baseOffset headOffset : Nat} {name : String}
+    {bindings : List (String × Nat)}
+    (hbind : bindExternalParam selector calldata headSize baseOffset headOffset
+      { name := name, ty := ParamType.string } = some bindings) :
+    ∃ relativeOffset length,
+      externalWordAt? selector calldata headOffset = some relativeOffset ∧
+        headSize ≤ relativeOffset ∧
+        baseOffset + relativeOffset + 32 ≤ externalCalldataSize calldata ∧
+        externalWordAt? selector calldata (baseOffset + relativeOffset) = some length ∧
+        length ≤ externalCalldataSize calldata - (baseOffset + relativeOffset + 32) ∧
+        bindings =
+          [ (s!"{name}_offset", relativeOffset)
+          , (s!"{name}_abs_offset", baseOffset + relativeOffset)
+          , (s!"{name}_length", length)
+          , (s!"{name}_tail_head_end", baseOffset + relativeOffset + 32)
+          , (s!"{name}_tail_remaining",
+              externalCalldataSize calldata - (baseOffset + relativeOffset + 32))
+          , (s!"{name}_data_offset", baseOffset + relativeOffset + 32) ] := by
+  rw [bindExternalParam_string_eq_bytes] at hbind
+  exact bindExternalParam_bytes_eq_some_inv hbind
+
 /-- Witness that one external ABI parameter is accepted by `bindExternalParam`
 at a particular absolute head offset. -/
 def ExternalParamBindingWitness
