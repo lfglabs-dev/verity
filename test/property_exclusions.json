@@ -31,9 +31,24 @@
   "transferOwnership_unfold"
  ],
  "OwnedCounter": [
+  "Call.step_preservesCoherence",
+  "coherent_of_genesis",
+  "constructor_preservesCoherence",
+  "decrement_preservesCoherence",
   "decrement_unfold",
+  "derivedMappingSlotsAvoid",
+  "fieldMapKindAt_eq_none",
+  "findResolvedFieldAtSlot_mem",
+  "findResolvedFieldAtStorageSlot_go_mem",
+  "getCount_preservesCoherence",
+  "getOwner_preservesCoherence",
+  "increment_preservesCoherence",
   "increment_unfold",
   "isOwner_correct",
+  "mappingBasesNotDerived",
+  "run_preservesCoherence",
+  "storageKeySlot_not_mappingEntry",
+  "transferOwnership_preservesCoherence",
   "transferOwnership_unfold"
  ],
  "SimpleStorage": [
