@@ -352,7 +352,9 @@ sibling entrypoint.
   injectivity.
 - Public accessors keep the old names (`storage`, `storageAddr`,
   `storageMap`, …). Specs that read those views do not change shape.
-  `storageArray` and `knownAddresses` remain separate fields this step.
+  `storageArray` and `knownAddresses` remain separate fields this step;
+  independence from the word-channel lenses is now proved
+  (`Compiler.Proofs.Storage.SeparateChannels`).
 - The freeze baseline shrinks to `Verity/Core.lean` (lens
   implementations) plus `Contracts/TypedIRTests.lean` (IRState field-name
   collisions). `storageWords :=` is forbidden outside `Verity/Core.lean`.
@@ -388,8 +390,13 @@ sibling entrypoint.
   `writeMap2`+`writeSlot` preserves `MappingCoherent*`.
   `writeTransient` preserves the globals by constructor injectivity.
   A lone `writeSlot` preserves a global under an explicit
-  image-avoidance `∀` (derived slot ≠ written word). Finite `*On`
-  lists lift from the globals without a pairwise certificate.
+  image-avoidance `∀` (derived slot ≠ written word). That `∀` is
+  discharged for writes that never touch `StorageKey.slot`:
+  `writeTransient` (constructor injectivity), `writeAddrSlot`
+  (constructor injectivity of `.addr`), and `writeArray` (separate
+  `storageArray` field). Finite `*On` lists lift from the globals
+  without a pairwise certificate. Arbitrary `n` is still not claimed
+  safe for a lone `writeSlot`.
   `FieldEncode` derives `findResolvedFieldAtSlot` from
   `findFieldWithResolvedSlot` plus no write-slot conflict, persistent,
   and unpacked, then identifies that slot with `encodeStorageAt`.

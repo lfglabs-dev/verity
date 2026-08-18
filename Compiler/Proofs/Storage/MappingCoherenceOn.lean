@@ -12,6 +12,11 @@
   constructor injectivity (`StorageKey.transient` vs persistent
   `.slot` / `.map` / `.mapUint` / `.map2`). No slot inequality.
 
+  `writeAddrSlot` and `writeArray` likewise preserve every finite
+  `*On` list: address keys are a different constructor, and the
+  array channel is a different `ContractState` field. No slot
+  inequality.
+
   Global aligned-write preservation of `MappingCoherent*` lives in
   `MappingCoherence` under `solidityMappingSlot_injective`. This file
   still has finite-set certificates; `*_of_mappingCoherent*` lifts the
@@ -452,6 +457,98 @@ theorem writeTransient_preserves_mappingCoherentMap2On
       (s.writeTransient n v).storage (mappingMap2Slot p.1 p.2.1 p.2.2) =
         s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) := by
     simp [storage, writeTransient]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+/-- Address-slot writes leave persistent mapping views and flat word
+    slots unchanged. Constructor injectivity of `StorageKey.addr`
+    vs `.slot` / `.map` / `.mapUint` / `.map2`; no slot inequality
+    and not keccak injectivity. -/
+theorem writeAddrSlot_preserves_mappingCoherentOn
+    (s : ContractState) (pairs : List (Nat × Address)) (n : Nat) (v : Address)
+    (hcoh : MappingCoherentOn s pairs) :
+    MappingCoherentOn (s.writeAddrSlot n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeAddrSlot n v).storageMap p.1 p.2 = s.storageMap p.1 p.2 := by
+    simp [storageMap, writeAddrSlot]
+  have hflat :
+      (s.writeAddrSlot n v).storage (mappingAddrSlot p.1 p.2) =
+        s.storage (mappingAddrSlot p.1 p.2) := by
+    simp [storage, writeAddrSlot]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeAddrSlot_preserves_mappingCoherentUintOn
+    (s : ContractState) (pairs : List (Nat × Uint256)) (n : Nat) (v : Address)
+    (hcoh : MappingCoherentUintOn s pairs) :
+    MappingCoherentUintOn (s.writeAddrSlot n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeAddrSlot n v).storageMapUint p.1 p.2 = s.storageMapUint p.1 p.2 := by
+    simp [storageMapUint, writeAddrSlot]
+  have hflat :
+      (s.writeAddrSlot n v).storage (mappingUintSlot p.1 p.2) =
+        s.storage (mappingUintSlot p.1 p.2) := by
+    simp [storage, writeAddrSlot]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeAddrSlot_preserves_mappingCoherentMap2On
+    (s : ContractState) (pairs : List (Nat × Address × Address)) (n : Nat)
+    (v : Address) (hcoh : MappingCoherentMap2On s pairs) :
+    MappingCoherentMap2On (s.writeAddrSlot n v) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeAddrSlot n v).storageMap2 p.1 p.2.1 p.2.2 =
+        s.storageMap2 p.1 p.2.1 p.2.2 := by
+    simp [storageMap2, writeAddrSlot]
+  have hflat :
+      (s.writeAddrSlot n v).storage (mappingMap2Slot p.1 p.2.1 p.2.2) =
+        s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) := by
+    simp [storage, writeAddrSlot]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+/-- Array-channel writes leave `storageWords` unchanged. Field
+    independence; no slot inequality and not keccak injectivity. -/
+theorem writeArray_preserves_mappingCoherentOn
+    (s : ContractState) (pairs : List (Nat × Address)) (n : Nat)
+    (vs : List Uint256) (hcoh : MappingCoherentOn s pairs) :
+    MappingCoherentOn (s.writeArray n vs) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeArray n vs).storageMap p.1 p.2 = s.storageMap p.1 p.2 := by
+    simp [storageMap, writeArray]
+  have hflat :
+      (s.writeArray n vs).storage (mappingAddrSlot p.1 p.2) =
+        s.storage (mappingAddrSlot p.1 p.2) := by
+    simp [storage, writeArray]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeArray_preserves_mappingCoherentUintOn
+    (s : ContractState) (pairs : List (Nat × Uint256)) (n : Nat)
+    (vs : List Uint256) (hcoh : MappingCoherentUintOn s pairs) :
+    MappingCoherentUintOn (s.writeArray n vs) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeArray n vs).storageMapUint p.1 p.2 = s.storageMapUint p.1 p.2 := by
+    simp [storageMapUint, writeArray]
+  have hflat :
+      (s.writeArray n vs).storage (mappingUintSlot p.1 p.2) =
+        s.storage (mappingUintSlot p.1 p.2) := by
+    simp [storage, writeArray]
+  exact (hmap.trans (hcoh p hp)).trans hflat.symm
+
+theorem writeArray_preserves_mappingCoherentMap2On
+    (s : ContractState) (pairs : List (Nat × Address × Address)) (n : Nat)
+    (vs : List Uint256) (hcoh : MappingCoherentMap2On s pairs) :
+    MappingCoherentMap2On (s.writeArray n vs) pairs := by
+  intro p hp
+  have hmap :
+      (s.writeArray n vs).storageMap2 p.1 p.2.1 p.2.2 =
+        s.storageMap2 p.1 p.2.1 p.2.2 := by
+    simp [storageMap2, writeArray]
+  have hflat :
+      (s.writeArray n vs).storage (mappingMap2Slot p.1 p.2.1 p.2.2) =
+        s.storage (mappingMap2Slot p.1 p.2.1 p.2.2) := by
+    simp [storage, writeArray]
   exact (hmap.trans (hcoh p hp)).trans hflat.symm
 
 /-- Any finite list is coherent after an aligned address write if the

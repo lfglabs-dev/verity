@@ -228,9 +228,13 @@ list likewise takes an explicit derived-slot inequality. C5 step 4
 is complete under `solidityMappingSlot_injective`: global aligned
 `writeMap*`+`writeSlot` preserves `MappingCoherent*`;
 `writeTransient` preserves them by constructor injectivity; a lone
-`writeSlot` needs an image-avoidance `∀`. Keccak injectivity on
+`writeSlot` needs an image-avoidance `∀`. That `∀` is discharged
+for `writeAddrSlot` and `writeArray` (they never write
+`StorageKey.slot`). Keccak injectivity on
 arbitrary byte strings is **not** assumed.
-`storageArray` and `knownAddresses` are still separate fields.
+`storageArray` and `knownAddresses` are still separate fields;
+word-channel / array-channel independence is proved in
+`Compiler.Proofs.Storage.SeparateChannels`.
 
 ### External-Call Journal (`ContractState.calls`)
 `ContractState.calls` is an append-only journal of observed external calls
