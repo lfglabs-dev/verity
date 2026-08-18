@@ -24,7 +24,9 @@ collision-resistance of the 64-byte ABI mapping preimage, **not**
 injectivity of keccak256 on arbitrary byte strings. Finite-set
 slices remain valid without the axiom. Global aligned `writeMap*`
 preservation uses the axiom; lone `writeSlot` still takes an
-image-avoidance `∀`. `FieldStorageKey` is a
+image-avoidance `∀`. `writeAddrSlot` and `writeArray` discharge
+that `∀` (they never write `StorageKey.slot`) and add no axiom.
+`FieldStorageKey` is a
 constructor match on `FieldType` / `isTransient`; struct-member
 slots add `wordOffset` via `mappingSlotLocation`. Compatibility
 `aliasSlots` are extra compiler slots, not extra source keys.
