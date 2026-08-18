@@ -2259,6 +2259,14 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
             ("tstore" : String).toList.head? at hHead
           rw [internalFunctionYulName_head calleeName, hT] at hHead
           exact nomatch hHead)
+        (by
+          intro hEq
+          have hHead := congrArg (fun s => s.toList.head?) hEq
+          have hT : ("calldatacopy" : String).toList.head? = some 'c' := by decide
+          change (CompilationModel.internalFunctionYulName calleeName).toList.head? =
+            ("calldatacopy" : String).toList.head? at hHead
+          rw [internalFunctionYulName_head calleeName, hT] at hHead
+          exact nomatch hHead)
         (internalFunctionYulName_ne_revert calleeName)
         (internalFunctionYulName_ne_return calleeName)
         (internalFunctionYulName_ne_invalid calleeName)
