@@ -67,7 +67,8 @@ theorem transferOwnership_preserves_wellformedness (s : ContractState) (newOwner
   let s' := ((transferOwnership newOwner).run s).snd
   WellFormedState s' := by
   verity_frame (transferOwnership_unfold s newOwner h_owner)
-  exact ⟨h_owner ▸ h.sender_nonzero, h.contract_nonzero, h_new⟩
+  exact ⟨h_owner ▸ h.sender_nonzero, h.contract_nonzero,
+    by simp [ContractState.storageAddr, ContractState.writeAddrSlot, h_new]⟩
 
 /-! ## Ownership Transfer Preserves Counter Value
 
@@ -88,7 +89,8 @@ theorem increment_survives_transfer (s : ContractState) (initialOwner newOwner :
     msgSender, Verity.require, Verity.pure, Verity.bind,
     Bind.bind, Pure.pure, Contract.run, ContractResult.snd, ContractResult.fst, h_sender,
     ContractState.readSlot, ContractState.writeSlot, ContractState.readAddrSlot,
-    ContractState.writeAddrSlot]
+    ContractState.writeAddrSlot, ContractState.storage, ContractState.storageAddr,
+    ContractState.storage_unfold, ContractState.storageAddr_unfold]
 
 /-! ## Summary
 

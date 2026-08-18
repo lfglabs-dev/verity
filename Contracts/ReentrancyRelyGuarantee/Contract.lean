@@ -55,11 +55,11 @@ def liquidate (s : ContractState) : ContractState :=
 
 @[simp] theorem liquidate_health (s : ContractState) :
     (liquidate s).storage healthSlot = s.storage healthSlot := by
-  unfold liquidate; split <;> simp [healthSlot, liquidatedSlot, ContractState.writeSlot]
+  unfold liquidate; split <;> simp [healthSlot, liquidatedSlot, ContractState.writeSlot, ContractState.storage]
 
 @[simp] theorem liquidate_lock (s : ContractState) :
     (liquidate s).storage lockSlot = s.storage lockSlot := by
-  unfold liquidate; split <;> simp [lockSlot, liquidatedSlot, ContractState.writeSlot]
+  unfold liquidate; split <;> simp [lockSlot, liquidatedSlot, ContractState.writeSlot, ContractState.storage]
 
 /-- Guarantee discharged by `liquidate`: it preserves `I`. It only ever changes
     the `liquidated` slot, leaving both `I` disjuncts (health, lock) untouched. -/
@@ -87,15 +87,15 @@ def setLock (b : Bool) (s : ContractState) : ContractState :=
 
 @[simp] theorem setHealthy_liq (b : Bool) (s : ContractState) :
     (setHealthy b s).storage liquidatedSlot = s.storage liquidatedSlot := by
-  simp [setHealthy, healthSlot, liquidatedSlot, ContractState.writeSlot, ContractState.readSlot]
+  simp [setHealthy, healthSlot, liquidatedSlot, ContractState.writeSlot, ContractState.readSlot, ContractState.storage]
 
 @[simp] theorem setLock_liq (b : Bool) (s : ContractState) :
     (setLock b s).storage liquidatedSlot = s.storage liquidatedSlot := by
-  simp [setLock, lockSlot, liquidatedSlot, ContractState.writeSlot, ContractState.readSlot]
+  simp [setLock, lockSlot, liquidatedSlot, ContractState.writeSlot, ContractState.readSlot, ContractState.storage]
 
 @[simp] theorem setHealthy_lock (b : Bool) (s : ContractState) :
     (setHealthy b s).storage lockSlot = s.storage lockSlot := by
-  simp [setHealthy, healthSlot, lockSlot, ContractState.writeSlot, ContractState.readSlot]
+  simp [setHealthy, healthSlot, lockSlot, ContractState.writeSlot, ContractState.readSlot, ContractState.storage]
 
 /-! ## Buggy `take`: trade ⇒ transiently unhealthy, NO lock, final health check -/
 
