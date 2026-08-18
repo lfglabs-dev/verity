@@ -315,6 +315,146 @@ theorem bindExternalParam_bytes_refines_dynamic_loader
     dynamicParamBindings, hhead, hdecodeBytes, hnotHeadInTail, hnotTailOutOfBounds, hlength,
     hpayloadBound]
 
+/-- On the scalar branch — where `decodeSupportedParamWord` is total — a
+successful `bindExternalParam` is exactly the decoded ABI head word. -/
+theorem bindExternalParam_scalar_eq_some_inv
+    {selector : Nat} {calldata : List Nat} {headSize baseOffset headOffset : Nat}
+    {param : Param} {bindings : List (String × Nat)}
+    (htotal : ∀ w : Nat, ∃ v, decodeSupportedParamWord param.ty w = some v)
+    (hbind : bindExternalParam selector calldata headSize baseOffset headOffset param =
+      some bindings) :
+    ∃ word value,
+      externalWordAt? selector calldata headOffset = some word ∧
+        decodeSupportedParamWord param.ty word = some value ∧
+        bindings = [(param.name, value)] := by
+  unfold bindExternalParam at hbind
+  cases hword : externalWordAt? selector calldata headOffset with
+  | some word =>
+      obtain ⟨value, hvalue⟩ := htotal word
+      rw [hword] at hbind
+      simp only [Option.bind_eq_bind, Option.some_bind, hvalue, Option.some.injEq] at hbind
+      exact ⟨word, value, rfl, hvalue, hbind.symm⟩
+  | none =>
+      exfalso
+      have hshape : ∀ shape,
+          decodeLengthPrefixedDynamicParam? selector calldata shape headSize baseOffset
+            headOffset = none := by
+        intro shape
+        unfold decodeLengthPrefixedDynamicParam?
+        rw [hword]
+        rfl
+      have htuple :
+          decodeDynamicTupleParamDataOffset? selector calldata headSize baseOffset
+            headOffset = none := by
+        unfold decodeDynamicTupleParamDataOffset?
+        rw [hword]
+        rfl
+      rw [hword] at hbind
+      simp only [Option.bind_eq_bind, Option.none_bind] at hbind
+      cases hs : externalDynamicPayloadShape? param.ty with
+      | some shape =>
+          rw [hs] at hbind
+          simp [hshape shape] at hbind
+      | none =>
+          rw [hs] at hbind
+          by_cases hdyn : isDynamicParamType param.ty
+          · simp [hdyn, hword] at hbind
+          · simp [hdyn] at hbind
+
+/-- Inversion for the length-prefixed `bytes`-like decoder: a successful decode
+pins every field of the result and certifies the three bounds the generated
+loader checks at runtime. -/
+theorem decodeLengthPrefixedDynamicParam?_bytesLike_eq_some_inv
+    {selector : Nat} {calldata : List Nat} {headSize baseOffset headOffset : Nat}
+    {decoded : LengthPrefixedDynamicParam}
+    (hdec : decodeLengthPrefixedDynamicParam? selector calldata DynamicPayloadShape.bytesLike
+      headSize baseOffset headOffset = some decoded) :
+    externalWordAt? selector calldata headOffset = some decoded.relativeOffset ∧
+      headSize ≤ decoded.relativeOffset ∧
+      baseOffset + decoded.relativeOffset + 32 ≤ externalCalldataSize calldata ∧
+      externalWordAt? selector calldata (baseOffset + decoded.relativeOffset) =
+        some decoded.length ∧
+      decoded.length ≤
+        externalCalldataSize calldata - (baseOffset + decoded.relativeOffset + 32) ∧
+      decoded =
+        { relativeOffset := decoded.relativeOffset
+          absoluteOffset := baseOffset + decoded.relativeOffset
+          length := decoded.length
+          tailHeadEnd := baseOffset + decoded.relativeOffset + 32
+          tailRemaining :=
+            externalCalldataSize calldata - (baseOffset + decoded.relativeOffset + 32)
+          dataOffset := baseOffset + decoded.relativeOffset + 32 } := by
+  unfold decodeLengthPrefixedDynamicParam? at hdec
+  cases hro : externalWordAt? selector calldata headOffset with
+  | none => rw [hro] at hdec; simp at hdec
+  | some relativeOffset =>
+      rw [hro] at hdec
+      simp only [Option.bind_eq_bind, Option.some_bind] at hdec
+      by_cases hlt : relativeOffset < headSize
+      · simp [hlt] at hdec
+      · rw [if_neg hlt] at hdec
+        by_cases hgt : baseOffset + relativeOffset + 32 > externalCalldataSize calldata
+        · simp [hgt] at hdec
+        · rw [if_neg hgt] at hdec
+          cases hlen : externalWordAt? selector calldata (baseOffset + relativeOffset) with
+          | none => rw [hlen] at hdec; simp at hdec
+          | some length =>
+              rw [hlen] at hdec
+              simp only [Option.bind_eq_bind, Option.some_bind,
+                DynamicPayloadShape.fitsLength] at hdec
+              by_cases hfit :
+                  length ≤ externalCalldataSize calldata - (baseOffset + relativeOffset + 32)
+              · rw [if_pos (by simpa using hfit)] at hdec
+                cases hdec
+                exact ⟨hro, by omega, by omega, hlen, hfit, rfl⟩
+              · rw [if_neg (by simpa using hfit)] at hdec
+                simp at hdec
+
+/-- Converse of `bindExternalParam_bytes_refines_dynamic_loader`: a successful
+`bytes` binding is exactly the six loader locals, and it certifies the bounds
+the generated loader enforces.  The IR-execution refinement consumes this to
+discharge the loader's revert guards from binder success alone. -/
+theorem bindExternalParam_bytes_eq_some_inv
+    {selector : Nat} {calldata : List Nat}
+    {headSize baseOffset headOffset : Nat} {name : String}
+    {bindings : List (String × Nat)}
+    (hbind : bindExternalParam selector calldata headSize baseOffset headOffset
+      { name := name, ty := ParamType.bytes } = some bindings) :
+    ∃ relativeOffset length,
+      externalWordAt? selector calldata headOffset = some relativeOffset ∧
+        headSize ≤ relativeOffset ∧
+        baseOffset + relativeOffset + 32 ≤ externalCalldataSize calldata ∧
+        externalWordAt? selector calldata (baseOffset + relativeOffset) = some length ∧
+        length ≤ externalCalldataSize calldata - (baseOffset + relativeOffset + 32) ∧
+        bindings =
+          [ (s!"{name}_offset", relativeOffset)
+          , (s!"{name}_abs_offset", baseOffset + relativeOffset)
+          , (s!"{name}_length", length)
+          , (s!"{name}_tail_head_end", baseOffset + relativeOffset + 32)
+          , (s!"{name}_tail_remaining",
+              externalCalldataSize calldata - (baseOffset + relativeOffset + 32))
+          , (s!"{name}_data_offset", baseOffset + relativeOffset + 32) ] := by
+  have hdecode :
+      decodeSupportedParamWord ParamType.bytes =<<
+        externalWordAt? selector calldata headOffset = none := by
+    cases externalWordAt? selector calldata headOffset <;> rfl
+  unfold bindExternalParam at hbind
+  rw [hdecode] at hbind
+  simp only [externalDynamicPayloadShape?] at hbind
+  cases hdec : decodeLengthPrefixedDynamicParam? selector calldata
+      DynamicPayloadShape.bytesLike headSize baseOffset headOffset with
+  | none => rw [hdec] at hbind; simp at hbind
+  | some decoded =>
+      rw [hdec] at hbind
+      simp only [Option.bind_eq_bind, Option.some_bind, Option.some.injEq] at hbind
+      obtain ⟨hro, hheadBound, htailBound, hlen, hfit, hfields⟩ :=
+        decodeLengthPrefixedDynamicParam?_bytesLike_eq_some_inv hdec
+      refine ⟨decoded.relativeOffset, decoded.length,
+        hro, hheadBound, htailBound, hlen, hfit, ?_⟩
+      rw [← hbind]
+      unfold dynamicParamBindings
+      rw [hfields]
+
 /-- Witness that one external ABI parameter is accepted by `bindExternalParam`
 at a particular absolute head offset. -/
 def ExternalParamBindingWitness

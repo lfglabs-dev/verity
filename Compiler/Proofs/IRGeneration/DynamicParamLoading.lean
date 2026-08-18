@@ -380,6 +380,373 @@ theorem exec_bytesLoaderStmts_then
     execIRStmts_cons_continue _ _ _ _ _ (h8 (rest.length + extraFuel + 1)),
     execIRStmts_cons_continue _ _ _ _ _ (h9 (rest.length + extraFuel))]
 
+/-! ### Lifting the single-parameter refinement over parameter lists -/
+
+private theorem scalar_cases {ty : ParamType} (h : SupportedExternalScalarParamType ty) :
+    ty = .uint256 ∨ ty = .int256 ∨ ty = .uint8 ∨ ty = .uint16 ∨
+      (∃ bits, ty = .uintN bits) ∨ (∃ bits, ty = .intN bits) ∨
+      (∃ bytes, ty = .bytesN bytes) ∨
+      ty = .address ∨ ty = .bytes32 ∨ ty = .bool := by
+  cases ty <;> simp [SupportedExternalScalarParamType] at h ⊢
+
+/-- Scalar parameters route through `genScalarLoad`; this is the compile-side
+equation the list lift needs beside `genSingleParamLoad_bytes`. -/
+theorem genSingleParamLoad_scalar
+    (loadWord : YulExpr → YulExpr) (sizeExpr : YulExpr)
+    (headSize baseOffset : Nat) (name : String) (ty : ParamType) (headOffset : Nat)
+    (hty : SupportedExternalScalarParamType ty) :
+    genSingleParamLoad loadWord sizeExpr headSize baseOffset name ty headOffset =
+      genScalarLoad loadWord name ty headOffset := by
+  rcases scalar_cases hty with
+    rfl | rfl | rfl | rfl | ⟨_, rfl⟩ | ⟨_, rfl⟩ | ⟨_, rfl⟩ | rfl | rfl | rfl <;> rfl
+
+private theorem decode_total_of_scalar {ty : ParamType}
+    (hty : SupportedExternalScalarParamType ty) (word : Nat) :
+    ∃ value, DynamicAbi.decodeSupportedParamWord ty word = some value := by
+  rcases scalar_cases hty with
+    rfl | rfl | rfl | rfl | ⟨_, rfl⟩ | ⟨_, rfl⟩ | ⟨_, rfl⟩ | rfl | rfl | rfl <;>
+    exact ⟨_, rfl⟩
+
+/-- `decodeSupportedParamWord` already normalises its argument mod 2^256, so the
+model's `calldataloadWord` (which is reduced) and the raw calldata word decode
+alike. -/
+private theorem decodeSupportedParamWord_mod (ty : ParamType) (word : Nat) :
+    SourceSemantics.decodeSupportedParamWord ty (word % Compiler.Constants.evmModulus) =
+      SourceSemantics.decodeSupportedParamWord ty word := by
+  cases ty <;>
+    simp [SourceSemantics.decodeSupportedParamWord, Nat.mod_mod]
+
+theorem applyBindingsToIRState_append (state : IRState) (xs ys : List (String × Nat)) :
+    ParamLoading.applyBindingsToIRState state (xs ++ ys) =
+      ParamLoading.applyBindingsToIRState (ParamLoading.applyBindingsToIRState state xs) ys := by
+  induction xs generalizing state with
+  | nil => rfl
+  | cons entry xs ih =>
+      obtain ⟨name, value⟩ := entry
+      simpa [ParamLoading.applyBindingsToIRState] using ih (state.setVar name value)
+
+@[simp] theorem applyBindingsToIRState_calldata
+    (state : IRState) (bs : List (String × Nat)) :
+    (ParamLoading.applyBindingsToIRState state bs).calldata = state.calldata := by
+  induction bs generalizing state with
+  | nil => rfl
+  | cons entry bs ih =>
+      obtain ⟨name, value⟩ := entry
+      simpa [ParamLoading.applyBindingsToIRState] using ih (state.setVar name value)
+
+@[simp] theorem applyBindingsToIRState_selector
+    (state : IRState) (bs : List (String × Nat)) :
+    (ParamLoading.applyBindingsToIRState state bs).selector = state.selector := by
+  induction bs generalizing state with
+  | nil => rfl
+  | cons entry bs ih =>
+      obtain ⟨name, value⟩ := entry
+      simpa [ParamLoading.applyBindingsToIRState] using ih (state.setVar name value)
+
+@[simp] theorem bytesLoaderStmts_length
+    (loadWord : YulExpr → YulExpr) (sizeExpr : YulExpr)
+    (headSize baseOffset : Nat) (name : String) (headOffset : Nat) :
+    (bytesLoaderStmts loadWord sizeExpr headSize baseOffset name headOffset).length = 9 := rfl
+
+/-- Executing the statements emitted for one supported external parameter lands
+on exactly the bindings `DynamicAbi.bindExternalParam` assigns to it. This is
+the per-parameter composition: `bytes` goes through the loader refinement,
+scalars through the existing single-word lemma. -/
+theorem exec_genSingleParamLoad_external_then
+    (state : IRState) (rest : List YulStmt) (headSize baseOffset : Nat)
+    (param : Param) (idx extraFuel : Nat) (here : List (String × Nat))
+    (hbase : ¬ (baseOffset == 0) = true)
+    (hcalldataSize :
+      DynamicAbi.externalCalldataSize state.calldata < Compiler.Constants.evmModulus)
+    (hsupported : SupportedExternalParamType param.ty)
+    (hbind : DynamicAbi.bindExternalParam state.selector state.calldata headSize baseOffset
+      (4 + 32 * idx) param = some here) :
+    execIRStmts ((genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset param.name param.ty
+        (4 + 32 * idx)).length + rest.length + extraFuel + 1) state
+      (genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset param.name param.ty
+        (4 + 32 * idx) ++ rest) =
+      execIRStmts (rest.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState state here) rest := by
+  rcases supportedExternalParamType_scalar_or_bytes hsupported with hscalar | hbytes
+  · obtain ⟨word, value, hword, hdecode, hhere⟩ :=
+      DynamicAbi.bindExternalParam_scalar_eq_some_inv (decode_total_of_scalar hscalar) hbind
+    have hwordEq : word = state.calldata.getD idx 0 % Compiler.Constants.evmModulus := by
+      have := externalWordAt?_eq_calldataloadWord hword
+      rw [ParamLoading.calldataloadWord_aligned] at this
+      exact this.symm
+    have hdecode' :
+        SourceSemantics.decodeSupportedParamWord param.ty (state.calldata.getD idx 0) =
+          some value := by
+      rw [← decodeSupportedParamWord_mod, ← hwordEq,
+        SourceSemantics.decodeSupportedParamWord_eq_dynamicAbi]
+      exact hdecode
+    subst hhere
+    rw [genSingleParamLoad_scalar _ _ _ _ _ _ _ hscalar]
+    simpa [ParamLoading.applyBindingsToIRState] using
+      ParamLoading.exec_genScalarLoad_supported_then state rest param.name param.ty idx value
+        extraFuel hscalar hdecode'
+  · have hparam : param = { name := param.name, ty := ParamType.bytes } := by
+      cases param
+      simp_all
+    rw [hparam] at hbind
+    obtain ⟨relativeOffset, length, hhead, hheadBound, htailBound, hlength,
+      hpayloadBound, hhere⟩ := DynamicAbi.bindExternalParam_bytes_eq_some_inv hbind
+    subst hhere
+    rw [hbytes, genSingleParamLoad_bytes _ _ _ _ _ _ hbase]
+    have hexec := exec_bytesLoaderStmts_then state rest param.name headSize baseOffset
+      (4 + 32 * idx) relativeOffset length extraFuel hcalldataSize hhead hheadBound
+      htailBound hlength hpayloadBound
+    simpa [bytesParamBindings, bytesLoaderStmts, Nat.add_comm, Nat.add_left_comm,
+      Nat.add_assoc] using hexec
+
+/-- The parameter-list lift: the whole emitted calldata-decoding block executes
+to exactly the bindings the dispatcher's external ABI binder computes, for any
+mixture of supported scalars and `bytes`. -/
+theorem exec_genParamLoadBodyFrom_external_then
+    (headSize baseOffset : Nat) (hbase : ¬ (baseOffset == 0) = true)
+    (params : List Param) :
+    ∀ (state : IRState) (rest : List YulStmt) (idx extraFuel : Nat)
+      (bindings : List (String × Nat)),
+      DynamicAbi.externalCalldataSize state.calldata < Compiler.Constants.evmModulus →
+      (∀ param ∈ params, SupportedExternalParamType param.ty) →
+      DynamicAbi.bindExternalParamsFrom state.selector state.calldata headSize baseOffset
+        params (4 + 32 * idx) = some bindings →
+      execIRStmts ((genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+          (YulExpr.call "calldatasize" []) headSize baseOffset params (4 + 32 * idx)).length +
+          rest.length + extraFuel + 1) state
+        (genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+          (YulExpr.call "calldatasize" []) headSize baseOffset params (4 + 32 * idx) ++ rest) =
+        execIRStmts (rest.length + extraFuel + 1)
+          (ParamLoading.applyBindingsToIRState state bindings) rest := by
+  induction params with
+  | nil =>
+      intro state rest idx extraFuel bindings _ _ hbind
+      simp only [DynamicAbi.bindExternalParamsFrom, Option.some.injEq] at hbind
+      subst hbind
+      simp [Compiler.CompilationModel.genParamLoadBodyFrom,
+        ParamLoading.applyBindingsToIRState]
+  | cons param restParams ih =>
+      intro state rest idx extraFuel bindings hcalldataSize hsupported hbind
+      have hparamSupported : SupportedExternalParamType param.ty := hsupported param (by simp)
+      have hrestSupported : ∀ next ∈ restParams, SupportedExternalParamType next.ty := by
+        intro next hnext
+        exact hsupported next (by simp [hnext])
+      have hhead32 : paramHeadSize param.ty = 32 :=
+        supportedExternalParamType_headSize_eq_32 hparamSupported
+      have hoffset : 4 + 32 * idx + paramHeadSize param.ty = 4 + 32 * (idx + 1) := by
+        rw [hhead32]; ring
+      cases hhere : DynamicAbi.bindExternalParam state.selector state.calldata headSize
+          baseOffset (4 + 32 * idx) param with
+      | none =>
+          rw [DynamicAbi.bindExternalParamsFrom, hhere] at hbind
+          simp at hbind
+      | some here =>
+          cases hthere : DynamicAbi.bindExternalParamsFrom state.selector state.calldata
+              headSize baseOffset restParams (4 + 32 * (idx + 1)) with
+          | none =>
+              rw [DynamicAbi.bindExternalParamsFrom, hhere, hoffset, hthere] at hbind
+              simp at hbind
+          | some there =>
+              rw [DynamicAbi.bindExternalParamsFrom, hhere, hoffset, hthere] at hbind
+              simp only [Option.bind_eq_bind, Option.some_bind, Option.some.injEq] at hbind
+              subst hbind
+              set loadWordC : YulExpr → YulExpr :=
+                fun pos => YulExpr.call "calldataload" [pos] with hloadWordC
+              set sizeExprC : YulExpr := YulExpr.call "calldatasize" [] with hsizeExprC
+              set single :=
+                genSingleParamLoad loadWordC sizeExprC headSize baseOffset param.name
+                  param.ty (4 + 32 * idx) with hsingle
+              set genRest :=
+                genParamLoadBodyFrom loadWordC sizeExprC headSize baseOffset restParams
+                  (4 + 32 * (idx + 1)) with hgenRest
+              have hgen :
+                  genParamLoadBodyFrom loadWordC sizeExprC headSize baseOffset
+                      (param :: restParams) (4 + 32 * idx) = single ++ genRest := by
+                rw [Compiler.CompilationModel.genParamLoadBodyFrom, hsingle, hgenRest,
+                  hoffset]
+              have hstate' :
+                  (ParamLoading.applyBindingsToIRState state here).calldata = state.calldata :=
+                applyBindingsToIRState_calldata state here
+              have hstate'sel :
+                  (ParamLoading.applyBindingsToIRState state here).selector = state.selector :=
+                applyBindingsToIRState_selector state here
+              have hstep :=
+                exec_genSingleParamLoad_external_then state (genRest ++ rest) headSize
+                  baseOffset param idx extraFuel here hbase hcalldataSize hparamSupported hhere
+              have hih :=
+                ih (ParamLoading.applyBindingsToIRState state here) rest (idx + 1) extraFuel
+                  there (by rw [hstate']; exact hcalldataSize) hrestSupported
+                  (by rw [hstate', hstate'sel]; exact hthere)
+              have hfuel :
+                  (single ++ genRest).length + rest.length + extraFuel + 1 =
+                    single.length + (genRest ++ rest).length + extraFuel + 1 := by
+                simp [List.length_append]
+                omega
+              rw [hgen, List.append_assoc, hfuel, hstep, applyBindingsToIRState_append]
+              rw [show (genRest ++ rest).length + extraFuel + 1 =
+                  genRest.length + rest.length + extraFuel + 1 by
+                simp [List.length_append]; omega]
+              exact hih
+
+/-! ### End-to-end: the emitted entrypoint prologue implements `bindExternalParams` -/
+
+private theorem headSizeFoldl_go (params : List Param) (init : Nat)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty) :
+    (params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) init =
+      init + 32 * params.length := by
+  induction params generalizing init with
+  | nil => simp
+  | cons param rest ih =>
+      have hparam : SupportedExternalParamType param.ty := hsupported param (by simp)
+      have hrest : ∀ next ∈ rest, SupportedExternalParamType next.ty := by
+        intro next hnext
+        exact hsupported next (by simp [hnext])
+      have h32 : paramHeadSize param.ty = 32 :=
+        supportedExternalParamType_headSize_eq_32 hparam
+      rw [List.map_cons, List.foldl_cons, h32, ih (init + 32) hrest]
+      simp only [List.length_cons]
+      omega
+
+private theorem headSizeFoldl_eq (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty) :
+    (params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0 = 32 * params.length := by
+  simpa using headSizeFoldl_go params 0 hsupported
+
+private theorem paramHeadSizeList_eq (params : List Param)
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty) :
+    paramHeadSizeList (params.map (·.ty)) = 32 * params.length := by
+  induction params with
+  | nil => simp [paramHeadSizeList]
+  | cons param rest ih =>
+      have hparam : SupportedExternalParamType param.ty := hsupported param (by simp)
+      have hrest : ∀ next ∈ rest, SupportedExternalParamType next.ty := by
+        intro next hnext
+        exact hsupported next (by simp [hnext])
+      rw [List.map_cons, paramHeadSizeList,
+        supportedExternalParamType_headSize_eq_32 hparam, ih hrest]
+      simp only [List.length_cons]
+      omega
+
+private theorem exec_minInputSizeCheck_noop
+    (fuel : Nat) (state : IRState) (headSize : Nat)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hfits : 4 + headSize ≤ 4 + state.calldata.length * 32) :
+    execIRStmt (Nat.succ fuel) state
+      (YulStmt.if_ (YulExpr.call "lt"
+        [YulExpr.call "calldatasize" [], YulExpr.lit (4 + headSize)])
+        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
+      .continue state := by
+  have hrhs : 4 + headSize < Compiler.Constants.evmModulus := by omega
+  have hnotlt : ¬ 4 + state.calldata.length * 32 < 4 + headSize := by omega
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
+    Nat.mod_eq_of_lt hcalldataSizeFits, Nat.mod_eq_of_lt hrhs, hnotlt]
+
+private theorem scalar_of_decode {ty : ParamType} {word value : Nat}
+    (h : SourceSemantics.decodeSupportedParamWord ty word = some value) :
+    SupportedExternalScalarParamType ty := by
+  cases ty <;>
+    simp [SourceSemantics.decodeSupportedParamWord, SupportedExternalScalarParamType] at h ⊢
+
+private theorem scalars_of_bindSupportedParams :
+    ∀ {params : List Param} {args : List Nat} {bindings : List (String × Nat)},
+      SourceSemantics.bindSupportedParams params args = some bindings →
+      ∀ param ∈ params, SupportedExternalScalarParamType param.ty := by
+  intro params
+  induction params with
+  | nil => intro _ _ _ param hparam; cases hparam
+  | cons param restParams ih =>
+      intro args bindings hbind next hnext
+      cases args with
+      | nil => simp [SourceSemantics.bindSupportedParams] at hbind
+      | cons arg restArgs =>
+          cases hdecode : SourceSemantics.decodeSupportedParamWord param.ty arg with
+          | none => simp [SourceSemantics.bindSupportedParams, hdecode] at hbind
+          | some value =>
+              cases hrest : SourceSemantics.bindSupportedParams restParams restArgs with
+              | none =>
+                  simp [SourceSemantics.bindSupportedParams, hdecode, hrest] at hbind
+              | some restBindings =>
+                  rcases List.mem_cons.1 hnext with rfl | hmem
+                  · exact scalar_of_decode hdecode
+                  · exact ih hrest next hmem
+
+/-- End-to-end refinement for the generated entrypoint prologue: whatever
+bindings the dispatcher's external ABI binder produces, executing the emitted
+calldata-decoding block reaches exactly that variable environment — for any
+mixture of supported scalars and `bytes` parameters (verity#2085).
+
+Together with `interpretContract_correct_of_functions_generic_external` this is
+the composition that admits `bytes` into external dispatch. -/
+theorem exec_genParamLoads_external
+    (state : IRState) (params : List Param) (bindings : List (String × Nat))
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbind :
+      DynamicAbi.bindExternalParams state.selector params state.calldata = some bindings) :
+    execIRStmts ((genParamLoads params).length + 1) state (genParamLoads params) =
+      .continue (ParamLoading.applyBindingsToIRState state bindings) := by
+  have hlen : params.length ≤ state.calldata.length := by
+    by_contra hcon
+    rw [DynamicAbi.bindExternalParams, if_neg hcon] at hbind
+    cases hbind
+  cases hsup : SourceSemantics.bindSupportedParams params state.calldata with
+  | some scalarBindings =>
+      have hscalarTys : ∀ param ∈ params, SupportedExternalScalarParamType param.ty :=
+        scalars_of_bindSupportedParams hsup
+      have heq : scalarBindings = bindings := by
+        rw [DynamicAbi.bindExternalParams, if_pos hlen,
+          ← SourceSemantics.bindSupportedParams_eq_dynamicAbi, hsup] at hbind
+        exact Option.some.inj hbind
+      subst heq
+      exact ParamLoading.exec_genParamLoads_supported state params scalarBindings hscalarTys
+        hcalldataSizeFits hsup
+  | none =>
+      have hfrom :
+          DynamicAbi.bindExternalParamsFrom state.selector state.calldata
+            (paramHeadSizeList (params.map (·.ty))) 4 params 4 = some bindings := by
+        rw [DynamicAbi.bindExternalParams, if_pos hlen,
+          ← SourceSemantics.bindSupportedParams_eq_dynamicAbi, hsup] at hbind
+        exact hbind
+      have hHeadSize : paramHeadSizeList (params.map (·.ty)) = 32 * params.length :=
+        paramHeadSizeList_eq params hsupported
+      have hFoldl : (params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0 =
+          32 * params.length := headSizeFoldl_eq params hsupported
+      rw [hHeadSize] at hfrom
+      set body :=
+        genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+          (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4 with hbody
+      have hbodyExec :
+          execIRStmts (body.length + 1) state body =
+            .continue (ParamLoading.applyBindingsToIRState state bindings) := by
+        have := exec_genParamLoadBodyFrom_external_then (headSize := 32 * params.length)
+          (baseOffset := 4) (by decide) params state [] 0 0 bindings
+          (by simpa [DynamicAbi.externalCalldataSize, Nat.mul_comm] using hcalldataSizeFits)
+          hsupported (by simpa using hfrom)
+        simpa [hbody, execIRStmts] using this
+      have hguard :
+          execIRStmt (body.length + 1) state
+            (YulStmt.if_ (YulExpr.call "lt"
+              [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
+              [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
+            .continue state :=
+        exec_minInputSizeCheck_noop body.length state (32 * params.length)
+          hcalldataSizeFits (by omega)
+      have hstep :
+          execIRStmts (body.length + 2) state
+            (YulStmt.if_ (YulExpr.call "lt"
+              [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
+              [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] ::
+              body) =
+            execIRStmts (body.length + 1) state body := by
+        simp [execIRStmts, hguard]
+      simpa [Compiler.CompilationModel.genParamLoads,
+        Compiler.CompilationModel.genParamLoadsFrom, hFoldl, hbody] using
+        hstep.trans hbodyExec
+
 end DynamicParamLoading
 
 end Compiler.Proofs.IRGeneration
