@@ -52,14 +52,14 @@ theorem revertedResult_setLock (spec : CompilationModel)
 theorem SupportedFunctionGuarded.paramsSupported
     {spec : CompilationModel} {fn : FunctionSpec}
     (h : SupportedFunctionGuarded spec fn) :
-    ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+    ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
   h.params.supported
 
 theorem supported_params_of_supportedSpecGuarded
     (model : CompilationModel) (selectors : List Nat)
     (hSupported : SupportedSpecGuarded model selectors) :
     ∀ fn ∈ selectorDispatchedFunctions model,
-      ∀ param ∈ fn.params, SupportedExternalParamType param.ty := by
+      ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty := by
   intro fn hfn param hparam
   have hfnModel : fn ∈ model.functions := List.mem_of_mem_filter hfn
   exact (hSupported.functions fn hfnModel).paramsSupported param hparam
@@ -70,7 +70,7 @@ revert — the lock overlay is invisible in the reverted result). -/
 theorem guardedFunctionChoice_bindFail (model : CompilationModel)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (fn : FunctionSpec)
-    (hparams : ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+    (hparams : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none) :
     guardedFunctionChoice model tx initialWorld fn =
       SourceSemantics.revertedResult model

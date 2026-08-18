@@ -225,7 +225,7 @@ theorem supported_params_of_supportedSpec
     (selectors : List Nat)
     (hSupported : SupportedSpec model selectors) :
     ∀ fn ∈ selectorDispatchedFunctions model,
-      ∀ param ∈ fn.params, SupportedExternalParamType param.ty := by
+      ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty := by
   intro fn hfn param hparam
   have hfnModel : fn ∈ model.functions := by
     exact List.mem_of_mem_filter hfn
@@ -236,7 +236,7 @@ theorem supported_params_of_supportedSpec_with_scalar_events
     (selectors : List Nat)
     (hSupported : SupportedSpecWithScalarEvents model selectors) :
     ∀ fn ∈ selectorDispatchedFunctions model,
-      ∀ param ∈ fn.params, SupportedExternalParamType param.ty := by
+      ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty := by
   intro fn hfn param hparam
   have hfnModel : fn ∈ model.functions := by
     exact List.mem_of_mem_filter hfn
@@ -247,7 +247,7 @@ theorem supported_params_of_supportedSpec_except_mapping_writes
     (selectors : List Nat)
     (hSupported : SupportedSpecExceptMappingWrites model selectors) :
     ∀ fn ∈ selectorDispatchedFunctions model,
-      ∀ param ∈ fn.params, SupportedExternalParamType param.ty := by
+      ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty := by
   intro fn hfn param hparam
   have hfnModel : fn ∈ model.functions := by
     exact List.mem_of_mem_filter hfn
@@ -282,7 +282,7 @@ theorem interpretContract_correct_of_ir_functions
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -321,7 +321,7 @@ theorem compile_preserves_semantics_of_compiled_functions
         ir.functions)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -1126,7 +1126,7 @@ theorem legacyCompatibleExternalBodies_of_compileValidatedCore_of_interface
     exists_left_of_forall₂_mem_right hforall₂ hfn
   have hfnDispatched : spec ∈ selectorDispatchedFunctions model := by
     simpa [SourceSemantics.selectorFunctionPairs] using (List.of_mem_zip hentry).1
-  have hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty :=
+  have hparams : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty :=
     supported_params_of_supportedSpec model selectors hSupported spec hfnDispatched
   have hcompileEntry' :
       compileFunctionSpec model.fields [] [] [] sel spec = Except.ok fn := by
@@ -2080,7 +2080,7 @@ theorem compile_preserves_semantics
       (hcompile := hcompile)
   have hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
     supported_params_of_supportedSpec model selectors hSupported
   have hfunction :
       ∀ fn sel irFn bindings,
@@ -2234,7 +2234,7 @@ theorem compile_preserves_semantics_except_mapping_writes
       (hcompile := hcompile)
   have hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
     supported_params_of_supportedSpec_except_mapping_writes model selectors hSupported
   have hfunction :
       ∀ fn sel irFn bindings,
@@ -2304,7 +2304,7 @@ theorem compile_preserves_semantics_except_mapping_writes_stmtSafety
       (hcompile := hcompile)
   have hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
     supported_params_of_supportedSpec_except_mapping_writes model selectors hSupported
   have hfunction :
       ∀ fn sel irFn bindings,
@@ -2465,7 +2465,7 @@ theorem compile_preserves_semantics_with_helper_proofs
       (hcompile := hcompile)
   have hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty :=
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
     supported_params_of_supportedSpec model selectors hSupported
   have hfunction :
       ∀ fn sel irFn bindings,

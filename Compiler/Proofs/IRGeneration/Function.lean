@@ -397,7 +397,7 @@ theorem exec_compiledFunctionIR_of_body
     (state : IRState) (selector : Nat) (spec : FunctionSpec)
     (returns : List ParamType) (bodyStmts : List YulStmt)
     (bindings : List (String × Nat)) (tailResult : IRExecResult)
-    (hsupported : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams spec.params state.calldata = some bindings)
     (hbody :
@@ -452,7 +452,7 @@ theorem exec_compiledFunctionIR_of_body_extraFuel
     (returns : List ParamType) (bodyStmts : List YulStmt)
     (bindings : List (String × Nat)) (tailResult : IRExecResult)
     (extraFuel : Nat)
-    (hsupported : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams spec.params state.calldata = some bindings)
     (hbody :
@@ -542,7 +542,7 @@ theorem exec_genParamLoads_supported_then_extraFuel_withInternals
     (runtimeContract : IRContract)
     (state : IRState) (params : List Param) (bindings : List (String × Nat))
     (rest : List YulStmt) (extraFuel : Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams params state.calldata = some bindings)
     (hparamDisjoint :
@@ -584,7 +584,7 @@ theorem exec_compiledFunctionIR_withInternals_of_body_extraFuel
     (returns : List ParamType) (bodyStmts : List YulStmt)
     (bindings : List (String × Nat)) (tailResult : IRExecResultWithInternals)
     (extraFuel : Nat)
-    (hsupported : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams spec.params state.calldata = some bindings)
     (hparamDisjoint :
@@ -1447,7 +1447,7 @@ theorem compileFunctionSpec_correct_of_body
       compileStmtList model.fields model.events model.errors .calldata [] false
         (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
     (hcompile : compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
-    (hparamsSupported : ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+    (hparamsSupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : TxCalldataSizeFitsEvm tx)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hnoEvents : model.events = [])
@@ -1529,7 +1529,7 @@ theorem compileFunctionSpec_correct_of_body_normalized_extraFuel
       compileFunctionSpec
         (applySlotAliasRanges model.fields model.slotAliasRanges)
         model.events model.errors [] selector fn = Except.ok irFn)
-    (hparamsSupported : ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+    (hparamsSupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : TxCalldataSizeFitsEvm tx)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hnoEvents : model.events = [])
@@ -1619,7 +1619,7 @@ theorem compileFunctionSpec_correct_of_body_supported_extraFuel
       compileFunctionSpec
         (applySlotAliasRanges model.fields model.slotAliasRanges)
         model.events model.errors [] selector fn = Except.ok irFn)
-    (hparamsSupported : ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+    (hparamsSupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : TxCalldataSizeFitsEvm tx)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hsource :
@@ -3015,15 +3015,15 @@ private theorem yulStmtListCallsDisjoint_append
 
 private theorem genScalarLoad_legacy
     (loadWord : YulExpr → YulExpr) (name : String) (ty : ParamType) (offset : Nat)
-    (hsupported : SupportedExternalParamType ty) :
+    (hsupported : SupportedExternalScalarParamType ty) :
     LegacyCompatibleExternalStmtList (genScalarLoad loadWord name ty offset) := by
-  cases ty <;> simp [SupportedExternalParamType] at hsupported ⊢
+  cases ty <;> simp [SupportedExternalScalarParamType] at hsupported ⊢
   all_goals exact .let_ _ _ [] .nil
 
 private theorem genParamLoadBodyFrom_scalar_legacy
     (loadWord : YulExpr → YulExpr) (sizeExpr : YulExpr) (headSize baseOffset : Nat) :
     ∀ (params : List Param) (headOffset : Nat),
-      (∀ param ∈ params, SupportedExternalParamType param.ty) →
+      (∀ param ∈ params, SupportedExternalScalarParamType param.ty) →
         LegacyCompatibleExternalStmtList
           (genParamLoadBodyFrom loadWord sizeExpr headSize baseOffset params headOffset)
   | [], _, _ => .nil
@@ -3031,14 +3031,14 @@ private theorem genParamLoadBodyFrom_scalar_legacy
       have htail := genParamLoadBodyFrom_scalar_legacy loadWord sizeExpr headSize
         baseOffset rest (headOffset + paramHeadSize param.ty)
         (by intro p hp; exact hsupported p (by simp [hp]))
-      cases hty : param.ty <;> simp [SupportedExternalParamType, hty] at hsupported
+      cases hty : param.ty <;> simp [SupportedExternalScalarParamType, hty] at hsupported
       all_goals
         simpa [genParamLoadBodyFrom, genSingleParamLoad, genScalarLoad, hty]
           using legacyCompatibleExternalStmtList_append (.let_ _ _ [] .nil) htail
 
 private theorem genParamLoads_scalar_legacy
     (params : List Param)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty) :
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty) :
     LegacyCompatibleExternalStmtList (genParamLoads params) := by
   have hbody := genParamLoadBodyFrom_scalar_legacy
     (fun pos => YulExpr.call "calldataload" [pos]) (YulExpr.call "calldatasize" [])
@@ -3821,7 +3821,7 @@ legacy-compatible external Yul subset (`LegacyCompatibleExternalStmtList`).
 Composes `genParamLoads_scalar_legacy` with the body composition lemma. -/
 theorem compileFunctionSpec_body_legacyCompatible_of_interface
     (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
-    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hbodyInterface :
       StmtListCompiledLegacyCompatible fields (spec.params.map (·.name)) spec.body)
     (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
@@ -3839,7 +3839,7 @@ body fragment. This discharges #2080's per-statement legacy interface for
 external functions whose source body is already in `StmtListCompileCore`. -/
 theorem compileFunctionSpec_body_legacyCompatible_of_compileCore
     (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
-    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hbodyCore :
       FunctionBody.StmtListCompileCore (spec.params.map (·.name)) spec.body)
     (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
@@ -3854,7 +3854,7 @@ theorem compileFunctionSpec_body_legacyCompatible_of_compileCore
 fragment, including terminal `ite` bodies. -/
 theorem compileFunctionSpec_body_legacyCompatible_of_terminalCore
     (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
-    (hparams : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hparams : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hbodyTerminal :
       FunctionBody.StmtListTerminalCore (spec.params.map (·.name)) spec.body)
     (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
@@ -3872,7 +3872,7 @@ table. Every EVM/Yul builtin emitted by `genScalarLoad`
 generated statement introduces no other calls. -/
 private theorem genScalarLoad_calldataload_callsDisjoint
     (runtimeContract : IRContract) (name : String) (ty : ParamType) (offset : Nat)
-    (hsupported : SupportedExternalParamType ty)
+    (hsupported : SupportedExternalScalarParamType ty)
     (hcd : findInternalFunction? runtimeContract "calldataload" = none)
     (hand : findInternalFunction? runtimeContract "and" = none)
     (hsignextend : findInternalFunction? runtimeContract "signextend" = none)
@@ -3886,7 +3886,7 @@ private theorem genScalarLoad_calldataload_callsDisjoint
     intro arg harg; simp only [List.mem_singleton] at harg
     subst harg
     simp only [yulExprCallsDisjointFromInternalTable]
-  cases ty <;> simp only [SupportedExternalParamType] at hsupported ⊢
+  cases ty <;> simp only [SupportedExternalScalarParamType] at hsupported ⊢
   all_goals
     first
     | exact .let_ _ _ [] hload .nil
@@ -3927,7 +3927,7 @@ private theorem genParamLoadBodyFrom_calldataload_callsDisjoint
     (hiszero : findInternalFunction? runtimeContract "iszero" = none)
     (sizeExpr : YulExpr) (headSize baseOffset : Nat) :
     ∀ (params : List Param) (headOffset : Nat),
-      (∀ param ∈ params, SupportedExternalParamType param.ty) →
+      (∀ param ∈ params, SupportedExternalScalarParamType param.ty) →
         YulStmtListCallsDisjointFromInternalTable runtimeContract
           (genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
             sizeExpr headSize baseOffset params headOffset)
@@ -3937,11 +3937,11 @@ private theorem genParamLoadBodyFrom_calldataload_callsDisjoint
         hcd hand hsignextend hiszero sizeExpr headSize baseOffset rest
         (headOffset + paramHeadSize param.ty)
         (by intro p hp; exact hsupported p (by simp [hp]))
-      have hhead_sup : SupportedExternalParamType param.ty := hsupported param (by simp)
+      have hhead_sup : SupportedExternalScalarParamType param.ty := hsupported param (by simp)
       have hhead := genScalarLoad_calldataload_callsDisjoint runtimeContract
         param.name param.ty headOffset hhead_sup hcd hand hsignextend hiszero
       cases hty : param.ty <;>
-        simp only [SupportedExternalParamType, hty] at hhead_sup <;>
+        simp only [SupportedExternalScalarParamType, hty] at hhead_sup <;>
         simpa only [genParamLoadBodyFrom, genSingleParamLoad, hty]
           using yulStmtListCallsDisjoint_append hhead htail
 
@@ -3951,7 +3951,7 @@ that none of the seven EVM/Yul builtins it emits (`calldataload`, `calldatasize`
 `lt`, `revert`, `and`, `signextend`, `iszero`) collide with an internal helper. -/
 private theorem genParamLoads_callsDisjoint_of_builtins
     (runtimeContract : IRContract) (params : List Param)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hcd : findInternalFunction? runtimeContract "calldataload" = none)
     (hcdsize : findInternalFunction? runtimeContract "calldatasize" = none)
     (hlt : findInternalFunction? runtimeContract "lt" = none)
@@ -3993,7 +3993,7 @@ premise: real compiler helpers are not `internal_`-prefixed, but they *are*
 reserved, so the invariant is dischargeable from actual compilation output. -/
 theorem genParamLoads_callsDisjoint_of_reserved
     (runtimeContract : IRContract) (params : List Param)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hinv : InternalTableNamesReserved runtimeContract) :
     YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) :=
   genParamLoads_callsDisjoint_of_builtins runtimeContract params hsupported
@@ -4012,7 +4012,7 @@ invariant, routed through the reserved-name seam
 entry point; the populated-table path uses the reserved variant directly. -/
 theorem genParamLoads_callsDisjoint_of_internalNamesPrefixed
     (runtimeContract : IRContract) (params : List Param)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hinv : InternalTableNamesInternalPrefixed runtimeContract) :
     YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads params) :=
   genParamLoads_callsDisjoint_of_reserved runtimeContract params hsupported

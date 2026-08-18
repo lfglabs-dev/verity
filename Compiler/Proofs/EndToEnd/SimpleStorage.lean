@@ -5322,7 +5322,7 @@ private theorem execIRFunction_oneParam_store0_value_stop
           intro param hmem
           simp [params] at hmem
           subst param
-          simp [SupportedExternalParamType])
+          simp [SupportedExternalScalarParamType])
         (by
           simpa [Compiler.Constants.evmModulus, EvmYul.UInt256.size,
             stateWithParams, txState, applyIRTransactionContext] using hNoWrap)

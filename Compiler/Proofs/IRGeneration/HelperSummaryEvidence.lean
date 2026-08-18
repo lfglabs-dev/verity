@@ -543,7 +543,7 @@ private def expressionHelper_support :
     intro param hmem
     simp [expressionHelper] at hmem
   · exact ⟨⟨[.uint256], rfl, by
-      simp [SupportedExternalReturnProfile, SupportedExternalParamType]⟩⟩
+      simp [SupportedExternalReturnProfile, SupportedExternalScalarParamType]⟩⟩
   · exact ⟨rfl⟩
   · exact ⟨rfl⟩
   · exact ⟨rfl⟩

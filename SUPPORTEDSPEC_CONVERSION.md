@@ -31,12 +31,12 @@ file can follow.
 
 ## Predicates converted
 
-### 1. `SupportedExternalParamType` → `externalParamScalarProofSupported`
+### 1. `SupportedExternalScalarParamType` → `externalParamScalarProofSupported`
 
 The hand-restated `Prop`:
 
 ```lean
-def SupportedExternalParamType : ParamType → Prop
+def SupportedExternalScalarParamType : ParamType → Prop
   | .uint256 | .int256 | .uint8 | .uint16 | .address | .bytes32 | .bool => True
   | _ => False
 ```
@@ -65,7 +65,7 @@ The hand-restated `Prop`:
 ```lean
 def SupportedExternalReturnProfile : List ParamType → Prop
   | [] => True
-  | [ty] => SupportedExternalParamType ty
+  | [ty] => SupportedExternalScalarParamType ty
   | _ => False
 ```
 
@@ -79,7 +79,7 @@ def externalReturnProfileProofSupported (returns : List ParamType) : Bool :=
 ## Agreement theorems
 
 Because the heavily-used hand-restated predicates currently sit in proof
-preconditions (`∀ param ∈ params, SupportedExternalParamType param.ty`) across
+preconditions (`∀ param ∈ params, SupportedExternalScalarParamType param.ty`) across
 many sibling modules, we **keep** the old defs and prove
 `old ↔ new` instead of rewriting every caller in one shot. The biconditionals
 are the meaning-preservation oracle:
@@ -87,7 +87,7 @@ are the meaning-preservation oracle:
 ```lean
 theorem SupportedExternalParamType_iff_externalParamScalarProofSupported
     (ty : ParamType) :
-    SupportedExternalParamType ty ↔ externalParamScalarProofSupported ty = true
+    SupportedExternalScalarParamType ty ↔ externalParamScalarProofSupported ty = true
 
 theorem SupportedExternalReturnProfile_iff_externalReturnProfileProofSupported
     (returns : List ParamType) :

@@ -66,6 +66,10 @@ ALLOWLIST: set[str] = {
     # from it, so splitting it would just reintroduce the duplication it
     # removed.
     "interpretContractWith_correct_generic",
+    # #2085 widened twin of the skeleton above: same payable/arity/binding case
+    # analysis, phrased over the external ABI binder so dynamic parameters are
+    # in scope. Kept whole for the same reason as its scalar counterpart.
+    "interpretContractWith_correct_generic_external",
     "compileValidatedCore_ok_yields_guarded_functions",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
@@ -986,6 +990,20 @@ ALLOWLIST: set[str] = {
     # `Function.supported_function_correct_except_mapping_writes_stmtSafety`,
     # so there is no proof logic to decompose.
     "compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety",
+    # #2085 `bytes` external parameters. The loader lemmas are straight-line
+    # symbolic executions of the generated Yul: every statement threads the same
+    # `IRState` through the same variable table and fuel counter, so cutting
+    # them apart would force each fragment to restate the full intermediate
+    # state and the bounds already established by its predecessors.
+    "exec_bytesLoaderStmts_then",
+    "exec_genSingleParamLoad_external_then",
+    "exec_genParamLoadBodyFrom_external_then",
+    "exec_genParamLoads_external",
+    # #2085 decode-of-encode round trip: one arithmetic argument tying the
+    # encoder's head/tail layout to the binder's bounds checks. Its `have`s are
+    # mutually dependent size facts about a single encoded block; splitting them
+    # would duplicate that context in every fragment.
+    "bindExternalParam_bytes_of_abiEncodeArgs",
 }
 
 # PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover

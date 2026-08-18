@@ -1,5 +1,6 @@
 import Compiler.CompilationModel.AbiEncoding
 import Compiler.Proofs.IRGeneration.IRInterpreter
+import Verity.Core.Model.DynamicAbiRoundTrip
 
 /-!
 # ABI scalar encoding correctness
@@ -728,6 +729,208 @@ theorem abiEncodeArgs_append (left right : List AbiArg) :
   simp only [abiEncodeArgs, List.length_append, abiEncodeArgHeads_append,
     abiEncodeArgs_tails_append]
   ac_rfl
+
+/-! ## Decode-of-encode round trip for `bytes` arguments
+
+`Verity/Core/Model/DynamicAbi.lean` proves the *inversion* direction: a
+successful `bytes` binding certifies the bounds the generated loader checks.
+That direction alone does not close #2085.  The dispatch correctness theorem
+needs the binder to **succeed**, and for a dynamic parameter success is a real
+property of the calldata — malformed offsets or a truncated tail make it fail —
+so, unlike the scalar case, it cannot be recovered from arity alone.
+
+These lemmas supply the missing direction: on calldata that really is a
+well-formed ABI argument block, the `bytes` binder succeeds and recovers the
+true tail offset, byte length, and remaining tail size. -/
+
+section BytesRoundTrip
+
+open Compiler.CompilationModel.DynamicAbi
+
+private theorem abiDynamicTailSize_eq_tail_words (args : List AbiArg) :
+    abiDynamicTailSize args = 32 * (args.flatMap AbiArg.tail).length := by
+  induction args with
+  | nil => simp [abiDynamicTailSize]
+  | cons arg rest ih =>
+      rw [abiDynamicTailSize_cons, ih, AbiArg.tailSize, List.flatMap_cons, List.length_append]
+      omega
+
+private theorem abiTailOffset_append_cons
+    (pre : List AbiArg) (arg : AbiArg) (suffix : List AbiArg) :
+    abiTailOffset (pre ++ arg :: suffix) pre.length =
+      32 * (pre ++ arg :: suffix).length + 32 * (pre.flatMap AbiArg.tail).length := by
+  rw [abiTailOffset, List.take_left, abiDynamicTailSize_eq_tail_words]
+
+/-- The head word of a dynamic argument, read out of the encoded block, is its
+ABI tail offset. -/
+private theorem abiEncodeArgs_getD_dynamic_head
+    (pre : List AbiArg) (arg : AbiArg) (suffix : List AbiArg)
+    (hdyn : arg.isDynamic = true) :
+    (abiEncodeArgs (pre ++ arg :: suffix)).getD pre.length 0 =
+      abiTailOffset (pre ++ arg :: suffix) pre.length := by
+  have hlt : pre.length <
+      (abiEncodeArgHeads (pre ++ arg :: suffix)
+        (32 * (pre ++ arg :: suffix).length)).length := by
+    rw [abiEncodeArgHeads_length]
+    simp
+  rw [abiEncodeArgs, List.getD_eq_getElem?_getD, List.getElem?_append_left hlt,
+    abiEncodeArgHeads_dynamic_offset pre arg suffix hdyn]
+  rfl
+
+/-- The first word of a dynamic argument's tail sits immediately after the head
+area and every earlier tail. -/
+private theorem abiEncodeArgs_getD_tail_first
+    (pre : List AbiArg) (arg : AbiArg) (suffix : List AbiArg)
+    (w : Nat) (ws : List Nat) (htail : arg.tail = w :: ws) :
+    (abiEncodeArgs (pre ++ arg :: suffix)).getD
+        ((pre ++ arg :: suffix).length + (pre.flatMap AbiArg.tail).length) 0 = w := by
+  have hheadLen : (abiEncodeArgHeads (pre ++ arg :: suffix)
+      (32 * (pre ++ arg :: suffix).length)).length = (pre ++ arg :: suffix).length :=
+    abiEncodeArgHeads_length _ _
+  have hge : (abiEncodeArgHeads (pre ++ arg :: suffix)
+      (32 * (pre ++ arg :: suffix).length)).length ≤
+      (pre ++ arg :: suffix).length + (pre.flatMap AbiArg.tail).length := by
+    rw [hheadLen]
+    omega
+  have hflat : (pre ++ arg :: suffix).flatMap AbiArg.tail =
+      pre.flatMap AbiArg.tail ++ (w :: (ws ++ suffix.flatMap AbiArg.tail)) := by
+    simp [List.flatMap_append, List.flatMap_cons, htail]
+  have hsub : (pre ++ arg :: suffix).length + (pre.flatMap AbiArg.tail).length -
+      (pre ++ arg :: suffix).length = (pre.flatMap AbiArg.tail).length := by omega
+  rw [abiEncodeArgs, List.getD_eq_getElem?_getD, List.getElem?_append_right hge, hheadLen,
+    hsub, hflat, List.getElem?_append_right (Nat.le_of_eq rfl)]
+  simp
+
+/-- Decode-of-encode for a `bytes` argument at an arbitrary position of a
+well-formed ABI argument block.  The binder succeeds and yields exactly the six
+loader locals, with the *true* tail offset, byte length and remaining tail
+size — which is what makes the dispatch composition non-vacuous at `bytes`. -/
+theorem bindExternalParam_bytes_of_abiEncodeArgs
+    (selector : Nat) (name : String)
+    (pre : List AbiArg) (value : AbiBytes) (suffix : List AbiArg)
+    (hwf : value.WellFormed)
+    (hsize : 4 + 32 * (abiEncodeArgs (pre ++ .bytes value :: suffix)).length <
+      Compiler.Constants.evmModulus) :
+    bindExternalParam selector (abiEncodeArgs (pre ++ .bytes value :: suffix))
+        (32 * (pre ++ .bytes value :: suffix).length) 4 (4 + 32 * pre.length)
+        { name := name, ty := ParamType.bytes } =
+      some
+        [ (s!"{name}_offset", abiTailOffset (pre ++ .bytes value :: suffix) pre.length)
+        , (s!"{name}_abs_offset", 4 + abiTailOffset (pre ++ .bytes value :: suffix) pre.length)
+        , (s!"{name}_length", value.byteLength)
+        , (s!"{name}_tail_head_end",
+            4 + abiTailOffset (pre ++ .bytes value :: suffix) pre.length + 32)
+        , (s!"{name}_tail_remaining",
+            32 * (value.dataWords.length + (suffix.flatMap AbiArg.tail).length))
+        , (s!"{name}_data_offset",
+            4 + abiTailOffset (pre ++ .bytes value :: suffix) pre.length + 32) ] := by
+  have hdyn : (AbiArg.bytes value).isDynamic = true := rfl
+  -- Sizes of the encoded block, in words.
+  have htotal : ((pre ++ .bytes value :: suffix).flatMap AbiArg.tail).length =
+      (pre.flatMap AbiArg.tail).length + (1 + value.dataWords.length) +
+        (suffix.flatMap AbiArg.tail).length := by
+    simp [List.flatMap_append, List.flatMap_cons]
+    omega
+  have hcdlen : (abiEncodeArgs (pre ++ .bytes value :: suffix)).length =
+      (pre ++ .bytes value :: suffix).length +
+        ((pre ++ .bytes value :: suffix).flatMap AbiArg.tail).length := by
+    simp [abiEncodeArgs]
+  have hcsz : externalCalldataSize (abiEncodeArgs (pre ++ .bytes value :: suffix)) =
+      4 + 32 * (abiEncodeArgs (pre ++ .bytes value :: suffix)).length := rfl
+  have hoff := abiTailOffset_append_cons pre (.bytes value) suffix
+  -- The packed payload always covers the declared byte length.
+  have hpack : value.byteLength ≤ 32 * value.dataWords.length := by
+    rw [AbiBytes.WellFormed] at hwf
+    omega
+  -- Head word: the stored relative offset is the true tail offset.
+  have hheadVal : (abiEncodeArgs (pre ++ .bytes value :: suffix)).getD pre.length 0 =
+      abiTailOffset (pre ++ .bytes value :: suffix) pre.length :=
+    abiEncodeArgs_getD_dynamic_head pre _ suffix hdyn
+  have hhead : externalWordAt? selector (abiEncodeArgs (pre ++ .bytes value :: suffix))
+      (4 + 32 * pre.length) =
+      some (abiTailOffset (pre ++ .bytes value :: suffix) pre.length) := by
+    rw [← hheadVal]
+    refine externalWordAt?_aligned _ _ _ ?_ ?_
+    · simp only [hcdlen, htotal, List.length_append, List.length_cons]
+      omega
+    · rw [hheadVal, hoff]
+      omega
+  -- Length word: the first tail word is the declared byte length.
+  have hlenVal := abiEncodeArgs_getD_tail_first pre (.bytes value) suffix
+    value.byteLength value.dataWords rfl
+  have hlenIdx : 4 + abiTailOffset (pre ++ .bytes value :: suffix) pre.length =
+      4 + 32 * ((pre ++ .bytes value :: suffix).length +
+        (pre.flatMap AbiArg.tail).length) := by
+    rw [hoff]
+    omega
+  have hlength : externalWordAt? selector (abiEncodeArgs (pre ++ .bytes value :: suffix))
+      (4 + abiTailOffset (pre ++ .bytes value :: suffix) pre.length) =
+      some value.byteLength := by
+    rw [hlenIdx, ← hlenVal]
+    refine externalWordAt?_aligned _ _ _ ?_ ?_
+    · omega
+    · rw [hlenVal]
+      omega
+  have hrewrite :
+      externalCalldataSize (abiEncodeArgs (pre ++ .bytes value :: suffix)) -
+          (4 + abiTailOffset (pre ++ .bytes value :: suffix) pre.length + 32) =
+        32 * (value.dataWords.length + (suffix.flatMap AbiArg.tail).length) := by
+    omega
+  rw [← hrewrite]
+  exact bindExternalParam_bytes_refines_dynamic_loader hhead (by omega) (by omega) hlength
+    (by omega)
+
+/-- The whole-parameter-list binder succeeds on a single `bytes` parameter whose
+calldata is a real ABI encoding.  This is the fact the dispatch theorem needs:
+`bindExternalParams` returning `some` cannot be recovered from arity for a
+dynamic parameter, so it has to come from the encoding. -/
+theorem bindExternalParams_bytes_of_abiEncodeArgs
+    (selector : Nat) (name : String) (value : AbiBytes)
+    (hwf : value.WellFormed)
+    (hsize : 4 + 32 * (abiEncodeArgs [AbiArg.bytes value]).length <
+      Compiler.Constants.evmModulus) :
+    bindExternalParams selector [{ name := name, ty := ParamType.bytes }]
+        (abiEncodeArgs [AbiArg.bytes value]) =
+      some
+        [ (s!"{name}_offset", 32)
+        , (s!"{name}_abs_offset", 36)
+        , (s!"{name}_length", value.byteLength)
+        , (s!"{name}_tail_head_end", 68)
+        , (s!"{name}_tail_remaining", 32 * value.dataWords.length)
+        , (s!"{name}_data_offset", 68) ] := by
+  have hbase := bindExternalParam_bytes_of_abiEncodeArgs selector name [] value [] hwf
+    (by simpa using hsize)
+  simp only [List.nil_append, List.length_nil, List.length_cons, List.flatMap_nil,
+    Nat.mul_zero, Nat.add_zero, Nat.zero_add, abiTailOffset, List.take_zero,
+    abiDynamicTailSize, List.map_nil, List.sum_nil] at hbase
+  have hcdlen : (abiEncodeArgs [AbiArg.bytes value]).length = 1 + (1 + value.dataWords.length) := by
+    simp [abiEncodeArgs]
+    omega
+  have hlen : ([{ name := name, ty := ParamType.bytes }] : List Param).length ≤
+      (abiEncodeArgs [AbiArg.bytes value]).length := by
+    rw [hcdlen]
+    simp
+  have hsupp : bindSupportedParams [{ name := name, ty := ParamType.bytes }]
+      (abiEncodeArgs [AbiArg.bytes value]) = none := by
+    have : (abiEncodeArgs [AbiArg.bytes value]) ≠ [] := by
+      intro hnil
+      rw [hnil] at hcdlen
+      simp only [List.length_nil] at hcdlen
+      omega
+    match hcd : abiEncodeArgs [AbiArg.bytes value] with
+    | [] => exact absurd hcd this
+    | w :: rest => simp [bindSupportedParams, decodeSupportedParamWord]
+  unfold bindExternalParams
+  rw [if_pos hlen, hsupp]
+  show bindExternalParamsFrom selector (abiEncodeArgs [AbiArg.bytes value])
+    (paramHeadSizeList [ParamType.bytes]) 4 [{ name := name, ty := ParamType.bytes }] 4 = _
+  have hhs : paramHeadSizeList [ParamType.bytes] = 32 * 1 := by
+    simp [paramHeadSizeList, paramHeadSize]
+  rw [hhs]
+  simp only [bindExternalParamsFrom, hbase]
+  rfl
+
+end BytesRoundTrip
 
 section Examples
 

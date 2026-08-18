@@ -4954,9 +4954,9 @@ private theorem layers2_3_ir_matches_native_evmYulLean
 optional mapping-slot helper in the generated runtime prefix. -/
 private theorem isStaticScalarParamType_of_supportedExternalParamType
     {ty : CompilationModel.ParamType}
-    (hSupported : SupportedExternalParamType ty) :
+    (hSupported : SupportedExternalScalarParamType ty) :
     Compiler.Proofs.YulGeneration.Backends.IsStaticScalarParamType ty := by
-  cases ty <;> simp [SupportedExternalParamType] at hSupported
+  cases ty <;> simp [SupportedExternalScalarParamType] at hSupported
   all_goals
     exact Compiler.Proofs.YulGeneration.Backends.IsStaticScalarParamType.scalar
       (by trivial)
@@ -4964,7 +4964,7 @@ private theorem isStaticScalarParamType_of_supportedExternalParamType
 private theorem allStaticScalarParams_of_supportedExternalParams
     {params : List CompilationModel.Param}
     (hSupported :
-      ∀ param ∈ params, SupportedExternalParamType param.ty) :
+      ∀ param ∈ params, SupportedExternalScalarParamType param.ty) :
     Compiler.Proofs.YulGeneration.Backends.AllStaticScalarParams params := by
   intro param hmem
   exact isStaticScalarParamType_of_supportedExternalParamType
