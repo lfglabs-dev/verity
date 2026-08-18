@@ -43,13 +43,13 @@ def runtimeContractOfFunctions (name : String) (functions : List IRFunction) : I
     (runtimeContractOfFunctions name functions).internalFunctions = [] := rfl
 
 private theorem decodeSupportedParamWord_some_of_supported
-    (ty : ParamType) (word : Nat) (hsupported : SupportedExternalParamType ty) :
+    (ty : ParamType) (word : Nat) (hsupported : SupportedExternalScalarParamType ty) :
     ∃ value, SourceSemantics.decodeSupportedParamWord ty word = some value := by
-  cases ty <;> simp [SupportedExternalParamType, SourceSemantics.decodeSupportedParamWord] at hsupported ⊢
+  cases ty <;> simp [SupportedExternalScalarParamType, SourceSemantics.decodeSupportedParamWord] at hsupported ⊢
 
 theorem bindSupportedParams_some_of_supported
     (params : List Param) (args : List Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hlen : params.length ≤ args.length) :
     ∃ bindings, SourceSemantics.bindSupportedParams params args = some bindings := by
   induction params generalizing args with
@@ -60,9 +60,9 @@ theorem bindSupportedParams_some_of_supported
       | nil =>
           cases hlen
       | cons arg restArgs =>
-          have hparam : SupportedExternalParamType param.ty := hsupported param (by simp)
+          have hparam : SupportedExternalScalarParamType param.ty := hsupported param (by simp)
           rcases decodeSupportedParamWord_some_of_supported param.ty arg hparam with ⟨value, hdecode⟩
-          have hrestSupported : ∀ next ∈ rest, SupportedExternalParamType next.ty := by
+          have hrestSupported : ∀ next ∈ rest, SupportedExternalScalarParamType next.ty := by
             intro next hnext
             exact hsupported next (by simp [hnext])
           have hrestLen : rest.length ≤ restArgs.length := Nat.le_of_succ_le_succ hlen
@@ -73,7 +73,7 @@ theorem bindSupportedParams_some_of_supported
 /-- Under supported parameter types, binding only fails on arity. -/
 theorem not_length_le_of_bindSupportedParams_none
     (params : List Param) (args : List Nat)
-    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
     (hbindNone : SourceSemantics.bindSupportedParams params args = none) :
     ¬ params.length ≤ args.length := by
   intro hle
@@ -105,7 +105,7 @@ def interpretContractWith
 theorem interpretFunction_eq_reverted_of_bind_none
     (model : CompilationModel) (fn : FunctionSpec) (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
-    (hsupported : ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none) :
     SourceSemantics.interpretFunction model fn tx initialWorld =
       SourceSemantics.revertedResult model
@@ -122,7 +122,7 @@ supported params). -/
 theorem interpretFunctionWithHelpers_eq_reverted_of_bind_none
     (model : CompilationModel) (fuel : Nat) (fn : FunctionSpec)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
-    (hsupported : ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none) :
     SourceSemantics.interpretFunctionWithHelpers model fuel fn tx initialWorld =
       SourceSemantics.revertedResult model
@@ -238,7 +238,7 @@ theorem interpretContractWith_correct_generic
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hinterp : irResult =
       match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
       | some irFn =>
@@ -358,7 +358,7 @@ theorem interpretContractWith_correct_of_functions_generic
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -389,7 +389,7 @@ theorem interpretContract_correct_of_functions_generic
       (SourceSemantics.selectorFunctionPairs model selectors) irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →

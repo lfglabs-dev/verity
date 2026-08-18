@@ -42,7 +42,7 @@ theorem interpretContract_correct_of_compiled_functions
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -81,7 +81,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -164,7 +164,7 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -289,7 +289,7 @@ theorem interpretContract_correct_of_compiled_functions_with_helper_proofs
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -348,7 +348,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -416,7 +416,7 @@ theorem interpretContract_correct_of_compiled_functions_except_mapping_writes
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -465,7 +465,7 @@ theorem interpretContract_correct_of_compiled_functions_except_mapping_writes_an
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -513,7 +513,7 @@ theorem interpretContract_correct_of_compiled_functions_except_mapping_writes_an
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -563,7 +563,7 @@ theorem interpretContract_correct_of_compiled_functions_except_mapping_writes_an
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -615,7 +615,7 @@ theorem interpretContract_correct_of_compiled_functions_with_helper_proofs_and_h
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -662,7 +662,7 @@ theorem interpretContract_correct_of_compiled_functions_with_helper_proofs_and_h
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -717,7 +717,7 @@ theorem interpretContract_correct_of_compiled_functions_with_helper_proofs_and_h
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →
@@ -765,7 +765,7 @@ theorem interpretContract_correct_of_compiled_functions_with_helper_proofs_and_h
         irFns)
     (hparamsSupported :
       ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalParamType param.ty)
+        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hfunction :
       ∀ fn sel irFn bindings,
         fn ∈ selectorDispatchedFunctions model →

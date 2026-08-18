@@ -77,7 +77,7 @@ theorem exec_compiledGuardedFunctionIR_of_body_fallthrough
     (hslot : slot < Compiler.Constants.evmModulus)
     (hSS : SpliceSimList bodyStmts)
     (hH : yulFrameHaltsList bodyStmts = false)
-    (hsupported : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 <
       Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams spec.params state.calldata =
@@ -168,7 +168,7 @@ theorem exec_compiledGuardedFunctionIR_of_body_halting
       (compiledFunctionIR selector spec returns (ys ++ [h])) = .ok guardedFn)
     (hslot : slot < Compiler.Constants.evmModulus)
     (hSS : SpliceSimList (ys ++ [h])) (hmh : ModeledHalt h)
-    (hsupported : ∀ param ∈ spec.params, SupportedExternalParamType param.ty)
+    (hsupported : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hcalldataSizeFits : 4 + state.calldata.length * 32 <
       Compiler.Constants.evmModulus)
     (hbind : SourceSemantics.bindSupportedParams spec.params state.calldata =
