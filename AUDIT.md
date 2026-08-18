@@ -413,6 +413,29 @@ sibling entrypoint.
   maps collapse to `solidityMappingSlot` of the 32-byte word (no
   `StorageKey.mapBytes32`). All nine `MappingType.nested` key-type
   pairs collapse to `abstractNestedMappingSlot`.
+- C5 step 4 final slice (`Compiler.Proofs.Storage.MappingCoherentGlobal`,
+  #2330): `storageKeySlot : List Field → StorageKey → Option (Channel × Nat)`
+  is the field-list collapse — `Channel` is `persistent` / `address` /
+  `transient` / `contract c`, and `contractSlot 0` is **not** identified
+  with `slot`. `MappingCoherentAllKeys` is the all-keys (`∀ StorageKey`)
+  invariant, not a listed pair or a single key. The declared layout is
+  load-bearing: a mapping key collapses only when the resolved field at its
+  base slot declares the matching `MappingType`, so distinct mapping shapes
+  force distinct base slots and `solidityMappingSlot_injective` separates
+  their derived images. Aligned `writeMap` / `writeMapUint` / `writeMap2` +
+  `writeSlot`, `writeAddrSlot`, and `writeTransient` preserve it; a lone
+  `writeSlot` takes `DerivedMappingSlotsAvoid` (the existing image-avoidance
+  `∀`); the simple-vs-nested cross case takes the layout certificate
+  `MappingBasesNotDerived`. `readMap_eq_encodeStorageAt_of_coherent` (plus
+  `mapUint` / `map2` variants) is the lens-read = flat-read bridge under
+  that invariant. Dynamic-array element slots are an explicit
+  `unsupported` row, not an equivalence: the source model derives element
+  `i` at `solidityMappingSlot s i`
+  (`Compiler/Proofs/IRGeneration/SourceSemantics.lean:330-350`) while the
+  Yul layout uses `keccak256(bytes32(s)) + i`
+  (`Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`); the collapse
+  returns `none` at dynamic-array roots
+  (`storageKeySlot_slot_dynamicArray`). Zero new axioms.
 - Zero new axioms.
 
 ## CI Guards

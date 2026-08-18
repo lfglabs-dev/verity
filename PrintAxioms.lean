@@ -114,6 +114,7 @@ import Compiler.Proofs.Storage.FieldPackedCompile
 import Compiler.Proofs.Storage.FieldStorageKey
 import Compiler.Proofs.Storage.MappingCoherence
 import Compiler.Proofs.Storage.MappingCoherenceOn
+import Compiler.Proofs.Storage.MappingCoherentAllKeys
 import Compiler.Proofs.Storage.SeparateChannels
 import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.Storage.StructArrayStorage
@@ -4835,6 +4836,50 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherenceOn.writeMapUint_aligned_preserves_uintOn_of_mappingCoherentUint
   Compiler.Proofs.Storage.MappingCoherenceOn.writeMap2_aligned_preserves_map2On_of_mappingCoherentMap2
 
+  -- Compiler/Proofs/Storage/MappingCoherentAllKeys.lean
+  Compiler.Proofs.Storage.MappingCoherentGlobal.base_ne_of_kind_ne
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_slot_eq
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_addr_eq
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_transient_eq
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_contractSlot_eq
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_map_eq
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_mapUint_eq
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_map2_eq
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_map_of_kind
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_mapUint_of_kind
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_map2_of_kind
+  Compiler.Proofs.Storage.MappingCoherentGlobal.mappingCoherentAllKeys_of_globals
+  Compiler.Proofs.Storage.MappingCoherentGlobal.mappingCoherentAllKeys_map
+  Compiler.Proofs.Storage.MappingCoherentGlobal.mappingCoherentAllKeys_mapUint
+  Compiler.Proofs.Storage.MappingCoherentGlobal.mappingCoherentAllKeys_map2
+  Compiler.Proofs.Storage.MappingCoherentGlobal.defaultState_mappingCoherentAllKeys
+  Compiler.Proofs.Storage.MappingCoherentGlobal.channelRead_persistent
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeSlot_slot_of_ne
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeSlot_map
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeSlot_mapUint
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeSlot_map2
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_slot
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_mapUint
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_map2
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_slot
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_map
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_map2
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_slot
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_map
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_mapUint
+  Compiler.Proofs.Storage.MappingCoherentGlobal.nested_ne_simple
+  Compiler.Proofs.Storage.MappingCoherentGlobal.simple_ne_of_base_ne
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap_aligned_preserves_mappingCoherentAllKeys
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMapUint_aligned_preserves_mappingCoherentAllKeys
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeMap2_aligned_preserves_mappingCoherentAllKeys
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeSlot_preserves_mappingCoherentAllKeys
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeAddrSlot_preserves_mappingCoherentAllKeys
+  Compiler.Proofs.Storage.MappingCoherentGlobal.writeTransient_preserves_mappingCoherentAllKeys
+  Compiler.Proofs.Storage.MappingCoherentGlobal.readMap_eq_encodeStorageAt_of_coherent
+  Compiler.Proofs.Storage.MappingCoherentGlobal.readMapUint_eq_encodeStorageAt_of_coherent
+  Compiler.Proofs.Storage.MappingCoherentGlobal.readMap2_eq_encodeStorageAt_of_coherent
+  Compiler.Proofs.Storage.MappingCoherentGlobal.storageKeySlot_slot_dynamicArray
+
   -- Compiler/Proofs/Storage/SeparateChannels.lean
   Compiler.Proofs.Storage.SeparateChannels.storageArray_independent_of_writeSlot
   Compiler.Proofs.Storage.SeparateChannels.storageArray_independent_of_writeAddrSlot
@@ -7048,4 +7093,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6534 theorems/lemmas (4663 public, 1871 private, 0 sorry'd)
+-- Total: 6576 theorems/lemmas (4705 public, 1871 private, 0 sorry'd)

@@ -667,4 +667,39 @@ theorem readMap2_eq_encodeStorageAt_of_coherent
   rw [encodeStorageAt_of_unresolved hresolved hdyn]
   exact congrArg Core.Uint256.val (mappingCoherentAllKeys_map2 hcoh hkind k1 k2)
 
+/-! ### Known divergence: dynamic-array element slots — `unsupported`
+
+The source semantics and the Yul/EVM layout derive dynamic-array element
+addresses differently, and this slice does **not** reconcile them.
+
+* Source model —
+  `Compiler/Proofs/IRGeneration/SourceSemantics.lean:330-350`,
+  `findDynamicArrayElementAtSlot`: element `i` of the array rooted at slot
+  `s` sits at `solidityMappingSlot s i`, i.e. `keccak256(abi.encode(i, s))`,
+  a **64-byte mapping preimage**.
+* Yul / EVM model —
+  `Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`,
+  `storageArrayBasePointer` / `storageArrayElementPointer`: element `i` sits
+  at `keccak256(bytes32(s)) + i`, a **32-byte preimage plus an arithmetic
+  offset**. This is the real Solidity layout.
+
+Missing feature, precisely: *the source semantics has no array-element slot
+derivation of the form `keccak256(bytes32(slot)) + index`* — it reuses the
+mapping derivation instead. Closing the gap means changing
+`findDynamicArrayElementAtSlot` (and everything that computes against it),
+not adding a Yul-side shim; nothing here asserts the two derivations equal.
+
+Containment: `storageKeySlot` returns `none` at a persistent root whose
+resolved field is a `dynamicArray`, so `MappingCoherentAllKeys` claims
+nothing about dynamic-array roots (`encodeStorageAt` reads a list length
+there, not a word). Element words are ordinary persistent slots and the
+invariant is the identity on them; the divergence is about *which* slot the
+source model believes an element occupies. -/
+
+theorem storageKeySlot_slot_dynamicArray {fields : List Field} {n : Nat} {f : Field}
+    (hf : findResolvedFieldAtSlot fields n = some f)
+    (hdyn : fieldUsesDynamicArrayStorage f = true) :
+    storageKeySlot fields (.slot n) = none := by
+  simp only [storageKeySlot, hf, hdyn, if_true]
+
 end Compiler.Proofs.Storage.MappingCoherentGlobal
