@@ -189,7 +189,7 @@ proxy / upgradeability boundary; archive `--trust-report` and use
 `--deny-proxy-upgradeability` for proof-strict runs (see issue `#1420`).
 
 First-class linear-memory forms (`Expr.mload`, `Stmt.mstore`,
-`Stmt.calldatacopy`, `Stmt.returndataCopy`, `Expr.returndataOptionalBoolAt`)
+`Stmt.returndataCopy`, `Expr.returndataOptionalBoolAt`)
 also compile today, but they are still only partially modeled by the current
 proof interpreters. To stay inside the proved subset, treat them as an explicit
 memory/ABI trust boundary, archive `--trust-report`, and use
