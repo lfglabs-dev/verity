@@ -464,16 +464,8 @@ theorem bindExternalParam_string_eq_bytes
         { name := name, ty := ParamType.string } =
       bindExternalParam selector calldata headSize baseOffset headOffset
         { name := name, ty := ParamType.bytes } := by
-  have hstring :
-      decodeSupportedParamWord ParamType.string =<<
-        externalWordAt? selector calldata headOffset = none := by
-    cases externalWordAt? selector calldata headOffset <;> rfl
-  have hbytes :
-      decodeSupportedParamWord ParamType.bytes =<<
-        externalWordAt? selector calldata headOffset = none := by
-    cases externalWordAt? selector calldata headOffset <;> rfl
-  simp only [bindExternalParam]
-  rw [hstring, hbytes]
+  unfold bindExternalParam
+  cases externalWordAt? selector calldata headOffset <;> rfl
 
 /-- The `string` counterpart of `bindExternalParam_bytes_refines_dynamic_loader`:
 the same checked head word, tail length word and payload bound make the
