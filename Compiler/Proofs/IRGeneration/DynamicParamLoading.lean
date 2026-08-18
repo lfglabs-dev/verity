@@ -550,7 +550,7 @@ theorem exec_genParamLoadBodyFrom_external_then
               simp at hbind
           | some there =>
               rw [DynamicAbi.bindExternalParamsFrom, hhere, hoffset, hthere] at hbind
-              simp only [Option.bind_eq_bind, Option.some_bind, Option.some.injEq] at hbind
+              simp only [Option.bind_eq_bind, Option.bind, Option.some.injEq] at hbind
               subst hbind
               set loadWordC : YulExpr → YulExpr :=
                 fun pos => YulExpr.call "calldataload" [pos] with hloadWordC
