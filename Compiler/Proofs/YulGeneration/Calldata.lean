@@ -28,4 +28,23 @@ def calldataloadWord (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat
       let lo := calldata.getD (q + 1) 0 % evmModulus
       ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) % evmModulus
 
+/-- Memory word offsets written by `calldatacopy dst src size` under the
+word-addressed memory model used by the source semantics and the IR
+interpreter: the `size / 32` aligned words `dst, dst + 32, …`. -/
+def calldatacopyWritesAt (dst size offset : Nat) : Prop :=
+  dst ≤ offset ∧ offset < dst + 32 * (size / 32) ∧ (offset - dst) % 32 = 0
+
+instance (dst size offset : Nat) : Decidable (calldatacopyWritesAt dst size offset) := by
+  unfold calldatacopyWritesAt; infer_instance
+
+/-- Word-granular `calldatacopy(dst, src, size)` on an abstract word-addressed
+memory. Each written word is the calldata word at the corresponding source
+byte offset, so the result is expressible with `calldataloadWord` alone. -/
+def calldatacopyMemory (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (memory : Nat → Nat) : Nat → Nat :=
+  fun offset =>
+    if calldatacopyWritesAt dst size offset then
+      calldataloadWord selector calldata (src + (offset - dst))
+    else memory offset
+
 end Compiler.Proofs.YulGeneration

@@ -97,6 +97,16 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       FunctionBody.ExprCompileCore value →
       FunctionBody.exprBoundNamesInScope value scope →
       SupportedStmtList fields scope [Stmt.tstore offset value]
+  | calldatacopySingle
+      {scope : List String}
+      {destOffset sourceOffset size : Expr} :
+      FunctionBody.ExprCompileCore destOffset →
+      FunctionBody.exprBoundNamesInScope destOffset scope →
+      FunctionBody.ExprCompileCore sourceOffset →
+      FunctionBody.exprBoundNamesInScope sourceOffset scope →
+      FunctionBody.ExprCompileCore size →
+      FunctionBody.exprBoundNamesInScope size scope →
+      SupportedStmtList fields scope [Stmt.calldatacopy destOffset sourceOffset size]
   | letStorageField
       {scope : List String}
       {tmp : String}

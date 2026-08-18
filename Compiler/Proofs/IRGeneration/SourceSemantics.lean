@@ -2587,6 +2587,22 @@ mutual
               world := state.world.writeTransient resolvedOffset resolvedValue
             }
         | _, _ => .revert
+    | state, .calldatacopy destOffset sourceOffset size =>
+        match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
+            evalExpr fields state size with
+        | some dst, some src, some sz =>
+            .continue {
+              state with
+              world := {
+                state.world with
+                memory := fun o =>
+                  if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
+                    Compiler.Proofs.YulGeneration.calldataloadWord
+                      state.selector state.world.calldata (src + (o - dst))
+                  else state.world.memory o
+              }
+            }
+        | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr fields state cond with
         | some resolved =>
@@ -2871,6 +2887,22 @@ mutual
               world := state.world.writeTransient resolvedOffset resolvedValue
             }
         | _, _ => .revert
+    | state, .calldatacopy destOffset sourceOffset size =>
+        match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
+            evalExpr fields state size with
+        | some dst, some src, some sz =>
+            .continue {
+              state with
+              world := {
+                state.world with
+                memory := fun o =>
+                  if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
+                    Compiler.Proofs.YulGeneration.calldataloadWord
+                      state.selector state.world.calldata (src + (o - dst))
+                  else state.world.memory o
+              }
+            }
+        | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr fields state cond with
         | some resolved =>
@@ -4222,6 +4254,23 @@ mutual
               world := state.world.writeTransient resolvedOffset resolvedValue
             }
         | _, _ => .revert
+    | .calldatacopy destOffset sourceOffset size =>
+        match evalExprWithHelpers spec fields fuel state destOffset,
+            evalExprWithHelpers spec fields fuel state sourceOffset,
+            evalExprWithHelpers spec fields fuel state size with
+        | some dst, some src, some sz =>
+            .continue {
+              state with
+              world := {
+                state.world with
+                memory := fun o =>
+                  if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
+                    Compiler.Proofs.YulGeneration.calldataloadWord
+                      state.selector state.world.calldata (src + (o - dst))
+                  else state.world.memory o
+              }
+            }
+        | _, _, _ => .revert
     | .require cond _ =>
         match evalExprWithHelpers spec fields fuel state cond with
         | some resolved =>

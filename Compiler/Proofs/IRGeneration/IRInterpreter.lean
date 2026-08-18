@@ -638,6 +638,18 @@ def execIRStmtWithInternals
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
               | .revert state' => .revert state'
+          | .call "calldatacopy" [dstExpr, srcExpr, sizeExpr] =>
+              match evalIRExprsWithInternals contract fuel state [dstExpr, srcExpr, sizeExpr] with
+              | .values [dst, src, size] state' =>
+                  .continue {
+                    state' with
+                    memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
+                      state'.selector state'.calldata dst src size state'.memory
+                  }
+              | .values _ state' => .revert state'
+              | .stop state' => .stop state'
+              | .return value' state' => .return value' state'
+              | .revert state' => .revert state'
           | .call "stop" [] => .stop state
           | .call "revert" [offsetExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, sizeExpr] with
@@ -937,6 +949,16 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
                     if o = offset then val else state.transientStorage o
                 }
               | _, _ => .revert state
+          | .call "calldatacopy" [dstExpr, srcExpr, sizeExpr] =>
+              match evalIRExpr state dstExpr, evalIRExpr state srcExpr,
+                  evalIRExpr state sizeExpr with
+              | some dst, some src, some size =>
+                .continue {
+                  state with
+                  memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
+                    state.selector state.calldata dst src size state.memory
+                }
+              | _, _, _ => .revert state
           | .call "stop" [] => .stop state
           | .call "revert" [_, _] => .revert state
           | .call "return" [offsetExpr, sizeExpr] =>
@@ -1594,17 +1616,23 @@ theorem IRStmtPreservesObsAt_of_mstore8
   refine ⟨state, fun _ => ?_⟩
   simp [execIRStmt, isYulLogName, hv]
 
-/-- Cross-cast for `.exprStmt (.call "calldatacopy" [dst, src, sz])`: opaque
-fallthrough, continues with state unchanged given the call evaluates. -/
+/-- Cross-cast for `.exprStmt (.call "calldatacopy" [dst, src, sz])`: the IR
+model performs the word-granular calldata→memory copy, so the stmt continues
+into the copied state whenever all three arguments evaluate. -/
 theorem IRStmtPreservesObsAt_of_calldatacopy
     (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr)
-    (hEval : ∃ v, evalIRExpr state
-      (.call "calldatacopy" [dstExpr, srcExpr, sizeExpr]) = some v) :
+    (hDst : ∃ v, evalIRExpr state dstExpr = some v)
+    (hSrc : ∃ v, evalIRExpr state srcExpr = some v)
+    (hSize : ∃ v, evalIRExpr state sizeExpr = some v) :
     IRStmtPreservesObsAt state
       (.exprStmt (.call "calldatacopy" [dstExpr, srcExpr, sizeExpr])) := by
-  obtain ⟨v, hv⟩ := hEval
-  refine ⟨state, fun _ => ?_⟩
-  simp [execIRStmt, isYulLogName, hv]
+  obtain ⟨dst, hdst⟩ := hDst
+  obtain ⟨src, hsrc⟩ := hSrc
+  obtain ⟨size, hsize⟩ := hSize
+  refine ⟨{ state with
+      memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
+        state.selector state.calldata dst src size state.memory }, fun _ => ?_⟩
+  simp [execIRStmt, hdst, hsrc, hsize]
 
 /-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`: opaque
 fallthrough. -/
