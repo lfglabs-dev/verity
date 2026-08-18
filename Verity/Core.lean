@@ -366,7 +366,7 @@ the `storage_simps` simp set — not another ~1400-site rewrite.
 def storage (s : ContractState) : Nat → Uint256 :=
   fun slot => s.storageWords (.slot slot)
 
-@[simp] theorem storageWords_slot (s : ContractState) (n : Nat) :
+theorem storageWords_slot (s : ContractState) (n : Nat) :
     s.storageWords (.slot n) = s.storage n := rfl
 
 /-- Compatibility view for explicitly identified contract worlds. Contract
@@ -534,8 +534,8 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (f : StorageKey → Uint256) :
     { s with storageWords := f }.transientStorage = fun n => f (.transient n) := rfl
 
-@[simp] theorem Address.ofNat_writeAddressWord (word : Uint256) (value : Address) :
-    Address.ofNat (writeAddressWord word value).val = value :=
+@[simp] theorem ofNat_writeAddressWord (word : Uint256) (value : Address) :
+    Verity.Core.Address.ofNat (writeAddressWord word value).val = value :=
   wordToAddress_writeAddressWord word value
 
 /-- Address-slot writes leave word-slot and mapping compatibility views intact. -/
