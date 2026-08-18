@@ -146,4 +146,19 @@ theorem preservesCoherence_setStorageAddr {fields : List Field} (sl : StorageSlo
   intro s hs
   exact writeAddrSlot_preserves_mappingCoherentAllKeys fields s sl.slot a hs
 
+/-! ### Why there is no `preservesCoherence_setMapping`
+
+`setMapping` is shadow-only: it goes through `ContractState.writeMap`, which
+updates `storageWords (.map slot key)` and nothing else. Coherence at that key
+demands agreement with `storage (solidityMappingSlot slot key)`, so a single
+`setMapping` falsifies the invariant — the missing lemma is not hard, it is
+false under current semantics.
+
+The corresponding law on main,
+`writeMap_aligned_preserves_mappingCoherentAllKeys`, is stated for the
+*aligned* write `(s.writeMap ..).writeSlot (solidityMappingSlot ..) v`, which
+is the post-flip shape no EDSL primitive emits yet. Until the storage
+representation flip makes `setMapping` aligned, this file can thread coherence
+only through mapping-free entrypoints. -/
+
 end Compiler.Proofs.Storage.MappingCoherentExec

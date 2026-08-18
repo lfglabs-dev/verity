@@ -24,18 +24,27 @@
   every slot (`fieldMapKindAt_eq_none`), so no source key collapses to a
   keccak-derived slot and there is nothing for a flat write to collide with.
 
-  That is not an accident of this contract, and it is worth stating plainly
-  what it does and does not buy. For a layout that *does* declare a mapping
-  at base slot `b`, `MappingBasesNotDerived` requires
-  `solidityMappingSlot _ _ ≠ b` — the derived-slot image must miss the small
-  declared-slot region. The in-tree axiom set gives collision resistance
-  (`solidityMappingSlot_injective`) and an upper bound
-  (`solidityMappingSlot_lt_evmModulus`), and neither implies that. So the
-  certificates are dischargeable exactly for mapping-free layouts today; a
-  mapping-bearing contract still has to take them as explicit hypotheses.
+  Choosing a mapping-free contract is not cosmetic, and it is worth stating
+  plainly what it does and does not buy. Two things stand in the way of a
+  mapping-bearing layout, in order of severity:
+
+  1. *Semantics.* `setMapping` is shadow-only — it writes
+     `storageWords (.map b k)` and never the flat slot
+     `solidityMappingSlot b k`. So a mapping write breaks coherence outright;
+     the preservation law on main is stated for the aligned write that the
+     storage-representation flip will introduce, not for what contracts
+     execute today. See the closing note in `MappingCoherentExec`.
+  2. *Certificates.* Even with aligned writes, `MappingBasesNotDerived` would
+     require `solidityMappingSlot _ _ ≠ b` at each declared mapping base slot
+     `b` — the derived-slot image must miss the small declared-slot region.
+     The in-tree axiom set gives collision resistance
+     (`solidityMappingSlot_injective`) and an upper bound
+     (`solidityMappingSlot_lt_evmModulus`), and neither implies that, so a
+     mapping-bearing contract would carry the certificates as hypotheses.
+
   The execution-threading in `MappingCoherentExec` is what generalises: it is
-  layout-agnostic, and a mapping-bearing contract reuses it verbatim once the
-  certificates are available.
+  layout-agnostic, and a mapping-bearing contract reuses it verbatim once
+  aligned writes and the certificates are available.
 -/
 
 import Contracts.OwnedCounter.Proofs.Basic
