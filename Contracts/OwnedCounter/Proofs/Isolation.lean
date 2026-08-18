@@ -109,7 +109,8 @@ doesn't use mappings at all).
 /-- Constructor preserves mapping storage. -/
 theorem constructor_preserves_map_storage (s : ContractState) (initialOwner : Address) :
   ((setStorageAddr owner initialOwner).run s).snd.storageMap = s.storageMap := by
-  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot]
+  simp [setStorageAddr, owner, Contract.run, ContractResult.snd, ContractState.writeAddrSlot,
+    ContractState.storageMap, ContractState.storageMap_unfold]
 
 /-- Increment preserves mapping storage. -/
 theorem increment_preserves_map_storage (s : ContractState)
