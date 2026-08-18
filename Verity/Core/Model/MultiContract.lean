@@ -182,8 +182,11 @@ def selfDelegateEntry (w : MultiWorld) (addr : Address) (site : CallSite) :
         site := site
         callerBefore := st
         calleeBefore := st
-        calleeEntry :=
-          { st with sender := addr, thisAddress := addr, msgValue := 0 } }
+        -- DELEGATECALL runs the callee code in the caller's frame: `msg.sender`
+        -- and `msg.value` are inherited from the executing frame, not reset.
+        -- `site.value = 0` above only records that DELEGATECALL carries no
+        -- value argument; it does not zero the inherited `msg.value`.
+        calleeEntry := { st with thisAddress := addr } }
 
 /-- Same-account commit: success replaces `addr` with `post` (plus journal);
     failure/revert restore the pre-call snapshot and still journal. -/

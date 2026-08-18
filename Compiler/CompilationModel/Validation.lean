@@ -1510,4 +1510,46 @@ def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit
       spec.body.forM (validateStmtParamReferences "constructor" spec.params)
       validateConstructorIdentifierReferences ctor
 
+/-! ## `mapping(K => uint256[N])` element bounds
+
+The word offset carried by `mappingWord`/`setMappingWord` (and their packed
+variants) lowers to `add(mappingSlot(slot, key), offset)`. For a
+`FieldType.mappingFixedArray` the declared size is the only thing keeping that
+offset inside the field, so an out-of-range constant index would silently alias
+a neighbouring slot. Reject it before lowering. Fields of any other type carry
+no declared element count and stay unconstrained here. -/
+
+def checkMappingFixedArrayBound (fields : List Field) (label field : String)
+    (wordOffset : Nat) : Except String Unit :=
+  match mappingFixedArraySize fields field with
+  | none => pure ()
+  | some size =>
+      if mappingFixedArrayIndexInBounds fields field wordOffset then
+        pure ()
+      else
+        throw s!"Compilation error: {label} for field '{field}' uses element index {wordOffset}, but '{field}' is declared mapping(_ => uint256[{size}]). Require index < {size}."
+
+def validateMappingFixedArrayBoundsInExprNode (fields : List Field) :
+    Expr → Except String Unit
+  | Expr.mappingWord field _ wordOffset =>
+      checkMappingFixedArrayBound fields "Expr.mappingWord" field wordOffset
+  | Expr.mappingPackedWord field _ wordOffset _ =>
+      checkMappingFixedArrayBound fields "Expr.mappingPackedWord" field wordOffset
+  | _ => pure ()
+
+def validateMappingFixedArrayBoundsInStmtNode (fields : List Field) (stmt : Stmt) :
+    Except String Unit := do
+  match stmt with
+  | Stmt.setMappingWord field _ wordOffset _ =>
+      checkMappingFixedArrayBound fields "Stmt.setMappingWord" field wordOffset
+  | Stmt.setMappingPackedWord field _ wordOffset _ _ =>
+      checkMappingFixedArrayBound fields "Stmt.setMappingPackedWord" field wordOffset
+  | _ => pure ()
+  stmt.directMetadata.subexpressions.forM
+    (Expr.checkRec (validateMappingFixedArrayBoundsInExprNode fields))
+
+def validateMappingFixedArrayBoundsInStmts (fields : List Field) (stmts : List Stmt) :
+    Except String Unit :=
+  Stmt.checkRecList (validateMappingFixedArrayBoundsInStmtNode fields) stmts
+
 end Compiler.CompilationModel

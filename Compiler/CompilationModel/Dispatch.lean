@@ -523,6 +523,7 @@ private def validateCompileInputsBeforeFieldWriteConflict
     validateCustomErrorArgShapesInFunction fn spec.errors
     validateInternalCallShapesInFunction spec.functions fn
     validateExternalCallTargetsInFunction spec.externals fn
+    validateMappingFixedArrayBoundsInStmts spec.fields fn.body
     -- Fail-closed cross-function reentrancy gate. Runs last so structural
     -- well-formedness errors (call shape/target above) win over the policy
     -- check; the gate only judges otherwise well-formed external calls.
@@ -537,6 +538,7 @@ private def validateCompileInputsBeforeFieldWriteConflict
       ctor.body.forM (validateEventArgShapesInStmt "constructor" ctor.params spec.events)
       ctor.body.forM (validateCustomErrorArgShapesInStmt "constructor" ctor.params spec.errors)
       ctor.body.forM (validateInternalCallShapesInStmt spec.functions "constructor" ctor.params)
+      validateMappingFixedArrayBoundsInStmts spec.fields ctor.body
   for ext in spec.externals do
     let _ ← externalFunctionReturns ext
     validateInteropExternalSpec ext

@@ -94,23 +94,75 @@ private def mappingFixedArraySpec : CompilationModel := {
   ]
 }
 
+/-- Same field, but element index 4 on a `uint256[4]`: one past the end. -/
+private def mappingFixedArrayReadOutOfBoundsSpec : CompilationModel :=
+  { mappingFixedArraySpec with
+    name := "MappingFixedArrayReadOutOfBounds"
+    functions := [
+      { name := "getElem"
+        params := [{ name := "key", ty := .address }]
+        returnType := some .uint256
+        body := [
+          Stmt.letVar "word" (Expr.mappingWord "arrs" (Expr.param "key") 4),
+          Stmt.return (Expr.localVar "word")
+        ] }
+    ] }
 
+private def mappingFixedArrayWriteOutOfBoundsSpec : CompilationModel :=
+  { mappingFixedArraySpec with
+    name := "MappingFixedArrayWriteOutOfBounds"
+    functions := [
+      { name := "setElem"
+        params := [
+          { name := "key", ty := .address },
+          { name := "value", ty := .uint256 }
+        ]
+        returnType := none
+        body := [
+          Stmt.setMappingWord "arrs" (Expr.param "key") 4 (Expr.param "value"),
+          Stmt.stop
+        ] }
+    ] }
+
+-- The deep walkers `Stmt.checkRecList`/`Expr.checkRec` are well-founded
+-- recursions and do not reduce definitionally, so these regressions pin the
+-- bounds gate at the node level; the `#eval!` block below exercises the same
+-- rejection end-to-end through `compile`.
+
+/-- The in-range index used by `mappingFixedArraySpec` passes the bounds gate. -/
+theorem mappingFixedArray_index_1_accepted :
+    checkMappingFixedArrayBound mappingFixedArraySpec.fields
+      "Stmt.setMappingWord" "arrs" 1 = Except.ok () := by
+  decide
+
+/-- Index 4 on a `uint256[4]` is rejected before any Yul is emitted, on both the
+    read and the write path. -/
+theorem mappingFixedArray_read_index_4_rejected :
+    (validateMappingFixedArrayBoundsInExprNode mappingFixedArraySpec.fields
+      (Expr.mappingWord "arrs" (Expr.param "key") 4)).toOption = none := by
+  decide
+
+theorem mappingFixedArray_write_index_4_rejected :
+    (validateMappingFixedArrayBoundsInStmtNode mappingFixedArraySpec.fields
+      (Stmt.setMappingWord "arrs" (Expr.param "key") 4 (Expr.param "value"))).toOption =
+      none := by
+  decide
 
 theorem mappingFixedArray_isMapping :
     isMapping mappingFixedArraySpec.fields "arrs" = true := by
-  native_decide
+  decide
 
 theorem mappingFixedArray_size :
     mappingFixedArraySize mappingFixedArraySpec.fields "arrs" = some 4 := by
-  native_decide
+  decide
 
 theorem mappingFixedArray_index_1_in_bounds :
     mappingFixedArrayIndexInBounds mappingFixedArraySpec.fields "arrs" 1 = true := by
-  native_decide
+  decide
 
 theorem mappingFixedArray_index_4_out_of_bounds :
     mappingFixedArrayIndexInBounds mappingFixedArraySpec.fields "arrs" 4 = false := by
-  native_decide
+  decide
 
 /-! ## Transient fixedArrayUint128 -/
 
@@ -178,12 +230,38 @@ theorem selfDelegate_two_success_shares_world :
     (denoteSelfDelegateCalls selfWorld selfAddr
       [selfSite 0 [1], selfSite 1 [2]] succeedBody).control =
       SelfDelegateControl.success := by
-  native_decide
+  decide
 
 theorem selfDelegate_revert_control :
     (denoteSelfDelegateCalls selfWorld selfAddr [selfSite 0 [1]] revertBody).control =
       SelfDelegateControl.callFailed 0 (.revert [0xde, 0xad]) := by
-  native_decide
+  decide
+
+/-- `selfAddr` mid-execution: entered by `outerSender` carrying 5 wei. -/
+private def outerSender : Address := (0x1234 : Address)
+
+private def selfFrameWorld : MultiWorld :=
+  { accounts :=
+      [{ address := selfAddr
+         state :=
+           { defaultState with
+               thisAddress := selfAddr, sender := outerSender, msgValue := 5 } }] }
+
+/-- DELEGATECALL runs in the caller's frame: the entry state keeps the current
+    `msg.sender` and `msg.value` and only pins `address(this)`. -/
+theorem selfDelegate_entry_preserves_frame_context :
+    ((selfDelegateEntry selfFrameWorld selfAddr (selfSite 0 [1])).map fun frame =>
+        (frame.calleeEntry.sender, frame.calleeEntry.msgValue, frame.calleeEntry.thisAddress)) =
+      some (outerSender, 5, selfAddr) := by
+  decide
+
+/-- Every step of a self-delegate sequence inherits that same frame context. -/
+theorem selfDelegate_sequence_preserves_frame_context :
+    ((denoteSelfDelegateCalls selfFrameWorld selfAddr
+        [selfSite 0 [1], selfSite 1 [2]] succeedBody).calls.map fun observation =>
+        (observation.frame.calleeEntry.sender, observation.frame.calleeEntry.msgValue)) =
+      [(outerSender, 5), (outerSender, 5)] := by
+  decide
 
 #eval! do
   -- FixedArray-under-mapping: mapping(address => uint256[4]) element 1.
@@ -197,6 +275,10 @@ theorem selfDelegate_revert_control :
     (mappingFixedArrayIndexInBounds mappingFixedArraySpec.fields "arrs" 1)
   expectTrue "mapping-fixed-array index 4 is out of bounds"
     (!mappingFixedArrayIndexInBounds mappingFixedArraySpec.fields "arrs" 4)
+  expectCompileErrorContains "mapping-fixed-array read at index 4 is rejected"
+    mappingFixedArrayReadOutOfBoundsSpec "uses element index 4"
+  expectCompileErrorContains "mapping-fixed-array write at index 4 is rejected"
+    mappingFixedArrayWriteOutOfBoundsSpec "uses element index 4"
   -- CodeData / SSTORE2: empty, short, dynamic; STOP prefix; read offset 1.
   expectTrue "SSTORE2 prefix is one STOP byte" (sstore2PrefixBytes == 1)
   expectTrue "SSTORE2 read offset is 1"

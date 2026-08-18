@@ -1239,6 +1239,9 @@ jobs:
       - name: Build CompilationModel feature regression module
         run: stdbuf -oL -eL lake build Compiler.CompilationModelFeatureTest
 
+      - name: Build four-features regression module
+        run: stdbuf -oL -eL lake build Compiler.FourFeaturesTest
+
   lean-profile:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
     timeout-minutes: 45
