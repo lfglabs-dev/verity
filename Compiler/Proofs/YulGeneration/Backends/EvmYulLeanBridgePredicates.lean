@@ -81,6 +81,13 @@ inductive BridgedStraightStmt : Compiler.Yul.YulStmt → Prop
       (hSize : BridgedExpr sizeExpr) :
       BridgedStraightStmt
         (.exprStmt (.call "calldatacopy" [destOffset, sourceOffset, sizeExpr]))
+  -- Only the zero-extent copy is in range against the empty (EIP-211) frame
+  -- returndata buffer; any other extent is the EVM's exceptional halt and is
+  -- outside the straight-line preservable fragment.
+  | expr_returndatacopy (destOffset : Compiler.Yul.YulExpr)
+      (hDest : BridgedExpr destOffset) :
+      BridgedStraightStmt
+        (.exprStmt (.call "returndatacopy" [destOffset, .lit 0, .lit 0]))
   | expr_stop : BridgedStraightStmt (.exprStmt (.call "stop" []))
   | expr_return (offsetExpr sizeExpr : Compiler.Yul.YulExpr)
       (hOffset : BridgedExpr offsetExpr) (hSize : BridgedExpr sizeExpr) :
