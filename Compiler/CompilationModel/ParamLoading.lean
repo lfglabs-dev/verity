@@ -17,21 +17,6 @@ def isScalarParamType : ParamType → Bool
   | ParamType.address | ParamType.bool | ParamType.bytes32 => true
   | _ => false
 
-private def dynamicArrayElementStrideWords (elemTy : ParamType) : Nat :=
-  if isDynamicParamType elemTy then
-    1
-  else
-    max 1 (paramHeadSize elemTy / 32)
-
-/-- Whether the dynamic param shape is length-prefixed in the ABI tail.
-    Dynamic arrays (`T[]`), `bytes`, and `string` all begin with a 32-byte
-    length word followed by data. Dynamic tuples (structs containing nested
-    dynamic members) do not — their offset pointer dereferences directly
-    to the first head word of the tuple's encoding. (verity#1839) -/
-def isLengthPrefixedDynamicShape : ParamType → Bool
-  | ParamType.bytes | ParamType.string | ParamType.array _ => true
-  | _ => false
-
 /-- Statement block emitted for a dynamically encoded external parameter. Public
 so the IR-execution refinement proofs can step through the generated loader
 (verity#2085). -/
