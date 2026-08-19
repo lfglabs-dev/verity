@@ -3301,6 +3301,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_invalid  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_sstore  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_mstore  -- private
+  -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_returndatacopy  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_revert  -- private
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_return  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
@@ -7344,4 +7345,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6794 theorems/lemmas (4870 public, 1924 private, 0 sorry'd)
+-- Total: 6795 theorems/lemmas (4870 public, 1925 private, 0 sorry'd)
