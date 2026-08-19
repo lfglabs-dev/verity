@@ -476,11 +476,11 @@ LINEAR_MEMORY_BOUNDARY = ConditionalNoteEntry(
     targets=PROOF_BOUNDARY_TARGETS,
     snippets={
         "EDSL_API": [
-            "First-class linear-memory forms (`Expr.mload`, `Stmt.mstore`, `Stmt.calldatacopy`, `Stmt.returndataCopy`, `Expr.returndataOptionalBoolAt`) also compile today, but they are still only partially modeled by the current proof interpreters.",
+            "First-class linear-memory forms (`Expr.mload`, `Stmt.mstore`, `Stmt.returndataCopy`, `Expr.returndataOptionalBoolAt`) also compile today, but they are still only partially modeled by the current proof interpreters.",
             "treat them as an explicit memory/ABI trust boundary, archive `--trust-report`, and use `--deny-linear-memory-mechanics` for proof-strict runs (see issue `#1411`).",
         ],
         "COMPILER_DOC": [
-            "Memory-oriented intrinsics (`mload`, `mstore`, `calldatacopy`, `returndataCopy`, `returndataOptionalBoolAt`) compile, but the current proof interpreters still model them only partially.",
+            "Memory-oriented intrinsics (`mload`, `mstore`, `returndataCopy`, `returndataOptionalBoolAt`) compile, but the current proof interpreters still model them only partially.",
             "surface that boundary with `--trust-report` / `--deny-linear-memory-mechanics`; the remaining gap is tracked under issue `#1411`.",
         ],
         "SOLIDITY_GUIDE": [
@@ -720,7 +720,6 @@ INTERPRETER_FEATURE_BOUNDARY_CATALOG = CategoryNoteEntry(
                 "call",
                 "staticcall",
                 "delegatecall",
-                "calldatacopy",
                 "returndataCopy",
                 "revertReturndata",
                 "rawLog",
@@ -736,7 +735,7 @@ INTERPRETER_FEATURE_BOUNDARY_CATALOG = CategoryNoteEntry(
         "(`blockNumber`, `contractAddress`, `chainid`) and single-word linear-memory forms "
         "(`mload`, `mstore`, `returndataOptionalBoolAt`).",
         "Fully not-modeled features currently include `keccak256`, low-level call / returndata "
-        "plumbing (`call`, `staticcall`, `delegatecall`, `calldatacopy`, `returndataCopy`, "
+        "plumbing (`call`, `staticcall`, `delegatecall`, `returndataCopy`, "
         "`revertReturndata`), event emission (`rawLog`), and external call modules "
         "(`externalCallBind`, `ecm`).",
     ),

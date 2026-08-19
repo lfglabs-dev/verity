@@ -1663,6 +1663,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
   | tstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue
+  | calldatacopySingle hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize =>
+      exact stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
+        (fields := fields) hcoreDest hinScopeDest hcoreSource hinScopeSource
+        hcoreSize hinScopeSize
   | letStorageField hfind hfieldInScope =>
       exact stmtListGenericCore_of_supportedStmtList_letStorageField_of_surface
         hnoConflict hfind hfieldInScope
@@ -1771,6 +1775,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   | tstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue
+  | calldatacopySingle hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize =>
+      exact stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
+        (fields := fields) hcoreDest hinScopeDest hcoreSource hinScopeSource
+        hcoreSize hinScopeSize
   | letStorageField hfind hfieldInScope =>
       exact stmtListGenericCore_of_supportedStmtList_letStorageField_of_surface
         hnoConflict hfind hfieldInScope
@@ -2038,6 +2046,10 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
   | tstoreSingle hcoreOffset hinScopeOffset hcoreValue hinScopeValue =>
       exact stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
         (fields := fields) hcoreOffset hinScopeOffset hcoreValue hinScopeValue
+  | calldatacopySingle hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize =>
+      exact stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
+        (fields := fields) hcoreDest hinScopeDest hcoreSource hinScopeSource
+        hcoreSize hinScopeSize
   | letStorageField hfind hfieldInScope =>
       exact stmtListGenericCore_of_supportedStmtList_letStorageField_of_surface
         hnoConflict hfind hfieldInScope

@@ -6299,6 +6299,126 @@ theorem compileStmt_tstore_fragment_noFuncDefs
       exact compileStmt_tstore_noFuncDefs fields events errors dynamicSource
         internalRetNames isInternal inScopeNames offset value hOk
 
+inductive BridgedSourceCalldatacopyStmt : Stmt → Prop
+  | calldatacopy (destOffset sourceOffset size : Expr)
+      (hDest : BridgedSourceExpr destOffset)
+      (hSource : BridgedSourceExpr sourceOffset)
+      (hSize : BridgedSourceExpr size) :
+      BridgedSourceCalldatacopyStmt (.calldatacopy destOffset sourceOffset size)
+
+def BridgedSourceCalldatacopyStmts (stmts : List Stmt) : Prop :=
+  ∀ stmt ∈ stmts, BridgedSourceCalldatacopyStmt stmt
+
+/-- `SupportedFragment.calldatacopySingle` expression witnesses are enough to
+    build the native calldatacopy source-statement bridge witness. -/
+theorem bridgedSourceCalldatacopyStmt_of_exprCompileCore
+    {destOffset sourceOffset size : Expr}
+    (hDest : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore destOffset)
+    (hSource : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore sourceOffset)
+    (hSize : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore size) :
+    BridgedSourceCalldatacopyStmt (.calldatacopy destOffset sourceOffset size) :=
+  BridgedSourceCalldatacopyStmt.calldatacopy destOffset sourceOffset size
+    (bridgedSourceExpr_of_exprCompileCore hDest)
+    (bridgedSourceExpr_of_exprCompileCore hSource)
+    (bridgedSourceExpr_of_exprCompileCore hSize)
+
+private theorem compileStmt_calldatacopy_bridged
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (destOffset sourceOffset size : Expr)
+    (hDest : BridgedSourceExpr destOffset)
+    (hSource : BridgedSourceExpr sourceOffset)
+    (hSize : BridgedSourceExpr size) :
+    ∀ {out : List YulStmt},
+      compileStmt fields events errors dynamicSource internalRetNames
+        isInternal inScopeNames [] (.calldatacopy destOffset sourceOffset size) = .ok out →
+      BridgedStmts out := by
+  intro out hOk
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  cases hD : compileExprWithInternals fields dynamicSource [] destOffset with
+  | error err => simp [hD] at hOk
+  | ok compiledDest =>
+      simp [hD] at hOk
+      cases hS : compileExprWithInternals fields dynamicSource [] sourceOffset with
+      | error err => simp [hS] at hOk
+      | ok compiledSource =>
+          simp [hS] at hOk
+          cases hN : compileExprWithInternals fields dynamicSource [] size with
+          | error err => simp [hN] at hOk
+          | ok compiledSize =>
+              simp [hN] at hOk
+              subst hOk
+              have hBD : BridgedExpr compiledDest :=
+                compileExpr_bridgedSource fields dynamicSource hDest hD
+              have hBS : BridgedExpr compiledSource :=
+                compileExpr_bridgedSource fields dynamicSource hSource hS
+              have hBN : BridgedExpr compiledSize :=
+                compileExpr_bridgedSource fields dynamicSource hSize hN
+              intro yulStmt hMem
+              simp only [List.mem_singleton] at hMem
+              subst yulStmt
+              exact BridgedStmt.straight _
+                (BridgedStraightStmt.expr_calldatacopy compiledDest compiledSource
+                  compiledSize hBD hBS hBN)
+
+private theorem compileStmt_calldatacopy_noFuncDefs
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String)
+    (destOffset sourceOffset size : Expr) :
+    ∀ {out : List YulStmt},
+      compileStmt fields events errors dynamicSource internalRetNames
+        isInternal inScopeNames [] (.calldatacopy destOffset sourceOffset size) = .ok out →
+      Native.yulStmtsContainFuncDef out = false := by
+  intro out hOk
+  simp only [compileStmt, compileStmtWithFork, bind, Except.bind, Pure.pure, Except.pure] at hOk
+  cases hD : compileExprWithInternals fields dynamicSource [] destOffset with
+  | error err => simp [hD] at hOk
+  | ok compiledDest =>
+      simp [hD] at hOk
+      cases hS : compileExprWithInternals fields dynamicSource [] sourceOffset with
+      | error err => simp [hS] at hOk
+      | ok compiledSource =>
+          simp [hS] at hOk
+          cases hN : compileExprWithInternals fields dynamicSource [] size with
+          | error err => simp [hN] at hOk
+          | ok compiledSize =>
+              simp [hN, Native.yulStmtContainsFuncDef] at hOk
+              subst out
+              simp [Native.yulStmtContainsFuncDef]
+
+theorem compileStmt_calldatacopy_fragment_bridged
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) :
+    ∀ {stmt : Stmt}, BridgedSourceCalldatacopyStmt stmt →
+      ∀ {out : List YulStmt},
+        compileStmt fields events errors dynamicSource internalRetNames
+          isInternal inScopeNames [] stmt = .ok out →
+        BridgedStmts out := by
+  intro stmt hStmt out hOk
+  cases hStmt with
+  | calldatacopy destOffset sourceOffset size hDest hSource hSize =>
+      exact compileStmt_calldatacopy_bridged fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames destOffset sourceOffset size
+        hDest hSource hSize hOk
+
+theorem compileStmt_calldatacopy_fragment_noFuncDefs
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) :
+    ∀ {stmt : Stmt}, BridgedSourceCalldatacopyStmt stmt →
+      ∀ {out : List YulStmt},
+        compileStmt fields events errors dynamicSource internalRetNames
+          isInternal inScopeNames [] stmt = .ok out →
+        Native.yulStmtsContainFuncDef out = false := by
+  intro stmt hStmt out hOk
+  cases hStmt with
+  | calldatacopy destOffset sourceOffset size hDest hSource hSize =>
+      exact compileStmt_calldatacopy_noFuncDefs fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames destOffset sourceOffset size hOk
+
 /-! ## Source statement body closure: `storageArrayPush`
 
 `Stmt.storageArrayPush field value` compiles via `compileStorageArrayPush`

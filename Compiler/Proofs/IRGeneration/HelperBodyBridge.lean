@@ -177,6 +177,7 @@ private theorem execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_
     (helperBridge_internalFunctionYulName_ne_of_head calleeName "sstore" (by decide))
     (helperBridge_internalFunctionYulName_ne_of_head calleeName "mstore" (by decide))
     (helperBridge_internalFunctionYulName_ne_of_head calleeName "tstore" (by decide))
+    (helperBridge_internalFunctionYulName_ne_of_head calleeName "calldatacopy" (by decide))
     (helperBridge_internalFunctionYulName_ne_of_head calleeName "revert" (by decide))
     (helperBridge_internalFunctionYulName_ne_of_head calleeName "return" (by decide))
     (helperBridge_internalFunctionYulName_ne_invalid calleeName)

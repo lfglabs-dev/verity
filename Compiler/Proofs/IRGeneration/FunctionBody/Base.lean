@@ -2122,6 +2122,47 @@ private theorem calldataloadWord_lt_evmModulus
       · -- unaligned (r ≠ 0): composed hi/lo window reduced mod evmModulus
         exact Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])
 
+/-- `calldatacopy` writes the same words on both sides of the runtime/IR
+correspondence: the source world stores `Uint256`-wrapped calldata words while
+the IR stores their `Nat` values, and every copied word is already below the EVM
+modulus, so the wrapping is the identity on the copied region. -/
+theorem runtimeStateMatchesIR_calldatacopyBothMemory
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    (hmatch : runtimeStateMatchesIR fields runtime state)
+    (dst src size : Nat) :
+    runtimeStateMatchesIR fields
+      { runtime with
+          world := {
+            runtime.world with
+            memory := fun o =>
+              if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o then
+                Verity.Core.Uint256.ofNat
+                  (Compiler.Proofs.YulGeneration.calldataloadWord
+                    runtime.selector runtime.world.calldata (src + (o - dst)))
+              else runtime.world.memory o } }
+      { state with
+          memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
+            state.selector state.calldata dst src size state.memory } := by
+  cases runtime
+  cases state
+  simp only [runtimeStateMatchesIR] at hmatch ⊢
+  obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
+    hmem, hret, hevt⟩ := hmatch
+  refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
+    ?_, hret, hevt⟩
+  · rw [hstor]
+    funext slot
+    exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)
+  · funext o
+    simp only [Compiler.Proofs.YulGeneration.calldatacopyMemory, hsel, hcd]
+    by_cases hw : Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o
+    · simp only [hw, if_true, Verity.Core.Uint256.ofNat]
+      exact (Nat.mod_eq_of_lt (calldataloadWord_lt_evmModulus _ _ _)).symm
+    · simp only [hw, if_false]
+      exact congrFun hmem o
+
 theorem compileExpr_calldataload_ok
     {fields : List Field}
     {expr : Expr}

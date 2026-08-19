@@ -572,10 +572,10 @@
     {
       "feature": "calldatacopy",
       "constructor": "Stmt.calldatacopy",
-      "SourceInterpreter_basic": "no_op",
-      "SourceInterpreter_fuel": "no_op",
-      "IRInterpreter": "n/a",
-      "proof_status": "not_modeled"
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
+      "IRInterpreter": "supported",
+      "proof_status": "proved"
     },
     {
       "feature": "returndataCopy",

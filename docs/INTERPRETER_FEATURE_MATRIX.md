@@ -107,7 +107,7 @@ Legend: **ok** = supported, **0** = returns 0 (not modeled), **del** = delegated
 | Internal call assign | `Stmt.internalCallAssign` | **rev** | ok | -- | proved |
 | Manual full-word storage write | `Stmt.setStorageWord` | ok | ok | -- | n/m |
 | Memory store | `Stmt.mstore` | **rev** | **rev** | ok | partial |
-| Calldatacopy | `Stmt.calldatacopy` | nop | nop | -- | n/m |
+| Calldatacopy | `Stmt.calldatacopy` | ok | ok | ok | proved |
 | Returndatacopy | `Stmt.returndataCopy` | **rev** | **rev** | -- | n/m |
 | Revert returndata | `Stmt.revertReturndata` | **rev** | **rev** | -- | n/m |
 | Raw log | `Stmt.rawLog` | **rev** | **rev** | -- | n/m |
@@ -205,10 +205,10 @@ Legend: **ok** = native evaluation.
 | Category | Proved | Assumed | Partial | Not Modeled |
 |---|---|---|---|---|
 | Expression features | 24 | 1 (`externalCall`) | 6 | 6 (`keccak256`, `call`, `staticcall`, `delegatecall`, `arrayElementDynamicWord`, `paramDynamicHeadWord`) |
-| Statement features | 24 | 0 | 2 (`forEach`, `mstore`) | 6 (`calldatacopy`, `returndataCopy`, `revertReturndata`, `rawLog`, `externalCallBind`, `ecm`) |
+| Statement features | 25 | 0 | 2 (`forEach`, `mstore`) | 5 (`returndataCopy`, `revertReturndata`, `rawLog`, `externalCallBind`, `ecm`) |
 | Builtins (agreement) | 36 | 0 | 0 | 0 (delegated) |
 
-Proof-boundary features split across two buckets. Partially modeled features currently include runtime introspection (`blockNumber`, `contractAddress`, `chainid`) and single-word linear-memory forms (`mload`, `mstore`, `returndataOptionalBoolAt`). `selfBalance` is also partially modeled: it is compiler-supported and source-executable, but not yet included in the generic proof interpreter fragment. Fully not-modeled features currently include `keccak256`, low-level call / returndata plumbing (`call`, `staticcall`, `delegatecall`, `calldatacopy`, `returndataCopy`, `revertReturndata`), event emission (`rawLog`), and external call modules (`externalCallBind`, `ecm`). Dynamic struct-array head-word decoding (`arrayElementDynamicWord`) and direct dynamic-struct parameter head-word decoding (`paramDynamicHeadWord`) are also not modeled by proof interpreters yet. These features are still compiler-supported and are validated by differential testing (70,000+ test vectors against actual EVM execution).
+Proof-boundary features split across two buckets. Partially modeled features currently include runtime introspection (`blockNumber`, `contractAddress`, `chainid`) and single-word linear-memory forms (`mload`, `mstore`, `returndataOptionalBoolAt`). `selfBalance` is also partially modeled: it is compiler-supported and source-executable, but not yet included in the generic proof interpreter fragment. Fully not-modeled features currently include `keccak256`, low-level call / returndata plumbing (`call`, `staticcall`, `delegatecall`, `returndataCopy`, `revertReturndata`), event emission (`rawLog`), and external call modules (`externalCallBind`, `ecm`). Dynamic struct-array head-word decoding (`arrayElementDynamicWord`) and direct dynamic-struct parameter head-word decoding (`paramDynamicHeadWord`) are also not modeled by proof interpreters yet. These features are still compiler-supported and are validated by differential testing (70,000+ test vectors against actual EVM execution).
 
 ---
 
@@ -218,7 +218,7 @@ Proof-boundary features split across two buckets. Partially modeled features cur
 
 2. **Runtime environment reads**: `address(this).balance` lowers to Yul `selfbalance()` and runs against `ContractState.selfBalance` on the executable source path, with Foundry differential coverage against Solidity. The current generic proof interpreters do not model this balance read yet.
 
-3. **Linear memory**: The IRInterpreter has single-word memory support. `mload`, `mstore`, `calldatacopy`, `returndataCopy`, and `returndataOptionalBoolAt` therefore remain only partially modeled or not modeled in the proof interpreters today. Full linear memory coverage requires EVMYulLean semantic integration.
+3. **Linear memory**: The IRInterpreter has single-word memory support. `mload`, `mstore`, `returndataCopy`, and `returndataOptionalBoolAt` therefore remain only partially modeled or not modeled in the proof interpreters today. `calldatacopy` is the exception: its destination region is modeled word-wise against the frame's calldata on both the source and IR sides, so it is fully proof-covered. Full linear memory coverage requires EVMYulLean semantic integration.
 
 4. **Low-level calls**: `call`/`staticcall`/`delegatecall` and `externalCallBind`/`ecm` are compiler-only features validated by Foundry testing, not modeled in proof interpreters. The standard `Calls.callWithValue`, `Calls.callWithValueBytes`, `Calls.bubblingValueCall`, and `Calls.bubblingValueCallNoOutput` ECMs are part of this compiler-only surface for generic `call{value:v}` adapter/router flows and are surfaced as assumed ECMs in trust reports. ERC-20 optional-return helpers, including the OpenZeppelin-style and Solmate SafeTransferLib variants, also live in this ECM bucket. The EVM precompile ECMs (`Precompiles.ecrecover` 0x01, `Precompiles.sha256Memory`/`sha256` 0x02, and the BN254 curve precompiles `Precompiles.bn256Add` 0x06, `Precompiles.bn256ScalarMul` 0x07, `Precompiles.bn256Pairing` 0x08) also fall in this compiler-only ECM bucket; each precompile carries its own `evm_*_precompile` trust assumption documented in [`docs/EXTERNAL_CALL_MODULES.md`](EXTERNAL_CALL_MODULES.md) and [`AXIOMS.md`](../AXIOMS.md). `delegatecall` additionally remains a dedicated proxy / upgradeability trust boundary; use `--trust-report` / `--deny-proxy-upgradeability` when those semantics must stay outside the selected verification envelope (issue [#1420](https://github.com/lfglabs-dev/verity/issues/1420)).
 

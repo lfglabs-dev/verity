@@ -170,6 +170,9 @@ inductive BridgedSourceStmt
   | tstore {isInternal : Bool} {stmt : Stmt}
       (h : BridgedSourceTstoreStmt stmt) :
       BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt
+  | calldatacopy {isInternal : Bool} {stmt : Stmt}
+      (h : BridgedSourceCalldatacopyStmt stmt) :
+      BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt
   | storageArrayPush {isInternal : Bool} {stmt : Stmt}
       (h : BridgedSourceStorageArrayPushStmt fields stmt) :
       BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt
@@ -308,6 +311,9 @@ theorem compileStmt_bridgedSource_bridged
   | tstore h =>
       exact compileStmt_tstore_fragment_bridged fields events errors
         dynamicSource internalRetNames _ inScopeNames h hOk
+  | calldatacopy h =>
+      exact compileStmt_calldatacopy_fragment_bridged fields events errors
+        dynamicSource internalRetNames _ inScopeNames h hOk
   | storageArrayPush h =>
       exact compileStmt_storageArrayPush_bridged fields events errors
         dynamicSource internalRetNames _ inScopeNames h hOk
@@ -442,6 +448,9 @@ theorem compileStmt_bridgedSource_noFuncDefs
         dynamicSource internalRetNames _ inScopeNames h hOk
   | tstore h =>
       exact compileStmt_tstore_fragment_noFuncDefs fields events errors
+        dynamicSource internalRetNames _ inScopeNames h hOk
+  | calldatacopy h =>
+      exact compileStmt_calldatacopy_fragment_noFuncDefs fields events errors
         dynamicSource internalRetNames _ inScopeNames h hOk
   | storageArrayPush h =>
       exact compileStmt_storageArrayPush_noFuncDefs fields events errors

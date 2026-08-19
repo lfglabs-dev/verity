@@ -296,6 +296,10 @@ ALLOWLIST: set[str] = {
     # --- Transient/memory write singleton bridges ---
     "compiledStmtStep_tstore_single_preserves",
     "compiledStmtStep_mstore_single_preserves",
+    # Word-wise calldata->memory copy: rebuilds all sixteen runtimeStateMatchesIR
+    # conjuncts and then discharges the memory funext pointwise over the copied
+    # range. Splitting would duplicate that same conjunct spine twice.
+    "compiledStmtStep_calldatacopy_single_preserves",
     # --- IR execution proofs (terminal ite, core append/tail) ---
     "execIRStmt_compiled_terminal_ite_then_branch_entry",
     "execIRStmt_compiled_terminal_ite_else_branch_entry",

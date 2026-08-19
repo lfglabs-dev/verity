@@ -8636,6 +8636,11 @@ expose the public surface this file needs.
   `ExprCompileCore` are now known to satisfy `BridgedSafeStmts`, matching the
   `SupportedFragment.mstoreSingle` and `SupportedFragment.tstoreSingle`
   source shapes.
+- Singleton `calldatacopy` bodies whose destination, source, and size are
+  `ExprCompileCore` are now known to satisfy `BridgedSafeStmts`, matching the
+  `SupportedFragment.calldatacopySingle` source shape. The copied region is
+  modeled word-wise against the frame's calldata, so `calldatacopy` no longer
+  belongs to the unsupported low-level surface.
 - Simple `setStorage`, `setStorageAddr`, and `require` source-body lists now
   have direct `BridgedSafeStmts` constructors. The singleton uint/address
   storage and literal guard-family shapes exposed by `SupportedFragment` can be

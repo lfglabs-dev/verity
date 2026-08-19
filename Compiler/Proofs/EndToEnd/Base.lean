@@ -5341,6 +5341,10 @@ theorem supportedStmtList_safe_of_state_effect_closed
       exact Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_tstoreSingle_of_exprCompileCore
         (fields := fields) (errors := errors) (dynamicSource := dynamicSource)
         hOffset hValue
+  | calldatacopySingle hDest _ hSource _ hSize _ =>
+      exact Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_calldatacopySingle_of_exprCompileCore
+        (fields := fields) (errors := errors) (dynamicSource := dynamicSource)
+        hDest hSource hSize
   | letStorageField =>
       simp [stmtListTouchesUnsupportedStateSurface,
         stmtTouchesUnsupportedStateSurface, exprTouchesUnsupportedStateSurface] at hState
@@ -5518,6 +5522,10 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
       exact Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_tstoreSingle_of_exprCompileCore
         (fields := fields) (errors := errors) (dynamicSource := dynamicSource)
         hOffset hValue
+  | calldatacopySingle hDest _ hSource _ hSize _ =>
+      exact Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_calldatacopySingle_of_exprCompileCore
+        (fields := fields) (errors := errors) (dynamicSource := dynamicSource)
+        hDest hSource hSize
   | letStorageField =>
       simp [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,

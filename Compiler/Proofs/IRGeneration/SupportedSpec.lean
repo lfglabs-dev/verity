@@ -920,9 +920,13 @@ def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
         exprListTouchesUnsupportedConstructorRawCalldataSurface args
   | .revertError _ args =>
       exprListTouchesUnsupportedConstructorRawCalldataSurface args
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesUnsupportedConstructorRawCalldataSurface destOffset ||
+        exprTouchesUnsupportedConstructorRawCalldataSurface sourceOffset ||
+        exprTouchesUnsupportedConstructorRawCalldataSurface size
   | .stop | .storageArrayPop _
   | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _
-  | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertReturndata
+  | .returndataCopy _ _ _ | .revertReturndata
   | .rawLog _ _ _ | .ecm _ _ => false
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
 
@@ -1511,9 +1515,13 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
         stmtListTouchesUnsupportedCoreSurface thenBranch ||
         stmtListTouchesUnsupportedCoreSurface elseBranch
   | .forEach _ _ _ | .forEachSetBit _ _ _ => true
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesUnsupportedCoreSurface destOffset ||
+        exprTouchesUnsupportedCoreSurface sourceOffset ||
+        exprTouchesUnsupportedCoreSurface size
   | .storageArrayPop _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
-  | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
+  | .returnBytes _ | .returnStorageWords _ | .returnCodeData _
   | .returndataCopy _ _ _ | .revertReturndata => false
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => false
@@ -1537,9 +1545,13 @@ def stmtTouchesUnsupportedStateSurface : Stmt → Bool
   | .mstore offset value | .tstore offset value  =>
       exprTouchesUnsupportedStateSurface offset ||
         exprTouchesUnsupportedStateSurface value
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesUnsupportedStateSurface destOffset ||
+        exprTouchesUnsupportedStateSurface sourceOffset ||
+        exprTouchesUnsupportedStateSurface size
   | .stop
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
-  | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ | .calldatacopy _ _ _
+  | .returnBytes _ | .returnStorageWords _ | .returnCodeData _
   | .returndataCopy _ _ _ | .revertReturndata => false
   | .internalCall _ args =>
       exprListTouchesUnsupportedStateSurface args
@@ -1599,7 +1611,10 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
       exprTouchesUnsupportedCallSurface cond
   | .returnCodeData _ => true
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
-  | .calldatacopy _ _ _
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesUnsupportedCallSurface destOffset ||
+        exprTouchesUnsupportedCallSurface sourceOffset ||
+        exprTouchesUnsupportedCallSurface size
   | .returndataCopy _ _ _ | .revertReturndata
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ => true
@@ -1647,7 +1662,11 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
   | .returnCodeData pointer =>
       exprTouchesUnsupportedHelperSurface pointer
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
-  | .stop | .calldatacopy _ _ _
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesUnsupportedHelperSurface destOffset ||
+        exprTouchesUnsupportedHelperSurface sourceOffset ||
+        exprTouchesUnsupportedHelperSurface size
+  | .stop
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
   | .returnValues _ | .returnArray _
@@ -1696,7 +1715,11 @@ def stmtTouchesInternalHelperSurface : Stmt → Bool
   | .returnCodeData pointer =>
       exprTouchesInternalHelperSurface pointer
   | .internalCall _ _ | .internalCallAssign _ _ _ => true
-  | .stop | .calldatacopy _ _ _
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesInternalHelperSurface destOffset ||
+        exprTouchesInternalHelperSurface sourceOffset ||
+        exprTouchesInternalHelperSurface size
+  | .stop
   | .returndataCopy _ _ _ | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .emit _ _
@@ -1770,8 +1793,12 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
       exprTouchesInternalHelperSurface cond
   | .forEach _ count _ | .forEachSetBit _ count _ =>
       exprTouchesInternalHelperSurface count
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesInternalHelperSurface destOffset ||
+        exprTouchesInternalHelperSurface sourceOffset ||
+        exprTouchesInternalHelperSurface size
   | .internalCall _ _ | .internalCallAssign _ _ _ | .stop
-  | .calldatacopy _ _ _ | .returndataCopy _ _ _
+  | .returndataCopy _ _ _
   | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _
   | .storageArrayPop _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .emit _ _
@@ -1837,9 +1864,13 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
   | .returnCodeData pointer =>
       exprTouchesUnsupportedForeignSurface pointer
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => true
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesUnsupportedForeignSurface destOffset ||
+        exprTouchesUnsupportedForeignSurface sourceOffset ||
+        exprTouchesUnsupportedForeignSurface size
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _
-  | .calldatacopy _ _ _ | .returndataCopy _ _ _ | .revertReturndata
+  | .returndataCopy _ _ _ | .revertReturndata
   | .storageArrayPop _
   | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
@@ -1882,7 +1913,10 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
   | .require cond _ | .return cond =>
       exprTouchesUnsupportedLowLevelSurface cond
   | .returnCodeData _ => true
-  | .calldatacopy _ _ _
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesUnsupportedLowLevelSurface destOffset ||
+        exprTouchesUnsupportedLowLevelSurface sourceOffset ||
+        exprTouchesUnsupportedLowLevelSurface size
   | .returndataCopy _ _ _ | .revertReturndata => true
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
@@ -1918,6 +1952,10 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .mstore offset value | .tstore offset value =>
       exprTouchesUnsupportedContractSurface offset ||
         exprTouchesUnsupportedContractSurface value
+  | .calldatacopy destOffset sourceOffset size =>
+      exprTouchesUnsupportedContractSurface destOffset ||
+        exprTouchesUnsupportedContractSurface sourceOffset ||
+        exprTouchesUnsupportedContractSurface size
   | .stop => false
   | .ite cond thenBranch elseBranch =>
       exprTouchesUnsupportedContractSurface cond ||
@@ -1929,7 +1967,7 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .setStructMember _ _ _ _ | .setStructMember2 _ _ _ _ _
   | .storageArrayPush _ _ | .storageArrayPop _ | .setStorageArrayElement _ _ _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
-  | .returnBytes _ | .returnStorageWords _ | .calldatacopy _ _ _
+  | .returnBytes _ | .returnStorageWords _
   | .returndataCopy _ _ _ | .revertReturndata
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .ecm _ _
@@ -2168,14 +2206,14 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
         | forEachSetBit _ _ _ =>
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
         | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord
-        | require | «return» | mstore | tstore | stop =>
+        | require | «return» | mstore | tstore | calldatacopy | stop =>
             simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
         | setMapping | setMappingWord | setMappingPackedWord | setMapping2
         | setMapping2Word | setMappingUint | setMappingChain | setStructMember
         | setStructMember2 | storageArrayPush | storageArrayPop
         | setStorageArrayElement | requireError | revertError | returnValues
         | returnArray | returnBytes | returnStorageWords | returnCodeData
-        | calldatacopy | returndataCopy | revertReturndata | emit | internalCall
+        | returndataCopy | revertReturndata | emit | internalCall
         | internalCallAssign | rawLog | externalCallBind | ecm
         | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt | panicCode =>
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
@@ -3744,6 +3782,20 @@ private theorem supportedStmtList_tstoreSingle_helperSurfaceClosed
     exprCompileCore_helperSurfaceClosed hvalue,
         Bool.or_false, Bool.false_or]
 
+private theorem supportedStmtList_calldatacopySingle_helperSurfaceClosed
+    {destOffset sourceOffset size : Expr}
+    (hdest : FunctionBody.ExprCompileCore destOffset)
+    (hsource : FunctionBody.ExprCompileCore sourceOffset)
+    (hsize : FunctionBody.ExprCompileCore size) :
+    stmtListTouchesUnsupportedHelperSurface
+      [Stmt.calldatacopy destOffset sourceOffset size] = false := by
+  simp only [stmtListTouchesUnsupportedHelperSurface,
+    stmtTouchesUnsupportedHelperSurface,
+    exprCompileCore_helperSurfaceClosed hdest,
+    exprCompileCore_helperSurfaceClosed hsource,
+    exprCompileCore_helperSurfaceClosed hsize,
+    Bool.or_false, Bool.false_or]
+
 private theorem supportedStmtList_setMappingUintSingle_helperSurfaceClosed
     {fieldName : String}
     {key value : Expr}
@@ -3909,6 +3961,8 @@ theorem SupportedStmtList.helperSurfaceClosed
       exact supportedStmtList_mstoreSingle_helperSurfaceClosed hoffset hvalue
   | tstoreSingle hoffset _ hvalue _ =>
       exact supportedStmtList_tstoreSingle_helperSurfaceClosed hoffset hvalue
+  | calldatacopySingle hdest _ hsource _ hsize _ =>
+      exact supportedStmtList_calldatacopySingle_helperSurfaceClosed hdest hsource hsize
   | letStorageField _ _ =>
       exact supportedStmtList_letStorageField_helperSurfaceClosed
   | letStorageAddrField _ _ =>
@@ -4052,6 +4106,13 @@ theorem SupportedStmtList.internalHelperCallNames_nil
         stmtInternalHelperCallNames,
         exprCompileCore_internalHelperCallNames_nil hoffset,
         exprCompileCore_internalHelperCallNames_nil hvalue,
+        List.nil_append, List.append_nil]
+  | calldatacopySingle hdest _ hsource _ hsize _ =>
+      simp only [stmtListInternalHelperCallNames,
+        stmtInternalHelperCallNames,
+        exprCompileCore_internalHelperCallNames_nil hdest,
+        exprCompileCore_internalHelperCallNames_nil hsource,
+        exprCompileCore_internalHelperCallNames_nil hsize,
         List.nil_append, List.append_nil]
   | letStorageField _ _ =>
       simp only [stmtListInternalHelperCallNames,
@@ -4387,6 +4448,12 @@ mutual
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+    | calldatacopy destOffset sourceOffset size =>
+        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+        simp [stmtTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.1,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.2,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
     | require cond _ | «return» cond =>
         simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
         simp [stmtTouchesInternalHelperSurface,
@@ -4419,7 +4486,7 @@ mutual
         simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
         simp [stmtTouchesInternalHelperSurface,
           exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | stop | calldatacopy _ _ _ | returndataCopy _ _ _ | revertReturndata
+    | stop | returndataCopy _ _ _ | revertReturndata
     | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _
     | returnValues _ | returnArray _ | returnBytes _
     | returnStorageWords _ | emit _ _ | rawLog _ _ _ | panicCode _ =>
@@ -5247,6 +5314,29 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           hcore'.1 hstate'.1 hcalls'.1
       · exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed value
           hcore'.2 hstate'.2 hcalls'.2
+  | calldatacopy destOffset sourceOffset size =>
+      simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff]
+      have hcore' :
+          (exprTouchesUnsupportedCoreSurface destOffset = false ∧
+              exprTouchesUnsupportedCoreSurface sourceOffset = false) ∧
+            exprTouchesUnsupportedCoreSurface size = false := by
+        simpa [stmtTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] using hcore
+      have hstate' :
+          (exprTouchesUnsupportedStateSurface destOffset = false ∧
+              exprTouchesUnsupportedStateSurface sourceOffset = false) ∧
+            exprTouchesUnsupportedStateSurface size = false := by
+        simpa [stmtTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] using hstate
+      have hcalls' :
+          (exprTouchesUnsupportedCallSurface destOffset = false ∧
+              exprTouchesUnsupportedCallSurface sourceOffset = false) ∧
+            exprTouchesUnsupportedCallSurface size = false := by
+        simpa [stmtTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] using hcalls
+      exact ⟨⟨exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed destOffset
+          hcore'.1.1 hstate'.1.1 hcalls'.1.1,
+        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed sourceOffset
+          hcore'.1.2 hstate'.1.2 hcalls'.1.2⟩,
+        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed size
+          hcore'.2 hstate'.2 hcalls'.2⟩
   | ite cond thenBranch elseBranch =>
       simp only [stmtTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
       simp only [stmtTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
@@ -5466,6 +5556,12 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
         stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface ⊢
       simp [exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
+  | calldatacopy destOffset sourceOffset size =>
+      simp only [stmtTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface ⊢
+      exact ⟨⟨exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.1,
+        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.2⟩,
+        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2⟩
   | stop =>
       simp [stmtTouchesUnsupportedHelperSurface]
   | ite cond thenBranch elseBranch =>
@@ -5484,7 +5580,7 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | setMappingChain _ _ _ | setStructMember _ _ _ _ | setStructMember2 _ _ _ _ _
   | storageArrayPop _ | setStorageArrayElement _ _ _ | requireError _ _ _
   | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
-  | returnStorageWords _ | returnCodeData _ | calldatacopy _ _ _ | returndataCopy _ _ _
+  | returnStorageWords _ | returnCodeData _ | returndataCopy _ _ _
   | revertReturndata | emit _ _ | internalCall _ _
   | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _
   | forEachSetBit _ _ _ | panicCode _ =>
@@ -6167,6 +6263,11 @@ private theorem supportedStmtList_usesArrayElement_false
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hoffset,
         exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
+  | calldatacopySingle hdest _ hsource _ hsize _ =>
+      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
+        exprCompileCore_usesArrayElement_false hdest,
+        exprCompileCore_usesArrayElement_false hsource,
+        exprCompileCore_usesArrayElement_false hsize, Bool.false_or, Bool.or_false]
   | letStorageField _ _ =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
   | letStorageAddrField _ _ =>
@@ -6285,6 +6386,11 @@ private theorem supportedStmtList_usesStorageArrayElement_false
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hoffset,
         exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
+  | calldatacopySingle hdest _ hsource _ hsize _ =>
+      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
+        exprCompileCore_usesStorageArrayElement_false hdest,
+        exprCompileCore_usesStorageArrayElement_false hsource,
+        exprCompileCore_usesStorageArrayElement_false hsize, Bool.false_or, Bool.or_false]
   | letStorageField _ _ =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprUsesStorageArrayElement, Bool.false_or]
@@ -6411,6 +6517,11 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hoffset,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
+  | calldatacopySingle hdest _ hsource _ hsize _ =>
+      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
+        exprCompileCore_usesDynamicBytesEq_false hdest,
+        exprCompileCore_usesDynamicBytesEq_false hsource,
+        exprCompileCore_usesDynamicBytesEq_false hsize, Bool.false_or, Bool.or_false]
   | letStorageField _ _ =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
   | letStorageAddrField _ _ =>
@@ -6790,6 +6901,11 @@ private theorem supportedStmtList_usesMulDiv512_false
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hoffset,
         exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
+  | calldatacopySingle hdest _ hsource _ hsize _ =>
+      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
+        exprCompileCore_usesMulDiv512_false hdest,
+        exprCompileCore_usesMulDiv512_false hsource,
+        exprCompileCore_usesMulDiv512_false hsize, Bool.false_or, Bool.or_false]
   | letStorageField _ _ =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
   | letStorageAddrField _ _ =>
@@ -6908,6 +7024,11 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hoffset,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
+  | calldatacopySingle hdest _ hsource _ hsize _ =>
+      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
+        exprCompileCore_usesParamDynamicHeadWord_false hdest,
+        exprCompileCore_usesParamDynamicHeadWord_false hsource,
+        exprCompileCore_usesParamDynamicHeadWord_false hsize, Bool.false_or, Bool.or_false]
   | letStorageField _ _ =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
   | letStorageAddrField _ _ =>
