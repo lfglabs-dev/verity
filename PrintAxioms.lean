@@ -114,6 +114,7 @@ import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SpliceSimulation
 import Compiler.Proofs.IRGeneration.SupportedFragment
 import Compiler.Proofs.IRGeneration.SupportedSpec
+import Compiler.Proofs.IRGeneration.TypedRevertStep
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
@@ -2428,12 +2429,21 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmts_cons_revert
   Compiler.Proofs.IRGeneration.execIRStmts_zero_cons
   Compiler.Proofs.IRGeneration.execIRStmt_revertCall
+  Compiler.Proofs.IRGeneration.execIRStmt_block'
   Compiler.Proofs.IRGeneration.NonEscaping.let_
   Compiler.Proofs.IRGeneration.NonEscaping.assign
   Compiler.Proofs.IRGeneration.NonEscaping.mstore
+  Compiler.Proofs.IRGeneration.nonEscapingList_nil
+  Compiler.Proofs.IRGeneration.nonEscapingList_cons
+  Compiler.Proofs.IRGeneration.nonEscapingList_of_forall
+  Compiler.Proofs.IRGeneration.NonEscaping.block
+  Compiler.Proofs.IRGeneration.nonEscaping_for_aux
+  Compiler.Proofs.IRGeneration.NonEscaping.for_
   Compiler.Proofs.IRGeneration.execIRStmts_revertsAlways
   Compiler.Proofs.IRGeneration.RevertsAlways.append_left
   Compiler.Proofs.IRGeneration.execIRStmts_block_revertsAlways
+  Compiler.Proofs.IRGeneration.RevertsAlways.prefix_revertCall
+  Compiler.Proofs.IRGeneration.execIRStmts_payloadBlock_revert
   Compiler.Proofs.IRGeneration.revertWithMessage_revertsAlways
   Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage_revert
 
@@ -4834,6 +4844,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.simpleStorage_noPackedFields  -- private
   -- Compiler.Proofs.IRGeneration.simpleStorage_noFallback  -- private
   -- Compiler.Proofs.IRGeneration.simpleStorage_noReceive  -- private
+
+  -- Compiler/Proofs/IRGeneration/TypedRevertStep.lean
+  -- Compiler.Proofs.IRGeneration.revertWithCustomError_zero_shape  -- private
+  -- Compiler.Proofs.IRGeneration.zeroArgErrorPrefix_nonEscaping  -- private
+  Compiler.Proofs.IRGeneration.execIRStmts_revertWithCustomError_zero_revert
+  Compiler.Proofs.IRGeneration.compiledStmtStep_revertError_zeroArg
+  Compiler.Proofs.IRGeneration.compiledStmtStep_requireError_zeroArg
 
   -- Compiler/Proofs/KeccakBound.lean
   -- Compiler.Proofs.ByteArray.toList.loop_length  -- private
@@ -7314,4 +7331,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6767 theorems/lemmas (4852 public, 1915 private, 0 sorry'd)
+-- Total: 6781 theorems/lemmas (4864 public, 1917 private, 0 sorry'd)
