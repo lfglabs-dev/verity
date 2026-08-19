@@ -101,4 +101,49 @@ def isWordArrayParam : ParamType → Bool
   | ParamType.array elemTy => isSingleWordStaticParamType elemTy
   | _ => false
 
+/-- Whether the dynamic param shape is length-prefixed in the ABI tail.
+    Dynamic arrays (`T[]`), `bytes`, and `string` all begin with a 32-byte
+    length word followed by data. Dynamic tuples (structs containing nested
+    dynamic members) do not — their offset pointer dereferences directly
+    to the first head word of the tuple's encoding. (verity#1839)
+
+Lives here rather than beside the calldata loader so the ABI model
+(`Verity/Core/Model/DynamicAbi.lean`) and the Yul emitter can share one
+definition (verity#2085). -/
+def isLengthPrefixedDynamicShape : ParamType → Bool
+  | ParamType.bytes | ParamType.string | ParamType.array _ => true
+  | _ => false
+
+/-- Number of 32-byte words one element of a dynamic array occupies in the
+array's tail.  A dynamically sized element contributes a single offset word to
+the array's own head area; a static element contributes its whole head.
+
+Lives here rather than beside the calldata loader so the ABI model
+(`Verity/Core/Model/DynamicAbi.lean`) and the Yul emitter can share one
+definition: the emitted `div` bound and the model's `fitsLength` bound are then
+the same number by construction rather than by a restated case list
+(verity#2085). -/
+def dynamicArrayElementStrideWords (elemTy : ParamType) : Nat :=
+  if isDynamicParamType elemTy then
+    1
+  else
+    max 1 (paramHeadSize elemTy / 32)
+
+theorem dynamicArrayElementStrideWords_eq_one_of_singleWordStatic {elemTy : ParamType}
+    (helem : isSingleWordStaticParamType elemTy = true) :
+    dynamicArrayElementStrideWords elemTy = 1 := by
+  simp only [isSingleWordStaticParamType, Bool.and_eq_true, Bool.not_eq_true',
+    beq_iff_eq] at helem
+  obtain ⟨hnotDyn, hsize⟩ := helem
+  simp [dynamicArrayElementStrideWords, hnotDyn, hsize]
+
+theorem dynamicArrayElementStrideWords_pos (elemTy : ParamType) :
+    0 < dynamicArrayElementStrideWords elemTy := by
+  unfold dynamicArrayElementStrideWords
+  split <;> omega
+
+@[simp] theorem max_one_dynamicArrayElementStrideWords (elemTy : ParamType) :
+    Nat.max 1 (dynamicArrayElementStrideWords elemTy) = dynamicArrayElementStrideWords elemTy :=
+  Nat.max_eq_right (dynamicArrayElementStrideWords_pos elemTy)
+
 end Compiler.CompilationModel

@@ -980,6 +980,146 @@ theorem bindExternalParams_string_of_abiEncodeArgs
   simp only [bindExternalParamsFrom, bindExternalParam_string_eq_bytes, hbase]
   rfl
 
+/-- Decode-of-encode for a `T[]` argument at an arbitrary position of a
+well-formed ABI argument block. The element type must be single-word static,
+which is exactly what `AbiArg.scalarArray` encodes: one normalised word per
+element after the length word. -/
+theorem bindExternalParam_scalarArray_of_abiEncodeArgs
+    (selector : Nat) (name : String)
+    (pre : List AbiArg) (elementType : ParamType) (values : List Nat) (suffix : List AbiArg)
+    (helem : isSingleWordStaticParamType elementType = true)
+    (hsize : 4 + 32 * (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix)).length <
+      Compiler.Constants.evmModulus) :
+    bindExternalParam selector
+        (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix))
+        (32 * (pre ++ .scalarArray elementType values :: suffix).length) 4
+        (4 + 32 * pre.length)
+        { name := name, ty := ParamType.array elementType } =
+      some
+        [ (s!"{name}_offset",
+            abiTailOffset (pre ++ .scalarArray elementType values :: suffix) pre.length)
+        , (s!"{name}_abs_offset",
+            4 + abiTailOffset (pre ++ .scalarArray elementType values :: suffix) pre.length)
+        , (s!"{name}_length", values.length)
+        , (s!"{name}_tail_head_end",
+            4 + abiTailOffset (pre ++ .scalarArray elementType values :: suffix) pre.length + 32)
+        , (s!"{name}_tail_remaining",
+            32 * (values.length + (suffix.flatMap AbiArg.tail).length))
+        , (s!"{name}_data_offset",
+            4 + abiTailOffset (pre ++ .scalarArray elementType values :: suffix)
+              pre.length + 32) ] := by
+  have hdyn : (AbiArg.scalarArray elementType values).isDynamic = true := rfl
+  have htotal :
+      ((pre ++ .scalarArray elementType values :: suffix).flatMap AbiArg.tail).length =
+      (pre.flatMap AbiArg.tail).length + (1 + values.length) +
+        (suffix.flatMap AbiArg.tail).length := by
+    simp [List.flatMap_append, List.flatMap_cons]
+    omega
+  have hcdlen : (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix)).length =
+      (pre ++ .scalarArray elementType values :: suffix).length +
+        ((pre ++ .scalarArray elementType values :: suffix).flatMap AbiArg.tail).length := by
+    simp [abiEncodeArgs]
+  have hcsz :
+      externalCalldataSize (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix)) =
+      4 + 32 * (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix)).length := rfl
+  have hoff := abiTailOffset_append_cons pre (.scalarArray elementType values) suffix
+  have hheadVal :
+      (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix)).getD pre.length 0 =
+      abiTailOffset (pre ++ .scalarArray elementType values :: suffix) pre.length :=
+    abiEncodeArgs_getD_dynamic_head pre _ suffix hdyn
+  have hhead : externalWordAt? selector
+      (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix))
+      (4 + 32 * pre.length) =
+      some (abiTailOffset (pre ++ .scalarArray elementType values :: suffix) pre.length) := by
+    rw [← hheadVal]
+    refine externalWordAt?_aligned _ _ _ ?_ ?_
+    · simp only [hcdlen, htotal, List.length_append, List.length_cons]
+      omega
+    · rw [hheadVal, hoff]
+      omega
+  have hlenVal := abiEncodeArgs_getD_tail_first pre (.scalarArray elementType values) suffix
+    values.length (values.map (abiScalarNormalize elementType)) rfl
+  have hlenIdx : 4 + abiTailOffset (pre ++ .scalarArray elementType values :: suffix)
+        pre.length =
+      4 + 32 * ((pre ++ .scalarArray elementType values :: suffix).length +
+        (pre.flatMap AbiArg.tail).length) := by
+    rw [hoff]
+    omega
+  have hlength : externalWordAt? selector
+      (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix))
+      (4 + abiTailOffset (pre ++ .scalarArray elementType values :: suffix) pre.length) =
+      some values.length := by
+    rw [hlenIdx, ← hlenVal]
+    refine externalWordAt?_aligned _ _ _ ?_ ?_
+    · omega
+    · rw [hlenVal]
+      omega
+  have hrewrite :
+      externalCalldataSize (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix)) -
+          (4 + abiTailOffset (pre ++ .scalarArray elementType values :: suffix)
+            pre.length + 32) =
+        32 * (values.length + (suffix.flatMap AbiArg.tail).length) := by
+    omega
+  have hpayload : values.length ≤
+      (externalCalldataSize (abiEncodeArgs (pre ++ .scalarArray elementType values :: suffix)) -
+        (4 + abiTailOffset (pre ++ .scalarArray elementType values :: suffix)
+          pre.length + 32)) / (32 * dynamicArrayElementStrideWords elementType) := by
+    rw [dynamicArrayElementStrideWords_eq_one_of_singleWordStatic helem, Nat.mul_one, hrewrite]
+    omega
+  rw [← hrewrite]
+  exact bindExternalParam_array_refines_dynamic_loader hhead (by omega) (by omega) hlength
+    hpayload
+
+/-- The whole-parameter-list binder succeeds on a single `T[]` parameter whose
+calldata is a real ABI encoding. -/
+theorem bindExternalParams_scalarArray_of_abiEncodeArgs
+    (selector : Nat) (name : String) (elementType : ParamType) (values : List Nat)
+    (helem : isSingleWordStaticParamType elementType = true)
+    (hsize : 4 + 32 * (abiEncodeArgs [AbiArg.scalarArray elementType values]).length <
+      Compiler.Constants.evmModulus) :
+    bindExternalParams selector [{ name := name, ty := ParamType.array elementType }]
+        (abiEncodeArgs [AbiArg.scalarArray elementType values]) =
+      some
+        [ (s!"{name}_offset", 32)
+        , (s!"{name}_abs_offset", 36)
+        , (s!"{name}_length", values.length)
+        , (s!"{name}_tail_head_end", 68)
+        , (s!"{name}_tail_remaining", 32 * values.length)
+        , (s!"{name}_data_offset", 68) ] := by
+  have hbase := bindExternalParam_scalarArray_of_abiEncodeArgs selector name [] elementType
+    values [] helem (by simpa using hsize)
+  simp only [List.nil_append, List.length_nil, List.length_cons, List.flatMap_nil,
+    Nat.mul_zero, Nat.add_zero, Nat.zero_add, abiTailOffset, List.take_zero,
+    abiDynamicTailSize, List.map_nil, List.sum_nil] at hbase
+  have hcdlen : (abiEncodeArgs [AbiArg.scalarArray elementType values]).length =
+      1 + (1 + values.length) := by
+    simp [abiEncodeArgs]
+    omega
+  have hlen : ([{ name := name, ty := ParamType.array elementType }] : List Param).length ≤
+      (abiEncodeArgs [AbiArg.scalarArray elementType values]).length := by
+    rw [hcdlen]
+    simp
+  have hsupp : bindSupportedParams [{ name := name, ty := ParamType.array elementType }]
+      (abiEncodeArgs [AbiArg.scalarArray elementType values]) = none := by
+    have hne : (abiEncodeArgs [AbiArg.scalarArray elementType values]) ≠ [] := by
+      intro hnil
+      rw [hnil] at hcdlen
+      simp only [List.length_nil] at hcdlen
+      omega
+    match hcd : abiEncodeArgs [AbiArg.scalarArray elementType values] with
+    | [] => exact absurd hcd hne
+    | w :: rest => simp [bindSupportedParams, decodeSupportedParamWord]
+  unfold bindExternalParams
+  rw [if_pos hlen, hsupp]
+  show bindExternalParamsFrom selector (abiEncodeArgs [AbiArg.scalarArray elementType values])
+    (paramHeadSizeList [ParamType.array elementType]) 4
+    [{ name := name, ty := ParamType.array elementType }] 4 = _
+  have hhs : paramHeadSizeList [ParamType.array elementType] = 32 * 1 := by
+    simp [paramHeadSizeList, paramHeadSize]
+  rw [hhs]
+  simp only [bindExternalParamsFrom, hbase]
+  rfl
+
 end BytesRoundTrip
 
 section Examples

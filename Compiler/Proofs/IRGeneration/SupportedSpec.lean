@@ -24,22 +24,50 @@ def SupportedExternalScalarParamType : ParamType → Prop
   | .address | .bytes32 | .bool => True
   | _ => False
 
-/-- ABI parameter types admitted by external dispatch, widened past the
-single-head-word scalars to the length-prefixed dynamic `bytes` and `string`
-parameters (verity#2085).
+/-- Side condition on a dynamic array's element type: the stride literal the
+loader divides the remaining tail by must be representable as an EVM word.
+Below `2 ^ 256` the emitted `div` agrees with `Nat` division, so the generated
+revert guard and `DynamicPayloadShape.fitsLength` accept exactly the same
+lengths; at or above it the emitted `div` would saturate to `0` and the two
+would diverge. `dynamicArrayElementStrideWords` is positive, so this also rules
+out the EVM's division-by-zero convention. -/
+def ExternalArrayStrideFitsWord (elemTy : ParamType) : Prop :=
+  32 * dynamicArrayElementStrideWords elemTy < Compiler.Constants.evmModulus
 
-Neither `bytes` nor `string` is decodable by `decodeSupportedParamWord`: they
-have no single-word value. Their head word is a relative tail offset, and the
-generated calldata loader binds six locals (`_offset`, `_abs_offset`, `_length`,
-`_tail_head_end`, `_tail_remaining`, `_data_offset`) that
-`DynamicAbi.bindExternalParam` reproduces semantically. `string` is encoded
-byte-for-byte like `bytes`, so it reuses the same loader and the same binder
-lemmas. Consumers that need an actual scalar head word — the native-backend
+/-- ABI parameter types admitted by external dispatch, widened past the
+single-head-word scalars to every dynamic parameter whose head contribution is a
+single relative tail offset (verity#2085).
+
+None of these is decodable by `decodeSupportedParamWord`: they have no
+single-word value. Their head word is a relative tail offset, and the generated
+calldata loader binds locals that `DynamicAbi.bindExternalParam` reproduces
+semantically. Two shapes occur:
+
+* Length-prefixed (`bytes`, `string`, `T[]`) — the offset points at a length
+  word, and the loader binds six locals (`_offset`, `_abs_offset`, `_length`,
+  `_tail_head_end`, `_tail_remaining`, `_data_offset`). `string` is encoded
+  byte-for-byte like `bytes`, so it reuses the same loader and binder lemmas.
+  Arrays additionally carry `ExternalArrayStrideFitsWord`.
+* Length-word-free composites (a `tuple` with a dynamic member, or a
+  `fixedArray` of such) — the offset points straight at the composite's own head
+  area, and the loader binds three locals (`_offset`, `_abs_offset`,
+  `_data_offset`).
+
+*Statically* sized composites are deliberately excluded: their head is wider
+than one word, so they would break `supportedExternalParamType_headSize_eq_32`,
+and `bindExternalParam` returns `none` for them anyway. `newtypeOf` is excluded
+for a different reason: the emitter erases it to its base type while the binder
+does not, so admitting it would relate two different loaders.
+
+Consumers that need an actual scalar head word — the native-backend
 static-scalar bridge and the legacy Yul compatibility witnesses — keep requiring
 `SupportedExternalScalarParamType`. -/
 def SupportedExternalParamType : ParamType → Prop
   | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
   | .address | .bytes32 | .bool | .bytes | .string => True
+  | .array elemTy => ExternalArrayStrideFitsWord elemTy
+  | .fixedArray elemTy _ => isDynamicParamType elemTy = true
+  | .tuple elemTys => isDynamicParamTypeList elemTys = true
   | _ => False
 
 theorem SupportedExternalParamType_of_scalar {ty : ParamType}
@@ -54,20 +82,49 @@ theorem SupportedExternalParamType_bytes :
 theorem SupportedExternalParamType_string :
     SupportedExternalParamType ParamType.string := trivial
 
-/-- The widened admission set is exactly the scalar set plus the two bytes-like
-dynamic types. This is the case split every downstream calldata-loading
-execution lemma performs. -/
-theorem supportedExternalParamType_scalar_or_bytesLike {ty : ParamType}
-    (hsupported : SupportedExternalParamType ty) :
-    SupportedExternalScalarParamType ty ∨ ty = ParamType.bytes ∨ ty = ParamType.string := by
-  cases ty <;> simp [SupportedExternalParamType] at hsupported <;>
-    simp [SupportedExternalScalarParamType]
+theorem SupportedExternalParamType_array {elemTy : ParamType}
+    (hstride : ExternalArrayStrideFitsWord elemTy) :
+    SupportedExternalParamType (ParamType.array elemTy) := hstride
 
-/-- Widened parameter lists still have 32-byte ABI head words: `bytes` and
-`string` each contribute a one-word relative tail pointer to the head area. -/
+/-- Every single-word element type has stride `1`, so word arrays — `uint256[]`,
+`address[]`, `bytes32[]`, … — are admitted unconditionally. -/
+theorem SupportedExternalParamType_wordArray {elemTy : ParamType}
+    (hword : isSingleWordStaticParamType elemTy = true) :
+    SupportedExternalParamType (ParamType.array elemTy) := by
+  show ExternalArrayStrideFitsWord elemTy
+  rw [ExternalArrayStrideFitsWord,
+    dynamicArrayElementStrideWords_eq_one_of_singleWordStatic hword]
+  simp [Compiler.Constants.evmModulus]
+
+theorem SupportedExternalParamType_dynamicFixedArray {elemTy : ParamType} {n : Nat}
+    (hdynamic : isDynamicParamType elemTy = true) :
+    SupportedExternalParamType (ParamType.fixedArray elemTy n) := hdynamic
+
+theorem SupportedExternalParamType_dynamicTuple {elemTys : List ParamType}
+    (hdynamic : isDynamicParamTypeList elemTys = true) :
+    SupportedExternalParamType (ParamType.tuple elemTys) := hdynamic
+
+/-- The widened admission set, as the case split every downstream
+calldata-loading execution lemma performs. The composite constructors are named
+individually rather than folded into one `isLengthPrefixedDynamicShape = false`
+disjunct because `genSingleParamLoad` dispatches on the constructor. -/
+theorem supportedExternalParamType_cases {ty : ParamType}
+    (hsupported : SupportedExternalParamType ty) :
+    SupportedExternalScalarParamType ty ∨
+      ty = ParamType.bytes ∨
+      ty = ParamType.string ∨
+      (∃ elemTy, ty = ParamType.array elemTy ∧ ExternalArrayStrideFitsWord elemTy) ∨
+      (∃ elemTy n, ty = ParamType.fixedArray elemTy n ∧ isDynamicParamType elemTy = true) ∨
+      (∃ elemTys, ty = ParamType.tuple elemTys ∧ isDynamicParamTypeList elemTys = true) := by
+  cases ty <;> simp [SupportedExternalParamType] at hsupported <;>
+    simp_all [SupportedExternalScalarParamType]
+
+/-- Widened parameter lists still have 32-byte ABI head words: every admitted
+dynamic type contributes exactly one relative tail pointer to the head area. -/
 theorem supportedExternalParamType_headSize_eq_32 {ty : ParamType}
     (hsupported : SupportedExternalParamType ty) : paramHeadSize ty = 32 := by
-  cases ty <;> simp [SupportedExternalParamType] at hsupported <;> simp [paramHeadSize]
+  cases ty <;> simp [SupportedExternalParamType] at hsupported <;>
+    simp [paramHeadSize, isDynamicParamType, hsupported]
 
 /-- Return profiles admitted by the first whole-contract Layer 2 fragment.
 The initial theorem only targets zero-return or single-head-word-return entrypoints. -/
@@ -89,12 +146,17 @@ def externalParamScalarProofSupported (ty : ParamType) : Bool :=
 
 /-- Compile-driven decision procedure for the widened external-parameter
 admission set. The scalar half still delegates to the compiler's
-`isScalarParamType`; `bytes` and `string` are the two constructors admitted on
-top of it, and they are named explicitly so any future compiler-side change to
-dynamic-parameter routing shows up at the agreement oracle below rather than
-drifting silently. -/
+`isScalarParamType`; the dynamic constructors admitted on top of it are named
+explicitly, and their side conditions are phrased with the compiler's own
+`dynamicArrayElementStrideWords` / `isDynamicParamType`, so any future
+compiler-side change to dynamic-parameter routing shows up at the agreement
+oracle below rather than drifting silently. -/
 def externalParamProofSupported : ParamType → Bool
   | ParamType.bytes | ParamType.string => true
+  | ParamType.array elemTy =>
+      decide (32 * dynamicArrayElementStrideWords elemTy < Compiler.Constants.evmModulus)
+  | ParamType.fixedArray elemTy _ => isDynamicParamType elemTy
+  | ParamType.tuple elemTys => isDynamicParamTypeList elemTys
   | ty => isScalarParamType ty
 
 /-- Proof-side scalar-return-profile predicate tied to the compiler's scalar
@@ -146,7 +208,8 @@ theorem SupportedExternalParamType_iff_externalParamProofSupported
     (ty : ParamType) :
     SupportedExternalParamType ty ↔ externalParamProofSupported ty = true := by
   cases ty <;>
-    simp [SupportedExternalParamType, externalParamProofSupported, isScalarParamType]
+    simp [SupportedExternalParamType, externalParamProofSupported, isScalarParamType,
+      ExternalArrayStrideFitsWord]
 
 /-- Agreement oracle for the return-profile shape. -/
 theorem SupportedExternalReturnProfile_iff_externalReturnProfileProofSupported
