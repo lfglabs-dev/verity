@@ -3771,6 +3771,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_tstore_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_calldatacopy_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_calldatacopy_single
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety
   Compiler.Proofs.IRGeneration.compileExprList_core_ok
@@ -3832,11 +3834,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_mstore_single  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_tstore_single  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_calldatacopy_single  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_returndatacopy_empty_single  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageSingleSlot_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_setStorageAddrSingleSlot_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_mstoreSingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/StorageWord.lean
   -- Compiler.Proofs.IRGeneration.compileExprWithInternals_nil_ok  -- private
@@ -4517,6 +4521,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_mstore  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_tstore  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_calldatacopy  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_returndataCopy  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.expr_sizeOf_pos  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_ite_then  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_ite_else  -- private
@@ -4686,6 +4691,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.supportedStmtList_mstoreSingle_helperSurfaceClosed  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_tstoreSingle_helperSurfaceClosed  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_calldatacopySingle_helperSurfaceClosed  -- private
+  -- Compiler.Proofs.IRGeneration.supportedStmtList_returndataCopyEmptySingle_helperSurfaceClosed  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_setMappingUintSingle_helperSurfaceClosed  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_setMappingChainSingle_helperSurfaceClosed  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_setMappingSingle_helperSurfaceClosed  -- private
@@ -5425,6 +5431,12 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.compileStmt_calldatacopy_noFuncDefs  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_calldatacopy_fragment_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_calldatacopy_fragment_noFuncDefs
+  Compiler.Proofs.YulGeneration.Backends.bridgedSourceReturndatacopyStmt_of_exprCompileCore
+  -- Compiler.Proofs.YulGeneration.Backends.compileExprWithInternals_literal_zero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_returndatacopy_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_returndatacopy_noFuncDefs  -- private
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_returndatacopy_fragment_bridged
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_returndatacopy_fragment_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_storageArrayPush_singleSlot_bridged
   -- Compiler.Proofs.YulGeneration.Backends.compileStmt_storageArrayPush_singleSlot_noFuncDefs  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_storageArrayPush_bridged
@@ -5555,6 +5567,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_externalMstoreLetKeccak_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_tstoreSingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_calldatacopySingle_of_exprCompileCore
+  Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingSingleSlot
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingUintSingleSlot
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingChainSingleSlot
@@ -7331,4 +7344,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6781 theorems/lemmas (4864 public, 1917 private, 0 sorry'd)
+-- Total: 6794 theorems/lemmas (4870 public, 1924 private, 0 sorry'd)

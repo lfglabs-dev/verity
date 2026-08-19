@@ -300,6 +300,10 @@ ALLOWLIST: set[str] = {
     # conjuncts and then discharges the memory funext pointwise over the copied
     # range. Splitting would duplicate that same conjunct spine twice.
     "compiledStmtStep_calldatacopy_single_preserves",
+    # Zero-extent returndata->memory copy. The tactic body is short; the length is
+    # the spelled-out CompiledStmtStep.preserves signature, which has to name the
+    # compiled Yul list four times for the fuel accounting to stay defeq.
+    "compiledStmtStep_returndatacopy_empty_single_preserves",
     # --- IR execution proofs (terminal ite, core append/tail) ---
     "execIRStmt_compiled_terminal_ite_then_branch_entry",
     "execIRStmt_compiled_terminal_ite_else_branch_entry",
