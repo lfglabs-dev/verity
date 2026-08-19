@@ -63,6 +63,7 @@ import Compiler.Proofs.IRGeneration.DenoteAgreement
 import Compiler.Proofs.IRGeneration.DenoteEquivalence
 import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
 import Compiler.Proofs.IRGeneration.Dispatch
+import Compiler.Proofs.IRGeneration.DispatchArrayParam
 import Compiler.Proofs.IRGeneration.DispatchBytesParam
 import Compiler.Proofs.IRGeneration.DispatchGeneric
 import Compiler.Proofs.IRGeneration.DispatchStringParam

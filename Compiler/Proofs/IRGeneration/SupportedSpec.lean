@@ -91,12 +91,10 @@ theorem SupportedExternalParamType_array {elemTy : ParamType}
 theorem SupportedExternalParamType_wordArray {elemTy : ParamType}
     (hword : isSingleWordStaticParamType elemTy = true) :
     SupportedExternalParamType (ParamType.array elemTy) := by
-  simp only [isSingleWordStaticParamType, Bool.and_eq_true, Bool.not_eq_true',
-    beq_iff_eq] at hword
-  obtain ⟨hnotDyn, hsize⟩ := hword
   show ExternalArrayStrideFitsWord elemTy
-  simp [ExternalArrayStrideFitsWord, dynamicArrayElementStrideWords, hnotDyn, hsize,
-    Compiler.Constants.evmModulus]
+  rw [ExternalArrayStrideFitsWord,
+    dynamicArrayElementStrideWords_eq_one_of_singleWordStatic hword]
+  simp [Compiler.Constants.evmModulus]
 
 theorem SupportedExternalParamType_dynamicFixedArray {elemTy : ParamType} {n : Nat}
     (hdynamic : isDynamicParamType elemTy = true) :

@@ -129,6 +129,14 @@ def dynamicArrayElementStrideWords (elemTy : ParamType) : Nat :=
   else
     max 1 (paramHeadSize elemTy / 32)
 
+theorem dynamicArrayElementStrideWords_eq_one_of_singleWordStatic {elemTy : ParamType}
+    (helem : isSingleWordStaticParamType elemTy = true) :
+    dynamicArrayElementStrideWords elemTy = 1 := by
+  simp only [isSingleWordStaticParamType, Bool.and_eq_true, Bool.not_eq_true',
+    beq_iff_eq] at helem
+  obtain ⟨hnotDyn, hsize⟩ := helem
+  simp [dynamicArrayElementStrideWords, hnotDyn, hsize]
+
 theorem dynamicArrayElementStrideWords_pos (elemTy : ParamType) :
     0 < dynamicArrayElementStrideWords elemTy := by
   unfold dynamicArrayElementStrideWords
