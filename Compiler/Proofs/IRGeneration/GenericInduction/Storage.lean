@@ -3177,9 +3177,10 @@ theorem compiledStmtStep_returndatacopy_empty_single
     have hdestIRInternal := compileExprWithInternals_nil_ok hdestIR
     have hzero : CompilationModel.compileExpr fields .calldata (Expr.literal 0) =
         Except.ok (YulExpr.lit 0) := by
-      simp [CompilationModel.compileExpr, pure, Except.pure]
+      rw [← CompilationModel.compileExprWithInternals_nil_eq]
+      simp [-CompilationModel.compileExprWithInternals_nil_eq,
+        CompilationModel.compileExprWithInternals, pure, Except.pure]
     simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-      CompilationModel.compileExprWithInternals,
       hdestIRInternal, hzero, Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_returndatacopy_empty_single_preserves
     hcoreDest hinScopeDest hdestIR
