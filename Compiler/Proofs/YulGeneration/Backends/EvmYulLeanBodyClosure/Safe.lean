@@ -137,6 +137,9 @@ inductive BridgedSafeStmts
   | calldatacopy {isInternal : Bool} {stmts : List Stmt}
       (hStmts : BridgedSourceCalldatacopyStmts stmts) :
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
+  | returndatacopy {isInternal : Bool} {stmts : List Stmt}
+      (hStmts : BridgedSourceReturndatacopyStmts stmts) :
+      BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
   | storageArrayPush {isInternal : Bool} {stmts : List Stmt}
       (hStmts : BridgedSourceStorageArrayPushStmts fields stmts) :
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
@@ -575,6 +578,22 @@ theorem bridgedSafeStmts_calldatacopySingle_of_exprCompileCore
     subst stmt
     exact bridgedSourceCalldatacopyStmt_of_exprCompileCore hDest hSource hSize)
 
+/-- The singleton zero-extent `returndataCopy` shape exposed by
+    `SupportedFragment.returndataCopyEmptySingle` is a native safe body whenever
+    its destination is a compile-core expression. -/
+theorem bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore
+    {fields : List Field} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} {destOffset : Expr}
+    (hDest : _root_.Compiler.Proofs.IRGeneration.FunctionBody.ExprCompileCore destOffset) :
+    BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal
+      [Stmt.returndataCopy destOffset (Expr.literal 0) (Expr.literal 0)] :=
+  BridgedSafeStmts.returndatacopy (by
+    intro stmt hMem
+    simp only [List.mem_singleton] at hMem
+    subst stmt
+    exact bridgedSourceReturndatacopyStmt_of_exprCompileCore hDest)
+
 /-- Singleton native safe-body package for a single-slot `setMapping` write. -/
 theorem bridgedSafeStmts_setMappingSingleSlot
     {fields : List Field} {errors : List ErrorDef}
@@ -986,6 +1005,8 @@ theorem BridgedSafeStmts.toBridgedSource
       exact fun stmt hMem => .tstore (hStmts stmt hMem)
   | calldatacopy hStmts =>
       exact fun stmt hMem => .calldatacopy (hStmts stmt hMem)
+  | returndatacopy hStmts =>
+      exact fun stmt hMem => .returndatacopy (hStmts stmt hMem)
   | storageArrayPush hStmts =>
       exact fun stmt hMem => .storageArrayPush (hStmts stmt hMem)
   | storageArrayPop hStmts =>

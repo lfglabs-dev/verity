@@ -1667,6 +1667,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
       exact stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
         (fields := fields) hcoreDest hinScopeDest hcoreSource hinScopeSource
         hcoreSize hinScopeSize
+  | returndataCopyEmptySingle hcoreDest hinScopeDest =>
+      exact stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
+        (fields := fields) hcoreDest hinScopeDest
   | letStorageField hfind hfieldInScope =>
       exact stmtListGenericCore_of_supportedStmtList_letStorageField_of_surface
         hnoConflict hfind hfieldInScope
@@ -1779,6 +1782,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
       exact stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
         (fields := fields) hcoreDest hinScopeDest hcoreSource hinScopeSource
         hcoreSize hinScopeSize
+  | returndataCopyEmptySingle hcoreDest hinScopeDest =>
+      exact stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
+        (fields := fields) hcoreDest hinScopeDest
   | letStorageField hfind hfieldInScope =>
       exact stmtListGenericCore_of_supportedStmtList_letStorageField_of_surface
         hnoConflict hfind hfieldInScope
@@ -2050,6 +2056,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
       exact stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
         (fields := fields) hcoreDest hinScopeDest hcoreSource hinScopeSource
         hcoreSize hinScopeSize
+  | returndataCopyEmptySingle hcoreDest hinScopeDest =>
+      exact stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
+        (fields := fields) hcoreDest hinScopeDest
   | letStorageField hfind hfieldInScope =>
       exact stmtListGenericCore_of_supportedStmtList_letStorageField_of_surface
         hnoConflict hfind hfieldInScope

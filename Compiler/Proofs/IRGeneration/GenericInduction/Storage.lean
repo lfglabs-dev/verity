@@ -3087,6 +3087,103 @@ theorem compiledStmtStep_calldatacopy_single
     hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize
     hdestIR hsourceIR hsizeIR
 
+private theorem compiledStmtStep_returndatacopy_empty_single_preserves
+    {fields : List Field}
+    {scope : List String}
+    {destOffset : Expr}
+    {destIR : YulExpr}
+    (hcoreDest : FunctionBody.ExprCompileCore destOffset)
+    (hinScopeDest : FunctionBody.exprBoundNamesInScope destOffset scope)
+    (hdestIR : CompilationModel.compileExpr fields .calldata destOffset = Except.ok destIR) :
+    ∀ (runtime : SourceSemantics.RuntimeState)
+      (state : IRState)
+      (extraFuel : Nat),
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+      FunctionBody.scopeNamesPresent scope runtime.bindings →
+      FunctionBody.bindingsBounded runtime.bindings →
+      FunctionBody.runtimeStateMatchesIR fields runtime state →
+      sizeOf [YulStmt.exprStmt
+          (YulExpr.call "returndatacopy" [destIR, YulExpr.lit 0, YulExpr.lit 0])] -
+        [YulStmt.exprStmt
+          (YulExpr.call "returndatacopy"
+            [destIR, YulExpr.lit 0, YulExpr.lit 0])].length ≤ extraFuel →
+      ∃ sourceResult irExec,
+        SourceSemantics.execStmt fields runtime
+          (.returndataCopy destOffset (.literal 0) (.literal 0)) = sourceResult ∧
+        execIRStmts
+            ([YulStmt.exprStmt
+                (YulExpr.call "returndatacopy"
+                  [destIR, YulExpr.lit 0, YulExpr.lit 0])].length +
+              extraFuel + 1)
+            state
+            [YulStmt.exprStmt
+              (YulExpr.call "returndatacopy" [destIR, YulExpr.lit 0, YulExpr.lit 0])] =
+              irExec ∧
+        stmtStepMatchesIRExec fields
+          (stmtNextScope scope (.returndataCopy destOffset (.literal 0) (.literal 0)))
+          sourceResult
+          irExec := by
+  intro runtime state extraFuel hexact hscope hbounded hruntime _hslack
+  let compiledIR :=
+    [YulStmt.exprStmt (YulExpr.call "returndatacopy" [destIR, YulExpr.lit 0, YulExpr.lit 0])]
+  have hDestEval :=
+    FunctionBody.eval_compileExpr_core_of_scope
+      hcoreDest hexact hinScopeDest hbounded
+      (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeDest)
+      hruntime
+  rw [hdestIR] at hDestEval
+  simp [Except.toOption] at hDestEval
+  rcases hIRDest : evalIRExpr state destIR with _ | destNat
+  · simp [hIRDest, Option.bind] at hDestEval
+  · simp [hIRDest, Option.bind] at hDestEval
+    have hDestSrc : SourceSemantics.evalExpr fields runtime destOffset = some destNat :=
+      hDestEval.symm
+    -- The returndata buffer is the empty one the frame started with, so the
+    -- zero-extent copy leaves both the source memory and the IR memory alone.
+    have hSrcExec : SourceSemantics.execStmt fields runtime
+        (.returndataCopy destOffset (.literal 0) (.literal 0)) = .continue runtime := by
+      simp [SourceSemantics.execStmt, SourceSemantics.evalExpr, hDestSrc]
+    have hExecStmt :
+        execIRStmt (extraFuel + 1) state
+          (YulStmt.exprStmt
+            (YulExpr.call "returndatacopy" [destIR, YulExpr.lit 0, YulExpr.lit 0])) =
+            .continue state := by
+      simp [execIRStmt, evalIRExpr, hIRDest]
+    have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
+    have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
+        .continue state := by
+      simp [compiledIR, execIRStmts, hfuelEq, hExecStmt]
+    have hincl : FunctionBody.scopeNamesIncluded
+        (stmtNextScope scope (.returndataCopy destOffset (.literal 0) (.literal 0))) scope := by
+      intro n hn
+      simpa [stmtNextScope, collectStmtBindNames] using hn
+    exact ⟨_, _, hSrcExec, hIRExec, hruntime,
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included hexact hincl,
+      hbounded,
+      FunctionBody.scopeNamesPresent_of_included hscope hincl⟩
+
+theorem compiledStmtStep_returndatacopy_empty_single
+    {fields : List Field}
+    {scope : List String}
+    {destOffset : Expr}
+    {destIR : YulExpr}
+    (hcoreDest : FunctionBody.ExprCompileCore destOffset)
+    (hinScopeDest : FunctionBody.exprBoundNamesInScope destOffset scope)
+    (hdestIR : CompilationModel.compileExpr fields .calldata destOffset = Except.ok destIR) :
+    CompiledStmtStep fields scope (.returndataCopy destOffset (.literal 0) (.literal 0))
+      [YulStmt.exprStmt
+        (YulExpr.call "returndatacopy" [destIR, YulExpr.lit 0, YulExpr.lit 0])] where
+  compileOk := by
+    have hdestIRInternal := compileExprWithInternals_nil_ok hdestIR
+    have hzero : CompilationModel.compileExpr fields .calldata (Expr.literal 0) =
+        Except.ok (YulExpr.lit 0) := by
+      simp [CompilationModel.compileExpr, pure, Except.pure]
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      CompilationModel.compileExprWithInternals,
+      hdestIRInternal, hzero, Bind.bind, Except.bind, pure, Except.pure]
+  preserves := compiledStmtStep_returndatacopy_empty_single_preserves
+    hcoreDest hinScopeDest hdestIR
+
 private theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves
     {fields : List Field}
     {scope : List String}
@@ -7650,6 +7747,22 @@ private theorem stmtListGenericCore_singleton_calldatacopy_single
       (hsizeIR := hsizeIR))
     StmtListGenericCore.nil
 
+private theorem stmtListGenericCore_singleton_returndatacopy_empty_single
+    {fields : List Field}
+    {scope : List String}
+    {destOffset : Expr}
+    (hcoreDest : FunctionBody.ExprCompileCore destOffset)
+    (hinScopeDest : FunctionBody.exprBoundNamesInScope destOffset scope) :
+    StmtListGenericCore fields scope
+      [Stmt.returndataCopy destOffset (Expr.literal 0) (Expr.literal 0)] := by
+  rcases FunctionBody.compileExpr_core_ok (fields := fields) hcoreDest with ⟨destIR, hdestIR⟩
+  exact StmtListGenericCore.cons
+    (compiledStmtStep_returndatacopy_empty_single
+      (hcoreDest := hcoreDest)
+      (hinScopeDest := hinScopeDest)
+      (hdestIR := hdestIR))
+    StmtListGenericCore.nil
+
 theorem stmtListGenericCore_of_supportedStmtList_setStorageSingleSlot_of_surface
     {fields : List Field}
     {scope : List String}
@@ -7744,6 +7857,20 @@ theorem stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
     (hinScopeSource := hinScopeSource)
     (hcoreSize := hcoreSize)
     (hinScopeSize := hinScopeSize)
+
+theorem stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
+    {fields : List Field}
+    {scope : List String}
+    {destOffset : Expr}
+    (hcoreDest : FunctionBody.ExprCompileCore destOffset)
+    (hinScopeDest : FunctionBody.exprBoundNamesInScope destOffset scope) :
+    StmtListGenericCore fields scope
+      [Stmt.returndataCopy destOffset (Expr.literal 0) (Expr.literal 0)] :=
+  stmtListGenericCore_singleton_returndatacopy_empty_single
+    (fields := fields)
+    (scope := scope)
+    (hcoreDest := hcoreDest)
+    (hinScopeDest := hinScopeDest)
 
 
 end Compiler.Proofs.IRGeneration
