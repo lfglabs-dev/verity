@@ -41,6 +41,7 @@ import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
+import Compiler.Proofs.AbiDynamicEventObservable
 import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.AbiEventObservable
 import Compiler.Proofs.AbiMemoryLayout
@@ -1076,6 +1077,28 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.safeDiv_self
   Verity.Proofs.Stdlib.Math.safeMul_result_bounded
   Verity.Proofs.Stdlib.Math.safeDiv_result_le_numerator
+
+  -- Compiler/Proofs/AbiDynamicEventObservable.lean
+  Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_append
+  Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_map_normalizeEventWord
+  Compiler.Proofs.AbiDynamicEventObservable.DynEmitDenotes_length
+  Compiler.Proofs.AbiDynamicEventObservable.tailWords_eq_tail_length
+  Compiler.Proofs.AbiDynamicEventObservable.tailExprs_eval
+  Compiler.Proofs.AbiDynamicEventObservable.dynEmitHeadExprs_eval
+  Compiler.Proofs.AbiDynamicEventObservable.dynEmitTailExprs_eval
+  Compiler.Proofs.AbiDynamicEventObservable.dynEmitPayloadExprs_eval
+  Compiler.Proofs.AbiDynamicEventObservable.abiWordWrites_snd
+  Compiler.Proofs.AbiDynamicEventObservable.abiWordWrites_length
+  Compiler.Proofs.AbiDynamicEventObservable.abiWordWrites_zip_eq_abiBlockWrites
+  Compiler.Proofs.AbiDynamicEventObservable.dynEmitPayloadExprs_length
+  Compiler.Proofs.AbiDynamicEventObservable.dynEmitUnindexedStores_exec
+  Compiler.Proofs.AbiDynamicEventObservable.dynEmitUnindexedStores_logDataWords
+  -- Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_nil_inv  -- private
+  -- Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_cons_inv  -- private
+  Compiler.Proofs.AbiDynamicEventObservable.eventLogStmt_exec_dataExpr
+  -- Compiler.Proofs.AbiDynamicEventObservable.execIRStmts_block_then_stmt  -- private
+  Compiler.Proofs.AbiDynamicEventObservable.dynEmitUnindexedStores_length
+  Compiler.Proofs.AbiDynamicEventObservable.dynamicEmitPayload_log_observable
 
   -- Compiler/Proofs/AbiEncoding.lean
   Compiler.Proofs.AbiEncoding.abiScalarNormalize_uint256
@@ -7240,4 +7263,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6702 theorems/lemmas (4800 public, 1902 private, 0 sorry'd)
+-- Total: 6722 theorems/lemmas (4817 public, 1905 private, 0 sorry'd)
