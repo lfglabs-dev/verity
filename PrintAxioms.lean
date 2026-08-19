@@ -59,6 +59,7 @@ import Compiler.Proofs.IRGeneration.CompiledNameDiscipline
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.ContractFeatureTest
 import Compiler.Proofs.IRGeneration.ContractShape
+import Compiler.Proofs.IRGeneration.CustomErrorPayloadIR
 import Compiler.Proofs.IRGeneration.DenoteAgreement
 import Compiler.Proofs.IRGeneration.DenoteEquivalence
 import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
@@ -2421,6 +2422,20 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_deploy_compileConstructor
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_noFallbackEntrypoint
   Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_noReceiveEntrypoint
+
+  -- Compiler/Proofs/IRGeneration/CustomErrorPayloadIR.lean
+  Compiler.Proofs.IRGeneration.execIRStmts_cons_continue'
+  Compiler.Proofs.IRGeneration.execIRStmts_cons_revert
+  Compiler.Proofs.IRGeneration.execIRStmts_zero_cons
+  Compiler.Proofs.IRGeneration.execIRStmt_revertCall
+  Compiler.Proofs.IRGeneration.NonEscaping.let_
+  Compiler.Proofs.IRGeneration.NonEscaping.assign
+  Compiler.Proofs.IRGeneration.NonEscaping.mstore
+  Compiler.Proofs.IRGeneration.execIRStmts_revertsAlways
+  Compiler.Proofs.IRGeneration.RevertsAlways.append_left
+  Compiler.Proofs.IRGeneration.execIRStmts_block_revertsAlways
+  Compiler.Proofs.IRGeneration.revertWithMessage_revertsAlways
+  Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage_revert
 
   -- Compiler/Proofs/IRGeneration/DenoteAgreement.lean
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_world
@@ -7299,4 +7314,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6755 theorems/lemmas (4840 public, 1915 private, 0 sorry'd)
+-- Total: 6767 theorems/lemmas (4852 public, 1915 private, 0 sorry'd)
