@@ -4734,6 +4734,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListFeatureClosedExceptMappingWrites_cons_inv  -- private
   -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed  -- private
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
+  Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+  Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+  Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
+  Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
   -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_featureClosed  -- private
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_featureClosed
   Compiler.Proofs.IRGeneration.exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
@@ -4745,6 +4749,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed_exceptMappingWrites
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed_exceptMappingWrites
   Compiler.Proofs.IRGeneration.SupportedBodyCallInterface.surfaceClosed
+  Compiler.Proofs.IRGeneration.SupportedBodyCallInterface.surfaceClosed_withScalarEvents
   Compiler.Proofs.IRGeneration.SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites
   -- Compiler.Proofs.IRGeneration.exprCompileCore_usesArrayElement_false  -- private
   -- Compiler.Proofs.IRGeneration.exprCompileCore_usesStorageArrayElement_false  -- private
@@ -4849,8 +4854,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.revertWithCustomError_zero_shape  -- private
   -- Compiler.Proofs.IRGeneration.zeroArgErrorPrefix_nonEscaping  -- private
   Compiler.Proofs.IRGeneration.execIRStmts_revertWithCustomError_zero_revert
+  -- Compiler.Proofs.IRGeneration.oneStaticArgErrorPrefix_nonEscaping  -- private
+  -- Compiler.Proofs.IRGeneration.revertWithCustomError_oneStatic_shape  -- private
+  Compiler.Proofs.IRGeneration.execIRStmts_revertWithCustomError_oneStatic_revert
   Compiler.Proofs.IRGeneration.compiledStmtStep_revertError_zeroArg
   Compiler.Proofs.IRGeneration.compiledStmtStep_requireError_zeroArg
+  Compiler.Proofs.IRGeneration.compiledStmtStep_revertError_oneStaticArg
+  Compiler.Proofs.IRGeneration.compiledStmtStep_requireError_oneStaticArg
 
   -- Compiler/Proofs/KeccakBound.lean
   -- Compiler.Proofs.ByteArray.toList.loop_length  -- private
@@ -7331,4 +7341,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6781 theorems/lemmas (4864 public, 1917 private, 0 sorry'd)
+-- Total: 6791 theorems/lemmas (4872 public, 1919 private, 0 sorry'd)

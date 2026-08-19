@@ -2184,7 +2184,7 @@ mutual
 `stmtTouchesUnsupportedEffectSurface` rejects every `emit`, so a body carrying
 an event emission can never satisfy the four-surface (core/state/call/effect)
 decomposition and has to be routed through the separate scalar-event gate
-`stmtTouchesUnsupportedContractSurfaceWithEvents` instead. This variant admits
+`stmtTouchesUnsupportedContractSurfaceWithEvents` instead. This variant accepts
 exactly the emission heads that gate already proves, so the event slice becomes
 reachable from the same decomposition every other statement head uses. -/
 def stmtTouchesUnsupportedEffectSurfaceWithEvents
@@ -2819,7 +2819,7 @@ structure SupportedBodyEffectInterface (fn : FunctionSpec) : Prop where
 
 /-- Effect-surface interface for bodies that emit events. `SupportedBodyEffectInterface`
 rejects every `emit`, so it is unusable for event-carrying bodies; this variant
-admits exactly the emission heads the scalar-event slice already proves. -/
+accepts exactly the emission heads the scalar-event slice already proves. -/
 structure SupportedBodyEffectInterfaceWithEvents
     (spec : CompilationModel) (fn : FunctionSpec) : Prop where
   surfaceClosed :
