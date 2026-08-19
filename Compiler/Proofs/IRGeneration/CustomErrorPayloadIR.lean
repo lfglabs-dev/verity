@@ -127,11 +127,10 @@ theorem nonEscapingList_cons {stmt : YulStmt} {rest : List YulStmt}
   | zero => exact Or.inr ⟨state, execIRStmts_zero_cons _ _ _⟩
   | succ f =>
       rcases hstmt f state with ⟨next, hcont⟩ | ⟨next, hrev⟩
-      · rcases hrest f next with ⟨final, hfinal⟩ | ⟨final, hfinal⟩
-        · exact Or.inl ⟨final, by
-            rw [execIRStmts_cons_continue' f state next _ _ hcont]; exact hfinal⟩
-        · exact Or.inr ⟨final, by
-            rw [execIRStmts_cons_continue' f state next _ _ hcont]; exact hfinal⟩
+      · have hstep := execIRStmts_cons_continue' f state next stmt rest hcont
+        rcases hrest f next with ⟨final, hfinal⟩ | ⟨final, hfinal⟩
+        · exact Or.inl ⟨final, hstep.trans hfinal⟩
+        · exact Or.inr ⟨final, hstep.trans hfinal⟩
       · exact Or.inr ⟨next, execIRStmts_cons_revert f state next _ _ hrev⟩
 
 theorem nonEscapingList_of_forall :
@@ -147,15 +146,15 @@ theorem NonEscaping.block {body : List YulStmt} (h : NonEscapingList body) :
   cases fuel with
   | zero => exact Or.inr ⟨state, by simp [execIRStmt]⟩
   | succ f =>
+      have hb := execIRStmt_block' f state body
       rcases h f state with ⟨next, hnext⟩ | ⟨next, hnext⟩
-      · exact Or.inl ⟨next, by rw [execIRStmt_block' f state body]; exact hnext⟩
-      · exact Or.inr ⟨next, by rw [execIRStmt_block' f state body]; exact hnext⟩
+      · exact Or.inl ⟨next, hb.trans hnext⟩
+      · exact Or.inr ⟨next, hb.trans hnext⟩
 
-/-- `for` loops built from non-escaping pieces are themselves non-escaping.
-Needed because the ABI encoder emits a `for` loop for dynamic error arguments.
-The induction is on fuel: the interpreter recurs on `.for_ [] cond post body`
-with one less fuel, so the structural induction hypothesis applies directly. -/
-theorem NonEscaping.for_ {cond : YulExpr} {post body : List YulStmt}
+/-- Fuel-first form of the `for` case, so that the interpreter's recursion on
+`.for_ [] cond post body` at one less fuel lines up with the induction
+hypothesis. See `NonEscaping.for_` for the usable form. -/
+theorem nonEscaping_for_aux {cond : YulExpr} {post body : List YulStmt}
     (hpost : NonEscapingList post) (hbody : NonEscapingList body) :
     ∀ (fuel : Nat) (init : List YulStmt), NonEscapingList init →
       ∀ (state : IRState),
@@ -180,9 +179,11 @@ theorem NonEscaping.for_ {cond : YulExpr} {post body : List YulStmt}
                 execIRStmt_for_init_cond_zero g state sInit init post body cond hI hc⟩
             · rcases hbody g sInit with ⟨sBody, hB⟩ | ⟨sBody, hB⟩
               · rcases hpost g sBody with ⟨sPost, hP⟩ | ⟨sPost, hP⟩
-                · rw [execIRStmt_for_one_continue g state sInit sBody sPost init post body
-                    cond v hI hc hv hB hP]
-                  exact ih [] nonEscapingList_nil sPost
+                · have hstep := execIRStmt_for_one_continue g state sInit sBody sPost
+                    init post body cond v hI hc hv hB hP
+                  rcases ih [] nonEscapingList_nil sPost with ⟨n, hn⟩ | ⟨n, hn⟩
+                  · exact Or.inl ⟨n, hstep.trans hn⟩
+                  · exact Or.inr ⟨n, hstep.trans hn⟩
                 · exact Or.inr ⟨sPost,
                     execIRStmt_for_post_noncontinue g state sInit sBody init post body cond
                       v (.revert sPost) hI hc hv hB hP (by intro s; simp)⟩
@@ -192,6 +193,14 @@ theorem NonEscaping.for_ {cond : YulExpr} {post body : List YulStmt}
       · exact Or.inr ⟨sInit,
           execIRStmt_for_init_noncontinue g state init post body cond (.revert sInit)
             hI (by intro s; simp)⟩
+
+/-- `for` loops built from non-escaping pieces are themselves non-escaping.
+Needed because the ABI encoder emits a `for` loop for dynamic error arguments. -/
+theorem NonEscaping.for_ {cond : YulExpr} {init post body : List YulStmt}
+    (hinit : NonEscapingList init) (hpost : NonEscapingList post)
+    (hbody : NonEscapingList body) :
+    NonEscaping (.for_ init cond post body) :=
+  fun fuel state => nonEscaping_for_aux hpost hbody fuel init hinit state
 
 /-! ## Statement lists that deterministically revert -/
 
@@ -224,8 +233,8 @@ theorem execIRStmts_revertsAlways {stmts : List YulStmt}
       | succ f =>
           rcases hstmt f state with ⟨next, hcont⟩ | ⟨next, hrev⟩
           · rcases ih f next with ⟨final, hfinal⟩
-            exact ⟨final, by
-              rw [execIRStmts_cons_continue' f state next _ _ hcont]; exact hfinal⟩
+            exact ⟨final,
+              (execIRStmts_cons_continue' f state next _ _ hcont).trans hfinal⟩
           · exact ⟨next, execIRStmts_cons_revert f state next _ _ hrev⟩
 
 /-- A non-escaping prefix in front of a reverting list still reverts. -/
@@ -254,10 +263,8 @@ theorem execIRStmts_block_revertsAlways {body : List YulStmt}
             (by simp [execIRStmt])⟩
       | succ g =>
           rcases execIRStmts_revertsAlways h g state with ⟨next, hnext⟩
-          refine ⟨next, execIRStmts_cons_revert (g + 1) state next _ _ ?_⟩
-          rw [show execIRStmt (g + 1) state (YulStmt.block body) =
-            execIRStmts g state body from by simp [execIRStmt]]
-          exact hnext
+          exact ⟨next, execIRStmts_cons_revert (g + 1) state next _ _
+            ((execIRStmt_block' g state body).trans hnext)⟩
 
 /-! ## The custom-error payload shape
 
