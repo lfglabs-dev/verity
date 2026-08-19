@@ -296,6 +296,32 @@ sibling entrypoint.
 - `Verity/Core/Uint256.lean`: `checkedSub`/`checkedMul` + `subNoWrap`/`mulNoWrap`
   complete the checked-arithmetic lane (#1993) alongside `checkedAdd`.
 
+## Returndata Surface (2026-08)
+
+- `Expr.returndataSize` and `Stmt.returndataCopy` are now executed by the
+  source interpreters, the compiler-free denotation, and the IR interpreter
+  instead of falling through to an unmodeled revert. The model rests on
+  EIP-211: a frame's returndata buffer starts empty and is only refilled by a
+  call-family instruction, and the admitted fragment issues none. So
+  `evalExpr .returndataSize = some 0`, and `returndataCopy dst src sz`
+  continues only when `src + sz = 0` and otherwise reverts, matching the EVM's
+  exceptional halt on `src + size > returndatasize`.
+- The generic proof fragment admits only the zero-extent shape,
+  `SupportedStmtList.returndataCopyEmptySingle` for
+  `Stmt.returndataCopy dst (.literal 0) (.literal 0)`. Because that copy writes
+  nothing, it needs no linear-memory model and preserves
+  `runtimeStateMatchesIR` definitionally.
+- `stmtTouchesUnsupported*Surface` previously returned `false` for
+  `.returndataCopy` without recursing into its subexpressions. That was sound
+  only while the statement always reverted; the ten recursive predicates now
+  mirror `calldatacopy` and recurse. `StmtListScopeCore` /
+  `StmtListScopeDiscipline` gained matching constructors, since the case is no
+  longer vacuous.
+- No new axiom and no new trust assumption: this narrows an unsupported
+  surface rather than assuming one. `Expr.returndataOptionalBoolAt`,
+  `Stmt.revertReturndata`, `extcodesize`, and `externalCallBind` remain
+  unmodeled.
+
 ## Audit Artifacts
 
 | Artifact | Purpose | Check |
