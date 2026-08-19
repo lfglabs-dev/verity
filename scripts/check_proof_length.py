@@ -1008,6 +1008,32 @@ ALLOWLIST: set[str] = {
     # mutually dependent size facts about a single encoded block; splitting them
     # would duplicate that context in every fragment.
     "bindExternalParam_bytes_of_abiEncodeArgs",
+    # #2085 slice 5 `T[]` / `fixedArray` / `tuple` external parameters, the
+    # direct analogues of the `bytes` entries above. Both loader lemmas are
+    # straight-line symbolic executions of the generated Yul: one `have` per
+    # emitted statement, each phrased over the `IRState` its predecessor
+    # produced. That state is a growing `setVar` chain, so extracting the steps
+    # would make every fragment restate the full intermediate state.
+    "exec_lengthPrefixedLoaderStmts_then",
+    "exec_dynamicCompositeLoaderStmts_then",
+    # The array payload guard is a single `div`/`lt` statement; the length is
+    # the modular-arithmetic side conditions relating the emitted EVM `div` to
+    # `Nat` division, which are only meaningful against this guard's own state.
+    "exec_arrayPayloadGuard_noop",
+    # #2085 slice 5 decode-of-encode round trip for `T[]`, matching
+    # `bindExternalParam_bytes_of_abiEncodeArgs` above. The `have`s are mutually
+    # dependent size facts about one encoded block, and each restates the same
+    # `abiTailOffset (pre ++ ...)` index expression; splitting them would
+    # duplicate that context in every fragment.
+    "bindExternalParam_scalarArray_of_abiEncodeArgs",
+    # #2085 slice 5 binder inversions: exhaustive sweeps of the decoder's own
+    # `Option`/`if` branch structure, where every branch but the success case is
+    # a one-line contradiction discharge. Both are marginally over the limit and
+    # mirror a case split that exists only inside the decoder.
+    # (`decodeLengthPrefixedDynamicParam` is the linter's truncation of
+    # `decodeLengthPrefixedDynamicParam?_array_eq_some_inv` at the `?`.)
+    "decodeLengthPrefixedDynamicParam",
+    "bindExternalParam_array_eq_some_inv",
 }
 
 # PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover
