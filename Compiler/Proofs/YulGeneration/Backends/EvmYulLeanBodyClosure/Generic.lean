@@ -176,6 +176,9 @@ inductive BridgedSourceStmt
   | returndatacopy {isInternal : Bool} {stmt : Stmt}
       (h : BridgedSourceReturndatacopyStmt stmt) :
       BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt
+  | revertReturndata {isInternal : Bool} {stmt : Stmt}
+      (h : BridgedSourceRevertReturndataStmt stmt) :
+      BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt
   | storageArrayPush {isInternal : Bool} {stmt : Stmt}
       (h : BridgedSourceStorageArrayPushStmt fields stmt) :
       BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt
@@ -320,6 +323,9 @@ theorem compileStmt_bridgedSource_bridged
   | returndatacopy h =>
       exact compileStmt_returndatacopy_fragment_bridged fields events errors
         dynamicSource internalRetNames _ inScopeNames h hOk
+  | revertReturndata h =>
+      exact compileStmt_revertReturndata_fragment_bridged fields events errors
+        dynamicSource internalRetNames _ inScopeNames h hOk
   | storageArrayPush h =>
       exact compileStmt_storageArrayPush_bridged fields events errors
         dynamicSource internalRetNames _ inScopeNames h hOk
@@ -460,6 +466,9 @@ theorem compileStmt_bridgedSource_noFuncDefs
         dynamicSource internalRetNames _ inScopeNames h hOk
   | returndatacopy h =>
       exact compileStmt_returndatacopy_fragment_noFuncDefs fields events errors
+        dynamicSource internalRetNames _ inScopeNames h hOk
+  | revertReturndata h =>
+      exact compileStmt_revertReturndata_fragment_noFuncDefs fields events errors
         dynamicSource internalRetNames _ inScopeNames h hOk
   | storageArrayPush h =>
       exact compileStmt_storageArrayPush_noFuncDefs fields events errors

@@ -140,6 +140,9 @@ inductive BridgedSafeStmts
   | returndatacopy {isInternal : Bool} {stmts : List Stmt}
       (hStmts : BridgedSourceReturndatacopyStmts stmts) :
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
+  | revertReturndata {isInternal : Bool} {stmts : List Stmt}
+      (hStmts : BridgedSourceRevertReturndataStmts stmts) :
+      BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
   | storageArrayPush {isInternal : Bool} {stmts : List Stmt}
       (hStmts : BridgedSourceStorageArrayPushStmts fields stmts) :
       BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal stmts
@@ -594,6 +597,20 @@ theorem bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore
     subst stmt
     exact bridgedSourceReturndatacopyStmt_of_exprCompileCore hDest)
 
+/-- `Stmt.revertReturndata` is a native safe body unconditionally — it has
+    no expression parameters. -/
+theorem bridgedSafeStmts_revertReturndataEmptySingle
+    {fields : List Field} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} :
+    BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal
+      [Stmt.revertReturndata] :=
+  BridgedSafeStmts.revertReturndata (by
+    intro stmt hMem
+    simp only [List.mem_singleton] at hMem
+    subst stmt
+    exact BridgedSourceRevertReturndataStmt.revertReturndata)
+
 /-- Singleton native safe-body package for a single-slot `setMapping` write. -/
 theorem bridgedSafeStmts_setMappingSingleSlot
     {fields : List Field} {errors : List ErrorDef}
@@ -1007,6 +1024,8 @@ theorem BridgedSafeStmts.toBridgedSource
       exact fun stmt hMem => .calldatacopy (hStmts stmt hMem)
   | returndatacopy hStmts =>
       exact fun stmt hMem => .returndatacopy (hStmts stmt hMem)
+  | revertReturndata hStmts =>
+      exact fun stmt hMem => .revertReturndata (hStmts stmt hMem)
   | storageArrayPush hStmts =>
       exact fun stmt hMem => .storageArrayPush (hStmts stmt hMem)
   | storageArrayPop hStmts =>

@@ -6526,6 +6526,116 @@ theorem compileStmt_returndatacopy_fragment_noFuncDefs
       exact compileStmt_returndatacopy_noFuncDefs fields events errors dynamicSource
         internalRetNames isInternal inScopeNames destOffset hOk
 
+/-! ## Source statement body closure: `revertReturndata`
+
+`Stmt.revertReturndata` compiles to a singleton list containing one `.block`
+with three straight-line statements:
+
+```
+let __returndata_size := returndatasize()
+returndatacopy(0, 0, __returndata_size)
+revert(0, __returndata_size)
+```
+
+The `let_` maps to `BridgedStraightStmt.let_` (the `returndatasize` call is
+a `BridgedExpr` via `bridgedBuiltins`), the `revert` maps to
+`BridgedStraightStmt.expr_revert`, and the `returndatacopy` is handled via
+`BridgedStmt.userCallExpr` with all three arguments `BridgedExpr`. -/
+
+inductive BridgedSourceRevertReturndataStmt : Stmt → Prop
+  | revertReturndata : BridgedSourceRevertReturndataStmt .revertReturndata
+
+def BridgedSourceRevertReturndataStmts (stmts : List Stmt) : Prop :=
+  ∀ stmt ∈ stmts, BridgedSourceRevertReturndataStmt stmt
+
+private theorem compileStmt_revertReturndata_bridged
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) :
+    ∀ {out : List YulStmt},
+      compileStmt fields events errors dynamicSource internalRetNames
+        isInternal inScopeNames []
+        .revertReturndata = .ok out →
+      BridgedStmts out := by
+  intro out hOk
+  simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure,
+    Except.ok.injEq] at hOk
+  subst hOk
+  intro yulStmt hMem
+  simp only [List.mem_singleton] at hMem
+  subst yulStmt
+  exact BridgedStmt.block _ (by
+    intro stmt hMem
+    simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+    rcases hMem with rfl | rfl | rfl
+    · exact BridgedStmt.straight _
+        (BridgedStraightStmt.let_ "__returndata_size"
+          (Compiler.Yul.YulExpr.call "returndatasize" [])
+          (BridgedExpr.call "returndatasize" []
+            (by left; simp [bridgedBuiltins])
+            (by intros; contradiction)))
+    · exact BridgedStmt.userCallExpr "returndatacopy"
+        [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0,
+          Compiler.Yul.YulExpr.ident "__returndata_size"]
+        []
+        (by
+          intro arg hArg
+          simp only [List.mem_cons, List.mem_nil_iff, or_false] at hArg
+          rcases hArg with rfl | rfl | rfl
+          · exact BridgedExpr.lit 0
+          · exact BridgedExpr.lit 0
+          · exact BridgedExpr.ident "__returndata_size")
+        (by intros; contradiction)
+    · exact BridgedStmt.straight _
+        (BridgedStraightStmt.expr_revert
+          (Compiler.Yul.YulExpr.lit 0)
+          (Compiler.Yul.YulExpr.ident "__returndata_size")))
+
+private theorem compileStmt_revertReturndata_noFuncDefs
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) :
+    ∀ {out : List YulStmt},
+      compileStmt fields events errors dynamicSource internalRetNames
+        isInternal inScopeNames []
+        .revertReturndata = .ok out →
+      Native.yulStmtsContainFuncDef out = false := by
+  intro out hOk
+  simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure,
+    Except.ok.injEq] at hOk
+  subst out
+  simp [Native.yulStmtContainsFuncDef]
+
+theorem compileStmt_revertReturndata_fragment_bridged
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) :
+    ∀ {stmt : Stmt}, BridgedSourceRevertReturndataStmt stmt →
+      ∀ {out : List YulStmt},
+        compileStmt fields events errors dynamicSource internalRetNames
+          isInternal inScopeNames [] stmt = .ok out →
+        BridgedStmts out := by
+  intro stmt hStmt out hOk
+  cases hStmt with
+  | revertReturndata =>
+      exact compileStmt_revertReturndata_bridged fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames hOk
+
+theorem compileStmt_revertReturndata_fragment_noFuncDefs
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (inScopeNames : List String) :
+    ∀ {stmt : Stmt}, BridgedSourceRevertReturndataStmt stmt →
+      ∀ {out : List YulStmt},
+        compileStmt fields events errors dynamicSource internalRetNames
+          isInternal inScopeNames [] stmt = .ok out →
+        Native.yulStmtsContainFuncDef out = false := by
+  intro stmt hStmt out hOk
+  cases hStmt with
+  | revertReturndata =>
+      exact compileStmt_revertReturndata_noFuncDefs fields events errors dynamicSource
+        internalRetNames isInternal inScopeNames hOk
+
 /-! ## Source statement body closure: `storageArrayPush`
 
 `Stmt.storageArrayPush field value` compiles via `compileStorageArrayPush`
