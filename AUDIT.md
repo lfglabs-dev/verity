@@ -311,6 +311,10 @@ sibling entrypoint.
   `Stmt.returndataCopy dst (.literal 0) (.literal 0)`. Because that copy writes
   nothing, it needs no linear-memory model and preserves
   `runtimeStateMatchesIR` definitionally.
+- `Expr.returndataSize` is now part of `ExprCompileCore`: its compilation to
+  `returndatasize()` is proved against the same no-call invariant, so it can
+  occur in generic-fragment expressions without admitting a call-family
+  instruction or non-empty returndata.
 - `stmtTouchesUnsupported*Surface` previously returned `false` for
   `.returndataCopy` without recursing into its subexpressions. That was sound
   only while the statement always reverted; the ten recursive predicates now

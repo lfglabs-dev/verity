@@ -1034,7 +1034,7 @@ rather than a semantic trust boundary. -/
 def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
-  | .blobbasefee | .calldatasize | .localVar _ | .constructorArg _
+  | .blobbasefee | .calldatasize | .returndataSize | .localVar _ | .constructorArg _
   | .arrayLength _ | .dynamicBytesEq _ _ => false
   | .immutable _ => true
   | .selfBalance => true
@@ -1071,7 +1071,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
-  | .returndataSize | .extcodesize _
+  | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
   | .memoryArrayLength _
   | .memoryArrayElement _ _ | .arrayElementWord _ _ _ _

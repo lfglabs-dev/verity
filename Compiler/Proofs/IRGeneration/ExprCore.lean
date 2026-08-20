@@ -109,6 +109,9 @@ inductive ExprCompileCore : Expr → Prop where
   | chainid : ExprCompileCore .chainid
   | blobbasefee : ExprCompileCore .blobbasefee
   | calldatasize : ExprCompileCore .calldatasize
+  /-- The supported fragment contains no call-family instruction, so the
+  frame's EIP-211 returndata buffer is the initial empty buffer. -/
+  | returndataSize : ExprCompileCore .returndataSize
   | add {lhs rhs : Expr} :
       ExprCompileCore lhs → ExprCompileCore rhs → ExprCompileCore (.add lhs rhs)
   | sub {lhs rhs : Expr} :

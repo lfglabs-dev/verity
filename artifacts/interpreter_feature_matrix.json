@@ -207,6 +207,15 @@
       "proof_status": "partial"
     },
     {
+      "feature": "returndataSize",
+      "constructor": "Expr.returndataSize",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
+      "IRInterpreter": "supported",
+      "EVMYulLean_bridge": "supported",
+      "proof_status": "proved"
+    },
+    {
       "feature": "returndataOptionalBoolAt",
       "constructor": "Expr.returndataOptionalBoolAt",
       "SourceInterpreter_basic": "fallback_zero",
