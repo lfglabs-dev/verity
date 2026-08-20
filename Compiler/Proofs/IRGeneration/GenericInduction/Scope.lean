@@ -217,6 +217,7 @@ theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
   | .chainid, _ => exact .chainid
   | .blobbasefee, _ => exact .blobbasefee
   | .calldatasize, _ => exact .calldatasize
+  | .returndataSize, _ => exact .returndataSize
   | .add a b, hsurface | .sub a b, hsurface | .mul a b, hsurface
   | .div a b, hsurface | .mod a b, hsurface
   | .bitAnd a b, hsurface | .bitOr a b, hsurface | .bitXor a b, hsurface
@@ -915,7 +916,7 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       subst name
       exact hlocalsInScope name0 hlocal
   | caller | contractAddress | txOrigin | msgValue | blockTimestamp | blockNumber | chainid | blobbasefee
-  | calldatasize =>
+  | calldatasize | returndataSize =>
       intro name hmem
       simp [FunctionBody.exprBoundNames] at hmem
   | add hL hR ihL ihR
@@ -2187,7 +2188,7 @@ theorem collectExprNames_mem_exprBoundNames_of_core
     ∀ name, name ∈ collectExprNames expr → name ∈ FunctionBody.exprBoundNames expr := by
   induction hcore with
   | literal _ | caller | contractAddress | txOrigin | msgValue | blockTimestamp | blockNumber | chainid
-  | blobbasefee | calldatasize | constructorArg _ =>
+  | blobbasefee | calldatasize | returndataSize | constructorArg _ =>
       intro name hmem; simp [collectExprNames] at hmem
   | param _ | localVar _ =>
       intro name hmem; simpa [collectExprNames, FunctionBody.exprBoundNames] using hmem
