@@ -1504,18 +1504,18 @@ def NotTerminator (stmt : YulStmt) : Prop :=
 
 @[simp] theorem NotTerminator_comment (text : String) :
     NotTerminator (.comment text) := by
-  refine ⟨?_, ?_, ?_⟩ <;> · intros; intro h; cases h
+  refine ⟨?_, ?_, ?_⟩; · intros; intro h; cases h
 
 @[simp] theorem NotTerminator_let_ (name : String) (value : YulExpr) :
     NotTerminator (.let_ name value) := by
-  refine ⟨?_, ?_, ?_⟩ <;> · intros; intro h; cases h
+  refine ⟨?_, ?_, ?_⟩; · intros; intro h; cases h
 
 @[simp] theorem NotTerminator_assign (name : String) (value : YulExpr) :
     NotTerminator (.assign name value) := by
-  refine ⟨?_, ?_, ?_⟩ <;> · intros; intro h; cases h
+  refine ⟨?_, ?_, ?_⟩; · intros; intro h; cases h
 
 @[simp] theorem NotTerminator_leave : NotTerminator .leave := by
-  refine ⟨?_, ?_, ?_⟩ <;> · intros; intro h; cases h
+  refine ⟨?_, ?_, ?_⟩; · intros; intro h; cases h
 
 /-- State-relative variant of `IRStmtPreservesObs`: at this specific state,
 `stmt` runs to `.continue _` in IR. Compared with `IRStmtPreservesObs`
