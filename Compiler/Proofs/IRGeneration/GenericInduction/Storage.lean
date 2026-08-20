@@ -3222,11 +3222,42 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
             ]] = irExec ∧
         stmtStepMatchesIRExec fields (stmtNextScope scope .revertReturndata)
           sourceResult irExec := by
-  intro runtime state extraFuel _ _ _ _ _
-  refine ⟨.revert, .revert state, ?_, ?_, trivial⟩
-  · rfl
-  · simp [execIRStmts, execIRStmt, evalIRExpr, Nat.succ_eq_add_one,
-      Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
+  intro runtime state extraFuel _ _ _ _ hslack
+  refine ⟨.revert, .revert (state.setVar "__returndata_size" 0), rfl, ?_, trivial⟩
+  have h3 : 3 ≤ extraFuel := by
+    have : 4 ≤ sizeOf [YulStmt.block [
+        YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
+        YulStmt.exprStmt (YulExpr.call "returndatacopy"
+          [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
+        YulStmt.exprStmt (YulExpr.call "revert"
+          [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
+        ]] := by decide
+    omega
+  obtain ⟨k, rfl⟩ := Nat.exists_eq_add_of_le h3
+  have hfuel : [YulStmt.block [
+      YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
+      YulStmt.exprStmt (YulExpr.call "returndatacopy"
+        [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
+      YulStmt.exprStmt (YulExpr.call "revert"
+        [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
+    ]].length + (3 + k) + 1 =
+    Nat.succ (Nat.succ (Nat.succ (Nat.succ (Nat.succ k)))) := by
+    have : [YulStmt.block [
+        YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
+        YulStmt.exprStmt (YulExpr.call "returndatacopy"
+          [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
+        YulStmt.exprStmt (YulExpr.call "revert"
+          [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
+      ]].length = 1 := rfl
+    omega
+  rw [hfuel]
+  have hRevert : ∀ n (s : IRState),
+      execIRStmt n s (YulStmt.exprStmt (YulExpr.call "revert"
+        [YulExpr.lit 0, YulExpr.ident "__returndata_size"])) = .revert s := by
+    intro n s; cases n <;> simp [execIRStmt]
+  simp [execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    IRState.getVar, IRState.setVar, hRevert]
 
 theorem compiledStmtStep_revertReturndata_empty_single
     {fields : List Field} {scope : List String} :

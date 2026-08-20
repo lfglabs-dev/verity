@@ -1034,7 +1034,7 @@ rather than a semantic trust boundary. -/
 def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
-  | .blobbasefee | .calldatasize | .localVar _ | .constructorArg _
+  | .blobbasefee | .calldatasize | .returndataSize | .localVar _ | .constructorArg _
   | .arrayLength _ | .dynamicBytesEq _ _ => false
   | .immutable _ => true
   | .selfBalance => true
@@ -1071,7 +1071,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
-  | .returndataSize | .extcodesize _
+  | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
   | .memoryArrayLength _
   | .memoryArrayElement _ _ | .arrayElementWord _ _ _ _
@@ -1465,7 +1465,8 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   match expr with
   | .literal _ | .param _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .blockTimestamp | .blockNumber
-  | .blobbasefee | .calldatasize | .localVar _ | .constructorArg _ => false
+  | .blobbasefee | .calldatasize | .returndataSize
+  | .localVar _ | .constructorArg _ => false
   | .immutable _ => true
   | .selfBalance => true
   | .storage _ | .storageAddr _ => true
@@ -1495,7 +1496,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
-  | .returndataSize | .extcodesize _
+  | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
   | .arrayLength _ | .memoryArrayLength _
   | .arrayElement _ _ | .memoryArrayElement _ _ | .arrayElementWord _ _ _ _
@@ -3526,7 +3527,7 @@ private theorem exprCompileCore_helperSurfaceClosed
     exprTouchesUnsupportedHelperSurface expr = false := by
   induction hcore with
   | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
-    | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize =>
+    | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize | returndataSize =>
       simp only [exprTouchesUnsupportedHelperSurface]
   | add _ _ ihL ihR
     | sub _ _ ihL ihR
@@ -3567,7 +3568,7 @@ private theorem exprCompileCore_internalHelperCallNames_nil
     exprInternalHelperCallNames expr = [] := by
   induction hcore with
   | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
-    | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize =>
+    | blockTimestamp | blockNumber | chainid | blobbasefee | calldatasize | returndataSize =>
       simp only [exprInternalHelperCallNames]
   | add _ _ ihL ihR
     | sub _ _ ihL ihR
@@ -5135,7 +5136,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   cases expr with
   | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
-  | calldatasize =>
+  | calldatasize | returndataSize =>
       simp [exprTouchesUnsupportedContractSurface]
   | immutable _ =>
       simp [exprTouchesUnsupportedCoreSurface] at hcore
@@ -5147,7 +5148,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   | paramDynamicMemberLength _ _
   | paramDynamicMemberDataOffset _ _ | paramDynamicMemberElement _ _ _ =>
       cases hcore
-  | returndataSize | memoryArrayLength _ | storageArrayLength _
+  | memoryArrayLength _ | storageArrayLength _
   | returndataOptionalBoolAt _ | extcodesize _ =>
       cases hcore
   | arrayLength _ | dynamicBytesEq _ _ =>
@@ -5683,7 +5684,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   cases expr with
   | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
   | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
-  | calldatasize =>
+  | calldatasize | returndataSize =>
       simp [exprTouchesUnsupportedHelperSurface]
   | immutable _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
@@ -5692,7 +5693,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | storage _ | storageAddr _ | internalCall _ _ | externalCall _ _
-  | returndataSize | extcodesize _
+  | extcodesize _
   | returndataOptionalBoolAt _ | arrayLength _ | memoryArrayLength _ | storageArrayLength _
   | dynamicBytesEq _ _
   | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _
@@ -6206,7 +6207,7 @@ private theorem exprCompileCore_usesArrayElement_false
   induction hcore with
   | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
-    | blobbasefee | calldatasize =>
+    | blobbasefee | calldatasize | returndataSize =>
       simp only [exprUsesArrayElement, Bool.false_or]
   | add _ _ ihL ihR | sub _ _ ihL ihR | mul _ _ ihL ihR
     | div _ _ ihL ihR | mod _ _ ihL ihR | eq _ _ ihL ihR
@@ -6235,7 +6236,7 @@ private theorem exprCompileCore_usesStorageArrayElement_false
   induction hcore with
   | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
-    | blobbasefee | calldatasize =>
+    | blobbasefee | calldatasize | returndataSize =>
       simp only [exprUsesStorageArrayElement, Bool.false_or]
   | add _ _ ihL ihR | sub _ _ ihL ihR | mul _ _ ihL ihR
     | div _ _ ihL ihR | mod _ _ ihL ihR | eq _ _ ihL ihR
@@ -6264,7 +6265,7 @@ private theorem exprCompileCore_usesDynamicBytesEq_false
   induction hcore with
   | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
-    | blobbasefee | calldatasize =>
+    | blobbasefee | calldatasize | returndataSize =>
       simp only [exprUsesDynamicBytesEq, Bool.false_or]
   | add _ _ ihL ihR | sub _ _ ihL ihR | mul _ _ ihL ihR
     | div _ _ ihL ihR | mod _ _ ihL ihR | eq _ _ ihL ihR
@@ -6975,7 +6976,7 @@ private theorem exprCompileCore_usesMulDiv512_false
   induction hcore with
   | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
-    | blobbasefee | calldatasize =>
+    | blobbasefee | calldatasize | returndataSize =>
       simp only [exprUsesMulDiv512, Bool.false_or]
   | add _ _ ihL ihR | sub _ _ ihL ihR | mul _ _ ihL ihR
     | div _ _ ihL ihR | mod _ _ ihL ihR | eq _ _ ihL ihR
@@ -7004,7 +7005,7 @@ private theorem exprCompileCore_usesParamDynamicHeadWord_false
   induction hcore with
   | literal | param | constructorArg | localVar | caller | contractAddress | txOrigin | msgValue
     | blockTimestamp | blockNumber | chainid
-    | blobbasefee | calldatasize =>
+    | blobbasefee | calldatasize | returndataSize =>
       simp only [exprUsesParamDynamicHeadWord, Bool.false_or]
   | add _ _ ihL ihR | sub _ _ ihL ihR | mul _ _ ihL ihR
     | div _ _ ihL ihR | mod _ _ ihL ihR | eq _ _ ihL ihR

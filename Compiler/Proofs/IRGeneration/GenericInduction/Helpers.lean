@@ -1788,6 +1788,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   | returndataCopyEmptySingle hcoreDest hinScopeDest =>
       exact stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
         (fields := fields) hcoreDest hinScopeDest
+  | revertReturndataEmptySingle =>
+      exact stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
+        (fields := fields)
   | letStorageField hfind hfieldInScope =>
       exact stmtListGenericCore_of_supportedStmtList_letStorageField_of_surface
         hnoConflict hfind hfieldInScope
@@ -2062,6 +2065,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
   | returndataCopyEmptySingle hcoreDest hinScopeDest =>
       exact stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
         (fields := fields) hcoreDest hinScopeDest
+  | revertReturndataEmptySingle =>
+      exact stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
+        (fields := fields)
   | letStorageField hfind hfieldInScope =>
       exact stmtListGenericCore_of_supportedStmtList_letStorageField_of_surface
         hnoConflict hfind hfieldInScope

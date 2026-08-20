@@ -2239,6 +2239,15 @@ theorem nativeMappingSlotFunctionDefinition_exec_revivable
       .ok (state, [state.toMachineState.returndatasize]) := by
   cases fuel <;> simp [EvmYul.Yul.primCall]
 
+theorem primCall_returndatasize_any_ok
+    (fuel : Nat)
+    (state : EvmYul.Yul.State)
+    (values : List EvmYul.UInt256) :
+    EvmYul.Yul.primCall (fuel + 1) state
+        EvmYul.Operation.RETURNDATASIZE values =
+      .ok (state, [state.toMachineState.returndatasize]) := by
+  cases fuel <;> simp [EvmYul.Yul.primCall, step_returndatasize_any]
+
 @[simp] theorem primCall_calldatacopy_ok
     (fuel : Nat)
     (state : EvmYul.Yul.State)

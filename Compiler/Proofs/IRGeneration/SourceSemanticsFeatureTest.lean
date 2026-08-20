@@ -305,6 +305,10 @@ example :
 /-- In the no-call fragment, EIP-211 makes `revertReturndata` exactly the
 empty revert admitted by the generic step proof. -/
 example :
+    exprTouchesUnsupportedCoreSurface .returndataSize = false := by
+  native_decide
+
+example :
     stmtTouchesUnsupportedCallSurface .revertReturndata = false := by
   native_decide
 

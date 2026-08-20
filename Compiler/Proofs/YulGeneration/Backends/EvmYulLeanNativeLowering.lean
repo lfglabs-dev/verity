@@ -113,6 +113,9 @@ theorem lookupRuntimePrimOp_lt :
 theorem lookupRuntimePrimOp_calldatasize :
     lookupRuntimePrimOp "calldatasize" = some .CALLDATASIZE := by rfl
 
+theorem lookupRuntimePrimOp_returndatasize :
+    lookupRuntimePrimOp "returndatasize" = some .RETURNDATASIZE := by rfl
+
 theorem lookupRuntimePrimOp_callvalue :
     lookupRuntimePrimOp "callvalue" = some .CALLVALUE := by rfl
 

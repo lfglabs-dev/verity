@@ -23,7 +23,7 @@ def bridgedBuiltins : List String :=
    "exp", "sdiv", "smod", "sar", "signextend",
    "caller", "origin", "address", "callvalue", "timestamp",
    "number", "chainid", "blobbasefee",
-   "calldataload", "calldatasize",
+   "calldataload", "calldatasize", "returndatasize",
    "sload", "mappingSlot"]
 
 /-- Builtin names intentionally excluded from the current native generated

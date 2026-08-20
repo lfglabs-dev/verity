@@ -4457,7 +4457,7 @@ private theorem compileExpr_constructor_mode_eq
   | .delegatecall .., hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .calldatasize, _, _, hraw => by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
   | .calldataload _, _, _, hraw => by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
-  | .returndataSize, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .returndataSize, _, _, _ => by simp [compileExprWithInternals]
   | .extcodesize _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .returndataOptionalBoolAt _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .localVar _, _, _, _ => by simp [compileExprWithInternals]

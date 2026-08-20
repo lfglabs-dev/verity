@@ -156,6 +156,7 @@ inductive BridgedSourceExpr : Expr → Prop
   | chainid : BridgedSourceExpr .chainid
   | blobbasefee : BridgedSourceExpr .blobbasefee
   | calldatasize : BridgedSourceExpr .calldatasize
+  | returndataSize : BridgedSourceExpr .returndataSize
   -- unary calldata / memory / transient reads
   | calldataload {offset} (hOffset : BridgedSourceExpr offset) :
       BridgedSourceExpr (.calldataload offset)
@@ -1336,6 +1337,11 @@ theorem compileExpr_bridgedSource
       simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
       subst out
       exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
+  | returndataSize =>
+      intro out hOk
+      simp [compileExpr, compileExprWithInternals, Pure.pure, Except.pure] at hOk
+      subst out
+      exact bridgedExpr_nullaryBuiltin (by simp [bridgedBuiltins])
   | calldataload _ iho =>
       intro out hOk
       simp only [compileExpr, compileExprWithInternals] at hOk
@@ -1723,6 +1729,9 @@ theorem compileRequireFailCond_bridgedSource
         hOk
   | calldatasize =>
       exact compileRequireFailCond_default_bridgedSource .calldatasize
+        hOk
+  | returndataSize =>
+      exact compileRequireFailCond_default_bridgedSource .returndataSize
         hOk
   | calldataload hOffset =>
       exact compileRequireFailCond_default_bridgedSource (.calldataload hOffset)

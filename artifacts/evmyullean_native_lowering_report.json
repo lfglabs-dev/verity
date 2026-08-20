@@ -26,6 +26,7 @@
     "number",
     "or",
     "origin",
+    "returndatasize",
     "sar",
     "sdiv",
     "sgt",

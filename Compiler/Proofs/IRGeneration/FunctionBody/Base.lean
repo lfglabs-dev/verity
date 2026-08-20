@@ -444,6 +444,29 @@ theorem eval_compileExpr_calldatasize
   simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
   exact evalIRExpr_calldatasize_of_runtimeStateMatchesIR hmatch
 
+theorem evalIRExpr_returndataSize_of_runtimeStateMatchesIR
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    (_hmatch : runtimeStateMatchesIR fields runtime state) :
+    evalIRExpr state (YulExpr.call "returndatasize" []) =
+      some (SourceSemantics.evalExpr fields runtime (.returndataSize)) := by
+  have heval : SourceSemantics.evalExpr fields runtime (.returndataSize) = some 0 := rfl
+  rw [heval]
+  simp [evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean]
+
+theorem eval_compileExpr_returndataSize
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    (hmatch : runtimeStateMatchesIR fields runtime state) :
+    evalIRExpr state (CompilationModel.compileExpr fields .calldata .returndataSize |>.toOption.getD (YulExpr.lit 0)) =
+      some (SourceSemantics.evalExpr fields runtime (.returndataSize)) := by
+  simp [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals]
+  exact evalIRExpr_returndataSize_of_runtimeStateMatchesIR hmatch
+
 theorem eval_compileExpr_literal
     (fields : List Field)
     (runtime : SourceSemantics.RuntimeState)
@@ -4737,6 +4760,10 @@ theorem compileExpr_core_ok
       exact ⟨YulExpr.call "calldatasize" [], by
         unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
         rfl⟩
+  | returndataSize =>
+      exact ⟨YulExpr.call "returndatasize" [], by
+        unfold CompilationModel.compileExpr CompilationModel.compileExprWithInternals
+        rfl⟩
   | add hL hR ihL ihR =>
       rename_i lhs rhs
       rcases ihL with ⟨lhsIR, hlhs⟩
@@ -5013,6 +5040,8 @@ theorem eval_compileExpr_core_onExpr
       exact eval_compileExpr_blobbasefee hruntime
   | calldatasize =>
       exact eval_compileExpr_calldatasize hruntime
+  | returndataSize =>
+      exact eval_compileExpr_returndataSize hruntime
   | add hL hR ihL ihR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok hL with ⟨lhsIR, hlhs⟩
@@ -6148,6 +6177,8 @@ theorem evalExpr_lt_evmModulus_core_onExpr
   | calldatasize =>
       change runtime.world.calldataSize.val < Compiler.Constants.evmModulus
       exact runtime.world.calldataSize.isLt
+  | returndataSize =>
+      simp [SourceSemantics.evalExpr, Compiler.Constants.evmModulus]
   | @add lhs rhs _ _ _ _ =>
       show (do let l : Verity.Core.Uint256 := ← SourceSemantics.evalExpr fields runtime lhs
                let r : Verity.Core.Uint256 := ← SourceSemantics.evalExpr fields runtime rhs
@@ -6669,6 +6700,11 @@ theorem compileRequireFailCond_core_ok
         unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
         unfold CompilationModel.compileExprWithInternals
         rfl⟩
+  | returndataSize =>
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "returndatasize" []], by
+        unfold CompilationModel.compileRequireFailCond CompilationModel.compileRequireFailCondWithInternals
+        unfold CompilationModel.compileExprWithInternals
+        rfl⟩
   | add hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields) hL with ⟨lhsIR, hlhs⟩
@@ -7184,6 +7220,14 @@ theorem eval_compileRequireFailCond_core_onExpr
         simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
       · simpa using finishIszeroEval (expr := .calldatasize)
           (show ExprCompileCore (.calldatasize) from ExprCompileCore.calldatasize) hexact hpresent hexpr
+  | returndataSize =>
+      rcases compileExpr_core_ok (fields := fields)
+          (show ExprCompileCore (.returndataSize) from ExprCompileCore.returndataSize) with ⟨exprIR, hexpr⟩
+      refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
+      · simpa using finishIszeroEval (expr := .returndataSize)
+          (show ExprCompileCore (.returndataSize) from ExprCompileCore.returndataSize) hexact hpresent hexpr
   | add hL hR =>
       rename_i lhs rhs
       rcases compileExpr_core_ok (fields := fields)
