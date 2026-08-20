@@ -82,6 +82,13 @@ theorem step_calldatasize_any
       .ok (state, some (EvmYul.UInt256.ofNat state.executionEnv.calldata.size)) := by
   rfl
 
+theorem step_returndatasize_any
+    (state : EvmYul.Yul.State)
+    (values : List EvmYul.UInt256) :
+    EvmYul.step (τ := .Yul) EvmYul.Operation.RETURNDATASIZE none state values =
+      .ok (state, some (state.toMachineState.returndatasize)) := by
+  rfl
+
 @[simp] theorem step_callvalue_ok
     (state : EvmYul.Yul.State) :
     EvmYul.step (τ := .Yul) EvmYul.Operation.CALLVALUE none state [] =

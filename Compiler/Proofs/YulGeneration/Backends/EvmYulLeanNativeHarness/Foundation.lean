@@ -5240,6 +5240,28 @@ theorem NativePrimCallPreservesWord_returndatasize
       cases hExec
       exact hLookup
 
+theorem NativePrimCallPreservesWord_returndatasize_values
+    (name : EvmYul.Identifier)
+    (expected : EvmYul.Literal) :
+    ∀ fuel state values final rets,
+      state[name]! = expected →
+        EvmYul.Yul.primCall fuel state EvmYul.Operation.RETURNDATASIZE values =
+          .ok (final, rets) →
+        final[name]! = expected := by
+  intro fuel state values final rets hLookup hExec
+  cases values with
+  | nil =>
+      exact NativePrimCallPreservesWord_returndatasize name expected
+        fuel state final rets hLookup hExec
+  | cons value rest =>
+      cases fuel with
+      | zero =>
+          simp [EvmYul.Yul.primCall] at hExec
+      | succ fuel' =>
+          rw [primCall_returndatasize_any_ok] at hExec
+          cases hExec
+          exact hLookup
+
 theorem NativePrimCallPreservesWord_calldatacopy
     (name : EvmYul.Identifier)
     (expected mstart datastart size : EvmYul.Literal) :
@@ -6004,7 +6026,8 @@ theorem lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl
   all_goals
     simp only [Backends.lookupRuntimePrimOp_add,
       Backends.lookupRuntimePrimOp_sub, Backends.lookupRuntimePrimOp_mul,
@@ -6025,6 +6048,7 @@ theorem lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
       Backends.lookupRuntimePrimOp_chainid, Backends.lookupRuntimePrimOp_blobbasefee,
       Backends.lookupRuntimePrimOp_calldataload,
       Backends.lookupRuntimePrimOp_calldatasize,
+      Backends.lookupRuntimePrimOp_returndatasize,
       Backends.lookupRuntimePrimOp_sload, Backends.lookupRuntimePrimOp_mappingSlot,
       Backends.lookupRuntimePrimOp_tload, Backends.lookupRuntimePrimOp_mload,
       Backends.lookupRuntimePrimOp_keccak256]
@@ -6048,7 +6072,8 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl
   all_goals
     simp only [Backends.lookupRuntimePrimOp_add,
       Backends.lookupRuntimePrimOp_sub, Backends.lookupRuntimePrimOp_mul,
@@ -6069,6 +6094,7 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
       Backends.lookupRuntimePrimOp_chainid, Backends.lookupRuntimePrimOp_blobbasefee,
       Backends.lookupRuntimePrimOp_calldataload,
       Backends.lookupRuntimePrimOp_calldatasize,
+      Backends.lookupRuntimePrimOp_returndatasize,
       Backends.lookupRuntimePrimOp_sload, Backends.lookupRuntimePrimOp_mappingSlot,
       Backends.lookupRuntimePrimOp_tload, Backends.lookupRuntimePrimOp_mload,
       Backends.lookupRuntimePrimOp_keccak256, Option.some.injEq] at hOp
@@ -6106,6 +6132,7 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
     | exact NativePrimCallPreservesWord_callvalue_values name expected
     | exact NativePrimCallPreservesWord_calldataload_values name expected
     | exact NativePrimCallPreservesWord_calldatasize_values name expected
+    | exact NativePrimCallPreservesWord_returndatasize_values name expected
     | exact NativePrimCallPreservesWord_timestamp_values name expected
     | exact NativePrimCallPreservesWord_number_values name expected
     | exact NativePrimCallPreservesWord_chainid_values name expected
