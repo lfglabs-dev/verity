@@ -302,6 +302,16 @@ example :
       (.requireError (.literal 0) "CallFree" [.literal 1]) = false := by
   native_decide
 
+/-- In the no-call fragment, EIP-211 makes `revertReturndata` exactly the
+empty revert admitted by the generic step proof. -/
+example :
+    stmtTouchesUnsupportedCallSurface .revertReturndata = false := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedLowLevelSurface .revertReturndata = false := by
+  native_decide
+
 /-- Typed-error guards and payloads remain behind the constructor raw-calldata gate. -/
 example :
     stmtTouchesUnsupportedConstructorRawCalldataSurface

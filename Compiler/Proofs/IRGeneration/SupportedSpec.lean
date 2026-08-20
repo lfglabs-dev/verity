@@ -1682,7 +1682,6 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
       exprTouchesUnsupportedCallSurface destOffset ||
         exprTouchesUnsupportedCallSurface sourceOffset ||
         exprTouchesUnsupportedCallSurface size
-  | .revertReturndata
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ => true
   | .stop | .storageArrayPop _
@@ -1988,7 +1987,7 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
       exprTouchesUnsupportedLowLevelSurface destOffset ||
         exprTouchesUnsupportedLowLevelSurface sourceOffset ||
         exprTouchesUnsupportedLowLevelSurface size
-  | .revertReturndata => true
+  | .revertReturndata => false
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
