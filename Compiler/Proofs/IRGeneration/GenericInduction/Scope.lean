@@ -509,6 +509,8 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
             ihRest
+      | revertReturndata =>
+          exact .revertReturndata ihRest
       | ite cond thenBranch elseBranch =>
           simp only [stmtTouchesUnsupportedContractSurface,
             Bool.or_eq_false_iff] at hstmtSurface
@@ -728,7 +730,6 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
       | storageArrayPush _ _ | storageArrayPop _ | setStorageArrayElement _ _ _
       | requireError _ _ _ | revertError _ _ | panicCode _ | returnValues _ | returnArray _
       | returnBytes _ | returnStorageWords _ | returnCodeData _
-      | revertReturndata
       | emit _ _ | internalCall _ _ | internalCallAssign _ _ _
       | rawLog _ _ _ | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _
       | unsafeBlock _ _ | unsafeYul _ | matchAdt _ _ _ =>
