@@ -2178,6 +2178,33 @@ def stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites : List Stmt →
         stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites rest
 end
 
+mutual
+/-- Events-aware refinement of `stmtTouchesUnsupportedEffectSurface`.
+
+`stmtTouchesUnsupportedEffectSurface` rejects every `emit`, so a body carrying
+an event emission can never satisfy the four-surface (core/state/call/effect)
+decomposition and has to be routed through the separate scalar-event gate
+`stmtTouchesUnsupportedContractSurfaceWithEvents` instead. This variant accepts
+exactly the emission heads that gate already proves, so the event slice becomes
+reachable from the same decomposition every other statement head uses. -/
+def stmtTouchesUnsupportedEffectSurfaceWithEvents
+    (events : List EventDef) : Stmt → Bool
+  | .emit eventName args =>
+      args.any exprTouchesUnsupportedContractSurface ||
+        !eventEmissionProofSupported events eventName args
+  | .ite _ thenBranch elseBranch =>
+      stmtListTouchesUnsupportedEffectSurfaceWithEvents events thenBranch ||
+        stmtListTouchesUnsupportedEffectSurfaceWithEvents events elseBranch
+  | stmt => stmtTouchesUnsupportedEffectSurface stmt
+
+def stmtListTouchesUnsupportedEffectSurfaceWithEvents
+    (events : List EventDef) : List Stmt → Bool
+  | [] => false
+  | stmt :: rest =>
+      stmtTouchesUnsupportedEffectSurfaceWithEvents events stmt ||
+        stmtListTouchesUnsupportedEffectSurfaceWithEvents events rest
+end
+
 private theorem compileStmtWithFork_cancun_eq_compileStmt
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (dynamicSource : DynamicDataSource) (internalRetNames : List String)
@@ -2789,6 +2816,14 @@ structure SupportedBodyStateInterfaceExceptMappingWrites (fn : FunctionSpec) : P
 
 structure SupportedBodyEffectInterface (fn : FunctionSpec) : Prop where
   surfaceClosed : stmtListTouchesUnsupportedEffectSurface fn.body = false
+
+/-- Effect-surface interface for bodies that emit events. `SupportedBodyEffectInterface`
+rejects every `emit`, so it is unusable for event-carrying bodies; this variant
+accepts exactly the emission heads the scalar-event slice already proves. -/
+structure SupportedBodyEffectInterfaceWithEvents
+    (spec : CompilationModel) (fn : FunctionSpec) : Prop where
+  surfaceClosed :
+    stmtListTouchesUnsupportedEffectSurfaceWithEvents spec.events fn.body = false
 
 structure InternalHelperSummaryContract where
   post : Nat → Nat → Verity.ContractState → List Nat → Bool → Option Nat → Verity.ContractState → Prop
@@ -5446,6 +5481,114 @@ theorem stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
 termination_by sizeOf stmts
 end
 
+mutual
+/-- Events-aware counterpart of
+`stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed`: the
+core/state/call/effect decomposition still implies the contract-surface gate
+once the effect component is taken in its events-aware form. -/
+theorem stmtTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+    {events : List EventDef}
+    (stmt : Stmt)
+    (hcore : stmtTouchesUnsupportedCoreSurface stmt = false)
+    (hstate : stmtTouchesUnsupportedStateSurface stmt = false)
+    (hcalls : stmtTouchesUnsupportedCallSurface stmt = false)
+    (heffects : stmtTouchesUnsupportedEffectSurfaceWithEvents events stmt = false) :
+    stmtTouchesUnsupportedContractSurfaceWithEvents events stmt = false := by
+  cases stmt with
+  | emit eventName args =>
+      simpa [stmtTouchesUnsupportedContractSurfaceWithEvents,
+        stmtTouchesUnsupportedEffectSurfaceWithEvents] using heffects
+  | ite cond thenBranch elseBranch =>
+      simp only [stmtTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp only [stmtTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
+      simp only [stmtTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
+      simp only [stmtTouchesUnsupportedEffectSurfaceWithEvents,
+        Bool.or_eq_false_iff] at heffects
+      show (exprTouchesUnsupportedContractSurface cond ||
+            stmtListTouchesUnsupportedContractSurfaceWithEvents events thenBranch ||
+            stmtListTouchesUnsupportedContractSurfaceWithEvents events elseBranch) = false
+      rw [Bool.or_eq_false_iff, Bool.or_eq_false_iff]
+      exact ⟨⟨exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed cond
+          hcore.1.1 hstate.1.1 hcalls.1.1,
+        stmtListTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+          thenBranch hcore.1.2 hstate.1.2 hcalls.1.2 heffects.1⟩,
+        stmtListTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+          elseBranch hcore.2 hstate.2 hcalls.2 heffects.2⟩
+  | _ =>
+      all_goals
+        (simp only [stmtTouchesUnsupportedContractSurfaceWithEvents]
+         exact stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed _
+           hcore hstate hcalls
+           (by simpa [stmtTouchesUnsupportedEffectSurfaceWithEvents] using heffects))
+termination_by sizeOf stmt
+
+theorem stmtListTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+    {events : List EventDef}
+    (stmts : List Stmt)
+    (hcore : stmtListTouchesUnsupportedCoreSurface stmts = false)
+    (hstate : stmtListTouchesUnsupportedStateSurface stmts = false)
+    (hcalls : stmtListTouchesUnsupportedCallSurface stmts = false)
+    (heffects : stmtListTouchesUnsupportedEffectSurfaceWithEvents events stmts = false) :
+    stmtListTouchesUnsupportedContractSurfaceWithEvents events stmts = false := by
+  match stmts with
+  | [] => simp [stmtListTouchesUnsupportedContractSurfaceWithEvents]
+  | stmt :: rest =>
+      simp only [stmtListTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
+      simp only [stmtListTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
+      simp only [stmtListTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
+      simp only [stmtListTouchesUnsupportedEffectSurfaceWithEvents,
+        Bool.or_eq_false_iff] at heffects
+      have hstmt :
+          stmtTouchesUnsupportedContractSurfaceWithEvents events stmt = false :=
+        stmtTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+          stmt hcore.1 hstate.1 hcalls.1 heffects.1
+      have hrest :
+          stmtListTouchesUnsupportedContractSurfaceWithEvents events rest = false :=
+        stmtListTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+          rest hcore.2 hstate.2 hcalls.2 heffects.2
+      simp [stmtListTouchesUnsupportedContractSurfaceWithEvents, hstmt, hrest]
+termination_by sizeOf stmts
+end
+
+mutual
+/-- The events-aware effect surface is a genuine weakening: every body the plain
+effect surface accepts is still accepted here. -/
+theorem stmtTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
+    {events : List EventDef}
+    (stmt : Stmt)
+    (heffects : stmtTouchesUnsupportedEffectSurface stmt = false) :
+    stmtTouchesUnsupportedEffectSurfaceWithEvents events stmt = false := by
+  cases stmt with
+  | emit _ _ => simp [stmtTouchesUnsupportedEffectSurface] at heffects
+  | ite _ thenBranch elseBranch =>
+      simp only [stmtTouchesUnsupportedEffectSurface, Bool.or_eq_false_iff] at heffects
+      simp only [stmtTouchesUnsupportedEffectSurfaceWithEvents, Bool.or_eq_false_iff]
+      exact ⟨stmtListTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
+          thenBranch heffects.1,
+        stmtListTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
+          elseBranch heffects.2⟩
+  | _ =>
+      all_goals
+        (simp only [stmtTouchesUnsupportedEffectSurfaceWithEvents]; exact heffects)
+termination_by sizeOf stmt
+
+theorem stmtListTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
+    {events : List EventDef}
+    (stmts : List Stmt)
+    (heffects : stmtListTouchesUnsupportedEffectSurface stmts = false) :
+    stmtListTouchesUnsupportedEffectSurfaceWithEvents events stmts = false := by
+  match stmts with
+  | [] => simp [stmtListTouchesUnsupportedEffectSurfaceWithEvents]
+  | stmt :: rest =>
+      simp only [stmtListTouchesUnsupportedEffectSurface, Bool.or_eq_false_iff] at heffects
+      simp [stmtListTouchesUnsupportedEffectSurfaceWithEvents,
+        stmtTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
+          (events := events) stmt heffects.1,
+        stmtListTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
+          (events := events) rest heffects.2]
+termination_by sizeOf stmts
+end
+
 private theorem stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_featureClosed
     (stmt : Stmt)
     (hcore : stmtTouchesUnsupportedCoreSurface stmt = false)
@@ -5769,6 +5912,68 @@ theorem SupportedBodyCallInterface.surfaceClosed
     stmtListTouchesUnsupportedCallSurface fn.body = false := by
   rw [stmtListTouchesUnsupportedCallSurface_eq_featureOr]
   simp [hBody.helperSurfaceClosed, hBody.calls.foreign, hBody.calls.lowLevel]
+
+theorem SupportedBodyCallInterface.surfaceClosed_withScalarEvents
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (hBody : SupportedBodyInterfaceWithScalarEvents spec fn) :
+    stmtListTouchesUnsupportedCallSurface fn.body = false := by
+  rw [stmtListTouchesUnsupportedCallSurface_eq_featureOr]
+  simp [hBody.helperSurfaceClosed, hBody.calls.foreign, hBody.calls.lowLevel]
+
+/-- Build the scalar-event body interface from the same core/state/call/effect
+decomposition every other statement head uses, with the effect component taken
+in its events-aware form. Before this, `contractSurfaceWithEvents` had to be
+supplied directly because `SupportedBodyEffectInterface` rejects every `emit`. -/
+def SupportedBodyInterfaceWithScalarEvents.ofEffectInterfaceWithEvents
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (stmtList : SupportedStmtList spec.fields (fn.params.map (·.name)) fn.body)
+    (core : SupportedBodyCoreInterface fn)
+    (state : SupportedBodyStateInterface fn)
+    (calls : SupportedBodyCallInterface spec fn)
+    (effects : SupportedBodyEffectInterfaceWithEvents spec fn)
+    (topLevelEventHeads :
+      ∀ s ∈ fn.body,
+        stmtTouchesEventSurface s = true ∨
+          stmtTouchesUnsupportedContractSurface s = false)
+    (eventScratchFreshInitial :
+      "__evt_ptr" ∉ fn.params.map (·.name) ∧
+        "__evt_topic0" ∉ fn.params.map (·.name))
+    (eventScratchFreshStmts :
+      ∀ s ∈ fn.body,
+        "__evt_ptr" ∉ collectStmtBindNames s ∧ "__evt_topic0" ∉ collectStmtBindNames s)
+    (emitArgsInScope :
+      ∀ s ∈ fn.body, ∀ (eventName : String) (args : List Expr),
+        s = Stmt.emit eventName args →
+        ∀ arg ∈ args,
+          FunctionBody.exprBoundNamesInScope arg (fn.params.map (·.name)))
+    (noLocalObligations : fn.localObligations = []) :
+    SupportedBodyInterfaceWithScalarEvents spec fn where
+  stmtList := stmtList
+  core := core
+  state := state
+  calls := calls
+  contractSurfaceWithEvents :=
+    stmtListTouchesUnsupportedContractSurfaceWithEvents_eq_false_of_featureClosedWithEvents
+      fn.body core.surfaceClosed state.surfaceClosed
+      (by
+        rw [stmtListTouchesUnsupportedCallSurface_eq_featureOr]
+        simp [stmtList.helperSurfaceClosed, calls.foreign, calls.lowLevel])
+      effects.surfaceClosed
+  topLevelEventHeads := topLevelEventHeads
+  eventScratchFreshInitial := eventScratchFreshInitial
+  eventScratchFreshStmts := eventScratchFreshStmts
+  emitArgsInScope := emitArgsInScope
+  noLocalObligations := noLocalObligations
+
+/-- An emission-free body reaches the scalar-event interface through its plain
+effect interface, so the events-aware route strictly extends the existing one. -/
+def SupportedBodyEffectInterfaceWithEvents.ofEffectInterface
+    {spec : CompilationModel} {fn : FunctionSpec}
+    (effects : SupportedBodyEffectInterface fn) :
+    SupportedBodyEffectInterfaceWithEvents spec fn where
+  surfaceClosed :=
+    stmtListTouchesUnsupportedEffectSurfaceWithEvents_eq_false_of_effectSurfaceClosed
+      fn.body effects.surfaceClosed
 
 theorem SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites
     {spec : CompilationModel} {fn : FunctionSpec}
