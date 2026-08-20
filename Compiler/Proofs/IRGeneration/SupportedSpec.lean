@@ -1682,7 +1682,7 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
       exprTouchesUnsupportedCallSurface destOffset ||
         exprTouchesUnsupportedCallSurface sourceOffset ||
         exprTouchesUnsupportedCallSurface size
-  | .revertReturndata
+  | .revertReturndata => false
   | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ => true
   | .stop | .storageArrayPop _
@@ -1988,7 +1988,7 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
       exprTouchesUnsupportedLowLevelSurface destOffset ||
         exprTouchesUnsupportedLowLevelSurface sourceOffset ||
         exprTouchesUnsupportedLowLevelSurface size
-  | .revertReturndata => true
+  | .revertReturndata => false
   | .stop
   | .internalCall _ _ | .internalCallAssign _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
   | .ecm _ _ | .storageArrayPop _
@@ -2029,6 +2029,7 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
         exprTouchesUnsupportedContractSurface sourceOffset ||
         exprTouchesUnsupportedContractSurface size
   | .stop => false
+  | .revertReturndata => false
   | .ite cond thenBranch elseBranch =>
       exprTouchesUnsupportedContractSurface cond ||
         stmtListTouchesUnsupportedContractSurface thenBranch ||
@@ -2040,7 +2041,6 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .storageArrayPush _ _ | .storageArrayPop _ | .setStorageArrayElement _ _ _
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _
-  | .revertReturndata
   | .emit _ _ | .internalCall _ _ | .internalCallAssign _ _ _
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .ecm _ _
   | .tryExternalCallBind _ _ _ _ | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _
@@ -2305,14 +2305,15 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
         | forEachSetBit _ _ _ =>
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
         | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord
-        | require | «return» | mstore | tstore | calldatacopy | returndataCopy | stop =>
+        | require | «return» | mstore | tstore | calldatacopy | returndataCopy
+        | revertReturndata | stop =>
             simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
         | setMapping | setMappingWord | setMappingPackedWord | setMapping2
         | setMapping2Word | setMappingUint | setMappingChain | setStructMember
         | setStructMember2 | storageArrayPush | storageArrayPop
         | setStorageArrayElement | requireError | revertError | returnValues
         | returnArray | returnBytes | returnStorageWords | returnCodeData
-        | revertReturndata | emit | internalCall
+        | emit | internalCall
         | internalCallAssign | rawLog | externalCallBind | ecm
         | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt | panicCode =>
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
@@ -4083,6 +4084,9 @@ theorem SupportedStmtList.helperSurfaceClosed
       exact supportedStmtList_calldatacopySingle_helperSurfaceClosed hdest hsource hsize
   | returndataCopyEmptySingle hdest _ =>
       exact supportedStmtList_returndataCopyEmptySingle_helperSurfaceClosed hdest
+  | revertReturndataEmptySingle =>
+      simp [stmtListTouchesUnsupportedHelperSurface,
+        stmtTouchesUnsupportedHelperSurface]
   | letStorageField _ _ =>
       exact supportedStmtList_letStorageField_helperSurfaceClosed
   | letStorageAddrField _ _ =>
@@ -4239,6 +4243,8 @@ theorem SupportedStmtList.internalHelperCallNames_nil
         stmtInternalHelperCallNames,
         exprCompileCore_internalHelperCallNames_nil hdest,
         exprInternalHelperCallNames]
+  | revertReturndataEmptySingle =>
+      simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
   | letStorageField _ _ =>
       simp only [stmtListInternalHelperCallNames,
         stmtInternalHelperCallNames,
@@ -5481,6 +5487,7 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           elseBranch hcore.2 hstate.2 hcalls.2 heffects.2⟩
   | forEach _ _ _ | forEachSetBit _ _ _ => cases hcore
   | setStorageWord _ _ _ => cases hstate
+  | revertReturndata => simp [stmtTouchesUnsupportedContractSurface]
   | _ =>
       all_goals (simp only [stmtTouchesUnsupportedContractSurface]; assumption)
 termination_by sizeOf stmt
@@ -5817,10 +5824,12 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | storageArrayPop _ | setStorageArrayElement _ _ _ | requireError _ _ _
   | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
   | returnStorageWords _ | returnCodeData _
-  | revertReturndata | emit _ _ | internalCall _ _
+  | emit _ _ | internalCall _ _
   | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _
   | forEachSetBit _ _ _ | panicCode _ =>
       cases hsurface
+  | revertReturndata =>
+      simp [stmtTouchesUnsupportedHelperSurface]
   | forEach varName count body =>
       cases count with
       | literal n =>
@@ -6569,6 +6578,8 @@ private theorem supportedStmtList_usesArrayElement_false
   | returndataCopyEmptySingle hdest _ =>
       simp [stmtListUsesArrayElement, stmtUsesArrayElement,
         exprCompileCore_usesArrayElement_false hdest, exprUsesArrayElement]
+  | revertReturndataEmptySingle =>
+      simp [stmtListUsesArrayElement, stmtUsesArrayElement]
   | letStorageField _ _ =>
       simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
   | letStorageAddrField _ _ =>
@@ -6695,6 +6706,8 @@ private theorem supportedStmtList_usesStorageArrayElement_false
   | returndataCopyEmptySingle hdest _ =>
       simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprCompileCore_usesStorageArrayElement_false hdest, exprUsesStorageArrayElement]
+  | revertReturndataEmptySingle =>
+      simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement]
   | letStorageField _ _ =>
       simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
         exprUsesStorageArrayElement, Bool.false_or]
@@ -6829,6 +6842,8 @@ private theorem supportedStmtList_usesDynamicBytesEq_false
   | returndataCopyEmptySingle hdest _ =>
       simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
         exprCompileCore_usesDynamicBytesEq_false hdest, exprUsesDynamicBytesEq]
+  | revertReturndataEmptySingle =>
+      simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq]
   | letStorageField _ _ =>
       simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
   | letStorageAddrField _ _ =>
@@ -7216,6 +7231,8 @@ private theorem supportedStmtList_usesMulDiv512_false
   | returndataCopyEmptySingle hdest _ =>
       simp [stmtListUsesMulDiv512, stmtUsesMulDiv512,
         exprCompileCore_usesMulDiv512_false hdest, exprUsesMulDiv512]
+  | revertReturndataEmptySingle =>
+      simp [stmtListUsesMulDiv512, stmtUsesMulDiv512]
   | letStorageField _ _ =>
       simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
   | letStorageAddrField _ _ =>
@@ -7342,6 +7359,8 @@ private theorem supportedStmtList_usesParamDynamicHeadWord_false
   | returndataCopyEmptySingle hdest _ =>
       simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
         exprCompileCore_usesParamDynamicHeadWord_false hdest, exprUsesParamDynamicHeadWord]
+  | revertReturndataEmptySingle =>
+      simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord]
   | letStorageField _ _ =>
       simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
   | letStorageAddrField _ _ =>

@@ -3185,6 +3185,64 @@ theorem compiledStmtStep_returndatacopy_empty_single
   preserves := compiledStmtStep_returndatacopy_empty_single_preserves
     hcoreDest hinScopeDest hdestIR
 
+/-- `revertReturndata` is an empty revert in the no-call fragment.  The
+compiler's temporary is exactly `returndatasize()`, which the shared EIP-211
+semantics evaluates to zero, so the copy is in range before `revert(0, 0)`. -/
+private theorem compiledStmtStep_revertReturndata_empty_single_preserves
+    {fields : List Field}
+    {scope : List String} :
+    ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState) (extraFuel : Nat),
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+      FunctionBody.scopeNamesPresent scope runtime.bindings →
+      FunctionBody.bindingsBounded runtime.bindings →
+      FunctionBody.runtimeStateMatchesIR fields runtime state →
+      sizeOf [YulStmt.block [
+          YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
+          YulStmt.exprStmt (YulExpr.call "returndatacopy"
+            [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
+          YulStmt.exprStmt (YulExpr.call "revert"
+            [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
+        ]] - 1 ≤ extraFuel →
+      ∃ sourceResult irExec,
+        SourceSemantics.execStmt fields runtime .revertReturndata = sourceResult ∧
+        execIRStmts
+            ([YulStmt.block [
+              YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
+              YulStmt.exprStmt (YulExpr.call "returndatacopy"
+                [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
+              YulStmt.exprStmt (YulExpr.call "revert"
+                [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
+            ]].length + extraFuel + 1) state
+            [YulStmt.block [
+              YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
+              YulStmt.exprStmt (YulExpr.call "returndatacopy"
+                [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
+              YulStmt.exprStmt (YulExpr.call "revert"
+                [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
+            ]] = irExec ∧
+        stmtStepMatchesIRExec fields (stmtNextScope scope .revertReturndata)
+          sourceResult irExec := by
+  intro runtime state extraFuel _ _ _ _ _
+  refine ⟨.revert, .revert state, ?_, ?_, trivial⟩
+  · rfl
+  · simp [execIRStmts, execIRStmt, evalIRExpr, Nat.succ_eq_add_one,
+      Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
+
+theorem compiledStmtStep_revertReturndata_empty_single
+    {fields : List Field} {scope : List String} :
+    CompiledStmtStep fields scope .revertReturndata
+      [YulStmt.block [
+        YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
+        YulStmt.exprStmt (YulExpr.call "returndatacopy"
+          [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
+        YulStmt.exprStmt (YulExpr.call "revert"
+          [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
+      ]] where
+  compileOk := by
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      pure, Except.pure]
+  preserves := compiledStmtStep_revertReturndata_empty_single_preserves
+
 private theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves
     {fields : List Field}
     {scope : List String}
@@ -7872,6 +7930,12 @@ theorem stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_su
     (scope := scope)
     (hcoreDest := hcoreDest)
     (hinScopeDest := hinScopeDest)
+
+theorem stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
+    {fields : List Field} {scope : List String} :
+    StmtListGenericCore fields scope [Stmt.revertReturndata] :=
+  StmtListGenericCore.cons compiledStmtStep_revertReturndata_empty_single
+    StmtListGenericCore.nil
 
 
 end Compiler.Proofs.IRGeneration

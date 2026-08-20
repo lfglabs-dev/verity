@@ -109,7 +109,7 @@ Legend: **ok** = supported, **0** = returns 0 (not modeled), **del** = delegated
 | Memory store | `Stmt.mstore` | **rev** | **rev** | ok | partial |
 | Calldatacopy | `Stmt.calldatacopy` | ok | ok | ok | proved |
 | Returndatacopy | `Stmt.returndataCopy` | ok | ok | ok | partial |
-| Revert returndata | `Stmt.revertReturndata` | **rev** | **rev** | -- | n/m |
+| Revert returndata | `Stmt.revertReturndata` | **rev** | **rev** | -- | partial |
 | Raw log | `Stmt.rawLog` | **rev** | **rev** | -- | n/m |
 | External call bind | `Stmt.externalCallBind` | **rev** | **rev** | -- | n/m |
 | ECM (`callWithValue` / `callWithValueBytes` included) | `Stmt.ecm` | **rev** | **rev** | -- | n/m |
@@ -205,10 +205,10 @@ Legend: **ok** = native evaluation.
 | Category | Proved | Assumed | Partial | Not Modeled |
 |---|---|---|---|---|
 | Expression features | 24 | 1 (`externalCall`) | 6 | 6 (`keccak256`, `call`, `staticcall`, `delegatecall`, `arrayElementDynamicWord`, `paramDynamicHeadWord`) |
-| Statement features | 25 | 0 | 3 (`forEach`, `mstore`, `returndataCopy`) | 4 (`revertReturndata`, `rawLog`, `externalCallBind`, `ecm`) |
+| Statement features | 25 | 0 | 4 (`forEach`, `mstore`, `returndataCopy`, `revertReturndata`) | 3 (`rawLog`, `externalCallBind`, `ecm`) |
 | Builtins (agreement) | 36 | 0 | 0 | 0 (delegated) |
 
-Proof-boundary features split across two buckets. Partially modeled features currently include runtime introspection (`blockNumber`, `contractAddress`, `chainid`) and single-word linear-memory forms (`mload`, `mstore`, `returndataOptionalBoolAt`). `returndataCopy` is partially modeled: the source and IR interpreters execute it, and the generic proof fragment admits the zero-extent copy `returndataCopy dst 0 0`, which is the only shape reachable in a fragment that issues no call-family instruction (EIP-211 leaves the frame's returndata buffer empty). Wider copies stay outside the fragment because they are the EVM's exceptional halt. `selfBalance` is also partially modeled: it is compiler-supported and source-executable, but not yet included in the generic proof interpreter fragment. Fully not-modeled features currently include `keccak256`, low-level call / returndata plumbing (`call`, `staticcall`, `delegatecall`, `revertReturndata`), event emission (`rawLog`), and external call modules (`externalCallBind`, `ecm`). Dynamic struct-array head-word decoding (`arrayElementDynamicWord`) and direct dynamic-struct parameter head-word decoding (`paramDynamicHeadWord`) are also not modeled by proof interpreters yet. These features are still compiler-supported and are validated by differential testing (70,000+ test vectors against actual EVM execution).
+Proof-boundary features split across two buckets. Partially modeled features currently include runtime introspection (`blockNumber`, `contractAddress`, `chainid`) and single-word linear-memory forms (`mload`, `mstore`, `returndataOptionalBoolAt`). `returndataCopy` is partially modeled: the source and IR interpreters execute it, and the generic proof fragment admits the zero-extent copy `returndataCopy dst 0 0`, which is the only shape reachable in a fragment that issues no call-family instruction (EIP-211 leaves the frame's returndata buffer empty). The same no-call invariant admits `revertReturndata`: its generated `returndatasize()` is zero, so it proves the exact empty revert `revert(0, 0)`. Wider copies and returndata bubbling after a call remain outside the fragment because they are the EVM's exceptional halt. `selfBalance` is also partially modeled: it is compiler-supported and source-executable, but not yet included in the generic proof interpreter fragment. Fully not-modeled features currently include `keccak256`, low-level call plumbing (`call`, `staticcall`, `delegatecall`), event emission (`rawLog`), and external call modules (`externalCallBind`, `ecm`). Dynamic struct-array head-word decoding (`arrayElementDynamicWord`) and direct dynamic-struct parameter head-word decoding (`paramDynamicHeadWord`) are also not modeled by proof interpreters yet. These features are still compiler-supported and are validated by differential testing (70,000+ test vectors against actual EVM execution).
 
 ---
 
