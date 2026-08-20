@@ -256,6 +256,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_lt_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_calldatasize_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_calldatasize_any
+  Compiler.Proofs.YulGeneration.Backends.Native.step_returndatasize_any
   Compiler.Proofs.YulGeneration.Backends.Native.step_callvalue_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_callvalue_any
   Compiler.Proofs.YulGeneration.Backends.Native.step_address_ok
@@ -2855,6 +2856,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_txOrigin
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_calldatasize_of_runtimeStateMatchesIR
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_calldatasize
+  Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_returndataSize_of_runtimeStateMatchesIR
+  Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_returndataSize
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_literal
   Compiler.Proofs.IRGeneration.FunctionBody.boolWord_eq_if
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_iszero_of_lt
@@ -5451,6 +5454,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.compileStmt_returndatacopy_noFuncDefs  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_returndatacopy_fragment_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_returndatacopy_fragment_noFuncDefs
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_revertReturndata_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_revertReturndata_noFuncDefs  -- private
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_revertReturndata_fragment_bridged
+  Compiler.Proofs.YulGeneration.Backends.compileStmt_revertReturndata_fragment_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_storageArrayPush_singleSlot_bridged
   -- Compiler.Proofs.YulGeneration.Backends.compileStmt_storageArrayPush_singleSlot_noFuncDefs  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_storageArrayPush_bridged
@@ -5582,6 +5589,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_tstoreSingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_calldatacopySingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore
+  Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_revertReturndataEmptySingle
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingSingleSlot
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingUintSingleSlot
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingChainSingleSlot
@@ -6065,6 +6073,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_msize
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_gas
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_returndatasize
+  Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_returndatasize_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_calldatacopy
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_returndatacopy
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_calldatacopy_values
@@ -6688,6 +6697,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_iszero
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_lt
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_calldatasize
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_returndatasize
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_callvalue
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_sload
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mstore
@@ -7013,6 +7023,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_msize_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_gas_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatasize_ok
+  Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatasize_any_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_calldatacopy_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_returndatacopy_ok
   Compiler.Proofs.YulGeneration.Backends.Native.primCall_pop_ok
@@ -7358,4 +7369,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6808 theorems/lemmas (4880 public, 1928 private, 0 sorry'd)
+-- Total: 6819 theorems/lemmas (4889 public, 1930 private, 0 sorry'd)
