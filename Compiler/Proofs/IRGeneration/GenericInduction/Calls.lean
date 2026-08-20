@@ -1991,6 +1991,12 @@ private theorem internalFunctionYulName_ne_mstore
     CompilationModel.internalFunctionYulName calleeName ≠ "mstore" := by
   exact internalFunctionYulName_ne_of_head calleeName "mstore" 'm' (by decide) (by decide)
 
+private theorem internalFunctionYulName_ne_returndatacopy
+    (calleeName : String) :
+    CompilationModel.internalFunctionYulName calleeName ≠ "returndatacopy" := by
+  exact internalFunctionYulName_ne_of_head calleeName "returndatacopy" 'r'
+    (by decide) (by decide)
+
 private theorem internalFunctionYulName_ne_revert
     (calleeName : String) :
     CompilationModel.internalFunctionYulName calleeName ≠ "revert" := by
@@ -2267,6 +2273,7 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
             ("calldatacopy" : String).toList.head? at hHead
           rw [internalFunctionYulName_head calleeName, hT] at hHead
           exact nomatch hHead)
+        (internalFunctionYulName_ne_returndatacopy calleeName)
         (internalFunctionYulName_ne_revert calleeName)
         (internalFunctionYulName_ne_return calleeName)
         (internalFunctionYulName_ne_invalid calleeName)

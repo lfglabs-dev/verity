@@ -719,6 +719,9 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
+  -- Mirrors `SourceSemantics.evalExpr`: the modeled fragment performs no
+  -- call-family instruction, so the EIP-211 returndata buffer stays empty.
+  | .returndataSize => some 0
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields state a
@@ -1279,6 +1282,12 @@ mutual
                   else state.world.memory o
               }
             }
+        | _, _, _ => .revert
+    | state, .returndataCopy destOffset sourceOffset size =>
+        match evalExpr oracle fields state destOffset, evalExpr oracle fields state sourceOffset,
+            evalExpr oracle fields state size with
+        | some _, some src, some sz =>
+            if src + sz = 0 then .continue state else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr oracle fields state cond with

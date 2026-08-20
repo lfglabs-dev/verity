@@ -1206,6 +1206,9 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
+  -- The admitted fragment contains no call-family instruction, so by EIP-211
+  -- the EVM returndata buffer is still the empty buffer the frame started with.
+  | .returndataSize => some 0
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr fields state a
@@ -1609,10 +1612,15 @@ private theorem evalExpr_calldatasize
     (state : RuntimeState) :
     evalExpr fields state .calldatasize = some state.world.calldataSize.val := rfl
 
+/-- `returndatasize()` in the admitted fragment.
+
+The supported fragment admits no `call`/`staticcall`/`delegatecall`/`create`
+instruction, so the EVM returndata buffer keeps the empty value EIP-211 gives it
+at frame entry. This matches the EDSL model (`Contracts.returndataSize = 0`). -/
 private theorem evalExpr_returndataSize
     (fields : List Field)
     (state : RuntimeState) :
-    evalExpr fields state .returndataSize = none := rfl
+    evalExpr fields state .returndataSize = some 0 := rfl
 
 private theorem evalExpr_arrayLength
     (fields : List Field)
@@ -2604,6 +2612,16 @@ mutual
               }
             }
         | _, _, _ => .revert
+    | state, .returndataCopy destOffset sourceOffset size =>
+        match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
+            evalExpr fields state size with
+        | some _, some src, some sz =>
+            -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
+            -- returndata buffer; in this fragment that buffer is empty, so the
+            -- only in-range copy is the zero-extent one, which leaves memory
+            -- untouched. Out-of-range copies are observed as a failed frame.
+            if src + sz = 0 then .continue state else .revert
+        | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr fields state cond with
         | some resolved =>
@@ -2904,6 +2922,16 @@ mutual
                   else state.world.memory o
               }
             }
+        | _, _, _ => .revert
+    | state, .returndataCopy destOffset sourceOffset size =>
+        match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
+            evalExpr fields state size with
+        | some _, some src, some sz =>
+            -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
+            -- returndata buffer; in this fragment that buffer is empty, so the
+            -- only in-range copy is the zero-extent one, which leaves memory
+            -- untouched. Out-of-range copies are observed as a failed frame.
+            if src + sz = 0 then .continue state else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr fields state cond with
@@ -3697,6 +3725,7 @@ mutual
     | .blockNumber => some state.world.blockNumber.val
     | .blobbasefee => some state.world.blobBaseFee.val
     | .calldatasize => some state.world.calldataSize.val
+    | .returndataSize => some 0
     | .localVar name => some (lookupValue state.bindings name)
     | .add a b => do
         let lhs : Verity.Core.Uint256 := ← evalExprWithHelpers spec fields fuel state a
@@ -4015,7 +4044,7 @@ mutual
     | .paramDynamicMemberLength _ _
     | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
     | .arrayElementWord _ _ _ _
-    | .extcodesize _ | .returndataSize | .returndataOptionalBoolAt _
+    | .extcodesize _ | .returndataOptionalBoolAt _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
     | .forkIfAtLeast _ _ _
@@ -4273,6 +4302,13 @@ mutual
                   else state.world.memory o
               }
             }
+        | _, _, _ => .revert
+    | .returndataCopy destOffset sourceOffset size =>
+        match evalExprWithHelpers spec fields fuel state destOffset,
+            evalExprWithHelpers spec fields fuel state sourceOffset,
+            evalExprWithHelpers spec fields fuel state size with
+        | some _, some src, some sz =>
+            if src + sz = 0 then .continue state else .revert
         | _, _, _ => .revert
     | .require cond _ =>
         match evalExprWithHelpers spec fields fuel state cond with
@@ -5739,6 +5775,27 @@ mutual
       evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state size
         hsurface.2]
 
+  private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_returndataCopy
+      (spec : CompilationModel)
+      (fields : List Field)
+      (fuel : Nat)
+      (state : RuntimeState)
+      (destOffset sourceOffset size : Expr)
+      (hsurface :
+        stmtTouchesUnsupportedHelperSurface (.returndataCopy destOffset sourceOffset size)
+          = false) :
+      execStmtWithHelpers spec fields fuel state (.returndataCopy destOffset sourceOffset size) =
+        execStmtWithEvents fields spec.events state
+          (.returndataCopy destOffset sourceOffset size) := by
+    simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+    simp [execStmtWithHelpers, execStmtWithEvents,
+      evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state destOffset
+        hsurface.1.1,
+      evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state sourceOffset
+        hsurface.1.2,
+      evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state size
+        hsurface.2]
+
   private theorem expr_sizeOf_pos (expr : Expr) : 0 < sizeOf expr := by
     cases expr <;> simp
 
@@ -5941,7 +5998,9 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .calldatacopy destOffset sourceOffset size =>
       exact execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_calldatacopy
         spec fields fuel state destOffset sourceOffset size hsurface
-  | .returndataCopy _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .returndataCopy destOffset sourceOffset size =>
+      exact execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_returndataCopy
+        spec fields fuel state destOffset sourceOffset size hsurface
   | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
   | .emit _ args =>
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface

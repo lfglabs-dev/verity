@@ -580,10 +580,10 @@
     {
       "feature": "returndataCopy",
       "constructor": "Stmt.returndataCopy",
-      "SourceInterpreter_basic": "unsupported",
-      "SourceInterpreter_fuel": "unsupported",
-      "IRInterpreter": "n/a",
-      "proof_status": "not_modeled"
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
+      "IRInterpreter": "supported",
+      "proof_status": "partial"
     },
     {
       "feature": "revertReturndata",

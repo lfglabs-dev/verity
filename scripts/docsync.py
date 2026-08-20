@@ -714,13 +714,13 @@ INTERPRETER_FEATURE_BOUNDARY_CATALOG = CategoryNoteEntry(
     categories=(
         (("blockNumber", "contractAddress", "chainid"), "partial", "runtime introspection"),
         (("mload", "mstore", "returndataOptionalBoolAt"), "partial", "single-word linear memory"),
+        (("returndataCopy",), "partial", "zero-extent returndata copy"),
         (
             (
                 "keccak256",
                 "call",
                 "staticcall",
                 "delegatecall",
-                "returndataCopy",
                 "revertReturndata",
                 "rawLog",
                 "externalCallBind",
@@ -735,7 +735,7 @@ INTERPRETER_FEATURE_BOUNDARY_CATALOG = CategoryNoteEntry(
         "(`blockNumber`, `contractAddress`, `chainid`) and single-word linear-memory forms "
         "(`mload`, `mstore`, `returndataOptionalBoolAt`).",
         "Fully not-modeled features currently include `keccak256`, low-level call / returndata "
-        "plumbing (`call`, `staticcall`, `delegatecall`, `returndataCopy`, "
+        "plumbing (`call`, `staticcall`, `delegatecall`, "
         "`revertReturndata`), event emission (`rawLog`), and external call modules "
         "(`externalCallBind`, `ecm`).",
     ),

@@ -650,6 +650,14 @@ def execIRStmtWithInternals
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
               | .revert state' => .revert state'
+          | .call "returndatacopy" [dstExpr, srcExpr, sizeExpr] =>
+              match evalIRExprsWithInternals contract fuel state [dstExpr, srcExpr, sizeExpr] with
+              | .values [_, src, size] state' =>
+                  if src + size = 0 then .continue state' else .revert state'
+              | .values _ state' => .revert state'
+              | .stop state' => .stop state'
+              | .return value' state' => .return value' state'
+              | .revert state' => .revert state'
           | .call "stop" [] => .stop state
           | .call "revert" [offsetExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, sizeExpr] with
@@ -958,6 +966,12 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
                   memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
                     state.selector state.calldata dst src size state.memory
                 }
+              | _, _, _ => .revert state
+          | .call "returndatacopy" [dstExpr, srcExpr, sizeExpr] =>
+              match evalIRExpr state dstExpr, evalIRExpr state srcExpr,
+                  evalIRExpr state sizeExpr with
+              | some _, some src, some size =>
+                if src + size = 0 then .continue state else .revert state
               | _, _, _ => .revert state
           | .call "stop" [] => .stop state
           | .call "revert" [_, _] => .revert state
@@ -1490,18 +1504,30 @@ def NotTerminator (stmt : YulStmt) : Prop :=
 
 @[simp] theorem NotTerminator_comment (text : String) :
     NotTerminator (.comment text) := by
-  refine ⟨?_, ?_, ?_⟩ <;> · intros; intro h; cases h
+  refine ⟨?_, ?_, ?_⟩
+  · intros; intro h; cases h
+  · intros; intro h; cases h
+  · intros; intro h; cases h
 
 @[simp] theorem NotTerminator_let_ (name : String) (value : YulExpr) :
     NotTerminator (.let_ name value) := by
-  refine ⟨?_, ?_, ?_⟩ <;> · intros; intro h; cases h
+  refine ⟨?_, ?_, ?_⟩
+  · intros; intro h; cases h
+  · intros; intro h; cases h
+  · intros; intro h; cases h
 
 @[simp] theorem NotTerminator_assign (name : String) (value : YulExpr) :
     NotTerminator (.assign name value) := by
-  refine ⟨?_, ?_, ?_⟩ <;> · intros; intro h; cases h
+  refine ⟨?_, ?_, ?_⟩
+  · intros; intro h; cases h
+  · intros; intro h; cases h
+  · intros; intro h; cases h
 
 @[simp] theorem NotTerminator_leave : NotTerminator .leave := by
-  refine ⟨?_, ?_, ?_⟩ <;> · intros; intro h; cases h
+  refine ⟨?_, ?_, ?_⟩
+  · intros; intro h; cases h
+  · intros; intro h; cases h
+  · intros; intro h; cases h
 
 /-- State-relative variant of `IRStmtPreservesObs`: at this specific state,
 `stmt` runs to `.continue _` in IR. Compared with `IRStmtPreservesObs`
@@ -1634,17 +1660,23 @@ theorem IRStmtPreservesObsAt_of_calldatacopy
         state.selector state.calldata dst src size state.memory }, fun _ => ?_⟩
   simp [execIRStmt, hdst, hsrc, hsize]
 
-/-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`: opaque
-fallthrough. -/
+/-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`.
+
+The IR model gives the frame-entry returndata buffer of EIP-211: empty. A
+`returndatacopy` is therefore in range only for the zero-extent copy, which
+leaves memory untouched; every other `(src, size)` is the EVM's exceptional
+halt and is modelled as `.revert`. So the preservation cross-cast is available
+exactly on the in-range shape. -/
 theorem IRStmtPreservesObsAt_of_returndatacopy
     (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr)
-    (hEval : ∃ v, evalIRExpr state
-      (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr]) = some v) :
+    (hDst : ∃ v, evalIRExpr state dstExpr = some v)
+    (hSrc : evalIRExpr state srcExpr = some 0)
+    (hSize : evalIRExpr state sizeExpr = some 0) :
     IRStmtPreservesObsAt state
       (.exprStmt (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr])) := by
-  obtain ⟨v, hv⟩ := hEval
+  obtain ⟨dst, hdst⟩ := hDst
   refine ⟨state, fun _ => ?_⟩
-  simp [execIRStmt, isYulLogName, hv]
+  simp [execIRStmt, hdst, hSrc, hSize]
 
 /-- Cross-cast for `.exprStmt (.call "log0" [offset, size])`. Updates events by
 appending a Yul log entry. -/
@@ -1797,6 +1829,7 @@ theorem IRStmtPreservesObsAt_of_expr_call_opaque
     (hNotMStore : func ≠ "mstore")
     (hNotTStore : func ≠ "tstore")
     (hNotCalldatacopy : func ≠ "calldatacopy")
+    (hNotReturndatacopy : func ≠ "returndatacopy")
     (hNotStop : ¬(func = "stop" ∧ args = []))
     (hNotRevert : func ≠ "revert")
     (hNotReturn : func ≠ "return")
@@ -1821,7 +1854,7 @@ theorem IRStmtPreservesObsAt_of_expr_call_opaque
               simp [execIRStmt, hNotSStore, hNotMStore, hNotTStore,
                 hNotRevert, hNotReturn, hNotLog, hv]
           | cons c rest'' =>
-              simp [execIRStmt, hNotLog, hNotCalldatacopy, hv]
+              simp [execIRStmt, hNotLog, hNotCalldatacopy, hNotReturndatacopy, hv]
 
 /-- IR-side analog of `NativePreservableStraightStmt`: a statement whose IR
 execution terminates in `.continue _` (does not return / stop / revert /
@@ -3159,17 +3192,26 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
                                       evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
                                         contract fuel state [arg, arg2, arg3] hargs_d,
                                       h1, h2, h3]
-                            · by_cases hlog : isYulLogName func = true
-                              · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc] using
-                                  yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
-                                    contract fuel state func [arg, arg2, arg3]
-                                    (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                      contract fuel state [arg, arg2, arg3] hargs_d)
-                              · cases hcall : evalIRExpr state (.call func [arg, arg2, arg3]) <;>
-                                  simp [execIRStmtWithInternals, execIRStmt,
-                                    evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel
-                                      state func [arg, arg2, arg3] hdisjoint,
-                                    hlog, hcall, hcdc]
+                            · by_cases hrdc : func = "returndatacopy"
+                              · subst hrdc
+                                cases h1 : evalIRExpr state arg <;>
+                                  cases h2 : evalIRExpr state arg2 <;>
+                                    cases h3 : evalIRExpr state arg3 <;>
+                                      simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
+                                        evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
+                                          contract fuel state [arg, arg2, arg3] hargs_d,
+                                        h1, h2, h3] <;> split <;> rfl
+                              · by_cases hlog : isYulLogName func = true
+                                · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc, hrdc] using
+                                    yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
+                                      contract fuel state func [arg, arg2, arg3]
+                                      (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
+                                        contract fuel state [arg, arg2, arg3] hargs_d)
+                                · cases hcall : evalIRExpr state (.call func [arg, arg2, arg3]) <;>
+                                    simp [execIRStmtWithInternals, execIRStmt,
+                                      evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel
+                                        state func [arg, arg2, arg3] hdisjoint,
+                                      hlog, hcall, hcdc, hrdc]
                         | cons arg4 rest' =>
                             by_cases hlog : isYulLogName func = true
                             · simpa [execIRStmtWithInternals, execIRStmt, hlog] using
@@ -3897,17 +3939,26 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_no_internal
                                         evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
                                           contract hinternal fuel state [arg, arg2, arg3],
                                         h1, h2, h3]
-                              · by_cases hlog : isYulLogName func = true
-                                · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc] using
-                                    yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
-                                      contract fuel state func [arg, arg2, arg3]
-                                      (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                                        contract hinternal fuel state [arg, arg2, arg3])
-                                · cases hcall : evalIRExpr state (.call func [arg, arg2, arg3]) <;>
-                                    simp [execIRStmtWithInternals, execIRStmt,
-                                      evalIRCallWithInternals_stmt_eq_of_no_internal contract
-                                        hinternal fuel state func [arg, arg2, arg3],
-                                      hlog, hcall, hcdc]
+                              · by_cases hrdc : func = "returndatacopy"
+                                · subst hrdc
+                                  cases h1 : evalIRExpr state arg <;>
+                                    cases h2 : evalIRExpr state arg2 <;>
+                                      cases h3 : evalIRExpr state arg3 <;>
+                                        simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
+                                          evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
+                                            contract hinternal fuel state [arg, arg2, arg3],
+                                          h1, h2, h3] <;> split <;> rfl
+                                · by_cases hlog : isYulLogName func = true
+                                  · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc, hrdc] using
+                                      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
+                                        contract fuel state func [arg, arg2, arg3]
+                                        (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
+                                          contract hinternal fuel state [arg, arg2, arg3])
+                                  · cases hcall : evalIRExpr state (.call func [arg, arg2, arg3]) <;>
+                                      simp [execIRStmtWithInternals, execIRStmt,
+                                        evalIRCallWithInternals_stmt_eq_of_no_internal contract
+                                          hinternal fuel state func [arg, arg2, arg3],
+                                        hlog, hcall, hcdc, hrdc]
                           | cons arg4 rest' =>
                               by_cases hlog : isYulLogName func = true
                               · simpa [execIRStmtWithInternals, execIRStmt, hlog] using
@@ -5737,6 +5788,7 @@ theorem execIRStmtWithInternals_expr_call_internal
     (hstop : func ≠ "stop") (hsstore : func ≠ "sstore")
     (hmstore : func ≠ "mstore") (htstore : func ≠ "tstore")
     (hcalldatacopy : func ≠ "calldatacopy")
+    (hreturndatacopy : func ≠ "returndatacopy")
     (hrevert : func ≠ "revert")
     (hreturn : func ≠ "return")
     (hinvalid : func ≠ "invalid")
@@ -5767,7 +5819,7 @@ theorem execIRStmtWithInternals_expr_call_internal
           evalIRCallWithInternals, hargs, hlog, hfind]
       | cons arg3 rest =>
         simp [execIRStmtWithInternals, evalIRCallWithInternals, hargs, hlog, hcalldatacopy,
-          hfind]
+          hreturndatacopy, hfind]
 
 /-- End-to-end singleton list characterization for `Stmt.internalCall` (void calls):
 when `compiledIR = [.exprStmt (.call func args)]` with args evaluating to `argVals`
@@ -5783,6 +5835,7 @@ theorem execIRStmtsWithInternals_singleton_expr_call_internal
     (hstop : func ≠ "stop") (hsstore : func ≠ "sstore")
     (hmstore : func ≠ "mstore") (htstore : func ≠ "tstore")
     (hcalldatacopy : func ≠ "calldatacopy")
+    (hreturndatacopy : func ≠ "returndatacopy")
     (hrevert : func ≠ "revert")
     (hreturn : func ≠ "return")
     (hinvalid : func ≠ "invalid")
@@ -5799,7 +5852,8 @@ theorem execIRStmtsWithInternals_singleton_expr_call_internal
   rw [execIRStmtsWithInternals_singleton]
   exact execIRStmtWithInternals_expr_call_internal
     contract fuel state func args helper argVals state' hargs hfind
-    hstop hsstore hmstore htstore hcalldatacopy hrevert hreturn hinvalid hselfdestruct hlog
+    hstop hsstore hmstore htstore hcalldatacopy hreturndatacopy hrevert hreturn hinvalid
+    hselfdestruct hlog
 
 /-! ## Compilation output shape theorems
 
@@ -6087,6 +6141,14 @@ theorem execIRStmtsWithInternals_of_internalCall_compile
         have hT : ("calldatacopy" : String).toList.head? = some 'c' := by decide
         change (CompilationModel.internalFunctionYulName functionName).toList.head? =
           ("calldatacopy" : String).toList.head? at hHead
+        rw [internalFunctionYulName_head functionName, hT] at hHead
+        exact nomatch hHead)
+      (by
+        intro hEq
+        have hHead := congrArg (fun s => s.toList.head?) hEq
+        have hT : ("returndatacopy" : String).toList.head? = some 'r' := by decide
+        change (CompilationModel.internalFunctionYulName functionName).toList.head? =
+          ("returndatacopy" : String).toList.head? at hHead
         rw [internalFunctionYulName_head functionName, hT] at hHead
         exact nomatch hHead)
       hrevert hreturn

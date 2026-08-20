@@ -62,6 +62,13 @@ def evalBuiltinCallWithEvmYulLeanContext
     match argVals with
     | [] => some (toWord (4 + calldata.length * 32))
     | _ => none
+  else if func = "returndatasize" then
+    -- EIP-211: the returndata buffer is empty at frame entry and is only ever
+    -- populated by a call-family instruction. The admitted fragment contains
+    -- none, so `returndatasize()` is 0 for the whole frame.
+    match argVals with
+    | [] => some 0
+    | _ => none
   else
     evalBuiltinCallViaEvmYulLean storage sender selector calldata func argVals
 

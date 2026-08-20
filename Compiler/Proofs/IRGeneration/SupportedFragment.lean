@@ -107,6 +107,18 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       FunctionBody.ExprCompileCore size →
       FunctionBody.exprBoundNamesInScope size scope →
       SupportedStmtList fields scope [Stmt.calldatacopy destOffset sourceOffset size]
+  -- `returndatacopy` is admitted only at the zero-extent shape. The supported
+  -- fragment issues no call-family instruction, so by EIP-211 the returndata
+  -- buffer is the empty one the frame started with; every wider copy is the
+  -- EVM's exceptional halt (`src + size > returndatasize`) rather than a
+  -- memory write, and stays outside the fragment.
+  | returndataCopyEmptySingle
+      {scope : List String}
+      {destOffset : Expr} :
+      FunctionBody.ExprCompileCore destOffset →
+      FunctionBody.exprBoundNamesInScope destOffset scope →
+      SupportedStmtList fields scope
+        [Stmt.returndataCopy destOffset (Expr.literal 0) (Expr.literal 0)]
   | letStorageField
       {scope : List String}
       {tmp : String}
