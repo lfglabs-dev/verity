@@ -312,6 +312,10 @@ example :
     stmtTouchesUnsupportedLowLevelSurface .revertReturndata = false := by
   native_decide
 
+example :
+    stmtTouchesUnsupportedForeignSurface .revertReturndata = false := by
+  native_decide
+
 /-- Typed-error guards and payloads remain behind the constructor raw-calldata gate. -/
 example :
     stmtTouchesUnsupportedConstructorRawCalldataSurface
