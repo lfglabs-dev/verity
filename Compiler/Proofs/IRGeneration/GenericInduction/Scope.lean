@@ -178,6 +178,9 @@ inductive StmtListScopeCore (fieldNames : List String) : List Stmt → Prop wher
       FunctionBody.ExprCompileCore size →
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.returndataCopy destOffset sourceOffset size :: rest)
+  | revertReturndata {rest : List Stmt} :
+      StmtListScopeCore fieldNames rest →
+      StmtListScopeCore fieldNames (.revertReturndata :: rest)
   | ite {cond : Expr} {thenBranch elseBranch rest : List Stmt} :
       FunctionBody.ExprCompileCore cond →
       StmtListScopeCore fieldNames thenBranch →
@@ -663,6 +666,8 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
             (ih hrestSurface htail)
+      | revertReturndata =>
+          exact StmtListScopeCore.revertReturndata (ih hrestSurface htail)
       | ite cond thenBranch elseBranch =>
           simp only [stmtTouchesUnsupportedContractSurface,
             Bool.or_eq_false_iff] at hstmtSurface
