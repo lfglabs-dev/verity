@@ -315,6 +315,13 @@ sibling entrypoint.
   `returndatasize()` is proved against the same no-call invariant, so it can
   occur in generic-fragment expressions without admitting a call-family
   instruction or non-empty returndata.
+- Admitting that constructor required dropping `.returndataSize` from
+  `exprTouchesUnsupportedCoreSurface` and `exprTouchesUnsupportedContractSurface`,
+  the last two gates that still rejected it. The call, state, helper, foreign,
+  and low-level gates already returned `false` for it. The call-family
+  constructors (`.call`, `.staticcall`, `.delegatecall`, `.externalCall`,
+  `.internalCall`) stay gated, which is what keeps the no-call invariant that
+  makes `returndatasize()` zero.
 - `stmtTouchesUnsupported*Surface` previously returned `false` for
   `.returndataCopy` without recursing into its subexpressions. That was sound
   only while the statement always reverted; the ten recursive predicates now
