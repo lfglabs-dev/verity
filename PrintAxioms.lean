@@ -3774,6 +3774,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_calldatacopy_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety
   Compiler.Proofs.IRGeneration.compileExprList_core_ok
@@ -3842,6 +3844,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/StorageWord.lean
   -- Compiler.Proofs.IRGeneration.compileExprWithInternals_nil_ok  -- private
@@ -7355,4 +7358,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6805 theorems/lemmas (4878 public, 1927 private, 0 sorry'd)
+-- Total: 6808 theorems/lemmas (4880 public, 1928 private, 0 sorry'd)
