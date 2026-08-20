@@ -98,6 +98,9 @@ inductive StmtListScopeDiscipline (fieldNames : List String) : List String → L
       StmtListScopeDiscipline fieldNames
         (stmtNextScope scope (.returndataCopy destOffset sourceOffset size)) rest →
       StmtListScopeDiscipline fieldNames scope (.returndataCopy destOffset sourceOffset size :: rest)
+  | revertReturndata {scope : List String} {rest : List Stmt} :
+      StmtListScopeDiscipline fieldNames scope rest →
+      StmtListScopeDiscipline fieldNames scope (.revertReturndata :: rest)
   | ite {scope : List String} {cond : Expr} {thenBranch elseBranch rest : List Stmt} :
       FunctionBody.ExprCompileCore cond →
       FunctionBody.exprBoundNamesInScope cond scope →
@@ -1609,6 +1612,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
                 (by intro other hmem
                     exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
                 (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
+  | revertReturndata hrest ih =>
+      rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
+        ⟨nextLocalScope, hstmt, hrestValidate⟩
+      have hstmt' := hstmt
+      unfold validateScopedStmtIdentifiers at hstmt'
+      simp only [pure, Except.pure] at hstmt'
+      cases hstmt'
+      exact StmtListScopeDiscipline.revertReturndata
+        (ih hrestValidate hparamsInScope hlocalsInScope hconstructorArgsInScope)
   | ite hcondCore hthenCore helseCore hrest ihThen ihElse ihRest =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -2038,6 +2050,16 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
               (by intro name hname
                   exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
               other hmem
+  | revertReturndata hrest ih =>
+      rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
+        ⟨nextLocalScope, hstmt, hrestValidate⟩
+      have hstmt' := hstmt
+      unfold validateScopedStmtIdentifiers at hstmt'
+      simp only [pure, Except.pure] at hstmt'
+      cases hstmt'
+      intro other hmem
+      simp only [List.foldl, stmtNextScope, collectStmtBindNames] at hmem ⊢
+      exact ih hrestValidate hparamsInScope hlocalsInScope other hmem
   | ite hcondCore hthenCore helseCore hrest ihThen ihElse ihRest =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -2384,6 +2406,13 @@ theorem stmtListScopeDiscipline_scope_names
       · right; left; exact hbind
       · right; right; left; exact hassign
       · right; right; right; exact hfld
+  | revertReturndata _ ih =>
+      intro other hmem
+      simp only [List.foldl, stmtNextScope, collectStmtBindNames, List.nil_append] at hmem
+      have htail := ih other hmem
+      simp [collectStmtListBindNames, collectStmtBindNames,
+        collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
+      exact htail
   | @ite scope cond thenBranch elseBranch rest hcore hinScope _ _ _ ihThen ihElse ihRest =>
       intro other hmem
       simp only [List.foldl] at hmem
