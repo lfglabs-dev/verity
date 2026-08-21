@@ -1398,8 +1398,8 @@ private theorem runtimeStateMatchesIR_writeUintSlot
       { state with
           storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   ·
     by_cases hEq : query = IRStorageSlot.ofNat slot
@@ -1458,8 +1458,8 @@ private theorem runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
       { state with
           storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   ·
     by_cases hEq : query = IRStorageSlot.ofNat slot
@@ -1504,8 +1504,8 @@ private theorem runtimeStateMatchesIR_writeAddressSlot
           storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage slot
             (value &&& Compiler.Constants.addressMask) } := by
     rcases hruntime with
-      ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-    refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+      ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+    refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
     funext query
     by_cases hEq : query = IRStorageSlot.ofNat slot
     · subst hEq
@@ -1558,8 +1558,8 @@ private theorem runtimeStateMatchesIR_writeUintSlots
       { state with
           storage := abstractStoreStorageOrMappingMany state.storage slots value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   simp only [abstractStoreStorageOrMappingMany_eq]
   ·
@@ -1617,8 +1617,8 @@ private theorem runtimeStateMatchesIR_writeUintKeyedMappingSlot
       { state with
           storage := Compiler.Proofs.abstractStoreMappingEntry state.storage slot key value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   simp only [Compiler.Proofs.abstractStoreMappingEntry]
   by_cases hEq : query = IRStorageSlot.ofNat (Compiler.Proofs.solidityMappingSlot slot key)
@@ -1653,8 +1653,8 @@ private theorem runtimeStateMatchesIR_writeTransientTarget
           transientStorage := fun slot =>
             if slot = SourceSemantics.wordNormalize target then value else state.transientStorage slot } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, ?_, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, ?_, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   · funext query
     rw [hstorage]
     exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat
@@ -1699,8 +1699,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMappingChainSlot
             (SourceSemantics.mappingSlotChain slot keys)
             value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   by_cases hEq : query = IRStorageSlot.ofNat (SourceSemantics.mappingSlotChain slot keys)
   · subst hEq
@@ -1755,8 +1755,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMappingSlot
     · simp [SourceSemantics.writeAddressKeyedMappingSlots, SourceSemantics.writeUintKeyedMappingSlots]
     · simp [SourceSemantics.writeAddressKeyedMappingSlots, SourceSemantics.writeUintKeyedMappingSlots]
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   rw [hbridge]
   simp only [Compiler.Proofs.abstractStoreMappingEntry]
@@ -1801,8 +1801,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMappingWordSlot
             (mappingWordTargetSlot slot key wordOffset)
             value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   by_cases hEq : query = IRStorageSlot.ofNat (mappingWordTargetSlot slot key wordOffset)
   · subst hEq
@@ -1854,8 +1854,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMappingPackedWordSlot
               value
               packed) } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   set tgt := mappingWordTargetSlot slot key wordOffset with htgt
   by_cases hEq : query = IRStorageSlot.ofNat tgt
@@ -1930,8 +1930,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMapping2Slot
               key2
               value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   simp only [Compiler.Proofs.abstractStoreMappingEntry]
   by_cases hEq : query =
@@ -1981,8 +1981,8 @@ private theorem runtimeStateMatchesIR_writeAddressKeyedMapping2WordSlot
             (mapping2WordTargetSlot slot key1 key2 wordOffset)
             value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   by_cases hEq : query = IRStorageSlot.ofNat (mapping2WordTargetSlot slot key1 key2 wordOffset)
   · subst hEq

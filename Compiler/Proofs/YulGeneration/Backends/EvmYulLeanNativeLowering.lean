@@ -175,6 +175,7 @@ theorem lookupRuntimePrimOp_chainid : lookupRuntimePrimOp "chainid" = some .CHAI
 theorem lookupRuntimePrimOp_blobbasefee : lookupRuntimePrimOp "blobbasefee" = some .BLOBBASEFEE := by rfl
 theorem lookupRuntimePrimOp_tload : lookupRuntimePrimOp "tload" = some .TLOAD := by rfl
 theorem lookupRuntimePrimOp_mload : lookupRuntimePrimOp "mload" = some .MLOAD := by rfl
+theorem lookupRuntimePrimOp_extcodesize : lookupRuntimePrimOp "extcodesize" = some .EXTCODESIZE := by rfl
 theorem lookupRuntimePrimOp_mappingSlot : lookupRuntimePrimOp "mappingSlot" = none := by rfl
 
 def lowerExprNative : YulExpr → EvmYul.Yul.Ast.Expr

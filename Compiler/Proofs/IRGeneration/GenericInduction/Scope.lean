@@ -253,6 +253,10 @@ theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
       simp only [exprTouchesUnsupportedContractSurface] at hsurface
       exact .mload
         (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface)
+  | .extcodesize a, hsurface =>
+      simp only [exprTouchesUnsupportedContractSurface] at hsurface
+      exact .extcodesize
+        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface)
   | .keccak256 offset size, hsurface =>
       simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
       exact .keccak256
@@ -953,7 +957,8 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
   | bitNot h ih
   | tload h ih
   | calldataload h ih
-  | mload h ih =>
+  | mload h ih
+  | extcodesize h ih =>
       intro name hmem
       simpa [FunctionBody.exprBoundNames] using
         ih
@@ -2207,7 +2212,8 @@ theorem collectExprNames_mem_exprBoundNames_of_core
       rcases hmem with hmem | hmem
       · exact Or.inl (ihL _ hmem)
       · exact Or.inr (ihR _ hmem)
-  | logicalNot h ih | bitNot h ih | tload h ih | calldataload h ih | mload h ih =>
+  | logicalNot h ih | bitNot h ih | tload h ih | calldataload h ih | mload h ih
+  | extcodesize h ih =>
       intro name hmem; simp [collectExprNames] at hmem
       simpa [FunctionBody.exprBoundNames] using ih _ hmem
   | ite hC hT hE ihC ihT ihE =>

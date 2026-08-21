@@ -31,7 +31,8 @@ def bridgedBuiltins : List String :=
 def unbridgedBuiltins : List String := []
 
 def allowedExprCallName (func : String) : Prop :=
-  func ∈ bridgedBuiltins ∨ func = "tload" ∨ func = "mload" ∨ func = "keccak256"
+  func ∈ bridgedBuiltins ∨ func = "tload" ∨ func = "mload" ∨ func = "keccak256" ∨
+  func = "extcodesize"
 
 inductive BridgedExpr : Compiler.Yul.YulExpr → Prop
   | lit (n : Nat) : BridgedExpr (.lit n)
@@ -261,7 +262,7 @@ theorem bridgedExpr_keccak256 (offsetExpr sizeExpr : Compiler.Yul.YulExpr)
     (hOffset : BridgedExpr offsetExpr) (hSize : BridgedExpr sizeExpr) :
     BridgedExpr
       (Compiler.Yul.YulExpr.call "keccak256" [offsetExpr, sizeExpr]) := by
-  refine BridgedExpr.call "keccak256" _ (Or.inr (Or.inr (Or.inr rfl))) ?_
+  refine BridgedExpr.call "keccak256" _ (Or.inr (Or.inr (Or.inr (Or.inl rfl)))) ?_
   intro arg hMem
   simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
   rcases hMem with rfl | rfl
@@ -287,6 +288,16 @@ theorem bridgedExpr_tload (slotExpr : Compiler.Yul.YulExpr)
   simp only [List.mem_singleton] at hMem
   subst hMem
   exact hSlot
+
+theorem bridgedExpr_extcodesize (addrExpr : Compiler.Yul.YulExpr)
+    (hAddr : BridgedExpr addrExpr) :
+    BridgedExpr
+      (Compiler.Yul.YulExpr.call "extcodesize" [addrExpr]) := by
+  refine BridgedExpr.call "extcodesize" _ (Or.inr (Or.inr (Or.inr (Or.inr rfl)))) ?_
+  intro arg hMem
+  simp only [List.mem_singleton] at hMem
+  subst hMem
+  exact hAddr
 
 theorem bridgedStraightStmt_let_mload (name : String)
     (offsetExpr : Compiler.Yul.YulExpr) (hOffset : BridgedExpr offsetExpr) :

@@ -189,6 +189,8 @@ inductive ExprCompileCore : Expr → Prop where
       ExprCompileCore offset → ExprCompileCore (.calldataload offset)
   | mload {offset : Expr} :
       ExprCompileCore offset → ExprCompileCore (.mload offset)
+  | extcodesize {addr : Expr} :
+      ExprCompileCore addr → ExprCompileCore (.extcodesize addr)
   | keccak256 {offset size : Expr} :
       ExprCompileCore offset → ExprCompileCore size →
         ExprCompileCore (.keccak256 offset size)

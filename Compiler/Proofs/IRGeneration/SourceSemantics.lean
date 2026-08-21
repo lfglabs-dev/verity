@@ -1473,6 +1473,9 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .calldataload offset => do
       let resolvedOffset ← evalExpr fields state offset
       some (Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.world.calldata resolvedOffset)
+  | .extcodesize addr => do
+      let resolvedAddr ← evalExpr fields state addr
+      some (state.world.codeSize (resolvedAddr % addressModulus)).val
   | .keccak256 offExpr sizeExpr => do
       let off ← evalExpr fields state offExpr
       let size ← evalExpr fields state sizeExpr
@@ -1681,7 +1684,9 @@ private theorem evalExpr_extcodesize
     (fields : List Field)
     (state : RuntimeState)
     (a : Expr) :
-    evalExpr fields state (.extcodesize a) = none := rfl
+    evalExpr fields state (.extcodesize a) =
+      (evalExpr fields state a).bind
+        (fun resolvedAddr => some (state.world.codeSize (resolvedAddr % addressModulus)).val) := rfl
 
 private theorem evalExpr_returndataOptionalBoolAt
     (fields : List Field)
@@ -3981,6 +3986,9 @@ mutual
     | .calldataload offset => do
         let resolvedOffset ← evalExprWithHelpers spec fields fuel state offset
         some (Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.world.calldata resolvedOffset)
+    | .extcodesize addr => do
+        let resolvedAddr ← evalExprWithHelpers spec fields fuel state addr
+        some (state.world.codeSize (resolvedAddr % addressModulus)).val
     | .keccak256 offExpr sizeExpr => do
         -- Keep this in sync with the helper/call surface scans, which recurse
         -- into the offset and size expressions.
@@ -4044,7 +4052,7 @@ mutual
     | .paramDynamicMemberLength _ _
     | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
     | .arrayElementWord _ _ _ _
-    | .extcodesize _ | .returndataOptionalBoolAt _
+    | .returndataOptionalBoolAt _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
     | .forkIfAtLeast _ _ _
@@ -5346,8 +5354,13 @@ mutual
         have ha :=
           evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state a hsurface
         simp [evalExprWithHelpers, evalExpr_calldataload, ha]
-    | extcodesize a | returndataOptionalBoolAt a =>
-        simp [evalExprWithHelpers, evalExpr_extcodesize,
+    | extcodesize a =>
+        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
+        have ha :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state a hsurface
+        simp [evalExprWithHelpers, evalExpr_extcodesize, ha]
+    | returndataOptionalBoolAt a =>
+        simp [evalExprWithHelpers,
           evalExpr_returndataOptionalBoolAt]
     | keccak256 a b =>
         simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface

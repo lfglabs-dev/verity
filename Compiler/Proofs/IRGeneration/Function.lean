@@ -993,7 +993,7 @@ theorem initialIRStateForTx_matches_runtime
   have htxOriginAddr : tx.txOrigin < Verity.Core.Address.modulus := by
     simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus,
       Verity.Core.ADDRESS_MODULUS] using htxOrigin
-  refine ⟨?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simpa [FunctionBody.initialIRStateForTx, SourceSemantics.effectiveFields,
       SourceSemantics.encodeStorage] using
       (FunctionBody.encodeStorage_withTransactionContext model initialWorld tx).symm
@@ -1059,6 +1059,9 @@ theorem initialIRStateForTx_matches_runtime
       rfl
     rw [this]
     rfl
+  · -- codeSize
+    funext addr
+    simp [FunctionBody.initialIRStateForTx, SourceSemantics.withTransactionContext]
 
 /-- An address-ranged transaction-context word survives the word/address
 normalization round trip. -/
@@ -4458,7 +4461,11 @@ private theorem compileExpr_constructor_mode_eq
   | .calldatasize, _, _, hraw => by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
   | .calldataload _, _, _, hraw => by simp [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
   | .returndataSize, _, _, _ => by simp [compileExprWithInternals]
-  | .extcodesize _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .extcodesize _, hcore, hcall, hraw => by
+      simp only [exprTouchesUnsupportedCoreSurface] at hcore
+      simp only [exprTouchesUnsupportedCallSurface] at hcall
+      simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
+      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hcall hraw]
   | .returndataOptionalBoolAt _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .localVar _, _, _, _ => by simp [compileExprWithInternals]
   | .externalCall _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore

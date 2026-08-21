@@ -164,6 +164,8 @@ inductive BridgedSourceExpr : Expr → Prop
       BridgedSourceExpr (.mload offset)
   | tload {offset} (hOffset : BridgedSourceExpr offset) :
       BridgedSourceExpr (.tload offset)
+  | extcodesize {addr} (hAddr : BridgedSourceExpr addr) :
+      BridgedSourceExpr (.extcodesize addr)
   | keccak256 {offset size}
       (hOffset : BridgedSourceExpr offset) (hSize : BridgedSourceExpr size) :
       BridgedSourceExpr (.keccak256 offset size)
@@ -1360,6 +1362,12 @@ theorem compileExpr_bridgedSource
       obtain ⟨co, hO, hEq⟩ := compileExpr_unopBuiltin_ok hOk
       subst hEq
       exact bridgedExpr_tload co (iho hO)
+  | extcodesize _ iha =>
+      intro out hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
+      obtain ⟨co, hO, hEq⟩ := compileExpr_unopBuiltin_ok hOk
+      subst hEq
+      exact bridgedExpr_extcodesize co (iha hO)
   | keccak256 _ _ ihOffset ihSize =>
       intro out hOk
       simp only [compileExpr, compileExprWithInternals] at hOk
@@ -1741,6 +1749,9 @@ theorem compileRequireFailCond_bridgedSource
         hOk
   | tload hOffset =>
       exact compileRequireFailCond_default_bridgedSource (.tload hOffset)
+        hOk
+  | extcodesize hAddr =>
+      exact compileRequireFailCond_default_bridgedSource (.extcodesize hAddr)
         hOk
   | keccak256 hOffset hSize =>
       exact compileRequireFailCond_default_bridgedSource (.keccak256 hOffset hSize)
