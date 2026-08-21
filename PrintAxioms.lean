@@ -151,6 +151,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSignedArithSpec
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanStateBridge
+import Compiler.Proofs.YulGeneration.Calldata
 import Compiler.Proofs.YulGeneration.ExecutionSummary
 import Compiler.Proofs.YulGeneration.IRFuel
 import Compiler.Proofs.YulGeneration.RuntimeTypes
@@ -1230,6 +1231,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiMemoryLayout.abiEncodeArgs_memory_layout
   Compiler.Proofs.AbiMemoryLayout.abiEncodeArgs_memory_head
   Compiler.Proofs.AbiMemoryLayout.abiEncodeArgs_memory_dynamic_offset_points_at_tail
+  Compiler.Proofs.CalldataMemoryLayout.yulLogDataWords_calldatacopyMemory
+  Compiler.Proofs.CalldataMemoryLayout.calldatacopyMemory_getWord
 
   -- Compiler/Proofs/ArithmeticProfile.lean
   Compiler.Proofs.ArithmeticProfile.modulus_is_2_pow_256
@@ -7363,6 +7366,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.StateBridge.storageLookup_projectStorage_projected
   Compiler.Proofs.YulGeneration.Backends.StateBridge.uint256_roundtrip
 
+  -- Compiler/Proofs/YulGeneration/Calldata.lean
+  -- Compiler.Proofs.YulGeneration.calldatacopyWritesAt_of_index  -- private
+  Compiler.Proofs.YulGeneration.calldatacopyMemory_at_index
+  Compiler.Proofs.YulGeneration.calldatacopyMemory_outside
+
   -- Compiler/Proofs/YulGeneration/ExecutionSummary.lean
   Compiler.Proofs.YulGeneration.RawSummary.ofYulResult_refines_of_eq
 
@@ -7376,4 +7384,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6826 theorems/lemmas (4894 public, 1932 private, 0 sorry'd)
+-- Total: 6831 theorems/lemmas (4898 public, 1933 private, 0 sorry'd)

@@ -47,4 +47,30 @@ def calldatacopyMemory (selector : Nat) (calldata : List Nat)
       calldataloadWord selector calldata (src + (offset - dst))
     else memory offset
 
+/-! ## Calldatacopy memory-readback helpers -/
+
+private theorem calldatacopyWritesAt_of_index (dst size i : Nat)
+    (hi : i < size / 32) :
+    calldatacopyWritesAt dst size (dst + i * 32) := by
+  unfold calldatacopyWritesAt
+  exact ⟨by omega, by omega, by omega⟩
+
+theorem calldatacopyMemory_at_index
+    (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat) (i : Nat)
+    (hi : i < size / 32) :
+    calldatacopyMemory selector calldata dst src size mem (dst + i * 32) =
+      calldataloadWord selector calldata (src + i * 32) := by
+  simp only [calldatacopyMemory]
+  rw [if_pos (calldatacopyWritesAt_of_index dst size i hi)]
+  congr 1
+  omega
+
+theorem calldatacopyMemory_outside
+    (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat) (offset : Nat)
+    (h : ¬calldatacopyWritesAt dst size offset) :
+    calldatacopyMemory selector calldata dst src size mem offset = mem offset := by
+  simp [calldatacopyMemory, h]
+
 end Compiler.Proofs.YulGeneration

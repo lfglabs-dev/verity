@@ -37,7 +37,9 @@ Two gaps remain and are deliberately *not* claimed here; both are recorded in
   `dynamicCopyData` (a `calldatacopy`) and carries dynamic head offsets in the
   mutable `__evt_data_tail` accumulator rather than as literals, so connecting
   `dynEmitPayloadExprs` to that concrete statement list needs a word-granular
-  `calldatacopy` readback lemma and an accumulator invariant.
+  `calldatacopy` readback lemma (now provided by
+  `CalldataMemoryLayout.yulLogDataWords_calldatacopyMemory`) and an
+  accumulator invariant.
 * Indexed dynamic arguments are hashed into a topic by `keccak256` over a
   copied region; the observable model has no lemma pinning that hash, so the
   indexed side here stays scalar (`scalarEventIndexedTopicParts`).

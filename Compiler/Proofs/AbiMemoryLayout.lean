@@ -1,5 +1,6 @@
 import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.IRGeneration.EventObservable
+import Compiler.Proofs.YulGeneration.Calldata
 
 /-!
 # ABI argument blocks in memory (#2082 slice 3)
@@ -278,3 +279,56 @@ theorem abiEncodeArgs_memory_dynamic_offset_points_at_tail
   exact Option.some.inj hoffset
 
 end Compiler.Proofs.AbiMemoryLayout
+
+/-! ## Calldatacopy memory readback (#2084)
+
+`dynamicCopyData` (in `Verity.Core.Model.ECM`) materializes dynamic event
+tail data with a `calldatacopy` from the transaction's calldata buffer.
+The main theorem here proves that reading the destination region back with
+`yulLogDataWords` (the word-granular LOG payload model) returns exactly the
+calldata words that were copied, in order.  This is the calldatacopy
+counterpart of `yulLogDataWords_abiBlockWrites` and closes gap (a) from
+`docs/VERIFICATION_STATUS.md` slice 4.
+
+The pointwise corollary `calldatacopyMemory_getWord` pins an individual word,
+which is the form the concrete emit lane needs when it reads one copied word
+at a known offset. -/
+
+namespace Compiler.Proofs.CalldataMemoryLayout
+
+open Compiler.Proofs.YulGeneration
+open Compiler.Proofs.IRGeneration
+
+/-- **Memory layout of a calldatacopy block.**  Reading `size / 32` consecutive
+words back from `dst` — after `calldatacopy(dst, src, size)` — returns exactly
+the calldata words from `src, src + 32, …, src + (size/32 - 1) * 32`, provided
+the destination block does not wrap the 256-bit address space. -/
+theorem yulLogDataWords_calldatacopyMemory
+    (selector : Nat) (calldata : List Nat) (dst src size : Nat) (mem : Nat → Nat)
+    (hfit : dst + 32 * (size / 32) ≤ Compiler.Constants.evmModulus) :
+    yulLogDataWords (calldatacopyMemory selector calldata dst src size mem) dst
+        (32 * (size / 32)) =
+      (List.range (size / 32)).map (fun i =>
+        calldataloadWord selector calldata (src + i * 32)) := by
+  simp only [yulLogDataWords, show 32 * (size / 32) / 32 = size / 32 from by omega]
+  apply List.map_congr_left
+  intro i hi
+  rw [List.mem_range] at hi
+  have hlt : dst + i * 32 < Compiler.Constants.evmModulus := by omega
+  rw [Nat.mod_eq_of_lt hlt,
+    calldatacopyMemory_at_index selector calldata dst src size mem i hi]
+
+/-- Pointwise form: the word at ABI slot `index` of the calldatacopy block. -/
+theorem calldatacopyMemory_getWord
+    (selector : Nat) (calldata : List Nat) (dst src size : Nat) (mem : Nat → Nat)
+    (index : Nat)
+    (hfit : dst + 32 * (size / 32) ≤ Compiler.Constants.evmModulus)
+    (hindex : index < size / 32) :
+    calldatacopyMemory selector calldata dst src size mem
+        ((dst + index * 32) % Compiler.Constants.evmModulus) =
+      calldataloadWord selector calldata (src + index * 32) := by
+  have hlt : dst + index * 32 < Compiler.Constants.evmModulus := by omega
+  rw [Nat.mod_eq_of_lt hlt,
+    calldatacopyMemory_at_index selector calldata dst src size mem index hindex]
+
+end Compiler.Proofs.CalldataMemoryLayout
