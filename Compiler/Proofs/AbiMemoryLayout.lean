@@ -293,12 +293,16 @@ final partial word when `size` is not a multiple of 32.
 **Ceiling readback** (`yulLogDataWords_calldatacopyMemoryPadded`): the full
 byte-granular model `calldatacopyMemoryPadded` extends the base
 `calldatacopyMemory` with one ceiling word whose high `size % 32` bytes carry
-the copied calldata prefix and whose remaining bytes are zeroed.  Reading the
-`⌈size/32⌉` words back returns `calldatacopyWord` for each slot — the full
-calldata word for interior slots and the masked/zero-padded word for the
-ceiling slot.  This is the form the concrete `bytes`/`string` emit lane
-requires, since `compileEmit` passes the raw byte length to `calldatacopy`
-but the LOG reads a ceiling-padded ABI region. -/
+the copied calldata prefix and whose low bytes are preserved from preexisting
+memory (matching EVM `CALLDATACOPY` semantics).  Reading the `⌈size/32⌉`
+words back returns `calldatacopyWord` for each slot — the full calldata word
+for interior slots and the masked word for the ceiling slot — under an
+explicit fresh-memory premise (`hpad`) requiring the destination's ceiling
+slot to have zero low bytes before the copy.  The premise is satisfied by the
+compiler's use of freshly allocated (zero-initialized) memory.  This is the
+form the concrete `bytes`/`string` emit lane requires, since `compileEmit`
+passes the raw byte length to `calldatacopy` but the LOG reads a
+ceiling-padded ABI region. -/
 
 namespace Compiler.Proofs.CalldataMemoryLayout
 
@@ -345,12 +349,17 @@ theorem calldatacopyMemory_getWord
 /-- **Ceiling readback of a calldatacopy block.**  Reading `⌈size/32⌉`
 consecutive words back from `dst` — using the byte-granular model
 `calldatacopyMemoryPadded` — returns `calldatacopyWord` at each slot: the
-full calldata word for complete interior slots and the masked/zero-padded
-word for the final partial slot when `size % 32 ≠ 0`.  This composes with the
-concrete `bytes`/`string` emit lane where LOG reads a ceiling-padded region. -/
+full calldata word for complete interior slots and the masked word for the
+final partial slot when `size % 32 ≠ 0`.  The `hpad` premise requires the
+preexisting memory's low bytes at the ceiling slot to be zero; this holds when
+the destination is freshly allocated memory (as the compiler guarantees).
+Composes with the concrete `bytes`/`string` emit lane where LOG reads a
+ceiling-padded region. -/
 theorem yulLogDataWords_calldatacopyMemoryPadded
     (selector : Nat) (calldata : List Nat) (dst src size : Nat) (mem : Nat → Nat)
-    (hfit : dst + 32 * ((size + 31) / 32) ≤ Compiler.Constants.evmModulus) :
+    (hfit : dst + 32 * ((size + 31) / 32) ≤ Compiler.Constants.evmModulus)
+    (hpad : size % 32 = 0 ∨
+      mem (dst + (size / 32) * 32) % 2 ^ (8 * (32 - size % 32)) = 0) :
     yulLogDataWords (calldatacopyMemoryPadded selector calldata dst src size mem) dst
         (32 * ((size + 31) / 32)) =
       (List.range ((size + 31) / 32)).map (fun i =>
@@ -369,16 +378,21 @@ theorem yulLogDataWords_calldatacopyMemoryPadded
   · next hceil =>
     have hrem : size % 32 ≠ 0 := by omega
     have heq : i = size / 32 := by omega
-    rw [heq]
-    exact calldatacopyMemoryPadded_at_ceil selector calldata dst src size mem hrem
+    have hmem : mem (dst + (size / 32) * 32) % 2 ^ (8 * (32 - size % 32)) = 0 :=
+      hpad.elim (absurd · hrem) id
+    rw [heq, calldatacopyMemoryPadded_at_ceil selector calldata dst src size mem hrem,
+        hmem, Nat.add_zero]
 
 /-- Pointwise ceiling form: the word at ABI slot `index` of the
-ceiling-padded calldatacopy block. -/
+ceiling-padded calldatacopy block.  Requires the same `hpad` fresh-memory
+premise as the list-level readback. -/
 theorem calldatacopyMemoryPadded_getWord
     (selector : Nat) (calldata : List Nat) (dst src size : Nat) (mem : Nat → Nat)
     (index : Nat)
     (hfit : dst + 32 * ((size + 31) / 32) ≤ Compiler.Constants.evmModulus)
-    (hindex : index < (size + 31) / 32) :
+    (hindex : index < (size + 31) / 32)
+    (hpad : size % 32 = 0 ∨
+      mem (dst + (size / 32) * 32) % 2 ^ (8 * (32 - size % 32)) = 0) :
     calldatacopyMemoryPadded selector calldata dst src size mem
         ((dst + index * 32) % Compiler.Constants.evmModulus) =
       calldatacopyWord selector calldata src size index := by
@@ -391,8 +405,10 @@ theorem calldatacopyMemoryPadded_getWord
   · next hceil =>
     have hrem : size % 32 ≠ 0 := by omega
     have heq : index = size / 32 := by omega
-    rw [heq]
-    exact calldatacopyMemoryPadded_at_ceil selector calldata dst src size mem hrem
+    have hmem : mem (dst + (size / 32) * 32) % 2 ^ (8 * (32 - size % 32)) = 0 :=
+      hpad.elim (absurd · hrem) id
+    rw [heq, calldatacopyMemoryPadded_at_ceil selector calldata dst src size mem hrem,
+        hmem, Nat.add_zero]
 
 /-! ### Ceiling-word regression checks
 
@@ -401,7 +417,13 @@ review (PR #2395 `discussion_r3830312802`):
 * a 1-byte value (`size = 1`) produces one ceiling word with 1 high byte kept
 * a 33-byte value (`size = 33`) produces two words where the second is
   ceiling-masked
-These run during `lake build` and fail the build if the mask is wrong. -/
+These run during `lake build` and fail the build if the mask is wrong.
+
+Memory-preservation regression covering the P2 claim
+(`discussion_r3831501335`): `ceilWord_regression_preserves_memory` proves
+that when preexisting memory has nonzero low bytes, the corrected model's
+output differs from a zero-padded result — confirming that the model no
+longer silently drops the memory contribution. -/
 
 private def regressionCalldata : List Nat := [Compiler.Constants.evmModulus - 1,
   Compiler.Constants.evmModulus - 1]
@@ -432,5 +454,19 @@ theorem ceilWord_regression_33byte_count :
 /-- Aligned size: ceiling count = floor count. -/
 theorem ceilWord_regression_aligned :
     (64 + 31) / 32 = 64 / 32 := by omega
+
+/-- Regression: ceiling word preserves (rather than zeroes) nonzero preexisting
+memory low bytes, matching EVM CALLDATACOPY semantics (#2395 P2). -/
+theorem ceilWord_regression_preserves_memory
+    (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat)
+    (hrem : size % 32 ≠ 0)
+    (hmem : mem (dst + (size / 32) * 32) % 2 ^ (8 * (32 - size % 32)) ≠ 0) :
+    calldatacopyMemoryPadded selector calldata dst src size mem
+        (dst + (size / 32) * 32) ≠
+      (calldataloadWord selector calldata (src + (size / 32) * 32) /
+        2 ^ (8 * (32 - size % 32))) * 2 ^ (8 * (32 - size % 32)) := by
+  rw [calldatacopyMemoryPadded_at_ceil selector calldata dst src size mem hrem]
+  omega
 
 end Compiler.Proofs.CalldataMemoryLayout

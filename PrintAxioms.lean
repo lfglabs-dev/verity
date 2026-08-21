@@ -1240,6 +1240,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_33byte_ceil
   Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_33byte_count
   Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_aligned
+  Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_preserves_memory
 
   -- Compiler/Proofs/ArithmeticProfile.lean
   Compiler.Proofs.ArithmeticProfile.modulus_is_2_pow_256
@@ -7397,4 +7398,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6844 theorems/lemmas (4911 public, 1933 private, 0 sorry'd)
+-- Total: 6845 theorems/lemmas (4912 public, 1933 private, 0 sorry'd)

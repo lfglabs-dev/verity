@@ -1523,29 +1523,29 @@ def NotTerminator (stmt : YulStmt) : Prop :=
 @[simp] theorem NotTerminator_comment (text : String) :
     NotTerminator (.comment text) := by
   refine ⟨?_, ?_, ?_⟩
-  · intros; intro h; cases h
-  · intros; intro h; cases h
-  · intros; intro h; cases h
+  · intro _ _ h; cases h
+  · intro _ _ h; cases h
+  · intro h; cases h
 
 @[simp] theorem NotTerminator_let_ (name : String) (value : YulExpr) :
     NotTerminator (.let_ name value) := by
   refine ⟨?_, ?_, ?_⟩
-  · intros; intro h; cases h
-  · intros; intro h; cases h
-  · intros; intro h; cases h
+  · intro _ _ h; cases h
+  · intro _ _ h; cases h
+  · intro h; cases h
 
 @[simp] theorem NotTerminator_assign (name : String) (value : YulExpr) :
     NotTerminator (.assign name value) := by
   refine ⟨?_, ?_, ?_⟩
-  · intros; intro h; cases h
-  · intros; intro h; cases h
-  · intros; intro h; cases h
+  · intro _ _ h; cases h
+  · intro _ _ h; cases h
+  · intro h; cases h
 
 @[simp] theorem NotTerminator_leave : NotTerminator .leave := by
   refine ⟨?_, ?_, ?_⟩
-  · intros; intro h; cases h
-  · intros; intro h; cases h
-  · intros; intro h; cases h
+  · intro _ _ h; cases h
+  · intro _ _ h; cases h
+  · intro h; cases h
 
 /-- State-relative variant of `IRStmtPreservesObs`: at this specific state,
 `stmt` runs to `.continue _` in IR. Compared with `IRStmtPreservesObs`
@@ -3250,7 +3250,7 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
                                       simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
                                         evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
                                           contract fuel state [arg, arg2, arg3] hargs_d,
-                                        h1, h2, h3] <;> split <;> rfl
+                                        h1, h2, h3]; split <;> rfl
                               · by_cases hlog : isYulLogName func = true
                                 · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc, hrdc] using
                                     yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
@@ -3997,7 +3997,7 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_no_internal
                                         simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
                                           evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
                                             contract hinternal fuel state [arg, arg2, arg3],
-                                          h1, h2, h3] <;> split <;> rfl
+                                          h1, h2, h3]; split <;> rfl
                                 · by_cases hlog : isYulLogName func = true
                                   · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc, hrdc] using
                                       yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq

@@ -87,16 +87,18 @@ def calldatacopyWord (selector : Nat) (calldata : List Nat)
     let shift := 8 * (32 - size % 32)
     (fullWord / 2 ^ shift) * 2 ^ shift
 
-/-- Memory after `calldatacopy` with ceiling-word zero padding. Models the full
-byte-granular effect of EVM `CALLDATACOPY(dst, src, size)` on word-addressed
-memory: the `⌊size/32⌋` fully-written words plus, when `size` is not
-word-aligned, one ceiling word whose high `size % 32` bytes carry the copied
-calldata prefix and whose low `32 − (size % 32)` bytes are zeroed. -/
+/-- Memory after `calldatacopy` modelling the full byte-granular effect of EVM
+`CALLDATACOPY(dst, src, size)` on word-addressed memory: the `⌊size/32⌋`
+fully-written words plus, when `size` is not word-aligned, one ceiling word
+whose high `size % 32` bytes carry the copied calldata prefix and whose low
+`32 − (size % 32)` bytes are preserved from the preexisting memory, matching
+EVM semantics (bytes beyond `size` are not written by `CALLDATACOPY`). -/
 def calldatacopyMemoryPadded (selector : Nat) (calldata : List Nat)
     (dst src size : Nat) (memory : Nat → Nat) (offset : Nat) : Nat :=
   if size % 32 ≠ 0 ∧ offset = dst + (size / 32) * 32 then
+    let shift := 8 * (32 - size % 32)
     (calldataloadWord selector calldata (src + (size / 32) * 32) /
-      2 ^ (8 * (32 - size % 32))) * 2 ^ (8 * (32 - size % 32))
+      2 ^ shift) * 2 ^ shift + memory offset % 2 ^ shift
   else
     calldatacopyMemory selector calldata dst src size memory offset
 
@@ -126,7 +128,8 @@ theorem calldatacopyMemoryPadded_at_ceil
     calldatacopyMemoryPadded selector calldata dst src size mem
         (dst + (size / 32) * 32) =
       (calldataloadWord selector calldata (src + (size / 32) * 32) /
-        2 ^ (8 * (32 - size % 32))) * 2 ^ (8 * (32 - size % 32)) := by
+        2 ^ (8 * (32 - size % 32))) * 2 ^ (8 * (32 - size % 32))
+      + mem (dst + (size / 32) * 32) % 2 ^ (8 * (32 - size % 32)) := by
   simp [calldatacopyMemoryPadded, hrem]
 
 theorem calldatacopyMemoryPadded_outside

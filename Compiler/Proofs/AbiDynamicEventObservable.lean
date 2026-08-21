@@ -42,8 +42,9 @@ Two gaps remain and are deliberately *not* claimed here; both are recorded in
       `CalldataMemoryLayout.yulLogDataWords_calldatacopyMemory` for
       word-aligned sizes, and the ceiling readback
       `CalldataMemoryLayout.yulLogDataWords_calldatacopyMemoryPadded` for
-      arbitrary byte sizes (covering the final partial word with
-      zero-padded masking via `calldatacopyMemoryPadded`);
+      arbitrary byte sizes (covering the final partial word via
+      `calldatacopyMemoryPadded`, which preserves preexisting memory
+      low bytes; the readback carries a fresh-memory premise `hpad`);
   (2) an accumulator invariant for `__evt_data_tail`; and
   (3) connecting the ceiling-word model `calldatacopyMemoryPadded` to the
       IR interpreter's `calldatacopyMemory` (the base model writes only
