@@ -597,10 +597,10 @@
     {
       "feature": "revertReturndata",
       "constructor": "Stmt.revertReturndata",
-      "SourceInterpreter_basic": "unsupported",
-      "SourceInterpreter_fuel": "unsupported",
+      "SourceInterpreter_basic": "supported",
+      "SourceInterpreter_fuel": "supported",
       "IRInterpreter": "n/a",
-      "proof_status": "partial"
+      "proof_status": "proved"
     },
     {
       "feature": "rawLog",

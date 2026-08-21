@@ -2684,6 +2684,7 @@ mutual
               (fun loopState => execStmtListWithEvents fields events loopState body)
               256 state bits
         | none => .revert
+    | _, .revertReturndata => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -2995,6 +2996,7 @@ mutual
               (fun loopState => execStmtList fields loopState body)
               256 state bits
         | none => .revert
+    | _, .revertReturndata => .revert
     | _, _ => .revert
 
   def execStmtList (fields : List Field) : RuntimeState → List Stmt → StmtResult
@@ -4407,6 +4409,7 @@ mutual
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               256 state bits
         | none => .revert
+    | .revertReturndata => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
   decreasing_by all_goals (simp_wf; omega)
