@@ -2861,7 +2861,7 @@ private theorem revertWithCustomError_zero_bridged
     · -- hashStmt: let __err_hash = keccak256(ident "__err_ptr", lit sigBytes.length)
       refine BridgedStmt.straight _ (BridgedStraightStmt.let_ _ _ ?_)
       refine BridgedExpr.call "keccak256" _
-        (Or.inr (Or.inr (Or.inr rfl))) ?_
+        (Or.inr (Or.inr (Or.inr (Or.inl rfl)))) ?_
       intro arg hArg
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hArg
       rcases hArg with rfl | rfl

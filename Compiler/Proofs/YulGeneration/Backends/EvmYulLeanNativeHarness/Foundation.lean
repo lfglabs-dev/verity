@@ -4867,6 +4867,28 @@ theorem NativePrimCallPreservesWord_tload_values
       simp [EvmYul.Yul.primCall, step_tload_overarity_invalid])
     (fun slot => NativePrimCallPreservesWord_tload name expected slot)
 
+private theorem step_extcodesize_error
+    (state : EvmYul.Yul.State) (args : List EvmYul.Literal) :
+    (EvmYul.step (τ := .Yul) EvmYul.Operation.EXTCODESIZE none) state args =
+      .error .YulEXTCODESIZENotImplemented := by
+  rfl
+
+theorem NativePrimCallPreservesWord_extcodesize_values
+    (name : EvmYul.Identifier)
+    (expected : EvmYul.Literal) :
+    ∀ fuel state values final rets,
+      state[name]! = expected →
+        EvmYul.Yul.primCall fuel state EvmYul.Operation.EXTCODESIZE values =
+          .ok (final, rets) →
+        final[name]! = expected := by
+  intro fuel state values final rets hLookup hExec
+  cases fuel with
+  | zero => simp [EvmYul.Yul.primCall] at hExec
+  | succ fuel' =>
+      simp only [EvmYul.Yul.primCall] at hExec
+      rw [step_extcodesize_error] at hExec
+      simp at hExec
+
 theorem NativePrimCallPreservesWord_tstore
     (name : EvmYul.Identifier)
     (expected slot value : EvmYul.Literal) :
@@ -6027,7 +6049,7 @@ theorem lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl
+    rfl | rfl
   all_goals
     simp only [Backends.lookupRuntimePrimOp_add,
       Backends.lookupRuntimePrimOp_sub, Backends.lookupRuntimePrimOp_mul,
@@ -6051,7 +6073,8 @@ theorem lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
       Backends.lookupRuntimePrimOp_returndatasize,
       Backends.lookupRuntimePrimOp_sload, Backends.lookupRuntimePrimOp_mappingSlot,
       Backends.lookupRuntimePrimOp_tload, Backends.lookupRuntimePrimOp_mload,
-      Backends.lookupRuntimePrimOp_keccak256]
+      Backends.lookupRuntimePrimOp_keccak256,
+      Backends.lookupRuntimePrimOp_extcodesize]
   all_goals first | contradiction | decide
 
 theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
@@ -6073,7 +6096,7 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl
+    rfl | rfl
   all_goals
     simp only [Backends.lookupRuntimePrimOp_add,
       Backends.lookupRuntimePrimOp_sub, Backends.lookupRuntimePrimOp_mul,
@@ -6097,7 +6120,8 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
       Backends.lookupRuntimePrimOp_returndatasize,
       Backends.lookupRuntimePrimOp_sload, Backends.lookupRuntimePrimOp_mappingSlot,
       Backends.lookupRuntimePrimOp_tload, Backends.lookupRuntimePrimOp_mload,
-      Backends.lookupRuntimePrimOp_keccak256, Option.some.injEq] at hOp
+      Backends.lookupRuntimePrimOp_keccak256,
+      Backends.lookupRuntimePrimOp_extcodesize, Option.some.injEq] at hOp
   all_goals cases hOp
   all_goals first
     | exact NativePrimCallPreservesWord_add_values name expected
@@ -6140,6 +6164,7 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
     | exact NativePrimCallPreservesWord_mload_values name expected
     | exact NativePrimCallPreservesWord_sload_values name expected
     | exact NativePrimCallPreservesWord_tload_values name expected
+    | exact NativePrimCallPreservesWord_extcodesize_values name expected
 
 theorem NativeExprPreservesWord_var
     (name : EvmYul.Identifier)

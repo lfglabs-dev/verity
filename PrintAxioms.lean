@@ -5669,6 +5669,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_keccak256
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_mload
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_tload
+  Compiler.Proofs.YulGeneration.Backends.bridgedExpr_extcodesize
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_mload
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_tload
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_keccak256
@@ -6064,6 +6065,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_mstore8_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_tload
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_tload_values
+  -- Compiler.Proofs.YulGeneration.Backends.Native.step_extcodesize_error  -- private
+  Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_extcodesize_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_tstore
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_tstore_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_sstore
@@ -6742,6 +6745,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_blobbasefee
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_tload
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mload
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_extcodesize
   Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_mappingSlot
   Compiler.Proofs.YulGeneration.Backends.lowerExprNative_call_runtimePrimOp
   Compiler.Proofs.YulGeneration.Backends.lowerExprNative_call_userFunction
@@ -7372,4 +7376,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6822 theorems/lemmas (4891 public, 1931 private, 0 sorry'd)
+-- Total: 6826 theorems/lemmas (4894 public, 1932 private, 0 sorry'd)
