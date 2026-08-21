@@ -2958,6 +2958,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_keccak256_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_keccak256_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_mload_of_compiled  -- private
+  Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_extcodesize_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_extcodesize_of_compiled  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_tload_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.calldataloadWord_lt_evmModulus  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_calldatacopyBothMemory
@@ -3990,6 +3992,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.IRState.appendYulLog_events
   Compiler.Proofs.IRGeneration.evalIRCall_tload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_mload_singleton
+  Compiler.Proofs.IRGeneration.evalIRCall_extcodesize_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_calldataload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_sload_singleton
   Compiler.Proofs.IRGeneration.prepareInternalCalleeState_vars
@@ -7369,4 +7372,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6819 theorems/lemmas (4889 public, 1930 private, 0 sorry'd)
+-- Total: 6822 theorems/lemmas (4891 public, 1931 private, 0 sorry'd)
