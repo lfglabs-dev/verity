@@ -1358,6 +1358,7 @@ mutual
               (fun loopState => execStmtList oracle fields loopState body)
               256 state bits
         | none => .revert
+    | _, .revertReturndata => .revert
     | _, _ => .revert
 
   def execStmtList (oracle : DenoteOracle) (fields : List Field) :

@@ -600,7 +600,7 @@
       "SourceInterpreter_basic": "unsupported",
       "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
-      "proof_status": "partial"
+      "proof_status": "proved"
     },
     {
       "feature": "rawLog",
