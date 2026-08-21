@@ -320,8 +320,8 @@ private theorem runtimeStateMatchesIR_writeStorageWordSlot
       { state with
           storage := Compiler.Proofs.abstractStoreStorageOrMapping state.storage targetSlot value } := by
   rcases hruntime with
-    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
-  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents⟩
+    ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
+  refine ⟨?_, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hret, hevents, hcs⟩
   funext query
   by_cases hEq : query = IRStorageSlot.ofNat targetSlot
   · subst hEq

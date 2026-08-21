@@ -2262,7 +2262,7 @@ private theorem eventRuntimeStateMatchesIR_after_emit
         SourceSemantics.encodeEvents (runtime.world.events ++ [event]) := by
     have hstateEvents :
         state.events = SourceSemantics.encodeEvents runtime.world.events := by
-      exact hmatch.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
+      exact hmatch.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
     simp [hstateEvents, hevent, eventEncodeEvents_snoc]
   exact FunctionBody.runtimeStateMatchesIR_updateMemoryEvents
     hmatch sourceMemory irMemory (runtime.world.events ++ [event])
@@ -2305,7 +2305,7 @@ private theorem eventRuntimeStateMatchesIR_after_emit_scratch
           have hstateEvents :
               ((state.setVar "__evt_ptr" ptr).setVar "__evt_topic0" topic0).events =
                 SourceSemantics.encodeEvents runtime.world.events := by
-            exact hvars.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2
+            exact hvars.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
           rw [hstateEvents, eventEncodeEvents_snoc])
   simpa [IRState.appendYulLog, hlog] using hbase
 
