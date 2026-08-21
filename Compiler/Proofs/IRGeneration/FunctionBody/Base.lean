@@ -118,7 +118,8 @@ def runtimeStateMatchesIR
   runtime.world.calldataSize.val = 4 + state.calldata.length * 32 ∧
   state.memory = (fun o => (runtime.world.memory o).val) ∧
   state.returnValue = none ∧
-  state.events = SourceSemantics.encodeEvents runtime.world.events
+  state.events = SourceSemantics.encodeEvents runtime.world.events ∧
+  state.codeSize = (fun addr => (runtime.world.codeSize addr).val)
 
 /-- Runtime/IR alignment for constructor execution, whose calldata is not
 selector-prefixed. This is the constructor-shaped analogue of
@@ -144,7 +145,8 @@ def constructorRuntimeStateMatchesIR
   runtime.world.calldataSize.val = state.calldata.length * 32 ∧
   state.memory = (fun o => (runtime.world.memory o).val) ∧
   state.returnValue = none ∧
-  state.events = SourceSemantics.encodeEvents runtime.world.events
+  state.events = SourceSemantics.encodeEvents runtime.world.events ∧
+  state.codeSize = (fun addr => (runtime.world.codeSize addr).val)
 
 def initialIRStateForTx
     (spec : CompilationModel)
@@ -166,7 +168,8 @@ def initialIRStateForTx
     blobBaseFee := tx.blobBaseFee
     txOrigin := tx.txOrigin
     selector := tx.functionSelector
-    events := SourceSemantics.encodeEvents initialWorld.events }
+    events := SourceSemantics.encodeEvents initialWorld.events
+    codeSize := fun addr => (initialWorld.codeSize addr).val }
 
 @[simp] theorem bindingsMatchIRVars_nil_initialIRStateForTx
     (spec : CompilationModel)
@@ -2101,6 +2104,50 @@ private theorem eval_compileExpr_mload_of_compiled
     rw [hmload_unfold, hsrc]
     simp only [Option.bind_some]
     simp [evalIRExpr, hIR, hmem]
+
+theorem compileExpr_extcodesize_ok
+    {fields : List Field}
+    {expr : Expr}
+    {exprIR : YulExpr}
+    (hexpr : CompilationModel.compileExpr fields .calldata expr = Except.ok exprIR) :
+    CompilationModel.compileExpr fields .calldata (.extcodesize expr) =
+      Except.ok (YulExpr.call "extcodesize" [exprIR]) := by
+  rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+  rw [CompilationModel.compileExpr, CompilationModel.compileExprWithInternals, hexpr]
+  rfl
+
+set_option linter.unusedVariables false in
+private theorem eval_compileExpr_extcodesize_of_compiled
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    {addr : Expr}
+    {addrIR : YulExpr}
+    (haddr : CompilationModel.compileExpr fields .calldata addr = Except.ok addrIR)
+    (hEvalAddr : evalIRExpr state addrIR =
+        some (SourceSemantics.evalExpr fields runtime addr))
+    (hruntime : runtimeStateMatchesIR fields runtime state)
+    (hlt : SourceSemantics.evalExpr fields runtime addr <
+        Compiler.Constants.evmModulus) :
+    evalIRExpr state
+      (CompilationModel.compileExpr fields .calldata (.extcodesize addr)
+        |>.toOption.getD (YulExpr.lit 0)) =
+      some (SourceSemantics.evalExpr fields runtime (.extcodesize addr)) := by
+  rw [compileExpr_extcodesize_ok haddr]
+  simp only [Except.toOption, Option.getD]
+  rcases hruntime with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hcs⟩
+  rcases hIR : evalIRExpr state addrIR with _ | irVal
+  · simp [hIR] at hEvalAddr
+  · simp only [hIR] at hEvalAddr
+    simp only [Option.pure_def, Option.bind_eq_bind, Option.bind_some] at hEvalAddr
+    have hsrc : SourceSemantics.evalExpr fields runtime addr = some irVal := by
+      simpa using hEvalAddr.symm
+    have hecs_unfold : SourceSemantics.evalExpr fields runtime (.extcodesize addr) =
+        (SourceSemantics.evalExpr fields runtime addr).bind
+          (fun r => some (runtime.world.codeSize r).val) := rfl
+    rw [hecs_unfold, hsrc]
+    simp only [Option.bind_some]
+    simp [evalIRExpr, hIR, hcs]
 
 theorem compileExpr_tload_ok
     {fields : List Field}
@@ -4980,6 +5027,10 @@ theorem compileExpr_core_ok
       rename_i offset
       rcases ihO with ⟨offsetIR, hoffset⟩
       exact ⟨YulExpr.call "mload" [offsetIR], compileExpr_mload_ok hoffset⟩
+  | extcodesize hA ihA =>
+      rename_i addr
+      rcases ihA with ⟨addrIR, haddr⟩
+      exact ⟨YulExpr.call "extcodesize" [addrIR], compileExpr_extcodesize_ok haddr⟩
   | keccak256 hO hS ihO ihS =>
       rename_i offset size
       rcases ihO with ⟨offsetIR, hoffset⟩
@@ -6068,6 +6119,23 @@ theorem eval_compileExpr_core_onExpr
         rw [hoffset] at htmp
         simpa only [Except.toOption, Option.getD_some] using htmp
       exact eval_compileExpr_mload_of_compiled hoffset hEvalOff hruntime
+  | extcodesize hA ihA =>
+      rename_i addr
+      rcases compileExpr_core_ok hA with ⟨addrIR, haddr⟩
+      have hexact' : bindingsExactlyMatchIRVarsOnExpr addr runtime.bindings state :=
+        bindingsExactlyMatchIRVarsOnExpr_of_subset hexact (by
+          intro name hmem
+          simpa [exprBoundNames] using hmem)
+      have hpresent' := exprBoundNamesPresent_of_subset hpresent (by
+        intro name hmem
+        simpa [exprBoundNames] using hmem)
+      have hEvalAddr : evalIRExpr state addrIR =
+          some (SourceSemantics.evalExpr fields runtime addr) := by
+        have htmp := ihA hexact' hbounded hpresent' hruntime
+        rw [haddr] at htmp
+        simpa only [Except.toOption, Option.getD_some] using htmp
+      exact eval_compileExpr_extcodesize_of_compiled haddr hEvalAddr hruntime
+        (evalExpr_lt_evmModulus_core_onExpr hA hexact' hbounded hpresent' hruntime)
   | keccak256 hO hS ihO ihS =>
       rename_i offset size
       rcases compileExpr_core_ok hO with ⟨offsetIR, hoffset⟩
@@ -6600,6 +6668,14 @@ theorem evalExpr_lt_evmModulus_core_onExpr
       · simp only [Bind.bind, Option.bind, Pure.pure]
         have hModEq : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
         exact hModEq ▸ (runtime.world.memory offsetVal).isLt
+  | @extcodesize addr _ ihA =>
+      show (do let r ← SourceSemantics.evalExpr fields runtime addr
+               some (runtime.world.codeSize r).val) < _
+      rcases SourceSemantics.evalExpr fields runtime addr with _ | addrVal
+      · trivial
+      · simp only [Bind.bind, Option.bind, Pure.pure]
+        have hModEq : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
+        exact hModEq ▸ (runtime.world.codeSize addrVal).isLt
   | @keccak256 offset size _ _ ihO ihS =>
       show (do
         let off ← SourceSemantics.evalExpr fields runtime offset
@@ -7056,6 +7132,14 @@ theorem compileRequireFailCond_core_ok
       rcases compileExpr_core_ok (fields := fields) h with ⟨exprIR, hexpr⟩
       exact ⟨YulExpr.call "iszero" [YulExpr.call "mload" [exprIR]], by
         have hcompile := compileExpr_mload_ok hexpr
+        rw [CompilationModel.compileRequireFailCond]
+        rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
+        simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
+  | extcodesize h =>
+      rename_i expr
+      rcases compileExpr_core_ok (fields := fields) h with ⟨exprIR, hexpr⟩
+      exact ⟨YulExpr.call "iszero" [YulExpr.call "extcodesize" [exprIR]], by
+        have hcompile := compileExpr_extcodesize_ok hexpr
         rw [CompilationModel.compileRequireFailCond]
         rw [← CompilationModel.compileExprWithInternals_nil_eq] at hcompile
         simp [CompilationModel.compileRequireFailCondWithInternals, hcompile]⟩
@@ -7679,6 +7763,17 @@ theorem eval_compileRequireFailCond_core_onExpr
       · simpa using finishIszeroEval (expr := .mload expr)
           (show ExprCompileCore (.mload expr) from
             ExprCompileCore.mload h) hexact hpresent hexpr
+  | extcodesize h =>
+      rename_i expr
+      rcases compileExpr_core_ok (fields := fields)
+          (show ExprCompileCore (.extcodesize expr) from
+            ExprCompileCore.extcodesize h) with ⟨exprIR, hexpr⟩
+      refine ⟨YulExpr.call "iszero" [exprIR], ?_, ?_⟩
+      · rw [← CompilationModel.compileExprWithInternals_nil_eq] at hexpr
+        simp [CompilationModel.compileRequireFailCond, CompilationModel.compileRequireFailCondWithInternals, hexpr]
+      · simpa using finishIszeroEval (expr := .extcodesize expr)
+          (show ExprCompileCore (.extcodesize expr) from
+            ExprCompileCore.extcodesize h) hexact hpresent hexpr
   | keccak256 hO hS =>
       rename_i offset size
       rcases compileExpr_core_ok (fields := fields)

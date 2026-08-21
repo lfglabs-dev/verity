@@ -2498,22 +2498,30 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
                   cases rest with
                   | nil => simp
                   | cons _ _ => simp
-            · by_cases hkeccak : func = "keccak256"
-              · subst hkeccak
+            · by_cases hextcodesize : func = "extcodesize"
+              · simp [hextcodesize]
                 cases argVals with
                 | nil => simp
-                | cons offset rest =>
+                | cons addr rest =>
                     cases rest with
                     | nil => simp
-                    | cons size rest =>
-                        cases rest <;> simp
-              · simp only [htload, hmload, hkeccak, ↓reduceIte]
-                cases hbuiltin :
-                    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                      state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-                | none => simp [hbuiltin]
-                | some value => simp [hbuiltin]
+                    | cons _ _ => simp
+              · by_cases hkeccak : func = "keccak256"
+                · subst hkeccak
+                  cases argVals with
+                  | nil => simp
+                  | cons offset rest =>
+                      cases rest with
+                      | nil => simp
+                      | cons size rest =>
+                          cases rest <;> simp
+                · simp only [htload, hmload, hextcodesize, hkeccak, ↓reduceIte]
+                  cases hbuiltin :
+                      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+                        state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
+                        state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
+                  | none => simp [hbuiltin]
+                  | some value => simp [hbuiltin]
 
 theorem evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
     (contract : IRContract)
@@ -2661,22 +2669,30 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
                   cases rest with
                   | nil => simp
                   | cons _ _ => simp
-            · by_cases hkeccak : func = "keccak256"
-              · subst hkeccak
+            · by_cases hextcodesize : func = "extcodesize"
+              · simp [hextcodesize]
                 cases argVals with
                 | nil => simp
-                | cons offset rest =>
+                | cons addr rest =>
                     cases rest with
                     | nil => simp
-                    | cons size rest =>
-                        cases rest <;> simp
-              · simp only [htload, hmload, hkeccak, ↓reduceIte]
-                cases hbuiltin :
-                    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                      state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-                | none => simp [hbuiltin]
-                | some value => simp [hbuiltin]
+                    | cons _ _ => simp
+              · by_cases hkeccak : func = "keccak256"
+                · subst hkeccak
+                  cases argVals with
+                  | nil => simp
+                  | cons offset rest =>
+                      cases rest with
+                      | nil => simp
+                      | cons size rest =>
+                          cases rest <;> simp
+                · simp only [htload, hmload, hextcodesize, hkeccak, ↓reduceIte]
+                  cases hbuiltin :
+                      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+                        state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
+                        state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
+                  | none => simp [hbuiltin]
+                  | some value => simp [hbuiltin]
 
 /-- Expression-list conservative extension under per-expression disjointness.
 Generalizes `evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal`. -/
@@ -2889,22 +2905,30 @@ theorem evalIRCallWithInternals_stmt_eq_of_no_internal
               cases rest with
               | nil => simp
               | cons _ _ => simp
-        · by_cases hkeccak : func = "keccak256"
-          · subst hkeccak
+        · by_cases hextcodesize : func = "extcodesize"
+          · simp [hextcodesize]
             cases argVals with
             | nil => simp
-            | cons offset rest =>
+            | cons addr rest =>
                 cases rest with
                 | nil => simp
-                | cons size rest =>
-                    cases rest <;> simp
-          · simp only [htload, hmload, hkeccak, ↓reduceIte]
-            cases hbuiltin :
-                Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                  state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                  state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-            | none => simp [hbuiltin]
-            | some value => simp [hbuiltin]
+                | cons _ _ => simp
+          · by_cases hkeccak : func = "keccak256"
+            · subst hkeccak
+              cases argVals with
+              | nil => simp
+              | cons offset rest =>
+                  cases rest with
+                  | nil => simp
+                  | cons size rest =>
+                      cases rest <;> simp
+            · simp only [htload, hmload, hextcodesize, hkeccak, ↓reduceIte]
+              cases hbuiltin :
+                  Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+                    state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
+                    state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
+              | none => simp [hbuiltin]
+              | some value => simp [hbuiltin]
 
 /-- Shared compatibility lemma for statement-position Yul logs: once the
 argument-list evaluators agree, helper-aware and helper-free log execution agree

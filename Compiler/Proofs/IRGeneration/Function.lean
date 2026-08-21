@@ -993,7 +993,7 @@ theorem initialIRStateForTx_matches_runtime
   have htxOriginAddr : tx.txOrigin < Verity.Core.Address.modulus := by
     simpa [Verity.Core.Address.modulus, Compiler.Constants.addressModulus,
       Verity.Core.ADDRESS_MODULUS] using htxOrigin
-  refine ⟨?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simpa [FunctionBody.initialIRStateForTx, SourceSemantics.effectiveFields,
       SourceSemantics.encodeStorage] using
       (FunctionBody.encodeStorage_withTransactionContext model initialWorld tx).symm
@@ -1059,6 +1059,9 @@ theorem initialIRStateForTx_matches_runtime
       rfl
     rw [this]
     rfl
+  · -- codeSize
+    funext addr
+    simp [FunctionBody.initialIRStateForTx, SourceSemantics.withTransactionContext]
 
 /-- An address-ranged transaction-context word survives the word/address
 normalization round trip. -/

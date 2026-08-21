@@ -428,9 +428,9 @@ theorem runtimeStateMatchesIR_updateMemoryEvents
   cases state
   simp only [runtimeStateMatchesIR] at hmatch ⊢
   obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel,
-    hcd, hcds, hmem, hret, hevt⟩ := hmatch
+    hcd, hcds, hmem, hret, hevt, hcs⟩ := hmatch
   refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel,
-    hcd, hcds, hmemory, hret, hevents⟩
+    hcd, hcds, hmemory, hret, hevents, hcs⟩
   rw [hstor]
   funext slot
   exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)
@@ -450,8 +450,8 @@ theorem runtimeStateMatchesIR_setTransientStorage
   cases runtime
   cases state
   simp only [runtimeStateMatchesIR] at hmatch ⊢
-  obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds, hmem, hret, hevt⟩ := hmatch
-  refine ⟨?_, ?_, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds, hmem, hret, hevt⟩
+  obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds, hmem, hret, hevt, hcs⟩ := hmatch
+  refine ⟨?_, ?_, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds, hmem, hret, hevt, hcs⟩
   · -- storage: encodeStorageAt doesn't depend on transientStorage
     rw [hstor]
     funext slot
