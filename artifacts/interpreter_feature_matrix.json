@@ -597,8 +597,8 @@
     {
       "feature": "revertReturndata",
       "constructor": "Stmt.revertReturndata",
-      "SourceInterpreter_basic": "supported",
-      "SourceInterpreter_fuel": "supported",
+      "SourceInterpreter_basic": "unsupported",
+      "SourceInterpreter_fuel": "unsupported",
       "IRInterpreter": "n/a",
       "proof_status": "proved"
     },

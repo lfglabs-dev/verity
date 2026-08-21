@@ -733,8 +733,11 @@ INTERPRETER_FEATURE_BOUNDARY_CATALOG = CategoryNoteEntry(
         "Partially modeled features currently include runtime introspection "
         "(`blockNumber`, `contractAddress`, `chainid`) and single-word linear-memory forms "
         "(`mload`, `mstore`, `returndataOptionalBoolAt`).",
-        "`revertReturndata` is fully proved: its generated `returndatasize()` "
-        "is zero in the no-call fragment, so the source semantics models the exact empty revert.",
+        "`revertReturndata` is fully proved in the proof-oriented source semantics: its generated "
+        "`returndatasize()` is zero in the no-call fragment, so it models the exact empty revert. "
+        "The executable source interpreter remains unsupported because `Contracts.revertReturndata` "
+        "is still a no-op; wider copies and returndata bubbling after a call remain downstream work "
+        "because they are the EVM's exceptional halt.",
         "Fully not-modeled features currently include `keccak256`, low-level call plumbing "
         "(`call`, `staticcall`, `delegatecall`), event emission (`rawLog`), and external call modules "
         "(`externalCallBind`, `ecm`).",
