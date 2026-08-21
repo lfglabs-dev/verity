@@ -73,4 +73,86 @@ theorem calldatacopyMemory_outside
     calldatacopyMemory selector calldata dst src size mem offset = mem offset := by
   simp [calldatacopyMemory, h]
 
+/-! ## Ceiling-word model for byte-granular calldatacopy -/
+
+/-- The word value produced by `CALLDATACOPY(dst, src, size)` at word slot `i`
+in the destination region. For slots `i < size / 32` this is the full
+`calldataloadWord`; for the ceiling slot (`i = size / 32` when `size % 32 ≠ 0`)
+the high `size % 32` bytes are retained and the remaining bytes are zeroed. -/
+def calldatacopyWord (selector : Nat) (calldata : List Nat)
+    (src size : Nat) (i : Nat) : Nat :=
+  let fullWord := calldataloadWord selector calldata (src + i * 32)
+  if i < size / 32 then fullWord
+  else
+    let shift := 8 * (32 - size % 32)
+    (fullWord / 2 ^ shift) * 2 ^ shift
+
+/-- Memory after `calldatacopy` with ceiling-word zero padding. Models the full
+byte-granular effect of EVM `CALLDATACOPY(dst, src, size)` on word-addressed
+memory: the `⌊size/32⌋` fully-written words plus, when `size` is not
+word-aligned, one ceiling word whose high `size % 32` bytes carry the copied
+calldata prefix and whose low `32 − (size % 32)` bytes are zeroed. -/
+def calldatacopyMemoryPadded (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (memory : Nat → Nat) (offset : Nat) : Nat :=
+  if size % 32 ≠ 0 ∧ offset = dst + (size / 32) * 32 then
+    (calldataloadWord selector calldata (src + (size / 32) * 32) /
+      2 ^ (8 * (32 - size % 32))) * 2 ^ (8 * (32 - size % 32))
+  else
+    calldatacopyMemory selector calldata dst src size memory offset
+
+theorem calldatacopyMemoryPadded_eq_of_aligned
+    (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat)
+    (halign : size % 32 = 0) :
+    calldatacopyMemoryPadded selector calldata dst src size mem =
+      calldatacopyMemory selector calldata dst src size mem := by
+  funext offset
+  simp [calldatacopyMemoryPadded, halign]
+
+theorem calldatacopyMemoryPadded_at_index
+    (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat) (i : Nat)
+    (hi : i < size / 32) :
+    calldatacopyMemoryPadded selector calldata dst src size mem (dst + i * 32) =
+      calldataloadWord selector calldata (src + i * 32) := by
+  simp only [calldatacopyMemoryPadded, show ¬(size % 32 ≠ 0 ∧ dst + i * 32 = dst + size / 32 * 32)
+    from by omega, if_false]
+  exact calldatacopyMemory_at_index selector calldata dst src size mem i hi
+
+theorem calldatacopyMemoryPadded_at_ceil
+    (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat)
+    (hrem : size % 32 ≠ 0) :
+    calldatacopyMemoryPadded selector calldata dst src size mem
+        (dst + (size / 32) * 32) =
+      (calldataloadWord selector calldata (src + (size / 32) * 32) /
+        2 ^ (8 * (32 - size % 32))) * 2 ^ (8 * (32 - size % 32)) := by
+  simp [calldatacopyMemoryPadded, hrem]
+
+theorem calldatacopyMemoryPadded_outside
+    (selector : Nat) (calldata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat) (offset : Nat)
+    (hbase : ¬calldatacopyWritesAt dst size offset)
+    (hceil : size % 32 = 0 ∨ offset ≠ dst + (size / 32) * 32) :
+    calldatacopyMemoryPadded selector calldata dst src size mem offset =
+      mem offset := by
+  simp only [calldatacopyMemoryPadded]
+  rw [if_neg (by rcases hceil with h | h <;> simp_all)]
+  exact calldatacopyMemory_outside selector calldata dst src size mem offset hbase
+
+theorem calldatacopyWord_full
+    (selector : Nat) (calldata : List Nat)
+    (src size : Nat) (i : Nat) (hi : i < size / 32) :
+    calldatacopyWord selector calldata src size i =
+      calldataloadWord selector calldata (src + i * 32) := by
+  simp [calldatacopyWord, hi]
+
+theorem calldatacopyWord_ceil
+    (selector : Nat) (calldata : List Nat)
+    (src size : Nat) (_hrem : size % 32 ≠ 0) :
+    calldatacopyWord selector calldata src size (size / 32) =
+      (calldataloadWord selector calldata (src + (size / 32) * 32) /
+        2 ^ (8 * (32 - size % 32))) * 2 ^ (8 * (32 - size % 32)) := by
+  simp only [calldatacopyWord, show ¬(size / 32 < size / 32) from by omega, if_false]
+
 end Compiler.Proofs.YulGeneration

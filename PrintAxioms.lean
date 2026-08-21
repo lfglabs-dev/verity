@@ -1233,6 +1233,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiMemoryLayout.abiEncodeArgs_memory_dynamic_offset_points_at_tail
   Compiler.Proofs.CalldataMemoryLayout.yulLogDataWords_calldatacopyMemory
   Compiler.Proofs.CalldataMemoryLayout.calldatacopyMemory_getWord
+  Compiler.Proofs.CalldataMemoryLayout.yulLogDataWords_calldatacopyMemoryPadded
+  Compiler.Proofs.CalldataMemoryLayout.calldatacopyMemoryPadded_getWord
+  Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_1byte
+  Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_33byte_floor
+  Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_33byte_ceil
+  Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_33byte_count
+  Compiler.Proofs.CalldataMemoryLayout.ceilWord_regression_aligned
 
   -- Compiler/Proofs/ArithmeticProfile.lean
   Compiler.Proofs.ArithmeticProfile.modulus_is_2_pow_256
@@ -7370,6 +7377,12 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.calldatacopyWritesAt_of_index  -- private
   Compiler.Proofs.YulGeneration.calldatacopyMemory_at_index
   Compiler.Proofs.YulGeneration.calldatacopyMemory_outside
+  Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded_eq_of_aligned
+  Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded_at_index
+  Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded_at_ceil
+  Compiler.Proofs.YulGeneration.calldatacopyMemoryPadded_outside
+  Compiler.Proofs.YulGeneration.calldatacopyWord_full
+  Compiler.Proofs.YulGeneration.calldatacopyWord_ceil
 
   -- Compiler/Proofs/YulGeneration/ExecutionSummary.lean
   Compiler.Proofs.YulGeneration.RawSummary.ofYulResult_refines_of_eq
@@ -7384,4 +7397,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6831 theorems/lemmas (4898 public, 1933 private, 0 sorry'd)
+-- Total: 6844 theorems/lemmas (4911 public, 1933 private, 0 sorry'd)

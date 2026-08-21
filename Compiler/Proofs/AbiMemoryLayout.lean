@@ -284,25 +284,34 @@ end Compiler.Proofs.AbiMemoryLayout
 
 `dynamicCopyData` (in `Verity.Core.Model.ECM`) materializes dynamic event
 tail data with a `calldatacopy` from the transaction's calldata buffer.
-The main theorem here proves that reading the destination region back with
-`yulLogDataWords` (the word-granular LOG payload model) returns exactly the
-calldata words that were copied, in order.  This is the calldatacopy
-counterpart of `yulLogDataWords_abiBlockWrites` and closes gap (a) from
-`docs/VERIFICATION_STATUS.md` slice 4.
 
-The pointwise corollary `calldatacopyMemory_getWord` pins an individual word,
-which is the form the concrete emit lane needs when it reads one copied word
-at a known offset. -/
+**Floor readback** (`yulLogDataWords_calldatacopyMemory`): reading the
+`⌊size/32⌋` fully-written words from `dst` returns exactly the calldata
+words in order.  This covers the aligned-size case but says nothing about the
+final partial word when `size` is not a multiple of 32.
+
+**Ceiling readback** (`yulLogDataWords_calldatacopyMemoryPadded`): the full
+byte-granular model `calldatacopyMemoryPadded` extends the base
+`calldatacopyMemory` with one ceiling word whose high `size % 32` bytes carry
+the copied calldata prefix and whose remaining bytes are zeroed.  Reading the
+`⌈size/32⌉` words back returns `calldatacopyWord` for each slot — the full
+calldata word for interior slots and the masked/zero-padded word for the
+ceiling slot.  This is the form the concrete `bytes`/`string` emit lane
+requires, since `compileEmit` passes the raw byte length to `calldatacopy`
+but the LOG reads a ceiling-padded ABI region. -/
 
 namespace Compiler.Proofs.CalldataMemoryLayout
 
 open Compiler.Proofs.YulGeneration
 open Compiler.Proofs.IRGeneration
 
-/-- **Memory layout of a calldatacopy block.**  Reading `size / 32` consecutive
+/-- **Floor readback of a calldatacopy block.**  Reading `size / 32` consecutive
 words back from `dst` — after `calldatacopy(dst, src, size)` — returns exactly
 the calldata words from `src, src + 32, …, src + (size/32 - 1) * 32`, provided
-the destination block does not wrap the 256-bit address space. -/
+the destination block does not wrap the 256-bit address space.
+
+See `yulLogDataWords_calldatacopyMemoryPadded` for the ceiling-word extension
+that also covers the partial final word when `size` is not a multiple of 32. -/
 theorem yulLogDataWords_calldatacopyMemory
     (selector : Nat) (calldata : List Nat) (dst src size : Nat) (mem : Nat → Nat)
     (hfit : dst + 32 * (size / 32) ≤ Compiler.Constants.evmModulus) :
@@ -330,5 +339,98 @@ theorem calldatacopyMemory_getWord
   have hlt : dst + index * 32 < Compiler.Constants.evmModulus := by omega
   rw [Nat.mod_eq_of_lt hlt,
     calldatacopyMemory_at_index selector calldata dst src size mem index hindex]
+
+/-! ### Ceiling readback -/
+
+/-- **Ceiling readback of a calldatacopy block.**  Reading `⌈size/32⌉`
+consecutive words back from `dst` — using the byte-granular model
+`calldatacopyMemoryPadded` — returns `calldatacopyWord` at each slot: the
+full calldata word for complete interior slots and the masked/zero-padded
+word for the final partial slot when `size % 32 ≠ 0`.  This composes with the
+concrete `bytes`/`string` emit lane where LOG reads a ceiling-padded region. -/
+theorem yulLogDataWords_calldatacopyMemoryPadded
+    (selector : Nat) (calldata : List Nat) (dst src size : Nat) (mem : Nat → Nat)
+    (hfit : dst + 32 * ((size + 31) / 32) ≤ Compiler.Constants.evmModulus) :
+    yulLogDataWords (calldatacopyMemoryPadded selector calldata dst src size mem) dst
+        (32 * ((size + 31) / 32)) =
+      (List.range ((size + 31) / 32)).map (fun i =>
+        calldatacopyWord selector calldata src size i) := by
+  simp only [yulLogDataWords,
+    show 32 * ((size + 31) / 32) / 32 = (size + 31) / 32 from by omega]
+  apply List.map_congr_left
+  intro i hi
+  rw [List.mem_range] at hi
+  have hlt : dst + i * 32 < Compiler.Constants.evmModulus := by omega
+  rw [Nat.mod_eq_of_lt hlt]
+  simp only [calldatacopyWord]
+  split
+  · next hfull =>
+    exact calldatacopyMemoryPadded_at_index selector calldata dst src size mem i hfull
+  · next hceil =>
+    have hrem : size % 32 ≠ 0 := by omega
+    have heq : i = size / 32 := by omega
+    rw [heq]
+    exact calldatacopyMemoryPadded_at_ceil selector calldata dst src size mem hrem
+
+/-- Pointwise ceiling form: the word at ABI slot `index` of the
+ceiling-padded calldatacopy block. -/
+theorem calldatacopyMemoryPadded_getWord
+    (selector : Nat) (calldata : List Nat) (dst src size : Nat) (mem : Nat → Nat)
+    (index : Nat)
+    (hfit : dst + 32 * ((size + 31) / 32) ≤ Compiler.Constants.evmModulus)
+    (hindex : index < (size + 31) / 32) :
+    calldatacopyMemoryPadded selector calldata dst src size mem
+        ((dst + index * 32) % Compiler.Constants.evmModulus) =
+      calldatacopyWord selector calldata src size index := by
+  have hlt : dst + index * 32 < Compiler.Constants.evmModulus := by omega
+  rw [Nat.mod_eq_of_lt hlt]
+  simp only [calldatacopyWord]
+  split
+  · next hfull =>
+    exact calldatacopyMemoryPadded_at_index selector calldata dst src size mem index hfull
+  · next hceil =>
+    have hrem : size % 32 ≠ 0 := by omega
+    have heq : index = size / 32 := by omega
+    rw [heq]
+    exact calldatacopyMemoryPadded_at_ceil selector calldata dst src size mem hrem
+
+/-! ### Ceiling-word regression checks
+
+Executable checks exercising the partial-word cases flagged in the Codex P1
+review (PR #2395 `discussion_r3830312802`):
+* a 1-byte value (`size = 1`) produces one ceiling word with 1 high byte kept
+* a 33-byte value (`size = 33`) produces two words where the second is
+  ceiling-masked
+These run during `lake build` and fail the build if the mask is wrong. -/
+
+private def regressionCalldata : List Nat := [Compiler.Constants.evmModulus - 1,
+  Compiler.Constants.evmModulus - 1]
+
+/-- 1-byte calldatacopy: ceiling word keeps only the topmost byte. -/
+theorem ceilWord_regression_1byte :
+    calldatacopyWord 0 regressionCalldata 4 1 0 =
+      calldataloadWord 0 regressionCalldata 4 /
+        2 ^ (8 * (32 - 1)) * 2 ^ (8 * (32 - 1)) := by
+  simp [calldatacopyWord]
+
+/-- 33-byte calldatacopy: floor word is unchanged; ceiling word is masked. -/
+theorem ceilWord_regression_33byte_floor :
+    calldatacopyWord 0 regressionCalldata 4 33 0 =
+      calldataloadWord 0 regressionCalldata 4 := by
+  simp [calldatacopyWord]
+
+theorem ceilWord_regression_33byte_ceil :
+    calldatacopyWord 0 regressionCalldata 4 33 1 =
+      calldataloadWord 0 regressionCalldata 36 /
+        2 ^ (8 * 31) * 2 ^ (8 * 31) := by
+  simp [calldatacopyWord]
+
+/-- Ceiling readback for 33 bytes yields exactly two words. -/
+theorem ceilWord_regression_33byte_count :
+    (33 + 31) / 32 = 2 := by omega
+
+/-- Aligned size: ceiling count = floor count. -/
+theorem ceilWord_regression_aligned :
+    (64 + 31) / 32 = 64 / 32 := by omega
 
 end Compiler.Proofs.CalldataMemoryLayout
