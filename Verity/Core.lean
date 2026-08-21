@@ -349,6 +349,7 @@ structure ContractState where
       callee's outcome in-band (`ExternalCallResult.control`) instead of
       raising a monadic revert. -/
   calls : List ExternalCall := []
+  codeSize : Nat → Uint256 := fun _ => 0
 
 namespace ContractState
 

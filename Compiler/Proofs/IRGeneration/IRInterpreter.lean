@@ -286,6 +286,10 @@ def evalIRCall (state : IRState) (func : String) : List YulExpr → Option Nat
       match argVals with
       | [offset] => some (state.memory offset)
       | _ => none
+    else if func = "extcodesize" then
+      match argVals with
+      | [addr] => some (state.codeSize addr)
+      | _ => none
     else if func = "keccak256" then
       match argVals with
       | [offset, size] => some (abstractKeccakMemorySlice state.memory offset size)
@@ -329,6 +333,16 @@ end -- mutual
     evalIRCall state "mload" [argExpr] =
       (evalIRExpr state argExpr).bind
         (fun offset => some (state.memory offset)) := by
+  simp [evalIRCall, evalIRExprs]
+  cases evalIRExpr state argExpr with
+  | none => simp
+  | some val => simp
+
+@[simp] theorem evalIRCall_extcodesize_singleton
+    (state : IRState) (argExpr : YulExpr) :
+    evalIRCall state "extcodesize" [argExpr] =
+      (evalIRExpr state argExpr).bind
+        (fun addr => some (state.codeSize addr)) := by
   simp [evalIRCall, evalIRExprs]
   cases evalIRExpr state argExpr with
   | none => simp
@@ -501,6 +515,10 @@ def evalIRCallWithInternals
           if func = "tload" then
             match argVals with
             | [slot] => .values [state'.transientStorage (slot % Compiler.Constants.evmModulus)] state'
+            | _ => .revert state'
+          else if func = "extcodesize" then
+            match argVals with
+            | [addr] => .values [state'.codeSize addr] state'
             | _ => .revert state'
           else if func = "mload" then
             match argVals with

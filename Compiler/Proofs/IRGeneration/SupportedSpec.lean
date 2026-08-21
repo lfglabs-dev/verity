@@ -1059,7 +1059,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
         exprTouchesUnsupportedCoreSurface c
   | .slt a b | .sgt a b | .sdiv a b | .smod a b | .sar a b | .byte a b | .signextend a b =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b
-  | .mload a | .tload a | .calldataload a => exprTouchesUnsupportedCoreSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a => exprTouchesUnsupportedCoreSurface a
   | .keccak256 a b =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b
   | .arrayElement _ index => exprTouchesUnsupportedCoreSurface index
@@ -1071,7 +1071,6 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
-  | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
   | .memoryArrayLength _
   | .memoryArrayElement _ _ | .arrayElementWord _ _ _ _
@@ -1489,14 +1488,14 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .mulDivDown a b c | .mulDivUp a b c =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b ||
         exprTouchesUnsupportedContractSurface c
-  | .mload a | .tload a | .calldataload a => exprTouchesUnsupportedContractSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a =>
+      exprTouchesUnsupportedContractSurface a
   | .keccak256 a b =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b
   | .mapping _ _ | .mappingWord _ _ _ | .mappingPackedWord _ _ _ _
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
-  | .extcodesize _
   | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
   | .arrayLength _ | .memoryArrayLength _
   | .arrayElement _ _ | .memoryArrayElement _ _ | .arrayElementWord _ _ _ _

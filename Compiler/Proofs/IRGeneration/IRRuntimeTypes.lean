@@ -39,6 +39,8 @@ structure IRState where
   selector : Nat
   /-- Emitted log records for this execution. -/
   events : List (List Nat) := []
+  /-- EXTCODESIZE at address (environment read, no state mutation). -/
+  codeSize : Nat → Nat := fun _ => 0
   deriving Nonempty
 
 /-- Initial state for IR execution. -/
