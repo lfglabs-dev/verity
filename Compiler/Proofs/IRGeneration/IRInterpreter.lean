@@ -2829,22 +2829,30 @@ theorem evalIRCallWithInternals_stmt_eq_of_callsDisjoint
               cases rest with
               | nil => simp
               | cons _ _ => simp
-        · by_cases hkeccak : func = "keccak256"
-          · subst hkeccak
+        · by_cases hextcodesize : func = "extcodesize"
+          · simp [hextcodesize]
             cases argVals with
             | nil => simp
-            | cons offset rest =>
+            | cons addr rest =>
                 cases rest with
                 | nil => simp
-                | cons size rest =>
-                    cases rest <;> simp
-          · simp only [htload, hmload, hkeccak, ↓reduceIte]
-            cases hbuiltin :
-                Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                  state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                  state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-            | none => simp [hbuiltin]
-            | some value => simp [hbuiltin]
+                | cons _ _ => simp
+          · by_cases hkeccak : func = "keccak256"
+            · subst hkeccak
+              cases argVals with
+              | nil => simp
+              | cons offset rest =>
+                  cases rest with
+                  | nil => simp
+                  | cons size rest =>
+                      cases rest <;> simp
+            · simp only [htload, hmload, hextcodesize, hkeccak, ↓reduceIte]
+              cases hbuiltin :
+                  Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+                    state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
+                    state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
+              | none => simp [hbuiltin]
+              | some value => simp [hbuiltin]
 
 /-- Statement-level collapse for call expressions when `internalFunctions = []`. -/
 theorem evalIRCallWithInternals_stmt_eq_of_no_internal
@@ -4942,6 +4950,7 @@ theorem evalIRCallWithInternals_of_builtin
     (hfind : findInternalFunction? contract func = none)
     (hnotTload : func ≠ "tload")
     (hnotMload : func ≠ "mload")
+    (hnotExtcodesize : func ≠ "extcodesize")
     (hnotKeccak : func ≠ "keccak256") :
     evalIRCallWithInternals contract fuel state func args =
       match Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
@@ -4950,8 +4959,8 @@ theorem evalIRCallWithInternals_of_builtin
           state'.txOrigin state'.selector state'.calldata func argVals with
       | some value => .values [value] state'
       | none => .revert state' := by
-  simp only [evalIRCallWithInternals, hargs, hfind, hnotTload, hnotMload, hnotKeccak,
-    ↓reduceIte]
+  simp only [evalIRCallWithInternals, hargs, hfind, hnotTload, hnotMload, hnotExtcodesize,
+    hnotKeccak, ↓reduceIte]
 
 /-- When argument evaluation propagates a control-flow effect (stop/return/revert),
 `evalIRCallWithInternals` propagates it unchanged. -/

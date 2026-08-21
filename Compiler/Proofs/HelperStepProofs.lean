@@ -2720,6 +2720,7 @@ theorem evalIRExprWithInternals_binary_builtin_of_values
     (hfind : findInternalFunction? runtimeContract func = none)
     (hnotTload : func ≠ "tload")
     (hnotMload : func ≠ "mload")
+    (hnotExtcodesize : func ≠ "extcodesize")
     (hnotKeccak : func ≠ "keccak256")
     (hbuiltin :
       Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
@@ -2739,7 +2740,7 @@ theorem evalIRExprWithInternals_binary_builtin_of_values
   simp [evalIRExprWithInternals_call,
     evalIRCallWithInternals_of_builtin runtimeContract fuel state func
       [leftIR, rightIR] [leftValue, rightValue] finalState hargs hfind
-      hnotTload hnotMload hnotKeccak,
+      hnotTload hnotMload hnotExtcodesize hnotKeccak,
     hbuiltin]
 
 /-- Helper-aware compiled IR evaluation for a pure one-argument Yul builtin. -/
@@ -2756,6 +2757,7 @@ theorem evalIRExprWithInternals_unary_builtin_of_value
     (hfind : findInternalFunction? runtimeContract func = none)
     (hnotTload : func ≠ "tload")
     (hnotMload : func ≠ "mload")
+    (hnotExtcodesize : func ≠ "extcodesize")
     (hnotKeccak : func ≠ "keccak256")
     (hbuiltin :
       Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
@@ -2774,7 +2776,7 @@ theorem evalIRExprWithInternals_unary_builtin_of_value
       exprIR argValue hexpr
   simp [evalIRExprWithInternals_call,
     evalIRCallWithInternals_of_builtin runtimeContract fuel state func
-      [exprIR] [argValue] finalState hargs hfind hnotTload hnotMload hnotKeccak,
+      [exprIR] [argValue] finalState hargs hfind hnotTload hnotMload hnotExtcodesize hnotKeccak,
     hbuiltin]
 
 /-- `Nat` values coerced to `Uint256` may be normalized before or after the
