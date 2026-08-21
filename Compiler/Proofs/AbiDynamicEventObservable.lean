@@ -36,8 +36,20 @@ Two gaps remain and are deliberately *not* claimed here; both are recorded in
 * `compileEmit`'s `bytes`/`string` lane materializes tail data with
   `dynamicCopyData` (a `calldatacopy`) and carries dynamic head offsets in the
   mutable `__evt_data_tail` accumulator rather than as literals, so connecting
-  `dynEmitPayloadExprs` to that concrete statement list needs a word-granular
-  `calldatacopy` readback lemma and an accumulator invariant.
+  `dynEmitPayloadExprs` to that concrete statement list needs:
+  (1) a word-granular `calldatacopy` readback lemma — now provided at two
+      levels: the floor readback
+      `CalldataMemoryLayout.yulLogDataWords_calldatacopyMemory` for
+      word-aligned sizes, and the ceiling readback
+      `CalldataMemoryLayout.yulLogDataWords_calldatacopyMemoryPadded` for
+      arbitrary byte sizes (covering the final partial word via
+      `calldatacopyMemoryPadded`, which preserves preexisting memory
+      low bytes; the readback carries a fresh-memory premise `hpad`);
+  (2) an accumulator invariant for `__evt_data_tail`; and
+  (3) connecting the ceiling-word model `calldatacopyMemoryPadded` to the
+      IR interpreter's `calldatacopyMemory` (the base model writes only
+      `⌊size/32⌋` full words; the ceiling-word extension is a separate
+      composition layer).
 * Indexed dynamic arguments are hashed into a topic by `keccak256` over a
   copied region; the observable model has no lemma pinning that hash, so the
   indexed side here stays scalar (`scalarEventIndexedTopicParts`).
