@@ -1475,7 +1475,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
       some (Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.world.calldata resolvedOffset)
   | .extcodesize addr => do
       let resolvedAddr ← evalExpr fields state addr
-      some (state.world.codeSize resolvedAddr).val
+      some (state.world.codeSize (resolvedAddr % addressModulus)).val
   | .keccak256 offExpr sizeExpr => do
       let off ← evalExpr fields state offExpr
       let size ← evalExpr fields state sizeExpr
@@ -1686,7 +1686,7 @@ private theorem evalExpr_extcodesize
     (a : Expr) :
     evalExpr fields state (.extcodesize a) =
       (evalExpr fields state a).bind
-        (fun resolvedAddr => some (state.world.codeSize resolvedAddr).val) := rfl
+        (fun resolvedAddr => some (state.world.codeSize (resolvedAddr % addressModulus)).val) := rfl
 
 private theorem evalExpr_returndataOptionalBoolAt
     (fields : List Field)
@@ -3988,7 +3988,7 @@ mutual
         some (Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.world.calldata resolvedOffset)
     | .extcodesize addr => do
         let resolvedAddr ← evalExprWithHelpers spec fields fuel state addr
-        some (state.world.codeSize resolvedAddr).val
+        some (state.world.codeSize (resolvedAddr % addressModulus)).val
     | .keccak256 offExpr sizeExpr => do
         -- Keep this in sync with the helper/call surface scans, which recurse
         -- into the offset and size expressions.

@@ -2893,7 +2893,7 @@ theorem exprInternalHelperCompositionalContextResult_add_right_threaded
   let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_add_of_values finalState leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "add" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindAdd (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindAdd (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -2989,7 +2989,7 @@ theorem exprInternalHelperCompositionalContextResult_add_left_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "add" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindAdd (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindAdd (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -3142,7 +3142,7 @@ theorem exprInternalHelperCompositionalContextResult_mul_right_threaded
   let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_mul_of_values finalState leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "mul" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindMul (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindMul (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -3227,7 +3227,7 @@ theorem exprInternalHelperCompositionalContextResult_mul_left_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "mul" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindMul (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindMul (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -3391,7 +3391,7 @@ theorem exprInternalHelperCompositionalContextResult_sub_right_threaded
   let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_sub_of_values finalState leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "sub" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindSub (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindSub (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -3476,7 +3476,7 @@ theorem exprInternalHelperCompositionalContextResult_sub_left_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "sub" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindSub (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindSub (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -3635,7 +3635,7 @@ theorem exprInternalHelperCompositionalContextResult_div_right_threaded
   let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_div_of_values finalState leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "div" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindDiv (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindDiv (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -3720,7 +3720,7 @@ theorem exprInternalHelperCompositionalContextResult_div_left_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "div" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindDiv (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindDiv (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -3879,7 +3879,7 @@ theorem exprInternalHelperCompositionalContextResult_mod_right_threaded
   let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_mod_of_values finalState leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "mod" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindMod (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindMod (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -3964,7 +3964,7 @@ theorem exprInternalHelperCompositionalContextResult_mod_left_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "mod" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindMod (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindMod (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -4116,7 +4116,7 @@ theorem exprInternalHelperCompositionalContextResult_bitAnd_right_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "and" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindAnd (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindAnd (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -4201,7 +4201,7 @@ theorem exprInternalHelperCompositionalContextResult_bitAnd_left_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "and" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindAnd (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindAnd (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -4353,7 +4353,7 @@ theorem exprInternalHelperCompositionalContextResult_bitOr_right_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "or" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindOr (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindOr (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -4438,7 +4438,7 @@ theorem exprInternalHelperCompositionalContextResult_bitOr_left_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "or" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindOr (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindOr (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -4590,7 +4590,7 @@ theorem exprInternalHelperCompositionalContextResult_bitXor_right_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "xor" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindXor (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindXor (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -4675,7 +4675,7 @@ theorem exprInternalHelperCompositionalContextResult_bitXor_left_threaded
     leftValue rightValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "xor" leftIR rightIR leftValue rightValue value
-    hirLeft hirRight hfindXor (by decide) (by decide) (by decide) hbuiltin
+    hirLeft hirRight hfindXor (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -4827,7 +4827,7 @@ theorem exprInternalHelperCompositionalContextResult_bitNot_threaded
   let hbuiltin := evalBuiltinCallWithEvmYulLeanContext_bitNot_of_value exprFinalState value
   let hir := evalIRExprWithInternals_unary_builtin_of_value runtimeContract (irFuel + 1)
     parentState exprFinalState "not" exprIR value (exprBitNotValue value)
-    hirChild hfindNot (by decide) (by decide) (by decide) hbuiltin
+    hirChild hfindNot (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_unary_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -4991,7 +4991,7 @@ theorem exprInternalHelperCompositionalContextResult_shl_right_threaded
     shiftValue valueValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "shl" shiftIR valueIR shiftValue valueValue result
-    hirShift hirRight hfindShl (by decide) (by decide) (by decide) hbuiltin
+    hirShift hirRight hfindShl (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -5076,7 +5076,7 @@ theorem exprInternalHelperCompositionalContextResult_shl_left_threaded
     shiftValue valueValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "shl" shiftIR valueIR shiftValue valueValue result
-    hirShift hirValue hfindShl (by decide) (by decide) (by decide) hbuiltin
+    hirShift hirValue hfindShl (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -5246,7 +5246,7 @@ theorem exprInternalHelperCompositionalContextResult_shr_right_threaded
     shiftValue valueValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "shr" shiftIR valueIR shiftValue valueValue result
-    hirShift hirRight hfindShr (by decide) (by decide) (by decide) hbuiltin
+    hirShift hirRight hfindShr (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -5331,7 +5331,7 @@ theorem exprInternalHelperCompositionalContextResult_shr_left_threaded
     shiftValue valueValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "shr" shiftIR valueIR shiftValue valueValue result
-    hirShift hirValue hfindShr (by decide) (by decide) (by decide) hbuiltin
+    hirShift hirValue hfindShr (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -5470,7 +5470,7 @@ theorem exprInternalHelperCompositionalContextResult_byte_right_threaded
     indexValue valueValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "byte" indexIR valueIR indexValue valueValue result
-    hirIndex hirRight hfindByte (by decide) (by decide) (by decide) hbuiltin
+    hirIndex hirRight hfindByte (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -5555,7 +5555,7 @@ theorem exprInternalHelperCompositionalContextResult_byte_left_threaded
     indexValue valueValue
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "byte" indexIR valueIR indexValue valueValue result
-    hirIndex hirValue hfindByte (by decide) (by decide) (by decide) hbuiltin
+    hirIndex hirValue hfindByte (by decide) (by decide) (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -5696,7 +5696,7 @@ theorem exprInternalHelperCompositionalContextResult_signextend_right_threaded
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState rightEntryState finalState "signextend" byteIdxIR valueIR byteIdxValue
     valueValue result hirByteIdx hirRight hfindSignextend (by decide) (by decide)
-    (by decide) hbuiltin
+    (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_right_threaded_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)
@@ -5784,7 +5784,7 @@ theorem exprInternalHelperCompositionalContextResult_signextend_left_threaded
   let hir := evalIRExprWithInternals_binary_builtin_of_values runtimeContract (irFuel + 1)
     parentState leftFinalState finalState "signextend" byteIdxIR valueIR byteIdxValue
     valueValue result hirByteIdx hirValue hfindSignextend (by decide) (by decide)
-    (by decide) hbuiltin
+    (by decide) (by decide) hbuiltin
   exact
     exprInternalHelperCompositionalContextResult_binary_left_context
       (runtimeContract := runtimeContract) (spec := spec) (fields := fields)

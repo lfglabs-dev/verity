@@ -288,7 +288,7 @@ def evalIRCall (state : IRState) (func : String) : List YulExpr → Option Nat
       | _ => none
     else if func = "extcodesize" then
       match argVals with
-      | [addr] => some (state.codeSize addr)
+      | [addr] => some (state.codeSize (addr % Compiler.Constants.addressModulus))
       | _ => none
     else if func = "keccak256" then
       match argVals with
@@ -342,7 +342,7 @@ end -- mutual
     (state : IRState) (argExpr : YulExpr) :
     evalIRCall state "extcodesize" [argExpr] =
       (evalIRExpr state argExpr).bind
-        (fun addr => some (state.codeSize addr)) := by
+        (fun addr => some (state.codeSize (addr % Compiler.Constants.addressModulus))) := by
   simp [evalIRCall, evalIRExprs]
   cases evalIRExpr state argExpr with
   | none => simp
@@ -518,7 +518,7 @@ def evalIRCallWithInternals
             | _ => .revert state'
           else if func = "extcodesize" then
             match argVals with
-            | [addr] => .values [state'.codeSize addr] state'
+            | [addr] => .values [state'.codeSize (addr % Compiler.Constants.addressModulus)] state'
             | _ => .revert state'
           else if func = "mload" then
             match argVals with

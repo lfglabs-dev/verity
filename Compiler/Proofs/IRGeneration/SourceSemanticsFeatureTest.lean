@@ -342,4 +342,18 @@ example :
       (.revertError "HelperFailed" [.internalCall "helper" []]) = true := by
   native_decide
 
+/-- Regression: extcodesize normalises its operand to 160-bit address width.
+    `extcodesize(2^160 + 1)` must query address 1, not key `2^160 + 1`. -/
+example :
+    SourceSemantics.evalExpr [] { world := Verity.defaultState, bindings := [] }
+      (.extcodesize (.literal (2 ^ 160 + 1))) =
+    some (Verity.defaultState.codeSize 1).val := by
+  native_decide
+
+/-- Regression: IR evaluator normalises extcodesize operand to 160 bits. -/
+example :
+    evalIRCall (IRState.initial 0) "extcodesize" [Compiler.Yul.YulExpr.lit (2 ^ 160 + 1)] =
+    some ((IRState.initial 0).codeSize 1) := by
+  native_decide
+
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

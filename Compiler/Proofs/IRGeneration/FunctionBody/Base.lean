@@ -2144,10 +2144,11 @@ private theorem eval_compileExpr_extcodesize_of_compiled
       simpa using hEvalAddr.symm
     have hecs_unfold : SourceSemantics.evalExpr fields runtime (.extcodesize addr) =
         (SourceSemantics.evalExpr fields runtime addr).bind
-          (fun r => some (runtime.world.codeSize r).val) := rfl
+          (fun r => some (runtime.world.codeSize (r % SourceSemantics.addressModulus)).val) := rfl
     rw [hecs_unfold, hsrc]
     simp only [Option.bind_some]
     simp [evalIRExpr, hIR, hcs]
+    rfl
 
 theorem compileExpr_tload_ok
     {fields : List Field}
@@ -6670,12 +6671,12 @@ theorem evalExpr_lt_evmModulus_core_onExpr
         exact hModEq ▸ (runtime.world.memory offsetVal).isLt
   | @extcodesize addr _ ihA =>
       show (do let r ← SourceSemantics.evalExpr fields runtime addr
-               some (runtime.world.codeSize r).val) < _
+               some (runtime.world.codeSize (r % SourceSemantics.addressModulus)).val) < _
       rcases SourceSemantics.evalExpr fields runtime addr with _ | addrVal
       · trivial
       · simp only [Bind.bind, Option.bind, Pure.pure]
         have hModEq : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
-        exact hModEq ▸ (runtime.world.codeSize addrVal).isLt
+        exact hModEq ▸ (runtime.world.codeSize (addrVal % SourceSemantics.addressModulus)).isLt
   | @keccak256 offset size _ _ ihO ihS =>
       show (do
         let off ← SourceSemantics.evalExpr fields runtime offset
