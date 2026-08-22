@@ -1277,6 +1277,21 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       rcases hmem with hmem | hmem
       · exact ihL (validateScopedExprIdentifiers_pair_ok_left hpair) name hmem
       · exact ihR (validateScopedExprIdentifiers_pair_ok_right hpair) name hmem
+  | builtinExp hB hE ihB ihE =>
+      rename_i base exponent
+      have hpair :
+          (do
+            validateScopedExprIdentifiers
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount base
+            validateScopedExprIdentifiers
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount exponent) =
+            Except.ok () := by
+        simpa [validateScopedExprIdentifiers, validateScopedExprIdentifiersList] using hvalidate
+      intro name hmem
+      simp [FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames] at hmem
+      rcases hmem with hmem | hmem
+      · exact ihB (validateScopedExprIdentifiers_pair_ok_left hpair) name hmem
+      · exact ihE (validateScopedExprIdentifiers_pair_ok_right hpair) name hmem
 
 private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
     {fieldNames : List String}
@@ -2255,6 +2270,14 @@ theorem collectExprNames_mem_exprBoundNames_of_core
         · exact List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inl (ihA _ h))))
         · exact List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inr (ihB _ h))))
       · exact List.mem_append.mpr (Or.inr (ihC _ hmem))
+  | builtinExp hB hE ihB ihE =>
+      intro name hmem
+      simp only [collectExprNames, collectExprListNames, beq_self_eq_true, if_true,
+        List.append_nil] at hmem
+      simp only [FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames, List.append_nil]
+      rcases List.mem_append.mp hmem with hmem | hmem
+      · exact List.mem_append.mpr (Or.inl (ihB _ hmem))
+      · exact List.mem_append.mpr (Or.inr (ihE _ hmem))
 
 private theorem mem_foldl_stmtNextScope_of_mem_scope
     {scope : List String}

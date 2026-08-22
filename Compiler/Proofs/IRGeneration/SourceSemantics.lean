@@ -1665,7 +1665,7 @@ private theorem evalExpr_dynamicBytesEq
 
 /-- The reserved `exp` builtin lane is the only `externalCall` shape the source
 semantics evaluates; it denotes `Uint256.pow` on the two operand values. -/
-private theorem evalExpr_externalCall_builtinExp
+theorem evalExpr_externalCall_builtinExp
     (fields : List Field)
     (state : RuntimeState)
     (base exponent : Expr) :
