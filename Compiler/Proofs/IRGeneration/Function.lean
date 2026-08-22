@@ -4466,7 +4466,11 @@ private theorem compileExpr_constructor_mode_eq
       simp only [exprTouchesUnsupportedCallSurface] at hcall
       simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
       simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hcall hraw]
-  | .returndataOptionalBoolAt _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .returndataOptionalBoolAt _, hcore, hcall, hraw => by
+      simp only [exprTouchesUnsupportedCoreSurface] at hcore
+      simp only [exprTouchesUnsupportedCallSurface] at hcall
+      simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
+      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hcall hraw]
   | .localVar _, _, _, _ => by simp [compileExprWithInternals]
   | .externalCall _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .internalCall _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore

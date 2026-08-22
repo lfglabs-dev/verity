@@ -166,6 +166,8 @@ inductive BridgedSourceExpr : Expr → Prop
       BridgedSourceExpr (.tload offset)
   | extcodesize {addr} (hAddr : BridgedSourceExpr addr) :
       BridgedSourceExpr (.extcodesize addr)
+  | returndataOptionalBoolAt {offset} (hOffset : BridgedSourceExpr offset) :
+      BridgedSourceExpr (.returndataOptionalBoolAt offset)
   | keccak256 {offset size}
       (hOffset : BridgedSourceExpr offset) (hSize : BridgedSourceExpr size) :
       BridgedSourceExpr (.keccak256 offset size)
@@ -1368,6 +1370,15 @@ theorem compileExpr_bridgedSource
       obtain ⟨co, hO, hEq⟩ := compileExpr_unopBuiltin_ok hOk
       subst hEq
       exact bridgedExpr_extcodesize co (iha hO)
+  | returndataOptionalBoolAt _ iho =>
+      intro out hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
+      cases hO : compileExprWithInternals fields src internalFunctions _ with
+      | error e => simp [bind, Except.bind] at hOk
+      | ok co =>
+          simp [bind, Except.bind, Pure.pure, Except.pure] at hOk
+          subst hOk
+          exact bridgedExpr_returndataOptionalBoolAt co (iho hO)
   | keccak256 _ _ ihOffset ihSize =>
       intro out hOk
       simp only [compileExpr, compileExprWithInternals] at hOk
@@ -1752,6 +1763,9 @@ theorem compileRequireFailCond_bridgedSource
         hOk
   | extcodesize hAddr =>
       exact compileRequireFailCond_default_bridgedSource (.extcodesize hAddr)
+        hOk
+  | returndataOptionalBoolAt hOffset =>
+      exact compileRequireFailCond_default_bridgedSource (.returndataOptionalBoolAt hOffset)
         hOk
   | keccak256 hOffset hSize =>
       exact compileRequireFailCond_default_bridgedSource (.keccak256 hOffset hSize)

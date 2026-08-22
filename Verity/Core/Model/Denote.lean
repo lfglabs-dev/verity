@@ -988,6 +988,9 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .extcodesize addr => do
       let resolvedAddr ← evalExpr oracle fields state addr
       some (state.world.codeSize (resolvedAddr % Compiler.Constants.addressModulus)).val
+  | .returndataOptionalBoolAt offset => do
+      let _ ← evalExpr oracle fields state offset
+      some 1
   | .keccak256 offExpr sizeExpr => do
       let off ← evalExpr oracle fields state offExpr
       let size ← evalExpr oracle fields state sizeExpr
