@@ -563,6 +563,29 @@ private theorem compileExpr_unopBuiltin_ok
       simp [hA, bind, Except.bind, Pure.pure, Except.pure] at hOk
       exact hOk.symm
 
+private theorem compileExpr_returndataOptionalBoolAtShape_ok
+    {fields : List CompilationModel.Field} {src : DynamicDataSource}
+    {a : Expr} {out : YulExpr}
+    (hOk : (do let x ← compileExpr fields src a
+               pure (YulExpr.call "or" [
+                 YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 0],
+                 YulExpr.call "and" [
+                   YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32],
+                   YulExpr.call "eq" [YulExpr.call "mload" [x], YulExpr.lit 1]]]) :
+        Except String YulExpr) = .ok out) :
+    ∃ ca, compileExpr fields src a = .ok ca ∧
+      out = YulExpr.call "or" [
+        YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 0],
+        YulExpr.call "and" [
+          YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32],
+          YulExpr.call "eq" [YulExpr.call "mload" [ca], YulExpr.lit 1]]] := by
+  cases hA : compileExpr fields src a with
+  | error e => simp [hA, bind, Except.bind] at hOk
+  | ok ca =>
+      refine ⟨ca, rfl, ?_⟩
+      simp [hA, bind, Except.bind, Pure.pure, Except.pure] at hOk
+      exact hOk.symm
+
 /-- Literal-slot `sload` is in the native bridged expression fragment. -/
 private theorem bridgedExpr_sload_lit (slot : Nat) :
     BridgedExpr (YulExpr.call "sload" [YulExpr.lit slot]) := by
@@ -1373,12 +1396,9 @@ theorem compileExpr_bridgedSource
   | returndataOptionalBoolAt _ iho =>
       intro out hOk
       simp only [compileExpr, compileExprWithInternals] at hOk
-      cases hO : compileExprWithInternals fields src internalFunctions _ with
-      | error e => simp [bind, Except.bind] at hOk
-      | ok co =>
-          simp [bind, Except.bind, Pure.pure, Except.pure] at hOk
-          subst hOk
-          exact bridgedExpr_returndataOptionalBoolAt co (iho hO)
+      obtain ⟨co, hO, hEq⟩ := compileExpr_returndataOptionalBoolAtShape_ok hOk
+      subst hEq
+      exact bridgedExpr_returndataOptionalBoolAt co (iho hO)
   | keccak256 _ _ ihOffset ihSize =>
       intro out hOk
       simp only [compileExpr, compileExprWithInternals] at hOk
