@@ -317,23 +317,23 @@ theorem bridgedExpr_returndataOptionalBoolAt (offsetExpr : Compiler.Yul.YulExpr)
     refine .call _ _ (Or.inl (by simp [bridgedBuiltins])) ?_
     intro arg hMem; cases hMem
   refine .call "or" _ (Or.inl (by simp [bridgedBuiltins])) ?_
-  intro arg hMem; simp only [List.mem_cons, List.mem_singleton] at hMem
+  intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
   rcases hMem with rfl | rfl
   · refine .call _ _ (Or.inl (by simp [bridgedBuiltins])) ?_
-    intro arg hMem; simp only [List.mem_cons, List.mem_singleton] at hMem
+    intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
     rcases hMem with rfl | rfl
     · exact hRDS
     · exact .lit _
   · refine .call "and" _ (Or.inl (by simp [bridgedBuiltins])) ?_
-    intro arg hMem; simp only [List.mem_cons, List.mem_singleton] at hMem
+    intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
     rcases hMem with rfl | rfl
     · refine .call _ _ (Or.inl (by simp [bridgedBuiltins])) ?_
-      intro arg hMem; simp only [List.mem_cons, List.mem_singleton] at hMem
+      intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
       rcases hMem with rfl | rfl
       · exact hRDS
       · exact .lit _
     · refine .call _ _ (Or.inl (by simp [bridgedBuiltins])) ?_
-      intro arg hMem; simp only [List.mem_cons, List.mem_singleton] at hMem
+      intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
       rcases hMem with rfl | rfl
       · exact bridgedExpr_mload _ hOffset
       · exact .lit _
