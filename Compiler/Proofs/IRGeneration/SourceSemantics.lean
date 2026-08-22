@@ -1479,6 +1479,17 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .returndataOptionalBoolAt offset => do
       let _ ← evalExpr fields state offset
       some 1
+  -- The reserved `exp` builtin lane. `pow`/`^` in the EDSL surfaces as
+  -- `externalCall builtinExpName [base, exponent]`, but it carries no foreign
+  -- behaviour: the compiler lowers it to the pure Yul `exp` builtin.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then do
+        let baseVal ← evalExpr fields state base
+        let exponentVal ← evalExpr fields state exponent
+        pure (Verity.Core.Uint256.pow
+          (Verity.Core.Uint256.ofNat baseVal)
+          (Verity.Core.Uint256.ofNat exponentVal)).val
+      else none
   | .keccak256 offExpr sizeExpr => do
       let off ← evalExpr fields state offExpr
       let size ← evalExpr fields state sizeExpr
@@ -1652,12 +1663,41 @@ private theorem evalExpr_dynamicBytesEq
       some (boolWord (DynamicAbi.dynamicBytesEqCalldata state.selector state.world.calldata
         lhsOffset lhsLength rhsOffset rhsLength))) := rfl
 
-private theorem evalExpr_externalCall
+/-- The reserved `exp` builtin lane is the only `externalCall` shape the source
+semantics evaluates; it denotes `Uint256.pow` on the two operand values. -/
+private theorem evalExpr_externalCall_builtinExp
+    (fields : List Field)
+    (state : RuntimeState)
+    (base exponent : Expr) :
+    evalExpr fields state (.externalCall builtinExpName [base, exponent]) = (do
+      let baseVal ← evalExpr fields state base
+      let exponentVal ← evalExpr fields state exponent
+      pure (Verity.Core.Uint256.pow
+        (Verity.Core.Uint256.ofNat baseVal)
+        (Verity.Core.Uint256.ofNat exponentVal)).val) := by
+  simp [evalExpr]
+
+private theorem evalExpr_externalCall_of_ne
     (fields : List Field)
     (state : RuntimeState)
     (name : String)
-    (args : List Expr) :
-    evalExpr fields state (.externalCall name args) = none := rfl
+    (args : List Expr)
+    (hname : name ≠ builtinExpName) :
+    evalExpr fields state (.externalCall name args) = none := by
+  match args with
+  | [] | [_] | _ :: _ :: _ :: _ => rfl
+  | [_, _] => simp [evalExpr, hname]
+
+private theorem evalExpr_externalCall_of_arity
+    (fields : List Field)
+    (state : RuntimeState)
+    (name : String)
+    (args : List Expr)
+    (harity : args.length ≠ 2) :
+    evalExpr fields state (.externalCall name args) = none := by
+  match args with
+  | [] | [_] | _ :: _ :: _ :: _ => rfl
+  | [_, _] => simp at harity
 
 private theorem evalExpr_mload
     (fields : List Field)
@@ -4056,6 +4096,16 @@ mutual
     | .returndataOptionalBoolAt offset => do
         let _ ← evalExprWithHelpers spec fields fuel state offset
         some 1
+    -- The reserved `exp` builtin lane: pure arithmetic wearing an
+    -- `externalCall` node, so it needs no helper environment.
+    | .externalCall name [base, exponent] =>
+        if name == builtinExpName then do
+          let baseVal ← evalExprWithHelpers spec fields fuel state base
+          let exponentVal ← evalExprWithHelpers spec fields fuel state exponent
+          pure (Verity.Core.Uint256.pow
+            (Verity.Core.Uint256.ofNat baseVal)
+            (Verity.Core.Uint256.ofNat exponentVal)).val
+        else none
     | .mulDiv512Down _ _ _ | .mulDiv512Up _ _ _
     | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
     | .paramDynamicMemberLength _ _
@@ -5346,8 +5396,26 @@ mutual
         simpa [evalExprWithHelpers, evalExpr_memoryArrayLength]
     | dynamicBytesEq _ _ =>
         simpa [evalExprWithHelpers, evalExpr_dynamicBytesEq]
-    | externalCall _ _ =>
-        simpa [evalExprWithHelpers, evalExpr_externalCall]
+    | externalCall name args =>
+        cases args with
+        | nil => simp [evalExprWithHelpers, evalExpr_externalCall_of_arity]
+        | cons base tl =>
+          cases tl with
+          | nil => simp [evalExprWithHelpers, evalExpr_externalCall_of_arity]
+          | cons exponent tl' =>
+            cases tl' with
+            | cons _ _ => simp [evalExprWithHelpers, evalExpr_externalCall_of_arity]
+            | nil =>
+              by_cases hname : name = builtinExpName
+              · subst hname
+                simp only [exprTouchesUnsupportedHelperSurface, beq_self_eq_true, if_true,
+                  Bool.or_eq_false_iff] at hsurface
+                have hbase := evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+                  spec fields fuel state base hsurface.1
+                have hexp := evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+                  spec fields fuel state exponent hsurface.2
+                simp [evalExprWithHelpers, evalExpr_externalCall_builtinExp, hbase, hexp]
+              · simp [evalExprWithHelpers, evalExpr_externalCall_of_ne _ _ _ _ hname, hname]
     | mload a =>
         simp only [exprTouchesUnsupportedHelperSurface] at hsurface
         have ha :=

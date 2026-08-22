@@ -991,6 +991,16 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .returndataOptionalBoolAt offset => do
       let _ ← evalExpr oracle fields state offset
       some 1
+  -- The reserved `exp` builtin lane: pure arithmetic wearing an `externalCall`
+  -- node, so it needs no oracle. Genuine foreign calls stay undenoted.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then do
+        let baseVal ← evalExpr oracle fields state base
+        let exponentVal ← evalExpr oracle fields state exponent
+        pure (Verity.Core.Uint256.pow
+          (Verity.Core.Uint256.ofNat baseVal)
+          (Verity.Core.Uint256.ofNat exponentVal)).val
+      else none
   | .keccak256 offExpr sizeExpr => do
       let off ← evalExpr oracle fields state offExpr
       let size ← evalExpr oracle fields state sizeExpr

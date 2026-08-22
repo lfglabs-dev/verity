@@ -298,6 +298,26 @@ theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
       -- Same vacuous handling for `paramDynamicHeadWord` (verity#1832
       -- codegen-only).
       simp [exprTouchesUnsupportedContractSurface] at hsurface
+  | .externalCall name args, hsurface =>
+      -- Only the reserved two-operand `exp` builtin lane is inside the contract
+      -- surface; every other `externalCall` shape makes `hsurface` vacuous.
+      cases args with
+      | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
+      | cons base tl =>
+        cases tl with
+        | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
+        | cons exponent tl' =>
+          cases tl' with
+          | cons _ _ => simp [exprTouchesUnsupportedContractSurface] at hsurface
+          | nil =>
+            by_cases hname : name = builtinExpName
+            · subst hname
+              simp only [exprTouchesUnsupportedContractSurface, beq_self_eq_true, if_true,
+                Bool.or_eq_false_iff] at hsurface
+              exact .builtinExp
+                (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1)
+                (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
+            · simp [exprTouchesUnsupportedContractSurface, hname] at hsurface
 
 private theorem fieldName_mem_fields_of_findFieldWithResolvedSlot_some
     {fields : List Field}

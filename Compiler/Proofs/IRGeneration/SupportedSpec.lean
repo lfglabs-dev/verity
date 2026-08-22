@@ -1064,6 +1064,13 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .keccak256 a b =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b
   | .arrayElement _ index => exprTouchesUnsupportedCoreSurface index
+  -- The reserved `exp` builtin lane travels as `externalCall`, but it is pure
+  -- arithmetic that lowers to the Yul `exp` builtin, so only its operands
+  -- constrain the core surface. Every other `externalCall` stays excluded.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then
+        exprTouchesUnsupportedCoreSurface base || exprTouchesUnsupportedCoreSurface exponent
+      else true
   -- `mulDiv512Down/Up` (verity#1761) and `paramDynamicHeadWord` (verity#1832)
   -- are codegen-only additions whose runtime Yul helpers the current core
   -- proof framework does not model yet, so `SupportedSpec` continues to
@@ -1123,6 +1130,12 @@ def exprTouchesUnsupportedStateSurface : Expr → Bool
   | .intrinsic _ _ _ _ => true
   | .keccak256 a b =>
       exprTouchesUnsupportedStateSurface a || exprTouchesUnsupportedStateSurface b
+  -- The reserved `exp` builtin lane travels as `externalCall` but is pure
+  -- arithmetic, so only its operands constrain the state surface.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then
+        exprTouchesUnsupportedStateSurface base || exprTouchesUnsupportedStateSurface exponent
+      else false
   | .constructorArg _ | .blobbasefee
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
   | .calldatasize | .returndataSize
@@ -1145,6 +1158,12 @@ def exprTouchesUnsupportedStateSurface : Expr → Bool
 /-- Call-related surfaces that still sit outside the current generic Layer 2
 body theorem: internal helper reuse, low-level calls, and foreign call hooks. -/
 def exprTouchesUnsupportedCallSurface : Expr → Bool
+  -- The reserved `exp` builtin lane travels as `externalCall` but lowers to the
+  -- pure Yul `exp` builtin, so it introduces no call surface of its own.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then
+        exprTouchesUnsupportedCallSurface base || exprTouchesUnsupportedCallSurface exponent
+      else true
   | .internalCall _ _ | .externalCall _ _ => true
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
@@ -1208,6 +1227,12 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
 generic whole-contract theorem. -/
 def exprTouchesUnsupportedHelperSurface : Expr → Bool
   | .internalCall _ _ => true
+  -- The reserved `exp` builtin lane now evaluates in the source semantics, so
+  -- its operands have to be screened rather than ignored.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then
+        exprTouchesUnsupportedHelperSurface base || exprTouchesUnsupportedHelperSurface exponent
+      else false
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
@@ -1278,6 +1303,12 @@ still-unsupported expression shapes that currently share the coarse
 `exprTouchesUnsupportedHelperSurface` approximation. -/
 def exprTouchesInternalHelperSurface : Expr → Bool
   | .internalCall _ _ => true
+  -- The reserved `exp` builtin lane now evaluates in the source semantics, so
+  -- its operands have to be screened rather than ignored.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then
+        exprTouchesInternalHelperSurface base || exprTouchesInternalHelperSurface exponent
+      else false
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
@@ -1341,6 +1372,14 @@ def exprTouchesInternalHelperSurface : Expr → Bool
 /-- Foreign-call/library-hook surfaces still outside the current generic
 whole-contract theorem. -/
 def exprTouchesUnsupportedForeignSurface : Expr → Bool
+  -- `pow`/`^` in the EDSL surfaces as `externalCall builtinExpName [b, e]`, but
+  -- it carries no foreign behaviour: the compiler lowers it to the pure Yul
+  -- `exp` builtin, and the source semantics evaluates it with `Uint256.pow`.
+  -- Genuine foreign calls keep the blanket exclusion.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then
+        exprTouchesUnsupportedForeignSurface base || exprTouchesUnsupportedForeignSurface exponent
+      else true
   | .externalCall _ _ => true
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
@@ -1404,6 +1443,12 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
 whole-contract theorem. -/
 def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
+  -- The reserved `exp` builtin lane now evaluates in the source semantics, so
+  -- its operands have to be screened rather than ignored.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then
+        exprTouchesUnsupportedLowLevelSurface base || exprTouchesUnsupportedLowLevelSurface exponent
+      else false
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
   | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
@@ -1498,6 +1543,14 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
       exprTouchesUnsupportedContractSurface a
   | .keccak256 a b =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b
+  -- The reserved `exp` builtin lane travels as `externalCall` but is pure
+  -- arithmetic lowered to the Yul `exp` builtin. Every other `externalCall`
+  -- stays excluded below.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then
+        exprTouchesUnsupportedContractSurface base ||
+          exprTouchesUnsupportedContractSurface exponent
+      else true
   | .mapping _ _ | .mappingWord _ _ _ | .mappingPackedWord _ _ _ _
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
@@ -3567,6 +3620,9 @@ private theorem exprCompileCore_helperSurfaceClosed
   | mulDivDown _ _ _ ihA ihB ihC | mulDivUp _ _ _ ihA ihB ihC =>
       simp only [exprTouchesUnsupportedHelperSurface, ihA, ihB, ihC,
         Bool.or_false, Bool.false_or]
+  | builtinExp _ _ ihB ihE =>
+      simp only [exprTouchesUnsupportedHelperSurface, beq_self_eq_true, if_true, ihB, ihE,
+        Bool.or_false, Bool.false_or]
 
 private theorem exprCompileCore_internalHelperCallNames_nil
     {expr : Expr}
@@ -3607,6 +3663,9 @@ private theorem exprCompileCore_internalHelperCallNames_nil
       simp only [exprInternalHelperCallNames, ihC, ihT, ihE, List.nil_append]
   | mulDivDown _ _ _ ihA ihB ihC | mulDivUp _ _ _ ihA ihB ihC =>
       simp only [exprInternalHelperCallNames, ihA, ihB, ihC, List.nil_append]
+  | builtinExp _ _ ihB ihE =>
+      simp only [exprInternalHelperCallNames, exprListInternalHelperCallNames, ihB, ihE,
+        List.nil_append, List.append_nil]
 
 private theorem exprListCompileCore_helperSurfaceClosed
     {exprs : List Expr}
@@ -4436,9 +4495,28 @@ mutual
     | arrayLength _ | memoryArrayLength _ | storageArrayLength _ | dynamicBytesEq _ _
     | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
     | paramDynamicMemberLength _ _
-    | paramDynamicMemberDataOffset _ _
-    | externalCall _ _ =>
+    | paramDynamicMemberDataOffset _ _ =>
         simp [exprTouchesInternalHelperSurface]
+    | externalCall name args =>
+        -- Only the reserved two-operand `exp` builtin lane recurses; every other
+        -- `externalCall` shape is still uniformly outside the helper surface.
+        cases args with
+        | nil => simp [exprTouchesInternalHelperSurface]
+        | cons base tl =>
+          cases tl with
+          | nil => simp [exprTouchesInternalHelperSurface]
+          | cons exponent tl' =>
+            cases tl' with
+            | cons _ _ => simp [exprTouchesInternalHelperSurface]
+            | nil =>
+              by_cases hname : name = builtinExpName
+              · subst hname
+                simp only [exprTouchesUnsupportedHelperSurface, beq_self_eq_true, if_true,
+                  Bool.or_eq_false_iff] at hsurface
+                simp [exprTouchesInternalHelperSurface,
+                  exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
+                  exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+              · simp [exprTouchesInternalHelperSurface, hname]
     | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
         simp [exprTouchesUnsupportedHelperSurface] at hsurface
     | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
@@ -4898,9 +4976,43 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
       simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | internalCall _ _ | externalCall _ _ =>
+  | internalCall _ _ =>
       simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
+  | externalCall name args =>
+      -- All four predicates recurse identically on the reserved `exp` builtin
+      -- lane, so the decomposition holds there by associativity/commutativity.
+      cases args with
+      | nil =>
+          simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+            exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
+      | cons base tl =>
+        cases tl with
+        | nil =>
+            simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+              exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
+        | cons exponent tl' =>
+          cases tl' with
+          | cons _ _ =>
+              simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+                exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
+          | nil =>
+            by_cases hname : name = builtinExpName
+            · subst hname
+              simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+                exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface,
+                beq_self_eq_true, if_true]
+              rw [exprTouchesUnsupportedCallSurface_eq_featureOr base,
+                exprTouchesUnsupportedCallSurface_eq_featureOr exponent]
+              cases exprTouchesUnsupportedHelperSurface base <;>
+                cases exprTouchesUnsupportedForeignSurface base <;>
+                cases exprTouchesUnsupportedLowLevelSurface base <;>
+                cases exprTouchesUnsupportedHelperSurface exponent <;>
+                cases exprTouchesUnsupportedForeignSurface exponent <;>
+                cases exprTouchesUnsupportedLowLevelSurface exponent <;> rfl
+            · simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+                exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface,
+                hname]
   | intrinsic _ _ _ _ =>
       simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
@@ -5251,8 +5363,32 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   | arrayElementDynamicMemberElement _ _ _ _
   | storageArrayElement _ _
   | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _
-  | externalCall _ _ | internalCall _ _ =>
+  | internalCall _ _ =>
       cases hcore
+  | externalCall name args =>
+      cases args with
+      | nil => cases hcore
+      | cons base tl =>
+        cases tl with
+        | nil => cases hcore
+        | cons exponent tl' =>
+          cases tl' with
+          | cons _ _ => cases hcore
+          | nil =>
+            by_cases hname : name = builtinExpName
+            · subst hname
+              simp only [exprTouchesUnsupportedCoreSurface, beq_self_eq_true, if_true,
+                Bool.or_eq_false_iff] at hcore
+              simp only [exprTouchesUnsupportedStateSurface, beq_self_eq_true, if_true,
+                Bool.or_eq_false_iff] at hstate
+              simp only [exprTouchesUnsupportedCallSurface, beq_self_eq_true, if_true,
+                Bool.or_eq_false_iff] at hcalls
+              simp [exprTouchesUnsupportedContractSurface,
+                exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed base
+                  hcore.1 hstate.1 hcalls.1,
+                exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed exponent
+                  hcore.2 hstate.2 hcalls.2]
+            · simp [exprTouchesUnsupportedCoreSurface, hname] at hcore
   | arrayElement _ index =>
       cases hcalls
 termination_by sizeOf expr
@@ -5694,7 +5830,25 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | storage _ | storageAddr _ | internalCall _ _ | externalCall _ _
+  | externalCall name args =>
+      cases args with
+      | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
+      | cons base tl =>
+        cases tl with
+        | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
+        | cons exponent tl' =>
+          cases tl' with
+          | cons _ _ => simp [exprTouchesUnsupportedContractSurface] at hsurface
+          | nil =>
+            by_cases hname : name = builtinExpName
+            · subst hname
+              simp only [exprTouchesUnsupportedContractSurface, beq_self_eq_true, if_true,
+                Bool.or_eq_false_iff] at hsurface
+              simp [exprTouchesUnsupportedHelperSurface,
+                exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
+                exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
+            · simp [exprTouchesUnsupportedContractSurface, hname] at hsurface
+  | storage _ | storageAddr _ | internalCall _ _
   | arrayLength _ | memoryArrayLength _ | storageArrayLength _
   | dynamicBytesEq _ _
   | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _
@@ -6229,6 +6383,9 @@ private theorem exprCompileCore_usesArrayElement_false
       simp only [exprUsesArrayElement, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesArrayElement, ihC, ihT, ihE, Bool.false_or]
+  | builtinExp _ _ ihB ihE =>
+      simp only [exprUsesArrayElement, exprListUsesArrayElement, ihB, ihE, Bool.false_or,
+        Bool.or_false]
 
 -- Helper: ExprCompileCore expressions never use storageArrayElement
 private theorem exprCompileCore_usesStorageArrayElement_false
@@ -6259,6 +6416,9 @@ private theorem exprCompileCore_usesStorageArrayElement_false
       simp only [exprUsesStorageArrayElement, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesStorageArrayElement, ihC, ihT, ihE, Bool.false_or]
+  | builtinExp _ _ ihB ihE =>
+      simp only [exprUsesStorageArrayElement, exprListUsesStorageArrayElement, ihB, ihE,
+        Bool.false_or, Bool.or_false]
 
 -- Helper: ExprCompileCore expressions never use dynamicBytesEq
 private theorem exprCompileCore_usesDynamicBytesEq_false
@@ -6289,6 +6449,9 @@ private theorem exprCompileCore_usesDynamicBytesEq_false
       simp only [exprUsesDynamicBytesEq, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesDynamicBytesEq, ihC, ihT, ihE, Bool.false_or]
+  | builtinExp _ _ ihB ihE =>
+      simp only [exprUsesDynamicBytesEq, exprListUsesDynamicBytesEq, ihB, ihE, Bool.false_or,
+        Bool.or_false]
 
 -- Helper: ExprCompileCore lists never use arrayElement
 private theorem exprListCompileCore_usesArrayElement_false
@@ -7001,6 +7164,9 @@ private theorem exprCompileCore_usesMulDiv512_false
       simp only [exprUsesMulDiv512, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesMulDiv512, ihC, ihT, ihE, Bool.false_or]
+  | builtinExp _ _ ihB ihE =>
+      simp only [exprUsesMulDiv512, exprListUsesMulDiv512, ihB, ihE, Bool.false_or,
+        Bool.or_false]
 
 -- Helper: ExprCompileCore expressions never use paramDynamicHeadWord (verity#1832)
 private theorem exprCompileCore_usesParamDynamicHeadWord_false
@@ -7031,6 +7197,9 @@ private theorem exprCompileCore_usesParamDynamicHeadWord_false
       simp only [exprUsesParamDynamicHeadWord, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesParamDynamicHeadWord, ihC, ihT, ihE, Bool.false_or]
+  | builtinExp _ _ ihB ihE =>
+      simp only [exprUsesParamDynamicHeadWord, exprListUsesParamDynamicHeadWord, ihB, ihE,
+        Bool.false_or, Bool.or_false]
 
 -- Helper: ExprCompileCore lists never use mulDiv512
 private theorem exprListCompileCore_usesMulDiv512_false
