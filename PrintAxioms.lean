@@ -2876,6 +2876,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_add_of_eval
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_sub_of_eval
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_mul_of_eval
+  Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_exp_of_eval
+  -- Compiler.Proofs.IRGeneration.FunctionBody.uint256_pow_val  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_div_of_eval
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_mod_of_eval
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_eq_of_eval
@@ -2967,6 +2969,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_mod_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_mload_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_keccak256_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_builtinExp_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_builtinExp_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_keccak256_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_mload_of_compiled  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_extcodesize_ok
@@ -3691,6 +3695,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateFunctionIdentifierReferences_prefix
   -- Compiler.Proofs.IRGeneration.scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers  -- private
   Compiler.Proofs.IRGeneration.exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
+  -- Compiler.Proofs.IRGeneration.collectExprNames_builtinExp_split  -- private
   Compiler.Proofs.IRGeneration.collectExprNames_mem_exprBoundNames_of_core
   -- Compiler.Proofs.IRGeneration.mem_foldl_stmtNextScope_of_mem_scope  -- private
   Compiler.Proofs.IRGeneration.stmtListBindNames_subset_foldl_stmtNextScope
@@ -4395,7 +4400,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_arrayLength  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_memoryArrayLength  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_dynamicBytesEq  -- private
-  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_externalCall  -- private
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_externalCall_builtinExp
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_externalCall_of_ne  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_externalCall_of_arity  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_mload  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_tload  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_calldataload  -- private
@@ -7247,6 +7254,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_mul_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_div_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_mod_native
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_mul_toNat  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.nat_pow_two_mul_succ  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.nat_pow_two_mul  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_powAux_toNat  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_pow_toNat  -- private
+  Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_exp_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_eq_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_iszero_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_lt_native
@@ -7402,4 +7415,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6849 theorems/lemmas (4914 public, 1935 private, 0 sorry'd)
+-- Total: 6862 theorems/lemmas (4918 public, 1944 private, 0 sorry'd)

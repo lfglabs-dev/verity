@@ -333,6 +333,41 @@ sibling entrypoint.
   `Stmt.revertReturndata`, `extcodesize`, and `externalCallBind` remain
   unmodeled.
 
+## Pure `exp` Builtin Lane (2026-08)
+
+- `pow a b` / `a ^ b` in the EDSL lowers to
+  `Expr.externalCall builtinExpName [base, exponent]`, a reserved sentinel that
+  the compiler already lowered to the pure Yul `exp` builtin rather than to a
+  foreign call. The node shape made it look like an external call to every
+  proof-side surface predicate, so the whole arm was gated as Tier-4 foreign
+  behaviour. That gate is now keyed on the sentinel: the eight
+  `exprTouchesUnsupported*Surface` / `exprTouchesInternalHelperSurface`
+  predicates recurse into `base`/`exponent` for `builtinExpName` at arity two
+  and keep their previous fail-closed constant for every other
+  `Expr.externalCall`.
+- The lane is executed, not assumed, at all four planes: `SourceSemantics`
+  (`evalExpr`, `evalExprWithHelpers`), the compiler-free denotation
+  (`Denote.evalExpr`, with `DenoteAgreement` extended), the IR interpreter
+  (which routes `"exp"` to the EVMYulLean backend), and EVMYulLean itself.
+  All four denote `Uint256.pow`, i.e. `(a % 2^256) ^ (b % 2^256) % 2^256`.
+- `evalPureBuiltinViaEvmYulLean_exp_native` closes the backend leg by proving
+  `EvmYul.UInt256.exp` equals that value, via `uint256_powAux_toNat` /
+  `uint256_pow_toNat` on the square-and-multiply loop. No `native_decide`.
+- `ExprCompileCore.builtinExp` admits the lane to the generic compile core, so
+  `pow` may appear in generic-fragment expressions, `require` conditions, and
+  `emit` arguments. `compileExpr_builtinExp_ok` and
+  `eval_compileExpr_builtinExp_of_compiled` prove compilation and evaluation
+  agreement against `YulExpr.call "exp"`.
+- `collectExprNames` no longer reports `builtinExpName` as a callee identifier.
+  The sentinel never reaches generated Yul (it becomes `exp`) and is already a
+  reserved name, so it cannot collide with a compiler-generated temp. This
+  matches `TrustSurface.collectExternalExprNames`, which has always skipped it,
+  and it restores `collectExprNames ⊆ exprBoundNames` on the compile core.
+- No new axiom and no new trust assumption: this eliminates an unsupported
+  surface rather than assuming one, and it removes `pow` from the assumed
+  external-call bucket. Genuine `Expr.externalCall` targets, `Expr.call` /
+  `staticcall` / `delegatecall`, and `Stmt.externalCallBind` remain gated.
+
 ## Audit Artifacts
 
 | Artifact | Purpose | Check |

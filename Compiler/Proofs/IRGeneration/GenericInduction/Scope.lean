@@ -2227,6 +2227,16 @@ theorem exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
         name hname
     · exact constructorArgsInScope_foldl_stmtNextScope constructorArgsInScope_none
 
+/-- `collectExprNames` skips the reserved `builtinExpName` sentinel, so the exp
+lane contributes exactly the names of its two operands. -/
+private theorem collectExprNames_builtinExp_split
+    {base exponent : Expr} {name : String}
+    (hmem : name ∈ collectExprNames (.externalCall builtinExpName [base, exponent])) :
+    name ∈ collectExprNames base ∨ name ∈ collectExprNames exponent := by
+  simp only [collectExprNames, collectExprListNames, beq_self_eq_true, if_true,
+    List.append_nil] at hmem
+  exact List.mem_append.mp hmem
+
 theorem collectExprNames_mem_exprBoundNames_of_core
     {expr : Expr}
     (hcore : FunctionBody.ExprCompileCore expr) :
@@ -2272,12 +2282,9 @@ theorem collectExprNames_mem_exprBoundNames_of_core
       · exact List.mem_append.mpr (Or.inr (ihC _ hmem))
   | builtinExp hB hE ihB ihE =>
       intro name hmem
-      simp only [collectExprNames, collectExprListNames, beq_self_eq_true, if_true,
-        List.append_nil] at hmem
       simp only [FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames, List.append_nil]
-      rcases List.mem_append.mp hmem with hmem | hmem
-      · exact List.mem_append.mpr (Or.inl (ihB _ hmem))
-      · exact List.mem_append.mpr (Or.inr (ihE _ hmem))
+      exact List.mem_append.mpr
+        ((collectExprNames_builtinExp_split hmem).imp (ihB name) (ihE name))
 
 private theorem mem_foldl_stmtNextScope_of_mem_scope
     {scope : List String}
