@@ -1059,7 +1059,8 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
         exprTouchesUnsupportedCoreSurface c
   | .slt a b | .sgt a b | .sdiv a b | .smod a b | .sar a b | .byte a b | .signextend a b =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b
-  | .mload a | .tload a | .calldataload a | .extcodesize a => exprTouchesUnsupportedCoreSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a
+  | .returndataOptionalBoolAt a => exprTouchesUnsupportedCoreSurface a
   | .keccak256 a b =>
       exprTouchesUnsupportedCoreSurface a || exprTouchesUnsupportedCoreSurface b
   | .arrayElement _ index => exprTouchesUnsupportedCoreSurface index
@@ -1071,7 +1072,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
-  | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
+  | .externalCall _ _ | .internalCall _ _
   | .memoryArrayLength _
   | .memoryArrayElement _ _ | .arrayElementWord _ _ _ _
   | .arrayElementDynamicWord _ _ _
@@ -1125,7 +1126,7 @@ def exprTouchesUnsupportedStateSurface : Expr → Bool
   | .constructorArg _ | .blobbasefee
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
   | .calldatasize | .returndataSize
-  | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
+  | .externalCall _ _ | .internalCall _ _
   | .arrayLength _ | .memoryArrayLength _
   | .arrayElement _ _ | .memoryArrayElement _ _ | .arrayElementWord _ _ _ _
   | .arrayElementDynamicWord _ _ _
@@ -1137,7 +1138,8 @@ def exprTouchesUnsupportedStateSurface : Expr → Bool
   | .paramDynamicMemberLength _ _
   | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
   | .dynamicBytesEq _ _ => false
-  | .mload a | .tload a | .calldataload a | .extcodesize a => exprTouchesUnsupportedStateSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a
+  | .returndataOptionalBoolAt a => exprTouchesUnsupportedStateSurface a
   | .adtConstruct _ _ _ | .adtTag _ _ | .adtField _ _ _ _ _ => true
 
 /-- Call-related surfaces that still sit outside the current generic Layer 2
@@ -1150,7 +1152,6 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
-  | .returndataOptionalBoolAt _
   | .memoryArrayLength _
   | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
   | .paramDynamicMemberLength _ _
@@ -1158,7 +1159,8 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
   | .storageArrayLength _ => false
   | .paramDynamicMemberElement _ _ b =>
       exprTouchesUnsupportedCallSurface b
-  | .mload a | .tload a | .calldataload a | .extcodesize a => exprTouchesUnsupportedCallSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a
+  | .returndataOptionalBoolAt a => exprTouchesUnsupportedCallSurface a
   | .keccak256 a b =>
       exprTouchesUnsupportedCallSurface a || exprTouchesUnsupportedCallSurface b
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
@@ -1211,7 +1213,6 @@ def exprTouchesUnsupportedHelperSurface : Expr → Bool
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
-  | .returndataOptionalBoolAt _
   | .memoryArrayLength _
   | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
   | .paramDynamicMemberLength _ _
@@ -1219,7 +1220,8 @@ def exprTouchesUnsupportedHelperSurface : Expr → Bool
   | .storageArrayLength _ | .externalCall _ _ => false
   | .paramDynamicMemberElement _ _ b =>
       exprTouchesUnsupportedHelperSurface b
-  | .mload a | .tload a | .calldataload a | .extcodesize a => exprTouchesUnsupportedHelperSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a
+  | .returndataOptionalBoolAt a => exprTouchesUnsupportedHelperSurface a
   | .keccak256 a b =>
       exprTouchesUnsupportedHelperSurface a || exprTouchesUnsupportedHelperSurface b
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => false
@@ -1281,7 +1283,7 @@ def exprTouchesInternalHelperSurface : Expr → Bool
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
-  | .returndataOptionalBoolAt _ | .arrayLength _
+  | .arrayLength _
   | .memoryArrayLength _
   | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
   | .paramDynamicMemberLength _ _
@@ -1289,7 +1291,8 @@ def exprTouchesInternalHelperSurface : Expr → Bool
   | .storageArrayLength _ | .externalCall _ _ => false
   | .paramDynamicMemberElement _ _ b =>
       exprTouchesInternalHelperSurface b
-  | .mload a | .tload a | .calldataload a | .extcodesize a => exprTouchesInternalHelperSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a
+  | .returndataOptionalBoolAt a => exprTouchesInternalHelperSurface a
   | .keccak256 a b =>
       exprTouchesInternalHelperSurface a || exprTouchesInternalHelperSurface b
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => false
@@ -1344,7 +1347,7 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
-  | .returndataOptionalBoolAt _ | .arrayLength _
+  | .arrayLength _
   | .memoryArrayLength _
   | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
   | .paramDynamicMemberLength _ _
@@ -1354,7 +1357,8 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
       exprTouchesUnsupportedForeignSurface b
   | .keccak256 a b =>
       exprTouchesUnsupportedForeignSurface a || exprTouchesUnsupportedForeignSurface b
-  | .mload a | .tload a | .calldataload a | .extcodesize a => exprTouchesUnsupportedForeignSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a
+  | .returndataOptionalBoolAt a => exprTouchesUnsupportedForeignSurface a
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => false
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .eq a b
@@ -1405,7 +1409,7 @@ def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
-  | .returndataOptionalBoolAt _ | .arrayLength _
+  | .arrayLength _
   | .memoryArrayLength _
   | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
   | .paramDynamicMemberLength _ _
@@ -1415,7 +1419,8 @@ def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
       exprTouchesUnsupportedLowLevelSurface b
   | .keccak256 a b =>
       exprTouchesUnsupportedLowLevelSurface a || exprTouchesUnsupportedLowLevelSurface b
-  | .mload a | .tload a | .calldataload a | .extcodesize a => exprTouchesUnsupportedLowLevelSurface a
+  | .mload a | .tload a | .calldataload a | .extcodesize a
+  | .returndataOptionalBoolAt a => exprTouchesUnsupportedLowLevelSurface a
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .eq a b
   | .ge a b | .gt a b | .sgt a b | .lt a b | .slt a b | .le a b
@@ -1488,7 +1493,8 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .mulDivDown a b c | .mulDivUp a b c =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b ||
         exprTouchesUnsupportedContractSurface c
-  | .mload a | .tload a | .calldataload a | .extcodesize a =>
+  | .mload a | .tload a | .calldataload a | .extcodesize a
+  | .returndataOptionalBoolAt a =>
       exprTouchesUnsupportedContractSurface a
   | .keccak256 a b =>
       exprTouchesUnsupportedContractSurface a || exprTouchesUnsupportedContractSurface b
@@ -1496,7 +1502,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
   | .structMember _ _ _ | .structMember2 _ _ _ _
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
-  | .returndataOptionalBoolAt _ | .externalCall _ _ | .internalCall _ _
+  | .externalCall _ _ | .internalCall _ _
   | .arrayLength _ | .memoryArrayLength _
   | .arrayElement _ _ | .memoryArrayElement _ _ | .arrayElementWord _ _ _ _
   | .arrayElementDynamicWord _ _ _
@@ -3552,7 +3558,8 @@ private theorem exprCompileCore_helperSurfaceClosed
     | smod _ _ ihL ihR | sar _ _ ihL ihR | byte _ _ ihL ihR | signextend _ _ ihL ihR
     | keccak256 _ _ ihL ihR =>
       simp only [exprTouchesUnsupportedHelperSurface, ihL, ihR, Bool.or_false, Bool.false_or]
-  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih =>
+  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih
+  | returndataOptionalBoolAt _ ih =>
       simp only [exprTouchesUnsupportedHelperSurface, ih]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprTouchesUnsupportedHelperSurface, ihC, ihT, ihE,
@@ -3593,7 +3600,8 @@ private theorem exprCompileCore_internalHelperCallNames_nil
     | smod _ _ ihL ihR | sar _ _ ihL ihR | byte _ _ ihL ihR | signextend _ _ ihL ihR
     | keccak256 _ _ ihL ihR =>
       simp only [exprInternalHelperCallNames, ihL, ihR, List.nil_append]
-  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih =>
+  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih
+  | returndataOptionalBoolAt _ ih =>
       simp only [exprInternalHelperCallNames, ih]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprInternalHelperCallNames, ihC, ihT, ihE, List.nil_append]
@@ -4433,9 +4441,7 @@ mutual
         simp [exprTouchesInternalHelperSurface]
     | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
         simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | returndataOptionalBoolAt a =>
-        simp [exprTouchesInternalHelperSurface]
-    | tload a | calldataload a | mload a | extcodesize a =>
+    | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
         simp only [exprTouchesUnsupportedHelperSurface] at hsurface
         simp only [exprTouchesInternalHelperSurface]
         exact exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface
@@ -4901,12 +4907,12 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
   | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _ =>
       simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | returndataOptionalBoolAt _ | arrayLength _
+  | arrayLength _
   | memoryArrayLength _
   | storageArrayLength _ | dynamicBytesEq _ _ =>
       simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | tload a | calldataload a | mload a | extcodesize a =>
+  | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
       simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
       exact exprTouchesUnsupportedCallSurface_eq_featureOr a
@@ -5145,8 +5151,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
   | paramDynamicMemberLength _ _
   | paramDynamicMemberDataOffset _ _ | paramDynamicMemberElement _ _ _ =>
       cases hcore
-  | memoryArrayLength _ | storageArrayLength _
-  | returndataOptionalBoolAt _ =>
+  | memoryArrayLength _ | storageArrayLength _ =>
       cases hcore
   | arrayLength _ | dynamicBytesEq _ _ =>
       cases hcalls
@@ -5159,7 +5164,7 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           offset hcore.1 hstate.1 hcalls.1,
         exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           size hcore.2 hstate.2 hcalls.2]
-  | tload a | calldataload a | mload a | extcodesize a =>
+  | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
       simp only [exprTouchesUnsupportedCoreSurface] at hcore
       simp only [exprTouchesUnsupportedStateSurface] at hstate
       simp only [exprTouchesUnsupportedCallSurface] at hcalls
@@ -5690,7 +5695,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
   | storage _ | storageAddr _ | internalCall _ _ | externalCall _ _
-  | returndataOptionalBoolAt _ | arrayLength _ | memoryArrayLength _ | storageArrayLength _
+  | arrayLength _ | memoryArrayLength _ | storageArrayLength _
   | dynamicBytesEq _ _
   | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _
   | mapping _ _ | mappingWord _ _ _ | mappingPackedWord _ _ _ _
@@ -5708,7 +5713,7 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | storageArrayElement _ _
   | mappingChain _ _ =>
       simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | tload a | calldataload a | mload a | extcodesize a =>
+  | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
       simp only [exprTouchesUnsupportedContractSurface] at hsurface
       simp [exprTouchesUnsupportedHelperSurface,
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface]
@@ -6219,7 +6224,8 @@ private theorem exprCompileCore_usesArrayElement_false
       simp only [exprUsesArrayElement, ihL, ihR, Bool.false_or]
   | mulDivDown _ _ _ ihA ihB ihC | mulDivUp _ _ _ ihA ihB ihC =>
       simp only [exprUsesArrayElement, ihA, ihB, ihC, Bool.false_or]
-  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih =>
+  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih
+  | returndataOptionalBoolAt _ ih =>
       simp only [exprUsesArrayElement, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesArrayElement, ihC, ihT, ihE, Bool.false_or]
@@ -6248,7 +6254,8 @@ private theorem exprCompileCore_usesStorageArrayElement_false
       simp only [exprUsesStorageArrayElement, ihL, ihR, Bool.false_or]
   | mulDivDown _ _ _ ihA ihB ihC | mulDivUp _ _ _ ihA ihB ihC =>
       simp only [exprUsesStorageArrayElement, ihA, ihB, ihC, Bool.false_or]
-  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih =>
+  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih
+  | returndataOptionalBoolAt _ ih =>
       simp only [exprUsesStorageArrayElement, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesStorageArrayElement, ihC, ihT, ihE, Bool.false_or]
@@ -6277,7 +6284,8 @@ private theorem exprCompileCore_usesDynamicBytesEq_false
       simp only [exprUsesDynamicBytesEq, ihL, ihR, Bool.false_or]
   | mulDivDown _ _ _ ihA ihB ihC | mulDivUp _ _ _ ihA ihB ihC =>
       simp only [exprUsesDynamicBytesEq, ihA, ihB, ihC, Bool.false_or]
-  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih =>
+  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih
+  | returndataOptionalBoolAt _ ih =>
       simp only [exprUsesDynamicBytesEq, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesDynamicBytesEq, ihC, ihT, ihE, Bool.false_or]
@@ -6988,7 +6996,8 @@ private theorem exprCompileCore_usesMulDiv512_false
       simp only [exprUsesMulDiv512, ihL, ihR, Bool.false_or]
   | mulDivDown _ _ _ ihA ihB ihC | mulDivUp _ _ _ ihA ihB ihC =>
       simp only [exprUsesMulDiv512, ihA, ihB, ihC, Bool.false_or]
-  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih =>
+  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih
+  | returndataOptionalBoolAt _ ih =>
       simp only [exprUsesMulDiv512, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesMulDiv512, ihC, ihT, ihE, Bool.false_or]
@@ -7017,7 +7026,8 @@ private theorem exprCompileCore_usesParamDynamicHeadWord_false
       simp only [exprUsesParamDynamicHeadWord, ihL, ihR, Bool.false_or]
   | mulDivDown _ _ _ ihA ihB ihC | mulDivUp _ _ _ ihA ihB ihC =>
       simp only [exprUsesParamDynamicHeadWord, ihA, ihB, ihC, Bool.false_or]
-  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih =>
+  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih | extcodesize _ ih
+  | returndataOptionalBoolAt _ ih =>
       simp only [exprUsesParamDynamicHeadWord, ih, Bool.false_or]
   | ite _ _ _ ihC ihT ihE =>
       simp only [exprUsesParamDynamicHeadWord, ihC, ihT, ihE, Bool.false_or]

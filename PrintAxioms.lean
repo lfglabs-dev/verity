@@ -2970,7 +2970,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_keccak256_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_mload_of_compiled  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_extcodesize_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_returndataOptionalBoolAt_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_extcodesize_of_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_returndataOptionalBoolAt_of_compiled  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_tload_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.calldataloadWord_lt_evmModulus  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_calldatacopyBothMemory
@@ -5681,6 +5683,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_mload
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_tload
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_extcodesize
+  Compiler.Proofs.YulGeneration.Backends.bridgedExpr_returndataOptionalBoolAt
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_mload
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_tload
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_keccak256
@@ -7308,6 +7311,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_yulNegatedBinOp_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_yulBoolBinOp_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_unopBuiltin_ok  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_returndataOptionalBoolAtShape_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad  -- private
@@ -7398,4 +7402,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6845 theorems/lemmas (4912 public, 1933 private, 0 sorry'd)
+-- Total: 6849 theorems/lemmas (4914 public, 1935 private, 0 sorry'd)

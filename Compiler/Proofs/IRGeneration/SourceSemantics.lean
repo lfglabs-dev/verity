@@ -1476,6 +1476,9 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .extcodesize addr => do
       let resolvedAddr ← evalExpr fields state addr
       some (state.world.codeSize (resolvedAddr % addressModulus)).val
+  | .returndataOptionalBoolAt offset => do
+      let _ ← evalExpr fields state offset
+      some 1
   | .keccak256 offExpr sizeExpr => do
       let off ← evalExpr fields state offExpr
       let size ← evalExpr fields state sizeExpr
@@ -1692,7 +1695,8 @@ private theorem evalExpr_returndataOptionalBoolAt
     (fields : List Field)
     (state : RuntimeState)
     (a : Expr) :
-    evalExpr fields state (.returndataOptionalBoolAt a) = none := rfl
+    evalExpr fields state (.returndataOptionalBoolAt a) =
+      (evalExpr fields state a).bind (fun _ => some 1) := rfl
 
 private theorem evalExpr_keccak256
     (fields : List Field)
@@ -4049,12 +4053,14 @@ mutual
     -- `_mutual.eq_def` deriver does not enumerate the complement and trip
     -- the 200 000-heartbeat ceiling whenever a new `Expr` constructor
     -- lands (verity#1842).
+    | .returndataOptionalBoolAt offset => do
+        let _ ← evalExprWithHelpers spec fields fuel state offset
+        some 1
     | .mulDiv512Down _ _ _ | .mulDiv512Up _ _ _
     | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
     | .paramDynamicMemberLength _ _
     | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
     | .arrayElementWord _ _ _ _
-    | .returndataOptionalBoolAt _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
     | .forkIfAtLeast _ _ _
@@ -5363,8 +5369,10 @@ mutual
           evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state a hsurface
         simp [evalExprWithHelpers, evalExpr_extcodesize, ha]
     | returndataOptionalBoolAt a =>
-        simp [evalExprWithHelpers,
-          evalExpr_returndataOptionalBoolAt]
+        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
+        have ha :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state a hsurface
+        simp [evalExprWithHelpers, evalExpr_returndataOptionalBoolAt, ha]
     | keccak256 a b =>
         simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
         have ha :=

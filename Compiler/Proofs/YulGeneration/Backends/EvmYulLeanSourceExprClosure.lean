@@ -166,6 +166,8 @@ inductive BridgedSourceExpr : Expr → Prop
       BridgedSourceExpr (.tload offset)
   | extcodesize {addr} (hAddr : BridgedSourceExpr addr) :
       BridgedSourceExpr (.extcodesize addr)
+  | returndataOptionalBoolAt {offset} (hOffset : BridgedSourceExpr offset) :
+      BridgedSourceExpr (.returndataOptionalBoolAt offset)
   | keccak256 {offset size}
       (hOffset : BridgedSourceExpr offset) (hSize : BridgedSourceExpr size) :
       BridgedSourceExpr (.keccak256 offset size)
@@ -554,6 +556,29 @@ private theorem compileExpr_unopBuiltin_ok
     (hOk : (do let x ← compileExpr fields src a
                pure (YulExpr.call op [x]) : Except String YulExpr) = .ok out) :
     ∃ ca, compileExpr fields src a = .ok ca ∧ out = YulExpr.call op [ca] := by
+  cases hA : compileExpr fields src a with
+  | error e => simp [hA, bind, Except.bind] at hOk
+  | ok ca =>
+      refine ⟨ca, rfl, ?_⟩
+      simp [hA, bind, Except.bind, Pure.pure, Except.pure] at hOk
+      exact hOk.symm
+
+private theorem compileExpr_returndataOptionalBoolAtShape_ok
+    {fields : List CompilationModel.Field} {src : DynamicDataSource}
+    {a : Expr} {out : YulExpr}
+    (hOk : (do let x ← compileExpr fields src a
+               pure (YulExpr.call "or" [
+                 YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 0],
+                 YulExpr.call "and" [
+                   YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32],
+                   YulExpr.call "eq" [YulExpr.call "mload" [x], YulExpr.lit 1]]]) :
+        Except String YulExpr) = .ok out) :
+    ∃ ca, compileExpr fields src a = .ok ca ∧
+      out = YulExpr.call "or" [
+        YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 0],
+        YulExpr.call "and" [
+          YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32],
+          YulExpr.call "eq" [YulExpr.call "mload" [ca], YulExpr.lit 1]]] := by
   cases hA : compileExpr fields src a with
   | error e => simp [hA, bind, Except.bind] at hOk
   | ok ca =>
@@ -1368,6 +1393,12 @@ theorem compileExpr_bridgedSource
       obtain ⟨co, hO, hEq⟩ := compileExpr_unopBuiltin_ok hOk
       subst hEq
       exact bridgedExpr_extcodesize co (iha hO)
+  | returndataOptionalBoolAt _ iho =>
+      intro out hOk
+      simp only [compileExpr, compileExprWithInternals] at hOk
+      obtain ⟨co, hO, hEq⟩ := compileExpr_returndataOptionalBoolAtShape_ok hOk
+      subst hEq
+      exact bridgedExpr_returndataOptionalBoolAt co (iho hO)
   | keccak256 _ _ ihOffset ihSize =>
       intro out hOk
       simp only [compileExpr, compileExprWithInternals] at hOk
@@ -1752,6 +1783,9 @@ theorem compileRequireFailCond_bridgedSource
         hOk
   | extcodesize hAddr =>
       exact compileRequireFailCond_default_bridgedSource (.extcodesize hAddr)
+        hOk
+  | returndataOptionalBoolAt hOffset =>
+      exact compileRequireFailCond_default_bridgedSource (.returndataOptionalBoolAt hOffset)
         hOk
   | keccak256 hOffset hSize =>
       exact compileRequireFailCond_default_bridgedSource (.keccak256 hOffset hSize)

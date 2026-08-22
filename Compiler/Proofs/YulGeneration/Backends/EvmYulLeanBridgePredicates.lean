@@ -299,6 +299,45 @@ theorem bridgedExpr_extcodesize (addrExpr : Compiler.Yul.YulExpr)
   subst hMem
   exact hAddr
 
+theorem bridgedExpr_returndataOptionalBoolAt (offsetExpr : Compiler.Yul.YulExpr)
+    (hOffset : BridgedExpr offsetExpr) :
+    BridgedExpr
+      (Compiler.Yul.YulExpr.call "or" [
+        Compiler.Yul.YulExpr.call "eq" [
+          Compiler.Yul.YulExpr.call "returndatasize" [],
+          Compiler.Yul.YulExpr.lit 0],
+        Compiler.Yul.YulExpr.call "and" [
+          Compiler.Yul.YulExpr.call "eq" [
+            Compiler.Yul.YulExpr.call "returndatasize" [],
+            Compiler.Yul.YulExpr.lit 32],
+          Compiler.Yul.YulExpr.call "eq" [
+            Compiler.Yul.YulExpr.call "mload" [offsetExpr],
+            Compiler.Yul.YulExpr.lit 1]]]) := by
+  have hRDS : BridgedExpr (Compiler.Yul.YulExpr.call "returndatasize" []) := by
+    refine .call _ _ (Or.inl (by simp [bridgedBuiltins])) ?_
+    intro arg hMem; cases hMem
+  refine .call "or" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+  intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+  rcases hMem with rfl | rfl
+  · refine .call _ _ (Or.inl (by simp [bridgedBuiltins])) ?_
+    intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+    rcases hMem with rfl | rfl
+    · exact hRDS
+    · exact .lit _
+  · refine .call "and" _ (Or.inl (by simp [bridgedBuiltins])) ?_
+    intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+    rcases hMem with rfl | rfl
+    · refine .call _ _ (Or.inl (by simp [bridgedBuiltins])) ?_
+      intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+      rcases hMem with rfl | rfl
+      · exact hRDS
+      · exact .lit _
+    · refine .call _ _ (Or.inl (by simp [bridgedBuiltins])) ?_
+      intro arg hMem; simp only [List.mem_cons, List.mem_nil_iff, or_false] at hMem
+      rcases hMem with rfl | rfl
+      · exact bridgedExpr_mload _ hOffset
+      · exact .lit _
+
 theorem bridgedStraightStmt_let_mload (name : String)
     (offsetExpr : Compiler.Yul.YulExpr) (hOffset : BridgedExpr offsetExpr) :
     BridgedStraightStmt
