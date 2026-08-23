@@ -6891,7 +6891,7 @@ theorem evalExpr_lt_evmModulus_core_onExpr
       show (do
         let b ← SourceSemantics.evalExpr fields runtime base
         let e ← SourceSemantics.evalExpr fields runtime exponent
-        some (Verity.Core.Uint256.pow (Verity.Core.Uint256.ofNat b)
+        some (Verity.Core.Uint256.powEff (Verity.Core.Uint256.ofNat b)
           (Verity.Core.Uint256.ofNat e)).val) < _
       rcases SourceSemantics.evalExpr fields runtime base with _ | bv
       · trivial
@@ -6899,7 +6899,7 @@ theorem evalExpr_lt_evmModulus_core_onExpr
         · trivial
         · simp only [Bind.bind, Option.bind, Pure.pure]
           have hModEq : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
-          exact hModEq ▸ (Verity.Core.Uint256.pow (Verity.Core.Uint256.ofNat bv)
+          exact hModEq ▸ (Verity.Core.Uint256.powEff (Verity.Core.Uint256.ofNat bv)
             (Verity.Core.Uint256.ofNat ev)).isLt
 end
 

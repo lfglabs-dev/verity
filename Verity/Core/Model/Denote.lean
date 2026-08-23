@@ -997,7 +997,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       if name == builtinExpName then do
         let baseVal ← evalExpr oracle fields state base
         let exponentVal ← evalExpr oracle fields state exponent
-        pure (Verity.Core.Uint256.pow
+        pure (Verity.Core.Uint256.powEff
           (Verity.Core.Uint256.ofNat baseVal)
           (Verity.Core.Uint256.ofNat exponentVal)).val
       else none

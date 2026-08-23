@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Verity.Core.Model.Denote
 
 namespace Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
 
@@ -354,6 +355,47 @@ example :
 example :
     evalIRCall (IRState.initial 0) "extcodesize" [Compiler.Yul.YulExpr.lit (2 ^ 160 + 1)] =
     some ((IRState.initial 0).codeSize 1) := by
+  native_decide
+
+/-- Regression (#2397): the reserved `exp` builtin lane must reduce modulo
+    2^256 at every step. A full-domain uint256 exponent (here 2^256 - 1) may
+    not materialise `Nat.pow` before reducing, or the evaluator hangs. -/
+example :
+    SourceSemantics.evalExpr [] { world := Verity.defaultState, bindings := [] }
+      (.externalCall builtinExpName [.literal 3, .literal (2 ^ 256 - 1)]) =
+    some 77194726158210796949047323339125271902179989777093709359638389338608753093291 := by
+  native_decide
+
+/-- Regression (#2397): the modular exponentiation stays faithful to
+    `Uint256.pow` on exponents past the 256-bit reduction boundary
+    (3 ^ 300 already wraps mod 2^256). -/
+example :
+    SourceSemantics.evalExpr [] { world := Verity.defaultState, bindings := [] }
+      (.externalCall builtinExpName [.literal 3, .literal 300]) =
+    some 87572657677406793603303376128395605907379627424338442757698266976936051615345 := by
+  native_decide
+
+/-- Regression (#2397): the helper-aware evaluator shares the incremental
+    modular exponentiation, so the lane stays executable over its full input
+    domain there too. -/
+example :
+    SourceSemantics.evalExprWithHelpers storageArraySourceSpec [] 1
+      { world := Verity.defaultState, bindings := [] }
+      (.externalCall builtinExpName [.literal 3, .literal (2 ^ 256 - 1)]) =
+    some 77194726158210796949047323339125271902179989777093709359638389338608753093291 := by
+  native_decide
+
+/-- Regression (#2397): the denotation evaluates the same lane without an
+    oracle round-trip and with the same incremental modular reduction. -/
+private def expLaneDenoteOracle : Compiler.CompilationModel.Denote.DenoteOracle :=
+  { mappingSlot := fun _ _ => 0
+    keccakMemorySlice := fun _ _ _ => 0 }
+
+example :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      { world := Verity.defaultState, bindings := [] }
+      (.externalCall builtinExpName [.literal 3, .literal (2 ^ 256 - 1)]) =
+    some 77194726158210796949047323339125271902179989777093709359638389338608753093291 := by
   native_decide
 
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

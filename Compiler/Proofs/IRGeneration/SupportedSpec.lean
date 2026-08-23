@@ -1374,7 +1374,8 @@ whole-contract theorem. -/
 def exprTouchesUnsupportedForeignSurface : Expr → Bool
   -- `pow`/`^` in the EDSL surfaces as `externalCall builtinExpName [b, e]`, but
   -- it carries no foreign behaviour: the compiler lowers it to the pure Yul
-  -- `exp` builtin, and the source semantics evaluates it with `Uint256.pow`.
+  -- `exp` builtin, and the source semantics evaluates it with
+  -- `Uint256.powEff` (modular square-and-multiply, equal to `Uint256.pow`).
   -- Genuine foreign calls keep the blanket exclusion.
   | .externalCall name [base, exponent] =>
       if name == builtinExpName then

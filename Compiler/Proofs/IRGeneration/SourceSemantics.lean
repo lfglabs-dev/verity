@@ -1486,7 +1486,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
       if name == builtinExpName then do
         let baseVal ← evalExpr fields state base
         let exponentVal ← evalExpr fields state exponent
-        pure (Verity.Core.Uint256.pow
+        pure (Verity.Core.Uint256.powEff
           (Verity.Core.Uint256.ofNat baseVal)
           (Verity.Core.Uint256.ofNat exponentVal)).val
       else none
@@ -1675,7 +1675,7 @@ theorem evalExpr_externalCall_builtinExp
       pure (Verity.Core.Uint256.pow
         (Verity.Core.Uint256.ofNat baseVal)
         (Verity.Core.Uint256.ofNat exponentVal)).val) := by
-  simp [evalExpr]
+  simp [evalExpr, Verity.Core.Uint256.powEff_eq_pow]
 
 private theorem evalExpr_externalCall_of_ne
     (fields : List Field)
@@ -4097,12 +4097,14 @@ mutual
         let _ ← evalExprWithHelpers spec fields fuel state offset
         some 1
     -- The reserved `exp` builtin lane: pure arithmetic wearing an
-    -- `externalCall` node, so it needs no helper environment.
+    -- `externalCall` node, so it needs no helper environment. Like the plain
+    -- evaluator it reduces modulo 2^256 at every step so full-domain uint256
+    -- exponents stay executable.
     | .externalCall name [base, exponent] =>
         if name == builtinExpName then do
           let baseVal ← evalExprWithHelpers spec fields fuel state base
           let exponentVal ← evalExprWithHelpers spec fields fuel state exponent
-          pure (Verity.Core.Uint256.pow
+          pure (Verity.Core.Uint256.powEff
             (Verity.Core.Uint256.ofNat baseVal)
             (Verity.Core.Uint256.ofNat exponentVal)).val
         else none
@@ -5414,7 +5416,8 @@ mutual
                   spec fields fuel state base hsurface.1
                 have hexp := evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
                   spec fields fuel state exponent hsurface.2
-                simp [evalExprWithHelpers, evalExpr_externalCall_builtinExp, hbase, hexp]
+                simp [evalExprWithHelpers, evalExpr_externalCall_builtinExp, hbase, hexp,
+                  Verity.Core.Uint256.powEff_eq_pow]
               · simp [evalExprWithHelpers, evalExpr_externalCall_of_ne _ _ _ _ hname, hname]
     | mload a =>
         simp only [exprTouchesUnsupportedHelperSurface] at hsurface
