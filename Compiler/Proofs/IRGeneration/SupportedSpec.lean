@@ -1743,7 +1743,8 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
         exprTouchesUnsupportedCallSurface sourceOffset ||
         exprTouchesUnsupportedCallSurface size
   | .revertReturndata => false
-  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
+  | .externalCallBind _ _ args => args.any exprTouchesUnsupportedCallSurface
+  | .tryExternalCallBind _ _ _ args => args.any exprTouchesUnsupportedCallSurface
   | .ecm _ _ => true
   | .stop | .storageArrayPop _
   | .returnValues _ | .returnArray _
@@ -1794,8 +1795,10 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
       exprTouchesUnsupportedHelperSurface destOffset ||
         exprTouchesUnsupportedHelperSurface sourceOffset ||
         exprTouchesUnsupportedHelperSurface size
+  | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args =>
+      exprListTouchesUnsupportedHelperSurface args
   | .stop
-  | .revertReturndata | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
+  | .revertReturndata
   | .ecm _ _ | .storageArrayPop _
   | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
@@ -1992,7 +1995,9 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
       exprTouchesUnsupportedForeignSurface cond
   | .returnCodeData pointer =>
       exprTouchesUnsupportedForeignSurface pointer
-  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ | .ecm _ _ => true
+  | .externalCallBind _ _ args => args.any exprTouchesUnsupportedForeignSurface
+  | .tryExternalCallBind _ _ _ args => args.any exprTouchesUnsupportedForeignSurface
+  | .ecm _ _ => true
   | .calldatacopy destOffset sourceOffset size
   | .returndataCopy destOffset sourceOffset size =>
       exprTouchesUnsupportedForeignSurface destOffset ||
@@ -2049,8 +2054,10 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
         exprTouchesUnsupportedLowLevelSurface sourceOffset ||
         exprTouchesUnsupportedLowLevelSurface size
   | .revertReturndata => false
+  | .externalCallBind _ _ args => args.any exprTouchesUnsupportedLowLevelSurface
+  | .tryExternalCallBind _ _ _ args => args.any exprTouchesUnsupportedLowLevelSurface
   | .stop
-  | .internalCall _ _ | .internalCallAssign _ _ _ | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _
+  | .internalCall _ _ | .internalCallAssign _ _ _
   | .ecm _ _ | .storageArrayPop _
   | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
@@ -5198,6 +5205,12 @@ private theorem stmtOrListTouchesUnsupportedCallSurface_eq_featureOr :
           rw [exprListTouchesUnsupportedCallSurface_eq_featureOr args]
           simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
       | emit _ args =>
+          simp only [stmtTouchesUnsupportedCallSurface,
+            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
+            stmtTouchesUnsupportedLowLevelSurface]
+          rw [exprListTouchesUnsupportedCallSurface_eq_featureOr args]
+          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+      | externalCallBind _ _ args | tryExternalCallBind _ _ _ args =>
           simp only [stmtTouchesUnsupportedCallSurface,
             stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
             stmtTouchesUnsupportedLowLevelSurface]

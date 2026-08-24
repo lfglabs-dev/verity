@@ -6193,8 +6193,30 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
         evalExprList_eq_mapM]
   | .rawLog _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .unsafeYul _ => cases hsurface
-  | .externalCallBind _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .tryExternalCallBind _ _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .externalCallBind _ _ args =>
+      simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+      have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
+        induction args with
+        | nil => simp
+        | cons expr rest ih =>
+          simp only [exprListTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+          simp only [List.all_cons, Bool.and_eq_true, beq_iff_eq]
+          exact ⟨hsurface.1, ih hsurface.2⟩
+      simp [execStmtWithHelpers, execStmtWithEvents,
+        evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
+        evalExprList_eq_mapM]
+  | .tryExternalCallBind _ _ _ args =>
+      simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+      have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
+        induction args with
+        | nil => simp
+        | cons expr rest ih =>
+          simp only [exprListTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+          simp only [List.all_cons, Bool.and_eq_true, beq_iff_eq]
+          exact ⟨hsurface.1, ih hsurface.2⟩
+      simp [execStmtWithHelpers, execStmtWithEvents,
+        evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
+        evalExprList_eq_mapM]
   | .ecm _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .forEach _ _ _ =>
       simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
