@@ -2870,7 +2870,8 @@ example :
 
 example :
     stmtListTouchesUnsupportedForeignSurface
-      [Stmt.forEach "i" (.literal 1) [Stmt.externalCallBind [] "ext" []]] = true := by
+      [Stmt.forEach "i" (.literal 1)
+        [Stmt.externalCallBind [] "ext" [.externalCall "ext" []]]] = true := by
   decide
 
 example :

@@ -398,54 +398,89 @@ example :
     some 77194726158210796949047323339125271902179989777093709359638389338608753093291 := by
   native_decide
 
+private def oracleSuccess42 : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42]⟩
+
+private def oracleFail : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨false, []⟩
+
+private def oracleSuccess99 : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [99]⟩
+
+private def oracleFail0 : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨false, [0]⟩
+
+private def oracleIndexed : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun n => if n == 0 then ⟨true, [7]⟩ else ⟨false, []⟩
+
+private def mkState (bindings : List (String × Nat))
+    (oracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, []⟩)
+    (callIdx : Nat := 0) : SourceSemantics.RuntimeState :=
+  { world := Verity.defaultState, bindings, externalCallOracle := oracle,
+    externalCallIndex := callIdx }
+
+private def resultBindings (r : SourceSemantics.StmtResult) : Option (List (String × Nat)) :=
+  match r with | .continue s => some s.bindings | _ => none
+
+private def resultCallIndex (r : SourceSemantics.StmtResult) : Option Nat :=
+  match r with | .continue s => some s.externalCallIndex | _ => none
+
+private def isRevert (r : SourceSemantics.StmtResult) : Bool :=
+  match r with | .revert => true | _ => false
+
+private def isContinue (r : SourceSemantics.StmtResult) : Bool :=
+  match r with | .continue _ => true | _ => false
+
 /-- externalCallBind: oracle returns success → bindings updated, call index incremented -/
 example :
-    SourceSemantics.execStmt [] { world := Verity.defaultState, bindings := [("x", 0)],
-        externalCallOracle := fun _ => ⟨true, [42]⟩ }
-      (.externalCallBind ["x"] "transfer" [.literal 100]) =
-    .continue { world := Verity.defaultState, bindings := [("x", 42)],
-        externalCallOracle := fun _ => ⟨true, [42]⟩, externalCallIndex := 1 } := by
+    resultBindings (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccess42)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some [("x", 42)] := by
+  native_decide
+
+example :
+    resultCallIndex (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccess42)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some 1 := by
   native_decide
 
 /-- externalCallBind: oracle returns failure → revert -/
 example :
-    SourceSemantics.execStmt [] { world := Verity.defaultState, bindings := [("x", 0)],
-        externalCallOracle := fun _ => ⟨false, []⟩ }
-      (.externalCallBind ["x"] "transfer" [.literal 100]) =
-    .revert := by
+    isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleFail)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = true := by
   native_decide
 
 /-- tryExternalCallBind: oracle returns success → successVar=1, bindings updated -/
 example :
-    SourceSemantics.execStmt [] { world := Verity.defaultState,
-        bindings := [("ok", 0), ("result", 0)],
-        externalCallOracle := fun _ => ⟨true, [99]⟩ }
-      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50]) =
-    .continue { world := Verity.defaultState,
-        bindings := [("ok", 1), ("result", 99)],
-        externalCallOracle := fun _ => ⟨true, [99]⟩, externalCallIndex := 1 } := by
+    resultBindings (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleSuccess99)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) =
+    some [("result", 99), ("ok", 1)] := by
+  native_decide
+
+example :
+    resultCallIndex (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleSuccess99)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = some 1 := by
   native_decide
 
 /-- tryExternalCallBind: oracle returns failure → successVar=0, no revert -/
 example :
-    SourceSemantics.execStmt [] { world := Verity.defaultState,
-        bindings := [("ok", 0), ("result", 0)],
-        externalCallOracle := fun _ => ⟨false, [0]⟩ }
-      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50]) =
-    .continue { world := Verity.defaultState,
-        bindings := [("ok", 0), ("result", 0)],
-        externalCallOracle := fun _ => ⟨false, [0]⟩, externalCallIndex := 1 } := by
+    resultBindings (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleFail0)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) =
+    some [("result", 0), ("ok", 0)] := by
+  native_decide
+
+example :
+    isContinue (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleFail0)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = true := by
   native_decide
 
 /-- externalCallBind with no args and oracle keyed on call index -/
 example :
-    SourceSemantics.execStmtWithEvents [] []
-      { world := Verity.defaultState, bindings := [("v", 0)],
-        externalCallOracle := fun n => if n == 0 then ⟨true, [7]⟩ else ⟨false, []⟩ }
-      (.externalCallBind ["v"] "ping" []) =
-    .continue { world := Verity.defaultState, bindings := [("v", 7)],
-        externalCallOracle := fun n => if n == 0 then ⟨true, [7]⟩ else ⟨false, []⟩,
-        externalCallIndex := 1 } := by
+    resultBindings (SourceSemantics.execStmtWithEvents [] [] (mkState [("v", 0)] oracleIndexed)
+      (.externalCallBind ["v"] "ping" [])) = some [("v", 7)] := by
+  native_decide
+
+example :
+    resultCallIndex (SourceSemantics.execStmtWithEvents [] [] (mkState [("v", 0)] oracleIndexed)
+      (.externalCallBind ["v"] "ping" [])) = some 1 := by
   native_decide
 
 /-- Surface gates: externalCallBind with literal args is now admitted by call/foreign/lowLevel. -/

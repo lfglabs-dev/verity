@@ -832,7 +832,7 @@ structure RuntimeState where
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : List (String × Nat)
   selector : Nat := 0
-  externalCallOracle : Nat → ExternalCallOutcome := fun _ => default
+  externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, []⟩
   externalCallIndex : Nat := 0
 
 inductive StmtResult where
