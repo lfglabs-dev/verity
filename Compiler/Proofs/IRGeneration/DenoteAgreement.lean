@@ -374,6 +374,17 @@ theorem writeAddressKeyedMapping2FieldSlots_eq
 @[simp] theorem bindValue_eq (b : List (String × Nat)) (n : String) (v : Nat) :
     Denote.bindValue b n v = SourceSemantics.bindValue b n v := rfl
 
+@[simp] theorem bindValues_eq (b : List (String × Nat)) (ns : List String) (vs : List Nat) :
+    Denote.bindValues b ns vs = SourceSemantics.bindValues b ns vs := by
+  induction ns generalizing b vs with
+  | nil => rfl
+  | cons n ns ih =>
+      cases vs with
+      | nil => rfl
+      | cons v vs =>
+          simp only [Denote.bindValues, SourceSemantics.bindValues, bindValue_eq]
+          exact ih _ _
+
 @[simp] theorem valuesAsEventArgs_eq (vs : List Nat) :
     Denote.valuesAsEventArgs vs = SourceSemantics.valuesAsEventArgs vs :=
   match vs with
@@ -500,9 +511,8 @@ theorem execForEachSetBitLoop_agree {varName : String}
       rw [SourceSemantics.execForEachSetBitLoop_succ]
       by_cases hbitmap : bitmap = 0
       · simp [Denote.execForEachSetBitLoop, hbitmap, toStmtResult]
-      · let ls := { st with bindings :=
-          SourceSemantics.bindValue st.bindings varName
-            (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)) }
+      · let val := SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)
+        let ls := { st with bindings := SourceSemantics.bindValue st.bindings varName val }
         have hb := h ls
         simp only [Denote.execForEachSetBitLoop, hbitmap, if_false, toRuntimeState] at hb ⊢
         rw [← hb]
@@ -618,12 +628,16 @@ theorem execStmt_eq (fields : List Field) :
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
       cases Denote.evalExprList sourceOracle fields st args with
       | none => rfl
-      | some _ => split <;> simp [toStmtResult, toRuntimeState]
+      | some _ =>
+          by_cases h : st.externalCallSucceeded st.externalCallIndex = true <;>
+            simp [toStmtResult, toRuntimeState, h]
   | st, .tryExternalCallBind successVar resultVars _externalName args => by
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
       cases Denote.evalExprList sourceOracle fields st args with
       | none => rfl
-      | some _ => simp [toStmtResult, toRuntimeState]
+      | some _ =>
+          simp only [toStmtResult, toRuntimeState, bindValue_eq, bindValues_eq]
+          rfl
   | _, .returnValues .. | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
   | _, .internalCallAssign .. | _, .rawLog ..

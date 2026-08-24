@@ -205,14 +205,16 @@ theorem denoteFunction_eq
       simp only [toSourceResult_revertedResult]
   | some bindings =>
       have hexec := execStmtList_eq (SourceSemantics.effectiveFields spec)
-        ⟨SourceSemantics.withTransactionContext initialWorld tx, fun _ => 0, bindings,
-          tx.functionSelector⟩ fn.body
+        { world := SourceSemantics.withTransactionContext initialWorld tx,
+          immutable := fun _ => 0, bindings := bindings,
+          selector := tx.functionSelector } fn.body
       simp only [toRuntimeState] at hexec
       simp only
       rw [← hexec]
       cases Denote.execStmtList sourceOracle (SourceSemantics.effectiveFields spec)
-          ⟨SourceSemantics.withTransactionContext initialWorld tx, fun _ => 0, bindings,
-            tx.functionSelector⟩ fn.body <;>
+          { world := SourceSemantics.withTransactionContext initialWorld tx,
+            immutable := fun _ => 0, bindings := bindings,
+            selector := tx.functionSelector } fn.body <;>
         simp [toStmtResult, toRuntimeState]
 
 end DenoteAgreement

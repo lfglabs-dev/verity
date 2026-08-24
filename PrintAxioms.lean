@@ -2464,6 +2464,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_immutable
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_bindings
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_selector
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_externalCallOracle
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_externalCallIndex
   Compiler.Proofs.IRGeneration.DenoteAgreement.sourceOracle_mappingSlot
   Compiler.Proofs.IRGeneration.DenoteAgreement.sourceOracle_keccakMemorySlice
   Compiler.Proofs.IRGeneration.DenoteAgreement.bindAgree
@@ -2485,6 +2487,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2FieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.wordNormalize_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.bindValue_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.bindValues_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.valuesAsEventArgs_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeUintSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeFixedUint128ArrayElementSlots_eq
@@ -7415,4 +7418,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6862 theorems/lemmas (4918 public, 1944 private, 0 sorry'd)
+-- Total: 6865 theorems/lemmas (4921 public, 1944 private, 0 sorry'd)
