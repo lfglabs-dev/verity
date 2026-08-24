@@ -398,4 +398,99 @@ example :
     some 77194726158210796949047323339125271902179989777093709359638389338608753093291 := by
   native_decide
 
+/-- externalCallBind: oracle returns success → bindings updated, call index incremented -/
+example :
+    SourceSemantics.execStmt [] { world := Verity.defaultState, bindings := [("x", 0)],
+        externalCallOracle := fun _ => ⟨true, [42]⟩ }
+      (.externalCallBind ["x"] "transfer" [.literal 100]) =
+    .continue { world := Verity.defaultState, bindings := [("x", 42)],
+        externalCallOracle := fun _ => ⟨true, [42]⟩, externalCallIndex := 1 } := by
+  native_decide
+
+/-- externalCallBind: oracle returns failure → revert -/
+example :
+    SourceSemantics.execStmt [] { world := Verity.defaultState, bindings := [("x", 0)],
+        externalCallOracle := fun _ => ⟨false, []⟩ }
+      (.externalCallBind ["x"] "transfer" [.literal 100]) =
+    .revert := by
+  native_decide
+
+/-- tryExternalCallBind: oracle returns success → successVar=1, bindings updated -/
+example :
+    SourceSemantics.execStmt [] { world := Verity.defaultState,
+        bindings := [("ok", 0), ("result", 0)],
+        externalCallOracle := fun _ => ⟨true, [99]⟩ }
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50]) =
+    .continue { world := Verity.defaultState,
+        bindings := [("ok", 1), ("result", 99)],
+        externalCallOracle := fun _ => ⟨true, [99]⟩, externalCallIndex := 1 } := by
+  native_decide
+
+/-- tryExternalCallBind: oracle returns failure → successVar=0, no revert -/
+example :
+    SourceSemantics.execStmt [] { world := Verity.defaultState,
+        bindings := [("ok", 0), ("result", 0)],
+        externalCallOracle := fun _ => ⟨false, [0]⟩ }
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50]) =
+    .continue { world := Verity.defaultState,
+        bindings := [("ok", 0), ("result", 0)],
+        externalCallOracle := fun _ => ⟨false, [0]⟩, externalCallIndex := 1 } := by
+  native_decide
+
+/-- externalCallBind with no args and oracle keyed on call index -/
+example :
+    SourceSemantics.execStmtWithEvents [] []
+      { world := Verity.defaultState, bindings := [("v", 0)],
+        externalCallOracle := fun n => if n == 0 then ⟨true, [7]⟩ else ⟨false, []⟩ }
+      (.externalCallBind ["v"] "ping" []) =
+    .continue { world := Verity.defaultState, bindings := [("v", 7)],
+        externalCallOracle := fun n => if n == 0 then ⟨true, [7]⟩ else ⟨false, []⟩,
+        externalCallIndex := 1 } := by
+  native_decide
+
+/-- Surface gates: externalCallBind with literal args is now admitted by call/foreign/lowLevel. -/
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = false := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedForeignSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = false := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedLowLevelSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = false := by
+  native_decide
+
+/-- Surface gates: tryExternalCallBind with literal args is similarly admitted. -/
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.tryExternalCallBind "ok" ["x"] "safecall" [.literal 50]) = false := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedForeignSurface
+      (.tryExternalCallBind "ok" ["x"] "safecall" [.literal 50]) = false := by
+  native_decide
+
+/-- Surface gates: call-surface args still trigger when sub-exprs touch surfaces. -/
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.externalCallBind ["x"] "transfer" [.externalCall "oracle" []]) = true := by
+  native_decide
+
+/-- Helper surface: externalCallBind with helper-free args is helper-surface-closed. -/
+example :
+    stmtTouchesUnsupportedHelperSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = false := by
+  native_decide
+
+/-- Effect surface: externalCallBind remains blocked by the effect surface. -/
+example :
+    stmtTouchesUnsupportedEffectSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = true := by
+  native_decide
+
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
