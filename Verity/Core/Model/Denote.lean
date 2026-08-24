@@ -180,6 +180,11 @@ abbrev Env := List (String × Nat)
 def bindValue (bindings : Env) (name : String) (value : Nat) : Env :=
   (name, value) :: bindings.filter (fun entry => entry.1 != name)
 
+def bindValues (bindings : Env) : List String → List Nat → Env
+  | [], _ => bindings
+  | _ :: _, [] => bindings
+  | name :: names, value :: values => bindValues (bindValue bindings name value) names values
+
 def lookupValue (bindings : Env) (name : String) : Nat :=
   bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd |>.getD 0
 
@@ -192,6 +197,9 @@ structure DenoteState where
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : Env
   selector : Nat := 0
+  externalCallSucceeded : Nat → Bool := fun _ => false
+  externalCallReturnValues : Nat → List Nat := fun _ => []
+  externalCallIndex : Nat := 0
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
 inductive StmtOutcome where
@@ -1370,6 +1378,29 @@ mutual
             execForEachSetBitLoop varName
               (fun loopState => execStmtList oracle fields loopState body)
               256 state bits
+        | none => .revert
+    | state, .externalCallBind resultVars _externalName args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            if state.externalCallSucceeded state.externalCallIndex then
+              .continue
+                { state with
+                    bindings := bindValues state.bindings resultVars
+                      (state.externalCallReturnValues state.externalCallIndex)
+                    externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | state, .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            let successBit :=
+              if state.externalCallSucceeded state.externalCallIndex then 1 else 0
+            .continue
+              { state with
+                  bindings := bindValues
+                    (bindValue state.bindings successVar successBit)
+                    resultVars (state.externalCallReturnValues state.externalCallIndex)
+                  externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
     | _, .revertReturndata => .revert
     | _, _ => .revert
