@@ -728,6 +728,11 @@ def bindValue (bindings : List (String × Nat)) (name : String) (value : Nat) :
     List (String × Nat) :=
   (name, value) :: bindings.filter (fun entry => entry.1 != name)
 
+def bindValues (bindings : List (String × Nat)) : List String → List Nat → List (String × Nat)
+  | [], _ => bindings
+  | _ :: _, [] => bindings
+  | name :: names, value :: values => bindValues (bindValue bindings name value) names values
+
 def lookupValue (bindings : List (String × Nat)) (name : String) : Nat :=
   bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd |>.getD 0
 
@@ -816,11 +821,19 @@ private def findUniqueInternalFunction? (spec : CompilationModel) (calleeName : 
   | [fn] => some fn
   | _ => none
 
+structure ExternalCallOutcome where
+  succeeded : Bool
+  returnValues : List Nat := []
+
+instance : Inhabited ExternalCallOutcome := ⟨⟨false, []⟩⟩
+
 structure RuntimeState where
   world : Verity.ContractState
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : List (String × Nat)
   selector : Nat := 0
+  externalCallOracle : Nat → ExternalCallOutcome := fun _ => default
+  externalCallIndex : Nat := 0
 
 inductive StmtResult where
   | continue (state : RuntimeState)
@@ -2729,6 +2742,29 @@ mutual
               256 state bits
         | none => .revert
     | _, .revertReturndata => .revert
+    | state, .externalCallBind resultVars _externalName args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              .continue
+                { state with
+                    bindings := bindValues state.bindings resultVars outcome.returnValues
+                    externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | state, .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            let successBit := if outcome.succeeded then 1 else 0
+            .continue
+              { state with
+                  bindings := bindValues
+                    (bindValue state.bindings successVar successBit)
+                    resultVars outcome.returnValues
+                  externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -3041,6 +3077,29 @@ mutual
               256 state bits
         | none => .revert
     | _, .revertReturndata => .revert
+    | state, .externalCallBind resultVars _externalName args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              .continue
+                { state with
+                    bindings := bindValues state.bindings resultVars outcome.returnValues
+                    externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | state, .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            let successBit := if outcome.succeeded then 1 else 0
+            .continue
+              { state with
+                  bindings := bindValues
+                    (bindValue state.bindings successVar successBit)
+                    resultVars outcome.returnValues
+                  externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
     | _, _ => .revert
 
   def execStmtList (fields : List Field) : RuntimeState → List Stmt → StmtResult
@@ -4468,6 +4527,29 @@ mutual
               256 state bits
         | none => .revert
     | .revertReturndata => .revert
+    | .externalCallBind resultVars _externalName args =>
+        match evalExprListWithHelpers spec fields fuel state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              .continue
+                { state with
+                    bindings := bindValues state.bindings resultVars outcome.returnValues
+                    externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprListWithHelpers spec fields fuel state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            let successBit := if outcome.succeeded then 1 else 0
+            .continue
+              { state with
+                  bindings := bindValues
+                    (bindValue state.bindings successVar successBit)
+                    resultVars outcome.returnValues
+                  externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
   decreasing_by all_goals (simp_wf; omega)
