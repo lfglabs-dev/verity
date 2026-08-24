@@ -74,7 +74,8 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .paramDynamicStaticComposite .. | .paramDynamicHeadWord ..
   | .arrayLength _ | .arrayElementWord ..
   | .call .. | .staticcall .. | .delegatecall ..
-  | .externalCall .. | .internalCall ..
+  | .externalCall _ [] | .externalCall _ [_] | .externalCall _ (_ :: _ :: _ :: _)
+  | .internalCall ..
   | .intrinsic .. | .forkIfAtLeast .. | .mulDiv512Down .. | .mulDiv512Up ..
   | .adtConstruct .. | .adtTag .. | .adtField ..
   | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
@@ -114,6 +115,15 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
         by_cases h : (v != 0) = true
         · simpa [h] using denote_evalExpr_eq fields s t
         · simpa [h] using denote_evalExpr_eq fields s e
+  -- Both evaluators guard the reserved `exp` builtin lane on the same name
+  -- test, so the arms agree branch-for-branch.
+  | .externalCall _ [base, exponent] => by
+      have guard : ∀ (c : Bool) (x y : Option Nat),
+          x = y → (if c then x else none) = (if c then y else none) := by
+        intro c x y h; cases c <;> simp [h]
+      exact guard _ _ _
+        (bindAgree (denote_evalExpr_eq fields s base) fun _ =>
+          bindAgree (denote_evalExpr_eq fields s exponent) fun _ => rfl)
 
 theorem denote_evalExprList_eq (fields : List Field) (s : DenoteState) :
     ∀ es : List Expr,

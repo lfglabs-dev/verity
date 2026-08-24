@@ -298,6 +298,26 @@ theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
       -- Same vacuous handling for `paramDynamicHeadWord` (verity#1832
       -- codegen-only).
       simp [exprTouchesUnsupportedContractSurface] at hsurface
+  | .externalCall name args, hsurface =>
+      -- Only the reserved two-operand `exp` builtin lane is inside the contract
+      -- surface; every other `externalCall` shape makes `hsurface` vacuous.
+      cases args with
+      | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
+      | cons base tl =>
+        cases tl with
+        | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
+        | cons exponent tl' =>
+          cases tl' with
+          | cons _ _ => simp [exprTouchesUnsupportedContractSurface] at hsurface
+          | nil =>
+            by_cases hname : name = builtinExpName
+            · subst hname
+              simp only [exprTouchesUnsupportedContractSurface, beq_self_eq_true, if_true,
+                Bool.or_eq_false_iff] at hsurface
+              exact .builtinExp
+                (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1)
+                (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
+            · simp [exprTouchesUnsupportedContractSurface, hname] at hsurface
 
 private theorem fieldName_mem_fields_of_findFieldWithResolvedSlot_some
     {fields : List Field}
@@ -1257,6 +1277,21 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core
       rcases hmem with hmem | hmem
       · exact ihL (validateScopedExprIdentifiers_pair_ok_left hpair) name hmem
       · exact ihR (validateScopedExprIdentifiers_pair_ok_right hpair) name hmem
+  | builtinExp hB hE ihB ihE =>
+      rename_i base exponent
+      have hpair :
+          (do
+            validateScopedExprIdentifiers
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount base
+            validateScopedExprIdentifiers
+              context params paramScope dynamicParams immutableNames localScope constructorArgCount exponent) =
+            Except.ok () := by
+        simpa [validateScopedExprIdentifiers, validateScopedExprIdentifiersList] using hvalidate
+      intro name hmem
+      simp [FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames] at hmem
+      rcases hmem with hmem | hmem
+      · exact ihB (validateScopedExprIdentifiers_pair_ok_left hpair) name hmem
+      · exact ihE (validateScopedExprIdentifiers_pair_ok_right hpair) name hmem
 
 private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
     {fieldNames : List String}
@@ -2192,6 +2227,16 @@ theorem exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
         name hname
     · exact constructorArgsInScope_foldl_stmtNextScope constructorArgsInScope_none
 
+/-- `collectExprNames` skips the reserved `builtinExpName` sentinel, so the exp
+lane contributes exactly the names of its two operands. -/
+private theorem collectExprNames_builtinExp_split
+    {base exponent : Expr} {name : String}
+    (hmem : name ∈ collectExprNames (.externalCall builtinExpName [base, exponent])) :
+    name ∈ collectExprNames base ∨ name ∈ collectExprNames exponent := by
+  simp only [collectExprNames, collectExprListNames, beq_self_eq_true, if_true,
+    List.append_nil] at hmem
+  exact List.mem_append.mp hmem
+
 theorem collectExprNames_mem_exprBoundNames_of_core
     {expr : Expr}
     (hcore : FunctionBody.ExprCompileCore expr) :
@@ -2235,6 +2280,11 @@ theorem collectExprNames_mem_exprBoundNames_of_core
         · exact List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inl (ihA _ h))))
         · exact List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inr (ihB _ h))))
       · exact List.mem_append.mpr (Or.inr (ihC _ hmem))
+  | builtinExp hB hE ihB ihE =>
+      intro name hmem
+      simp only [FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames, List.append_nil]
+      exact List.mem_append.mpr
+        ((collectExprNames_builtinExp_split hmem).imp (ihB name) (ihE name))
 
 private theorem mem_foldl_stmtNextScope_of_mem_scope
     {scope : List String}
