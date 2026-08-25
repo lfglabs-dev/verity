@@ -634,7 +634,7 @@ theorem execStmt_eq (fields : List Field) :
           by_cases h : st.externalCallSucceeded st.externalCallIndex = true
           · simp only [h, ite_true]
             by_cases harity :
-                (st.externalCallReturnValues st.externalCallIndex).length < resultVars.length
+                (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
             · simp [toStmtResult, toRuntimeState, h, harity]
             · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq]
           · simp [toStmtResult, toRuntimeState, h]
@@ -648,7 +648,7 @@ theorem execStmt_eq (fields : List Field) :
           by_cases h : st.externalCallSucceeded st.externalCallIndex = true
           · simp only [h, ite_true]
             by_cases harity :
-                (st.externalCallReturnValues st.externalCallIndex).length < resultVars.length
+                (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
             · simp [toStmtResult, toRuntimeState, h, harity]
             · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValue_eq, bindValues_eq]
           · simp [toStmtResult, toRuntimeState, h, hw, bindValue_eq, bindValues_eq]

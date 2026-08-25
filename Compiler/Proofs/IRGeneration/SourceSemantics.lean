@@ -2748,7 +2748,7 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length < resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert
               else
                 .continue
                   { state with
@@ -2763,7 +2763,7 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length < resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert
               else
                 .continue
                   { state with
@@ -3097,7 +3097,7 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length < resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert
               else
                 .continue
                   { state with
@@ -3112,7 +3112,7 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length < resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert
               else
                 .continue
                   { state with
@@ -4570,7 +4570,7 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length < resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert
               else
                 .continue
                   { state with
@@ -4585,7 +4585,7 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              if outcome.returnValues.length < resultVars.length then .revert
+              if outcome.returnValues.length != resultVars.length then .revert
               else
                 .continue
                   { state with
@@ -4624,12 +4624,17 @@ mutual
       (fuel : Nat)
       (fn : FunctionSpec)
       (initialWorld : Verity.ContractState)
-      (args : List Nat) : InternalFunctionResult :=
+      (args : List Nat)
+      (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+      (externalCallIndex : Nat := 0) : InternalFunctionResult :=
     let fields := effectiveFields spec
     match bindInternalArgs fn.params args with
     | none => revertedInternalResult initialWorld
     | some bindings =>
-        match execStmtListWithHelpers spec fields fuel { world := initialWorld, bindings := bindings } fn.body with
+        match execStmtListWithHelpers spec fields fuel
+            { world := initialWorld, bindings := bindings,
+              externalCallOracle := externalCallOracle,
+              externalCallIndex := externalCallIndex } fn.body with
         | .continue state => successInternalResult state.world none
         | .stop state => successInternalResult state.world none
         | .return value state => successInternalResult state.world (some value)

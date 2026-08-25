@@ -450,7 +450,7 @@ theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
     (vars : List String) (name : String) (args : List Expr) (vals : List Nat)
     (hargs : evalExprList oracle fields state args = some vals)
     (hsuccess : state.externalCallSucceeded state.externalCallIndex = true)
-    (harity : ¬ (state.externalCallReturnValues state.externalCallIndex).length < vars.length) :
+    (harity : ¬ (state.externalCallReturnValues state.externalCallIndex).length != vars.length) :
     execStmt oracle fields state (.externalCallBind vars name args) =
       .continue
         { state with

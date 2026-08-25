@@ -1385,7 +1385,7 @@ mutual
         | some _ =>
             if state.externalCallSucceeded state.externalCallIndex then
               let retVals := state.externalCallReturnValues state.externalCallIndex
-              if retVals.length < resultVars.length then .revert
+              if retVals.length != resultVars.length then .revert
               else
                 .continue
                   { state with
@@ -1401,7 +1401,7 @@ mutual
         | some _ =>
             let retVals := state.externalCallReturnValues state.externalCallIndex
             if state.externalCallSucceeded state.externalCallIndex then
-              if retVals.length < resultVars.length then .revert
+              if retVals.length != resultVars.length then .revert
               else
                 .continue
                   { state with
@@ -1533,14 +1533,20 @@ def withTransactionContext (world : Verity.ContractState) (tx : DenoteTransactio
 Mirrors `SourceSemantics.interpretFunction` with the event-less statement
 semantics (see header note 2). -/
 def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : FunctionSpec)
-    (tx : DenoteTransaction) (initialWorld : Verity.ContractState) : DenoteResult :=
+    (tx : DenoteTransaction) (initialWorld : Verity.ContractState)
+    (externalCallSucceeded : Nat → Bool := fun _ => false)
+    (externalCallReturnValues : Nat → List Nat := fun _ => [])
+    (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult oracle spec worldWithTx
   | some bindings =>
       match execStmtList oracle fields
-          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector }
+          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            externalCallSucceeded := externalCallSucceeded,
+            externalCallReturnValues := externalCallReturnValues,
+            externalCallPostWorld := externalCallPostWorld }
           fn.body with
       | .continue state => successResult oracle spec state.world none
       | .stop state => successResult oracle spec state.world none
