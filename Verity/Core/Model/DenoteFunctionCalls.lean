@@ -442,6 +442,22 @@ theorem execStmt_externalCallBind_call_fails (oracle : DenoteOracle)
     execStmt oracle fields state (.externalCallBind vars name args) = .revert := by
   simp [execStmt, hargs, hfail]
 
+/-- A successful source-level external call advances the oracle receipt and
+    binds its returned words.  This pins the widened denotation to the exact
+    receipt consumed by `SourceSemantics`. -/
+theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
+    (fields : List Field) (state : DenoteState)
+    (vars : List String) (name : String) (args : List Expr) (vals : List Nat)
+    (hargs : evalExprList oracle fields state args = some vals)
+    (hsuccess : state.externalCallSucceeded state.externalCallIndex = true) :
+    execStmt oracle fields state (.externalCallBind vars name args) =
+      .continue
+        { state with
+          bindings := bindValues state.bindings vars
+            (state.externalCallReturnValues state.externalCallIndex)
+          externalCallIndex := state.externalCallIndex + 1 } := by
+  simp [execStmt, hargs, hsuccess]
+
 private def dummyOracle : DenoteOracle :=
   { mappingSlot := fun _ _ => 0
     keccakMemorySlice := fun _ _ _ => 0 }
