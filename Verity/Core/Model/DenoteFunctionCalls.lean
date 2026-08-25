@@ -449,14 +449,16 @@ theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
     (fields : List Field) (state : DenoteState)
     (vars : List String) (name : String) (args : List Expr) (vals : List Nat)
     (hargs : evalExprList oracle fields state args = some vals)
-    (hsuccess : state.externalCallSucceeded state.externalCallIndex = true) :
+    (hsuccess : state.externalCallSucceeded state.externalCallIndex = true)
+    (harity : ¬ (state.externalCallReturnValues state.externalCallIndex).length < vars.length) :
     execStmt oracle fields state (.externalCallBind vars name args) =
       .continue
         { state with
+          world := (state.externalCallPostWorld state.externalCallIndex).getD state.world
           bindings := bindValues state.bindings vars
-            (state.externalCallReturnValues state.externalCallIndex)
+            ((state.externalCallReturnValues state.externalCallIndex).map wordNormalize)
           externalCallIndex := state.externalCallIndex + 1 } := by
-  simp [execStmt, hargs, hsuccess]
+  simp [execStmt, hargs, hsuccess, harity]
 
 private def dummyOracle : DenoteOracle :=
   { mappingSlot := fun _ _ => 0

@@ -199,6 +199,7 @@ structure DenoteState where
   selector : Nat := 0
   externalCallSucceeded : Nat → Bool := fun _ => false
   externalCallReturnValues : Nat → List Nat := fun _ => []
+  externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none
   externalCallIndex : Nat := 0
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
@@ -1383,24 +1384,40 @@ mutual
         match evalExprList oracle fields state args with
         | some _ =>
             if state.externalCallSucceeded state.externalCallIndex then
-              .continue
-                { state with
-                    bindings := bindValues state.bindings resultVars
-                      (state.externalCallReturnValues state.externalCallIndex)
-                    externalCallIndex := state.externalCallIndex + 1 }
+              let retVals := state.externalCallReturnValues state.externalCallIndex
+              if retVals.length < resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world
+                      bindings := bindValues state.bindings resultVars
+                        (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
             else .revert
         | none => .revert
     | state, .tryExternalCallBind successVar resultVars _externalName args =>
         match evalExprList oracle fields state args with
         | some _ =>
-            let successBit :=
-              if state.externalCallSucceeded state.externalCallIndex then 1 else 0
-            .continue
-              { state with
-                  bindings := bindValues
-                    (bindValue state.bindings successVar successBit)
-                    resultVars (state.externalCallReturnValues state.externalCallIndex)
-                  externalCallIndex := state.externalCallIndex + 1 }
+            let retVals := state.externalCallReturnValues state.externalCallIndex
+            if state.externalCallSucceeded state.externalCallIndex then
+              if retVals.length < resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (retVals.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
     | _, .revertReturndata => .revert
     | _, _ => .revert

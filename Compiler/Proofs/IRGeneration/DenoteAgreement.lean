@@ -35,7 +35,7 @@ def sourceOracle : DenoteOracle :=
 def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
   { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector,
     externalCallOracle := fun n =>
-      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n⟩,
+      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩,
     externalCallIndex := s.externalCallIndex }
 
 @[simp] theorem toRuntimeState_world (s : DenoteState) :
@@ -52,7 +52,7 @@ def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
 
 @[simp] theorem toRuntimeState_externalCallOracle (s : DenoteState) :
     (toRuntimeState s).externalCallOracle = fun n =>
-      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n⟩ := rfl
+      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩ := rfl
 
 @[simp] theorem toRuntimeState_externalCallIndex (s : DenoteState) :
     (toRuntimeState s).externalCallIndex = s.externalCallIndex := rfl
@@ -629,15 +629,29 @@ theorem execStmt_eq (fields : List Field) :
       cases Denote.evalExprList sourceOracle fields st args with
       | none => rfl
       | some _ =>
-          by_cases h : st.externalCallSucceeded st.externalCallIndex = true <;>
-            simp [toStmtResult, toRuntimeState, h]
+          have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
+            funext wordNormalize_eq
+          by_cases h : st.externalCallSucceeded st.externalCallIndex = true
+          · simp only [h, ite_true]
+            by_cases harity :
+                (st.externalCallReturnValues st.externalCallIndex).length < resultVars.length
+            · simp [toStmtResult, toRuntimeState, h, harity]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq]
+          · simp [toStmtResult, toRuntimeState, h]
   | st, .tryExternalCallBind successVar resultVars _externalName args => by
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
       cases Denote.evalExprList sourceOracle fields st args with
       | none => rfl
       | some _ =>
-          simp only [toStmtResult, toRuntimeState, bindValue_eq, bindValues_eq]
-          rfl
+          have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
+            funext wordNormalize_eq
+          by_cases h : st.externalCallSucceeded st.externalCallIndex = true
+          · simp only [h, ite_true]
+            by_cases harity :
+                (st.externalCallReturnValues st.externalCallIndex).length < resultVars.length
+            · simp [toStmtResult, toRuntimeState, h, harity]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValue_eq, bindValues_eq]
+          · simp [toStmtResult, toRuntimeState, h, hw, bindValue_eq, bindValues_eq]
   | _, .returnValues .. | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
   | _, .internalCallAssign .. | _, .rawLog ..

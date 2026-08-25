@@ -399,22 +399,22 @@ example :
   native_decide
 
 private def oracleSuccess42 : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [42]⟩
+  fun _ => ⟨true, [42], none⟩
 
 private def oracleFail : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨false, []⟩
+  fun _ => ⟨false, [], none⟩
 
 private def oracleSuccess99 : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨true, [99]⟩
+  fun _ => ⟨true, [99], none⟩
 
 private def oracleFail0 : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun _ => ⟨false, [0]⟩
+  fun _ => ⟨false, [0], none⟩
 
 private def oracleIndexed : Nat → SourceSemantics.ExternalCallOutcome :=
-  fun n => if n == 0 then ⟨true, [7]⟩ else ⟨false, []⟩
+  fun n => if n == 0 then ⟨true, [7], none⟩ else ⟨false, [], none⟩
 
 private def mkState (bindings : List (String × Nat))
-    (oracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, []⟩)
+    (oracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
     (callIdx : Nat := 0) : SourceSemantics.RuntimeState :=
   { world := Verity.defaultState, bindings, externalCallOracle := oracle,
     externalCallIndex := callIdx }
@@ -481,6 +481,51 @@ example :
 example :
     resultCallIndex (SourceSemantics.execStmtWithEvents [] [] (mkState [("v", 0)] oracleIndexed)
       (.externalCallBind ["v"] "ping" [])) = some 1 := by
+  native_decide
+
+/-- P1-1: externalCallBind arity mismatch (too few return values) → revert -/
+private def oracleSuccessEmpty : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [], none⟩
+
+example :
+    isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessEmpty)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = true := by
+  native_decide
+
+/-- P1-1: tryExternalCallBind arity mismatch on success → revert -/
+example :
+    isRevert (SourceSemantics.execStmt []
+      (mkState [("ok", 0), ("result", 0)] oracleSuccessEmpty)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = true := by
+  native_decide
+
+/-- P1-1: extra return values (more than vars) are silently dropped, not an error -/
+private def oracleSuccessExtra : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [10, 20, 30], none⟩
+
+example :
+    resultBindings (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessExtra)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some [("x", 10)] := by
+  native_decide
+
+/-- P1-2: return values >= evmModulus are normalized (mod 2^256) -/
+private def oracleSuccessOverflow : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [Compiler.Constants.evmModulus], none⟩
+
+example :
+    resultBindings (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessOverflow)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some [("x", 0)] := by
+  native_decide
+
+/-- P1-2: tryExternalCallBind failure path also normalizes -/
+private def oracleFailOverflow : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨false, [Compiler.Constants.evmModulus], none⟩
+
+example :
+    resultBindings (SourceSemantics.execStmt []
+      (mkState [("ok", 0), ("result", 0)] oracleFailOverflow)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) =
+    some [("result", 0), ("ok", 0)] := by
   native_decide
 
 /-- Surface gates: externalCallBind with literal args is now admitted by call/foreign/lowLevel. -/

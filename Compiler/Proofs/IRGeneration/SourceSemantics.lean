@@ -824,15 +824,16 @@ private def findUniqueInternalFunction? (spec : CompilationModel) (calleeName : 
 structure ExternalCallOutcome where
   succeeded : Bool
   returnValues : List Nat := []
+  postCallWorld : Option Verity.ContractState := none
 
-instance : Inhabited ExternalCallOutcome := ⟨⟨false, []⟩⟩
+instance : Inhabited ExternalCallOutcome := ⟨⟨false, [], none⟩⟩
 
 structure RuntimeState where
   world : Verity.ContractState
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : List (String × Nat)
   selector : Nat := 0
-  externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, []⟩
+  externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩
   externalCallIndex : Nat := 0
 
 inductive StmtResult where
@@ -2747,23 +2748,37 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              .continue
-                { state with
-                    bindings := bindValues state.bindings resultVars outcome.returnValues
-                    externalCallIndex := state.externalCallIndex + 1 }
+              if outcome.returnValues.length < resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := outcome.postCallWorld.getD state.world
+                      bindings := bindValues state.bindings resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
             else .revert
         | none => .revert
     | state, .tryExternalCallBind successVar resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
-            let successBit := if outcome.succeeded then 1 else 0
-            .continue
-              { state with
-                  bindings := bindValues
-                    (bindValue state.bindings successVar successBit)
-                    resultVars outcome.returnValues
-                  externalCallIndex := state.externalCallIndex + 1 }
+            if outcome.succeeded then
+              if outcome.returnValues.length < resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := outcome.postCallWorld.getD state.world
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (outcome.returnValues.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
     | _, _ => .revert
 
@@ -3082,23 +3097,37 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              .continue
-                { state with
-                    bindings := bindValues state.bindings resultVars outcome.returnValues
-                    externalCallIndex := state.externalCallIndex + 1 }
+              if outcome.returnValues.length < resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := outcome.postCallWorld.getD state.world
+                      bindings := bindValues state.bindings resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
             else .revert
         | none => .revert
     | state, .tryExternalCallBind successVar resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
-            let successBit := if outcome.succeeded then 1 else 0
-            .continue
-              { state with
-                  bindings := bindValues
-                    (bindValue state.bindings successVar successBit)
-                    resultVars outcome.returnValues
-                  externalCallIndex := state.externalCallIndex + 1 }
+            if outcome.succeeded then
+              if outcome.returnValues.length < resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := outcome.postCallWorld.getD state.world
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (outcome.returnValues.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
     | _, _ => .revert
 
@@ -3735,21 +3764,26 @@ def constructorTouchesUnsupportedRawCalldataSurface
       (constructorAsFunctionSpec ctor)
 
 def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
-    (tx : IRTransaction) (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
       match execStmtListWithEvents fields spec.events
-          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector } fn.body with
+          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            externalCallOracle := externalCallOracle } fn.body with
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
       | .revert => revertedResult spec worldWithTx
 
 def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
-    (tx : IRTransaction) (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   let constructorWorldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   if constructorTouchesUnsupportedRawCalldataSurface spec ctor then
@@ -3759,7 +3793,9 @@ def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
     | none => revertedResult spec constructorWorldWithTx
     | some bindings =>
         match execStmtListWithEvents fields spec.events
-            { world := constructorWorldWithTx, bindings := bindings, selector := tx.functionSelector }
+            { world := constructorWorldWithTx, bindings := bindings,
+              selector := tx.functionSelector,
+              externalCallOracle := externalCallOracle }
             ctor.body with
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
@@ -3767,13 +3803,15 @@ def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
         | .revert => revertedResult spec constructorWorldWithTx
 
 def interpretContract (spec : CompilationModel) (selectors : List Nat)
-    (tx : IRTransaction) (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   match findFunctionBySelector spec selectors tx.functionSelector with
   | some fn =>
       if !fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
         revertedResult spec (withTransactionContext initialWorld tx)
       else
-        interpretFunction spec fn tx initialWorld
+        interpretFunction spec fn tx initialWorld externalCallOracle
   | none => revertedResult spec (withTransactionContext initialWorld tx)
 
 -- The ceilDiv case pushes the equation-compiler's `simp` past 200 000 heartbeats.
@@ -4532,23 +4570,37 @@ mutual
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
             if outcome.succeeded then
-              .continue
-                { state with
-                    bindings := bindValues state.bindings resultVars outcome.returnValues
-                    externalCallIndex := state.externalCallIndex + 1 }
+              if outcome.returnValues.length < resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := outcome.postCallWorld.getD state.world
+                      bindings := bindValues state.bindings resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
             else .revert
         | none => .revert
     | .tryExternalCallBind successVar resultVars _externalName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>
             let outcome := state.externalCallOracle state.externalCallIndex
-            let successBit := if outcome.succeeded then 1 else 0
-            .continue
-              { state with
-                  bindings := bindValues
-                    (bindValue state.bindings successVar successBit)
-                    resultVars outcome.returnValues
-                  externalCallIndex := state.externalCallIndex + 1 }
+            if outcome.succeeded then
+              if outcome.returnValues.length < resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := outcome.postCallWorld.getD state.world
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (outcome.returnValues.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
@@ -4701,13 +4753,17 @@ def interpretFunctionWithHelpers
     (fuel : Nat)
     (fn : FunctionSpec)
     (tx : IRTransaction)
-    (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
-      match execStmtListWithHelpers spec fields fuel { world := worldWithTx, bindings := bindings, selector := tx.functionSelector } fn.body with
+      match execStmtListWithHelpers spec fields fuel
+          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            externalCallOracle := externalCallOracle } fn.body with
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
@@ -4718,7 +4774,9 @@ def interpretConstructorWithHelpers
     (fuel : Nat)
     (ctor : ConstructorSpec)
     (tx : IRTransaction)
-    (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   let constructorWorldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   if constructorTouchesUnsupportedRawCalldataSurface spec ctor then
@@ -4728,7 +4786,9 @@ def interpretConstructorWithHelpers
     | none => revertedResult spec constructorWorldWithTx
     | some bindings =>
         match execStmtListWithHelpers spec fields fuel
-            { world := constructorWorldWithTx, bindings := bindings, selector := tx.functionSelector }
+            { world := constructorWorldWithTx, bindings := bindings,
+              selector := tx.functionSelector,
+              externalCallOracle := externalCallOracle }
             ctor.body with
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
@@ -4740,13 +4800,15 @@ def interpretContractWithHelpers
     (selectors : List Nat)
     (fuel : Nat)
     (tx : IRTransaction)
-    (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   match findFunctionBySelector spec selectors tx.functionSelector with
   | some fn =>
       if !fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
         revertedResult spec (withTransactionContext initialWorld tx)
       else
-        interpretFunctionWithHelpers spec fuel fn tx initialWorld
+        interpretFunctionWithHelpers spec fuel fn tx initialWorld externalCallOracle
   | none => revertedResult spec (withTransactionContext initialWorld tx)
 
 theorem helperSummarySound
