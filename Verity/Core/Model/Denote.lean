@@ -180,6 +180,11 @@ abbrev Env := List (String × Nat)
 def bindValue (bindings : Env) (name : String) (value : Nat) : Env :=
   (name, value) :: bindings.filter (fun entry => entry.1 != name)
 
+def bindValues (bindings : Env) : List String → List Nat → Env
+  | [], _ => bindings
+  | _ :: _, [] => bindings
+  | name :: names, value :: values => bindValues (bindValue bindings name value) names values
+
 def lookupValue (bindings : Env) (name : String) : Nat :=
   bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd |>.getD 0
 
@@ -192,6 +197,10 @@ structure DenoteState where
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : Env
   selector : Nat := 0
+  externalCallSucceeded : Nat → Bool := fun _ => false
+  externalCallReturnValues : Nat → List Nat := fun _ => []
+  externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none
+  externalCallIndex : Nat := 0
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
 inductive StmtOutcome where
@@ -1371,6 +1380,45 @@ mutual
               (fun loopState => execStmtList oracle fields loopState body)
               256 state bits
         | none => .revert
+    | state, .externalCallBind resultVars _externalName args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            if state.externalCallSucceeded state.externalCallIndex then
+              let retVals := state.externalCallReturnValues state.externalCallIndex
+              if retVals.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world
+                      bindings := bindValues state.bindings resultVars
+                        (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | state, .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            let retVals := state.externalCallReturnValues state.externalCallIndex
+            if state.externalCallSucceeded state.externalCallIndex then
+              if retVals.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (retVals.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
     | _, .revertReturndata => .revert
     | _, _ => .revert
 
@@ -1485,14 +1533,20 @@ def withTransactionContext (world : Verity.ContractState) (tx : DenoteTransactio
 Mirrors `SourceSemantics.interpretFunction` with the event-less statement
 semantics (see header note 2). -/
 def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : FunctionSpec)
-    (tx : DenoteTransaction) (initialWorld : Verity.ContractState) : DenoteResult :=
+    (tx : DenoteTransaction) (initialWorld : Verity.ContractState)
+    (externalCallSucceeded : Nat → Bool := fun _ => false)
+    (externalCallReturnValues : Nat → List Nat := fun _ => [])
+    (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult oracle spec worldWithTx
   | some bindings =>
       match execStmtList oracle fields
-          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector }
+          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            externalCallSucceeded := externalCallSucceeded,
+            externalCallReturnValues := externalCallReturnValues,
+            externalCallPostWorld := externalCallPostWorld }
           fn.body with
       | .continue state => successResult oracle spec state.world none
       | .stop state => successResult oracle spec state.world none

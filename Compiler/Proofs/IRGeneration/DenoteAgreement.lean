@@ -33,7 +33,10 @@ def sourceOracle : DenoteOracle :=
 
 /-- The state conversion is field-for-field (the two structures coincide). -/
 def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
-  { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector }
+  { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector,
+    externalCallOracle := fun n =>
+      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩,
+    externalCallIndex := s.externalCallIndex }
 
 @[simp] theorem toRuntimeState_world (s : DenoteState) :
     (toRuntimeState s).world = s.world := rfl
@@ -46,6 +49,13 @@ def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
 
 @[simp] theorem toRuntimeState_selector (s : DenoteState) :
     (toRuntimeState s).selector = s.selector := rfl
+
+@[simp] theorem toRuntimeState_externalCallOracle (s : DenoteState) :
+    (toRuntimeState s).externalCallOracle = fun n =>
+      ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩ := rfl
+
+@[simp] theorem toRuntimeState_externalCallIndex (s : DenoteState) :
+    (toRuntimeState s).externalCallIndex = s.externalCallIndex := rfl
 
 @[simp] theorem sourceOracle_mappingSlot :
     sourceOracle.mappingSlot = Compiler.Proofs.abstractMappingSlot := rfl
@@ -364,6 +374,17 @@ theorem writeAddressKeyedMapping2FieldSlots_eq
 @[simp] theorem bindValue_eq (b : List (String × Nat)) (n : String) (v : Nat) :
     Denote.bindValue b n v = SourceSemantics.bindValue b n v := rfl
 
+@[simp] theorem bindValues_eq (b : List (String × Nat)) (ns : List String) (vs : List Nat) :
+    Denote.bindValues b ns vs = SourceSemantics.bindValues b ns vs := by
+  induction ns generalizing b vs with
+  | nil => rfl
+  | cons n ns ih =>
+      cases vs with
+      | nil => rfl
+      | cons v vs =>
+          simp only [Denote.bindValues, SourceSemantics.bindValues, bindValue_eq]
+          exact ih _ _
+
 @[simp] theorem valuesAsEventArgs_eq (vs : List Nat) :
     Denote.valuesAsEventArgs vs = SourceSemantics.valuesAsEventArgs vs :=
   match vs with
@@ -461,26 +482,19 @@ theorem execForEachLoop_agree {varName : String}
         SourceSemantics.execForEachLoop varName runBody' (toRuntimeState st) index remaining
   | _, _, 0 => rfl
   | st, index, remaining + 1 => by
-      have hb := h ⟨st.world,
-        st.immutable,
-        SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
-        st.selector⟩
+      let ls := { st with bindings :=
+        SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index) }
+      have hb := h ls
       rw [SourceSemantics.execForEachLoop_succ]
       simp only [toRuntimeState] at hb ⊢
       rw [← hb]
       show toStmtResult
-          (match runBody ⟨st.world,
-              st.immutable,
-              SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
-              st.selector⟩ with
+          (match runBody ls with
             | .continue next => Denote.execForEachLoop varName runBody next (index + 1) remaining
             | .stop next => .stop next
             | .return value next => .return value next
             | .revert => .revert) = _
-      cases runBody ⟨st.world,
-          st.immutable,
-          SourceSemantics.bindValue st.bindings varName (SourceSemantics.wordNormalize index),
-          st.selector⟩ <;>
+      cases runBody ls <;>
         first
           | rfl
           | exact execForEachLoop_agree h _ (index + 1) remaining
@@ -497,30 +511,20 @@ theorem execForEachSetBitLoop_agree {varName : String}
       rw [SourceSemantics.execForEachSetBitLoop_succ]
       by_cases hbitmap : bitmap = 0
       · simp [Denote.execForEachSetBitLoop, hbitmap, toStmtResult]
-      · have hb := h ⟨st.world,
-          st.immutable,
-          SourceSemantics.bindValue st.bindings varName
-            (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
-          st.selector⟩
+      · let val := SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)
+        let ls := { st with bindings := SourceSemantics.bindValue st.bindings varName val }
+        have hb := h ls
         simp only [Denote.execForEachSetBitLoop, hbitmap, if_false, toRuntimeState] at hb ⊢
         rw [← hb]
         show toStmtResult
-            (match runBody ⟨st.world,
-                st.immutable,
-                SourceSemantics.bindValue st.bindings varName
-                  (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
-                st.selector⟩ with
+            (match runBody ls with
             | .continue next =>
                 Denote.execForEachSetBitLoop varName runBody fuel next
                   (SourceSemantics.clearMsb bitmap)
             | .stop next => .stop next
             | .return value next => .return value next
             | .revert => .revert) = _
-        cases runBody ⟨st.world,
-            st.immutable,
-            SourceSemantics.bindValue st.bindings varName
-              (SourceSemantics.wordNormalize (SourceSemantics.msbIndex bitmap)),
-            st.selector⟩ <;>
+        cases runBody ls <;>
           first
             | rfl
             | exact execForEachSetBitLoop_agree h fuel _ (SourceSemantics.clearMsb bitmap)
@@ -615,14 +619,42 @@ theorem execStmt_eq (fields : List Field) :
           exact execForEachLoop_agree
             (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
             (fun ls => execStmtList_eq fields ls body)
-            ⟨st.world, st.immutable, Denote.bindValue st.bindings v (Denote.wordNormalize 0), st.selector⟩
+            { st with bindings := Denote.bindValue st.bindings v (Denote.wordNormalize 0) }
             0 bound
   | st, .forEachSetBit v bitmap body =>
       execStmt_forEachSetBit_eq fields st v bitmap body (fun ls => execStmtList_eq fields ls body)
   | _, .calldatacopy _ _ _ | _, .returndataCopy _ _ _ => by denote_stmt_arm
+  | st, .externalCallBind resultVars _externalName args => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
+      cases Denote.evalExprList sourceOracle fields st args with
+      | none => rfl
+      | some _ =>
+          have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
+            funext wordNormalize_eq
+          by_cases h : st.externalCallSucceeded st.externalCallIndex = true
+          · simp only [h, ite_true]
+            by_cases harity :
+                (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
+            · simp [toStmtResult, toRuntimeState, h, harity]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq]
+          · simp [toStmtResult, toRuntimeState, h]
+  | st, .tryExternalCallBind successVar resultVars _externalName args => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
+      cases Denote.evalExprList sourceOracle fields st args with
+      | none => rfl
+      | some _ =>
+          have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
+            funext wordNormalize_eq
+          by_cases h : st.externalCallSucceeded st.externalCallIndex = true
+          · simp only [h, ite_true]
+            by_cases harity :
+                (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
+            · simp [toStmtResult, toRuntimeState, h, harity]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValue_eq, bindValues_eq]
+          · simp [toStmtResult, toRuntimeState, h, hw, bindValue_eq, bindValues_eq]
   | _, .returnValues .. | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
-  | _, .internalCallAssign .. | _, .rawLog .. | _, .externalCallBind .. | _, .tryExternalCallBind ..
+  | _, .internalCallAssign .. | _, .rawLog ..
   | _, .ecm .. | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl
 
 theorem execStmtList_eq (fields : List Field) :

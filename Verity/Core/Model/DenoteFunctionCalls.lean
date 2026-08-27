@@ -5,9 +5,10 @@ import Verity.Core.Model.MultiContract
 /-!
 # FunctionSpec denotation of raw and linked external calls
 
-`Denote.evalExpr` / `Denote.execStmt` still map `Expr.call` /
-`Stmt.externalCallBind` to `none` / `.revert`, matching
-`SourceSemantics` so `DenoteAgreement` stays definitional.
+`Denote.evalExpr` maps `Expr.call` to `none`.
+`Denote.execStmt` gives `Stmt.externalCallBind` /
+`Stmt.tryExternalCallBind` oracle-driven semantics that mirror
+`SourceSemantics`, keeping `DenoteAgreement` definitional.
 
 This module is the widened fragment: a `CallEnv` supplies the
 `AdversaryModel` (callee effect) and the link-time
@@ -426,11 +427,38 @@ theorem evalExpr_call_still_none (oracle : DenoteOracle) (fields : List Field)
     evalExpr oracle fields state (.call g t v io isz oo osz) = none :=
   rfl
 
-theorem execStmt_externalCallBind_still_reverts (oracle : DenoteOracle)
+theorem execStmt_externalCallBind_args_none (oracle : DenoteOracle)
     (fields : List Field) (state : DenoteState)
-    (vars : List String) (name : String) (args : List Expr) :
-    execStmt oracle fields state (.externalCallBind vars name args) = .revert :=
-  rfl
+    (vars : List String) (name : String) (args : List Expr)
+    (h : evalExprList oracle fields state args = none) :
+    execStmt oracle fields state (.externalCallBind vars name args) = .revert := by
+  simp [execStmt, h]
+
+theorem execStmt_externalCallBind_call_fails (oracle : DenoteOracle)
+    (fields : List Field) (state : DenoteState)
+    (vars : List String) (name : String) (args : List Expr) (vals : List Nat)
+    (hargs : evalExprList oracle fields state args = some vals)
+    (hfail : state.externalCallSucceeded state.externalCallIndex = false) :
+    execStmt oracle fields state (.externalCallBind vars name args) = .revert := by
+  simp [execStmt, hargs, hfail]
+
+/-- A successful source-level external call advances the oracle receipt and
+    binds its returned words.  This pins the widened denotation to the exact
+    receipt consumed by `SourceSemantics`. -/
+theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
+    (fields : List Field) (state : DenoteState)
+    (vars : List String) (name : String) (args : List Expr) (vals : List Nat)
+    (hargs : evalExprList oracle fields state args = some vals)
+    (hsuccess : state.externalCallSucceeded state.externalCallIndex = true)
+    (harity : ¬ (state.externalCallReturnValues state.externalCallIndex).length != vars.length) :
+    execStmt oracle fields state (.externalCallBind vars name args) =
+      .continue
+        { state with
+          world := (state.externalCallPostWorld state.externalCallIndex).getD state.world
+          bindings := bindValues state.bindings vars
+            ((state.externalCallReturnValues state.externalCallIndex).map wordNormalize)
+          externalCallIndex := state.externalCallIndex + 1 } := by
+  simp [execStmt, hargs, hsuccess, harity]
 
 private def dummyOracle : DenoteOracle :=
   { mappingSlot := fun _ _ => 0
@@ -446,7 +474,7 @@ theorem evalExpr_call_outside_base_fragment :
 theorem execStmt_externalCallBind_outside_base_fragment :
     execStmt dummyOracle []
       { world := defaultState, bindings := [] }
-      (.externalCallBind ["r"] "echo" [.literal 42]) = .revert :=
+      (.externalCallBind ["r"] "echo" [.literal 42]) = .revert := by
   rfl
 
 end Compiler.CompilationModel.DenoteFunctionCalls

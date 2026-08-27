@@ -89,6 +89,10 @@ ALLOWLIST: set[str] = {
     "execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals",
     "directInternalHelperStatementContextBridge_sourceAssignEvidence",
     # --- Denote/SourceSemantics agreement (P4 seed) ---
+    # Mutual recursion with execStmtList_eq: each new Stmt constructor
+    # (externalCallBind, tryExternalCallBind) adds an arm; extracting per-case
+    # lemmas would break the shared structural induction across the mutual block.
+    "execStmt_eq",
     # Structural recursion over the fuelless forEach loop; the succ case must
     # spell out the loop-state literal inside a `show`-match to align the two
     # interpreters' unfoldings, which cannot be factored without changing the
