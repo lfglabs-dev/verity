@@ -1795,11 +1795,12 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
       exprTouchesUnsupportedHelperSurface destOffset ||
         exprTouchesUnsupportedHelperSurface sourceOffset ||
         exprTouchesUnsupportedHelperSurface size
-  | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args =>
+  | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
+  | .ecm _ args =>
       exprListTouchesUnsupportedHelperSurface args
   | .stop
   | .revertReturndata
-  | .ecm _ _ | .storageArrayPop _
+  | .storageArrayPop _
   | .returnValues _ | .returnArray _
   | .returnBytes _ | .returnStorageWords _ | .rawLog _ _ _ => false
   | .requireError cond _ args =>
@@ -4175,9 +4176,10 @@ theorem SupportedStmtList.helperSurfaceClosed
       simpa [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface]
         using exprListCompileCore_helperSurfaceClosed hcoreAll
-  | pureHashingEcm _ _ _ =>
-      simp [stmtListTouchesUnsupportedHelperSurface,
+  | pureHashingEcm _ hcoreAll _ =>
+      simpa [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface]
+        using exprListCompileCore_helperSurfaceClosed hcoreAll
   | letMappingField hkey _ _ =>
       simp only [stmtListTouchesUnsupportedHelperSurface,
         stmtTouchesUnsupportedHelperSurface,

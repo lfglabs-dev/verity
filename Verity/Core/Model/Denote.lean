@@ -1419,6 +1419,24 @@ mutual
                       resultVars (retVals.map wordNormalize)
                     externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
+    | state, .ecm mod args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            if state.externalCallSucceeded state.externalCallIndex then
+              let retVals := state.externalCallReturnValues state.externalCallIndex
+              if retVals.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world :=
+                        if mod.writesState then
+                          (state.externalCallPostWorld state.externalCallIndex).getD state.world
+                        else state.world
+                      bindings := bindValues state.bindings mod.resultVars
+                        (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
     | _, .revertReturndata => .revert
     | _, _ => .revert
 

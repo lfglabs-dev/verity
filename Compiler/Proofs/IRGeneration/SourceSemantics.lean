@@ -2780,6 +2780,23 @@ mutual
                       resultVars (outcome.returnValues.map wordNormalize)
                     externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
+    | state, .ecm mod args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world :=
+                        if mod.writesState then outcome.postCallWorld.getD state.world
+                        else state.world
+                      bindings := bindValues state.bindings mod.resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -3129,6 +3146,23 @@ mutual
                       resultVars (outcome.returnValues.map wordNormalize)
                     externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
+    | state, .ecm mod args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world :=
+                        if mod.writesState then outcome.postCallWorld.getD state.world
+                        else state.world
+                      bindings := bindValues state.bindings mod.resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
     | _, _ => .revert
 
   def execStmtList (fields : List Field) : RuntimeState → List Stmt → StmtResult
@@ -3158,6 +3192,83 @@ mutual
         simp [execStmtListWithEvents, execStmtList, execStmtWithEvents_nil_eq_execStmt,
           execStmtListWithEvents_nil_eq_execStmtList]
 end
+
+/-! ### `Stmt.ecm` as an opaque external-world transition
+
+An External Call Module packages a reusable external call pattern, so its source
+meaning is the same oracle-driven step the `externalCallBind` lane uses: the
+per-call receipt at `externalCallIndex` decides success, supplies the words bound
+to `mod.resultVars`, and — only for modules the ECM framework classifies as
+state-writing — supplies the committed external world. -/
+
+/-- A module that does not write state commits no external world, matching the
+`staticcall` clause of `Compiler.ECM.StatefulExternal.Summary.interprets`. -/
+theorem execStmt_ecm_static_preserves_world
+    {fields : List Field} {state next : RuntimeState}
+    {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
+    (hstatic : mod.writesState = false)
+    (hrun : execStmt fields state (.ecm mod args) = .continue next) :
+    next.world = state.world := by
+  simp only [execStmt] at hrun
+  split at hrun
+  · split at hrun
+    · split at hrun
+      · cases hrun
+      · injection hrun with h
+        subst h
+        simp [hstatic]
+    · cases hrun
+  · cases hrun
+
+/-- Every committed `.ecm` step consumes exactly one call receipt, so distinct
+module invocations never observe the same oracle entry. -/
+theorem execStmt_ecm_advances_call_index
+    {fields : List Field} {state next : RuntimeState}
+    {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
+    (hrun : execStmt fields state (.ecm mod args) = .continue next) :
+    next.externalCallIndex = state.externalCallIndex + 1 := by
+  simp only [execStmt] at hrun
+  split at hrun
+  · split at hrun
+    · split at hrun
+      · cases hrun
+      · injection hrun with h
+        subst h
+        rfl
+    · cases hrun
+  · cases hrun
+
+/-- A committed `.ecm` step binds exactly the module's declared result variables
+to the normalized receipt words. -/
+theorem execStmt_ecm_binds_resultVars
+    {fields : List Field} {state next : RuntimeState}
+    {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
+    (hrun : execStmt fields state (.ecm mod args) = .continue next) :
+    next.bindings =
+      bindValues state.bindings mod.resultVars
+        ((state.externalCallOracle state.externalCallIndex).returnValues.map wordNormalize) := by
+  simp only [execStmt] at hrun
+  split at hrun
+  · split at hrun
+    · split at hrun
+      · cases hrun
+      · injection hrun with h
+        subst h
+        rfl
+    · cases hrun
+  · cases hrun
+
+/-- A failing call receipt reverts the `.ecm` step; the module never observes a
+partially applied external transition. -/
+theorem execStmt_ecm_reverts_of_receipt_failure
+    (fields : List Field) (state : RuntimeState)
+    (mod : Compiler.ECM.ExternalCallModule) (args : List Expr)
+    (hfail : (state.externalCallOracle state.externalCallIndex).succeeded = false) :
+    execStmt fields state (.ecm mod args) = .revert := by
+  simp only [execStmt]
+  split
+  · simp [hfail]
+  · rfl
 
 mutual
   /-- Source execution of a contract-surface-closed statement is agnostic to
@@ -4601,6 +4712,23 @@ mutual
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
                     externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
+    | .ecm mod args =>
+        match evalExprListWithHelpers spec fields fuel state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world :=
+                        if mod.writesState then outcome.postCallWorld.getD state.world
+                        else state.world
+                      bindings := bindValues state.bindings mod.resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
         | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
@@ -6284,7 +6412,18 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
       simp [execStmtWithHelpers, execStmtWithEvents,
         evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
         evalExprList_eq_mapM]
-  | .ecm _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .ecm _ args =>
+      simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+      have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
+        induction args with
+        | nil => simp
+        | cons expr rest ih =>
+          simp only [exprListTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+          simp only [List.all_cons, Bool.and_eq_true, beq_iff_eq]
+          exact ⟨hsurface.1, ih hsurface.2⟩
+      simp [execStmtWithHelpers, execStmtWithEvents,
+        evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
+        evalExprList_eq_mapM]
   | .forEach _ _ _ =>
       simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
       rename_i varName count body
