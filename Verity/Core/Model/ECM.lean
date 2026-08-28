@@ -11,6 +11,7 @@
   See: #964
 -/
 
+import Verity.Core
 import Verity.Core.Model.Constants
 import Verity.Core.Model.ProofStatus
 import Verity.Core.Model.Yul.Ast
@@ -188,6 +189,26 @@ def externalSummary (mod : ExternalCallModule) : StatefulExternal.Summary :=
     selector := mod.summarySelector
     mutability := mod.summaryMutability
     assumptionNames := mod.axioms }
+
+/-- Caller world committed by a successful ECM step.
+
+    A state-writing module (`writesState = true`) commits the receipt's
+    post-call world wholesale, matching the `call` clause of
+    `StatefulExternal.Summary.interprets`.
+
+    A read-only module (`writesState = false`) compiles to `staticcall`, which
+    cannot change the external world — but it still writes its output into
+    caller-local memory (e.g. `Precompiles.sha256MemoryModule` writes the
+    32-byte digest at the caller-supplied output offset, so a following
+    `.mload outputOffset` observes it in compiled code). `writesState = false`
+    therefore restores the caller world *except* for the modeled memory
+    effects, which are taken from the receipt's post-call world when the
+    receipt supplies one. -/
+def committedWorld (mod : ExternalCallModule)
+    (postCallWorld : Option Verity.ContractState) (callerWorld : Verity.ContractState) :
+    Verity.ContractState :=
+  if mod.writesState then postCallWorld.getD callerWorld
+  else { callerWorld with memory := (postCallWorld.getD callerWorld).memory }
 
 end ExternalCallModule
 

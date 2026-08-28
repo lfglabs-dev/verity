@@ -2789,9 +2789,7 @@ mutual
               else
                 .continue
                   { state with
-                      world :=
-                        if mod.writesState then outcome.postCallWorld.getD state.world
-                        else state.world
+                      world := mod.committedWorld outcome.postCallWorld state.world
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -3155,9 +3153,7 @@ mutual
               else
                 .continue
                   { state with
-                      world :=
-                        if mod.writesState then outcome.postCallWorld.getD state.world
-                        else state.world
+                      world := mod.committedWorld outcome.postCallWorld state.world
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -3199,16 +3195,25 @@ An External Call Module packages a reusable external call pattern, so its source
 meaning is the same oracle-driven step the `externalCallBind` lane uses: the
 per-call receipt at `externalCallIndex` decides success, supplies the words bound
 to `mod.resultVars`, and — only for modules the ECM framework classifies as
-state-writing — supplies the committed external world. -/
+state-writing — supplies the committed external world. For read-only modules the
+caller world is preserved except for caller-local memory, which follows the
+receipt's modeled post-call memory (`ExternalCallModule.committedWorld`). -/
 
 /-- A module that does not write state commits no external world, matching the
-`staticcall` clause of `Compiler.ECM.StatefulExternal.Summary.interprets`. -/
-theorem execStmt_ecm_static_preserves_world
+`staticcall` clause of `Compiler.ECM.StatefulExternal.Summary.interprets`, but
+it does commit the receipt's modeled caller-local memory effects: a compiled
+`staticcall` writes its output into caller memory (e.g. a precompile digest at
+the caller-supplied output offset), so `writesState = false` preserves every
+caller-world field except `memory`, which follows the receipt's post-call
+world. -/
+theorem execStmt_ecm_static_preserves_world_modulo_memory
     {fields : List Field} {state next : RuntimeState}
     {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
     (hstatic : mod.writesState = false)
     (hrun : execStmt fields state (.ecm mod args) = .continue next) :
-    next.world = state.world := by
+    next.world = { state.world with
+      memory := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
+        state.world).memory } := by
   simp only [execStmt] at hrun
   split at hrun
   · split at hrun
@@ -3216,7 +3221,7 @@ theorem execStmt_ecm_static_preserves_world
       · cases hrun
       · injection hrun with h
         subst h
-        simp [hstatic]
+        simp [Compiler.ECM.ExternalCallModule.committedWorld, hstatic]
     · cases hrun
   · cases hrun
 
@@ -4722,9 +4727,7 @@ mutual
               else
                 .continue
                   { state with
-                      world :=
-                        if mod.writesState then outcome.postCallWorld.getD state.world
-                        else state.world
+                      world := mod.committedWorld outcome.postCallWorld state.world
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }

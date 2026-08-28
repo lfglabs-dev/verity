@@ -620,9 +620,33 @@ private theorem ecm_arity_mismatch_reverts :
       (.ecm probeEcmStatic [.literal 7])) = true := by
   native_decide
 
-/-- `.ecm`: a module that does not write state never commits the receipt's world. -/
+/-- `.ecm`: a module that does not write state preserves the receipt's
+non-memory world fields. -/
 private theorem ecm_static_module_does_not_commit_world :
     resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedWorld)
+      (.ecm probeEcmStatic [.literal 7])) = some 0 := by
+  native_decide
+
+private def oracleCommittedMemory : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], some { Verity.defaultState with memory := fun _ => 7 }⟩
+
+private def resultMemoryAt (r : SourceSemantics.StmtResult) (slot : Nat) : Option Nat :=
+  match r with | .continue s => some (s.world.memory slot).val | _ => none
+
+/-- `.ecm`: a successful read-only module commits the receipt's modeled
+caller-local memory. A compiled `staticcall` (e.g.
+`Compiler.Modules.Precompiles.sha256MemoryModule`) writes its output into
+caller memory at the caller-supplied output offset, so `writesState = false`
+must not discard that effect together with the external-world transition. -/
+private theorem ecm_static_module_commits_receipt_memory :
+    resultMemoryAt (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedMemory)
+      (.ecm probeEcmStatic [.literal 7])) 0 = some 7 := by
+  native_decide
+
+/-- `.ecm`: the same read-only step still preserves every non-memory caller
+world field (here `blockNumber`). -/
+private theorem ecm_static_module_preserves_nonmemory_world_fields :
+    resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedMemory)
       (.ecm probeEcmStatic [.literal 7])) = some 0 := by
   native_decide
 

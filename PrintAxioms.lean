@@ -4479,7 +4479,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_forkIfAtLeast  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_nil_eq_execStmt
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList
-  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_world
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_world_modulo_memory
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_advances_call_index
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_binds_resultVars
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_reverts_of_receipt_failure

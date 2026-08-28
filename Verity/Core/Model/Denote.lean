@@ -1428,10 +1428,8 @@ mutual
               else
                 .continue
                   { state with
-                      world :=
-                        if mod.writesState then
-                          (state.externalCallPostWorld state.externalCallIndex).getD state.world
-                        else state.world
+                      world := mod.committedWorld
+                        (state.externalCallPostWorld state.externalCallIndex) state.world
                       bindings := bindValues state.bindings mod.resultVars
                         (retVals.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
