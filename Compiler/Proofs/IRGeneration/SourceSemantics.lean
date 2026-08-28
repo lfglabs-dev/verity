@@ -3,6 +3,7 @@ import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.MappingSlot
 import Compiler.CompilationModel.LayoutValidation
 import Compiler.Keccak.Sponge
+import Verity.Core.Model.Denote
 import Verity.Core.Model.DynamicAbi
 
 set_option linter.unnecessarySimpa false
