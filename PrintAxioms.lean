@@ -4595,6 +4595,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_failed_receipt_reverts  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_arity_mismatch_reverts  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_does_not_commit_world  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_commits_receipt_memory  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_preserves_nonmemory_world_fields  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_writing_module_commits_world  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_receipt_keyed_on_callIndex  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_callSurface_blocked  -- private
@@ -7439,4 +7441,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6883 theorems/lemmas (4925 public, 1958 private, 0 sorry'd)
+-- Total: 6885 theorems/lemmas (4925 public, 1960 private, 0 sorry'd)
