@@ -664,9 +664,7 @@ theorem execStmt_eq (fields : List Field) :
             by_cases harity :
                 (st.externalCallReturnValues st.externalCallIndex).length != mod.resultVars.length
             · simp [toStmtResult, toRuntimeState, h, harity]
-            · by_cases hwrite : mod.writesState = true
-              · simp [toStmtResult, toRuntimeState, h, harity, hwrite, hw, bindValues_eq]
-              · simp [toStmtResult, toRuntimeState, h, harity, hwrite, hw, bindValues_eq]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq]
           · simp [toStmtResult, toRuntimeState, h]
   | _, .returnValues .. | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
