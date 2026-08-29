@@ -3260,6 +3260,9 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
   simp [execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
     IRState.getVar, IRState.setVar, hRevert]
+  -- The copy continues on a zero extent and reverts otherwise; the trailing
+  -- `revert` collapses both branches to the same reverted state.
+  split_ifs <;> rfl
 
 theorem compiledStmtStep_revertReturndata_empty_single
     {fields : List Field} {scope : List String} :
