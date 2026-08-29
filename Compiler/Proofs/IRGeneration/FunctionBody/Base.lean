@@ -2249,6 +2249,41 @@ private theorem eval_compileExpr_extcodesize_of_compiled
     simp [evalIRExpr, hIR, hcs]
     rfl
 
+/-- The word the compiled optional-bool check computes,
+`or(eq(returndatasize(), 0), and(eq(returndatasize(), 32), eq(mload(out), 1)))`,
+is exactly `ContractState.returndataOptionalBool`. Both operands are already
+reduced modulo the EVM word, so the normalization the Yul builtins apply is the
+identity and the bitwise `or`/`and` degenerate to the boolean connectives. -/
+private theorem optionalReturnBoolWord_eq
+    (world : Verity.ContractState) (offset : Nat) :
+    SourceSemantics.boolWord
+        (world.returndataSize % Compiler.Constants.evmModulus
+          = 0 % Compiler.Constants.evmModulus) % Compiler.Constants.evmModulus |||
+      (SourceSemantics.boolWord
+          (world.returndataSize % Compiler.Constants.evmModulus
+            = 32 % Compiler.Constants.evmModulus) % Compiler.Constants.evmModulus &&&
+        SourceSemantics.boolWord
+          ((world.memory offset).val % Compiler.Constants.evmModulus
+            = 1 % Compiler.Constants.evmModulus) % Compiler.Constants.evmModulus)
+        % Compiler.Constants.evmModulus
+      = world.returndataOptionalBool offset := by
+  have hrds : world.returndataSize % Compiler.Constants.evmModulus = world.returndataSize :=
+    Nat.mod_eq_of_lt ((32 * world.returndata.length : Nat) : Verity.Core.Uint256).isLt
+  have hmem : (world.memory offset).val % Compiler.Constants.evmModulus
+      = (world.memory offset).val :=
+    Nat.mod_eq_of_lt (world.memory offset).isLt
+  have h32 : (32 : Nat) % Compiler.Constants.evmModulus = 32 := by
+    norm_num [Compiler.Constants.evmModulus]
+  have h1 : (1 : Nat) % Compiler.Constants.evmModulus = 1 := by
+    norm_num [Compiler.Constants.evmModulus]
+  simp only [Verity.ContractState.returndataOptionalBool, boolWord_eq_if,
+    Nat.zero_mod, hrds, hmem, h32, h1]
+  by_cases hzero : world.returndataSize = 0
+  · simp [hzero, h1]
+  · by_cases hword : world.returndataSize = 32
+    · by_cases hone : (world.memory offset).val = 1 <;> simp [hzero, hword, hone, h1]
+    · simp [hzero, hword, h1]
+
 set_option linter.unusedVariables false in
 private theorem eval_compileExpr_returndataOptionalBoolAt_of_compiled
     {fields : List Field}
@@ -2290,26 +2325,9 @@ private theorem eval_compileExpr_returndataOptionalBoolAt_of_compiled
       (show evalIRExpr state (YulExpr.lit 32) = some 32 from by simp [evalIRExpr])
     have hEqM := evalIRExpr_eq_of_eval hMload
       (show evalIRExpr state (YulExpr.lit 1) = some 1 from by simp [evalIRExpr])
-    rw [evalIRExpr_or_of_eval hEq0 (evalIRExpr_and_of_eval hEq32 hEqM)]
-    have hrdsMod : runtime.world.returndataSize % Compiler.Constants.evmModulus =
-        runtime.world.returndataSize :=
-      Nat.mod_eq_of_lt
-        ((32 * runtime.world.returndata.length : Nat) : Verity.Core.Uint256).isLt
-    have hmemMod : (runtime.world.memory irVal).val % Compiler.Constants.evmModulus =
-        (runtime.world.memory irVal).val :=
-      Nat.mod_eq_of_lt (runtime.world.memory irVal).isLt
-    have h32Mod : (32 : Nat) % Compiler.Constants.evmModulus = 32 := by
-      norm_num [Compiler.Constants.evmModulus]
-    have h1Mod : (1 : Nat) % Compiler.Constants.evmModulus = 1 := by
-      norm_num [Compiler.Constants.evmModulus]
-    simp only [Verity.ContractState.returndataOptionalBool, boolWord_eq_if,
-      Nat.zero_mod, hrdsMod, hmemMod, h32Mod, h1Mod]
-    by_cases h0 : runtime.world.returndataSize = 0
-    · simp [h0, h1Mod]
-    · by_cases h32 : runtime.world.returndataSize = 32
-      · by_cases hm : (runtime.world.memory irVal).val = 1 <;>
-          simp [h0, h32, hm, h1Mod]
-      · simp [h0, h32, h1Mod]
+    rw [evalIRExpr_or_of_eval hEq0 (evalIRExpr_and_of_eval hEq32 hEqM),
+      optionalReturnBoolWord_eq runtime.world irVal]
+    rfl
 
 theorem compileExpr_tload_ok
     {fields : List Field}

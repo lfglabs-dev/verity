@@ -2849,6 +2849,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onScope
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnExpr_of_subset
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_returndata
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_ident_of_exact_bindings
@@ -2980,6 +2981,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_extcodesize_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_returndataOptionalBoolAt_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_extcodesize_of_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.optionalReturnBoolWord_eq  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_returndataOptionalBoolAt_of_compiled  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_tload_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.calldataloadWord_lt_evmModulus  -- private
@@ -4015,6 +4017,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.evalIRCall_tload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_mload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_extcodesize_singleton
+  Compiler.Proofs.IRGeneration.evalIRCall_returndatasize_nil
+  Compiler.Proofs.IRGeneration.evalIRExpr_returndatasize_nil
   Compiler.Proofs.IRGeneration.evalIRCall_calldataload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_sload_singleton
   Compiler.Proofs.IRGeneration.prepareInternalCalleeState_vars
@@ -4366,6 +4370,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.findEntry_filter_ne_eq_findEntry  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_ne
   Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_exists
+  Compiler.Proofs.IRGeneration.SourceSemantics.returndataAfterCall_returndata
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_succ
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_zero
@@ -4607,6 +4612,20 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_helperSurface_open_for_helper_call_arg  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_pure_module_effectSurface_closed  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_writing_module_effectSurface_blocked  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataSize_empty_buffer_is_zero  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataSize_counts_bytes_not_words  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataSize_denote_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.externalCallBind_success_installs_returndata  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.tryExternalCallBind_failure_installs_returndata  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_installs_returndata  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_empty_buffer_is_true  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_single_true_word_is_true  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_single_false_word_is_false  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_two_words_is_false  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_denote_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_zero_extent_continues_on_nonempty_buffer  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_nonzero_extent_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndata_slice_does_not_widen_effect_surface  -- private
 
   -- Compiler/Proofs/IRGeneration/SpliceSimulation.lean
   Compiler.Proofs.IRGeneration.SpliceSim.loopFree
@@ -7443,4 +7462,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6887 theorems/lemmas (4926 public, 1961 private, 0 sorry'd)
+-- Total: 6906 theorems/lemmas (4930 public, 1976 private, 0 sorry'd)
