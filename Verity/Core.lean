@@ -503,6 +503,8 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (s.writeSlot slot value).calls = s.calls := rfl
 @[simp] theorem codeSize_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).returndata = s.returndata := rfl
 
 @[simp] theorem storageWords_writeSlot (s : ContractState) (slot : Nat) (value : Uint256)
     (key : StorageKey) :
@@ -730,6 +732,9 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
 @[simp] theorem codeSize_writeMap (s : ContractState) (slot : Nat) (key : Address)
     (value : Uint256) :
     (s.writeMap slot key value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).returndata = s.returndata := rfl
 
 @[simp] theorem storageWords_writeMap (s : ContractState) (slot : Nat) (key : Address)
     (value : Uint256) (storageKey : StorageKey) :
@@ -779,6 +784,8 @@ def writeMapUint (s : ContractState) (slot : Nat) (key : Uint256) (value : Uint2
     (s.writeMapUint slot key value).events = s.events := rfl
 @[simp] theorem codeSize_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
     (s.writeMapUint slot key value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
+    (s.writeMapUint slot key value).returndata = s.returndata := rfl
 
 def readMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) : Uint256 :=
   s.storageMap2 slot key1 key2
@@ -829,6 +836,8 @@ def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Ui
     (s.writeMap2 slot key1 key2 value).events = s.events := rfl
 @[simp] theorem codeSize_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
+    (s.writeMap2 slot key1 key2 value).returndata = s.returndata := rfl
 
 def readArray (s : ContractState) (slot : Nat) : List Uint256 :=
   s.storageArray slot
@@ -971,6 +980,9 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
 @[simp] theorem codeSize_modifySlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :
     (s.modifySlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).returndata = s.returndata := rfl
 
 @[simp] theorem storageArray_writeSlots (s : ContractState) (targets : List Nat)
     (value : Uint256) :
@@ -1185,6 +1197,9 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
 @[simp] theorem codeSize_modifyTransientSlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :
     (s.modifyTransientSlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).returndata = s.returndata := rfl
 
 @[simp] theorem storage_withStorageChannel (s : ContractState)
     (f : (Nat → Uint256) → Nat → Uint256) :

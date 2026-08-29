@@ -636,7 +636,8 @@ theorem execStmt_eq (fields : List Field) :
             by_cases harity :
                 (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
             · simp [toStmtResult, toRuntimeState, h, harity]
-            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq,
+                SourceSemantics.returndataAfterCall]
           · simp [toStmtResult, toRuntimeState, h]
   | st, .tryExternalCallBind successVar resultVars _externalName args => by
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
@@ -650,8 +651,10 @@ theorem execStmt_eq (fields : List Field) :
             by_cases harity :
                 (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
             · simp [toStmtResult, toRuntimeState, h, harity]
-            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValue_eq, bindValues_eq]
-          · simp [toStmtResult, toRuntimeState, h, hw, bindValue_eq, bindValues_eq]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValue_eq, bindValues_eq,
+                SourceSemantics.returndataAfterCall]
+          · simp [toStmtResult, toRuntimeState, h, hw, bindValue_eq, bindValues_eq,
+              SourceSemantics.returndataAfterCall]
   | st, .ecm mod args => by
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
       cases Denote.evalExprList sourceOracle fields st args with
@@ -664,7 +667,8 @@ theorem execStmt_eq (fields : List Field) :
             by_cases harity :
                 (st.externalCallReturnValues st.externalCallIndex).length != mod.resultVars.length
             · simp [toStmtResult, toRuntimeState, h, harity]
-            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq,
+                SourceSemantics.returndataAfterCall]
           · simp [toStmtResult, toRuntimeState, h]
   | _, .returnValues .. | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..

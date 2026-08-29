@@ -442,9 +442,10 @@ theorem execStmt_externalCallBind_call_fails (oracle : DenoteOracle)
     execStmt oracle fields state (.externalCallBind vars name args) = .revert := by
   simp [execStmt, hargs, hfail]
 
-/-- A successful source-level external call advances the oracle receipt and
-    binds its returned words.  This pins the widened denotation to the exact
-    receipt consumed by `SourceSemantics`. -/
+/-- A successful source-level external call advances the oracle receipt, binds
+    its returned words and installs them as the EIP-211 returndata buffer.  This
+    pins the widened denotation to the exact receipt consumed by
+    `SourceSemantics`. -/
 theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
     (fields : List Field) (state : DenoteState)
     (vars : List String) (name : String) (args : List Expr) (vals : List Nat)
@@ -454,7 +455,9 @@ theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
     execStmt oracle fields state (.externalCallBind vars name args) =
       .continue
         { state with
-          world := (state.externalCallPostWorld state.externalCallIndex).getD state.world
+          world := { (state.externalCallPostWorld state.externalCallIndex).getD state.world with
+            returndata :=
+              (state.externalCallReturnValues state.externalCallIndex).map wordNormalize }
           bindings := bindValues state.bindings vars
             ((state.externalCallReturnValues state.externalCallIndex).map wordNormalize)
           externalCallIndex := state.externalCallIndex + 1 } := by

@@ -2692,9 +2692,11 @@ mutual
             evalExpr fields state size with
         | some _, some src, some sz =>
             -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
-            -- returndata buffer; in this fragment that buffer is empty, so the
-            -- only in-range copy is the zero-extent one, which leaves memory
-            -- untouched. Out-of-range copies are observed as a failed frame.
+            -- EIP-211 buffer. Rather than model the partial copy, only the
+            -- zero-extent copy is admitted -- it leaves memory untouched whatever
+            -- the buffer holds -- and every other extent is conservatively
+            -- observed as a failed frame. The IR interpreter branches the same
+            -- way, so the two layers agree on the nose.
             if src + sz = 0 then .continue state else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
@@ -3060,9 +3062,11 @@ mutual
             evalExpr fields state size with
         | some _, some src, some sz =>
             -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
-            -- returndata buffer; in this fragment that buffer is empty, so the
-            -- only in-range copy is the zero-extent one, which leaves memory
-            -- untouched. Out-of-range copies are observed as a failed frame.
+            -- EIP-211 buffer. Rather than model the partial copy, only the
+            -- zero-extent copy is admitted -- it leaves memory untouched whatever
+            -- the buffer holds -- and every other extent is conservatively
+            -- observed as a failed frame. The IR interpreter branches the same
+            -- way, so the two layers agree on the nose.
             if src + sz = 0 then .continue state else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>

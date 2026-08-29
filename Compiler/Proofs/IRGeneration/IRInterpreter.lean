@@ -1700,11 +1700,11 @@ theorem IRStmtPreservesObsAt_of_calldatacopy
 
 /-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`.
 
-The IR model gives the frame-entry returndata buffer of EIP-211: empty. A
-`returndatacopy` is therefore in range only for the zero-extent copy, which
-leaves memory untouched; every other `(src, size)` is the EVM's exceptional
-halt and is modelled as `.revert`. So the preservation cross-cast is available
-exactly on the in-range shape. -/
+Only the zero-extent copy is modelled as in range: it leaves memory untouched
+whatever the EIP-211 buffer holds. Every other `(src, size)` is conservatively
+modelled as the EVM's exceptional halt, `.revert`, matching the source
+semantics. So the preservation cross-cast is available exactly on the in-range
+shape. -/
 theorem IRStmtPreservesObsAt_of_returndatacopy
     (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr)
     (hDst : ∃ v, evalIRExpr state dstExpr = some v)
