@@ -111,6 +111,7 @@ import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 import Compiler.Proofs.IRGeneration.PanicPayloadIR
 import Compiler.Proofs.IRGeneration.ParamLoading
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
 import Compiler.Proofs.IRGeneration.SpliceSimulation
 import Compiler.Proofs.IRGeneration.SupportedFragment
 import Compiler.Proofs.IRGeneration.SupportedSpec
@@ -4478,6 +4479,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_forkIfAtLeast  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_nil_eq_execStmt
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_world_modulo_memory_and_calls
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_calls
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_advances_call_index
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_binds_resultVars
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_reverts_of_receipt_failure
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.decodeSupportedParamWord_eq_dynamicAbi
@@ -4582,6 +4588,25 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supportedSourceContractSemantics_eq_sourceContractSemantics
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
+
+  -- Compiler/Proofs/IRGeneration/SourceSemanticsFeatureTest.lean
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.externalCallBind_extraReturnValues_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_success_binds_resultVars  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_success_advances_callIndex  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_failed_receipt_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_arity_mismatch_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_does_not_commit_world  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_commits_receipt_memory  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_preserves_nonmemory_world_fields  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_preserves_receipt_calls  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_writing_module_commits_world  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_receipt_keyed_on_callIndex  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_callSurface_blocked  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_foreignSurface_blocked  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_helperSurface_closed_for_helper_free_args  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_helperSurface_open_for_helper_call_arg  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_pure_module_effectSurface_closed  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_writing_module_effectSurface_blocked  -- private
 
   -- Compiler/Proofs/IRGeneration/SpliceSimulation.lean
   Compiler.Proofs.IRGeneration.SpliceSim.loopFree
@@ -7418,4 +7443,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6865 theorems/lemmas (4921 public, 1944 private, 0 sorry'd)
+-- Total: 6887 theorems/lemmas (4926 public, 1961 private, 0 sorry'd)

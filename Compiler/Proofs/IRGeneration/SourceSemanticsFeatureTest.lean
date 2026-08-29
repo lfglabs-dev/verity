@@ -499,13 +499,14 @@ example :
       (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = true := by
   native_decide
 
-/-- P1-1: extra return values (more than vars) are silently dropped, not an error -/
+/-- P1-1: a receipt carrying more return values than result variables is an arity
+mismatch as well, so it reverts instead of silently dropping the extras. -/
 private def oracleSuccessExtra : Nat → SourceSemantics.ExternalCallOutcome :=
   fun _ => ⟨true, [10, 20, 30], none⟩
 
-example :
-    resultBindings (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessExtra)
-      (.externalCallBind ["x"] "transfer" [.literal 100])) = some [("x", 10)] := by
+private theorem externalCallBind_extraReturnValues_reverts :
+    isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessExtra)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = true := by
   native_decide
 
 /-- P1-2: return values >= evmModulus are normalized (mod 2^256) -/
@@ -571,6 +572,143 @@ example :
 example :
     stmtTouchesUnsupportedEffectSurface
       (.externalCallBind ["x"] "transfer" [.literal 100]) = true := by
+  native_decide
+
+private def probeEcmStatic : Compiler.ECM.ExternalCallModule :=
+  { name := "probeStatic"
+    numArgs := 1
+    resultVars := ["h"]
+    writesState := false
+    readsState := false
+    compile := fun _ _ => .ok [] }
+
+private def probeEcmWriting : Compiler.ECM.ExternalCallModule :=
+  { name := "probeWriting"
+    numArgs := 1
+    resultVars := ["h"]
+    writesState := true
+    readsState := false
+    compile := fun _ _ => .ok [] }
+
+private def oracleCommittedWorld : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], some { Verity.defaultState with blockNumber := 5 }⟩
+
+private def resultBlockNumber (r : SourceSemantics.StmtResult) : Option Nat :=
+  match r with | .continue s => some s.world.blockNumber.val | _ => none
+
+/-- `.ecm`: a successful receipt binds the module's declared result variables. -/
+private theorem ecm_success_binds_resultVars :
+    resultBindings (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleSuccess42)
+      (.ecm probeEcmStatic [.literal 7])) = some [("h", 42)] := by
+  native_decide
+
+/-- `.ecm`: a successful step consumes exactly one call receipt. -/
+private theorem ecm_success_advances_callIndex :
+    resultCallIndex (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleSuccess42)
+      (.ecm probeEcmStatic [.literal 7])) = some 1 := by
+  native_decide
+
+/-- `.ecm`: a failing receipt reverts. -/
+private theorem ecm_failed_receipt_reverts :
+    isRevert (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleFail)
+      (.ecm probeEcmStatic [.literal 7])) = true := by
+  native_decide
+
+/-- `.ecm`: a receipt whose arity disagrees with `resultVars` reverts. -/
+private theorem ecm_arity_mismatch_reverts :
+    isRevert (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleSuccessEmpty)
+      (.ecm probeEcmStatic [.literal 7])) = true := by
+  native_decide
+
+/-- `.ecm`: a module that does not write state preserves the receipt's
+non-memory world fields. -/
+private theorem ecm_static_module_does_not_commit_world :
+    resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedWorld)
+      (.ecm probeEcmStatic [.literal 7])) = some 0 := by
+  native_decide
+
+private def oracleCommittedMemory : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], some { Verity.defaultState with memory := fun _ => 7 }⟩
+
+private def resultMemoryAt (r : SourceSemantics.StmtResult) (slot : Nat) : Option Nat :=
+  match r with | .continue s => some (s.world.memory slot).val | _ => none
+
+/-- `.ecm`: a successful read-only module commits the receipt's modeled
+caller-local memory. A compiled `staticcall` (e.g.
+`Compiler.Modules.Precompiles.sha256MemoryModule`) writes its output into
+caller memory at the caller-supplied output offset, so `writesState = false`
+must not discard that effect together with the external-world transition. -/
+private theorem ecm_static_module_commits_receipt_memory :
+    resultMemoryAt (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedMemory)
+      (.ecm probeEcmStatic [.literal 7])) 0 = some 7 := by
+  native_decide
+
+/-- `.ecm`: the same read-only step still preserves every non-memory caller
+world field (here `blockNumber`). -/
+private theorem ecm_static_module_preserves_nonmemory_world_fields :
+    resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedMemory)
+      (.ecm probeEcmStatic [.literal 7])) = some 0 := by
+  native_decide
+
+private def journalEntry : Verity.ExternalCall :=
+  { siteId := 0, kind := .staticcall, target := 0, control := .success }
+
+private def oracleCommittedCalls : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], some { Verity.defaultState with calls := [journalEntry] }⟩
+
+private def resultCallsLength (r : SourceSemantics.StmtResult) : Option Nat :=
+  match r with | .continue s => some s.world.calls.length | _ => none
+
+/-- `.ecm`: a successful read-only module preserves the receipt's call journal.
+Regression: would fail if `committedWorld` dropped the `calls` field for
+`writesState = false` modules (the caller starts with `calls = []` but the
+receipt records one journal entry; the result must reflect it). -/
+private theorem ecm_static_module_preserves_receipt_calls :
+    resultCallsLength (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedCalls)
+      (.ecm probeEcmStatic [.literal 7])) = some 1 := by
+  native_decide
+
+/-- `.ecm`: a state-writing module does commit the receipt's world. -/
+private theorem ecm_writing_module_commits_world :
+    resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedWorld)
+      (.ecm probeEcmWriting [.literal 7])) = some 5 := by
+  native_decide
+
+/-- `.ecm`: the receipt is keyed on the call index, via the event-aware semantics. -/
+private theorem ecm_receipt_keyed_on_callIndex :
+    resultBindings (SourceSemantics.execStmtWithEvents [] [] (mkState [("h", 0)] oracleIndexed)
+      (.ecm probeEcmStatic [.literal 7])) = some [("h", 7)] := by
+  native_decide
+
+/-- `.ecm` stays outside the call and foreign surfaces: this slice models the
+statement without admitting it to the proved fragment. -/
+private theorem ecm_callSurface_blocked :
+    stmtTouchesUnsupportedCallSurface (.ecm probeEcmStatic [.literal 7]) = true := by
+  native_decide
+
+private theorem ecm_foreignSurface_blocked :
+    stmtTouchesUnsupportedForeignSurface (.ecm probeEcmStatic [.literal 7]) = true := by
+  native_decide
+
+/-- Helper surface: `.ecm` now screens its argument expressions, so a helper call
+in an argument is no longer silently treated as helper-free. -/
+private theorem ecm_helperSurface_closed_for_helper_free_args :
+    stmtTouchesUnsupportedHelperSurface (.ecm probeEcmStatic [.literal 7]) = false := by
+  native_decide
+
+private theorem ecm_helperSurface_open_for_helper_call_arg :
+    stmtTouchesUnsupportedHelperSurface
+      (.ecm probeEcmStatic [.internalCall "h" []]) = true := by
+  native_decide
+
+/-- Effect surface: structurally pure modules stay admitted, state-writing ones
+remain blocked. -/
+private theorem ecm_pure_module_effectSurface_closed :
+    stmtTouchesUnsupportedEffectSurface (.ecm probeEcmStatic [.literal 7]) = false := by
+  native_decide
+
+private theorem ecm_writing_module_effectSurface_blocked :
+    stmtTouchesUnsupportedEffectSurface (.ecm probeEcmWriting [.literal 7]) = true := by
   native_decide
 
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

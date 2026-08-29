@@ -652,10 +652,24 @@ theorem execStmt_eq (fields : List Field) :
             · simp [toStmtResult, toRuntimeState, h, harity]
             · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValue_eq, bindValues_eq]
           · simp [toStmtResult, toRuntimeState, h, hw, bindValue_eq, bindValues_eq]
+  | st, .ecm mod args => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
+      cases Denote.evalExprList sourceOracle fields st args with
+      | none => rfl
+      | some _ =>
+          have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
+            funext wordNormalize_eq
+          by_cases h : st.externalCallSucceeded st.externalCallIndex = true
+          · simp only [h, ite_true]
+            by_cases harity :
+                (st.externalCallReturnValues st.externalCallIndex).length != mod.resultVars.length
+            · simp [toStmtResult, toRuntimeState, h, harity]
+            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq]
+          · simp [toStmtResult, toRuntimeState, h]
   | _, .returnValues .. | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
   | _, .internalCallAssign .. | _, .rawLog ..
-  | _, .ecm .. | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl
+  | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl
 
 theorem execStmtList_eq (fields : List Field) :
     ∀ (st : DenoteState) (stmts : List Stmt),

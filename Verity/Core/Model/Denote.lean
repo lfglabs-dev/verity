@@ -66,6 +66,39 @@ in the arms below (raw calls, ABI re-encoding returns, ECM, unsafe Yul,
 `matchAdt`, internal calls — internal-call semantics live in the separate
 `*WithHelpers` interpreters and are not part of this fragment).
 -/
+
+namespace Compiler.ECM.ExternalCallModule
+
+/-- Caller world committed by a successful ECM step.
+
+    A state-writing module (`writesState = true`) commits the receipt's
+    post-call world wholesale, matching the `call` clause of
+    `StatefulExternal.Summary.interprets`.
+
+    A read-only module (`writesState = false`) compiles to `staticcall`, which
+    cannot change the external world — but it still writes its output into
+    caller-local memory (e.g. `Precompiles.sha256MemoryModule` writes the
+    32-byte digest at the caller-supplied output offset, so a following
+    `.mload outputOffset` observes it in compiled code) and appends a journal
+    entry to `calls` via `externalCall` / `denoteCallJournaled`.
+    `writesState = false` therefore restores the caller world *except* for the
+    modeled memory effects and the append-only call journal, both of which are
+    taken from the receipt's post-call world when the receipt supplies one.
+
+    This helper lives here rather than in `Verity.Core.Model.ECM` because that
+    leaf module deliberately stays free of `Verity.Core` (it sits under
+    `Compiler.CompilationModel.Types`, whose transitive closure must not
+    change for `Verity.Macro.Types` dotted-notation resolution). -/
+def committedWorld (mod : ExternalCallModule)
+    (postCallWorld : Option Verity.ContractState) (callerWorld : Verity.ContractState) :
+    Verity.ContractState :=
+  if mod.writesState then postCallWorld.getD callerWorld
+  else
+    let pcw := postCallWorld.getD callerWorld
+    { callerWorld with memory := pcw.memory, calls := pcw.calls }
+
+end Compiler.ECM.ExternalCallModule
+
 namespace Compiler.CompilationModel.Denote
 
 open Compiler.CompilationModel
@@ -1418,6 +1451,22 @@ mutual
                       (bindValue state.bindings successVar 0)
                       resultVars (retVals.map wordNormalize)
                     externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
+    | state, .ecm mod args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            if state.externalCallSucceeded state.externalCallIndex then
+              let retVals := state.externalCallReturnValues state.externalCallIndex
+              if retVals.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := mod.committedWorld
+                        (state.externalCallPostWorld state.externalCallIndex) state.world
+                      bindings := bindValues state.bindings mod.resultVars
+                        (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
         | none => .revert
     | _, .revertReturndata => .revert
     | _, _ => .revert
