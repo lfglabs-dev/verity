@@ -829,6 +829,19 @@ structure ExternalCallOutcome where
 
 instance : Inhabited ExternalCallOutcome := ⟨⟨false, [], none⟩⟩
 
+/-- Install the EIP-211 returndata buffer left by a call receipt. The callee's
+    return data replaces the buffer wholesale on both the success and the
+    failure path, which is what lets the compiled `returndatacopy(0, 0,
+    returndatasize())` idiom bubble a callee revert reason. -/
+def returndataAfterCall (outcome : ExternalCallOutcome)
+    (world : Verity.ContractState) : Verity.ContractState :=
+  { world with returndata := outcome.returnValues.map wordNormalize }
+
+@[simp] theorem returndataAfterCall_returndata
+    (outcome : ExternalCallOutcome) (world : Verity.ContractState) :
+    (returndataAfterCall outcome world).returndata
+      = outcome.returnValues.map wordNormalize := rfl
+
 structure RuntimeState where
   world : Verity.ContractState
   immutable : String → Verity.Core.Uint256 := fun _ => 0
@@ -1221,9 +1234,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
-  -- The admitted fragment contains no call-family instruction, so by EIP-211
-  -- the EVM returndata buffer is still the empty buffer the frame started with.
-  | .returndataSize => some 0
+  | .returndataSize => some (32 * state.world.returndata.length)
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr fields state a
@@ -1644,15 +1655,14 @@ private theorem evalExpr_calldatasize
     (state : RuntimeState) :
     evalExpr fields state .calldatasize = some state.world.calldataSize.val := rfl
 
-/-- `returndatasize()` in the admitted fragment.
-
-The supported fragment admits no `call`/`staticcall`/`delegatecall`/`create`
-instruction, so the EVM returndata buffer keeps the empty value EIP-211 gives it
-at frame entry. This matches the EDSL model (`Contracts.returndataSize = 0`). -/
+/-- `returndatasize()` reads the EIP-211 returndata buffer, measured in bytes.
+The buffer is empty at frame entry and is replaced wholesale by each call-family
+instruction with the callee's return data. -/
 private theorem evalExpr_returndataSize
     (fields : List Field)
     (state : RuntimeState) :
-    evalExpr fields state .returndataSize = some 0 := rfl
+    evalExpr fields state .returndataSize
+      = some (32 * state.world.returndata.length) := rfl
 
 private theorem evalExpr_arrayLength
     (fields : List Field)
@@ -2753,7 +2763,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -2768,7 +2779,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (outcome.returnValues.map wordNormalize)
@@ -2776,6 +2788,7 @@ mutual
             else
               .continue
                 { state with
+                    world := returndataAfterCall outcome state.world
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
@@ -2790,7 +2803,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := mod.committedWorld outcome.postCallWorld state.world
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -3117,7 +3131,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -3132,7 +3147,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (outcome.returnValues.map wordNormalize)
@@ -3140,6 +3156,7 @@ mutual
             else
               .continue
                 { state with
+                    world := returndataAfterCall outcome state.world
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
@@ -3154,7 +3171,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := mod.committedWorld outcome.postCallWorld state.world
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -4008,7 +4026,7 @@ mutual
     | .blockNumber => some state.world.blockNumber.val
     | .blobbasefee => some state.world.blobBaseFee.val
     | .calldatasize => some state.world.calldataSize.val
-    | .returndataSize => some 0
+    | .returndataSize => some (32 * state.world.returndata.length)
     | .localVar name => some (lookupValue state.bindings name)
     | .add a b => do
         let lhs : Verity.Core.Uint256 := ← evalExprWithHelpers spec fields fuel state a
@@ -4709,7 +4727,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -4724,7 +4743,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (outcome.returnValues.map wordNormalize)
@@ -4732,6 +4752,7 @@ mutual
             else
               .continue
                 { state with
+                    world := returndataAfterCall outcome state.world
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
@@ -4746,7 +4767,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := mod.committedWorld outcome.postCallWorld state.world
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
