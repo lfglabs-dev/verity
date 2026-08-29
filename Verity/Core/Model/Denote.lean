@@ -79,10 +79,11 @@ namespace Compiler.ECM.ExternalCallModule
     cannot change the external world — but it still writes its output into
     caller-local memory (e.g. `Precompiles.sha256MemoryModule` writes the
     32-byte digest at the caller-supplied output offset, so a following
-    `.mload outputOffset` observes it in compiled code). `writesState = false`
-    therefore restores the caller world *except* for the modeled memory
-    effects, which are taken from the receipt's post-call world when the
-    receipt supplies one.
+    `.mload outputOffset` observes it in compiled code) and appends a journal
+    entry to `calls` via `externalCall` / `denoteCallJournaled`.
+    `writesState = false` therefore restores the caller world *except* for the
+    modeled memory effects and the append-only call journal, both of which are
+    taken from the receipt's post-call world when the receipt supplies one.
 
     This helper lives here rather than in `Verity.Core.Model.ECM` because that
     leaf module deliberately stays free of `Verity.Core` (it sits under
@@ -92,7 +93,9 @@ def committedWorld (mod : ExternalCallModule)
     (postCallWorld : Option Verity.ContractState) (callerWorld : Verity.ContractState) :
     Verity.ContractState :=
   if mod.writesState then postCallWorld.getD callerWorld
-  else { callerWorld with memory := (postCallWorld.getD callerWorld).memory }
+  else
+    let pcw := postCallWorld.getD callerWorld
+    { callerWorld with memory := pcw.memory, calls := pcw.calls }
 
 end Compiler.ECM.ExternalCallModule
 

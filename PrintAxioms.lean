@@ -4479,7 +4479,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_forkIfAtLeast  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_nil_eq_execStmt
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList
-  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_world_modulo_memory
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_world_modulo_memory_and_calls
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_calls
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_advances_call_index
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_binds_resultVars
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_reverts_of_receipt_failure
@@ -4597,6 +4598,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_does_not_commit_world  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_commits_receipt_memory  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_preserves_nonmemory_world_fields  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_preserves_receipt_calls  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_writing_module_commits_world  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_receipt_keyed_on_callIndex  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_callSurface_blocked  -- private
@@ -7441,4 +7443,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6885 theorems/lemmas (4925 public, 1960 private, 0 sorry'd)
+-- Total: 6887 theorems/lemmas (4926 public, 1961 private, 0 sorry'd)

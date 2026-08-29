@@ -650,6 +650,24 @@ private theorem ecm_static_module_preserves_nonmemory_world_fields :
       (.ecm probeEcmStatic [.literal 7])) = some 0 := by
   native_decide
 
+private def journalEntry : Verity.ExternalCall :=
+  { siteId := 0, kind := .staticcall, target := 0, control := .success }
+
+private def oracleCommittedCalls : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], some { Verity.defaultState with calls := [journalEntry] }⟩
+
+private def resultCallsLength (r : SourceSemantics.StmtResult) : Option Nat :=
+  match r with | .continue s => some s.world.calls.length | _ => none
+
+/-- `.ecm`: a successful read-only module preserves the receipt's call journal.
+Regression: would fail if `committedWorld` dropped the `calls` field for
+`writesState = false` modules (the caller starts with `calls = []` but the
+receipt records one journal entry; the result must reflect it). -/
+private theorem ecm_static_module_preserves_receipt_calls :
+    resultCallsLength (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedCalls)
+      (.ecm probeEcmStatic [.literal 7])) = some 1 := by
+  native_decide
+
 /-- `.ecm`: a state-writing module does commit the receipt's world. -/
 private theorem ecm_writing_module_commits_world :
     resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedWorld)

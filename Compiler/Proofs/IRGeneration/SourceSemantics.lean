@@ -3197,24 +3197,28 @@ meaning is the same oracle-driven step the `externalCallBind` lane uses: the
 per-call receipt at `externalCallIndex` decides success, supplies the words bound
 to `mod.resultVars`, and — only for modules the ECM framework classifies as
 state-writing — supplies the committed external world. For read-only modules the
-caller world is preserved except for caller-local memory, which follows the
-receipt's modeled post-call memory (`ExternalCallModule.committedWorld`). -/
+caller world is preserved except for caller-local memory and the append-only
+call journal, which follow the receipt's post-call world
+(`ExternalCallModule.committedWorld`). -/
 
 /-- A module that does not write state commits no external world, matching the
 `staticcall` clause of `Compiler.ECM.StatefulExternal.Summary.interprets`, but
-it does commit the receipt's modeled caller-local memory effects: a compiled
-`staticcall` writes its output into caller memory (e.g. a precompile digest at
-the caller-supplied output offset), so `writesState = false` preserves every
-caller-world field except `memory`, which follows the receipt's post-call
-world. -/
-theorem execStmt_ecm_static_preserves_world_modulo_memory
+it does commit the receipt's modeled caller-local memory effects and the
+append-only call journal: a compiled `staticcall` writes its output into caller
+memory (e.g. a precompile digest at the caller-supplied output offset) and
+`externalCall` / `denoteCallJournaled` appends a journal entry to `calls`, so
+`writesState = false` preserves every caller-world field except `memory` and
+`calls`, which follow the receipt's post-call world. -/
+theorem execStmt_ecm_static_preserves_world_modulo_memory_and_calls
     {fields : List Field} {state next : RuntimeState}
     {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
     (hstatic : mod.writesState = false)
     (hrun : execStmt fields state (.ecm mod args) = .continue next) :
     next.world = { state.world with
       memory := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
-        state.world).memory } := by
+        state.world).memory
+      calls := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
+        state.world).calls } := by
   simp only [execStmt] at hrun
   split at hrun
   · split at hrun
@@ -3225,6 +3229,20 @@ theorem execStmt_ecm_static_preserves_world_modulo_memory
         simp [Compiler.ECM.ExternalCallModule.committedWorld, hstatic]
     · cases hrun
   · cases hrun
+
+/-- Regression: a successful read-only ECM step preserves the receipt's call
+journal, not the caller's. This would fail if `committedWorld` dropped
+the `calls` field for `writesState = false` modules. -/
+theorem execStmt_ecm_static_preserves_calls
+    {fields : List Field} {state next : RuntimeState}
+    {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
+    (hstatic : mod.writesState = false)
+    (hrun : execStmt fields state (.ecm mod args) = .continue next) :
+    next.world.calls =
+      ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
+        state.world).calls := by
+  have h := execStmt_ecm_static_preserves_world_modulo_memory_and_calls hstatic hrun
+  rw [h]
 
 /-- Every committed `.ecm` step consumes exactly one call receipt, so distinct
 module invocations never observe the same oracle entry. -/
