@@ -1341,6 +1341,20 @@ nonzero bits above the 160-bit address payload. -/
 -- need the current raw representation unfold a specific lens by name
 -- (`simp [ContractState.writeSlot]`); those sites are the step-3 burn-down.
 
+/-- `returndatasize()` as a machine word. The EIP-211 buffer is modelled as a
+    list of 32-byte words, so its byte size is `32 * length` wrapped to a word. -/
+def returndataSize (s : ContractState) : Nat :=
+  ((32 * s.returndata.length : Nat) : Uint256).val
+
+/-- Word produced by the optional-bool return check the compiler emits for
+    ERC-20 style callees, `or(eq(returndatasize(), 0), and(eq(returndatasize(),
+    32), eq(mload(out), 1)))`: a callee that returns nothing is treated as
+    success, one that returns a single word must return `true`. -/
+def returndataOptionalBool (s : ContractState) (outOffset : Nat) : Nat :=
+  if s.returndataSize = 0 then 1
+  else if s.returndataSize = 32 ∧ (s.memory outOffset).val = 1 then 1
+  else 0
+
 end ContractState
 
 -- Default zero state — all storage zero, empty addresses, no events.

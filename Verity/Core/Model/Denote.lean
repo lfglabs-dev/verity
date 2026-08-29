@@ -762,7 +762,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
   -- Mirrors `SourceSemantics.evalExpr`: `returndatasize()` in bytes.
-  | .returndataSize => some (32 * state.world.returndata.length)
+  | .returndataSize => some state.world.returndataSize
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields state a
@@ -1030,8 +1030,8 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       let resolvedAddr ← evalExpr oracle fields state addr
       some (state.world.codeSize (resolvedAddr % Compiler.Constants.addressModulus)).val
   | .returndataOptionalBoolAt offset => do
-      let _ ← evalExpr oracle fields state offset
-      some 1
+      let resolvedOffset ← evalExpr oracle fields state offset
+      some (state.world.returndataOptionalBool resolvedOffset)
   -- The reserved `exp` builtin lane: pure arithmetic wearing an `externalCall`
   -- node, so it needs no oracle. Genuine foreign calls stay undenoted.
   | .externalCall name [base, exponent] =>
@@ -1421,8 +1421,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := (state.externalCallPostWorld state.externalCallIndex).getD
-                        state.world
+                      world := { (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world with returndata := retVals.map wordNormalize }
                       bindings := bindValues state.bindings resultVars
                         (retVals.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -1437,8 +1437,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := (state.externalCallPostWorld state.externalCallIndex).getD
-                        state.world
+                      world := { (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world with returndata := retVals.map wordNormalize }
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (retVals.map wordNormalize)
@@ -1446,6 +1446,8 @@ mutual
             else
               .continue
                 { state with
+                    world := { state.world with
+                      returndata := retVals.map wordNormalize }
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (retVals.map wordNormalize)
@@ -1460,8 +1462,9 @@ mutual
               else
                 .continue
                   { state with
-                      world := mod.committedWorld
-                        (state.externalCallPostWorld state.externalCallIndex) state.world
+                      world := { mod.committedWorld
+                        (state.externalCallPostWorld state.externalCallIndex) state.world with
+                        returndata := retVals.map wordNormalize }
                       bindings := bindValues state.bindings mod.resultVars
                         (retVals.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }

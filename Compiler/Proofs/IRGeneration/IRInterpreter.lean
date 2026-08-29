@@ -292,7 +292,7 @@ def evalIRCall (state : IRState) (func : String) : List YulExpr → Option Nat
       | _ => none
     else if func = "returndatasize" then
       match argVals with
-      | [] => some (32 * state.returndata.length)
+      | [] => some (32 * state.returndata.length % Compiler.Constants.evmModulus)
       | _ => none
     else if func = "keccak256" then
       match argVals with
@@ -355,13 +355,13 @@ end -- mutual
 @[simp] theorem evalIRCall_returndatasize_nil
     (state : IRState) :
     evalIRCall state "returndatasize" [] =
-      some (32 * state.returndata.length) := by
+      some (32 * state.returndata.length % Compiler.Constants.evmModulus) := by
   simp [evalIRCall, evalIRExprs]
 
 @[simp] theorem evalIRExpr_returndatasize_nil
     (state : IRState) :
     evalIRExpr state (YulExpr.call "returndatasize" []) =
-      some (32 * state.returndata.length) := by
+      some (32 * state.returndata.length % Compiler.Constants.evmModulus) := by
   simp [evalIRExpr]
 
 @[simp] theorem evalIRCall_calldataload_singleton
@@ -542,7 +542,7 @@ def evalIRCallWithInternals
             | _ => .revert state'
           else if func = "returndatasize" then
             match argVals with
-            | [] => .values [32 * state'.returndata.length] state'
+            | [] => .values [32 * state'.returndata.length % Compiler.Constants.evmModulus] state'
             | _ => .revert state'
           else if func = "keccak256" then
             match argVals with

@@ -1234,7 +1234,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
-  | .returndataSize => some (32 * state.world.returndata.length)
+  | .returndataSize => some state.world.returndataSize
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr fields state a
@@ -1503,8 +1503,8 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
       let resolvedAddr ← evalExpr fields state addr
       some (state.world.codeSize (resolvedAddr % addressModulus)).val
   | .returndataOptionalBoolAt offset => do
-      let _ ← evalExpr fields state offset
-      some 1
+      let resolvedOffset ← evalExpr fields state offset
+      some (state.world.returndataOptionalBool resolvedOffset)
   -- The reserved `exp` builtin lane. `pow`/`^` in the EDSL surfaces as
   -- `externalCall builtinExpName [base, exponent]`, but it carries no foreign
   -- behaviour: the compiler lowers it to the pure Yul `exp` builtin.
@@ -1662,7 +1662,7 @@ private theorem evalExpr_returndataSize
     (fields : List Field)
     (state : RuntimeState) :
     evalExpr fields state .returndataSize
-      = some (32 * state.world.returndata.length) := rfl
+      = some state.world.returndataSize := rfl
 
 private theorem evalExpr_arrayLength
     (fields : List Field)
@@ -1761,7 +1761,8 @@ private theorem evalExpr_returndataOptionalBoolAt
     (state : RuntimeState)
     (a : Expr) :
     evalExpr fields state (.returndataOptionalBoolAt a) =
-      (evalExpr fields state a).bind (fun _ => some 1) := rfl
+      (evalExpr fields state a).bind
+        (fun resolvedOffset => some (state.world.returndataOptionalBool resolvedOffset)) := rfl
 
 private theorem evalExpr_keccak256
     (fields : List Field)
@@ -3225,9 +3226,11 @@ it does commit the receipt's modeled caller-local memory effects and the
 append-only call journal: a compiled `staticcall` writes its output into caller
 memory (e.g. a precompile digest at the caller-supplied output offset) and
 `externalCall` / `denoteCallJournaled` appends a journal entry to `calls`, so
-`writesState = false` preserves every caller-world field except `memory` and
-`calls`, which follow the receipt's post-call world. -/
-theorem execStmt_ecm_static_preserves_world_modulo_memory_and_calls
+`writesState = false` preserves every caller-world field except `memory`,
+`calls` and the EIP-211 `returndata` buffer. The first two follow the receipt's
+post-call world; the buffer is replaced by the receipt's return words, since a
+`staticcall` still leaves its callee's return data in the caller's frame. -/
+theorem execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata
     {fields : List Field} {state next : RuntimeState}
     {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
     (hstatic : mod.writesState = false)
@@ -3236,7 +3239,9 @@ theorem execStmt_ecm_static_preserves_world_modulo_memory_and_calls
       memory := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
         state.world).memory
       calls := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
-        state.world).calls } := by
+        state.world).calls
+      returndata := (state.externalCallOracle state.externalCallIndex).returnValues.map
+        wordNormalize } := by
   simp only [execStmt] at hrun
   split at hrun
   · split at hrun
@@ -3244,7 +3249,7 @@ theorem execStmt_ecm_static_preserves_world_modulo_memory_and_calls
       · cases hrun
       · injection hrun with h
         subst h
-        simp [Compiler.ECM.ExternalCallModule.committedWorld, hstatic]
+        simp [Compiler.ECM.ExternalCallModule.committedWorld, hstatic, returndataAfterCall]
     · cases hrun
   · cases hrun
 
@@ -3259,7 +3264,7 @@ theorem execStmt_ecm_static_preserves_calls
     next.world.calls =
       ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
         state.world).calls := by
-  have h := execStmt_ecm_static_preserves_world_modulo_memory_and_calls hstatic hrun
+  have h := execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata hstatic hrun
   rw [h]
 
 /-- Every committed `.ecm` step consumes exactly one call receipt, so distinct
@@ -4026,7 +4031,7 @@ mutual
     | .blockNumber => some state.world.blockNumber.val
     | .blobbasefee => some state.world.blobBaseFee.val
     | .calldatasize => some state.world.calldataSize.val
-    | .returndataSize => some (32 * state.world.returndata.length)
+    | .returndataSize => some state.world.returndataSize
     | .localVar name => some (lookupValue state.bindings name)
     | .add a b => do
         let lhs : Verity.Core.Uint256 := ← evalExprWithHelpers spec fields fuel state a
@@ -4344,8 +4349,8 @@ mutual
     -- the 200 000-heartbeat ceiling whenever a new `Expr` constructor
     -- lands (verity#1842).
     | .returndataOptionalBoolAt offset => do
-        let _ ← evalExprWithHelpers spec fields fuel state offset
-        some 1
+        let resolvedOffset ← evalExprWithHelpers spec fields fuel state offset
+        some (state.world.returndataOptionalBool resolvedOffset)
     -- The reserved `exp` builtin lane: pure arithmetic wearing an
     -- `externalCall` node, so it needs no helper environment. Like the plain
     -- evaluator it reduces modulo 2^256 at every step so full-domain uint256

@@ -119,7 +119,8 @@ def runtimeStateMatchesIR
   state.memory = (fun o => (runtime.world.memory o).val) ∧
   state.returnValue = none ∧
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
-  state.codeSize = (fun addr => (runtime.world.codeSize addr).val)
+  state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
+  state.returndata = runtime.world.returndata
 
 /-- Runtime/IR alignment for constructor execution, whose calldata is not
 selector-prefixed. This is the constructor-shaped analogue of
@@ -146,7 +147,17 @@ def constructorRuntimeStateMatchesIR
   state.memory = (fun o => (runtime.world.memory o).val) ∧
   state.returnValue = none ∧
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
-  state.codeSize = (fun addr => (runtime.world.codeSize addr).val)
+  state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
+  state.returndata = runtime.world.returndata
+
+theorem runtimeStateMatchesIR_returndata
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    (h : runtimeStateMatchesIR fields runtime state) :
+    state.returndata = runtime.world.returndata := by
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, h⟩ := h
+  exact h
 
 def initialIRStateForTx
     (spec : CompilationModel)
@@ -169,7 +180,8 @@ def initialIRStateForTx
     txOrigin := tx.txOrigin
     selector := tx.functionSelector
     events := SourceSemantics.encodeEvents initialWorld.events
-    codeSize := fun addr => (initialWorld.codeSize addr).val }
+    codeSize := fun addr => (initialWorld.codeSize addr).val
+    returndata := initialWorld.returndata }
 
 @[simp] theorem bindingsMatchIRVars_nil_initialIRStateForTx
     (spec : CompilationModel)
@@ -451,14 +463,15 @@ theorem evalIRExpr_returndataSize_of_runtimeStateMatchesIR
     {fields : List Field}
     {runtime : SourceSemantics.RuntimeState}
     {state : IRState}
-    (_hmatch : runtimeStateMatchesIR fields runtime state) :
+    (hmatch : runtimeStateMatchesIR fields runtime state) :
     evalIRExpr state (YulExpr.call "returndatasize" []) =
       some (SourceSemantics.evalExpr fields runtime (.returndataSize)) := by
-  have heval : SourceSemantics.evalExpr fields runtime (.returndataSize) = some 0 := rfl
+  have hreturndata : state.returndata = runtime.world.returndata :=
+    runtimeStateMatchesIR_returndata hmatch
+  have heval : SourceSemantics.evalExpr fields runtime (.returndataSize) =
+      some (32 * runtime.world.returndata.length % Compiler.Constants.evmModulus) := rfl
   rw [heval]
-  simp [evalIRExpr, evalIRCall, evalIRExprs,
-    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean]
+  simp [evalIRExpr, evalIRCall, evalIRExprs, hreturndata]
 
 theorem eval_compileExpr_returndataSize
     {fields : List Field}
@@ -2253,6 +2266,7 @@ private theorem eval_compileExpr_returndataOptionalBoolAt_of_compiled
       some (SourceSemantics.evalExpr fields runtime (.returndataOptionalBoolAt offset)) := by
   rw [compileExpr_returndataOptionalBoolAt_ok hoffset]
   simp only [Except.toOption, Option.getD]
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, hmem, -, -, -, hrd⟩ := hruntime
   rcases hIR : evalIRExpr state offsetIR with _ | irVal
   · simp [hIR] at hEvalOffset
   · simp only [hIR] at hEvalOffset
@@ -2260,15 +2274,16 @@ private theorem eval_compileExpr_returndataOptionalBoolAt_of_compiled
     have hsrc : SourceSemantics.evalExpr fields runtime offset = some irVal := by
       simpa using hEvalOffset.symm
     rw [show SourceSemantics.evalExpr fields runtime (.returndataOptionalBoolAt offset) =
-        (SourceSemantics.evalExpr fields runtime offset).bind (fun _ => some 1) from rfl, hsrc]
+        (SourceSemantics.evalExpr fields runtime offset).bind
+          (fun r => some (runtime.world.returndataOptionalBool r)) from rfl, hsrc]
     simp only [Option.bind_some]
-    have hRDS : evalIRExpr state (YulExpr.call "returndatasize" []) = some 0 := by
-      simp [evalIRExpr, evalIRCall, evalIRExprs,
-        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean]
+    have hRDS : evalIRExpr state (YulExpr.call "returndatasize" []) =
+        some runtime.world.returndataSize := by
+      simp only [evalIRExpr_returndatasize_nil, hrd]
+      rfl
     have hMload : evalIRExpr state (YulExpr.call "mload" [offsetIR]) =
-        some (state.memory irVal) := by
-      simp [evalIRExpr, evalIRCall, evalIRExprs, hIR]
+        some (runtime.world.memory irVal).val := by
+      simp [evalIRExpr, evalIRCall, evalIRExprs, hIR, hmem]
     have hEq0 := evalIRExpr_eq_of_eval hRDS
       (show evalIRExpr state (YulExpr.lit 0) = some 0 from by simp [evalIRExpr])
     have hEq32 := evalIRExpr_eq_of_eval hRDS
@@ -2276,8 +2291,25 @@ private theorem eval_compileExpr_returndataOptionalBoolAt_of_compiled
     have hEqM := evalIRExpr_eq_of_eval hMload
       (show evalIRExpr state (YulExpr.lit 1) = some 1 from by simp [evalIRExpr])
     rw [evalIRExpr_or_of_eval hEq0 (evalIRExpr_and_of_eval hEq32 hEqM)]
-    simp only [boolWord_eq_if, Nat.zero_mod]
-    norm_num [Compiler.Constants.evmModulus]
+    have hrdsMod : runtime.world.returndataSize % Compiler.Constants.evmModulus =
+        runtime.world.returndataSize :=
+      Nat.mod_eq_of_lt
+        ((32 * runtime.world.returndata.length : Nat) : Verity.Core.Uint256).isLt
+    have hmemMod : (runtime.world.memory irVal).val % Compiler.Constants.evmModulus =
+        (runtime.world.memory irVal).val :=
+      Nat.mod_eq_of_lt (runtime.world.memory irVal).isLt
+    have h32Mod : (32 : Nat) % Compiler.Constants.evmModulus = 32 := by
+      norm_num [Compiler.Constants.evmModulus]
+    have h1Mod : (1 : Nat) % Compiler.Constants.evmModulus = 1 := by
+      norm_num [Compiler.Constants.evmModulus]
+    simp only [Verity.ContractState.returndataOptionalBool, boolWord_eq_if,
+      Nat.zero_mod, hrdsMod, hmemMod, h32Mod, h1Mod]
+    by_cases h0 : runtime.world.returndataSize = 0
+    · simp [h0, h1Mod]
+    · by_cases h32 : runtime.world.returndataSize = 32
+      · by_cases hm : (runtime.world.memory irVal).val = 1 <;>
+          simp [h0, h32, hm, h1Mod]
+      · simp [h0, h32, h1Mod]
 
 theorem compileExpr_tload_ok
     {fields : List Field}
@@ -6439,7 +6471,8 @@ theorem evalExpr_lt_evmModulus_core_onExpr
       change runtime.world.calldataSize.val < Compiler.Constants.evmModulus
       exact runtime.world.calldataSize.isLt
   | returndataSize =>
-      simp [SourceSemantics.evalExpr, Compiler.Constants.evmModulus]
+      change runtime.world.returndataSize < Compiler.Constants.evmModulus
+      exact ((32 * runtime.world.returndata.length : Nat) : Verity.Core.Uint256).isLt
   | @add lhs rhs _ _ _ _ =>
       show (do let l : Verity.Core.Uint256 := ← SourceSemantics.evalExpr fields runtime lhs
                let r : Verity.Core.Uint256 := ← SourceSemantics.evalExpr fields runtime rhs
@@ -6870,12 +6903,19 @@ theorem evalExpr_lt_evmModulus_core_onExpr
         have hModEq : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
         exact hModEq ▸ (runtime.world.codeSize (addrVal % SourceSemantics.addressModulus)).isLt
   | @returndataOptionalBoolAt offset _ ihO =>
-      show (do let _ ← SourceSemantics.evalExpr fields runtime offset
-               some 1) < _
-      rcases SourceSemantics.evalExpr fields runtime offset with _ | _
+      show (do let r ← SourceSemantics.evalExpr fields runtime offset
+               some (runtime.world.returndataOptionalBool r)) < _
+      rcases SourceSemantics.evalExpr fields runtime offset with _ | offsetVal
       · trivial
       · simp only [Bind.bind, Option.bind, Pure.pure]
-        norm_num [Compiler.Constants.evmModulus]
+        have hle : runtime.world.returndataOptionalBool offsetVal ≤ 1 := by
+          unfold Verity.ContractState.returndataOptionalBool
+          split
+          · exact Nat.le_refl 1
+          · split
+            · exact Nat.le_refl 1
+            · exact Nat.zero_le 1
+        exact Nat.lt_of_le_of_lt hle (by norm_num [Compiler.Constants.evmModulus])
   | @keccak256 offset size _ _ ihO ihS =>
       show (do
         let off ← SourceSemantics.evalExpr fields runtime offset
