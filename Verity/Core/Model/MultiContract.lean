@@ -42,14 +42,17 @@ def upsert (w : MultiWorld) (addr : Address) (s : ContractState) : MultiWorld :=
     { accounts := w.accounts ++ [{ address := addr, state := s }] }
 
 /-- Call-frame context installed on the callee: sender, this, msg.value,
-    and `selfBalance` after receiving `value`. -/
+    and `selfBalance` after receiving `value`. The EIP-211 returndata buffer
+    is frame-local, so the callee enters with an empty buffer rather than the
+    caller's. -/
 def withCallContext (callee : ContractState) (caller this : Address)
     (value : Core.Uint256) : ContractState :=
   { callee with
     sender := caller
     thisAddress := this
     msgValue := value
-    selfBalance := callee.selfBalance + value }
+    selfBalance := callee.selfBalance + value
+    returndata := [] }
 
 def totalSelfBalance (w : MultiWorld) : Nat :=
   w.accounts.foldl (fun acc a => acc + a.state.selfBalance.val) 0
@@ -341,6 +344,14 @@ theorem withCallContext_this (callee : ContractState)
 theorem withCallContext_sender (callee : ContractState)
     (caller this : Address) (value : Core.Uint256) :
     (withCallContext callee caller this value).sender = caller :=
+  rfl
+
+/-- EIP-211: the callee enters its call frame with an empty returndata
+    buffer; the caller's buffer is frame-local and cannot leak across the
+    call boundary. -/
+theorem withCallContext_returndata (callee : ContractState)
+    (caller this : Address) (value : Core.Uint256) :
+    (withCallContext callee caller this value).returndata = [] :=
   rfl
 
 theorem callValue_none_of_cannot_pay (w : MultiWorld)

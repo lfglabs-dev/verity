@@ -84,7 +84,10 @@ def debitSelfBalance (w : ContractState) (value : Nat) : Option ContractState :=
 
 /-- Successful `call` commits the adversary transition, journals, debits
     ETH, and writes returndata into memory. Failure / revert keeps the
-    pre-call balance and still journals. -/
+    pre-call balance and still journals. Every outcome installs the observed
+    result data as the EIP-211 returndata buffer, matching `Denote.execStmt`
+    and the source oracle lanes: success and revert carry their payload,
+    `failure` clears the buffer. -/
 def applyRawCall (env : CallEnv) (state : DenoteState) (site : CallSite)
     (outOff outSize : Nat) : Option (Nat × DenoteState) :=
   match site.kind with
@@ -97,10 +100,12 @@ def applyRawCall (env : CallEnv) (state : DenoteState) (site : CallSite)
           match obs.result with
           | .success data =>
               let mem := writeMemoryWords obs.state.world.memory outOff data outSize
-              some (1, { state with world := { obs.state.world with memory := mem } })
+              some (1, { state with world := { obs.state.world with
+                memory := mem, returndata := data.map wordNormalize } })
           | .failure _ | .revert _ =>
               some (0, { state with
                 world := { state.world with
+                  returndata := obs.result.returndata.map wordNormalize
                   calls := state.world.calls ++
                     [journalEntry site obs.result] } })
   | .staticcall | .delegatecall =>
@@ -109,10 +114,12 @@ def applyRawCall (env : CallEnv) (state : DenoteState) (site : CallSite)
       match obs.result with
       | .success data =>
           let mem := writeMemoryWords obs.state.world.memory outOff data outSize
-          some (1, { state with world := { obs.state.world with memory := mem } })
+          some (1, { state with world := { obs.state.world with
+            memory := mem, returndata := data.map wordNormalize } })
       | .failure _ | .revert _ =>
           some (0, { state with
             world := { state.world with
+              returndata := obs.result.returndata.map wordNormalize
               calls := state.world.calls ++
                 [journalEntry site obs.result] } })
 
@@ -186,7 +193,8 @@ def execExternalCallBind (env : CallEnv) (fields : List Field)
               else
                 .continue
                   { state with
-                    world := obs.state.world
+                    world := { obs.state.world with
+                      returndata := data.map wordNormalize }
                     bindings := bindResultWords state.bindings resultVars data }
           | .failure _ | .revert _ => .revert
   | _, _ => .revert
@@ -213,7 +221,8 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
           | .success data =>
               .continue
                 { state with
-                  world := obs.state.world
+                  world := { obs.state.world with
+                    returndata := data.map wordNormalize }
                   bindings :=
                     bindResultWords
                       (bindValue state.bindings successVar 1) resultVars data }
@@ -222,6 +231,7 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
                 { state with
                   world :=
                     { state.world with
+                      returndata := obs.result.returndata.map wordNormalize
                       calls := state.world.calls ++
                         [journalEntry site obs.result] }
                   bindings := bindValue state.bindings successVar 0 }

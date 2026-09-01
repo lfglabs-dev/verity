@@ -1578,7 +1578,16 @@ def withTransactionContext (world : Verity.ContractState) (tx : DenoteTransactio
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
+
+/-- EIP-211 makes the returndata buffer frame-local: the transaction frame
+    starts empty, so a buffer left over from an earlier execution cannot be
+    observed by this frame's `returndatasize()` reads. -/
+theorem returndata_withTransactionContext (world : Verity.ContractState)
+    (tx : DenoteTransaction) :
+    (withTransactionContext world tx).returndata = [] :=
+  rfl
 
 /-- Canonical denotation of an external function of the deep model.
 Mirrors `SourceSemantics.interpretFunction` with the event-less statement

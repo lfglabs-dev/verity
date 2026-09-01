@@ -2850,6 +2850,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnExpr_of_subset
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_returndata
+  Compiler.Proofs.IRGeneration.FunctionBody.initialIRStateForTx_returndata
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_ident_of_exact_bindings
@@ -4497,6 +4498,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams
   Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_none_of_not_length_le
   Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_take_param_length
+  Compiler.Proofs.IRGeneration.SourceSemantics.returndata_withTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.returndata_withConstructorTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.storage_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.storageAddr_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.storageArray_withTransactionContext
@@ -4626,6 +4629,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_zero_extent_continues_on_nonempty_buffer  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_nonzero_extent_reverts  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndata_slice_does_not_widen_effect_surface  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.transaction_frame_entry_reads_zero_returndatasize  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.constructor_frame_entry_reads_zero_returndatasize  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.denote_transaction_frame_entry_reads_zero_returndatasize  -- private
 
   -- Compiler/Proofs/IRGeneration/SpliceSimulation.lean
   Compiler.Proofs.IRGeneration.SpliceSim.loopFree
@@ -7462,4 +7468,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6906 theorems/lemmas (4930 public, 1976 private, 0 sorry'd)
+-- Total: 6912 theorems/lemmas (4933 public, 1979 private, 0 sorry'd)

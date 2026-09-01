@@ -3519,7 +3519,8 @@ def withTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
 
 def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     Verity.ContractState :=
@@ -3533,7 +3534,20 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
+
+/-- EIP-211 makes the returndata buffer frame-local: every transaction frame
+    starts empty, so a buffer left over from an earlier execution (e.g. a
+    post-state world) cannot be observed by this frame's `returndatasize()`. -/
+@[simp] theorem returndata_withTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withTransactionContext world tx).returndata = [] := rfl
+
+/-- The constructor frame enters with an empty EIP-211 buffer as well. -/
+@[simp] theorem returndata_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withConstructorTransactionContext world tx).returndata = [] := rfl
 
 /-- Call-frame updates keep `storageWords`, so the storage views are unchanged. -/
 @[simp] theorem storage_withTransactionContext

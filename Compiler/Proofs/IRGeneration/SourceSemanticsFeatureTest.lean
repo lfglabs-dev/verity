@@ -831,4 +831,48 @@ private theorem returndata_slice_does_not_widen_effect_surface :
       (.externalCallBind ["x"] "transfer" [.literal 100]) = true := by
   native_decide
 
+/-! #### Frame-entry reset (EIP-211): the buffer is frame-local
+
+Regression for the entry-helper family: a world carrying a stale buffer (for
+example the post-state of an earlier transaction) must not leak into the next
+transaction's frame. Every entry lane reads `returndatasize() == 0`. -/
+
+private def runtimeStateIn (world : Verity.ContractState) : SourceSemantics.RuntimeState :=
+  { world := world
+    bindings := []
+    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallIndex := 0 }
+
+private def irTxProbe : IRTransaction :=
+  { sender := 1, functionSelector := 0x70a08231, args := [] }
+
+/-- Regression: `SourceSemantics.withTransactionContext` drops the stale
+buffer at frame entry. Under the pre-fix initializer this read `96`
+(three stale words × 32 bytes). -/
+private theorem transaction_frame_entry_reads_zero_returndatasize :
+    SourceSemantics.evalExpr []
+      (runtimeStateIn (SourceSemantics.withTransactionContext
+        (worldWithReturndataAndMemory [9, 9, 9] 0) irTxProbe))
+      .returndataSize = some 0 := by
+  native_decide
+
+/-- The constructor frame enters empty as well. -/
+private theorem constructor_frame_entry_reads_zero_returndatasize :
+    SourceSemantics.evalExpr []
+      (runtimeStateIn (SourceSemantics.withConstructorTransactionContext
+        (worldWithReturndataAndMemory [9, 9, 9] 0) irTxProbe))
+      .returndataSize = some 0 := by
+  native_decide
+
+/-- Compiler-free denotation lane agrees: `Denote.withTransactionContext`
+resets the buffer at entry too. -/
+private theorem denote_transaction_frame_entry_reads_zero_returndatasize :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      { world := Compiler.CompilationModel.Denote.withTransactionContext
+          (worldWithReturndataAndMemory [9, 9, 9] 0)
+          { sender := 1, functionSelector := 0x70a08231, args := [] }
+        bindings := [] }
+      .returndataSize = some 0 := by
+  native_decide
+
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

@@ -181,7 +181,18 @@ def initialIRStateForTx
     selector := tx.functionSelector
     events := SourceSemantics.encodeEvents initialWorld.events
     codeSize := fun addr => (initialWorld.codeSize addr).val
-    returndata := initialWorld.returndata }
+    returndata := [] }
+
+/-- EIP-211 makes the returndata buffer frame-local, so the IR frame enters
+    empty: a stale buffer from the initial world's earlier execution must not
+    reach `returndatasize()` reads in this transaction. This reset aligns with
+    `SourceSemantics.returndata_withTransactionContext`, preserving the
+    `runtimeStateMatchesIR` returndata conjunct at frame entry. -/
+theorem initialIRStateForTx_returndata
+    (spec : CompilationModel)
+    (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    (initialIRStateForTx spec tx initialWorld).returndata = [] := rfl
 
 @[simp] theorem bindingsMatchIRVars_nil_initialIRStateForTx
     (spec : CompilationModel)
