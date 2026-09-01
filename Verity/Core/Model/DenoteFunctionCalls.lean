@@ -87,13 +87,16 @@ def debitSelfBalance (w : ContractState) (value : Nat) : Option ContractState :=
     pre-call balance and still journals. Every outcome installs the observed
     result data as the EIP-211 returndata buffer, matching `Denote.execStmt`
     and the source oracle lanes: success and revert carry their payload,
-    `failure` clears the buffer. -/
+    `failure` — including a `call` the caller cannot fund — clears the
+    buffer. -/
 def applyRawCall (env : CallEnv) (state : DenoteState) (site : CallSite)
     (outOff outSize : Nat) : Option (Nat × DenoteState) :=
   match site.kind with
   | .call =>
       match debitSelfBalance state.world site.value with
-      | none => some (0, state)
+      | none =>
+          some (0, { state with
+            world := { state.world with returndata := [] } })
       | some paid =>
           let obs := denoteCallJournaled env.adversary site
             { world := paid, gasRemaining := site.gas }
@@ -210,6 +213,7 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
       | none =>
           .continue
             { state with
+              world := { state.world with returndata := [] }
               bindings := bindValue state.bindings successVar 0 }
       | some paid =>
           let site : CallSite :=

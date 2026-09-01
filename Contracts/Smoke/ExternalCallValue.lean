@@ -106,6 +106,33 @@ example :
       [.literal 7]) = some [7] := by
   native_decide
 
+/-! #### Insufficient caller balance (PR #2400 Codex P1, round 2)
+
+A value-bearing `call` the caller cannot fund fails with empty returndata;
+the stale pre-call buffer must not survive the attempt. Reproduced first
+against the pre-fix head: both lanes kept the caller's `[3]`. -/
+
+private def unfundedCallSite : CallSite :=
+  { siteId := 0, kind := .call, target := 9, value := 200, calldata := [7], gas := 1000 }
+
+private def unaffordableEnv : CallEnv :=
+  { oracle := probeOracle
+    adversary := echoAdversary
+    resolve := fun _ => some { target := 9, value := 200, siteId := 0 } }
+
+/-- Regression: `applyRawCall` fails the unfundable `call` with bit 0 and
+clears the buffer; the stale `[3]` cannot survive the attempt. -/
+example :
+    callBitBuffer (applyRawCall echoEnv staleCaller unfundedCallSite 0 0) = some (0, []) := by
+  native_decide
+
+/-- Regression: the try-lane insufficient-funds branch binds failure and
+clears the buffer instead of preserving the pre-call `[3]`. -/
+example :
+    outcomeBuffer (execTryExternalCallBind unaffordableEnv [] staleCaller "ok" ["r"]
+      "linked" [.literal 7]) = some [] := by
+  native_decide
+
 /-! #### Call-frame entry reset -/
 
 /-- Two-account world whose callee still carries a stale buffer from an
