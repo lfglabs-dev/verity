@@ -155,4 +155,60 @@ example :
       (fun frame => frame.calleeEntry.returndata) = some [] := by
   native_decide
 
+/-! #### Round-3 Codex P1s: caller-side install and self-delegate entry
+
+The framed multi-contract path must install the observed call result into
+the *caller's* EIP-211 buffer on every outcome, and a self-delegate frame
+must still enter with an empty buffer. Reproduced first against the
+pre-fix head: the caller kept its stale `[3]` across its own outbound
+call, and the self-delegate body inherited the account's `[3]`. -/
+
+private def staleCallerEntryWorld : MultiWorld :=
+  { accounts :=
+      [ { address := busAddr
+          state :=
+            { Verity.defaultState with
+              thisAddress := busAddr, selfBalance := 10, returndata := [3] } }
+      , { address := gatewayAddr
+          state := { Verity.defaultState with thisAddress := gatewayAddr } } ] }
+
+private def framedSuccessBody (_frame : CallFrame) : CalleeExecution :=
+  { result := .success [5], post := Verity.defaultState }
+
+private def framedRevertBody (_frame : CallFrame) : CalleeExecution :=
+  { result := .revert [5], post := Verity.defaultState }
+
+/-- Regression: the framed call installs the callee's payload into the
+caller's EIP-211 buffer; the caller's stale `[3]` cannot survive its own
+outbound call. -/
+example :
+    (Verity.MultiContract.call staleCallerEntryWorld busAddr gatewayAddr busCallSite framedSuccessBody).map
+      (fun observation => (lookup observation.world busAddr).returndata) = some [5] := by
+  native_decide
+
+/-- Regression: a reverting framed call installs the revert payload into
+the caller's buffer. -/
+example :
+    (Verity.MultiContract.call staleCallerEntryWorld busAddr gatewayAddr busCallSite framedRevertBody).map
+      (fun observation => (lookup observation.world busAddr).returndata) = some [5] := by
+  native_decide
+
+/-- Regression: `callValue` clears the caller's buffer, matching the empty
+result it journals. -/
+example :
+    (callValue staleCallerEntryWorld busAddr gatewayAddr 0).map
+      (fun world => (lookup world busAddr).returndata) = some [] := by
+  native_decide
+
+private def selfDelegateSite : CallSite :=
+  { siteId := 0, kind := .delegatecall, target := busAddr.toNat, value := 0,
+    calldata := [], gas := 1000 }
+
+/-- Regression: a self-delegate frame enters with an empty buffer; the
+account's stale `[3]` cannot cross the frame boundary. -/
+example :
+    (selfDelegateEntry staleCallerEntryWorld busAddr selfDelegateSite).map
+      (fun frame => frame.calleeEntry.returndata) = some [] := by
+  native_decide
+
 end Contracts.Smoke.ExternalCallValue
