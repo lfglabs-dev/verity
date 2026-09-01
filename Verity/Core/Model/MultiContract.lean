@@ -200,7 +200,9 @@ def selfDelegateEntry (w : MultiWorld) (addr : Address) (site : CallSite) :
         calleeEntry := { st with thisAddress := addr, returndata := [] } }
 
 /-- Same-account commit: success replaces `addr` with `post` (plus journal);
-    failure/revert restore the pre-call snapshot and still journal. -/
+    failure/revert restore the pre-call snapshot and still journal. Every
+    outcome installs the delegate body's result as the resumed frame's
+    EIP-211 returndata buffer. -/
 def executeSelfDelegate (w : MultiWorld) (addr : Address) (frame : CallFrame)
     (runBody : CallFrame → CalleeExecution) : FramedCallObservation :=
   let execution := runBody frame
@@ -209,6 +211,8 @@ def executeSelfDelegate (w : MultiWorld) (addr : Address) (frame : CallFrame)
     { (match execution.result with
         | .success _ => execution.post
         | .failure _ | .revert _ => frame.callerBefore) with
+      returndata := execution.result.returndata.map
+        Compiler.CompilationModel.Denote.wordNormalize
       calls := frame.callerBefore.calls ++ [entry] }
   { frame := frame, result := execution.result, world := upsert w addr journaled }
 
