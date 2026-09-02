@@ -711,4 +711,168 @@ private theorem ecm_writing_module_effectSurface_blocked :
     stmtTouchesUnsupportedEffectSurface (.ecm probeEcmWriting [.literal 7]) = true := by
   native_decide
 
+/-! ### First-class EIP-211 returndata buffer
+
+`returndatasize()` used to be modeled as the constant `0`, which was sound only
+while the admitted fragment issued no call-family instruction. The oracle lanes
+broke that premise, so the buffer is now a real field. -/
+
+private def stateWithReturndata (ws : List Nat) : SourceSemantics.RuntimeState :=
+  { world := { Verity.defaultState with returndata := ws }
+    bindings := []
+    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallIndex := 0 }
+
+private def worldWithReturndataAndMemory (ws : List Nat) (m : Nat) : Verity.ContractState :=
+  { Verity.defaultState with
+    returndata := ws
+    memory := fun _ => (m : Verity.Core.Uint256) }
+
+private def stateWithReturndataAndMemory (ws : List Nat) (m : Nat) :
+    SourceSemantics.RuntimeState :=
+  { world := worldWithReturndataAndMemory ws m
+    bindings := []
+    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallIndex := 0 }
+
+private def denoteStateWithReturndataAndMemory (ws : List Nat) (m : Nat) :
+    Compiler.CompilationModel.Denote.DenoteState :=
+  { world := worldWithReturndataAndMemory ws m, bindings := [] }
+
+private def resultReturndata (r : SourceSemantics.StmtResult) : Option (List Nat) :=
+  match r with | .continue s => some s.world.returndata | _ => none
+
+/-- An untouched frame still reports an empty buffer, so every previously proved
+statement about this fragment keeps its old meaning. -/
+private theorem returndataSize_empty_buffer_is_zero :
+    SourceSemantics.evalExpr [] (stateWithReturndata []) .returndataSize = some 0 := by
+  native_decide
+
+/-- `returndatasize()` is a *byte* count: three returned words are 96 bytes. -/
+private theorem returndataSize_counts_bytes_not_words :
+    SourceSemantics.evalExpr [] (stateWithReturndata [1, 2, 3]) .returndataSize = some 96 := by
+  native_decide
+
+/-- The compiler-free denotation agrees on the nose. -/
+private theorem returndataSize_denote_agrees :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      (denoteStateWithReturndataAndMemory [1, 2, 3] 0) .returndataSize = some 96 := by
+  native_decide
+
+/-- A successful external call installs the callee's words as the buffer. -/
+private theorem externalCallBind_success_installs_returndata :
+    resultReturndata (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccess42)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some [42] := by
+  native_decide
+
+/-- EIP-211 refills the buffer on failure too, which is what lets the compiled
+`returndatacopy(0, 0, returndatasize())` idiom bubble a callee's revert reason.
+Regression: would fail if only the success lane installed the buffer. -/
+private theorem tryExternalCallBind_failure_installs_returndata :
+    resultReturndata (SourceSemantics.execStmt []
+      (mkState [("ok", 0), ("result", 0)] oracleFail0)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = some [0] := by
+  native_decide
+
+/-- A read-only module refills the buffer as well: a `staticcall` still returns data. -/
+private theorem ecm_static_module_installs_returndata :
+    resultReturndata (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedCalls)
+      (.ecm probeEcmStatic [.literal 7])) = some [42] := by
+  native_decide
+
+/-- The optional-bool check the compiler emits for ERC-20 style callees: a callee
+that returns nothing counts as success. -/
+private theorem returndataOptionalBool_empty_buffer_is_true :
+    SourceSemantics.evalExpr [] (stateWithReturndata []) (.returndataOptionalBoolAt (.literal 0))
+      = some 1 := by
+  native_decide
+
+/-- One returned word equal to `true` counts as success. -/
+private theorem returndataOptionalBool_single_true_word_is_true :
+    SourceSemantics.evalExpr [] (stateWithReturndataAndMemory [1] 1)
+      (.returndataOptionalBoolAt (.literal 0)) = some 1 := by
+  native_decide
+
+/-- One returned word equal to `false` counts as failure. Under the old constant-`0`
+model this evaluated to `1`, which was an unsound read of the frame. -/
+private theorem returndataOptionalBool_single_false_word_is_false :
+    SourceSemantics.evalExpr [] (stateWithReturndataAndMemory [0] 0)
+      (.returndataOptionalBoolAt (.literal 0)) = some 0 := by
+  native_decide
+
+/-- A callee returning more than one word fails the check whatever memory holds. -/
+private theorem returndataOptionalBool_two_words_is_false :
+    SourceSemantics.evalExpr [] (stateWithReturndataAndMemory [1, 1] 1)
+      (.returndataOptionalBoolAt (.literal 0)) = some 0 := by
+  native_decide
+
+private theorem returndataOptionalBool_denote_agrees :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      (denoteStateWithReturndataAndMemory [0] 0)
+      (.returndataOptionalBoolAt (.literal 0)) = some 0 := by
+  native_decide
+
+/-- `returndataCopy` stays conservative on a non-empty buffer: only the zero-extent
+copy continues, every other extent is the EVM's exceptional halt. -/
+private theorem returndataCopy_zero_extent_continues_on_nonempty_buffer :
+    isContinue (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 0))) = true := by
+  native_decide
+
+private theorem returndataCopy_nonzero_extent_reverts :
+    isRevert (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 32))) = true := by
+  native_decide
+
+/-- This slice does not widen the proved fragment: the call-family constructors
+that can now refill the buffer stay gated exactly as before. -/
+private theorem returndata_slice_does_not_widen_effect_surface :
+    stmtTouchesUnsupportedEffectSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = true := by
+  native_decide
+
+/-! #### Frame-entry reset (EIP-211): the buffer is frame-local
+
+Regression for the entry-helper family: a world carrying a stale buffer (for
+example the post-state of an earlier transaction) must not leak into the next
+transaction's frame. Every entry lane reads `returndatasize() == 0`. -/
+
+private def runtimeStateIn (world : Verity.ContractState) : SourceSemantics.RuntimeState :=
+  { world := world
+    bindings := []
+    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallIndex := 0 }
+
+private def irTxProbe : IRTransaction :=
+  { sender := 1, functionSelector := 0x70a08231, args := [] }
+
+/-- Regression: `SourceSemantics.withTransactionContext` drops the stale
+buffer at frame entry. Under the pre-fix initializer this read `96`
+(three stale words × 32 bytes). -/
+private theorem transaction_frame_entry_reads_zero_returndatasize :
+    SourceSemantics.evalExpr []
+      (runtimeStateIn (SourceSemantics.withTransactionContext
+        (worldWithReturndataAndMemory [9, 9, 9] 0) irTxProbe))
+      .returndataSize = some 0 := by
+  native_decide
+
+/-- The constructor frame enters empty as well. -/
+private theorem constructor_frame_entry_reads_zero_returndatasize :
+    SourceSemantics.evalExpr []
+      (runtimeStateIn (SourceSemantics.withConstructorTransactionContext
+        (worldWithReturndataAndMemory [9, 9, 9] 0) irTxProbe))
+      .returndataSize = some 0 := by
+  native_decide
+
+/-- Compiler-free denotation lane agrees: `Denote.withTransactionContext`
+resets the buffer at entry too. -/
+private theorem denote_transaction_frame_entry_reads_zero_returndatasize :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      { world := Compiler.CompilationModel.Denote.withTransactionContext
+          (worldWithReturndataAndMemory [9, 9, 9] 0)
+          { sender := 1, functionSelector := 0x70a08231, args := [] }
+        bindings := [] }
+      .returndataSize = some 0 := by
+  native_decide
+
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

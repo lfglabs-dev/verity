@@ -84,23 +84,31 @@ def debitSelfBalance (w : ContractState) (value : Nat) : Option ContractState :=
 
 /-- Successful `call` commits the adversary transition, journals, debits
     ETH, and writes returndata into memory. Failure / revert keeps the
-    pre-call balance and still journals. -/
+    pre-call balance and still journals. Every outcome installs the observed
+    result data as the EIP-211 returndata buffer, matching `Denote.execStmt`
+    and the source oracle lanes: success and revert carry their payload,
+    `failure` — including a `call` the caller cannot fund — clears the
+    buffer. -/
 def applyRawCall (env : CallEnv) (state : DenoteState) (site : CallSite)
     (outOff outSize : Nat) : Option (Nat × DenoteState) :=
   match site.kind with
   | .call =>
       match debitSelfBalance state.world site.value with
-      | none => some (0, state)
+      | none =>
+          some (0, { state with
+            world := { state.world with returndata := [] } })
       | some paid =>
           let obs := denoteCallJournaled env.adversary site
             { world := paid, gasRemaining := site.gas }
           match obs.result with
           | .success data =>
               let mem := writeMemoryWords obs.state.world.memory outOff data outSize
-              some (1, { state with world := { obs.state.world with memory := mem } })
+              some (1, { state with world := { obs.state.world with
+                memory := mem, returndata := data.map wordNormalize } })
           | .failure _ | .revert _ =>
               some (0, { state with
                 world := { state.world with
+                  returndata := obs.result.returndata.map wordNormalize
                   calls := state.world.calls ++
                     [journalEntry site obs.result] } })
   | .staticcall | .delegatecall =>
@@ -109,10 +117,12 @@ def applyRawCall (env : CallEnv) (state : DenoteState) (site : CallSite)
       match obs.result with
       | .success data =>
           let mem := writeMemoryWords obs.state.world.memory outOff data outSize
-          some (1, { state with world := { obs.state.world with memory := mem } })
+          some (1, { state with world := { obs.state.world with
+            memory := mem, returndata := data.map wordNormalize } })
       | .failure _ | .revert _ =>
           some (0, { state with
             world := { state.world with
+              returndata := obs.result.returndata.map wordNormalize
               calls := state.world.calls ++
                 [journalEntry site obs.result] } })
 
@@ -186,7 +196,8 @@ def execExternalCallBind (env : CallEnv) (fields : List Field)
               else
                 .continue
                   { state with
-                    world := obs.state.world
+                    world := { obs.state.world with
+                      returndata := data.map wordNormalize }
                     bindings := bindResultWords state.bindings resultVars data }
           | .failure _ | .revert _ => .revert
   | _, _ => .revert
@@ -202,6 +213,7 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
       | none =>
           .continue
             { state with
+              world := { state.world with returndata := [] }
               bindings := bindValue state.bindings successVar 0 }
       | some paid =>
           let site : CallSite :=
@@ -213,7 +225,8 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
           | .success data =>
               .continue
                 { state with
-                  world := obs.state.world
+                  world := { obs.state.world with
+                    returndata := data.map wordNormalize }
                   bindings :=
                     bindResultWords
                       (bindValue state.bindings successVar 1) resultVars data }
@@ -222,6 +235,7 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
                 { state with
                   world :=
                     { state.world with
+                      returndata := obs.result.returndata.map wordNormalize
                       calls := state.world.calls ++
                         [journalEntry site obs.result] }
                   bindings := bindValue state.bindings successVar 0 }
@@ -442,9 +456,10 @@ theorem execStmt_externalCallBind_call_fails (oracle : DenoteOracle)
     execStmt oracle fields state (.externalCallBind vars name args) = .revert := by
   simp [execStmt, hargs, hfail]
 
-/-- A successful source-level external call advances the oracle receipt and
-    binds its returned words.  This pins the widened denotation to the exact
-    receipt consumed by `SourceSemantics`. -/
+/-- A successful source-level external call advances the oracle receipt, binds
+    its returned words and installs them as the EIP-211 returndata buffer.  This
+    pins the widened denotation to the exact receipt consumed by
+    `SourceSemantics`. -/
 theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
     (fields : List Field) (state : DenoteState)
     (vars : List String) (name : String) (args : List Expr) (vals : List Nat)
@@ -454,7 +469,9 @@ theorem execStmt_externalCallBind_call_succeeds (oracle : DenoteOracle)
     execStmt oracle fields state (.externalCallBind vars name args) =
       .continue
         { state with
-          world := (state.externalCallPostWorld state.externalCallIndex).getD state.world
+          world := { (state.externalCallPostWorld state.externalCallIndex).getD state.world with
+            returndata :=
+              (state.externalCallReturnValues state.externalCallIndex).map wordNormalize }
           bindings := bindValues state.bindings vars
             ((state.externalCallReturnValues state.externalCallIndex).map wordNormalize)
           externalCallIndex := state.externalCallIndex + 1 } := by

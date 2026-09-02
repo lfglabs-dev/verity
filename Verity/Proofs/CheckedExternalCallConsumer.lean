@@ -72,6 +72,8 @@ theorem lido_submit_success_world :
           (upsert lidoWorld vault
             { vaultBefore with
               selfBalance := vaultBefore.selfBalance - 3
+              returndata := [submitReceipt].map
+                Compiler.CompilationModel.Denote.wordNormalize
               calls := vaultBefore.calls ++
                 [framedJournalEntry
                   { caller := vault

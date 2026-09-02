@@ -350,6 +350,10 @@ structure ContractState where
       raising a monadic revert. -/
   calls : List ExternalCall := []
   codeSize : Nat → Uint256 := fun _ => 0
+  /-- EIP-211 returndata buffer, as 32-byte words. Empty at frame entry and
+      overwritten by each call-family instruction with the callee's return
+      data; `returndatasize()` is `32 * returndata.length`. -/
+  returndata : List Nat := []
 
 namespace ContractState
 
@@ -499,6 +503,8 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (s.writeSlot slot value).calls = s.calls := rfl
 @[simp] theorem codeSize_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).returndata = s.returndata := rfl
 
 @[simp] theorem storageWords_writeSlot (s : ContractState) (slot : Nat) (value : Uint256)
     (key : StorageKey) :
@@ -726,6 +732,9 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
 @[simp] theorem codeSize_writeMap (s : ContractState) (slot : Nat) (key : Address)
     (value : Uint256) :
     (s.writeMap slot key value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).returndata = s.returndata := rfl
 
 @[simp] theorem storageWords_writeMap (s : ContractState) (slot : Nat) (key : Address)
     (value : Uint256) (storageKey : StorageKey) :
@@ -775,6 +784,8 @@ def writeMapUint (s : ContractState) (slot : Nat) (key : Uint256) (value : Uint2
     (s.writeMapUint slot key value).events = s.events := rfl
 @[simp] theorem codeSize_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
     (s.writeMapUint slot key value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
+    (s.writeMapUint slot key value).returndata = s.returndata := rfl
 
 def readMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) : Uint256 :=
   s.storageMap2 slot key1 key2
@@ -825,6 +836,8 @@ def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Ui
     (s.writeMap2 slot key1 key2 value).events = s.events := rfl
 @[simp] theorem codeSize_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
+    (s.writeMap2 slot key1 key2 value).returndata = s.returndata := rfl
 
 def readArray (s : ContractState) (slot : Nat) : List Uint256 :=
   s.storageArray slot
@@ -967,6 +980,9 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
 @[simp] theorem codeSize_modifySlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :
     (s.modifySlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).returndata = s.returndata := rfl
 
 @[simp] theorem storageArray_writeSlots (s : ContractState) (targets : List Nat)
     (value : Uint256) :
@@ -1181,6 +1197,9 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
 @[simp] theorem codeSize_modifyTransientSlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :
     (s.modifyTransientSlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).returndata = s.returndata := rfl
 
 @[simp] theorem storage_withStorageChannel (s : ContractState)
     (f : (Nat → Uint256) → Nat → Uint256) :
@@ -1336,6 +1355,20 @@ nonzero bits above the 160-bit address payload. -/
 -- representation, so it survives the C5 step-3 flip).  Proofs that genuinely
 -- need the current raw representation unfold a specific lens by name
 -- (`simp [ContractState.writeSlot]`); those sites are the step-3 burn-down.
+
+/-- `returndatasize()` as a machine word. The EIP-211 buffer is modelled as a
+    list of 32-byte words, so its byte size is `32 * length` wrapped to a word. -/
+def returndataSize (s : ContractState) : Nat :=
+  ((32 * s.returndata.length : Nat) : Uint256).val
+
+/-- Word produced by the optional-bool return check the compiler emits for
+    ERC-20 style callees, `or(eq(returndatasize(), 0), and(eq(returndatasize(),
+    32), eq(mload(out), 1)))`: a callee that returns nothing is treated as
+    success, one that returns a single word must return `true`. -/
+def returndataOptionalBool (s : ContractState) (outOffset : Nat) : Nat :=
+  if s.returndataSize = 0 then 1
+  else if s.returndataSize = 32 ∧ (s.memory outOffset).val = 1 then 1
+  else 0
 
 end ContractState
 

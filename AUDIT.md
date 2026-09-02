@@ -298,6 +298,12 @@ sibling entrypoint.
 
 ## Returndata Surface (2026-08)
 
+> **Superseded in part by *First-Class Returndata Buffer (2026-08)* below.** The
+> constant-zero model recorded here was sound only while the admitted fragment
+> issued no call-family instruction. PRs #2398/#2399 added external-call oracle
+> lanes, so `returndatasize()` is now read from a real buffer. The
+> `returndataCopy` posture and the surface-gating notes below still hold.
+
 - `Expr.returndataSize` and `Stmt.returndataCopy` are now executed by the
   source interpreters, the compiler-free denotation, and the IR interpreter
   instead of falling through to an unmodeled revert. The model rests on
@@ -332,6 +338,53 @@ sibling entrypoint.
   surface rather than assuming one. `Expr.returndataOptionalBoolAt`,
   `Stmt.revertReturndata`, `extcodesize`, and `externalCallBind` remain
   unmodeled.
+
+## First-Class Returndata Buffer (2026-08)
+
+- Supersedes the "no-call invariant" justification recorded under *Returndata
+  Surface* above. That section rested on the admitted fragment issuing no
+  call-family instruction, so a frame's EIP-211 buffer stayed empty and
+  `returndatasize()` could be modeled as the constant `0`. Issue #2084
+  (PRs #2398, #2399) added the external-call oracle lanes
+  `Stmt.externalCallBind`, `Stmt.tryExternalCallBind` and `Stmt.ecm` to the
+  source semantics and the compiler-free denotation, which invalidated that
+  premise: a modeled call can now return words, and the constant `0` would have
+  been an unsound read of the resulting frame.
+- `Verity.ContractState` and `IRState` each gained a `returndata : List Nat`
+  field holding the callee's returned words. All three oracle lanes install the
+  receipt's `returnValues` through `SourceSemantics.returndataAfterCall`, on the
+  failure path as well as the success path, matching EIP-211: the buffer is
+  replaced by every call-family instruction regardless of outcome.
+- `ContractState.returndataSize` is `32 * returndata.length` normalized to a
+  word, and `ContractState.returndataOptionalBool` reproduces the
+  `or(eq(returndatasize(), 0), and(eq(returndatasize(), 32), eq(mload(out), 1)))`
+  shape the compiler emits for ERC-20 style callees. `Expr.returndataSize` and
+  `Expr.returndataOptionalBoolAt` now denote those functions at all three planes
+  (`SourceSemantics.evalExpr` / `evalExprWithHelpers`, `Denote.evalExpr`, and
+  `evalIRExpr` via the new `returndatasize` builtin branch), and the value-bound
+  induction discharges both from `Uint256.isLt` rather than from a constant.
+- `runtimeStateMatchesIR` and `constructorRuntimeStateMatchesIR` gained an
+  eighteenth conjunct, `state.returndata = runtime.world.returndata`, exposed as
+  `runtimeStateMatchesIR_returndata`. `initialIRStateForTx` seeds it from the
+  initial world. `evalIRExpr_returndataSize_of_runtimeStateMatchesIR` and
+  `eval_compileExpr_returndataOptionalBoolAt_of_compiled` are reproved against
+  the real buffer instead of against `some 0`.
+- `execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata` is
+  the renamed static-ECM preservation lemma; the buffer now joins memory and the
+  call log in the modulo set, since a static call still refills it.
+- No unsupported-surface predicate changed. `stmtTouchesUnsupported*Surface`
+  keeps gating the call-family constructors exactly as before, so no headline
+  theorem gains coverage and behaviour is identical at the default empty buffer.
+  This is a soundness repair of the model, not a fragment widening.
+- `Stmt.returndataCopy` stays conservative on both layers: `src + size = 0`
+  continues (it writes nothing whatever the buffer holds) and every other extent
+  is the EVM's exceptional halt, `.revert`. `SourceSemantics` and
+  `IRInterpreter` branch identically, so the two layers still agree on the nose.
+  Only the justifying comments needed correcting — "the buffer is empty in this
+  fragment" is now false, while "we conservatively under-approximate" is true.
+- No new axiom and no new trust assumption. `Contracts.returndataSize` in the
+  executable EDSL surface remains the constant-zero stub, alongside its
+  `calldatasize` / `mload` / `extcodesize` placeholder siblings.
 
 ## Pure `exp` Builtin Lane (2026-08)
 

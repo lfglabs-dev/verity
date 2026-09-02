@@ -829,6 +829,19 @@ structure ExternalCallOutcome where
 
 instance : Inhabited ExternalCallOutcome := ⟨⟨false, [], none⟩⟩
 
+/-- Install the EIP-211 returndata buffer left by a call receipt. The callee's
+    return data replaces the buffer wholesale on both the success and the
+    failure path, which is what lets the compiled `returndatacopy(0, 0,
+    returndatasize())` idiom bubble a callee revert reason. -/
+def returndataAfterCall (outcome : ExternalCallOutcome)
+    (world : Verity.ContractState) : Verity.ContractState :=
+  { world with returndata := outcome.returnValues.map wordNormalize }
+
+@[simp] theorem returndataAfterCall_returndata
+    (outcome : ExternalCallOutcome) (world : Verity.ContractState) :
+    (returndataAfterCall outcome world).returndata
+      = outcome.returnValues.map wordNormalize := rfl
+
 structure RuntimeState where
   world : Verity.ContractState
   immutable : String → Verity.Core.Uint256 := fun _ => 0
@@ -1221,9 +1234,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
-  -- The admitted fragment contains no call-family instruction, so by EIP-211
-  -- the EVM returndata buffer is still the empty buffer the frame started with.
-  | .returndataSize => some 0
+  | .returndataSize => some state.world.returndataSize
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr fields state a
@@ -1492,8 +1503,8 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
       let resolvedAddr ← evalExpr fields state addr
       some (state.world.codeSize (resolvedAddr % addressModulus)).val
   | .returndataOptionalBoolAt offset => do
-      let _ ← evalExpr fields state offset
-      some 1
+      let resolvedOffset ← evalExpr fields state offset
+      some (state.world.returndataOptionalBool resolvedOffset)
   -- The reserved `exp` builtin lane. `pow`/`^` in the EDSL surfaces as
   -- `externalCall builtinExpName [base, exponent]`, but it carries no foreign
   -- behaviour: the compiler lowers it to the pure Yul `exp` builtin.
@@ -1644,15 +1655,14 @@ private theorem evalExpr_calldatasize
     (state : RuntimeState) :
     evalExpr fields state .calldatasize = some state.world.calldataSize.val := rfl
 
-/-- `returndatasize()` in the admitted fragment.
-
-The supported fragment admits no `call`/`staticcall`/`delegatecall`/`create`
-instruction, so the EVM returndata buffer keeps the empty value EIP-211 gives it
-at frame entry. This matches the EDSL model (`Contracts.returndataSize = 0`). -/
+/-- `returndatasize()` reads the EIP-211 returndata buffer, measured in bytes.
+The buffer is empty at frame entry and is replaced wholesale by each call-family
+instruction with the callee's return data. -/
 private theorem evalExpr_returndataSize
     (fields : List Field)
     (state : RuntimeState) :
-    evalExpr fields state .returndataSize = some 0 := rfl
+    evalExpr fields state .returndataSize
+      = some state.world.returndataSize := rfl
 
 private theorem evalExpr_arrayLength
     (fields : List Field)
@@ -1751,7 +1761,8 @@ private theorem evalExpr_returndataOptionalBoolAt
     (state : RuntimeState)
     (a : Expr) :
     evalExpr fields state (.returndataOptionalBoolAt a) =
-      (evalExpr fields state a).bind (fun _ => some 1) := rfl
+      (evalExpr fields state a).bind
+        (fun resolvedOffset => some (state.world.returndataOptionalBool resolvedOffset)) := rfl
 
 private theorem evalExpr_keccak256
     (fields : List Field)
@@ -2681,9 +2692,11 @@ mutual
             evalExpr fields state size with
         | some _, some src, some sz =>
             -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
-            -- returndata buffer; in this fragment that buffer is empty, so the
-            -- only in-range copy is the zero-extent one, which leaves memory
-            -- untouched. Out-of-range copies are observed as a failed frame.
+            -- EIP-211 buffer. Rather than model the partial copy, only the
+            -- zero-extent copy is admitted -- it leaves memory untouched whatever
+            -- the buffer holds -- and every other extent is conservatively
+            -- observed as a failed frame. The IR interpreter branches the same
+            -- way, so the two layers agree on the nose.
             if src + sz = 0 then .continue state else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
@@ -2753,7 +2766,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -2768,7 +2782,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (outcome.returnValues.map wordNormalize)
@@ -2776,6 +2791,7 @@ mutual
             else
               .continue
                 { state with
+                    world := returndataAfterCall outcome state.world
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
@@ -2790,7 +2806,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := mod.committedWorld outcome.postCallWorld state.world
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -3045,9 +3062,11 @@ mutual
             evalExpr fields state size with
         | some _, some src, some sz =>
             -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
-            -- returndata buffer; in this fragment that buffer is empty, so the
-            -- only in-range copy is the zero-extent one, which leaves memory
-            -- untouched. Out-of-range copies are observed as a failed frame.
+            -- EIP-211 buffer. Rather than model the partial copy, only the
+            -- zero-extent copy is admitted -- it leaves memory untouched whatever
+            -- the buffer holds -- and every other extent is conservatively
+            -- observed as a failed frame. The IR interpreter branches the same
+            -- way, so the two layers agree on the nose.
             if src + sz = 0 then .continue state else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
@@ -3117,7 +3136,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -3132,7 +3152,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (outcome.returnValues.map wordNormalize)
@@ -3140,6 +3161,7 @@ mutual
             else
               .continue
                 { state with
+                    world := returndataAfterCall outcome state.world
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
@@ -3154,7 +3176,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := mod.committedWorld outcome.postCallWorld state.world
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -3207,9 +3230,11 @@ it does commit the receipt's modeled caller-local memory effects and the
 append-only call journal: a compiled `staticcall` writes its output into caller
 memory (e.g. a precompile digest at the caller-supplied output offset) and
 `externalCall` / `denoteCallJournaled` appends a journal entry to `calls`, so
-`writesState = false` preserves every caller-world field except `memory` and
-`calls`, which follow the receipt's post-call world. -/
-theorem execStmt_ecm_static_preserves_world_modulo_memory_and_calls
+`writesState = false` preserves every caller-world field except `memory`,
+`calls` and the EIP-211 `returndata` buffer. The first two follow the receipt's
+post-call world; the buffer is replaced by the receipt's return words, since a
+`staticcall` still leaves its callee's return data in the caller's frame. -/
+theorem execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata
     {fields : List Field} {state next : RuntimeState}
     {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
     (hstatic : mod.writesState = false)
@@ -3218,7 +3243,9 @@ theorem execStmt_ecm_static_preserves_world_modulo_memory_and_calls
       memory := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
         state.world).memory
       calls := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
-        state.world).calls } := by
+        state.world).calls
+      returndata := (state.externalCallOracle state.externalCallIndex).returnValues.map
+        wordNormalize } := by
   simp only [execStmt] at hrun
   split at hrun
   · split at hrun
@@ -3226,7 +3253,7 @@ theorem execStmt_ecm_static_preserves_world_modulo_memory_and_calls
       · cases hrun
       · injection hrun with h
         subst h
-        simp [Compiler.ECM.ExternalCallModule.committedWorld, hstatic]
+        simp [Compiler.ECM.ExternalCallModule.committedWorld, hstatic, returndataAfterCall]
     · cases hrun
   · cases hrun
 
@@ -3241,7 +3268,7 @@ theorem execStmt_ecm_static_preserves_calls
     next.world.calls =
       ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
         state.world).calls := by
-  have h := execStmt_ecm_static_preserves_world_modulo_memory_and_calls hstatic hrun
+  have h := execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata hstatic hrun
   rw [h]
 
 /-- Every committed `.ecm` step consumes exactly one call receipt, so distinct
@@ -3492,7 +3519,8 @@ def withTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
 
 def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     Verity.ContractState :=
@@ -3506,7 +3534,20 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
+
+/-- EIP-211 makes the returndata buffer frame-local: every transaction frame
+    starts empty, so a buffer left over from an earlier execution (e.g. a
+    post-state world) cannot be observed by this frame's `returndatasize()`. -/
+@[simp] theorem returndata_withTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withTransactionContext world tx).returndata = [] := rfl
+
+/-- The constructor frame enters with an empty EIP-211 buffer as well. -/
+@[simp] theorem returndata_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withConstructorTransactionContext world tx).returndata = [] := rfl
 
 /-- Call-frame updates keep `storageWords`, so the storage views are unchanged. -/
 @[simp] theorem storage_withTransactionContext
@@ -4008,7 +4049,7 @@ mutual
     | .blockNumber => some state.world.blockNumber.val
     | .blobbasefee => some state.world.blobBaseFee.val
     | .calldatasize => some state.world.calldataSize.val
-    | .returndataSize => some 0
+    | .returndataSize => some state.world.returndataSize
     | .localVar name => some (lookupValue state.bindings name)
     | .add a b => do
         let lhs : Verity.Core.Uint256 := ← evalExprWithHelpers spec fields fuel state a
@@ -4326,8 +4367,8 @@ mutual
     -- the 200 000-heartbeat ceiling whenever a new `Expr` constructor
     -- lands (verity#1842).
     | .returndataOptionalBoolAt offset => do
-        let _ ← evalExprWithHelpers spec fields fuel state offset
-        some 1
+        let resolvedOffset ← evalExprWithHelpers spec fields fuel state offset
+        some (state.world.returndataOptionalBool resolvedOffset)
     -- The reserved `exp` builtin lane: pure arithmetic wearing an
     -- `externalCall` node, so it needs no helper environment. Like the plain
     -- evaluator it reduces modulo 2^256 at every step so full-domain uint256
@@ -4709,7 +4750,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues state.bindings resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -4724,7 +4766,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := outcome.postCallWorld.getD state.world
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (outcome.returnValues.map wordNormalize)
@@ -4732,6 +4775,7 @@ mutual
             else
               .continue
                 { state with
+                    world := returndataAfterCall outcome state.world
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (outcome.returnValues.map wordNormalize)
@@ -4746,7 +4790,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := mod.committedWorld outcome.postCallWorld state.world
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
                       bindings := bindValues state.bindings mod.resultVars
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }

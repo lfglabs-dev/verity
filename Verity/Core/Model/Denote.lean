@@ -761,9 +761,8 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
-  -- Mirrors `SourceSemantics.evalExpr`: the modeled fragment performs no
-  -- call-family instruction, so the EIP-211 returndata buffer stays empty.
-  | .returndataSize => some 0
+  -- Mirrors `SourceSemantics.evalExpr`: `returndatasize()` in bytes.
+  | .returndataSize => some state.world.returndataSize
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields state a
@@ -1031,8 +1030,8 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       let resolvedAddr ← evalExpr oracle fields state addr
       some (state.world.codeSize (resolvedAddr % Compiler.Constants.addressModulus)).val
   | .returndataOptionalBoolAt offset => do
-      let _ ← evalExpr oracle fields state offset
-      some 1
+      let resolvedOffset ← evalExpr oracle fields state offset
+      some (state.world.returndataOptionalBool resolvedOffset)
   -- The reserved `exp` builtin lane: pure arithmetic wearing an `externalCall`
   -- node, so it needs no oracle. Genuine foreign calls stay undenoted.
   | .externalCall name [base, exponent] =>
@@ -1422,8 +1421,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := (state.externalCallPostWorld state.externalCallIndex).getD
-                        state.world
+                      world := { (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world with returndata := retVals.map wordNormalize }
                       bindings := bindValues state.bindings resultVars
                         (retVals.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -1438,8 +1437,8 @@ mutual
               else
                 .continue
                   { state with
-                      world := (state.externalCallPostWorld state.externalCallIndex).getD
-                        state.world
+                      world := { (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world with returndata := retVals.map wordNormalize }
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (retVals.map wordNormalize)
@@ -1447,6 +1446,8 @@ mutual
             else
               .continue
                 { state with
+                    world := { state.world with
+                      returndata := retVals.map wordNormalize }
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (retVals.map wordNormalize)
@@ -1461,8 +1462,9 @@ mutual
               else
                 .continue
                   { state with
-                      world := mod.committedWorld
-                        (state.externalCallPostWorld state.externalCallIndex) state.world
+                      world := { mod.committedWorld
+                        (state.externalCallPostWorld state.externalCallIndex) state.world with
+                        returndata := retVals.map wordNormalize }
                       bindings := bindValues state.bindings mod.resultVars
                         (retVals.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
@@ -1576,7 +1578,16 @@ def withTransactionContext (world : Verity.ContractState) (tx : DenoteTransactio
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
+
+/-- EIP-211 makes the returndata buffer frame-local: the transaction frame
+    starts empty, so a buffer left over from an earlier execution cannot be
+    observed by this frame's `returndatasize()` reads. -/
+theorem returndata_withTransactionContext (world : Verity.ContractState)
+    (tx : DenoteTransaction) :
+    (withTransactionContext world tx).returndata = [] :=
+  rfl
 
 /-- Canonical denotation of an external function of the deep model.
 Mirrors `SourceSemantics.interpretFunction` with the event-less statement

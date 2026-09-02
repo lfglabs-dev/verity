@@ -3185,9 +3185,10 @@ theorem compiledStmtStep_returndatacopy_empty_single
   preserves := compiledStmtStep_returndatacopy_empty_single_preserves
     hcoreDest hinScopeDest hdestIR
 
-/-- `revertReturndata` is an empty revert in the no-call fragment.  The
-compiler's temporary is exactly `returndatasize()`, which the shared EIP-211
-semantics evaluates to zero, so the copy is in range before `revert(0, 0)`. -/
+/-- `revertReturndata` bubbles the callee's revert reason.  The compiler's
+temporary is exactly `returndatasize()`; whichever branch the copy takes for the
+current EIP-211 buffer, both it and the following `revert` land in
+`IRExecResult.revert`, matching the source statement's `.revert`. -/
 private theorem compiledStmtStep_revertReturndata_empty_single_preserves
     {fields : List Field}
     {scope : List String} :
@@ -3223,7 +3224,8 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
         stmtStepMatchesIRExec fields (stmtNextScope scope .revertReturndata)
           sourceResult irExec := by
   intro runtime state extraFuel _ _ _ _ hslack
-  refine ⟨.revert, .revert (state.setVar "__returndata_size" 0), rfl, ?_, trivial⟩
+  refine ⟨.revert, .revert (state.setVar "__returndata_size"
+    (32 * state.returndata.length % Compiler.Constants.evmModulus)), rfl, ?_, trivial⟩
   have h3 : 3 ≤ extraFuel := by
     have : 4 ≤ sizeOf [YulStmt.block [
         YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
@@ -3258,6 +3260,9 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
   simp [execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
     IRState.getVar, IRState.setVar, hRevert]
+  -- The copy continues on a zero extent and reverts otherwise; the trailing
+  -- `revert` collapses both branches to the same reverted state.
+  split_ifs <;> rfl
 
 theorem compiledStmtStep_revertReturndata_empty_single
     {fields : List Field} {scope : List String} :

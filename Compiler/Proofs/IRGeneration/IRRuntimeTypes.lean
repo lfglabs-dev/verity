@@ -41,6 +41,8 @@ structure IRState where
   events : List (List Nat) := []
   /-- EXTCODESIZE at address (environment read, no state mutation). -/
   codeSize : Nat → Nat := fun _ => 0
+  /-- EIP-211 returndata buffer, as 32-byte words. -/
+  returndata : List Nat := []
   deriving Nonempty
 
 /-- Initial state for IR execution. -/
