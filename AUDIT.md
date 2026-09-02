@@ -392,8 +392,10 @@ sibling entrypoint.
 
 - Supersedes the conservative `returndataCopy` posture recorded above. Once the
   EIP-211 buffer is first-class (#2400), a `returndataCopy dst src size` whose
-  extent fits (`src + size ≤ 32 * buffer.length`) copies the buffer's words
-  into memory word-granularly instead of reverting; only out-of-bounds extents
+  extent fits (`src + size ≤ 32 * buffer.length`) copies the buffer's bytes
+  into memory instead of reverting — complete words are replaced and, when
+  `size % 32 ≠ 0`, the final partial destination word is merged with its
+  untouched low bytes; only out-of-bounds extents
   are observed as the EVM's exceptional halt, `.revert`. The semantics is
   identical on all four lanes — `SourceSemantics.execStmt` and
   `execStmtWithHelpers`, the compiler-free `Denote.execStmt`, and the IR
@@ -403,7 +405,11 @@ sibling entrypoint.
   (`Compiler.Proofs.YulGeneration.Calldata`): `returndataloadWord` is the
   byte-addressed, zero-extended read of the word list (no selector prefix), the
   destination region is the shared `calldatacopyWritesAt dst size` word range,
-  and `returndatacopyMemory` is the IR-side memory update. Every copied word is
+  and `returndatacopyMemoryPadded` is the IR-side memory update: the
+  complete-word kernel `returndatacopyMemory` plus, for `size % 32 ≠ 0`, the
+  ceiling-word merge that writes the high `size % 32` copied bytes while the
+  low bytes survive from memory — the returndata analogue of the
+  calldata lane's `calldatacopyMemoryPadded`. Every copied word is
   below the EVM modulus (`returndataloadWord_lt_evmModulus`), so
   `Uint256.ofNat` wrapping is the identity on the copied region.
 - `runtimeStateMatchesIR_returndatacopyBothMemory` is the new reusable bridge:
@@ -418,6 +424,16 @@ sibling entrypoint.
   `returndatacopy(destIR, srcIR, sizeIR)` step corresponds to
   `Stmt.returndataCopy destOffset sourceOffset size` for *every* extent — both
   layers branch on the same fit guard, so no side condition is needed.
+- Partial-extent repair (review round on #2401): the bounded update first
+  shipped as the complete-word kernel alone, so an in-bounds copy with
+  `size % 32 ≠ 0` — a one-byte copy being the smallest case — left the final
+  destination word unchanged, i.e. the copy was modelled as a no-op there. All
+  four lanes now apply the padded update above, and
+  `returndataCopy_one_byte_merges_ceiling_word` kernel-checks the regression:
+  the copied high byte lands and the 31-byte destination suffix survives.
+  `compiledStmtStep_returndatacopy_bounded_single` stays exposed for every
+  extent — no word-alignment restriction was added and no previously supported
+  behaviour was reclassified.
 - No unsupported-surface predicate changed: the generic proof fragment still
   admits only `returndataCopyEmptySingle`, so no headline theorem gains
   coverage. `Contracts.returndataCopy` in the executable EDSL remains a no-op
