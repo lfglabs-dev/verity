@@ -339,6 +339,45 @@ The EDSL path remains more expressive (supports arbitrary Lean, `List.foldl`, pa
 
 Internal helper call mechanics are available end-to-end, but first-class compositional proof reuse at the helper boundary is still incomplete. Today, internal helpers compile, validate, and execute through `execStmtsFuel`; the source-semantics layer now has explicit helper-summary soundness and direct-call consumption lemmas, but those summaries are not yet threaded through the body/IR preservation proofs across callers. That remaining proof-level gap is tracked in the Layer 2 completeness roadmap under [#1630](https://github.com/lfglabs-dev/verity/issues/1630), with the current interface/boundary refactor landing in [#1633](https://github.com/lfglabs-dev/verity/pull/1633).
 
+### AdversaryModel unification lane
+
+Verity currently has four inconsistent external-call semantics: the macro
+default, the deterministic `Contracts.Common` stub, the adversarial oracle in
+`SourceSemantics`, and the model-level `AdversaryModel`. Their disagreement can
+silently permit false reentrancy invariants: a proof may omit the adversarial
+call effect while executable or compiled code still opens the call boundary.
+The target architecture has one explicit `AdversaryModel` threaded through
+source execution, macro-generated definitions, compilation proofs, and
+reentrancy reasoning. Forgetting the adversary must become a type error.
+
+The decided landing order is six reviewable PRs:
+
+1. Add `AdversaryModel.stub` and prove every current `Contracts.Common`
+   external-call primitive agrees with `ContractExternalCall.externalCall`
+   under that stub, modulo the established journal representation.
+2. Thread an explicit adversary through source-level external-call semantics,
+   retaining `.stub` only at executable compatibility boundaries.
+3. Retarget `verity_contract` expansion to the adversary-parameterized source
+   definitions and eliminate the macro's independent call default.
+4. Make `SourceSemantics` consume the same model and retire its separate
+   call-oracle/reentry interpretation.
+5. Generate and connect reentrancy entrypoint registries at real call sites,
+   then migrate `Reentrancy` and `CallbackBridge` consumers to the unified
+   boundary.
+6. Carry the explicit model through the generic compilation-preservation
+   theorem and delete the superseded compatibility semantics.
+
+Acceptance requires identical behavior under `.stub`, unchanged Foundry
+differential results, a compile-time failure when an adversary is omitted after
+the compatibility boundaries are removed, and kernel-checked equivalence and
+reentrancy proofs with no new axioms. Each PR must keep generated audit
+artifacts synchronized and all repository gates green. This lane does not
+widen the supported fragment, change external-call ABI/lowering behavior,
+model new call opcodes or gas rules, alter macro syntax before its scheduled
+PR, or redesign the already-decided architecture. In particular, PR1 is only
+the stub/equivalence foundation: no explicit adversary parameters, macro
+signature changes, or fragment widening land there.
+
 ### Interpreter feature-support contract
 
 A comprehensive feature matrix documents which CompilationModel constructs each interpreter supports, their proof status, and known limitations:
@@ -521,19 +560,22 @@ The older Phase 1 / Phase 2 / Phase 3 calendar framing is no longer accurate. Th
 
 ### Active Work
 
-1. **Layer 2 widening and completeness**
+1. **Close the gap with Solidity**
+   - Close the remaining `verity_contract` EDSL and interop gaps needed for production DeFi contracts.
+   - Tracking: [#1680](https://github.com/lfglabs-dev/verity/issues/1680), [#586](https://github.com/lfglabs-dev/verity/issues/586)
+
+2. **AdversaryModel unification**
+   - Make one explicit adversary the semantics of every external-call path; see the six-PR lane above.
+
+3. **Proven-fragment extension (Layer 2 widening and completeness)**
    - Thread helper-aware proof reuse, storage/event/call coverage, and richer observables into the generic whole-contract theorem.
    - Tracking: [#1630](https://github.com/lfglabs-dev/verity/issues/1630), [#1638](https://github.com/lfglabs-dev/verity/issues/1638)
 
-2. **Trust reduction**
+4. **Trust reduction**
    - Continue the EVMYulLean bridge work and reduce remaining axiomatized / trusted boundaries.
    - Tracking: [#1683](https://github.com/lfglabs-dev/verity/issues/1683)
 
-3. **Language and interop completeness**
-   - Close the remaining `verity_contract` EDSL gaps needed for production DeFi contracts.
-   - Tracking: [#1680](https://github.com/lfglabs-dev/verity/issues/1680), [#586](https://github.com/lfglabs-dev/verity/issues/586)
-
-4. **Documentation and artifact synchronization**
+5. **Documentation and artifact synchronization**
    - Keep generated metrics, trust assumptions, parity profiles, and public docs aligned with the codebase.
    - Tracking: [#1681](https://github.com/lfglabs-dev/verity/issues/1681), [#585](https://github.com/lfglabs-dev/verity/issues/585)
 
