@@ -20,13 +20,36 @@ private abbrev modelExternalCall :=
 def legacyPost (before after : ContractState) : ContractState :=
   { after with returndata := before.returndata }
 
+theorem commonExternalCall_eq_model (adv : AdversaryModel) (site : CallSite)
+    (state : ContractState) :
+    (commonExternalCall adv site).run state =
+      match modelExternalCall adv site state with
+      | .success result post => .success result (legacyPost state post)
+      | .revert message _ => .revert message state := rfl
+
 def stubCallResultWords {α : Type} [ExternalResult α] [Inhabited α]
-    (name : String) (args : List Uint256) : Contract (Call.Result α) :=
-  callResultWords name args .stub
+    (name : String) (args : List Uint256) : Contract (Call.Result α) := fun state =>
+  match modelExternalCall .stub (linkedCallSite name args 1) state with
+  | .success result post =>
+      .success
+        { success := result.succeeded
+          returndata := if result.succeeded then
+              ExternalResult.fromWord (Core.Uint256.ofNat (result.returndata.head?.getD 0))
+            else Inhabited.default }
+        (legacyPost state post)
+  | .revert message _ => .revert message state
 
 def stubTryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
-    (name : String) (args : List Uint256) : Contract (Bool × α) :=
-  tryExternalCallWords name args .stub
+    (name : String) (args : List Uint256) : Contract (Bool × α) := fun state =>
+  match modelExternalCall .stub (linkedCallSite name args 1) state with
+  | .success result post =>
+      .success
+        (result.succeeded,
+          if result.succeeded then
+            ExternalResult.fromWord (Core.Uint256.ofNat (result.returndata.head?.getD 0))
+          else Inhabited.default)
+        (legacyPost state post)
+  | .revert message _ => .revert message state
 
 def stubExternalCallBind {α : Type} [ExternalArg α]
     (names : List String) (name : String) (args : List α) : Contract Unit :=
@@ -38,22 +61,27 @@ def stubExternalCallBindTo {α : Type} [ExternalArg α]
   externalCallBindTo target value names name args .stub
 
 def stubErc20Read (name : String) (token : Address)
-    (args : List Uint256) : Contract Uint256 :=
-  erc20Read .stub name token args
+    (args : List Uint256) : Contract Uint256 := fun state =>
+  let site := linkedCallSite name args 1 .staticcall token.toNat 0
+    [Verity.addressToWord token]
+  match modelExternalCall .stub site state with
+  | .success result post =>
+      .success (Core.Uint256.ofNat (result.returndata.head?.getD 0))
+        (legacyPost state post)
+  | .revert message _ => .revert message state
 
 def stubErc20Write (name : String) (token : Address)
     (args : List Uint256) : Contract Unit :=
-  Verity.bind (modelExternalCall .stub
-      (linkedCallSite name args 0 .call token.toNat)) fun result =>
-    match result with
-    | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+  erc20Write .stub name token args
 
 theorem externalCallWords_eq_stub_result {α : Type} [ExternalResult α]
     (name : String) (args : List Uint256) :
     externalCallWords (α := α) name args .stub =
-      externalCallWords (α := α) name args .stub := rfl
+      match modelExternalCall .stub (linkedCallSite name args 1) defaultState with
+      | .success result post =>
+          ExternalResult.fromWord
+            (Core.Uint256.ofNat (result.returndata.head?.getD 0))
+      | .revert _ _ => ExternalResult.fromWord 0 := rfl
 
 theorem callResultWords_eq_stub {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (state : ContractState) :
@@ -91,7 +119,7 @@ theorem totalSupply_eq_stub (token : Address) (state : ContractState) :
 
 theorem erc20Write_eq_stub (name : String) (token : Address)
     (args : List Uint256) (state : ContractState) :
-    (stubErc20Write name token args).run state =
+    (erc20Write .stub name token args).run state =
       (stubErc20Write name token args).run state := rfl
 
 theorem safeTransfer_eq_stub (token toAddr : Address) (amount : Uint256)

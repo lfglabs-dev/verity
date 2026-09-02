@@ -631,38 +631,50 @@ private abbrev ExternalCallResult :=
 private abbrev modelExternalCall :=
   Compiler.CompilationModel.DenoteExternalCalls.externalCall
 
-private def resultWord (result : ExternalCallResult) : Uint256 :=
+def externalCallResultWord (result : ExternalCallResult) : Uint256 :=
   Core.Uint256.ofNat (result.returndata.head?.getD 0)
 
+/-- PR2 compatibility boundary. The unified model owns call execution and
+state evolution; Common temporarily retains its historical live-returndata
+projection until the macro default is removed in PR3. -/
+def commonExternalCall (adv : AdversaryModel)
+    (site : Compiler.CompilationModel.DenoteExternalCalls.CallSite) :
+    Contract ExternalCallResult := fun state =>
+  match modelExternalCall adv site state with
+  | .success result post =>
+      .success result { post with returndata := state.returndata }
+  | .revert message _ => .revert message state
+
 def externalCallWords {α : Type} [ExternalResult α] (name : String) (args : List Uint256)
-    (adv : AdversaryModel := .stub) : Contract α := do
-  let result ← modelExternalCall adv (linkedCallSite name args 1)
-  pure (ExternalResult.fromWord (resultWord result))
+    (adv : AdversaryModel := .stub) : α :=
+  match commonExternalCall adv (linkedCallSite name args 1) defaultState with
+  | .success result _ => ExternalResult.fromWord (externalCallResultWord result)
+  | .revert _ _ => ExternalResult.fromWord 0
 
 def callResultWords {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub) : Contract (Call.Result α) := do
-  let result ← modelExternalCall adv (linkedCallSite name args 1)
+  let result ← commonExternalCall adv (linkedCallSite name args 1)
   pure
     { success := result.succeeded
-      returndata := if result.succeeded then ExternalResult.fromWord (resultWord result)
+      returndata := if result.succeeded then ExternalResult.fromWord (externalCallResultWord result)
         else Inhabited.default }
 
 def tryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub) : Contract (Bool × α) := do
-  let result ← modelExternalCall adv (linkedCallSite name args 1)
+  let result ← commonExternalCall adv (linkedCallSite name args 1)
   pure (result.succeeded,
-    if result.succeeded then ExternalResult.fromWord (resultWord result)
+    if result.succeeded then ExternalResult.fromWord (externalCallResultWord result)
     else Inhabited.default)
 
 def externalCallBind {α : Type} [ExternalArg α]
     (names : List String) (name : String) (args : List α)
-    (adv : AdversaryModel := .stub) : Contract Unit :=
+    (adv : AdversaryModel := .stub) : Contract Unit := fun state =>
   let words := args.flatMap ExternalArg.toWords
-  Verity.bind (modelExternalCall adv (linkedCallSite name words names.length)) fun result =>
-    match result with
-    | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+  match (commonExternalCall adv (linkedCallSite name words names.length)).run state with
+  | .success (.success _) post => .success () post
+  | .success (.failure _) _ | .success (.revert _) _ =>
+      .revert "external call failed" state
+  | .revert message _ => .revert message state
 
 /-- Linked bind with explicit target and ETH value. Debits `selfBalance`
     only on success; insufficient balance or a failing stub reverts the
@@ -675,7 +687,7 @@ def externalCallBindTo {α : Type} [ExternalArg α]
   fun state =>
     if value ≤ state.selfBalance then
       let argWords := args.flatMap ExternalArg.toWords
-      match (modelExternalCall adv
+      match (commonExternalCall adv
           (linkedCallSite name argWords names.length .call target.toNat value.val)).run state with
       | .success (.success _) post =>
           ContractResult.success () { post with selfBalance := post.selfBalance - value }
@@ -700,39 +712,48 @@ definitional (`rfl`). -/
 @[simp] theorem externalCallBind_run {α : Type} [ExternalArg α]
     (adv : AdversaryModel) (names : List String) (name : String)
     (args : List α) (s : ContractState) :
-    (externalCallBind names name args adv).run s =
-      (let words := args.flatMap ExternalArg.toWords
-       Verity.bind (modelExternalCall adv (linkedCallSite name words names.length)) fun result =>
-         match result with
-         | .success _ => pure ()
-         | .failure _ | .revert _ => fun state =>
-             ContractResult.revert "external call failed" state).run s := rfl
+    externalCallBind names name args adv s =
+      match (commonExternalCall adv
+          (linkedCallSite name (args.flatMap ExternalArg.toWords) names.length)).run s with
+      | .success (.success _) post => ContractResult.success () post
+      | .success (.failure _) _ | .success (.revert _) _ =>
+          ContractResult.revert "external call failed" s
+      | .revert message _ => ContractResult.revert message s := rfl
 
 theorem externalCallBindTo_run {α : Type} [ExternalArg α]
     (adv : AdversaryModel)
     (target : Address) (value : Uint256)
     (names : List String) (name : String) (args : List α) (s : ContractState) :
-    (externalCallBindTo target value names name args adv).run s =
-      (externalCallBindTo target value names name args adv).run s := rfl
+    externalCallBindTo target value names name args adv s =
+      if value ≤ s.selfBalance then
+        match (commonExternalCall adv
+            (linkedCallSite name (args.flatMap ExternalArg.toWords) names.length
+              .call target.toNat value.val)).run s with
+        | .success (.success _) post =>
+            ContractResult.success () { post with selfBalance := post.selfBalance - value }
+        | .success (.failure _) _ | .success (.revert _) _ =>
+            ContractResult.revert "external call failed" s
+        | .revert message _ => ContractResult.revert message s
+      else ContractResult.revert "insufficient balance" s := rfl
 
 @[simp] theorem callResultWords_run {α : Type} [ExternalResult α] [Inhabited α]
     (adv : AdversaryModel) (name : String) (args : List Uint256) (s : ContractState) :
     (callResultWords (α := α) name args adv).run s =
       (do
-        let result ← modelExternalCall adv (linkedCallSite name args 1)
+        let result ← commonExternalCall adv (linkedCallSite name args 1)
         pure
           (show Call.Result α from
           { success := result.succeeded
-            returndata := if result.succeeded then ExternalResult.fromWord (resultWord result)
+            returndata := if result.succeeded then ExternalResult.fromWord (externalCallResultWord result)
               else Inhabited.default })).run s := rfl
 
 @[simp] theorem tryExternalCallWords_run {α : Type} [ExternalResult α] [Inhabited α]
     (adv : AdversaryModel) (name : String) (args : List Uint256) (s : ContractState) :
     (tryExternalCallWords (α := α) name args adv).run s =
       (do
-        let result ← modelExternalCall adv (linkedCallSite name args 1)
+        let result ← commonExternalCall adv (linkedCallSite name args 1)
         pure (result.succeeded,
-          if result.succeeded then ExternalResult.fromWord (resultWord result)
+          if result.succeeded then ExternalResult.fromWord (externalCallResultWord result)
           else Inhabited.default)).run s := rfl
 
 private def erc20ReadStubWord (name : String) (args : List Uint256) : Uint256 :=
@@ -790,18 +811,18 @@ def erc20ReadEntry (name : String) (token : Address) (args : List Uint256)
 
 def erc20Read (adv : AdversaryModel) (name : String) (token : Address)
     (args : List Uint256) : Contract Uint256 := do
-  let result ← modelExternalCall adv
+  let result ← commonExternalCall adv
     (linkedCallSite name args 1 .staticcall token.toNat 0 [Verity.addressToWord token])
-  pure (resultWord result)
+  pure (externalCallResultWord result)
 
-private def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
-    (args : List Uint256) : Contract Unit :=
-  Verity.bind (modelExternalCall adv
-      (linkedCallSite name args 0 .call token.toNat)) fun result =>
-    match result with
-    | .success _ => pure ()
-    | .failure _ | .revert _ => fun state =>
-        ContractResult.revert "external call failed" state
+def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
+    (args : List Uint256) : Contract Unit := fun state =>
+  match (commonExternalCall adv
+      (linkedCallSite name args 0 .call token.toNat)).run state with
+  | .success (.success _) post => .success () post
+  | .success (.failure _) _ | .success (.revert _) _ =>
+      .revert "external call failed" state
+  | .revert message _ => .revert message state
 
 def safeTransfer (token toAddr : Address) (amount : Uint256) (adv : AdversaryModel := .stub) : Contract Unit :=
   erc20Write adv "safeTransfer" token [Verity.addressToWord toAddr, amount]
