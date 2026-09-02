@@ -3138,17 +3138,24 @@ private theorem compiledStmtStep_returndatacopy_empty_single_preserves
   · simp [hIRDest, Option.bind] at hDestEval
     have hDestSrc : SourceSemantics.evalExpr fields runtime destOffset = some destNat :=
       hDestEval.symm
-    -- The returndata buffer is the empty one the frame started with, so the
-    -- zero-extent copy leaves both the source memory and the IR memory alone.
+    -- The zero-extent copy fits any buffer and writes no memory word, so both
+    -- the source semantics and the IR interpreter leave their states alone.
+    have hzeroNoWrite : ∀ o,
+        ¬Compiler.Proofs.YulGeneration.calldatacopyWritesAt destNat 0 o := by
+      intro o hwall
+      obtain ⟨_, h2, _⟩ := hwall
+      simp only [Nat.zero_div, Nat.mul_zero, Nat.add_zero] at h2
+      omega
     have hSrcExec : SourceSemantics.execStmt fields runtime
         (.returndataCopy destOffset (.literal 0) (.literal 0)) = .continue runtime := by
-      simp [SourceSemantics.execStmt, SourceSemantics.evalExpr, hDestSrc]
+      simp [SourceSemantics.execStmt, SourceSemantics.evalExpr, hDestSrc, Nat.zero_le,
+        hzeroNoWrite]
     have hExecStmt :
         execIRStmt (extraFuel + 1) state
           (YulStmt.exprStmt
             (YulExpr.call "returndatacopy" [destIR, YulExpr.lit 0, YulExpr.lit 0])) =
             .continue state := by
-      simp [execIRStmt, evalIRExpr, hIRDest]
+      simp [execIRStmt, evalIRExpr, hIRDest, Nat.zero_le]
     have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
     have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
         .continue state := by
@@ -3184,6 +3191,190 @@ theorem compiledStmtStep_returndatacopy_empty_single
       hdestIRInternal, hzero, Bind.bind, Except.bind, pure, Except.pure]
   preserves := compiledStmtStep_returndatacopy_empty_single_preserves
     hcoreDest hinScopeDest hdestIR
+
+private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
+    {fields : List Field}
+    {scope : List String}
+    {destOffset sourceOffset size : Expr}
+    {destIR sourceIR sizeIR : YulExpr}
+    (hcoreDest : FunctionBody.ExprCompileCore destOffset)
+    (hinScopeDest : FunctionBody.exprBoundNamesInScope destOffset scope)
+    (hcoreSource : FunctionBody.ExprCompileCore sourceOffset)
+    (hinScopeSource : FunctionBody.exprBoundNamesInScope sourceOffset scope)
+    (hcoreSize : FunctionBody.ExprCompileCore size)
+    (hinScopeSize : FunctionBody.exprBoundNamesInScope size scope)
+    (hdestIR : CompilationModel.compileExpr fields .calldata destOffset = Except.ok destIR)
+    (hsourceIR : CompilationModel.compileExpr fields .calldata sourceOffset = Except.ok sourceIR)
+    (hsizeIR : CompilationModel.compileExpr fields .calldata size = Except.ok sizeIR) :
+    ∀ (runtime : SourceSemantics.RuntimeState)
+      (state : IRState)
+      (extraFuel : Nat),
+      FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+      FunctionBody.scopeNamesPresent scope runtime.bindings →
+      FunctionBody.bindingsBounded runtime.bindings →
+      FunctionBody.runtimeStateMatchesIR fields runtime state →
+      sizeOf [YulStmt.exprStmt (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])] -
+        [YulStmt.exprStmt
+          (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])].length ≤ extraFuel →
+      ∃ sourceResult irExec,
+        SourceSemantics.execStmt fields runtime
+          (.returndataCopy destOffset sourceOffset size) = sourceResult ∧
+        execIRStmts
+            ([YulStmt.exprStmt
+                (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])].length +
+              extraFuel + 1)
+            state
+            [YulStmt.exprStmt (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])] =
+              irExec ∧
+        stmtStepMatchesIRExec fields
+          (stmtNextScope scope (.returndataCopy destOffset sourceOffset size))
+          sourceResult
+          irExec := by
+  intro runtime state extraFuel hexact hscope hbounded hruntime _hslack
+  have hrd := FunctionBody.runtimeStateMatchesIR_returndata hruntime
+  let compiledIR :=
+    [YulStmt.exprStmt (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])]
+  have hDestEval :=
+    FunctionBody.eval_compileExpr_core_of_scope
+      hcoreDest hexact hinScopeDest hbounded
+      (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeDest)
+      hruntime
+  have hSourceEval :=
+    FunctionBody.eval_compileExpr_core_of_scope
+      hcoreSource hexact hinScopeSource hbounded
+      (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeSource)
+      hruntime
+  have hSizeEval :=
+    FunctionBody.eval_compileExpr_core_of_scope
+      hcoreSize hexact hinScopeSize hbounded
+      (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeSize)
+      hruntime
+  rw [hdestIR] at hDestEval
+  rw [hsourceIR] at hSourceEval
+  rw [hsizeIR] at hSizeEval
+  simp [Except.toOption] at hDestEval hSourceEval hSizeEval
+  rcases hIRDest : evalIRExpr state destIR with _ | destNat
+  · simp [hIRDest, Option.bind] at hDestEval
+  · rcases hIRSource : evalIRExpr state sourceIR with _ | sourceNat
+    · simp [hIRSource, Option.bind] at hSourceEval
+    · rcases hIRSize : evalIRExpr state sizeIR with _ | sizeNat
+      · simp [hIRSize, Option.bind] at hSizeEval
+      · simp [hIRDest, Option.bind] at hDestEval
+        simp [hIRSource, Option.bind] at hSourceEval
+        simp [hIRSize, Option.bind] at hSizeEval
+        have hDestSrc : SourceSemantics.evalExpr fields runtime destOffset = some destNat :=
+          hDestEval.symm
+        have hSourceSrc :
+            SourceSemantics.evalExpr fields runtime sourceOffset = some sourceNat :=
+          hSourceEval.symm
+        have hSizeSrc : SourceSemantics.evalExpr fields runtime size = some sizeNat :=
+          hSizeEval.symm
+        -- Both layers branch on the same fit guard (the buffers agree by
+        -- `hrd`), so the step corresponds in either branch: the in-bounds copy
+        -- continues with the same words, the out-of-bounds extent reverts on
+        -- both sides. No side condition is needed.
+        by_cases hfit : sourceNat + sizeNat ≤ 32 * runtime.world.returndata.length
+        · have hfitIR : sourceNat + sizeNat ≤ 32 * state.returndata.length := by
+            rw [hrd]; exact hfit
+          set runtime' := {
+              runtime with
+              world := {
+                runtime.world with
+                memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                  runtime.world.returndata destNat sourceNat sizeNat runtime.world.memory
+              }
+            } with hruntime'def
+          have hSrcExec : SourceSemantics.execStmt fields runtime
+              (.returndataCopy destOffset sourceOffset size) = .continue runtime' := by
+            simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit, runtime']
+          set state' := { state with
+              memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
+                state.returndata destNat sourceNat sizeNat state.memory } with hstate'def
+          have hExecStmt :
+              execIRStmt (extraFuel + 1) state
+                (YulStmt.exprStmt
+                  (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])) =
+                  .continue state' := by
+            simp [execIRStmt, hIRDest, hIRSource, hIRSize, hfitIR, state']
+          have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
+          have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
+              .continue state' := by
+            simp [compiledIR, execIRStmts, hfuelEq, hExecStmt]
+          have hincl : FunctionBody.scopeNamesIncluded
+              (stmtNextScope scope (.returndataCopy destOffset sourceOffset size)) scope := by
+            intro n hn
+            simpa [stmtNextScope, collectStmtBindNames] using hn
+          have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
+              (stmtNextScope scope (.returndataCopy destOffset sourceOffset size))
+              runtime'.bindings state' :=
+            FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
+              (by
+                simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state',
+                  runtime'] using hexact)
+              hincl
+          have hscope' : FunctionBody.scopeNamesPresent
+              (stmtNextScope scope (.returndataCopy destOffset sourceOffset size))
+              runtime'.bindings :=
+            FunctionBody.scopeNamesPresent_of_included hscope hincl
+          have hbounded' : FunctionBody.bindingsBounded runtime'.bindings := by
+            simpa [runtime'] using hbounded
+          have hruntime' : FunctionBody.runtimeStateMatchesIR fields runtime' state' :=
+            FunctionBody.runtimeStateMatchesIR_returndatacopyBothMemory hruntime
+              destNat sourceNat sizeNat
+          exact ⟨_, _, hSrcExec, hIRExec,
+            hruntime', hexact', hbounded', hscope'⟩
+        · have hfitIR : ¬(sourceNat + sizeNat ≤ 32 * state.returndata.length) := by
+            intro hcon
+            rw [hrd] at hcon
+            exact hfit hcon
+          have hSrcExec : SourceSemantics.execStmt fields runtime
+              (.returndataCopy destOffset sourceOffset size) = .revert := by
+            simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit]
+          have hExecStmt :
+              execIRStmt (extraFuel + 1) state
+                (YulStmt.exprStmt
+                  (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])) =
+                  .revert state := by
+            simp [execIRStmt, hIRDest, hIRSource, hIRSize, hfitIR]
+          have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
+          have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
+              .revert state := by
+            simp [compiledIR, execIRStmts, hfuelEq, hExecStmt]
+          exact ⟨_, _, hSrcExec, hIRExec, trivial⟩
+
+/-- Bounded `returndataCopy` correspondence: the compiled single
+`returndatacopy(destIR, sourceIR, sizeIR)` step agrees with the source
+semantics for every extent — in-bounds copies continue with the same
+word-granular memory (via `runtimeStateMatchesIR_returndatacopyBothMemory`),
+out-of-bounds extents revert on both layers. This is the ready-made consumer
+for the follow-up fragment-widening slice; no supported-surface predicate is
+relaxed here. -/
+theorem compiledStmtStep_returndatacopy_bounded_single
+    {fields : List Field}
+    {scope : List String}
+    {destOffset sourceOffset size : Expr}
+    {destIR sourceIR sizeIR : YulExpr}
+    (hcoreDest : FunctionBody.ExprCompileCore destOffset)
+    (hinScopeDest : FunctionBody.exprBoundNamesInScope destOffset scope)
+    (hcoreSource : FunctionBody.ExprCompileCore sourceOffset)
+    (hinScopeSource : FunctionBody.exprBoundNamesInScope sourceOffset scope)
+    (hcoreSize : FunctionBody.ExprCompileCore size)
+    (hinScopeSize : FunctionBody.exprBoundNamesInScope size scope)
+    (hdestIR : CompilationModel.compileExpr fields .calldata destOffset = Except.ok destIR)
+    (hsourceIR : CompilationModel.compileExpr fields .calldata sourceOffset = Except.ok sourceIR)
+    (hsizeIR : CompilationModel.compileExpr fields .calldata size = Except.ok sizeIR) :
+    CompiledStmtStep fields scope (.returndataCopy destOffset sourceOffset size)
+      [YulStmt.exprStmt (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])] where
+  compileOk := by
+    have hdestIRInternal := compileExprWithInternals_nil_ok hdestIR
+    have hsourceIRInternal := compileExprWithInternals_nil_ok hsourceIR
+    have hsizeIRInternal := compileExprWithInternals_nil_ok hsizeIR
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      hdestIRInternal, hsourceIRInternal, hsizeIRInternal, Bind.bind, Except.bind, pure,
+      Except.pure]
+  preserves := compiledStmtStep_returndatacopy_bounded_single_preserves
+    hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize
+    hdestIR hsourceIR hsizeIR
 
 /-- `revertReturndata` bubbles the callee's revert reason.  The compiler's
 temporary is exactly `returndatasize()`; whichever branch the copy takes for the
@@ -3224,8 +3415,6 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
         stmtStepMatchesIRExec fields (stmtNextScope scope .revertReturndata)
           sourceResult irExec := by
   intro runtime state extraFuel _ _ _ _ hslack
-  refine ⟨.revert, .revert (state.setVar "__returndata_size"
-    (32 * state.returndata.length % Compiler.Constants.evmModulus)), rfl, ?_, trivial⟩
   have h3 : 3 ≤ extraFuel := by
     have : 4 ≤ sizeOf [YulStmt.block [
         YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
@@ -3257,12 +3446,25 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
       execIRStmt n s (YulStmt.exprStmt (YulExpr.call "revert"
         [YulExpr.lit 0, YulExpr.ident "__returndata_size"])) = .revert s := by
     intro n s; cases n <;> simp [execIRStmt]
-  simp [execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-    IRState.getVar, IRState.setVar, hRevert]
-  -- The copy continues on a zero extent and reverts otherwise; the trailing
-  -- `revert` collapses both branches to the same reverted state.
-  split_ifs <;> rfl
+  -- Whichever branch the copy takes for the current EIP-211 buffer — the
+  -- in-bounds copy continues with a memory update, the out-of-bounds extent
+  -- reverts immediately — the trailing `revert` lands the frame in a reverted
+  -- state, so only the reverted-ness is pinned here.
+  have hir : ∃ s, execIRStmts
+      (Nat.succ (Nat.succ (Nat.succ (Nat.succ (Nat.succ k))))) state
+      [YulStmt.block [
+        YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
+        YulStmt.exprStmt (YulExpr.call "returndatacopy"
+          [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
+        YulStmt.exprStmt (YulExpr.call "revert"
+          [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
+      ]] = .revert s := by
+    simp [execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
+      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+      IRState.getVar, IRState.setVar, hRevert]
+    split_ifs <;> exact ⟨_, rfl⟩
+  obtain ⟨s, hs⟩ := hir
+  exact ⟨.revert, .revert s, rfl, hs, trivial⟩
 
 theorem compiledStmtStep_revertReturndata_empty_single
     {fields : List Field} {scope : List String} :

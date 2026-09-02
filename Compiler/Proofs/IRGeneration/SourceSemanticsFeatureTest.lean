@@ -812,16 +812,107 @@ private theorem returndataOptionalBool_denote_agrees :
       (.returndataOptionalBoolAt (.literal 0)) = some 0 := by
   native_decide
 
-/-- `returndataCopy` stays conservative on a non-empty buffer: only the zero-extent
-copy continues, every other extent is the EVM's exceptional halt. -/
+/-- The zero-extent copy still fits a populated buffer and writes nothing, so
+the previously admitted fragment keeps its exact behaviour. -/
 private theorem returndataCopy_zero_extent_continues_on_nonempty_buffer :
     isContinue (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
       (.returndataCopy (.literal 0) (.literal 0) (.literal 0))) = true := by
   native_decide
 
-private theorem returndataCopy_nonzero_extent_reverts :
+/-- An in-bounds copy from a populated buffer reads the buffer's first word
+into memory — the readback that the conservative zero-extent model could not
+express. -/
+private theorem returndataCopy_in_bounds_reads_first_word :
+    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [7, 9] 42)
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 64))) 0 = some 7 := by
+  native_decide
+
+/-- An in-bounds two-word copy writes both destination words from the buffer. -/
+private theorem returndataCopy_in_bounds_reads_second_word :
+    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [7, 9] 42)
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 64))) 32 = some 9 := by
+  native_decide
+
+/-- A nonzero source offset reads from that byte of the buffer onward. -/
+private theorem returndataCopy_source_offset_reads_second_word :
+    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [7, 9] 42)
+      (.returndataCopy (.literal 0) (.literal 32) (.literal 32))) 0 = some 9 := by
+  native_decide
+
+/-- A one-byte copy writes the high byte of the destination ceiling word and
+preserves its remaining 31 bytes. -/
+private theorem returndataCopy_one_byte_merges_ceiling_word :
+    resultMemoryAt
+      (SourceSemantics.execStmt []
+        (stateWithReturndataAndMemory [2 ^ 248] 42)
+        (.returndataCopy (.literal 0) (.literal 0) (.literal 1))) 0 =
+      some (2 ^ 248 + 42) := by
+  decide
+
+/-- The same merge applies after complete words: byte 33 comes from the high
+byte of returndata word one while the low 31 destination bytes survive. -/
+private theorem returndataCopy_unaligned_extent_merges_ceiling_word :
+    resultMemoryAt
+      (SourceSemantics.execStmt []
+        (stateWithReturndataAndMemory [5, 2 ^ 248] 42)
+        (.returndataCopy (.literal 0) (.literal 0) (.literal 33))) 32 =
+      some (2 ^ 248 + 42) := by
+  native_decide
+
+/-- The copy reads *inside* the copied region when the extent fits. -/
+private theorem returndataCopy_unaligned_extent_still_copies_whole_words :
+    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [5, 9] 42)
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 33))) 0 = some 5 := by
+  native_decide
+
+/-- EVM `RETURNDATACOPY` exceptionally halts when `src + size` exceeds the
+buffer; the frame is observed as reverting on every layer. -/
+private theorem returndataCopy_out_of_bounds_extent_reverts :
     isRevert (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
-      (.returndataCopy (.literal 0) (.literal 0) (.literal 32))) = true := by
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 96))) = true := by
+  native_decide
+
+/-- Out-of-bounds is about the far end of the read window, not the size alone:
+a 32-byte read starting at byte 32 of a two-word buffer still fits. -/
+private theorem returndataCopy_last_window_fits :
+    isContinue (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
+      (.returndataCopy (.literal 0) (.literal 32) (.literal 32))) = true := by
+  native_decide
+
+/-- The compiler-free denotation lane executes the same in-bounds readback. -/
+private theorem returndataCopy_in_bounds_denote_agrees :
+    (match Compiler.CompilationModel.Denote.execStmt expLaneDenoteOracle []
+        (denoteStateWithReturndataAndMemory [7, 9] 42)
+        (.returndataCopy (.literal 0) (.literal 0) (.literal 64)) with
+    | .continue s => some (s.world.memory 0).val
+    | _ => none) = some 7 := by
+  native_decide
+
+/-- The IR interpreter answers the same copy with the same words. -/
+private def irStateWithReturndata (ws : List Nat) : IRState :=
+  { IRState.initial 1 with returndata := ws }
+
+private theorem returndataCopy_in_bounds_ir_agrees :
+    (match execIRStmt 4 (irStateWithReturndata [7, 9])
+        (Compiler.Yul.YulStmt.exprStmt
+          (Compiler.Yul.YulExpr.call "returndatacopy" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 64])) with
+    | .continue s => some (s.memory 0, s.memory 32)
+    | _ => none) = some (7, 9) := by
+  native_decide
+
+/-- The IR interpreter answers the same out-of-bounds extent with a reverting
+frame, matching the source lane's exceptional-halt observation. -/
+private def isIRRevert (r : IRExecResult) : Bool :=
+  match r with | .revert _ => true | _ => false
+
+private theorem returndataCopy_out_of_bounds_ir_agrees :
+    isRevert (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 96))) = true ∧
+    isIRRevert (execIRStmt 4 (irStateWithReturndata [1, 2])
+        (Compiler.Yul.YulStmt.exprStmt
+          (Compiler.Yul.YulExpr.call "returndatacopy"
+            [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0,
+              Compiler.Yul.YulExpr.lit 96]))) = true := by
   native_decide
 
 /-- This slice does not widen the proved fragment: the call-family constructors

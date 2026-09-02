@@ -623,7 +623,9 @@ theorem execStmt_eq (fields : List Field) :
             0 bound
   | st, .forEachSetBit v bitmap body =>
       execStmt_forEachSetBit_eq fields st v bitmap body (fun ls => execStmtList_eq fields ls body)
-  | _, .calldatacopy _ _ _ | _, .returndataCopy _ _ _ => by denote_stmt_arm
+  | _, .calldatacopy _ _ _ => by denote_stmt_arm
+  -- The two lanes use definitionally equal padded-copy mirrors.
+  | _, .returndataCopy _ _ _ => by denote_stmt_arm; rfl
   | st, .externalCallBind resultVars _externalName args => by
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
       cases Denote.evalExprList sourceOracle fields st args with

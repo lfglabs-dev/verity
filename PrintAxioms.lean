@@ -110,6 +110,7 @@ import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 import Compiler.Proofs.IRGeneration.PanicPayloadIR
 import Compiler.Proofs.IRGeneration.ParamLoading
+import Compiler.Proofs.IRGeneration.Returndata
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
 import Compiler.Proofs.IRGeneration.SpliceSimulation
@@ -2987,6 +2988,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_tload_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.calldataloadWord_lt_evmModulus  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_calldatacopyBothMemory
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_returndatacopyBothMemory
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_calldataload_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_calldataload_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_tload_of_compiled  -- private
@@ -3804,6 +3806,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_calldatacopy_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
@@ -4360,6 +4364,21 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then_extraFuel
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then
 
+  -- Compiler/Proofs/IRGeneration/Returndata.lean
+  Compiler.Proofs.IRGeneration.returndatacopyWritesAt_of_index
+  Compiler.Proofs.IRGeneration.returndatacopyMemory_at_index
+  Compiler.Proofs.IRGeneration.returndatacopyMemory_outside
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_at_index
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_at_ceil
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_outside
+  Compiler.Proofs.IRGeneration.returndatacopyMemory_zero
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_zero
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256_zero
+  Compiler.Proofs.IRGeneration.returndataloadWord_aligned
+  Compiler.Proofs.IRGeneration.returndataloadWord_aligned_of_lt
+  Compiler.Proofs.IRGeneration.returndataloadWord_nil
+  Compiler.Proofs.IRGeneration.returndataloadWord_lt_evmModulus
+
   -- Compiler/Proofs/IRGeneration/SourceSemantics.lean
   Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize_eq_mod
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_splitEventArgsByParams_of_length
@@ -4627,7 +4646,17 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_two_words_is_false  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_denote_agrees  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_zero_extent_continues_on_nonempty_buffer  -- private
-  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_nonzero_extent_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_reads_first_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_reads_second_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_source_offset_reads_second_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_one_byte_merges_ceiling_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_extent_merges_ceiling_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_extent_still_copies_whole_words  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_out_of_bounds_extent_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_last_window_fits  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_denote_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_ir_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_out_of_bounds_ir_agrees  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndata_slice_does_not_widen_effect_surface  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.transaction_frame_entry_reads_zero_returndatasize  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.constructor_frame_entry_reads_zero_returndatasize  -- private
@@ -7468,4 +7497,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6912 theorems/lemmas (4933 public, 1979 private, 0 sorry'd)
+-- Total: 6938 theorems/lemmas (4948 public, 1990 private, 0 sorry'd)

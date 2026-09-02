@@ -2424,6 +2424,53 @@ theorem runtimeStateMatchesIR_calldatacopyBothMemory
     · simp only [hw, if_false]
       exact congrFun hmem o
 
+/-- `returndatacopy` writes the same words on both sides of the runtime/IR
+correspondence: the source world stores `Uint256`-wrapped buffer words while
+the IR stores their `Nat` values, and every copied word is already below the
+EVM modulus, so the wrapping is the identity on the copied region. The buffer
+itself is pinned equal by the returndata conjunct of `runtimeStateMatchesIR`,
+so both sides read the same words. -/
+theorem runtimeStateMatchesIR_returndatacopyBothMemory
+    {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState}
+    {state : IRState}
+    (hmatch : runtimeStateMatchesIR fields runtime state)
+    (dst src size : Nat) :
+    runtimeStateMatchesIR fields
+      { runtime with
+          world := {
+            runtime.world with
+            memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+              runtime.world.returndata dst src size runtime.world.memory } }
+      { state with
+          memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
+            state.returndata dst src size state.memory } := by
+  cases runtime
+  cases state
+  simp only [runtimeStateMatchesIR] at hmatch ⊢
+  obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
+    hmem, hret, hevt⟩ := hmatch
+  have hrd := hevt.2.2
+  refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
+    ?_, hret, hevt⟩
+  · rw [hstor]
+    funext slot
+    exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)
+  · funext o
+    simp only [Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256,
+      Verity.Core.Uint256.ofNat]
+    rw [hrd, hmem]
+    by_cases hceil : size % 32 ≠ 0 ∧ o = dst + size / 32 * 32
+    · simp [Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded, hceil,
+        Nat.mod_mod]
+    · simp only [Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded, hceil,
+        if_false, Compiler.Proofs.IRGeneration.returndatacopyMemory]
+      by_cases hw : Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o
+      · simp [hw, Nat.mod_eq_of_lt
+          (Compiler.Proofs.IRGeneration.returndataloadWord_lt_evmModulus _ _)]
+      · simp only [hw, if_false]
+        exact (Nat.mod_eq_of_lt (Verity.Core.Uint256.isLt _)).symm
+
 theorem compileExpr_calldataload_ok
     {fields : List Field}
     {expr : Expr}

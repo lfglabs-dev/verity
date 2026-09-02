@@ -3,6 +3,7 @@ import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.MappingSlot
 import Compiler.CompilationModel.LayoutValidation
 import Compiler.Keccak.Sponge
+import Compiler.Proofs.IRGeneration.Returndata
 import Verity.Core.Model.Denote
 import Verity.Core.Model.DynamicAbi
 
@@ -2690,14 +2691,22 @@ mutual
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
-        | some _, some src, some sz =>
-            -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
-            -- EIP-211 buffer. Rather than model the partial copy, only the
-            -- zero-extent copy is admitted -- it leaves memory untouched whatever
-            -- the buffer holds -- and every other extent is conservatively
-            -- observed as a failed frame. The IR interpreter branches the same
-            -- way, so the two layers agree on the nose.
-            if src + sz = 0 then .continue state else .revert
+        | some dst, some src, some sz =>
+            -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
+            -- buffer into memory when the extent fits, and exceptionally halts
+            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- words are replaced and a final partial word is merged with its
+            -- untouched low bytes, as in EVM memory.
+            if src + sz ≤ 32 * state.world.returndata.length then
+              .continue {
+                state with
+                world := {
+                  state.world with
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
+                }
+              }
+            else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr fields state cond with
@@ -3060,14 +3069,22 @@ mutual
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
-        | some _, some src, some sz =>
-            -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
-            -- EIP-211 buffer. Rather than model the partial copy, only the
-            -- zero-extent copy is admitted -- it leaves memory untouched whatever
-            -- the buffer holds -- and every other extent is conservatively
-            -- observed as a failed frame. The IR interpreter branches the same
-            -- way, so the two layers agree on the nose.
-            if src + sz = 0 then .continue state else .revert
+        | some dst, some src, some sz =>
+            -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
+            -- buffer into memory when the extent fits, and exceptionally halts
+            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- words are replaced and a final partial word is merged with its
+            -- untouched low bytes, as in EVM memory.
+            if src + sz ≤ 32 * state.world.returndata.length then
+              .continue {
+                state with
+                world := {
+                  state.world with
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
+                }
+              }
+            else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr fields state cond with
@@ -4648,8 +4665,20 @@ mutual
         match evalExprWithHelpers spec fields fuel state destOffset,
             evalExprWithHelpers spec fields fuel state sourceOffset,
             evalExprWithHelpers spec fields fuel state size with
-        | some _, some src, some sz =>
-            if src + sz = 0 then .continue state else .revert
+        | some dst, some src, some sz =>
+            -- Same bounded-copy semantics as `execStmt`: in-bounds extents copy
+            -- complete words and merge the final partial word; out-of-bounds
+            -- extents revert identically on the IR layer.
+            if src + sz ≤ 32 * state.world.returndata.length then
+              .continue {
+                state with
+                world := {
+                  state.world with
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
+                }
+              }
+            else .revert
         | _, _, _ => .revert
     | .require cond _ =>
         match evalExprWithHelpers spec fields fuel state cond with
