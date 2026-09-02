@@ -19,6 +19,7 @@ import Compiler.Proofs.IRGeneration.IRRuntimeTypes
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.YulGeneration.LogNames
+import Compiler.Proofs.IRGeneration.Returndata
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBuiltinSemantics
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
 import Compiler.Keccak.Sponge
@@ -690,8 +691,14 @@ def execIRStmtWithInternals
               | .revert state' => .revert state'
           | .call "returndatacopy" [dstExpr, srcExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [dstExpr, srcExpr, sizeExpr] with
-              | .values [_, src, size] state' =>
-                  if src + size = 0 then .continue state' else .revert state'
+              | .values [dst, src, size] state' =>
+                  if src + size ≤ 32 * state'.returndata.length then
+                    .continue {
+                      state' with
+                      memory := Compiler.Proofs.IRGeneration.returndatacopyMemory
+                        state'.returndata dst src size state'.memory
+                    }
+                  else .revert state'
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
@@ -1008,8 +1015,14 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
           | .call "returndatacopy" [dstExpr, srcExpr, sizeExpr] =>
               match evalIRExpr state dstExpr, evalIRExpr state srcExpr,
                   evalIRExpr state sizeExpr with
-              | some _, some src, some size =>
-                if src + size = 0 then .continue state else .revert state
+              | some dst, some src, some size =>
+                if src + size ≤ 32 * state.returndata.length then
+                  .continue {
+                    state with
+                    memory := Compiler.Proofs.IRGeneration.returndatacopyMemory
+                      state.returndata dst src size state.memory
+                  }
+                else .revert state
               | _, _, _ => .revert state
           | .call "stop" [] => .stop state
           | .call "revert" [_, _] => .revert state
@@ -1700,21 +1713,24 @@ theorem IRStmtPreservesObsAt_of_calldatacopy
 
 /-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`.
 
-Only the zero-extent copy is modelled as in range: it leaves memory untouched
-whatever the EIP-211 buffer holds. Every other `(src, size)` is conservatively
-modelled as the EVM's exceptional halt, `.revert`, matching the source
-semantics. So the preservation cross-cast is available exactly on the in-range
-shape. -/
+The in-bounds copy continues with the word-granular memory update — the source
+semantics writes the same words (see
+`FunctionBody.runtimeStateMatchesIR_returndatacopyBothMemory`). Every
+out-of-bounds extent is conservatively modelled as the EVM's exceptional halt,
+`.revert`, matching the source semantics, so the preservation cross-cast is
+available exactly on the in-bounds shape. -/
 theorem IRStmtPreservesObsAt_of_returndatacopy
-    (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr)
-    (hDst : ∃ v, evalIRExpr state dstExpr = some v)
-    (hSrc : evalIRExpr state srcExpr = some 0)
-    (hSize : evalIRExpr state sizeExpr = some 0) :
+    (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr) (dst src size : Nat)
+    (hDst : evalIRExpr state dstExpr = some dst)
+    (hSrc : evalIRExpr state srcExpr = some src)
+    (hSize : evalIRExpr state sizeExpr = some size)
+    (hFit : src + size ≤ 32 * state.returndata.length) :
     IRStmtPreservesObsAt state
       (.exprStmt (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr])) := by
-  obtain ⟨dst, hdst⟩ := hDst
-  refine ⟨state, fun _ => ?_⟩
-  simp [execIRStmt, hdst, hSrc, hSize]
+  refine ⟨{ state with
+      memory := Compiler.Proofs.IRGeneration.returndatacopyMemory
+        state.returndata dst src size state.memory }, fun _ => ?_⟩
+  simp [execIRStmt, hDst, hSrc, hSize, hFit]
 
 /-- Cross-cast for `.exprStmt (.call "log0" [offset, size])`. Updates events by
 appending a Yul log entry. -/

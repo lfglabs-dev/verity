@@ -156,6 +156,20 @@ def calldatacopyWritesAt (dst size offset : Nat) : Prop :=
 instance (dst size offset : Nat) : Decidable (calldatacopyWritesAt dst size offset) := by
   unfold calldatacopyWritesAt; infer_instance
 
+/-- Mirrors `Compiler.Proofs.IRGeneration.returndataloadWord` (pure arithmetic):
+byte-addressed word read from the EIP-211 returndata buffer, zero-extended past
+the end. Unlike calldata there is no 4-byte selector prefix. -/
+def returndataloadWord (returndata : List Nat) (offset : Nat) : Nat :=
+  let q := offset / 32
+  let r := offset % 32
+  if r = 0 then
+    returndata.getD q 0 % Compiler.Constants.evmModulus
+  else
+    let hi := returndata.getD q 0 % Compiler.Constants.evmModulus
+    let lo := returndata.getD (q + 1) 0 % Compiler.Constants.evmModulus
+    ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) %
+      Compiler.Constants.evmModulus
+
 /-! ## Slot alias expansion (mirroring `Compiler.CompilationModel.LayoutValidation`) -/
 
 def dedupNatPreserve (xs : List Nat) : List Nat :=
@@ -1343,8 +1357,24 @@ mutual
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr oracle fields state destOffset, evalExpr oracle fields state sourceOffset,
             evalExpr oracle fields state size with
-        | some _, some src, some sz =>
-            if src + sz = 0 then .continue state else .revert
+        | some dst, some src, some sz =>
+            -- Same bounded-copy semantics as `SourceSemantics.execStmt` and the
+            -- IR interpreter: in-bounds extents copy word-granular buffer
+            -- contents into memory, out-of-bounds extents are observed as a
+            -- reverting frame (EVM's exceptional halt), identically on all layers.
+            if src + sz ≤ 32 * state.world.returndata.length then
+              .continue {
+                state with
+                world := {
+                  state.world with
+                  memory := fun o =>
+                    if calldatacopyWritesAt dst sz o then
+                      Verity.Core.Uint256.ofNat
+                        (returndataloadWord state.world.returndata (src + (o - dst)))
+                    else state.world.memory o
+                }
+              }
+            else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr oracle fields state cond with

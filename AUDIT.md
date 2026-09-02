@@ -382,9 +382,47 @@ sibling entrypoint.
   `IRInterpreter` branch identically, so the two layers still agree on the nose.
   Only the justifying comments needed correcting — "the buffer is empty in this
   fragment" is now false, while "we conservatively under-approximate" is true.
+  **Superseded by *Bounded Returndatacopy (2026-09)* below: in-bounds extents
+  now perform the copy.**
 - No new axiom and no new trust assumption. `Contracts.returndataSize` in the
   executable EDSL surface remains the constant-zero stub, alongside its
   `calldatasize` / `mload` / `extcodesize` placeholder siblings.
+
+## Bounded Returndatacopy (2026-09)
+
+- Supersedes the conservative `returndataCopy` posture recorded above. Once the
+  EIP-211 buffer is first-class (#2400), a `returndataCopy dst src size` whose
+  extent fits (`src + size ≤ 32 * buffer.length`) copies the buffer's words
+  into memory word-granularly instead of reverting; only out-of-bounds extents
+  are observed as the EVM's exceptional halt, `.revert`. The semantics is
+  identical on all four lanes — `SourceSemantics.execStmt` and
+  `execStmtWithHelpers`, the compiler-free `Denote.execStmt`, and the IR
+  interpreter's `evalIRCall` / `evalIRCallWithInternals` — so the layers still
+  agree on the nose.
+- The word model mirrors the `calldatacopy` lane
+  (`Compiler.Proofs.YulGeneration.Calldata`): `returndataloadWord` is the
+  byte-addressed, zero-extended read of the word list (no selector prefix), the
+  destination region is the shared `calldatacopyWritesAt dst size` word range,
+  and `returndatacopyMemory` is the IR-side memory update. Every copied word is
+  below the EVM modulus (`returndataloadWord_lt_evmModulus`), so
+  `Uint256.ofNat` wrapping is the identity on the copied region.
+- `runtimeStateMatchesIR_returndatacopyBothMemory` is the new reusable bridge:
+  when source and IR memories matched before the step, they match after the
+  copy, using the eighteenth `runtimeStateMatchesIR` conjunct to pin the
+  buffers equal. `IRStmtPreservesObsAt_of_returndatacopy` is generalized from
+  the zero-extent shape to every in-bounds extent.
+- `compiledStmtStep_returndatacopy_empty_single` is reproved: the zero-extent
+  copy fits every buffer and still writes nothing, so the admitted fragment
+  behaves exactly as before (`returndatacopyMemory_zero`). New:
+  `compiledStmtStep_returndatacopy_bounded_single` proves the compiled single
+  `returndatacopy(destIR, srcIR, sizeIR)` step corresponds to
+  `Stmt.returndataCopy destOffset sourceOffset size` for *every* extent — both
+  layers branch on the same fit guard, so no side condition is needed.
+- No unsupported-surface predicate changed: the generic proof fragment still
+  admits only `returndataCopyEmptySingle`, so no headline theorem gains
+  coverage. `Contracts.returndataCopy` in the executable EDSL remains a no-op
+  stub, next to the constant-zero `Contracts.returndataSize`.
+- No new axiom and no new trust assumption.
 
 ## Pure `exp` Builtin Lane (2026-08)
 
