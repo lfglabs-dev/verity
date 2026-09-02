@@ -4368,7 +4368,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.returndatacopyWritesAt_of_index
   Compiler.Proofs.IRGeneration.returndatacopyMemory_at_index
   Compiler.Proofs.IRGeneration.returndatacopyMemory_outside
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_at_index
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_at_ceil
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_outside
   Compiler.Proofs.IRGeneration.returndatacopyMemory_zero
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_zero
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256_zero
   Compiler.Proofs.IRGeneration.returndataloadWord_aligned
   Compiler.Proofs.IRGeneration.returndataloadWord_aligned_of_lt
   Compiler.Proofs.IRGeneration.returndataloadWord_nil
@@ -4644,12 +4649,14 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_reads_first_word  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_reads_second_word  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_source_offset_reads_second_word  -- private
-  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_extent_leaves_ceiling_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_one_byte_merges_ceiling_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_extent_merges_ceiling_word  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_extent_still_copies_whole_words  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_out_of_bounds_extent_reverts  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_last_window_fits  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_denote_agrees  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_ir_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_ir_agrees  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_out_of_bounds_ir_agrees  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndata_slice_does_not_widen_effect_surface  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.transaction_frame_entry_reads_zero_returndatasize  -- private
@@ -7491,4 +7498,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6932 theorems/lemmas (4943 public, 1989 private, 0 sorry'd)
+-- Total: 6939 theorems/lemmas (4948 public, 1991 private, 0 sorry'd)
