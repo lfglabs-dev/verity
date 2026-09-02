@@ -2,6 +2,7 @@ import Compiler.CompilationModel
 import Compiler.Proofs.MappingSlot
 import Verity.Core
 import Verity.Core.Semantics
+import Verity.Core.Model.ContractExternalCall
 import Verity.EVM.Uint256
 import Verity.Macro
 import Verity.Stdlib.Math
@@ -570,9 +571,9 @@ end Call
 word. Public (not `private`) so specs and tests can state the executable
 plane's in-band results and journal entries verbatim. -/
 def externalCallStubWord (name : String) (args : List Uint256) : Uint256 :=
-  match name, args with
-  | "echo", [value] => value
-  | _, _ => args.foldl add name.length
+  Core.Uint256.ofNat
+    (Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stubWord
+      name (args.map (fun word => (word : Nat))))
 
 /-- Executable success bit for a linked external call: every linked callee
 succeeds except the reserved name `"fail"`, which lets tests exercise the
@@ -606,6 +607,15 @@ def linkedCallEntryTo (name : String) (target : Address) (value : Uint256)
   { linkedCallEntry name argWords control returndata with
     target := target.toNat
     value := value.val }
+
+/-- Model call site corresponding to one executable linked-call crossing. -/
+def linkedCallSite (name : String) (argWords : List Uint256)
+    (returnArity : Nat := 0) (kind : Compiler.CompilationModel.DenoteExternalCalls.CallKind := .call)
+    (target : Nat := 0) (value : Nat := 0) (stubPrefix : List Nat := []) :
+    Compiler.CompilationModel.DenoteExternalCalls.CallSite :=
+  { siteId := 0, kind, target, value
+    calldata := argWords.map (fun word => (word : Nat))
+    name, returnArity, stubPrefix, gas := 0 }
 
 /-- Append one entry to the `ContractState.calls` journal. This is the sole
 observable-effect primitive of the executable linked-call family; a
@@ -758,6 +768,9 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
 
 private def erc20ReadStubWord (name : String) (args : List Uint256) : Uint256 :=
   externalCallStubWord name args
+
+@[simp] theorem erc20ReadStubWord_eq (name : String) (args : List Uint256) :
+    erc20ReadStubWord name args = externalCallStubWord name args := rfl
 macro_rules
   | `(term| externalCall $name:ident [ $[$args:term],* ]) =>
       `(externalCallWords $(Lean.quote (toString name.getId))

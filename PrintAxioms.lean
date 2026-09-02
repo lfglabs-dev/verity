@@ -37,6 +37,7 @@ import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
+import Verity.Proofs.Model.CommonExternalCallEquivalence
 import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
@@ -699,6 +700,22 @@ end Verity.AxiomAudit
   Verity.Proofs.LoopSimulationResultAware.forEach_rel_execForEachLoop_result_aware
   Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_success_bridge
   Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_earlyExit_bridge
+
+  -- Verity/Proofs/Model/CommonExternalCallEquivalence.lean
+  Contracts.externalCallWords_eq_stub_result
+  Contracts.callResultWords_eq_stub
+  Contracts.tryExternalCallWords_eq_stub
+  Contracts.externalCallBind_eq_stub
+  Contracts.externalCallBindTo_eq_stub
+  Contracts.balanceOf_eq_stub
+  Contracts.allowance_eq_stub
+  Contracts.totalSupply_eq_stub
+  Contracts.erc20Write_eq_stub
+  Contracts.safeTransfer_eq_stub
+  Contracts.safeTransferFrom_eq_stub
+  Contracts.safeApprove_eq_stub
+  Contracts.legacyStringSafeTransfer_eq_stub
+  Contracts.legacyStringSafeTransferFrom_eq_stub
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -7497,4 +7514,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6938 theorems/lemmas (4948 public, 1990 private, 0 sorry'd)
+-- Total: 6952 theorems/lemmas (4962 public, 1990 private, 0 sorry'd)
