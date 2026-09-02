@@ -629,7 +629,7 @@ theorem execStmt_eq (fields : List Field) :
   -- source-lane ones (`YulGeneration.calldatacopyWritesAt`,
   -- `IRGeneration.returndataloadWord`); the bodies are identical, so the two
   -- functions are definitionally equal.
-  | _, .returndataCopy _ _ _ => by denote_stmt_arm <;> rfl
+  | _, .returndataCopy _ _ _ => by denote_stmt_arm; rfl
   | st, .externalCallBind resultVars _externalName args => by
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
       cases Denote.evalExprList sourceOracle fields st args with

@@ -737,8 +737,9 @@ INTERPRETER_FEATURE_BOUNDARY_CATALOG = CategoryNoteEntry(
         "the following `revert` both land in a reverting result whatever the EIP-211 buffer holds, "
         "so it models the exact revert. The executable source interpreter remains unsupported "
         "because `Contracts.revertReturndata` is still a no-op, and `Contracts.returndataSize` is "
-        "still the constant-zero EDSL stub; wider copies remain downstream work because they are "
-        "the EVM's exceptional halt.",
+        "still the constant-zero EDSL stub; wider copies remain downstream work because only the "
+        "zero-extent shape is admitted to the generic proof fragment, not because the EVM rejects "
+        "them.",
         "Fully not-modeled features currently include `keccak256`, low-level call plumbing "
         "(`call`, `staticcall`, `delegatecall`), event emission (`rawLog`), and external call modules "
         "(`externalCallBind`, `ecm`).",
