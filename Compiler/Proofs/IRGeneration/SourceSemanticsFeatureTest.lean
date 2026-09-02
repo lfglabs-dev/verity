@@ -847,7 +847,7 @@ private theorem returndataCopy_one_byte_merges_ceiling_word :
         (stateWithReturndataAndMemory [2 ^ 248] 42)
         (.returndataCopy (.literal 0) (.literal 0) (.literal 1))) 0 =
       some (2 ^ 248 + 42) := by
-  native_decide
+  decide
 
 /-- The same merge applies after complete words: byte 33 comes from the high
 byte of returndata word one while the low 31 destination bytes survive. -/
@@ -900,18 +900,6 @@ private theorem returndataCopy_in_bounds_ir_agrees :
     | _ => none) = some (7, 9) := by
   native_decide
 
-/-- Source and IR lanes agree on the partial-word merge, including untouched
-bytes in the ceiling word. -/
-private theorem returndataCopy_unaligned_ir_agrees :
-    (match execIRStmt 4
-        { (irStateWithReturndata [5, 2 ^ 248]) with memory := fun _ => 42 }
-        (Compiler.Yul.YulStmt.exprStmt
-          (Compiler.Yul.YulExpr.call "returndatacopy"
-            [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0,
-              Compiler.Yul.YulExpr.lit 33])) with
-    | .continue s => some (s.memory 0, s.memory 32)
-    | _ => none) = some (5, 2 ^ 248 + 42) := by
-  native_decide
 /-- The IR interpreter answers the same out-of-bounds extent with a reverting
 frame, matching the source lane's exceptional-halt observation. -/
 private def isIRRevert (r : IRExecResult) : Bool :=

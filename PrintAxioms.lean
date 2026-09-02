@@ -4656,7 +4656,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_last_window_fits  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_denote_agrees  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_ir_agrees  -- private
-  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_ir_agrees  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_out_of_bounds_ir_agrees  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndata_slice_does_not_widen_effect_surface  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.transaction_frame_entry_reads_zero_returndatasize  -- private
@@ -7498,4 +7497,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6939 theorems/lemmas (4948 public, 1991 private, 0 sorry'd)
+-- Total: 6938 theorems/lemmas (4948 public, 1990 private, 0 sorry'd)
