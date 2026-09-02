@@ -2022,6 +2022,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.Frames.stmtListWritesOnly_writeFootprint
   Compiler.Proofs.Frames.execStmt_frame_rule_writeFootprint
   Compiler.Proofs.Frames.execStmts_frame_rule_writeFootprint
+  Compiler.Proofs.Frames.Coupling.owned_supported
   Compiler.Proofs.Frames.Coupling.supported_mono
   Compiler.Proofs.Frames.Coupling.supported_and
   Compiler.Proofs.Frames.Coupling.iterFrom_zero
@@ -2033,6 +2034,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.Frames.SegmentSimWithFields.weaken
   Compiler.Proofs.Frames.SegmentSimWithFields.frame
   Compiler.Proofs.Frames.SegmentSimWithFields.frame_writeFootprint
+  Compiler.Proofs.Frames.SegmentSimWithFields.frame_owned_writeFootprint
   Compiler.Proofs.Frames.SegmentSimWithFields.and_frame
   Compiler.Proofs.Frames.SegmentSimWithFields.execForEachLoop_sim
   Compiler.Proofs.Frames.SegmentSimWithFields.forEach
@@ -7497,4 +7499,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6938 theorems/lemmas (4948 public, 1990 private, 0 sorry'd)
+-- Total: 6940 theorems/lemmas (4950 public, 1990 private, 0 sorry'd)

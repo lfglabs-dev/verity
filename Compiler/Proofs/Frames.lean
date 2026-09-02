@@ -474,6 +474,18 @@ def Supported (c : Coupling Abs) (support : List Resource) : Prop :=
   ∀ ⦃st s : RuntimeState⦄ ⦃a : Abs⦄,
     (∀ r, r ∈ support → OwnedEq r st s) → c.Inv st a → c.Inv s a
 
+/-- The canonical coupling for one owned resource. Its abstract state is a
+snapshot of the concrete runtime state, but the invariant observes only `r`.
+Clients can compose these couplings and later replace the snapshot with a
+domain-specific abstraction via `SegmentSimWithFields.weaken`. -/
+def owned (r : Resource) : Coupling RuntimeState where
+  Inv st snapshot := OwnedEq r snapshot st
+
+/-- A resource coupling is supported by precisely the resource it observes. -/
+theorem owned_supported (r : Resource) : Supported (owned r) [r] := by
+  intro st s snapshot hsame hinv
+  exact Resource.ownedEq_trans hinv (hsame r (by simp))
+
 theorem supported_mono {c : Coupling Abs} {support support' : List Resource}
     (hs : Supported c support)
     (hsub : ∀ r, r ∈ support → r ∈ support') :
@@ -610,6 +622,23 @@ theorem frame_writeFootprint {fields : List Field} {c : Coupling Abs}
     (hdisj : ∀ r, r ∈ support → ∀ w, w ∈ written → Disjoint r w) :
     SegmentSimWithFields fields c prog _root_.id :=
   frame hsupport (stmtListWritesOnly_writeFootprint hfp) hdisj
+
+/-- Computed frame rule specialized to the canonical coupling for one resource.
+This removes the support boilerplate from the common case where a proof needs
+to carry one untouched concrete observation across a generated segment. -/
+theorem frame_owned_writeFootprint {fields : List Field} {r : Resource}
+    {prog : List Stmt} {written : List Resource}
+    (hfp : Stmt.writeFootprintList prog = some written)
+    (hdisj : ∀ w, w ∈ written → Disjoint r w) :
+    SegmentSimWithFields fields (Coupling.owned r) prog _root_.id :=
+  frame_writeFootprint
+    (Coupling.owned_supported r)
+    hfp
+    (by
+      intro observed hobserved
+      simp at hobserved
+      subst observed
+      exact hdisj)
 
 /-- Combine a local simulation with a framed invariant for untouched resources. -/
 theorem and_frame {fields : List Field}
@@ -879,15 +908,17 @@ theorem execStmt_letVar_preserves_selector_calldata
     (st s : RuntimeState) (name : String) (e : Expr)
     (h : execStmt [] st (.letVar name e) = .continue s) :
     PreservesSelectorCalldata st s := by
-  rw [show execStmt [] st (.letVar name e) = (match evalExpr [] st e with
-    | some resolved => .continue { st with bindings := bindValue st.bindings name resolved }
-    | none => .revert) from rfl] at h
-  cases hev : evalExpr [] st e with
-  | none => rw [hev] at h; exact absurd h (by simp)
-  | some _ =>
-      rw [hev] at h
-      injection h with hh; subst hh
-      exact And.intro rfl rfl
+  have hsim : SegmentSim (Coupling.owned .static) [.letVar name e] _root_.id :=
+    SegmentSimWithFields.frame_owned_writeFootprint
+      (by rfl)
+      (by
+        intro w hw
+        simp at hw
+        subst w
+        trivial)
+  have hexec : execStmtList [] st [.letVar name e] = .continue s := by
+    simp [execStmtList, h]
+  exact hsim (Resource.ownedEq_refl .static st) hexec
 
 theorem execStmt_mstore_preserves_selector_calldata
     (st s : RuntimeState) (off val : Expr)
