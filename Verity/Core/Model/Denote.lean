@@ -170,6 +170,23 @@ def returndataloadWord (returndata : List Nat) (offset : Nat) : Nat :=
     ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) %
       Compiler.Constants.evmModulus
 
+/-- Mirrors `Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256`:
+complete destination words are replaced and a final partial word preserves its
+untouched low bytes. -/
+def returndatacopyMemoryPaddedUint256 (returndata : List Nat)
+    (dst src size : Nat) (memory : Nat → Verity.Core.Uint256) :
+    Nat → Verity.Core.Uint256 :=
+  fun offset => Verity.Core.Uint256.ofNat
+    (if size % 32 ≠ 0 ∧ offset = dst + (size / 32) * 32 then
+      let shift := 8 * (32 - size % 32)
+      ((returndataloadWord returndata (src + (size / 32) * 32) /
+        2 ^ shift) * 2 ^ shift + (memory offset).val % 2 ^ shift) %
+          Compiler.Constants.evmModulus
+    else if calldatacopyWritesAt dst size offset then
+      returndataloadWord returndata (src + (offset - dst))
+    else
+      (memory offset).val)
+
 /-! ## Slot alias expansion (mirroring `Compiler.CompilationModel.LayoutValidation`) -/
 
 def dedupNatPreserve (xs : List Nat) : List Nat :=
@@ -1359,19 +1376,15 @@ mutual
             evalExpr oracle fields state size with
         | some dst, some src, some sz =>
             -- Same bounded-copy semantics as `SourceSemantics.execStmt` and the
-            -- IR interpreter: in-bounds extents copy word-granular buffer
-            -- contents into memory, out-of-bounds extents are observed as a
-            -- reverting frame (EVM's exceptional halt), identically on all layers.
+            -- IR interpreter: in-bounds extents copy complete words and merge
+            -- a final partial word; out-of-bounds extents revert identically.
             if src + sz ≤ 32 * state.world.returndata.length then
               .continue {
                 state with
                 world := {
                   state.world with
-                  memory := fun o =>
-                    if calldatacopyWritesAt dst sz o then
-                      Verity.Core.Uint256.ofNat
-                        (returndataloadWord state.world.returndata (src + (o - dst)))
-                    else state.world.memory o
+                  memory := returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
                 }
               }
             else .revert

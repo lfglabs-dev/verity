@@ -624,11 +624,7 @@ theorem execStmt_eq (fields : List Field) :
   | st, .forEachSetBit v bitmap body =>
       execStmt_forEachSetBit_eq fields st v bitmap body (fun ls => execStmtList_eq fields ls body)
   | _, .calldatacopy _ _ _ => by denote_stmt_arm
-  -- The returndataCopy arm's memory lambdas reference the Denote-lane mirror
-  -- defs (`Denote.calldatacopyWritesAt`, `Denote.returndataloadWord`) and the
-  -- source-lane ones (`YulGeneration.calldatacopyWritesAt`,
-  -- `IRGeneration.returndataloadWord`); the bodies are identical, so the two
-  -- functions are definitionally equal.
+  -- The two lanes use definitionally equal padded-copy mirrors.
   | _, .returndataCopy _ _ _ => by denote_stmt_arm; rfl
   | st, .externalCallBind resultVars _externalName args => by
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
