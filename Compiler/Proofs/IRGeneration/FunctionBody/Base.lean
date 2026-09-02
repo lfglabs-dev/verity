@@ -2440,14 +2440,10 @@ theorem runtimeStateMatchesIR_returndatacopyBothMemory
       { runtime with
           world := {
             runtime.world with
-            memory := fun o =>
-              if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o then
-                Verity.Core.Uint256.ofNat
-                  (Compiler.Proofs.IRGeneration.returndataloadWord
-                    runtime.world.returndata (src + (o - dst)))
-              else runtime.world.memory o } }
+            memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+              runtime.world.returndata dst src size runtime.world.memory } }
       { state with
-          memory := Compiler.Proofs.IRGeneration.returndatacopyMemory
+          memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
             state.returndata dst src size state.memory } := by
   cases runtime
   cases state
@@ -2461,13 +2457,19 @@ theorem runtimeStateMatchesIR_returndatacopyBothMemory
     funext slot
     exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)
   · funext o
-    simp only [Compiler.Proofs.IRGeneration.returndatacopyMemory, hrd]
-    by_cases hw : Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o
-    · simp only [hw, if_true, Verity.Core.Uint256.ofNat]
-      exact (Nat.mod_eq_of_lt
-        (Compiler.Proofs.IRGeneration.returndataloadWord_lt_evmModulus _ _)).symm
-    · simp only [hw, if_false]
-      exact congrFun hmem o
+    simp only [Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256,
+      Verity.Core.Uint256.ofNat]
+    rw [hrd, hmem]
+    by_cases hceil : size % 32 ≠ 0 ∧ o = dst + size / 32 * 32
+    · simp [Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded, hceil,
+        Nat.mod_mod]
+    · simp only [Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded, hceil,
+        if_false, Compiler.Proofs.IRGeneration.returndatacopyMemory]
+      by_cases hw : Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o
+      · simp [hw, Nat.mod_eq_of_lt
+          (Compiler.Proofs.IRGeneration.returndataloadWord_lt_evmModulus _ _)]
+      · simp only [hw, if_false]
+        exact (Nat.mod_eq_of_lt (Verity.Core.Uint256.isLt _)).symm
 
 theorem compileExpr_calldataload_ok
     {fields : List Field}

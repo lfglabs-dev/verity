@@ -695,7 +695,7 @@ def execIRStmtWithInternals
                   if src + size ≤ 32 * state'.returndata.length then
                     .continue {
                       state' with
-                      memory := Compiler.Proofs.IRGeneration.returndatacopyMemory
+                      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
                         state'.returndata dst src size state'.memory
                     }
                   else .revert state'
@@ -1019,7 +1019,7 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
                 if src + size ≤ 32 * state.returndata.length then
                   .continue {
                     state with
-                    memory := Compiler.Proofs.IRGeneration.returndatacopyMemory
+                    memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
                       state.returndata dst src size state.memory
                   }
                 else .revert state
@@ -1728,7 +1728,7 @@ theorem IRStmtPreservesObsAt_of_returndatacopy
     IRStmtPreservesObsAt state
       (.exprStmt (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr])) := by
   refine ⟨{ state with
-      memory := Compiler.Proofs.IRGeneration.returndatacopyMemory
+      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
         state.returndata dst src size state.memory }, fun _ => ?_⟩
   simp [execIRStmt, hDst, hSrc, hSize, hFit]
 

@@ -3280,19 +3280,15 @@ private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
               runtime with
               world := {
                 runtime.world with
-                memory := fun o =>
-                  if Compiler.Proofs.YulGeneration.calldatacopyWritesAt destNat sizeNat o then
-                    Verity.Core.Uint256.ofNat
-                      (Compiler.Proofs.IRGeneration.returndataloadWord
-                        runtime.world.returndata (sourceNat + (o - destNat)))
-                  else runtime.world.memory o
+                memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                  runtime.world.returndata destNat sourceNat sizeNat runtime.world.memory
               }
             } with hruntime'def
           have hSrcExec : SourceSemantics.execStmt fields runtime
               (.returndataCopy destOffset sourceOffset size) = .continue runtime' := by
             simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit, runtime']
           set state' := { state with
-              memory := Compiler.Proofs.IRGeneration.returndatacopyMemory
+              memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
                 state.returndata destNat sourceNat sizeNat state.memory } with hstate'def
           have hExecStmt :
               execIRStmt (extraFuel + 1) state

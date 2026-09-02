@@ -42,18 +42,28 @@ def returndataloadWord (returndata : List Nat) (offset : Nat) : Nat :=
     let lo := returndata.getD (q + 1) 0 % evmModulus
     ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) % evmModulus
 
-/-- Word-granular `returndatacopy(dst, src, size)` on an abstract
-word-addressed memory: the destination region is the same
-`Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size` word range used by the calldata lane, and each
-written word is the buffer word at the corresponding source byte offset. The
-in-bounds extent guard (`src + size ≤ 32 * returndata.length`) is supplied by
-the callers, matching EVM's exceptional halt on out-of-bounds copies. -/
+/-- Complete-word portion of `returndatacopy(dst, src, size)` on abstract
+word-addressed memory.  Use `returndatacopyMemoryPadded` for the full EVM byte
+semantics, including a final partial word. -/
 def returndatacopyMemory (returndata : List Nat)
     (dst src size : Nat) (memory : Nat → Nat) : Nat → Nat :=
   fun offset =>
     if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size offset then
       returndataloadWord returndata (src + (offset - dst))
     else memory offset
+
+/-- Full byte-granular effect of EVM `RETURNDATACOPY` on word-addressed
+memory. Complete words are copied directly. When `size` is not word-aligned,
+the high `size % 32` bytes of the ceiling word come from returndata and its
+untouched low bytes are preserved from memory. -/
+def returndatacopyMemoryPadded (returndata : List Nat)
+    (dst src size : Nat) (memory : Nat → Nat) (offset : Nat) : Nat :=
+  if size % 32 ≠ 0 ∧ offset = dst + (size / 32) * 32 then
+    let shift := 8 * (32 - size % 32)
+    ((returndataloadWord returndata (src + (size / 32) * 32) /
+      2 ^ shift) * 2 ^ shift + memory offset % 2 ^ shift) % evmModulus
+  else
+    returndatacopyMemory returndata dst src size memory offset
 
 /-! ## Readback characterizations -/
 
@@ -81,6 +91,49 @@ theorem returndatacopyMemory_outside
     returndatacopyMemory returndata dst src size mem offset = mem offset := by
   simp [returndatacopyMemory, h]
 
+theorem returndatacopyMemoryPadded_at_index
+    (returndata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat) (i : Nat)
+    (hi : i < size / 32) :
+    returndatacopyMemoryPadded returndata dst src size mem (dst + i * 32) =
+      returndataloadWord returndata (src + i * 32) := by
+  simp only [returndatacopyMemoryPadded,
+    show ¬(size % 32 ≠ 0 ∧ dst + i * 32 = dst + size / 32 * 32) from by omega,
+    if_false]
+  exact returndatacopyMemory_at_index returndata dst src size mem i hi
+
+theorem returndatacopyMemoryPadded_at_ceil
+    (returndata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat)
+    (hrem : size % 32 ≠ 0) :
+    returndatacopyMemoryPadded returndata dst src size mem
+        (dst + (size / 32) * 32) =
+      ((returndataloadWord returndata (src + (size / 32) * 32) /
+        2 ^ (8 * (32 - size % 32))) * 2 ^ (8 * (32 - size % 32))
+      + mem (dst + (size / 32) * 32) % 2 ^ (8 * (32 - size % 32))) %
+        evmModulus := by
+  simp [returndatacopyMemoryPadded, hrem]
+
+/-- Source-semantics form of the padded copy. Keeping the `Uint256` wrapping
+at this boundary makes its `.val` definitionally agree with the normalized IR
+memory update. -/
+def returndatacopyMemoryPaddedUint256 (returndata : List Nat)
+    (dst src size : Nat) (memory : Nat → Verity.Core.Uint256) :
+    Nat → Verity.Core.Uint256 :=
+  fun offset => Verity.Core.Uint256.ofNat
+    (returndatacopyMemoryPadded returndata dst src size
+      (fun o => (memory o).val) offset)
+
+theorem returndatacopyMemoryPadded_outside
+    (returndata : List Nat)
+    (dst src size : Nat) (mem : Nat → Nat) (offset : Nat)
+    (hbase : ¬Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size offset)
+    (hceil : size % 32 = 0 ∨ offset ≠ dst + (size / 32) * 32) :
+    returndatacopyMemoryPadded returndata dst src size mem offset = mem offset := by
+  simp only [returndatacopyMemoryPadded]
+  rw [if_neg (by rcases hceil with h | h <;> simp_all)]
+  exact returndatacopyMemory_outside returndata dst src size mem offset hbase
+
 /-- The zero-extent copy leaves memory untouched: it writes nothing whatever
 the destination offset is, which keeps the historic admitted fragment
 `returndataCopy dst 0 0` behaving identically under the bounded-copy
@@ -95,6 +148,24 @@ semantics. -/
     simp only [Nat.zero_div, Nat.mul_zero, Nat.add_zero] at h2
     omega
   simp [returndatacopyMemory, h]
+
+@[simp] theorem returndatacopyMemoryPadded_zero (returndata : List Nat) (dst src : Nat)
+    (mem : Nat → Nat) :
+    returndatacopyMemoryPadded returndata dst src 0 mem = mem := by
+  rw [show returndatacopyMemoryPadded returndata dst src 0 mem =
+      returndatacopyMemory returndata dst src 0 mem by
+    funext offset
+    simp [returndatacopyMemoryPadded]]
+  exact returndatacopyMemory_zero returndata dst src mem
+
+@[simp] theorem returndatacopyMemoryPaddedUint256_zero
+    (returndata : List Nat) (dst src : Nat) (mem : Nat → Verity.Core.Uint256) :
+    returndatacopyMemoryPaddedUint256 returndata dst src 0 mem = mem := by
+  funext offset
+  apply Verity.Core.Uint256.ext
+  simp only [returndatacopyMemoryPaddedUint256, returndatacopyMemoryPadded_zero,
+    Verity.Core.Uint256.ofNat]
+  exact Nat.mod_eq_of_lt (Verity.Core.Uint256.isLt _)
 
 /-- Aligned read: word `offset / 32` of the buffer, normalized. -/
 theorem returndataloadWord_aligned (returndata : List Nat) (offset : Nat)

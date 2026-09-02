@@ -2694,21 +2694,16 @@ mutual
         | some dst, some src, some sz =>
             -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
             -- buffer into memory when the extent fits, and exceptionally halts
-            -- otherwise; the halt is observed as a reverting frame. The copy is
-            -- word-granular on the abstract memory, exactly like the `calldatacopy`
-            -- lane, and the IR interpreter branches the same way, so the two
-            -- layers agree on the nose.
+            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- words are replaced and a final partial word is merged with its
+            -- untouched low bytes, as in EVM memory.
             if src + sz ≤ 32 * state.world.returndata.length then
               .continue {
                 state with
                 world := {
                   state.world with
-                  memory := fun o =>
-                    if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                      Verity.Core.Uint256.ofNat
-                        (Compiler.Proofs.IRGeneration.returndataloadWord
-                          state.world.returndata (src + (o - dst)))
-                    else state.world.memory o
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
                 }
               }
             else .revert
@@ -3077,21 +3072,16 @@ mutual
         | some dst, some src, some sz =>
             -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
             -- buffer into memory when the extent fits, and exceptionally halts
-            -- otherwise; the halt is observed as a reverting frame. The copy is
-            -- word-granular on the abstract memory, exactly like the `calldatacopy`
-            -- lane, and the IR interpreter branches the same way, so the two
-            -- layers agree on the nose.
+            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- words are replaced and a final partial word is merged with its
+            -- untouched low bytes, as in EVM memory.
             if src + sz ≤ 32 * state.world.returndata.length then
               .continue {
                 state with
                 world := {
                   state.world with
-                  memory := fun o =>
-                    if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                      Verity.Core.Uint256.ofNat
-                        (Compiler.Proofs.IRGeneration.returndataloadWord
-                          state.world.returndata (src + (o - dst)))
-                    else state.world.memory o
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
                 }
               }
             else .revert
@@ -4677,19 +4667,15 @@ mutual
             evalExprWithHelpers spec fields fuel state size with
         | some dst, some src, some sz =>
             -- Same bounded-copy semantics as `execStmt`: in-bounds extents copy
-            -- word-granular buffer contents into memory, out-of-bounds extents
-            -- are observed as a reverting frame, identically on the IR layer.
+            -- complete words and merge the final partial word; out-of-bounds
+            -- extents revert identically on the IR layer.
             if src + sz ≤ 32 * state.world.returndata.length then
               .continue {
                 state with
                 world := {
                   state.world with
-                  memory := fun o =>
-                    if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                      Verity.Core.Uint256.ofNat
-                        (Compiler.Proofs.IRGeneration.returndataloadWord
-                          state.world.returndata (src + (o - dst)))
-                    else state.world.memory o
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
                 }
               }
             else .revert

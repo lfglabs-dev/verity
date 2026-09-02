@@ -839,11 +839,24 @@ private theorem returndataCopy_source_offset_reads_second_word :
       (.returndataCopy (.literal 0) (.literal 32) (.literal 32))) 0 = some 9 := by
   native_decide
 
-/-- A non-word-aligned extent copies the `size / 32` whole words and leaves the
-ceiling word alone (word-granular model, matching the `calldatacopy` lane). -/
-private theorem returndataCopy_unaligned_extent_leaves_ceiling_word :
-    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [5, 9] 42)
-      (.returndataCopy (.literal 0) (.literal 0) (.literal 33))) 32 = some 42 := by
+/-- A one-byte copy writes the high byte of the destination ceiling word and
+preserves its remaining 31 bytes. -/
+private theorem returndataCopy_one_byte_merges_ceiling_word :
+    resultMemoryAt
+      (SourceSemantics.execStmt []
+        (stateWithReturndataAndMemory [2 ^ 248] 42)
+        (.returndataCopy (.literal 0) (.literal 0) (.literal 1))) 0 =
+      some (2 ^ 248 + 42) := by
+  native_decide
+
+/-- The same merge applies after complete words: byte 33 comes from the high
+byte of returndata word one while the low 31 destination bytes survive. -/
+private theorem returndataCopy_unaligned_extent_merges_ceiling_word :
+    resultMemoryAt
+      (SourceSemantics.execStmt []
+        (stateWithReturndataAndMemory [5, 2 ^ 248] 42)
+        (.returndataCopy (.literal 0) (.literal 0) (.literal 33))) 32 =
+      some (2 ^ 248 + 42) := by
   native_decide
 
 /-- The copy reads *inside* the copied region when the extent fits. -/
@@ -885,6 +898,19 @@ private theorem returndataCopy_in_bounds_ir_agrees :
           (Compiler.Yul.YulExpr.call "returndatacopy" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 64])) with
     | .continue s => some (s.memory 0, s.memory 32)
     | _ => none) = some (7, 9) := by
+  native_decide
+
+/-- Source and IR lanes agree on the partial-word merge, including untouched
+bytes in the ceiling word. -/
+private theorem returndataCopy_unaligned_ir_agrees :
+    (match execIRStmt 4
+        { (irStateWithReturndata [5, 2 ^ 248]) with memory := fun _ => 42 }
+        (Compiler.Yul.YulStmt.exprStmt
+          (Compiler.Yul.YulExpr.call "returndatacopy"
+            [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0,
+              Compiler.Yul.YulExpr.lit 33])) with
+    | .continue s => some (s.memory 0, s.memory 32)
+    | _ => none) = some (5, 2 ^ 248 + 42) := by
   native_decide
 /-- The IR interpreter answers the same out-of-bounds extent with a reverting
 frame, matching the source lane's exceptional-halt observation. -/
