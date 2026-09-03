@@ -702,6 +702,7 @@ end Verity.AxiomAudit
   Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_earlyExit_bridge
 
   -- Verity/Proofs/Model/CommonExternalCallEquivalence.lean
+  Contracts.commonExternalCall_eq_model
   Contracts.externalCallWords_eq_stub_result
   Contracts.callResultWords_eq_stub
   Contracts.tryExternalCallWords_eq_stub
@@ -7514,4 +7515,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6952 theorems/lemmas (4962 public, 1990 private, 0 sorry'd)
+-- Total: 6953 theorems/lemmas (4963 public, 1990 private, 0 sorry'd)
