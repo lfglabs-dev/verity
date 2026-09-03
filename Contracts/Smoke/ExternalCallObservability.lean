@@ -43,6 +43,13 @@ private def codeTransitionAdversary (codeSize : Uint256) :
   result := fun _ _ => .success []
   gasUsed := fun _ _ => 0
 
+private def controlledAdversary
+    (result : Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult) :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => result
+  gasUsed := fun _ _ => 0
+
 private def codedState : ContractState :=
   { defaultState with codeSize := fun _ => 1 }
 
@@ -87,6 +94,27 @@ example :
         { codedState with
             calls := [{ Contracts.erc20WriteEntry "safeTransfer" 7 [8, 9] with
               returndata := [Compiler.Constants.evmModulus + 1] }] } := rfl
+
+/-- Failed `callResult` crossings retain the first returned word rather than
+replacing the compiler-observable payload with the type default. -/
+example :
+    (Contracts.callResultWords "probe" [9]
+      (controlledAdversary (.failure [42, 99])) :
+        Contract (Contracts.Call.Result Uint256)).run defaultState =
+      ContractResult.success { success := false, returndata := 42 }
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "probe" [9] .failure [42, 99]] } := rfl
+
+/-- Reverted try-call payloads are decoded as normalized EVM words on the
+in-band failure path, matching `Stmt.tryExternalCallBind`. -/
+example :
+    (Contracts.tryExternalCallWords "probe" [9]
+      (controlledAdversary (.revert [Compiler.Constants.evmModulus + 42])) :
+        Contract (Bool × Uint256)).run defaultState =
+      ContractResult.success (false, 42)
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "probe" [9] .revert
+              [Compiler.Constants.evmModulus + 42]] } := rfl
 
 /-- One call appends exactly one journal entry. -/
 theorem single_call_journals_one_entry (s : ContractState) :

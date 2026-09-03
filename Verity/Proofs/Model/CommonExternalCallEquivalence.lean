@@ -35,9 +35,9 @@ def stubCallResultWords {α : Type} [ExternalResult α] [Inhabited α]
         { success := true,
           returndata := ExternalResult.fromWord (Core.Uint256.ofNat word) }) (legacyPost state post)
   | .success (.success _) _ => .revert "external call returned invalid data" state
-  | .success (.failure _) post | .success (.revert _) post =>
+  | .success (.failure returndata) post | .success (.revert returndata) post =>
       .success (show Call.Result α from
-        { success := false, returndata := Inhabited.default }) (legacyPost state post)
+        { success := false, returndata := failedExternalResult returndata }) (legacyPost state post)
   | .revert message _ => .revert message state
 
 def stubTryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
@@ -46,8 +46,8 @@ def stubTryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
   | .success (.success [word]) post =>
       .success (true, ExternalResult.fromWord (Core.Uint256.ofNat word)) (legacyPost state post)
   | .success (.success _) _ => .revert "external call returned invalid data" state
-  | .success (.failure _) post | .success (.revert _) post =>
-      .success (false, Inhabited.default) (legacyPost state post)
+  | .success (.failure returndata) post | .success (.revert returndata) post =>
+      .success (false, failedExternalResult returndata) (legacyPost state post)
   | .revert message _ => .revert message state
 
 def stubExternalCallBind {α : Type} [ExternalArg α]

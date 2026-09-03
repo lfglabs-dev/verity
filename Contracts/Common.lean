@@ -663,6 +663,10 @@ def externalCallWords {α : Type} [ExternalResult α] (name : String) (args : Li
       ExternalResult.fromWord (externalCallStubWord name args)
   | .revert _ _ => ExternalResult.fromWord (externalCallStubWord name args)
 
+def failedExternalResult {α : Type} [ExternalResult α] [Inhabited α] : List Nat → α
+  | [] => Inhabited.default
+  | word :: _ => ExternalResult.fromWord (Core.Uint256.ofNat word)
+
 def callResultWords {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub) : Contract (Call.Result α) :=
   fun state =>
@@ -670,8 +674,8 @@ def callResultWords {α : Type} [ExternalResult α] [Inhabited α]
     | .success (.success [word]) post =>
         .success { success := true, returndata := ExternalResult.fromWord (Core.Uint256.ofNat word) } post
     | .success (.success _) _ => .revert "external call returned invalid data" state
-    | .success (.failure _) post | .success (.revert _) post =>
-        .success { success := false, returndata := Inhabited.default } post
+    | .success (.failure returndata) post | .success (.revert returndata) post =>
+        .success { success := false, returndata := failedExternalResult returndata } post
     | .revert message _ => .revert message state
 
 def tryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
@@ -681,8 +685,8 @@ def tryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
     | .success (.success [word]) post =>
         .success (true, ExternalResult.fromWord (Core.Uint256.ofNat word)) post
     | .success (.success _) _ => .revert "external call returned invalid data" state
-    | .success (.failure _) post | .success (.revert _) post =>
-        .success (false, Inhabited.default) post
+    | .success (.failure returndata) post | .success (.revert returndata) post =>
+        .success (false, failedExternalResult returndata) post
     | .revert message _ => .revert message state
 
 def externalCallBind {α : Type} [ExternalArg α]
@@ -772,8 +776,8 @@ theorem callResultWords_adv_run {α : Type} [ExternalResult α] [Inhabited α]
             { success := true,
               returndata := ExternalResult.fromWord (Core.Uint256.ofNat word) }) post
       | .success (.success _) _ => .revert "external call returned invalid data" s
-      | .success (.failure _) post | .success (.revert _) post =>
-          .success { success := false, returndata := Inhabited.default } post
+      | .success (.failure returndata) post | .success (.revert returndata) post =>
+          .success { success := false, returndata := failedExternalResult returndata } post
       | .revert message _ => .revert message s := rfl
 
 theorem tryExternalCallWords_adv_run {α : Type} [ExternalResult α] [Inhabited α]
@@ -783,8 +787,8 @@ theorem tryExternalCallWords_adv_run {α : Type} [ExternalResult α] [Inhabited 
       | .success (.success [word]) post =>
           .success (true, ExternalResult.fromWord (Core.Uint256.ofNat word)) post
       | .success (.success _) _ => .revert "external call returned invalid data" s
-      | .success (.failure _) post | .success (.revert _) post =>
-          .success (false, Inhabited.default) post
+      | .success (.failure returndata) post | .success (.revert returndata) post =>
+          .success (false, failedExternalResult returndata) post
       | .revert message _ => .revert message s := rfl
 
 /-! The PR1 `.stub` laws retain their original names and propositions. -/
@@ -889,7 +893,8 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
       Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
       Contract.run, Verity.bind, Verity.pure, Verity.instMonadContract, Bind.bind, Pure.pure,
       linkedCallSite, linkedCallEntry,
-      externalCallStubSuccess, externalCallStubWord, externalCallResultWord, h]
+      externalCallStubSuccess, externalCallStubWord, externalCallResultWord,
+      failedExternalResult, h]
 
 @[simp] theorem tryExternalCallWords_run {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (s : ContractState) :
@@ -920,7 +925,8 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
       Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
       Contract.run, Verity.bind, Verity.pure, Verity.instMonadContract, Bind.bind, Pure.pure,
       linkedCallSite, linkedCallEntry,
-      externalCallStubSuccess, externalCallStubWord, externalCallResultWord, h]
+      externalCallStubSuccess, externalCallStubWord, externalCallResultWord,
+      failedExternalResult, h]
 
 private def erc20ReadStubWord (name : String) (args : List Uint256) : Uint256 :=
   externalCallStubWord name args
