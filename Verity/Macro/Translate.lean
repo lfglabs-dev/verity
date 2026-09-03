@@ -2230,7 +2230,7 @@ def translatedBodyOpensReentrancyWindow
     (stmtTerms : Array Term) : CommandElabM Bool := do
   let bodyTerm : Term ← `([ $[$stmtTerms],* ])
   liftTermElabM do
-    let predicate : Term ← `($bodyTerm.any Compiler.CompilationModel.stmtOpensReentrancyWindow)
+    let predicate : Term ← `($(bodyTerm).any Compiler.CompilationModel.stmtOpensReentrancyWindow)
     let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
     match ← Lean.Meta.whnf expr with
     | .const ``Bool.true _ => pure true
