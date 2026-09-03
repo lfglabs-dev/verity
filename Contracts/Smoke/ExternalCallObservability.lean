@@ -113,14 +113,31 @@ observably different from sending once, in every pre-state. A deposit-style
 theorem quantified over `calls` therefore rejects the double-send mutant by
 running the program, not by auxiliary record arithmetic. -/
 theorem double_send_observable (token toAddr : Address) (amount : Uint256)
-    (s : ContractState) :
-    s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
-        [Verity.addressToWord toAddr, amount]] ++
-        [Contracts.erc20WriteEntry "safeTransfer" token
-          [Verity.addressToWord toAddr, amount]] ≠
-      s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
-        [Verity.addressToWord toAddr, amount]] := by
-  simp
+    (s : ContractState) (hcode : s.codeSize token.toNat ≠ 0) :
+    (((do Contracts.safeTransfer token toAddr amount
+          Contracts.safeTransfer token toAddr amount) : Contract Unit).run s).snd.calls ≠
+      ((Contracts.safeTransfer token toAddr amount).run s).snd.calls := by
+  change ((Verity.bind (Contracts.safeTransfer token toAddr amount)
+      (fun _ => Contracts.safeTransfer token toAddr amount)).run s).snd.calls ≠ _
+  let entry := Contracts.erc20WriteEntry "safeTransfer" token
+    [Verity.addressToWord toAddr, amount]
+  let s₁ := { s with calls := s.calls ++ [entry] }
+  let s₂ := { s₁ with calls := s₁.calls ++ [entry] }
+  have h₁ : (Contracts.safeTransfer token toAddr amount).run s =
+      ContractResult.success () s₁ := by
+    simpa [s₁, entry] using Contracts.safeTransfer_run token toAddr amount s hcode
+  have hcode₁ : s₁.codeSize token.toNat ≠ 0 := hcode
+  have h₂ : (Contracts.safeTransfer token toAddr amount).run s₁ =
+      ContractResult.success () s₂ := by
+    simpa [s₂, entry] using Contracts.safeTransfer_run token toAddr amount s₁ hcode₁
+  have h₁raw := Contract.eq_of_run_success h₁
+  have h₂raw := Contract.eq_of_run_success h₂
+  have hrun : (Verity.bind (Contracts.safeTransfer token toAddr amount)
+      (fun _ => Contracts.safeTransfer token toAddr amount)).run s =
+      ContractResult.success () s₂ := by
+    simp [Verity.bind, Contract.run, h₁raw, h₂raw]
+  rw [hrun, h₁]
+  simp [s₂, s₁, entry]
 
 /-- `callResult` and `tryExternalCall` journal their crossing too: the
 success path records the callee name, argument words, control, and the

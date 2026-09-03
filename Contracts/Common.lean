@@ -691,7 +691,7 @@ def externalCallBind {α : Type} [ExternalArg α]
   let words := args.flatMap ExternalArg.toWords
   match (commonExternalCall adv (linkedCallSite name words names.length)).run state with
   | .success (.success returndata) post =>
-      if names.length ≤ returndata.length then .success () post
+      if names.length = returndata.length then .success () post
       else .revert "external call returned insufficient data" state
   | .success (.failure _) _ | .success (.revert _) _ =>
       .revert "external call failed" state
@@ -712,7 +712,7 @@ def externalCallBindTo {α : Type} [ExternalArg α]
       match (commonExternalCall adv
           (linkedCallSite name argWords names.length .call target.toNat value.val)).run debited with
       | .success (.success returndata) post =>
-          if names.length ≤ returndata.length then ContractResult.success () post
+          if names.length = returndata.length then ContractResult.success () post
           else ContractResult.revert "external call returned insufficient data" state
       | .success (.failure _) _ | .success (.revert _) _ =>
           ContractResult.revert "external call failed" state
@@ -739,7 +739,7 @@ definitional (`rfl`). -/
       match (commonExternalCall adv
           (linkedCallSite name (args.flatMap ExternalArg.toWords) names.length)).run s with
       | .success (.success returndata) post =>
-          if names.length ≤ returndata.length then ContractResult.success () post
+          if names.length = returndata.length then ContractResult.success () post
           else ContractResult.revert "external call returned insufficient data" s
       | .success (.failure _) _ | .success (.revert _) _ =>
           ContractResult.revert "external call failed" s
@@ -756,7 +756,7 @@ theorem externalCallBindTo_adv_apply {α : Type} [ExternalArg α]
             (linkedCallSite name (args.flatMap ExternalArg.toWords) names.length
               .call target.toNat value.val)).run debited with
         | .success (.success returndata) post =>
-            if names.length ≤ returndata.length then ContractResult.success () post
+            if names.length = returndata.length then ContractResult.success () post
             else ContractResult.revert "external call returned insufficient data" s
         | .success (.failure _) _ | .success (.revert _) _ =>
             ContractResult.revert "external call failed" s
