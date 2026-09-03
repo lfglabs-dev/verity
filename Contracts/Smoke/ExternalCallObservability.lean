@@ -31,6 +31,43 @@ private def notify (arg : Uint256) : Contract Unit :=
 private def notifyEntry (arg : Uint256) : ExternalCall :=
   Contracts.linkedCallEntry "notify" [arg]
 
+private def returningAdversary (returndata : List Nat) :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success returndata
+  gasUsed := fun _ _ => 0
+
+private def codedState : ContractState :=
+  { defaultState with codeSize := fun _ => 1 }
+
+/-! ### ERC-20 optional-bool policy regressions -/
+
+/-- OpenZeppelin-style wrappers must not treat a successful empty return from
+an address without code as a successful token operation. -/
+example :
+    (Contracts.safeTransfer 7 8 9 (returningAdversary [])).run defaultState =
+      ContractResult.revert "external call target has no code" defaultState := rfl
+
+/-- Legacy wrappers accept returndata longer than one word when its first word
+is true, matching their compiled `returndatasize() > 31` policy. -/
+example :
+    (Contracts.legacyStringSafeTransfer 7 8 9
+      (returningAdversary [1, 37])).run codedState =
+      ContractResult.success ()
+        { codedState with
+            calls := [{ Contracts.erc20WriteEntry "legacyStringSafeTransfer" 7 [8, 9] with
+              returndata := [1, 37] }] } := rfl
+
+/-- Optional-bool matching observes EVM words, so an adversarial natural
+congruent to one modulo the EVM word modulus is accepted as `true`. -/
+example :
+    (Contracts.safeTransfer 7 8 9
+      (returningAdversary [Compiler.Constants.evmModulus + 1])).run codedState =
+      ContractResult.success ()
+        { codedState with
+            calls := [{ Contracts.erc20WriteEntry "safeTransfer" 7 [8, 9] with
+              returndata := [Compiler.Constants.evmModulus + 1] }] } := rfl
+
 /-- One call appends exactly one journal entry. -/
 theorem single_call_journals_one_entry (s : ContractState) :
     ((notify 1).run s).snd.calls = s.calls ++ [notifyEntry 1] := rfl
