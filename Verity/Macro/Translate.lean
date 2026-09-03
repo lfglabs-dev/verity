@@ -2226,15 +2226,17 @@ private def mkContractFnValueWithAdversary
   let value ← mkContractFnValue params body
   `(fun ($adv : $(← adversaryModelTypeTerm)) => $value)
 
-unsafe def translatedBodyOpensReentrancyWindow
+def translatedBodyOpensReentrancyWindow
     (stmtTerms : Array Term) : CommandElabM Bool := do
   let bodyTerm : Term ← `([ $[$stmtTerms],* ])
   liftTermElabM do
-    let stmtTy := mkConst ``Compiler.CompilationModel.Stmt
-    let expectedType := mkApp (mkConst ``List [Level.zero]) stmtTy
-    let expr ← Lean.Elab.Term.elabTermEnsuringType bodyTerm expectedType
-    let body ← Lean.Meta.evalExpr (List Compiler.CompilationModel.Stmt) expectedType expr .unsafe
-    pure (body.any Compiler.CompilationModel.stmtOpensReentrancyWindow)
+    let predicate : Term ← `($bodyTerm.any Compiler.CompilationModel.stmtOpensReentrancyWindow)
+    let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
+    match ← Lean.Meta.whnf expr with
+    | .const ``Bool.true _ => pure true
+    | .const ``Bool.false _ => pure false
+    | _ => throwErrorAt bodyTerm
+        "failed to reduce the translated reentrancy-window predicate"
 
 private partial def threadAdversaryThroughExecutableSyntax
     (externalDecls : Array ExternalDecl) (adv : Ident) (stx : Syntax) : CommandElabM Syntax := do
@@ -4598,7 +4600,7 @@ def mkFunctionCommandsPublic
       | some inlined => pure inlined
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
-  let opensReentrancyWindow ← unsafe translatedBodyOpensReentrancyWindow stmtTerms
+  let opensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
   let advIdent := mkIdentFrom fn.ident `_adv
   let fnType ← if opensReentrancyWindow then
       mkContractFnTypeWithAdversary fn.params fn.returnTy
