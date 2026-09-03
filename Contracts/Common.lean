@@ -651,8 +651,11 @@ def commonExternalCall (adv : AdversaryModel)
             { world := state, gasRemaining := site.gas }).state.world with
           returndata := state.returndata } := rfl
 
+/-- Transitional expression-position boundary. Until PR3 moves macro-expanded
+external calls into the caller's `Contract` state, this pure helper can only
+soundly execute the deterministic stub adversary. -/
 def externalCallWords {α : Type} [ExternalResult α] (name : String) (args : List Uint256)
-    (adv : AdversaryModel := .stub) : α :=
+    (adv : AdversaryModel := .stub) (_hadv : adv = .stub := by rfl) : α :=
   match commonExternalCall adv (linkedCallSite name args 1) defaultState with
   | .success (.success returndata) _ =>
       ExternalResult.fromWord (Core.Uint256.ofNat (returndata.head?.getD 0))
@@ -680,7 +683,9 @@ def externalCallBind {α : Type} [ExternalArg α]
     (adv : AdversaryModel := .stub) : Contract Unit := fun state =>
   let words := args.flatMap ExternalArg.toWords
   match (commonExternalCall adv (linkedCallSite name words names.length)).run state with
-  | .success (.success _) post => .success () post
+  | .success (.success returndata) post =>
+      if names.length ≤ returndata.length then .success () post
+      else .revert "external call returned insufficient data" state
   | .success (.failure _) _ | .success (.revert _) _ =>
       .revert "external call failed" state
   | .revert message _ => .revert message state
@@ -696,10 +701,12 @@ def externalCallBindTo {α : Type} [ExternalArg α]
   fun state =>
     if value ≤ state.selfBalance then
       let argWords := args.flatMap ExternalArg.toWords
+      let debited := { state with selfBalance := state.selfBalance - value }
       match (commonExternalCall adv
-          (linkedCallSite name argWords names.length .call target.toNat value.val)).run state with
-      | .success (.success _) post =>
-          ContractResult.success () { post with selfBalance := post.selfBalance - value }
+          (linkedCallSite name argWords names.length .call target.toNat value.val)).run debited with
+      | .success (.success returndata) post =>
+          if names.length ≤ returndata.length then ContractResult.success () post
+          else ContractResult.revert "external call returned insufficient data" state
       | .success (.failure _) _ | .success (.revert _) _ =>
           ContractResult.revert "external call failed" state
       | .revert message _ => ContractResult.revert message state
@@ -724,7 +731,9 @@ definitional (`rfl`). -/
     externalCallBind names name args adv s =
       match (commonExternalCall adv
           (linkedCallSite name (args.flatMap ExternalArg.toWords) names.length)).run s with
-      | .success (.success _) post => ContractResult.success () post
+      | .success (.success returndata) post =>
+          if names.length ≤ returndata.length then ContractResult.success () post
+          else ContractResult.revert "external call returned insufficient data" s
       | .success (.failure _) _ | .success (.revert _) _ =>
           ContractResult.revert "external call failed" s
       | .revert message _ => ContractResult.revert message s := rfl
@@ -735,11 +744,13 @@ theorem externalCallBindTo_adv_apply {α : Type} [ExternalArg α]
     (names : List String) (name : String) (args : List α) (s : ContractState) :
     externalCallBindTo target value names name args adv s =
       if value ≤ s.selfBalance then
+        let debited := { s with selfBalance := s.selfBalance - value }
         match (commonExternalCall adv
             (linkedCallSite name (args.flatMap ExternalArg.toWords) names.length
-              .call target.toNat value.val)).run s with
-        | .success (.success _) post =>
-            ContractResult.success () { post with selfBalance := post.selfBalance - value }
+              .call target.toNat value.val)).run debited with
+        | .success (.success returndata) post =>
+            if names.length ≤ returndata.length then ContractResult.success () post
+            else ContractResult.revert "external call returned insufficient data" s
         | .success (.failure _) _ | .success (.revert _) _ =>
             ContractResult.revert "external call failed" s
         | .revert message _ => ContractResult.revert message s
@@ -954,10 +965,17 @@ def erc20ReadEntry (name : String) (token : Address) (args : List Uint256)
       target := token.toNat }
 
 def erc20Read (adv : AdversaryModel) (name : String) (token : Address)
-    (args : List Uint256) : Contract Uint256 := do
-  let result ← commonExternalCall adv
-    (linkedCallSite name args 1 .staticcall token.toNat 0 [Verity.addressToWord token])
-  pure (externalCallResultWord result)
+    (args : List Uint256) : Contract Uint256 := fun state =>
+  match (commonExternalCall adv
+      (linkedCallSite name args 1 .staticcall token.toNat 0
+        [Verity.addressToWord token])).run state with
+  | .success (.success [word]) post =>
+      .success (Core.Uint256.ofNat word) post
+  | .success (.success _) _ =>
+      .revert "external call returned invalid data" state
+  | .success (.failure _) _ | .success (.revert _) _ =>
+      .revert "external call failed" state
+  | .revert message _ => .revert message state
 
 def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
     (args : List Uint256) : Contract Unit := fun state =>
