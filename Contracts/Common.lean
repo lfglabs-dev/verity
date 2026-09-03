@@ -628,9 +628,6 @@ private abbrev AdversaryModel :=
   Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel
 private abbrev ExternalCallResult :=
   Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult
-private abbrev modelExternalCall :=
-  Compiler.CompilationModel.DenoteExternalCalls.externalCall
-
 def externalCallResultWord (result : ExternalCallResult) : Uint256 :=
   Core.Uint256.ofNat (result.returndata.head?.getD 0)
 
@@ -781,7 +778,7 @@ theorem externalCallBindTo_adv_apply {α : Type} [ExternalArg α]
                   (externalCallStubWord name (args.flatMap ExternalArg.toWords) : Nat))] }
       else ContractResult.revert "external call failed" s := by
   by_cases h : name = "fail" <;>
-    simp [Contract.run, externalCallBind, commonExternalCall, modelExternalCall,
+    simp [Contract.run, externalCallBind, commonExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
       Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
       Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -812,7 +809,7 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
       else ContractResult.revert "insufficient balance" s := by
   by_cases hbal : value ≤ s.selfBalance
   · by_cases h : name = "fail"
-    · simp [Contract.run, externalCallBindTo, commonExternalCall, modelExternalCall,
+    · simp [Contract.run, externalCallBindTo, commonExternalCall,
         Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -825,7 +822,7 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
         Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
         externalCallStubSuccess, linkedCallSite, linkedCallEntryTo, linkedCallEntry,
         externalCallStubWord, hbal, h]
-    · simp [Contract.run, externalCallBindTo, commonExternalCall, modelExternalCall,
+    · simp [Contract.run, externalCallBindTo, commonExternalCall,
         Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -856,7 +853,7 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
                 [(externalCallStubWord name args : Nat)]
               else [])] } := by
   by_cases h : name = "fail" <;>
-    simp [callResultWords, commonExternalCall, modelExternalCall,
+    simp [callResultWords, commonExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
       Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
       Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -887,7 +884,7 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
                 [(externalCallStubWord name args : Nat)]
               else [])] } := by
   by_cases h : name = "fail" <;>
-    simp [tryExternalCallWords, commonExternalCall, modelExternalCall,
+    simp [tryExternalCallWords, commonExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
       Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
       Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -1008,7 +1005,7 @@ theorem erc20Write_stub_run (name : String) (token : Address)
     (erc20Write .stub name token args).run s =
       ContractResult.success ()
         { s with calls := s.calls ++ [erc20WriteEntry name token args] } := by
-  simp [erc20Write, commonExternalCall, modelExternalCall,
+  simp [erc20Write, commonExternalCall,
     Compiler.CompilationModel.DenoteExternalCalls.externalCall,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
@@ -1078,7 +1075,7 @@ theorem erc20Read_stub_run (name : String) (token : Address)
       let result := erc20ReadStubWord name (Verity.addressToWord token :: args)
       ContractResult.success result
         { s with calls := s.calls ++ [erc20ReadEntry name token args result] } := by
-  simp [erc20Read, commonExternalCall, modelExternalCall,
+  simp [erc20Read, commonExternalCall,
     Compiler.CompilationModel.DenoteExternalCalls.externalCall,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
     Compiler.CompilationModel.DenoteExternalCalls.denoteCall,

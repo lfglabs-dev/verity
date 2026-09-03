@@ -162,48 +162,16 @@ example (token owner : Address) :
         [Verity.addressToWord owner]
         (Contracts.externalCallStubWord "balanceOf"
           [Verity.addressToWord token, Verity.addressToWord owner])] := by
-  simp [Contracts.balanceOf, Contracts.erc20Read, Contracts.commonExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
-    Compiler.CompilationModel.DenoteExternalCalls.chargedGas,
-    Compiler.CompilationModel.DenoteExternalCalls.journalEntry,
-    Compiler.CompilationModel.DenoteExternalCalls.CallKind.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-    Contracts.linkedCallSite, Contract.run, Verity.bind, Verity.instMonadContract,
-    Contracts.externalCallStubWord,
-    Contracts.erc20ReadEntry, Contracts.linkedCallEntry, Verity.defaultState]
-  rfl
+  rw [Contracts.balanceOf_run]
+  simp [Contracts.erc20ReadEntry,
+    Contracts.linkedCallEntry, Verity.defaultState]
 
 example (token owner : Address) :
     ((Contracts.balanceOf token owner .stub).run defaultState).snd.calls.map
       (fun call => call.kind) = [.staticcall] := by
-  have hjournal :
-      ((Contracts.balanceOf token owner .stub).run defaultState).snd.calls =
-        [Contracts.erc20ReadEntry "balanceOf" token
-          [Verity.addressToWord owner]
-          (Contracts.externalCallStubWord "balanceOf"
-            [Verity.addressToWord token, Verity.addressToWord owner])] := by
-    simp [Contracts.balanceOf, Contracts.erc20Read, Contracts.commonExternalCall,
-      Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-      Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-      Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
-      Compiler.CompilationModel.DenoteExternalCalls.chargedGas,
-      Compiler.CompilationModel.DenoteExternalCalls.journalEntry,
-      Compiler.CompilationModel.DenoteExternalCalls.CallKind.toJournal,
-      Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
-      Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
-      Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-      Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-      Contracts.linkedCallSite, Contract.run, Verity.bind, Verity.instMonadContract,
-      Contracts.externalCallStubWord, Contracts.erc20ReadEntry,
-      Contracts.linkedCallEntry, Verity.defaultState]
-    rfl
-  rw [hjournal]
-  rfl
+  rw [Contracts.balanceOf_run]
+  simp [Contracts.erc20ReadEntry,
+    Contracts.linkedCallEntry, Verity.defaultState]
 
 example (token owner spender : Address) :
     ((Contracts.allowance token owner spender .stub).run defaultState).snd.calls =
@@ -212,41 +180,17 @@ example (token owner spender : Address) :
         (Contracts.externalCallStubWord "allowance"
           [Verity.addressToWord token, Verity.addressToWord owner,
             Verity.addressToWord spender])] := by
-  simp [Contracts.allowance, Contracts.erc20Read, Contracts.commonExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
-    Compiler.CompilationModel.DenoteExternalCalls.chargedGas,
-    Compiler.CompilationModel.DenoteExternalCalls.journalEntry,
-    Compiler.CompilationModel.DenoteExternalCalls.CallKind.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-    Contracts.linkedCallSite, Contract.run, Verity.bind, Verity.instMonadContract,
-    Contracts.externalCallStubWord,
-    Contracts.erc20ReadEntry, Contracts.linkedCallEntry, Verity.defaultState]
-  rfl
+  rw [Contracts.allowance_run]
+  simp [Contracts.erc20ReadEntry,
+    Contracts.linkedCallEntry, Verity.defaultState]
 
 example (token : Address) :
     ((Contracts.totalSupply token .stub).run defaultState).snd.calls =
       [Contracts.erc20ReadEntry "totalSupply" token []
         (Contracts.externalCallStubWord "totalSupply" [Verity.addressToWord token])] := by
-  simp [Contracts.totalSupply, Contracts.erc20Read, Contracts.commonExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
-    Compiler.CompilationModel.DenoteExternalCalls.chargedGas,
-    Compiler.CompilationModel.DenoteExternalCalls.journalEntry,
-    Compiler.CompilationModel.DenoteExternalCalls.CallKind.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-    Contracts.linkedCallSite, Contract.run, Verity.bind, Verity.instMonadContract,
-    Contracts.externalCallStubWord,
-    Contracts.erc20ReadEntry, Contracts.linkedCallEntry, Verity.defaultState]
-  rfl
+  rw [Contracts.totalSupply_run]
+  simp [Contracts.erc20ReadEntry,
+    Contracts.linkedCallEntry, Verity.defaultState]
 
 /-- Dynamic array encoding is length-delimited and retains every element. -/
 example : ExternalArg.toWords (#[11, 12] : Array Uint256) = [2, 11, 12] := rfl
@@ -293,16 +237,8 @@ example (token toAddr : Address) (amount : Uint256) :
       [{ siteId := 0, kind := .call, target := token.toNat, value := 0
          calldata := [Core.Uint256.ofNat toAddr.toNat, amount], control := .success
          returndata := [], name := "safeTransfer" }] := by
-  simp [Contracts.safeTransfer, Contracts.erc20Write, Contracts.commonExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
-    Compiler.CompilationModel.DenoteExternalCalls.journalEntry,
-    Compiler.CompilationModel.DenoteExternalCalls.CallKind.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-    Contracts.linkedCallSite, Contract.run, Verity.bind, Verity.defaultState]
+  rw [Contracts.safeTransfer_run]
+  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
 
 example (token fromAddr toAddr : Address) (amount : Uint256) :
     ((Contracts.safeTransferFrom token fromAddr toAddr amount .stub).run defaultState).snd.calls =
@@ -310,32 +246,16 @@ example (token fromAddr toAddr : Address) (amount : Uint256) :
          calldata := [Core.Uint256.ofNat fromAddr.toNat,
            Core.Uint256.ofNat toAddr.toNat, amount], control := .success
          returndata := [], name := "safeTransferFrom" }] := by
-  simp [Contracts.safeTransferFrom, Contracts.erc20Write, Contracts.commonExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
-    Compiler.CompilationModel.DenoteExternalCalls.journalEntry,
-    Compiler.CompilationModel.DenoteExternalCalls.CallKind.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-    Contracts.linkedCallSite, Contract.run, Verity.bind, Verity.defaultState]
+  rw [Contracts.safeTransferFrom_run]
+  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
 
 example (token spender : Address) (amount : Uint256) :
     ((Contracts.safeApprove token spender amount .stub).run defaultState).snd.calls =
       [{ siteId := 0, kind := .call, target := token.toNat, value := 0
          calldata := [Core.Uint256.ofNat spender.toNat, amount], control := .success
          returndata := [], name := "safeApprove" }] := by
-  simp [Contracts.safeApprove, Contracts.erc20Write, Contracts.commonExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
-    Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
-    Compiler.CompilationModel.DenoteExternalCalls.journalEntry,
-    Compiler.CompilationModel.DenoteExternalCalls.CallKind.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
-    Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-    Contracts.linkedCallSite, Contract.run, Verity.bind, Verity.defaultState]
+  rw [Contracts.safeApprove_run]
+  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
 
 /-- The reserved `"fail"` callee journals a failure-control entry with no
 returndata, and reports `success := false` in-band. -/
