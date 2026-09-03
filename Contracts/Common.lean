@@ -981,7 +981,10 @@ def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
     (args : List Uint256) : Contract Unit := fun state =>
   match (commonExternalCall adv
       (linkedCallSite name args 0 .call token.toNat)).run state with
-  | .success (.success _) post => .success () post
+  | .success (.success returndata) post =>
+      match returndata with
+      | [] | [1] => .success () post
+      | _ => .revert "external call returned false or invalid data" state
   | .success (.failure _) _ | .success (.revert _) _ =>
       .revert "external call failed" state
   | .revert message _ => .revert message state
