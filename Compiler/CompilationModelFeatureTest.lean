@@ -189,7 +189,7 @@ def forwardExecutableReadsImplementation : Bool :=
     (ProxyUpgradeabilityMacroSmoke.initProxy (Verity.wordToAddress 11) (Verity.wordToAddress 19)).run Verity.defaultState
   match seededState with
   | .success _ state =>
-      match ProxyUpgradeabilityMacroSmoke.forward 100 0 32 64 32 state with
+      match ProxyUpgradeabilityMacroSmoke.forward .stub 100 0 32 64 32 state with
       | .success ok nextState =>
           ok == delegatecall 100 19 0 32 64 32 &&
             nextState.storage ProxyUpgradeabilityMacroSmoke.initializedVersion.slot == 1 &&
@@ -352,7 +352,7 @@ def storeEchoModelUsesDeclaredExternal : Bool :=
 example : storeEchoModelUsesDeclaredExternal = true := by native_decide
 
 def storeEchoExecutableUsesStub : Bool :=
-  match MacroExternal.storeEcho 33 Verity.defaultState with
+  match MacroExternal.storeEcho .stub 33 Verity.defaultState with
   | .success () state =>
       state.storage 0 == 33
   | .revert _ _ => false
