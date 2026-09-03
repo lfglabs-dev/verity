@@ -1905,6 +1905,14 @@ private def mkContractFnType (params : Array ParamDecl) (retTy : ValueType) : Co
     ty ← `(($(← contractValueTypeTerm param.ty)) → $ty)
   pure ty
 
+private def adversaryModelTypeTerm : CommandElabM Term :=
+  `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
+
+private def mkContractFnTypeWithAdversary
+    (params : Array ParamDecl) (retTy : ValueType) : CommandElabM Term := do
+  let base ← mkContractFnType params retTy
+  `(($(← adversaryModelTypeTerm)) → $base)
+
 private def mkTupleProjectionTerm (base : Term) (elemTys : List ValueType) (idx : Nat) : CommandElabM Term := do
   let rec go (tupleTerm : Term) (remaining : List ValueType) (targetIdx : Nat) : CommandElabM Term := do
     match remaining with
@@ -2212,6 +2220,100 @@ private def mkContractFnValue (params : Array ParamDecl) (body : Term) : Command
     let pid := param.ident
     value ← `(fun ($pid : $(← contractValueTypeTerm param.ty)) => $value)
   pure value
+
+private def mkContractFnValueWithAdversary
+    (adv : Ident) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
+  let value ← mkContractFnValue params body
+  `(fun ($adv : $(← adversaryModelTypeTerm)) => $value)
+
+unsafe def translatedBodyOpensReentrancyWindow
+    (stmtTerms : Array Term) : CommandElabM Bool := do
+  let bodyTerm : Term ← `([ $[$stmtTerms],* ])
+  liftTermElabM do
+    let stmtTy := mkConst ``Compiler.CompilationModel.Stmt
+    let expectedType := mkApp (mkConst ``List) stmtTy
+    let expr ← Lean.Elab.Term.elabTermEnsuringType bodyTerm expectedType
+    let body ← Lean.Meta.evalExpr (List Compiler.CompilationModel.Stmt) expectedType expr .unsafe
+    pure (body.any Compiler.CompilationModel.stmtOpensReentrancyWindow)
+
+private partial def threadAdversaryThroughExecutableSyntax
+    (adv : Ident) (stx : Syntax) : CommandElabM Syntax := do
+  let recurseChildren : CommandElabM Syntax := do
+    match stx with
+    | .node info kind args =>
+        pure (.node info kind (← args.mapM (threadAdversaryThroughExecutableSyntax adv)))
+    | _ => pure stx
+  match stx with
+  | `(term| callExternal $name:ident ($[$args:term],*)) =>
+      let rewritten ← args.mapM fun arg => do
+        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+      `(term| externalCallWords $(strTerm (toString name.getId))
+          (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
+  | `(term| externalCall $name:term [ $[$args:term],* ]) =>
+      let rewritten ← args.mapM fun arg => do
+        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+      `(term| externalCallWords $name
+          (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
+  | `(term| callResult $name:term [ $[$args:term],* ]) =>
+      let rewritten ← args.mapM fun arg => do
+        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+      `(term| callResultWords $name
+          (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
+  | `(term| tryExternalCall $name:term [ $[$args:term],* ]) =>
+      let rewritten ← args.mapM fun arg => do
+        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+      `(term| tryExternalCallWords $name
+          (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
+  | `(term| evmCall($gas, $target, $value, $inOffset, $inSize, $outOffset, $outSize)) =>
+      let xs ← #[gas, target, value, inOffset, inSize, outOffset, outSize].mapM fun arg => do
+        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+      `(term| evmCallWords $adv $(xs[0]!) $(xs[1]!) $(xs[2]!) $(xs[3]!)
+          $(xs[4]!) $(xs[5]!) $(xs[6]!))
+  | `(term| evmStaticCall($gas, $target, $inOffset, $inSize, $outOffset, $outSize)) =>
+      let xs ← #[gas, target, inOffset, inSize, outOffset, outSize].mapM fun arg => do
+        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+      `(term| evmStaticCallWords $adv $(xs[0]!) $(xs[1]!) $(xs[2]!)
+          $(xs[3]!) $(xs[4]!) $(xs[5]!))
+  | `(term| safeTransfer $token $toAddr $amount) =>
+      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+      let toAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv toAddr.raw⟩
+      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
+      `(term| safeTransfer $token $toAddr $amount $adv)
+  | `(term| safeTransferFrom $token $fromAddr $toAddr $amount) =>
+      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+      let fromAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv fromAddr.raw⟩
+      let toAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv toAddr.raw⟩
+      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
+      `(term| safeTransferFrom $token $fromAddr $toAddr $amount $adv)
+  | `(term| safeApprove $token $spender $amount) =>
+      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+      let spender : Term := ⟨← threadAdversaryThroughExecutableSyntax adv spender.raw⟩
+      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
+      `(term| safeApprove $token $spender $amount $adv)
+  | `(term| legacyStringSafeTransfer $token $toAddr $amount) =>
+      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+      let toAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv toAddr.raw⟩
+      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
+      `(term| legacyStringSafeTransfer $token $toAddr $amount $adv)
+  | `(term| legacyStringSafeTransferFrom $token $fromAddr $toAddr $amount) =>
+      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+      let fromAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv fromAddr.raw⟩
+      let toAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv toAddr.raw⟩
+      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
+      `(term| legacyStringSafeTransferFrom $token $fromAddr $toAddr $amount $adv)
+  | `(term| balanceOf $token $owner) =>
+      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+      let owner : Term := ⟨← threadAdversaryThroughExecutableSyntax adv owner.raw⟩
+      `(term| balanceOf $token $owner $adv)
+  | `(term| allowance $token $owner $spender) =>
+      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+      let owner : Term := ⟨← threadAdversaryThroughExecutableSyntax adv owner.raw⟩
+      let spender : Term := ⟨← threadAdversaryThroughExecutableSyntax adv spender.raw⟩
+      `(term| allowance $token $owner $spender $adv)
+  | `(term| totalSupply $token) =>
+      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+      `(term| totalSupply $token $adv)
+  | _ => recurseChildren
 
 private def mkModelParamsTerm (params : Array ParamDecl) : CommandElabM Term := do
   let xs ← params.mapM fun p => do
@@ -4444,7 +4546,6 @@ def mkFunctionCommandsPublic
     (resolvedIncludes : Array Name := #[])
     (boundImmutableDecls : Array ImmutableDecl := immutableDecls)
     (hostModifiers : Array ModifierDecl := #[]) : CommandElabM (Array Cmd) := do
-  let fnType ← mkContractFnType fn.params fn.returnTy
   -- Mixin modifiers belong after ABI/enum, init, and role guards, matching
   -- `translateBodyToStmtTerms`. Prefix them onto the source body so those
   -- wrappers stay outside.
@@ -4462,7 +4563,6 @@ def mkFunctionCommandsPublic
   -- them outside all executable wrappers makes ABI validation happen before
   -- initializer, role, and modifier effects (the inner copy is harmless).
   let fnExecutableBody ← prependEnumGuards fn.params fnExecutableBody
-  let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"
   -- CompilationModel inlines every modifier in declared `with` order so
@@ -4482,6 +4582,20 @@ def mkFunctionCommandsPublic
       | some inlined => pure inlined
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
+  let opensReentrancyWindow ← unsafe translatedBodyOpensReentrancyWindow stmtTerms
+  let advIdent := mkIdentFrom fn.ident `_adv
+  let fnType ← if opensReentrancyWindow then
+      mkContractFnTypeWithAdversary fn.params fn.returnTy
+    else
+      mkContractFnType fn.params fn.returnTy
+  let fnExecutableBody ← if opensReentrancyWindow then
+      pure ⟨← threadAdversaryThroughExecutableSyntax advIdent fnExecutableBody.raw⟩
+    else
+      pure fnExecutableBody
+  let fnValue ← if opensReentrancyWindow then
+      mkContractFnValueWithAdversary advIdent fn.params fnExecutableBody
+    else
+      mkContractFnValue fn.params fnExecutableBody
   let modelParams ← mkModelParamsTerm fn.params
   let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)

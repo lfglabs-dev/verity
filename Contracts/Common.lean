@@ -642,6 +642,28 @@ def commonExternalCall (adv : AdversaryModel)
       .success result { post with returndata := state.returndata }
   | .revert message _ => .revert message state
 
+/-- Executable result of a raw mutable EVM call.  The macro supplies the
+caller's explicit adversary; unlike the old syntax fallback this crosses the
+same journaled call boundary as every other Common external-call primitive. -/
+def evmCallWords (adv : AdversaryModel) (gas target value inOffset inSize outOffset outSize : Uint256) :
+    Uint256 :=
+  let result := (commonExternalCall adv {
+      kind := .call
+      target := target.toNat
+      value := value.val
+      gas := gas.val
+      calldata := [inOffset.val, inSize.val, outOffset.val, outSize.val] }).run defaultState |>.fst
+  if result.succeeded then 1 else 0
+
+def evmStaticCallWords (adv : AdversaryModel)
+    (gas target inOffset inSize outOffset outSize : Uint256) : Uint256 :=
+  let result := (commonExternalCall adv {
+      kind := .staticcall
+      target := target.toNat
+      gas := gas.val
+      calldata := [inOffset.val, inSize.val, outOffset.val, outSize.val] }).run defaultState |>.fst
+  if result.succeeded then 1 else 0
+
 @[simp] theorem commonExternalCall_apply (adv : AdversaryModel)
     (site : Compiler.CompilationModel.DenoteExternalCalls.CallSite)
     (state : ContractState) :
@@ -651,11 +673,11 @@ def commonExternalCall (adv : AdversaryModel)
             { world := state, gasRemaining := site.gas }).state.world with
           returndata := state.returndata } := rfl
 
-/-- Transitional expression-position boundary. Until PR3 moves macro-expanded
-external calls into the caller's `Contract` state, this pure helper can only
-soundly execute the deterministic stub adversary. -/
+/-- Expression-position projection used by generated external-call bodies.
+The adversary is explicit at generated call sites; transitional handwritten
+callers may continue to use the PR2 `.stub` default. -/
 def externalCallWords {α : Type} [ExternalResult α] (name : String) (args : List Uint256)
-    (adv : AdversaryModel := .stub) (_hadv : adv = .stub := by rfl) : α :=
+    (adv : AdversaryModel := .stub) : α :=
   match commonExternalCall adv (linkedCallSite name args 1) defaultState with
   | .success (.success returndata) _ =>
       ExternalResult.fromWord (Core.Uint256.ofNat (returndata.head?.getD 0))
