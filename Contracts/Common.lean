@@ -911,19 +911,19 @@ private def erc20ReadStubWord (name : String) (args : List Uint256) : Uint256 :=
 macro_rules
   | `(term| externalCall $name:ident [ $[$args:term],* ]) =>
       `(externalCallWords $(Lean.quote (toString name.getId))
-          (List.flatten [ $[ExternalArg.toWords $args],* ]) .stub)
+          (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| externalCall $name:str [ $[$args:term],* ]) =>
-      `(externalCallWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]) .stub)
+      `(externalCallWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| callResult $name:str [ $[$args:term],* ]) =>
-      `(callResultWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]) .stub)
+      `(callResultWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| callResult $name:ident [ $[$args:term],* ]) =>
       `(callResultWords $(Lean.quote (toString name.getId))
-          (List.flatten [ $[ExternalArg.toWords $args],* ]) .stub)
+          (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| tryExternalCall $name:str [ $[$args:term],* ]) =>
-      `(tryExternalCallWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]) .stub)
+      `(tryExternalCallWords $name (List.flatten [ $[ExternalArg.toWords $args],* ]))
   | `(term| tryExternalCall $name:ident [ $[$args:term],* ]) =>
       `(tryExternalCallWords $(Lean.quote (toString name.getId))
-          (List.flatten [ $[ExternalArg.toWords $args],* ]) .stub)
+          (List.flatten [ $[ExternalArg.toWords $args],* ]))
 def getMappingWord (_slot : StorageSlot (Uint256 → Uint256)) (_key _wordOffset : Uint256) :
     Contract Uint256 := pure 0
 def setMappingWord (_slot : StorageSlot (Uint256 → Uint256)) (_key _wordOffset _value : Uint256) :
