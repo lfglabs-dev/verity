@@ -646,23 +646,25 @@ def commonExternalCall (adv : AdversaryModel)
 caller's explicit adversary; unlike the old syntax fallback this crosses the
 same journaled call boundary as every other Common external-call primitive. -/
 def evmCallWords (adv : AdversaryModel) (gas target value inOffset inSize outOffset outSize : Uint256) :
-    Uint256 :=
-  let result := (commonExternalCall adv {
+    Contract Uint256 := do
+  let result ← commonExternalCall adv {
+      siteId := target.val
       kind := .call
-      target := target.toNat
+      target := target.val
       value := value.val
       gas := gas.val
-      calldata := [inOffset.val, inSize.val, outOffset.val, outSize.val] }).run defaultState |>.fst
-  if result.succeeded then 1 else 0
+      calldata := [inOffset.val, inSize.val, outOffset.val, outSize.val] }
+  pure (if result.succeeded then 1 else 0)
 
 def evmStaticCallWords (adv : AdversaryModel)
-    (gas target inOffset inSize outOffset outSize : Uint256) : Uint256 :=
-  let result := (commonExternalCall adv {
+    (gas target inOffset inSize outOffset outSize : Uint256) : Contract Uint256 := do
+  let result ← commonExternalCall adv {
+      siteId := target.val
       kind := .staticcall
-      target := target.toNat
+      target := target.val
       gas := gas.val
-      calldata := [inOffset.val, inSize.val, outOffset.val, outSize.val] }).run defaultState |>.fst
-  if result.succeeded then 1 else 0
+      calldata := [inOffset.val, inSize.val, outOffset.val, outSize.val] }
+  pure (if result.succeeded then 1 else 0)
 
 @[simp] theorem commonExternalCall_apply (adv : AdversaryModel)
     (site : Compiler.CompilationModel.DenoteExternalCalls.CallSite)
@@ -684,6 +686,19 @@ def externalCallWords {α : Type} [ExternalResult α] (name : String) (args : Li
   | .success (.failure _) _ | .success (.revert _) _ =>
       ExternalResult.fromWord (externalCallStubWord name args)
   | .revert _ _ => ExternalResult.fromWord (externalCallStubWord name args)
+
+def externalCallContractWords {α : Type} [ExternalResult α]
+    (name : String) (args : List Uint256) (adv : AdversaryModel) : Contract α := do
+  let result ← commonExternalCall adv (linkedCallSite name args 1)
+  pure (ExternalResult.fromWord (externalCallResultWord result))
+
+def externalCallEffectWords
+    (name : String) (args : List Uint256) (adv : AdversaryModel) : Contract Unit :=
+  Verity.bind (commonExternalCall adv (linkedCallSite name args 0)) fun result =>
+    match result with
+    | .success _ => pure ()
+    | .failure _ | .revert _ => fun state =>
+        ContractResult.revert "external call failed" state
 
 def failedExternalResult {α : Type} [ExternalResult α] [Inhabited α] : List Nat → α
   | [] => Inhabited.default

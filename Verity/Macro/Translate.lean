@@ -2231,87 +2231,103 @@ unsafe def translatedBodyOpensReentrancyWindow
   let bodyTerm : Term ← `([ $[$stmtTerms],* ])
   liftTermElabM do
     let stmtTy := mkConst ``Compiler.CompilationModel.Stmt
-    let expectedType := mkApp (mkConst ``List) stmtTy
+    let expectedType := mkApp (mkConst ``List [Level.zero]) stmtTy
     let expr ← Lean.Elab.Term.elabTermEnsuringType bodyTerm expectedType
     let body ← Lean.Meta.evalExpr (List Compiler.CompilationModel.Stmt) expectedType expr .unsafe
     pure (body.any Compiler.CompilationModel.stmtOpensReentrancyWindow)
 
 private partial def threadAdversaryThroughExecutableSyntax
-    (adv : Ident) (stx : Syntax) : CommandElabM Syntax := do
+    (externalDecls : Array ExternalDecl) (adv : Ident) (stx : Syntax) : CommandElabM Syntax := do
+  let go := threadAdversaryThroughExecutableSyntax externalDecls adv
   let recurseChildren : CommandElabM Syntax := do
     match stx with
     | .node info kind args =>
-        pure (.node info kind (← args.mapM (threadAdversaryThroughExecutableSyntax adv)))
+        pure (.node info kind (← args.mapM go))
     | _ => pure stx
   match stx with
+  | `(doElem| let $name:ident ← callExternal $externalName:ident ($[$args:term],*)) =>
+      let extName := toString externalName.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt externalName s!"unknown linked external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let arg : Term := ⟨← go arg.raw⟩
+        let tyTerm ← contractValueTypeTerm ty
+        `(($arg : $tyTerm))
+      let call ← `(term| externalCallContractWords $(strTerm extName)
+        (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
+      `(doElem| let $name ← $call:term)
+  | `(doElem| callExternal $externalName:ident ($[$args:term],*)) =>
+      let extName := toString externalName.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt externalName s!"unknown linked external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let arg : Term := ⟨← go arg.raw⟩
+        let tyTerm ← contractValueTypeTerm ty
+        `(($arg : $tyTerm))
+      let call ← `(term| externalCallEffectWords $(strTerm extName)
+        (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
+      `(doElem| $call:term)
+  | `(doElem| let $name:ident ← balanceOf $token:term $owner:term) =>
+      let token : Term := ⟨← go token.raw⟩
+      let owner : Term := ⟨← go owner.raw⟩
+      `(doElem| let $name ← balanceOf $token $owner $adv)
+  | `(doElem| let $name:ident ← allowance $token:term $owner:term $spender:term) =>
+      let token : Term := ⟨← go token.raw⟩
+      let owner : Term := ⟨← go owner.raw⟩
+      let spender : Term := ⟨← go spender.raw⟩
+      `(doElem| let $name ← allowance $token $owner $spender $adv)
+  | `(doElem| let $name:ident ← totalSupply $token:term) =>
+      let token : Term := ⟨← go token.raw⟩
+      `(doElem| let $name ← totalSupply $token $adv)
   | `(term| callExternal $name:ident ($[$args:term],*)) =>
-      let rewritten ← args.mapM fun arg => do
-        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+      let extName := toString name.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown linked external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let arg : Term := ⟨← go arg.raw⟩
+        let tyTerm ← contractValueTypeTerm ty
+        `(($arg : $tyTerm))
       `(term| externalCallWords $(strTerm (toString name.getId))
           (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
   | `(term| externalCall $name:term [ $[$args:term],* ]) =>
       let rewritten ← args.mapM fun arg => do
-        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+        pure ⟨← go arg.raw⟩
       `(term| externalCallWords $name
           (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
   | `(term| callResult $name:term [ $[$args:term],* ]) =>
       let rewritten ← args.mapM fun arg => do
-        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+        pure ⟨← go arg.raw⟩
       `(term| callResultWords $name
           (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
   | `(term| tryExternalCall $name:term [ $[$args:term],* ]) =>
       let rewritten ← args.mapM fun arg => do
-        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+        pure ⟨← go arg.raw⟩
       `(term| tryExternalCallWords $name
           (List.flatten [ $[ExternalArg.toWords $rewritten],* ]) $adv)
   | `(term| evmCall($gas, $target, $value, $inOffset, $inSize, $outOffset, $outSize)) =>
       let xs ← #[gas, target, value, inOffset, inSize, outOffset, outSize].mapM fun arg => do
-        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+        pure ⟨← go arg.raw⟩
       `(term| evmCallWords $adv $(xs[0]!) $(xs[1]!) $(xs[2]!) $(xs[3]!)
           $(xs[4]!) $(xs[5]!) $(xs[6]!))
   | `(term| evmStaticCall($gas, $target, $inOffset, $inSize, $outOffset, $outSize)) =>
       let xs ← #[gas, target, inOffset, inSize, outOffset, outSize].mapM fun arg => do
-        pure ⟨← threadAdversaryThroughExecutableSyntax adv arg.raw⟩
+        pure ⟨← go arg.raw⟩
       `(term| evmStaticCallWords $adv $(xs[0]!) $(xs[1]!) $(xs[2]!)
           $(xs[3]!) $(xs[4]!) $(xs[5]!))
-  | `(term| safeTransfer $token $toAddr $amount) =>
-      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
-      let toAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv toAddr.raw⟩
-      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
-      `(term| safeTransfer $token $toAddr $amount $adv)
-  | `(term| safeTransferFrom $token $fromAddr $toAddr $amount) =>
-      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
-      let fromAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv fromAddr.raw⟩
-      let toAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv toAddr.raw⟩
-      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
-      `(term| safeTransferFrom $token $fromAddr $toAddr $amount $adv)
-  | `(term| safeApprove $token $spender $amount) =>
-      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
-      let spender : Term := ⟨← threadAdversaryThroughExecutableSyntax adv spender.raw⟩
-      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
-      `(term| safeApprove $token $spender $amount $adv)
-  | `(term| legacyStringSafeTransfer $token $toAddr $amount) =>
-      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
-      let toAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv toAddr.raw⟩
-      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
-      `(term| legacyStringSafeTransfer $token $toAddr $amount $adv)
-  | `(term| legacyStringSafeTransferFrom $token $fromAddr $toAddr $amount) =>
-      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
-      let fromAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv fromAddr.raw⟩
-      let toAddr : Term := ⟨← threadAdversaryThroughExecutableSyntax adv toAddr.raw⟩
-      let amount : Term := ⟨← threadAdversaryThroughExecutableSyntax adv amount.raw⟩
-      `(term| legacyStringSafeTransferFrom $token $fromAddr $toAddr $amount $adv)
-  | `(term| balanceOf $token $owner) =>
-      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
-      let owner : Term := ⟨← threadAdversaryThroughExecutableSyntax adv owner.raw⟩
+  | `(term| balanceOf $token:term $owner:term) =>
+      let token : Term := ⟨← go token.raw⟩
+      let owner : Term := ⟨← go owner.raw⟩
       `(term| balanceOf $token $owner $adv)
-  | `(term| allowance $token $owner $spender) =>
-      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
-      let owner : Term := ⟨← threadAdversaryThroughExecutableSyntax adv owner.raw⟩
-      let spender : Term := ⟨← threadAdversaryThroughExecutableSyntax adv spender.raw⟩
+  | `(term| allowance $token:term $owner:term $spender:term) =>
+      let token : Term := ⟨← go token.raw⟩
+      let owner : Term := ⟨← go owner.raw⟩
+      let spender : Term := ⟨← go spender.raw⟩
       `(term| allowance $token $owner $spender $adv)
-  | `(term| totalSupply $token) =>
-      let token : Term := ⟨← threadAdversaryThroughExecutableSyntax adv token.raw⟩
+  | `(term| totalSupply $token:term) =>
+      let token : Term := ⟨← go token.raw⟩
       `(term| totalSupply $token $adv)
   | _ => recurseChildren
 
@@ -4589,7 +4605,7 @@ def mkFunctionCommandsPublic
     else
       mkContractFnType fn.params fn.returnTy
   let fnExecutableBody ← if opensReentrancyWindow then
-      pure ⟨← threadAdversaryThroughExecutableSyntax advIdent fnExecutableBody.raw⟩
+      pure ⟨← threadAdversaryThroughExecutableSyntax externalDecls advIdent fnExecutableBody.raw⟩
     else
       pure fnExecutableBody
   let fnValue ← if opensReentrancyWindow then
