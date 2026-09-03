@@ -573,7 +573,7 @@ example : snapshotSupplyModelUsesTotalSupplyModule = true := by native_decide
 def snapshotBalanceExecutableUsesStub : Bool :=
   let token := Verity.wordToAddress 7
   let owner := Verity.wordToAddress 13
-  match Contracts.balanceOf token owner Verity.defaultState,
+  match Contracts.balanceOf token owner .stub Verity.defaultState,
       MacroERC20.snapshotBalance token owner Verity.defaultState with
   | .success expected _, .success balance state =>
       balance == expected &&
@@ -588,7 +588,7 @@ def snapshotAllowanceExecutableUsesStub : Bool :=
   let token := Verity.wordToAddress 7
   let owner := Verity.wordToAddress 13
   let spender := Verity.wordToAddress 17
-  match Contracts.allowance token owner spender Verity.defaultState,
+  match Contracts.allowance token owner spender .stub Verity.defaultState,
       MacroERC20.snapshotAllowance token owner spender Verity.defaultState with
   | .success expected _, .success current state =>
       current == expected &&
@@ -601,7 +601,7 @@ example : snapshotAllowanceExecutableUsesStub = true := by native_decide
 
 def snapshotSupplyExecutableUsesStub : Bool :=
   let token := Verity.wordToAddress 7
-  match Contracts.totalSupply token Verity.defaultState,
+  match Contracts.totalSupply token .stub Verity.defaultState,
       MacroERC20.snapshotSupply token Verity.defaultState with
   | .success expected _, .success supply state =>
       supply == expected &&

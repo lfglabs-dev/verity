@@ -1,12 +1,11 @@
 import Contracts.Common
 
 /-!
-# Common external calls are the model stub
+# Common external calls use the model boundary
 
-Compatibility proofs for the executable call helpers in `Contracts.Common`.
-The model boundary additionally maintains `ContractState.returndata`; the
-legacy helpers expose returndata through their return value and call journal.
-`legacyPost` is precisely that existing-state projection.
+The Common primitives now take an `AdversaryModel` themselves.  These lemmas
+pin the transitional executable default to `.stub`; unlike the PR1 bridge,
+there is no longer a projection that can hide the live returndata channel.
 -/
 
 namespace Contracts
@@ -17,34 +16,38 @@ open Compiler.CompilationModel.DenoteExternalCalls
 private abbrev modelExternalCall :=
   Compiler.CompilationModel.DenoteExternalCalls.externalCall
 
-/-- Forget the model-only live-returndata channel after a call, retaining the
-legacy Common state and its append-only call journal. -/
+/-- Kept for downstream PR1 users; PR2 no longer applies this projection. -/
 def legacyPost (before after : ContractState) : ContractState :=
   { after with returndata := before.returndata }
 
+theorem commonExternalCall_eq_model (adv : AdversaryModel) (site : CallSite)
+    (state : ContractState) :
+    (commonExternalCall adv site).run state =
+      match modelExternalCall adv site state with
+      | .success result post => .success result (legacyPost state post)
+      | .revert message _ => .revert message state := rfl
+
 def stubCallResultWords {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) : Contract (Call.Result α) := fun state =>
-  match (modelExternalCall .stub (linkedCallSite name args 1)).run state with
-  | .success result post =>
-      .success
-        { success := result.succeeded
-          returndata :=
-            match result with
-            | .success (word :: _) => ExternalResult.fromWord (Core.Uint256.ofNat word)
-            | .success [] | .failure _ | .revert _ => Inhabited.default }
-        (legacyPost state post)
+  match modelExternalCall .stub (linkedCallSite name args 1) state with
+  | .success (.success [word]) post =>
+      .success (show Call.Result α from
+        { success := true,
+          returndata := ExternalResult.fromWord (Core.Uint256.ofNat word) }) (legacyPost state post)
+  | .success (.success _) _ => .revert "external call returned invalid data" state
+  | .success (.failure returndata) post | .success (.revert returndata) post =>
+      .success (show Call.Result α from
+        { success := false, returndata := failedExternalResult returndata }) (legacyPost state post)
   | .revert message _ => .revert message state
 
 def stubTryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) : Contract (Bool × α) := fun state =>
-  match (modelExternalCall .stub (linkedCallSite name args 1)).run state with
-  | .success result post =>
-      .success
-        (result.succeeded,
-          match result with
-          | .success (word :: _) => ExternalResult.fromWord (Core.Uint256.ofNat word)
-          | .success [] | .failure _ | .revert _ => Inhabited.default)
-        (legacyPost state post)
+  match modelExternalCall .stub (linkedCallSite name args 1) state with
+  | .success (.success [word]) post =>
+      .success (true, ExternalResult.fromWord (Core.Uint256.ofNat word)) (legacyPost state post)
+  | .success (.success _) _ => .revert "external call returned invalid data" state
+  | .success (.failure returndata) post | .success (.revert returndata) post =>
+      .success (false, failedExternalResult returndata) (legacyPost state post)
   | .revert message _ => .revert message state
 
 def stubExternalCallBind {α : Type} [ExternalArg α]
@@ -74,79 +77,72 @@ def stubErc20Read (name : String) (token : Address)
     (args : List Uint256) : Contract Uint256 := fun state =>
   let site := linkedCallSite name args 1 .staticcall token.toNat 0
     [Verity.addressToWord token]
-  match (modelExternalCall .stub site).run state with
-  | .success (.success (word :: _)) post =>
-      .success (Core.Uint256.ofNat word) (legacyPost state post)
-  | .success _ post => .success 0 (legacyPost state post)
+  match modelExternalCall .stub site state with
+  | .success result post =>
+      .success (Core.Uint256.ofNat (result.returndata.head?.getD 0))
+        (legacyPost state post)
   | .revert message _ => .revert message state
 
 def stubErc20Write (name : String) (token : Address)
     (args : List Uint256) : Contract Unit := fun state =>
   match (modelExternalCall .stub
       (linkedCallSite name args 0 .call token.toNat)).run state with
-  | .success (.success _) post => .success () (legacyPost state post)
+  | .success (.success []) post =>
+      if post.codeSize token.toNat = 0 then .revert "external call target has no code" state
+      else .success () (legacyPost state post)
+  | .success (.success [word]) post =>
+      if Core.Uint256.ofNat word = (1 : Uint256) then .success () (legacyPost state post)
+      else .revert "external call returned false or invalid data" state
+  | .success (.success _) _ => .revert "external call returned false or invalid data" state
   | .success (.failure _) _ | .success (.revert _) _ =>
       .revert "external call failed" state
   | .revert message _ => .revert message state
-
-/-! ## Primitive equivalences -/
 
 theorem externalCallWords_eq_stub_result {α : Type} [ExternalResult α]
     (name : String) (args : List Uint256) :
     externalCallWords (α := α) name args =
       ExternalResult.fromWord (Core.Uint256.ofNat
-        (AdversaryModel.stubWord name (args.map fun word => (word : Nat)))) := rfl
+        (AdversaryModel.stubWord name (args.map fun word => (word : Nat)))) := by
+  by_cases h : name = "fail" <;>
+    simp [externalCallWords, commonExternalCall,
+      Compiler.CompilationModel.DenoteExternalCalls.externalCall,
+      denoteCallJournaled, denoteCall, chargedGas, linkedCallSite,
+      AdversaryModel.stub, externalCallResultWord, externalCallStubWord, h]
 
 theorem callResultWords_eq_stub {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (state : ContractState) :
-    (callResultWords (α := α) name args).run state =
+    (callResultWords (α := α) name args .stub).run state =
       (stubCallResultWords name args).run state := by
-  by_cases h : name = "fail"
-  · simp [callResultWords, stubCallResultWords, modelExternalCall,
-      Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-      denoteCallJournaled, denoteCall, chargedGas, journalEntry,
-      CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
-      ExternalCallResult.returndata, ExternalCallResult.succeeded, Contract.run, linkedCallSite,
-      AdversaryModel.stub, legacyPost, externalCallStubSuccess, h, linkedCallEntry]
-  · simp [callResultWords, stubCallResultWords, modelExternalCall,
-      Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-      denoteCallJournaled, denoteCall, chargedGas, journalEntry,
-      CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
-      ExternalCallResult.returndata, ExternalCallResult.succeeded, Contract.run, linkedCallSite,
-      AdversaryModel.stub, legacyPost, externalCallStubSuccess, h, linkedCallEntry,
-      externalCallStubWord]
+  by_cases h : name = "fail" <;>
+    simp [callResultWords, stubCallResultWords, commonExternalCall, modelExternalCall,
+      Compiler.CompilationModel.DenoteExternalCalls.externalCall, denoteCallJournaled,
+      denoteCall, chargedGas, journalEntry, CallKind.toJournal, CallControl.toJournal,
+      ExternalCallResult.control, ExternalCallResult.returndata, Contract.run,
+      linkedCallSite, AdversaryModel.stub, legacyPost, externalCallStubWord, h]
 
 theorem tryExternalCallWords_eq_stub {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (state : ContractState) :
-    (tryExternalCallWords (α := α) name args).run state =
+    (tryExternalCallWords (α := α) name args .stub).run state =
       (stubTryExternalCallWords name args).run state := by
-  by_cases h : name = "fail"
-  · simp [tryExternalCallWords, stubTryExternalCallWords, modelExternalCall,
-      Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-      denoteCallJournaled, denoteCall, chargedGas, journalEntry,
-      CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
-      ExternalCallResult.returndata, ExternalCallResult.succeeded, Contract.run, linkedCallSite,
-      AdversaryModel.stub, legacyPost, externalCallStubSuccess, h, linkedCallEntry]
-  · simp [tryExternalCallWords, stubTryExternalCallWords, modelExternalCall,
-      Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-      denoteCallJournaled, denoteCall, chargedGas, journalEntry,
-      CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
-      ExternalCallResult.returndata, ExternalCallResult.succeeded, Contract.run, linkedCallSite,
-      AdversaryModel.stub, legacyPost, externalCallStubSuccess, h, linkedCallEntry,
-      externalCallStubWord]
+  by_cases h : name = "fail" <;>
+    simp [tryExternalCallWords, stubTryExternalCallWords, commonExternalCall, modelExternalCall,
+      Compiler.CompilationModel.DenoteExternalCalls.externalCall, denoteCallJournaled,
+      denoteCall, chargedGas, journalEntry, CallKind.toJournal, CallControl.toJournal,
+      ExternalCallResult.control, ExternalCallResult.returndata, Contract.run,
+      linkedCallSite, AdversaryModel.stub, legacyPost, externalCallStubWord, h]
 
 theorem externalCallBind_eq_stub {α : Type} [ExternalArg α]
     (names : List String) (name : String) (args : List α) (state : ContractState) :
-    (externalCallBind names name args).run state =
+    (externalCallBind names name args .stub).run state =
       (stubExternalCallBind names name args).run state := by
   by_cases h : name = "fail"
-  · simp [externalCallBind, stubExternalCallBind, modelExternalCall,
+  · simp [externalCallBind, stubExternalCallBind, commonExternalCall, modelExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
       denoteCallJournaled, denoteCall, chargedGas, journalEntry,
       CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
       ExternalCallResult.returndata, Contract.run, linkedCallSite,
       AdversaryModel.stub, externalCallStubSuccess, h]
-  · simp [externalCallBind, stubExternalCallBind, modelExternalCall,
+  · simp [externalCallBind, stubExternalCallBind, commonExternalCall, modelExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
       denoteCallJournaled, denoteCall, chargedGas, journalEntry,
       CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
@@ -157,18 +153,18 @@ theorem externalCallBind_eq_stub {α : Type} [ExternalArg α]
 theorem externalCallBindTo_eq_stub {α : Type} [ExternalArg α]
     (target : Address) (value : Uint256)
     (names : List String) (name : String) (args : List α) (state : ContractState) :
-    (externalCallBindTo target value names name args).run state =
+    (externalCallBindTo target value names name args .stub).run state =
       (stubExternalCallBindTo target value names name args).run state := by
   by_cases hbal : value ≤ state.selfBalance
   · by_cases h : name = "fail"
-    · simp [externalCallBindTo, stubExternalCallBindTo, modelExternalCall,
-        Compiler.CompilationModel.DenoteExternalCalls.externalCall,
+    · simp [externalCallBindTo, stubExternalCallBindTo, commonExternalCall,
+        modelExternalCall, Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         denoteCallJournaled, denoteCall, chargedGas, journalEntry,
         CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
         ExternalCallResult.returndata, Contract.run, linkedCallSite,
         AdversaryModel.stub, externalCallStubSuccess, hbal, h]
-    · simp [externalCallBindTo, stubExternalCallBindTo, modelExternalCall,
-        Compiler.CompilationModel.DenoteExternalCalls.externalCall,
+    · simp [externalCallBindTo, stubExternalCallBindTo, commonExternalCall,
+        modelExternalCall, Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         denoteCallJournaled, denoteCall, chargedGas, journalEntry,
         CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
         ExternalCallResult.returndata, Contract.run, linkedCallSite,
@@ -177,44 +173,21 @@ theorem externalCallBindTo_eq_stub {α : Type} [ExternalArg α]
   · simp [externalCallBindTo, stubExternalCallBindTo, Contract.run, hbal]
 
 theorem balanceOf_eq_stub (token owner : Address) (state : ContractState) :
-    (balanceOf token owner).run state =
-      (stubErc20Read "balanceOf" token [Verity.addressToWord owner]).run state := by
-  rw [balanceOf_run]
-  simp [stubErc20Read, modelExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    denoteCallJournaled, denoteCall, chargedGas, journalEntry,
-    CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
-    ExternalCallResult.returndata, Contract.run, linkedCallSite,
-    AdversaryModel.stub, legacyPost, erc20ReadEntry, linkedCallEntry,
-    externalCallStubWord]
+    (balanceOf token owner .stub).run state =
+      (stubErc20Read "balanceOf" token [Verity.addressToWord owner]).run state := rfl
 
 theorem allowance_eq_stub (token owner spender : Address) (state : ContractState) :
-    (allowance token owner spender).run state =
+    (allowance token owner spender .stub).run state =
       (stubErc20Read "allowance" token
-        [Verity.addressToWord owner, Verity.addressToWord spender]).run state := by
-  rw [allowance_run]
-  simp [stubErc20Read, modelExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    denoteCallJournaled, denoteCall, chargedGas, journalEntry,
-    CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
-    ExternalCallResult.returndata, Contract.run, linkedCallSite,
-    AdversaryModel.stub, legacyPost, erc20ReadEntry, linkedCallEntry,
-    externalCallStubWord]
+        [Verity.addressToWord owner, Verity.addressToWord spender]).run state := rfl
 
 theorem totalSupply_eq_stub (token : Address) (state : ContractState) :
-    (totalSupply token).run state =
-      (stubErc20Read "totalSupply" token []).run state := by
-  rw [totalSupply_run]
-  simp [stubErc20Read, modelExternalCall,
-    Compiler.CompilationModel.DenoteExternalCalls.externalCall,
-    denoteCallJournaled, denoteCall, chargedGas, journalEntry,
-    CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
-    ExternalCallResult.returndata, Contract.run, linkedCallSite,
-    AdversaryModel.stub, legacyPost, erc20ReadEntry, linkedCallEntry,
-    externalCallStubWord]
+    (totalSupply token .stub).run state =
+      (stubErc20Read "totalSupply" token []).run state := rfl
 
 theorem erc20Write_eq_stub (name : String) (token : Address)
-    (args : List Uint256) (state : ContractState) (h : name ≠ "fail") :
+    (args : List Uint256) (state : ContractState) (h : name ≠ "fail")
+    (hcode : state.codeSize token.toNat ≠ 0) :
     (recordLinkedCall (erc20WriteEntry name token args)).run state =
       (stubErc20Write name token args).run state := by
   rw [recordLinkedCall_run]
@@ -223,41 +196,59 @@ theorem erc20Write_eq_stub (name : String) (token : Address)
     denoteCallJournaled, denoteCall, chargedGas, journalEntry,
     CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
     ExternalCallResult.returndata, Contract.run, linkedCallSite,
-    AdversaryModel.stub, legacyPost, erc20WriteEntry, linkedCallEntry, h]
+    AdversaryModel.stub, legacyPost, erc20WriteEntry, linkedCallEntry, h, hcode]
 
 theorem safeTransfer_eq_stub (token toAddr : Address) (amount : Uint256)
-    (state : ContractState) :
-    (safeTransfer token toAddr amount).run state =
+    (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
+    (safeTransfer token toAddr amount .stub).run state =
       (stubErc20Write "safeTransfer" token
-        [Verity.addressToWord toAddr, amount]).run state :=
-  erc20Write_eq_stub _ _ _ _ (by decide)
+        [Verity.addressToWord toAddr, amount]).run state := by
+  rw [safeTransfer_run _ _ _ _ hcode]
+  exact erc20Write_eq_stub _ _ _ _ (by decide) hcode
 
 theorem safeTransferFrom_eq_stub (token fromAddr toAddr : Address) (amount : Uint256)
-    (state : ContractState) :
-    (safeTransferFrom token fromAddr toAddr amount).run state =
+    (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
+    (safeTransferFrom token fromAddr toAddr amount .stub).run state =
       (stubErc20Write "safeTransferFrom" token
-        [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]).run state :=
-  erc20Write_eq_stub _ _ _ _ (by decide)
+        [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]).run state := by
+  rw [safeTransferFrom_run _ _ _ _ _ hcode]
+  exact erc20Write_eq_stub _ _ _ _ (by decide) hcode
 
 theorem safeApprove_eq_stub (token spender : Address) (amount : Uint256)
-    (state : ContractState) :
-    (safeApprove token spender amount).run state =
+    (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
+    (safeApprove token spender amount .stub).run state =
       (stubErc20Write "safeApprove" token
-        [Verity.addressToWord spender, amount]).run state :=
-  erc20Write_eq_stub _ _ _ _ (by decide)
+        [Verity.addressToWord spender, amount]).run state := by
+  rw [safeApprove_run _ _ _ _ hcode]
+  exact erc20Write_eq_stub _ _ _ _ (by decide) hcode
 
 theorem legacyStringSafeTransfer_eq_stub (token toAddr : Address) (amount : Uint256)
-    (state : ContractState) :
-    (legacyStringSafeTransfer token toAddr amount).run state =
+    (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
+    (legacyStringSafeTransfer token toAddr amount .stub).run state =
       (stubErc20Write "legacyStringSafeTransfer" token
-        [Verity.addressToWord toAddr, amount]).run state :=
-  erc20Write_eq_stub _ _ _ _ (by decide)
+        [Verity.addressToWord toAddr, amount]).run state := by
+  change (erc20WriteLegacy .stub "legacyStringSafeTransfer" token
+      [Verity.addressToWord toAddr, amount]).run state = _
+  simp [erc20WriteLegacy, modelExternalCall,
+    Compiler.CompilationModel.DenoteExternalCalls.externalCall, denoteCallJournaled,
+    denoteCall, chargedGas, journalEntry, CallKind.toJournal, CallControl.toJournal,
+    ExternalCallResult.control, ExternalCallResult.returndata, Contract.run,
+    linkedCallSite, AdversaryModel.stub, legacyPost, stubErc20Write,
+    externalCallStubSuccess, hcode]
 
 theorem legacyStringSafeTransferFrom_eq_stub
-    (token fromAddr toAddr : Address) (amount : Uint256) (state : ContractState) :
-    (legacyStringSafeTransferFrom token fromAddr toAddr amount).run state =
+    (token fromAddr toAddr : Address) (amount : Uint256) (state : ContractState)
+    (hcode : state.codeSize token.toNat ≠ 0) :
+    (legacyStringSafeTransferFrom token fromAddr toAddr amount .stub).run state =
       (stubErc20Write "legacyStringSafeTransferFrom" token
-        [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]).run state :=
-  erc20Write_eq_stub _ _ _ _ (by decide)
+        [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]).run state := by
+  change (erc20WriteLegacy .stub "legacyStringSafeTransferFrom" token
+      [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]).run state = _
+  simp [erc20WriteLegacy, modelExternalCall,
+    Compiler.CompilationModel.DenoteExternalCalls.externalCall, denoteCallJournaled,
+    denoteCall, chargedGas, journalEntry, CallKind.toJournal, CallControl.toJournal,
+    ExternalCallResult.control, ExternalCallResult.returndata, Contract.run,
+    linkedCallSite, AdversaryModel.stub, legacyPost, stubErc20Write,
+    externalCallStubSuccess, hcode]
 
 end Contracts
