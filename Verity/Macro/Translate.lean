@@ -2232,7 +2232,7 @@ def translatedBodyOpensReentrancyWindow
   liftTermElabM do
     let predicate : Term ← `($(bodyTerm).any Compiler.CompilationModel.stmtOpensReentrancyWindow)
     let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
-    match ← Lean.Meta.whnf expr with
+    match ← Lean.Meta.withTransparency .all (Lean.Meta.whnf expr) with
     | .const ``Bool.true _ => pure true
     | .const ``Bool.false _ => pure false
     | _ => throwErrorAt bodyTerm
