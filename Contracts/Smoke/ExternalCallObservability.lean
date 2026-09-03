@@ -37,6 +37,12 @@ private def returningAdversary (returndata : List Nat) :
   result := fun _ _ => .success returndata
   gasUsed := fun _ _ => 0
 
+private def codeTransitionAdversary (codeSize : Uint256) :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => { state with codeSize := fun _ => codeSize }
+  result := fun _ _ => .success []
+  gasUsed := fun _ _ => 0
+
 private def codedState : ContractState :=
   { defaultState with codeSize := fun _ => 1 }
 
@@ -47,6 +53,20 @@ an address without code as a successful token operation. -/
 example :
     (Contracts.safeTransfer 7 8 9 (returningAdversary [])).run defaultState =
       ContractResult.revert "external call target has no code" defaultState := rfl
+
+/-- The code-existence guard observes the committed post-call world: losing
+code during a successful empty-return call is rejected and rolled back. -/
+example :
+    (Contracts.safeTransfer 7 8 9 (codeTransitionAdversary 0)).run codedState =
+      ContractResult.revert "external call target has no code" codedState := rfl
+
+/-- Conversely, code installed by the successful call transition is visible
+to the post-call guard, so an empty return is accepted. -/
+example :
+    (Contracts.safeTransfer 7 8 9 (codeTransitionAdversary 1)).run defaultState =
+      ContractResult.success ()
+        { codedState with
+            calls := [Contracts.erc20WriteEntry "safeTransfer" 7 [8, 9]] } := rfl
 
 /-- Legacy wrappers accept returndata longer than one word when its first word
 is true, matching their compiled `returndatasize() > 31` policy. -/

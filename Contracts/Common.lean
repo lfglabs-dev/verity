@@ -995,7 +995,7 @@ def erc20Write (adv : AdversaryModel) (name : String) (token : Address)
   | .success (.success returndata) post =>
       match returndata with
       | [] =>
-          if state.codeSize token.toNat = 0 then
+          if post.codeSize token.toNat = 0 then
             .revert "external call target has no code" state
           else .success () post
       | [word] =>

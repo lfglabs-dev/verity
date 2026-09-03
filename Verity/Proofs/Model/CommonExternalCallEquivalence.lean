@@ -88,7 +88,7 @@ def stubErc20Write (name : String) (token : Address)
   match (modelExternalCall .stub
       (linkedCallSite name args 0 .call token.toNat)).run state with
   | .success (.success []) post =>
-      if state.codeSize token.toNat = 0 then .revert "external call target has no code" state
+      if post.codeSize token.toNat = 0 then .revert "external call target has no code" state
       else .success () (legacyPost state post)
   | .success (.success [word]) post =>
       if Core.Uint256.ofNat word = (1 : Uint256) then .success () (legacyPost state post)
