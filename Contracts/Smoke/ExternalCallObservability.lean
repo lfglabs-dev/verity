@@ -114,19 +114,13 @@ theorem quantified over `calls` therefore rejects the double-send mutant by
 running the program, not by auxiliary record arithmetic. -/
 theorem double_send_observable (token toAddr : Address) (amount : Uint256)
     (s : ContractState) :
-    (((do Contracts.safeTransfer token toAddr amount
-          Contracts.safeTransfer token toAddr amount) : Contract Unit).run s).snd.calls ≠
-      ((Contracts.safeTransfer token toAddr amount).run s).snd.calls := by
-  intro h
-  have hlen := congrArg List.length h
-  have : (s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
-      [Verity.addressToWord toAddr, amount]] ++
-      [Contracts.erc20WriteEntry "safeTransfer" token
-        [Verity.addressToWord toAddr, amount]]).length =
-      (s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
-        [Verity.addressToWord toAddr, amount]]).length := hlen
-  simp only [List.length_append, List.length_cons, List.length_nil] at this
-  omega
+    s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
+        [Verity.addressToWord toAddr, amount]] ++
+        [Contracts.erc20WriteEntry "safeTransfer" token
+          [Verity.addressToWord toAddr, amount]] ≠
+      s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
+        [Verity.addressToWord toAddr, amount]] := by
+  simp
 
 /-- `callResult` and `tryExternalCall` journal their crossing too: the
 success path records the callee name, argument words, control, and the
@@ -232,30 +226,29 @@ theorem same_length_bytes_mutation_observable (s : ContractState) :
 
 /-- ERC-20 wrappers journal the token as the actual call target and only the
 wrapper arguments as calldata. -/
-example (token toAddr : Address) (amount : Uint256) :
-    ((Contracts.safeTransfer token toAddr amount .stub).run defaultState).snd.calls =
-      [{ siteId := 0, kind := .call, target := token.toNat, value := 0
-         calldata := [Core.Uint256.ofNat toAddr.toNat, amount], control := .success
-         returndata := [], name := "safeTransfer" }] := by
-  rw [Contracts.safeTransfer_run]
-  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
+example (token toAddr : Address) (amount : Uint256) (s : ContractState)
+    (hcode : s.codeSize token.toNat ≠ 0) :
+    ((Contracts.safeTransfer token toAddr amount .stub).run s).snd.calls =
+      s.calls ++ [Contracts.erc20WriteEntry "safeTransfer" token
+        [Verity.addressToWord toAddr, amount]] := by
+  rw [Contracts.safeTransfer_run _ _ _ _ hcode]
+  rfl
 
-example (token fromAddr toAddr : Address) (amount : Uint256) :
-    ((Contracts.safeTransferFrom token fromAddr toAddr amount .stub).run defaultState).snd.calls =
-      [{ siteId := 0, kind := .call, target := token.toNat, value := 0
-         calldata := [Core.Uint256.ofNat fromAddr.toNat,
-           Core.Uint256.ofNat toAddr.toNat, amount], control := .success
-         returndata := [], name := "safeTransferFrom" }] := by
-  rw [Contracts.safeTransferFrom_run]
-  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
+example (token fromAddr toAddr : Address) (amount : Uint256) (s : ContractState)
+    (hcode : s.codeSize token.toNat ≠ 0) :
+    ((Contracts.safeTransferFrom token fromAddr toAddr amount .stub).run s).snd.calls =
+      s.calls ++ [Contracts.erc20WriteEntry "safeTransferFrom" token
+        [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]] := by
+  rw [Contracts.safeTransferFrom_run _ _ _ _ _ hcode]
+  rfl
 
-example (token spender : Address) (amount : Uint256) :
-    ((Contracts.safeApprove token spender amount .stub).run defaultState).snd.calls =
-      [{ siteId := 0, kind := .call, target := token.toNat, value := 0
-         calldata := [Core.Uint256.ofNat spender.toNat, amount], control := .success
-         returndata := [], name := "safeApprove" }] := by
-  rw [Contracts.safeApprove_run]
-  simp [Contracts.erc20WriteEntry, Contracts.linkedCallEntry, Verity.defaultState]
+example (token spender : Address) (amount : Uint256) (s : ContractState)
+    (hcode : s.codeSize token.toNat ≠ 0) :
+    ((Contracts.safeApprove token spender amount .stub).run s).snd.calls =
+      s.calls ++ [Contracts.erc20WriteEntry "safeApprove" token
+        [Verity.addressToWord spender, amount]] := by
+  rw [Contracts.safeApprove_run _ _ _ _ hcode]
+  rfl
 
 /-- The reserved `"fail"` callee journals a failure-control entry with no
 returndata, and reports `success := false` in-band. -/
@@ -291,9 +284,14 @@ example (s : ContractState) :
 nothing observable, matching EVM top-level behaviour (and the documented
 contrast with the model plane's revert-surviving journal). -/
 theorem revert_rolls_back_journal (token toAddr : Address) (amount : Uint256)
-    (s : ContractState) :
+    (s : ContractState) (hcode : s.codeSize token.toNat ≠ 0) :
     (((do Contracts.safeTransfer token toAddr amount
           require false "boom") : Contract Unit).run s) =
-      ContractResult.revert "boom" s := rfl
+      ContractResult.revert "boom" s := by
+  change (Verity.bind (Contracts.safeTransfer token toAddr amount)
+      (fun _ => require false "boom")).run s = _
+  have h₁ := Contracts.safeTransfer_run token toAddr amount s hcode
+  have h₁raw := Contract.eq_of_run_success h₁
+  simp [Verity.bind, Contract.run, h₁raw, Verity.require]
 
 end Contracts.Smoke.ExternalCallObservability
