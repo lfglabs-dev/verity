@@ -2239,8 +2239,10 @@ def translatedBodyOpensReentrancyWindow
         "failed to reduce the translated reentrancy-window predicate"
 
 private partial def threadAdversaryThroughExecutableSyntax
-    (externalDecls : Array ExternalDecl) (adv : Ident) (stx : Syntax) : CommandElabM Syntax := do
-  let go := threadAdversaryThroughExecutableSyntax externalDecls adv
+    (externalDecls : Array ExternalDecl)
+    (adversarialHelpers : Array FunctionDecl)
+    (adv : Term) (stx : Syntax) : CommandElabM Syntax := do
+  let go := threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers adv
   let recurseChildren : CommandElabM Syntax := do
     match stx with
     | .node info kind args =>
@@ -2283,6 +2285,20 @@ private partial def threadAdversaryThroughExecutableSyntax
   | `(doElem| let $name:ident ← totalSupply $token:term) =>
       let token : Term := ⟨← go token.raw⟩
       `(doElem| let $name ← totalSupply $token $adv)
+  | `(doElem| let $binder:ident ← $name:ident $args:term*) =>
+      let helper? := adversarialHelpers.find? fun fn =>
+        (fn.name == toString name.getId || fn.ident.getId == name.getId) &&
+          fn.params.size == args.size
+      match helper? with
+      | some _ =>
+          let rewritten ← args.mapM fun arg => do
+            pure ⟨← go arg.raw⟩
+          let mut app : Term := ⟨name.raw⟩
+          app ← `(term| $app $adv)
+          for arg in rewritten do
+            app ← `(term| $app $arg)
+          `(doElem| let $binder ← $app:term)
+      | none => recurseChildren
   | `(term| callExternal $name:ident ($[$args:term],*)) =>
       let extName := toString name.getId
       let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
@@ -2331,6 +2347,20 @@ private partial def threadAdversaryThroughExecutableSyntax
   | `(term| totalSupply $token:term) =>
       let token : Term := ⟨← go token.raw⟩
       `(term| totalSupply $token $adv)
+  | `(term| $name:ident $args:term*) =>
+      let helper? := adversarialHelpers.find? fun fn =>
+        (fn.name == toString name.getId || fn.ident.getId == name.getId) &&
+          fn.params.size == args.size
+      match helper? with
+      | some _ =>
+          let rewritten ← args.mapM fun arg => do
+            pure ⟨← go arg.raw⟩
+          let mut app : Term := ⟨name.raw⟩
+          app ← `(term| $app $adv)
+          for arg in rewritten do
+            app ← `(term| $app $arg)
+          pure app
+      | none => recurseChildren
   | _ => recurseChildren
 
 private def mkModelParamsTerm (params : Array ParamDecl) : CommandElabM Term := do
@@ -4601,15 +4631,31 @@ def mkFunctionCommandsPublic
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
   let opensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
+  let mut adversarialHelpers : Array FunctionDecl := #[]
+  for helper in functions do
+    let helperModel ←
+      if helper.modifiers.isEmpty || allModifiers.isEmpty then
+        pure helper
+      else
+        let arr ← inlineModifierPrefixes allModifiers #[helper]
+        match arr[0]? with
+        | some inlined => pure inlined
+        | none => pure helper
+    let helperStmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls
+      immutableDecls externalDecls functions helperModel
+    if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
+      adversarialHelpers := adversarialHelpers.push helper
   let advIdent := mkIdentFrom fn.ident `_adv
+  let advTerm : Term ← if opensReentrancyWindow then
+      pure ⟨advIdent.raw⟩
+    else
+      `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
   let fnType ← if opensReentrancyWindow then
       mkContractFnTypeWithAdversary fn.params fn.returnTy
     else
       mkContractFnType fn.params fn.returnTy
-  let fnExecutableBody ← if opensReentrancyWindow then
-      pure ⟨← threadAdversaryThroughExecutableSyntax externalDecls advIdent fnExecutableBody.raw⟩
-    else
-      pure fnExecutableBody
+  let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
+    adversarialHelpers advTerm fnExecutableBody.raw⟩
   let fnValue ← if opensReentrancyWindow then
       mkContractFnValueWithAdversary advIdent fn.params fnExecutableBody
     else

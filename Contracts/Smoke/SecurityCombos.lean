@@ -170,7 +170,7 @@ verity_contract NonreentrantTrustedInternalHelperAccepted where
     return echoed
 
   function callerTrusted (x : Uint256) : Uint256 := do
-    let y ← trustedEntry .stub x
+    let y ← trustedEntry x
     return y
 
 #check_contract NonreentrantTrustedInternalHelperAccepted
