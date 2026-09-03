@@ -16,9 +16,9 @@ open Compiler.CompilationModel.DenoteExternalCalls
 private abbrev modelExternalCall :=
   Compiler.CompilationModel.DenoteExternalCalls.externalCall
 
-/-- Kept for downstream PR1 users; PR2 no longer applies this projection. -/
-def legacyPost (before after : ContractState) : ContractState :=
-  { after with returndata := before.returndata }
+/-- Compatibility name retained for downstream PR1 users.  The PR3 boundary
+is canonical, so the complete post-state (including returndata) is visible. -/
+def legacyPost (_before after : ContractState) : ContractState := after
 
 theorem commonExternalCall_eq_model (adv : AdversaryModel) (site : CallSite)
     (state : ContractState) :
@@ -188,39 +188,32 @@ theorem totalSupply_eq_stub (token : Address) (state : ContractState) :
 theorem erc20Write_eq_stub (name : String) (token : Address)
     (args : List Uint256) (state : ContractState) (h : name ≠ "fail")
     (hcode : state.codeSize token.toNat ≠ 0) :
-    (recordLinkedCall (erc20WriteEntry name token args)).run state =
+    (erc20Write .stub name token args).run state =
       (stubErc20Write name token args).run state := by
-  rw [recordLinkedCall_run]
-  simp [stubErc20Write, modelExternalCall,
+  simp [erc20Write, stubErc20Write, commonExternalCall, modelExternalCall,
     Compiler.CompilationModel.DenoteExternalCalls.externalCall,
     denoteCallJournaled, denoteCall, chargedGas, journalEntry,
     CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
     ExternalCallResult.returndata, Contract.run, linkedCallSite,
-    AdversaryModel.stub, legacyPost, erc20WriteEntry, linkedCallEntry, h, hcode]
+    AdversaryModel.stub, legacyPost, h, hcode]
 
 theorem safeTransfer_eq_stub (token toAddr : Address) (amount : Uint256)
     (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
     (safeTransfer token toAddr amount .stub).run state =
       (stubErc20Write "safeTransfer" token
-        [Verity.addressToWord toAddr, amount]).run state := by
-  rw [safeTransfer_run _ _ _ _ hcode]
-  exact erc20Write_eq_stub _ _ _ _ (by decide) hcode
+        [Verity.addressToWord toAddr, amount]).run state := rfl
 
 theorem safeTransferFrom_eq_stub (token fromAddr toAddr : Address) (amount : Uint256)
     (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
     (safeTransferFrom token fromAddr toAddr amount .stub).run state =
       (stubErc20Write "safeTransferFrom" token
-        [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]).run state := by
-  rw [safeTransferFrom_run _ _ _ _ _ hcode]
-  exact erc20Write_eq_stub _ _ _ _ (by decide) hcode
+        [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]).run state := rfl
 
 theorem safeApprove_eq_stub (token spender : Address) (amount : Uint256)
     (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
     (safeApprove token spender amount .stub).run state =
       (stubErc20Write "safeApprove" token
-        [Verity.addressToWord spender, amount]).run state := by
-  rw [safeApprove_run _ _ _ _ hcode]
-  exact erc20Write_eq_stub _ _ _ _ (by decide) hcode
+        [Verity.addressToWord spender, amount]).run state := rfl
 
 theorem legacyStringSafeTransfer_eq_stub (token toAddr : Address) (amount : Uint256)
     (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :

@@ -83,7 +83,8 @@ example :
       ContractResult.success ()
         { codedState with
             calls := [{ Contracts.erc20WriteEntry "legacyStringSafeTransfer" 7 [8, 9] with
-              returndata := [1, 37] }] } := rfl
+              returndata := [1, 37] }]
+            returndata := [1, 37] } := rfl
 
 /-- Optional-bool matching observes EVM words, so an adversarial natural
 congruent to one modulo the EVM word modulus is accepted as `true`. -/
@@ -93,7 +94,8 @@ example :
       ContractResult.success ()
         { codedState with
             calls := [{ Contracts.erc20WriteEntry "safeTransfer" 7 [8, 9] with
-              returndata := [Compiler.Constants.evmModulus + 1] }] } := rfl
+              returndata := [Compiler.Constants.evmModulus + 1] }]
+            returndata := [1] } := rfl
 
 /-- Failed `callResult` crossings retain the first returned word rather than
 replacing the compiler-observable payload with the type default. -/
@@ -103,7 +105,8 @@ example :
         Contract (Contracts.Call.Result Uint256)).run defaultState =
       ContractResult.success { success := false, returndata := 42 }
         { defaultState with
-            calls := [Contracts.linkedCallEntry "probe" [9] .failure [42, 99]] } := rfl
+            calls := [Contracts.linkedCallEntry "probe" [9] .failure [42, 99]]
+            returndata := [42, 99] } := rfl
 
 /-- Reverted try-call payloads are decoded as normalized EVM words on the
 in-band failure path, matching `Stmt.tryExternalCallBind`. -/
@@ -114,7 +117,8 @@ example :
       ContractResult.success (false, 42)
         { defaultState with
             calls := [Contracts.linkedCallEntry "probe" [9] .revert
-              [Compiler.Constants.evmModulus + 42]] } := rfl
+              [Compiler.Constants.evmModulus + 42]]
+            returndata := [42] } := rfl
 
 /-- One call appends exactly one journal entry. -/
 theorem single_call_journals_one_entry (s : ContractState) :
@@ -206,8 +210,12 @@ theorem double_send_observable (token toAddr : Address) (amount : Uint256)
       (fun _ => Contracts.safeTransfer token toAddr amount)).run s).snd.calls ≠ _
   let entry := Contracts.erc20WriteEntry "safeTransfer" token
     [Verity.addressToWord toAddr, amount]
-  let s₁ := { s with calls := s.calls ++ [entry] }
-  let s₂ := { s₁ with calls := s₁.calls ++ [entry] }
+  let s₁ := { s with
+    calls := s.calls ++ [entry]
+    returndata := [] }
+  let s₂ := { s₁ with
+    calls := s₁.calls ++ [entry]
+    returndata := [] }
   have h₁ : (Contracts.safeTransfer token toAddr amount).run s =
       ContractResult.success () s₁ := by
     simpa [s₁, entry] using Contracts.safeTransfer_run token toAddr amount s hcode
@@ -247,7 +255,8 @@ example :
         Contract (Bool × Uint256)).run defaultState) =
       ContractResult.success (true, 37)
         { defaultState with
-            calls := [Contracts.linkedCallEntry "echo" [37] .success [37]] } := rfl
+            calls := [Contracts.linkedCallEntry "echo" [37] .success [37]]
+            returndata := [37] } := rfl
 
 /-- ERC-20 reads journal the token as target, ABI arguments as calldata, and
 the returned stub word as returndata, using the same `staticcall` kind as the
