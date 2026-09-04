@@ -791,4 +791,21 @@ example : ExternalCallInBodySmoke.tupleArrayLinkedIndexReturn_modelBody =
             (Compiler.CompilationModel.Expr.localVar "arrayElement_index") 2 1 ] ] := by
   rfl
 
+/-- Live-state expression/bind helpers observe the caller `selfBalance`, not
+`defaultState`. -/
+private def balanceAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ s => .success [s.selfBalance.val]
+  gasUsed := fun _ _ => 0
+
+example :
+    let s : ContractState := { defaultState with selfBalance := 7 }
+    (Contracts.externalCallContractWords (α := Uint256) "getDepositableEther" []
+      balanceAdversary 1 0).run s =
+      ContractResult.success (7 : Uint256)
+        { s with
+            calls := [Contracts.linkedCallEntry "getDepositableEther" [] .success [7] 0]
+            returndata := [7] } := rfl
+
 end Contracts.Smoke

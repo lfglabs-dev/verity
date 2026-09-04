@@ -211,4 +211,35 @@ example :
       (fun frame => frame.calleeEntry.returndata) = some [] := by
   native_decide
 
+/-! ### PR3 executable `evmCallWords` memory / value close-out -/
+
+private def memState : ContractState :=
+  { Verity.defaultState with
+      selfBalance := 100
+      memory := fun i => if i = 0 then 7 else 0
+      returndata := [3] }
+
+private def echoCallAdv :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ w => w
+  result := fun site _ => .success site.calldata
+  gasUsed := fun _ _ => 0
+
+/-- Successful raw call reads caller memory as calldata, writes returndata,
+and debits value. -/
+example :
+    let r := (Contracts.evmCallWords echoCallAdv 1000 9 10 0 1 2 1).run memState
+    r.fst = (1 : Uint256) ∧
+      r.snd.selfBalance = (90 : Uint256) ∧
+      r.snd.returndata = [7] ∧
+      r.snd.memory 2 = (7 : Uint256) := by
+  native_decide
+
+/-- Unfunded raw call returns bit 0 with an empty buffer and never invokes
+the adversary (stale `[3]` does not survive). -/
+example :
+    let r := (Contracts.evmCallWords echoCallAdv 1000 9 200 0 1 0 0).run memState
+    r.fst = (0 : Uint256) ∧ r.snd.returndata = [] ∧ r.snd.calls = [] := by
+  native_decide
+
 end Contracts.Smoke.ExternalCallValue

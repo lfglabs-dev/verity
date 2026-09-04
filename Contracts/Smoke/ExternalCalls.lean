@@ -807,4 +807,50 @@ verity_contract StructMappingWrongScalarAddressReadAccessor where
     let word ← getStorageAddr positions
     return word
 
+/-! ### PR3 executable close-out: arity and failure continuation -/
+
+private def arityAdversary (arity : Nat) (words : List Nat) :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site _ =>
+    if site.returnArity = arity then .success words else .success []
+  gasUsed := fun _ _ => 0
+
+private def failAdv :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .failure [5]
+  gasUsed := fun _ _ => 0
+
+/-- Declared arity 0: a successful empty payload continues as `(true, default)`. -/
+example :
+    (Contracts.tryExternalCallWords (α := Unit) "notifyBool" [1]
+      (arityAdversary 0 []) 0 15).run defaultState =
+      ContractResult.success (true, ())
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "notifyBool" [1] .success [] 15]
+            returndata := [] } := rfl
+
+/-- Declared arity 2: both words are accepted; the helper no longer reverts
+on a non-singleton payload. -/
+example :
+    (Contracts.tryExternalCallWords (α := Uint256) "dirtyPair" []
+      (arityAdversary 2 [7, 9]) 2 6).run defaultState =
+      ContractResult.success (true, (7 : Uint256))
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "dirtyPair" [] .success [7, 9] 6]
+            returndata := [7, 9] } := rfl
+
+/-- Bound helpers auto-revert on adversary failure instead of fabricating 0. -/
+example :
+    (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" [] failAdv 1 4).run
+      defaultState =
+      ContractResult.revert "external call failed" defaultState := rfl
+
+/-- Bound helpers auto-revert when success returndata is shorter than arity. -/
+example :
+    (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" []
+      (arityAdversary 1 []) 1 4).run defaultState =
+      ContractResult.revert "external call returned insufficient data" defaultState := rfl
+
 end Contracts.Smoke

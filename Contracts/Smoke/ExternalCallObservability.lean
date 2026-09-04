@@ -405,4 +405,14 @@ theorem revert_rolls_back_journal (token toAddr : Address) (amount : Uint256)
   have h₁raw := Contract.eq_of_run_success h₁
   simp [Verity.bind, Contract.run, h₁raw, Verity.require]
 
+/-- Generated linked-call journals carry the declaration-index `siteId`. -/
+example :
+    (Contracts.externalCallContractWords (α := Uint256) "getDepositableEther" []
+      .stub 1 0).run defaultState =
+      ContractResult.success (externalCallStubWord "getDepositableEther" [])
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "getDepositableEther" [] .success
+              [(externalCallStubWord "getDepositableEther" [] : Nat)] 0]
+            returndata := [(externalCallStubWord "getDepositableEther" [] : Nat)] } := rfl
+
 end Contracts.Smoke.ExternalCallObservability

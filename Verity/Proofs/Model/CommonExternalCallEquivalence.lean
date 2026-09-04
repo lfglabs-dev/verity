@@ -28,24 +28,24 @@ theorem commonExternalCall_eq_model (adv : AdversaryModel) (site : CallSite)
       | .revert message _ => .revert message state := rfl
 
 def stubCallResultWords {α : Type} [ExternalResult α] [Inhabited α]
-    (name : String) (args : List Uint256) : Contract (Call.Result α) := fun state =>
-  match modelExternalCall .stub (linkedCallSite name args 1) state with
-  | .success (.success [word]) post =>
+    (name : String) (args : List Uint256) (arity : Nat := 1) (siteId : Nat := 0) :
+    Contract (Call.Result α) := fun state =>
+  match modelExternalCall .stub (linkedCallSite name args arity .call 0 0 [] siteId) state with
+  | .success (.success returndata) post =>
       .success (show Call.Result α from
         { success := true,
-          returndata := ExternalResult.fromWord (Core.Uint256.ofNat word) }) (legacyPost state post)
-  | .success (.success _) _ => .revert "external call returned invalid data" state
+          returndata := failedExternalResult returndata }) (legacyPost state post)
   | .success (.failure returndata) post | .success (.revert returndata) post =>
       .success (show Call.Result α from
         { success := false, returndata := failedExternalResult returndata }) (legacyPost state post)
   | .revert message _ => .revert message state
 
 def stubTryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
-    (name : String) (args : List Uint256) : Contract (Bool × α) := fun state =>
-  match modelExternalCall .stub (linkedCallSite name args 1) state with
-  | .success (.success [word]) post =>
-      .success (true, ExternalResult.fromWord (Core.Uint256.ofNat word)) (legacyPost state post)
-  | .success (.success _) _ => .revert "external call returned invalid data" state
+    (name : String) (args : List Uint256) (arity : Nat := 1) (siteId : Nat := 0) :
+    Contract (Bool × α) := fun state =>
+  match modelExternalCall .stub (linkedCallSite name args arity .call 0 0 [] siteId) state with
+  | .success (.success returndata) post =>
+      .success (true, failedExternalResult returndata) (legacyPost state post)
   | .success (.failure returndata) post | .success (.revert returndata) post =>
       .success (false, failedExternalResult returndata) (legacyPost state post)
   | .revert message _ => .revert message state
