@@ -2443,7 +2443,7 @@ private partial def threadAdversaryThroughExecutableSyntax
     | .node info kind args =>
         pure (.node info kind (← args.mapM go))
     | _ => pure stx
-  let rewriteTerm (t : Term) : CommandElabM Term :=
+  let rewriteTerm (t : Term) : CommandElabM Term := do
     rewriteLinkedCallTerm externalDecls params adv ⟨← go t.raw⟩
   let hoistLive (rhs : Term) (cont : Term → CommandElabM (TSyntax `doElem)) :
       CommandElabM Syntax := do
