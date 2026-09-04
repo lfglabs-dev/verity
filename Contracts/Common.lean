@@ -527,6 +527,16 @@ instance : ExternalArg Address where
   toWords value := [value.toNat]
 instance : ExternalArg Bool where
   toWords value := [if value then 1 else 0]
+instance : ExternalArg Nat where
+  toWords value := [value]
+/-- Canonical first-word projection used when a word-like source expression
+is consumed by an executable helper whose Lean API takes `Uint256`. -/
+def externalArgWord {α : Type} [ExternalArg α] (value : α) : Uint256 :=
+  (ExternalArg.toWords value).head?.getD 0
+
+/-- Address view of the canonical external-argument word. -/
+def externalArgAddress {α : Type} [ExternalArg α] (value : α) : Address :=
+  wordToAddress (externalArgWord value)
 instance [ExternalArg α] : ExternalArg (Array α) where
   toWords values := values.size :: (values.toList.flatMap ExternalArg.toWords)
 instance : ExternalArg ByteArray where

@@ -2436,8 +2436,42 @@ private def isLiveStateExternalCall (stx : Term) : Bool :=
   | `(term| ecmCall $_ $_)
   | `(term| ecmDo $_ $_)
   | `(term| externalCallBind $_ $_ $_)
-  | `(term| tryExternalCallBind $_ $_ $_ $_) => true
+  | `(term| tryExternalCallBind $_ $_ $_ $_)
+  | `(term| balanceOf $_ $_)
+  | `(term| allowance $_ $_ $_)
+  | `(term| totalSupply $_)
+  | `(term| safeTransfer $_ $_ $_)
+  | `(term| safeTransferFrom $_ $_ $_ $_)
+  | `(term| safeApprove $_ $_ $_)
+  | `(term| legacyStringSafeTransfer $_ $_ $_)
+  | `(term| legacyStringSafeTransferFrom $_ $_ $_ $_) => true
   | _ => false
+
+/-- Restore the source language's word-like coercions after a live external
+call has been hoisted into a concretely typed Lean temporary. -/
+private def adaptHoistedWordContext (stx : Term) : CommandElabM Term := do
+  match stx with
+  | `(term| rawLog [ $[$topics:term],* ] $dataOffset:term $dataSize:term) =>
+      `(term| rawLog [ $[externalArgWord $topics],* ]
+        (externalArgWord $dataOffset) (externalArgWord $dataSize))
+  | `(term| linkedWordPassthrough $value:term) =>
+      `(term| linkedWordPassthrough (externalArgWord $value))
+  | `(term| memoryLoad($offset:term)) =>
+      `(term| memoryLoad(externalArgWord $offset))
+  | `(term| arrayElement $values:term $index:term) =>
+      `(term| arrayElement $values (externalArgWord $index))
+  | `(term| arrayElementChecked $values:term $index:term) =>
+      `(term| arrayElementChecked $values (externalArgWord $index))
+  | `(term| getMappingUint $field:term $key:term) =>
+      `(term| getMappingUint $field (externalArgWord $key))
+  | `(term| balanceOf $token:term $owner:term) =>
+      `(term| balanceOf (externalArgAddress $token) (externalArgAddress $owner))
+  | `(term| allowance $token:term $owner:term $spender:term) =>
+      `(term| allowance (externalArgAddress $token) (externalArgAddress $owner)
+        (externalArgAddress $spender))
+  | `(term| totalSupply $token:term) =>
+      `(term| totalSupply (externalArgAddress $token))
+  | _ => pure stx
 
 private partial def threadAdversaryThroughExecutableSyntax
     (externalDecls : Array ExternalDecl)
@@ -2470,7 +2504,7 @@ private partial def threadAdversaryThroughExecutableSyntax
           let (inner, nt) ← hoistNested true ⟨args[i]!⟩
           binds := binds ++ inner
           newArgs := newArgs.set! i nt.raw
-        let rebuilt : Term := ⟨Syntax.node info kind newArgs⟩
+        let rebuilt ← adaptHoistedWordContext ⟨Syntax.node info kind newArgs⟩
         if isLiveStateExternalCall rebuilt then
           bindCall binds rebuilt
         else
@@ -2554,13 +2588,51 @@ private partial def threadAdversaryThroughExecutableSyntax
       let call ← `(term| callExternal $name ($[$rewrittenArgs],*))
       let rewritten ← rewriteLinkedCallTerm externalDecls params adv call
       wrapBinds binds (← `(doElem| let $pat:term ← $rewritten:term))
+  | `(doElem| let $pat:term ← balanceOf $token:term $owner:term) =>
+      let (tokenBinds, rewrittenToken) ← hoistNested true token
+      let (ownerBinds, rewrittenOwner) ← hoistNested true owner
+      wrapBinds (tokenBinds ++ ownerBinds)
+        (← `(doElem| let $pat:term ← (balanceOf
+          (externalArgAddress $rewrittenToken) (externalArgAddress $rewrittenOwner) $adv)))
+  | `(doElem| let $pat:term ← allowance $token:term $owner:term $spender:term) =>
+      let (tokenBinds, rewrittenToken) ← hoistNested true token
+      let (ownerBinds, rewrittenOwner) ← hoistNested true owner
+      let (spenderBinds, rewrittenSpender) ← hoistNested true spender
+      wrapBinds (tokenBinds ++ ownerBinds ++ spenderBinds)
+        (← `(doElem| let $pat:term ← (allowance
+          (externalArgAddress $rewrittenToken) (externalArgAddress $rewrittenOwner)
+          (externalArgAddress $rewrittenSpender) $adv)))
+  | `(doElem| let $pat:term ← totalSupply $token:term) =>
+      let (binds, rewrittenToken) ← hoistNested true token
+      wrapBinds binds
+        (← `(doElem| let $pat:term ← (totalSupply
+          (externalArgAddress $rewrittenToken) $adv)))
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
-      match ← threadHelperApp? adversarialHelpers fn original adv with
-      | some app =>
-          hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
-      | none =>
-          let fnName := toString fn.getId
+      let fnName := toString fn.getId
+      if fnName == "balanceOf" && original.size == 2 then
+        let (tokenBinds, token) ← hoistNested true original[0]!
+        let (ownerBinds, owner) ← hoistNested true original[1]!
+        wrapBinds (tokenBinds ++ ownerBinds)
+          (← `(doElem| let $name ← (balanceOf
+            (externalArgAddress $token) (externalArgAddress $owner) $adv)))
+      else if fnName == "allowance" && original.size == 3 then
+        let (tokenBinds, token) ← hoistNested true original[0]!
+        let (ownerBinds, owner) ← hoistNested true original[1]!
+        let (spenderBinds, spender) ← hoistNested true original[2]!
+        wrapBinds (tokenBinds ++ ownerBinds ++ spenderBinds)
+          (← `(doElem| let $name ← (allowance
+            (externalArgAddress $token) (externalArgAddress $owner)
+            (externalArgAddress $spender) $adv)))
+      else if fnName == "totalSupply" && original.size == 1 then
+        let (binds, token) ← hoistNested true original[0]!
+        wrapBinds binds
+          (← `(doElem| let $name ← (totalSupply (externalArgAddress $token) $adv)))
+      else
+        match ← threadHelperApp? adversarialHelpers fn original adv with
+        | some app =>
+            hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
+        | none =>
           if fnName == "tryExternalCall" || fnName == "callResult" || fnName == "callExternal"
               || fnName == "externalCall" || fnName == "externalCallBind" then
             match stx with
@@ -2599,6 +2671,16 @@ private partial def threadAdversaryThroughExecutableSyntax
       let rewrittenElse := ⟨← go elseBranch.raw⟩
       hoistLive true cond fun rewritten =>
         `(doElem| if $rewritten:term then $rewrittenThen:doSeq else $rewrittenElse:doSeq)
+  | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
+      let (condBinds, rewrittenCond) ← hoistNested true cond
+      let mut binds := condBinds
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args.getElems do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      wrapBinds binds
+        (← `(doElem| requireError $rewrittenCond $errorName:ident($[$rewrittenArgs],*)))
   | `(doElem| return $value:term) =>
       hoistLive true value fun rewritten => `(doElem| return $rewritten:term)
   | `(doElem| ecmBind $_names:term $_module:term $args:term) =>
