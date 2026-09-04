@@ -503,6 +503,9 @@ class ExternalArg (α : Type) where
   toWords : α → List Uint256
 class ExternalResult (α : Type) where
   fromWord : Uint256 → α
+  wordCount : Nat := 1
+  fromWords : List Uint256 → α := fun words =>
+    fromWord (words.head?.getD 0)
 /-- Aggregate/no-result executable stubs have no single-word decoding. Keep
 their historical inhabited default; concrete scalar decoders below have the
 normal higher priority and therefore return the journaled stub word. -/
@@ -544,6 +547,14 @@ instance : ExternalResult Address where
   fromWord value := wordToAddress value
 instance : ExternalResult Bool where
   fromWord value := value != 0
+instance [ExternalResult α] [ExternalResult β] : ExternalResult (α × β) where
+  wordCount := ExternalResult.wordCount (α := α) + ExternalResult.wordCount (α := β)
+  fromWord value :=
+    (ExternalResult.fromWord value, ExternalResult.fromWord 0)
+  fromWords words :=
+    let leftCount := ExternalResult.wordCount (α := α)
+    (ExternalResult.fromWords (words.take leftCount),
+      ExternalResult.fromWords (words.drop leftCount))
 
 namespace Call
 
@@ -728,10 +739,10 @@ def externalCallContractWords {α : Type} [ExternalResult α]
     (arity : Nat := 1) (siteId : Nat := 0) : Contract α := fun state =>
   match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run state with
   | .success (.success returndata) post =>
-      if returndata.length < arity then
-        .revert "external call returned insufficient data" state
+      if returndata.length = arity then
+        .success (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
       else
-        .success (ExternalResult.fromWord (Core.Uint256.ofNat (returndata.head?.getD 0))) post
+        .revert "external call returned malformed data" state
   | .success (.failure _) _ | .success (.revert _) _ =>
       .revert "external call failed" state
   | .revert message _ => .revert message state
@@ -747,7 +758,7 @@ def externalCallEffectWords
 
 def failedExternalResult {α : Type} [ExternalResult α] [Inhabited α] : List Nat → α
   | [] => Inhabited.default
-  | word :: _ => ExternalResult.fromWord (Core.Uint256.ofNat word)
+  | words => ExternalResult.fromWords (words.map Core.Uint256.ofNat)
 
 def callResultWords {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub)
@@ -755,7 +766,10 @@ def callResultWords {α : Type} [ExternalResult α] [Inhabited α]
   fun state =>
     match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run state with
     | .success (.success returndata) post =>
-        .success { success := true, returndata := failedExternalResult returndata } post
+        if returndata.length = arity then
+          .success { success := true, returndata := failedExternalResult returndata } post
+        else
+          .revert "external call returned malformed data" state
     | .success (.failure returndata) post | .success (.revert returndata) post =>
         .success { success := false, returndata := failedExternalResult returndata } post
     | .revert message _ => .revert message state
@@ -766,7 +780,10 @@ def tryExternalCallWords {α : Type} [ExternalResult α] [Inhabited α]
   fun state =>
     match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run state with
     | .success (.success returndata) post =>
-        .success (true, failedExternalResult returndata) post
+        if returndata.length = arity then
+          .success (true, failedExternalResult returndata) post
+        else
+          .revert "external call returned malformed data" state
     | .success (.failure returndata) post | .success (.revert returndata) post =>
         .success (false, failedExternalResult returndata) post
     | .revert message _ => .revert message state
@@ -865,7 +882,10 @@ theorem callResultWords_adv_run {α : Type} [ExternalResult α] [Inhabited α]
     callResultWords (α := α) name args adv arity siteId s =
       match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run s with
       | .success (.success returndata) post =>
-          .success { success := true, returndata := failedExternalResult returndata } post
+          if returndata.length = arity then
+            .success { success := true, returndata := failedExternalResult returndata } post
+          else
+            .revert "external call returned malformed data" s
       | .success (.failure returndata) post | .success (.revert returndata) post =>
           .success { success := false, returndata := failedExternalResult returndata } post
       | .revert message _ => .revert message s := rfl
@@ -876,7 +896,10 @@ theorem tryExternalCallWords_adv_run {α : Type} [ExternalResult α] [Inhabited 
     tryExternalCallWords (α := α) name args adv arity siteId s =
       match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run s with
       | .success (.success returndata) post =>
-          .success (true, failedExternalResult returndata) post
+          if returndata.length = arity then
+            .success (true, failedExternalResult returndata) post
+          else
+            .revert "external call returned malformed data" s
       | .success (.failure returndata) post | .success (.revert returndata) post =>
           .success (false, failedExternalResult returndata) post
       | .revert message _ => .revert message s := rfl
@@ -887,11 +910,11 @@ theorem externalCallContractWords_adv_run {α : Type} [ExternalResult α]
     externalCallContractWords (α := α) name args adv arity siteId s =
       match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run s with
       | .success (.success returndata) post =>
-          if returndata.length < arity then
-            ContractResult.revert "external call returned insufficient data" s
-          else
+          if returndata.length = arity then
             ContractResult.success
-              (ExternalResult.fromWord (Core.Uint256.ofNat (returndata.head?.getD 0))) post
+              (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
+          else
+            ContractResult.revert "external call returned malformed data" s
       | .success (.failure _) _ | .success (.revert _) _ =>
           ContractResult.revert "external call failed" s
       | .revert message _ => ContractResult.revert message s := rfl
@@ -981,7 +1004,7 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
         { success := externalCallStubSuccess name
           returndata :=
             if externalCallStubSuccess name then
-              ExternalResult.fromWord (externalCallStubWord name args)
+              ExternalResult.fromWords [externalCallStubWord name args]
             else Inhabited.default }
         { s with
           calls := s.calls ++
@@ -1016,7 +1039,7 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
       ContractResult.success
         (externalCallStubSuccess name,
           if externalCallStubSuccess name then
-            ExternalResult.fromWord (externalCallStubWord name args)
+            ExternalResult.fromWords [externalCallStubWord name args]
           else Inhabited.default)
         { s with
           calls := s.calls ++

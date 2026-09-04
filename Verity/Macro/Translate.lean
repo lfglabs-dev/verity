@@ -2430,7 +2430,7 @@ private def isLiveStateExternalCall (stx : Term) : Bool :=
   | `(term| ecmDo $_ $_)
   | `(term| externalCallBind $_ $_ $_)
   | `(term| tryExternalCallBind $_ $_ $_ $_) => true
-  | _ => typedDotCallSyntax? stx |>.isSome
+  | _ => false
 
 private partial def threadAdversaryThroughExecutableSyntax
     (externalDecls : Array ExternalDecl)
@@ -2467,12 +2467,26 @@ private partial def threadAdversaryThroughExecutableSyntax
         if isLiveStateExternalCall rebuilt then
           bindCall binds rebuilt
         else
-          pure (binds, rebuilt)
+          match ← rewriteTypedInterfaceCall? externalDecls params adv rebuilt with
+          | some rewritten =>
+              if bindSelf then
+                let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+                pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+              else
+                pure (binds, rewritten)
+          | none => pure (binds, rebuilt)
     | _ =>
-        if isLiveStateExternalCall t then
-          bindCall #[] t
-        else
-          pure (#[], t)
+      if isLiveStateExternalCall t then
+        bindCall #[] t
+      else
+        match ← rewriteTypedInterfaceCall? externalDecls params adv t with
+        | some rewritten =>
+            if bindSelf then
+              let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+              pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
+            else
+              pure (#[], rewritten)
+        | none => pure (#[], t)
   let wrapBinds (binds : Array (Ident × Term)) (body : TSyntax `doElem) :
       CommandElabM (TSyntax `doElem) := do
     let mut acc := body
@@ -2508,12 +2522,23 @@ private partial def threadAdversaryThroughExecutableSyntax
       hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $pat:term ← $rhs:term) =>
       hoistLive false rhs fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
+  | `(doElem| let mut $name:ident := $rhs:term) =>
+      hoistLive true rhs fun rewritten =>
+        `(doElem| let mut $name := $rewritten:term)
   | `(doElem| let $name:ident := $rhs:term) =>
-      hoistLive (isLiveStateExternalCall rhs) rhs fun rewritten =>
-        if isLiveStateExternalCall rhs then
-          `(doElem| let $name ← $rewritten:term)
-        else
-          `(doElem| let $name := $rewritten:term)
+      hoistLive true rhs fun rewritten =>
+        `(doElem| let $name := $rewritten:term)
+  | `(doElem| let $pat:term := $rhs:term) =>
+      hoistLive true rhs fun rewritten =>
+        `(doElem| let $pat:term := $rewritten:term)
+  | `(doElem| $name:ident := $rhs:term) =>
+      hoistLive true rhs fun rewritten =>
+        `(doElem| $name:ident := $rewritten:term)
+  | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
+      let rewrittenThen := ⟨← go thenBranch.raw⟩
+      let rewrittenElse := ⟨← go elseBranch.raw⟩
+      hoistLive true cond fun rewritten =>
+        `(doElem| if $rewritten:term then $rewrittenThen:doSeq else $rewrittenElse:doSeq)
   | `(doElem| return $value:term) =>
       hoistLive true value fun rewritten => `(doElem| return $rewritten:term)
   | `(doElem| ecmBind $_names:term $_module:term $args:term) =>
@@ -4828,7 +4853,9 @@ def mkFunctionCommandsPublic
       immutableDecls externalDecls functions helperModel
     if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
       adversarialHelpers := adversarialHelpers.push helper
-  let advIdent := mkIdentFrom fn.ident `_adv
+  -- Keep the generated binder hygienic: source parameters and locals are allowed
+  -- to use `_adv` without capturing the adversary threaded into rewritten calls.
+  let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw
   let advTerm : Term ← if opensReentrancyWindow then
       pure ⟨advIdent.raw⟩
     else

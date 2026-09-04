@@ -68,6 +68,14 @@ verity_contract ExternalCallInBodySmoke where
     let result := callExternal dirtyUint()
     return result
 
+  function reentrancy_trusted mutableDirtyUint () : Uint32 := do
+    let mut result := callExternal dirtyUint()
+    result := callExternal dirtyUint()
+    return result
+
+  function reentrancy_trusted adversaryNameDoesNotCapture (_adv : Uint256) : Uint32 := do
+    return callExternal dirtyUint()
+
   function reentrancy_trusted directDirtyUint () : Uint32 := do
     return callExternal dirtyUint()
 
