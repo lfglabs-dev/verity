@@ -2381,9 +2381,6 @@ private def rewriteLinkedCallTerm
   | `(term| ecmDo $_module:term $args:term) =>
       let argList ← expectTermListLiteral args
       `(term| ecmDoWords $adv (List.flatten [ $[ExternalArg.toWords $argList],* ]))
-  | `(term| ecmBind $names:term $_module:term $args:term) =>
-      let argList ← expectTermListLiteral args
-      `(term| ecmCallWords $adv (List.flatten [ $[ExternalArg.toWords $argList],* ]))
   | `(term| externalCallBind $names:term $fnName:term $args:term) =>
       let extName ← expectStringOrIdent fnName
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2431,7 +2428,6 @@ private def isLiveStateExternalCall (stx : Term) : Bool :=
   | `(term| delegatecall $_ $_ $_ $_ $_ $_)
   | `(term| ecmCall $_ $_)
   | `(term| ecmDo $_ $_)
-  | `(term| ecmBind $_ $_ $_)
   | `(term| externalCallBind $_ $_ $_)
   | `(term| tryExternalCallBind $_ $_ $_ $_) => true
   | _ => typedDotCallSyntax? stx |>.isSome
@@ -2482,9 +2478,9 @@ private partial def threadAdversaryThroughExecutableSyntax
           `(doElem| let $name := $rewritten:term)
   | `(doElem| return $value:term) =>
       hoistLive value fun rewritten => `(doElem| return $rewritten:term)
-  | `(doElem| ecmBind $names:term $module:term $args:term) =>
-      let rewritten ← rewriteTerm (← `(term| ecmBind $names $module $args))
-      `(doElem| let _ ← $rewritten:term)
+  | `(doElem| ecmBind $_names:term $_module:term $args:term) =>
+      let argList ← expectTermListLiteral args
+      `(doElem| let _ ← ecmCallWords $adv (List.flatten [ $[ExternalArg.toWords $argList],* ]))
   | `(doElem| $fn:ident $args:term*) =>
       let rewritten ← args.mapM fun arg => do pure ⟨← go arg.raw⟩
       match ← threadHelperApp? adversarialHelpers fn rewritten adv with
