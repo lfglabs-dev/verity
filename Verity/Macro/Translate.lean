@@ -2487,24 +2487,23 @@ private partial def threadAdversaryThroughExecutableSyntax
     let rest ← cont rewritten
     wrapBinds binds rest
   match stx with
-  | `(doElem| let $name:ident ← tryExternalCall $extName:term [ $[$args:term],* ]) =>
-      hoistLive false (← `(term| tryExternalCall $extName [ $[$args],* ])) fun rewritten =>
-        `(doElem| let $name ← $rewritten:term)
-  | `(doElem| let $pat:term ← tryExternalCall $extName:term [ $[$args:term],* ]) =>
-      hoistLive false (← `(term| tryExternalCall $extName [ $[$args],* ])) fun rewritten =>
-        `(doElem| let $pat:term ← $rewritten:term)
-  | `(doElem| let $name:ident ← callResult $extName:term [ $[$args:term],* ]) =>
-      hoistLive false (← `(term| callResult $extName [ $[$args],* ])) fun rewritten =>
-        `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
       let rewritten ← args.mapM fun arg => do pure ⟨← go arg.raw⟩
       match ← threadHelperApp? adversarialHelpers fn rewritten adv with
       | some app => `(doElem| let $name ← $app:term)
       | none =>
-          let mut rhs : Term := ⟨fn.raw⟩
-          for arg in rewritten do
-            rhs ← `(term| $rhs $arg)
-          hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
+          let fnName := toString fn.getId
+          if fnName == "tryExternalCall" || fnName == "callResult" || fnName == "callExternal"
+              || fnName == "externalCall" || fnName == "externalCallBind" then
+            match stx with
+            | `(doElem| let $_ ← $rhs:term) =>
+                hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
+            | _ => recurseChildren
+          else
+            let mut rhs : Term := ⟨fn.raw⟩
+            for arg in rewritten do
+              rhs ← `(term| $rhs $arg)
+            hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $rhs:term) =>
       hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $pat:term ← $rhs:term) =>
