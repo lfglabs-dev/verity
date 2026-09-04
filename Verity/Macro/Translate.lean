@@ -2451,7 +2451,7 @@ private partial def threadAdversaryThroughExecutableSyntax
       let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
       pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
     else
-      match t with
+      match t.raw with
       | .node info kind args =>
           let mut binds : Array (Ident × Term) := #[]
           let mut newArgs := args
@@ -2459,7 +2459,7 @@ private partial def threadAdversaryThroughExecutableSyntax
             let (inner, nt) ← hoistNested ⟨args[i]!⟩
             binds := binds ++ inner
             newArgs := newArgs.set! i nt.raw
-          pure (binds, ⟨.node info kind newArgs⟩)
+          pure (binds, ⟨Syntax.node info kind newArgs⟩)
       | _ => pure (#[], t)
   let wrapBinds (binds : Array (Ident × Term)) (body : TSyntax `doElem) :
       CommandElabM (TSyntax `doElem) := do
