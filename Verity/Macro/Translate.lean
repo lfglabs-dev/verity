@@ -2445,17 +2445,35 @@ private partial def threadAdversaryThroughExecutableSyntax
     | _ => pure stx
   let rewriteTerm (t : Term) : CommandElabM Term := do
     rewriteLinkedCallTerm externalDecls params adv ⟨← go t.raw⟩
+  let rec hoistNested (t : Term) : CommandElabM (Array (Ident × Term) × Term) := do
+    if isLiveStateExternalCall t then
+      let rewritten ← rewriteTerm t
+      let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+      pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
+    else
+      match t with
+      | .node info kind args =>
+          let mut binds : Array (Ident × Term) := #[]
+          let mut newArgs := args
+          for i in [:args.size] do
+            let (inner, nt) ← hoistNested ⟨args[i]!⟩
+            binds := binds ++ inner
+            newArgs := newArgs.set! i nt.raw
+          pure (binds, ⟨.node info kind newArgs⟩)
+      | _ => pure (#[], t)
+  let wrapBinds (binds : Array (Ident × Term)) (body : TSyntax `doElem) :
+      CommandElabM (TSyntax `doElem) := do
+    let mut acc := body
+    for (tmp, call) in binds.reverse do
+      acc ← `(doElem| do
+        let $tmp ← $call:term
+        $acc:doElem)
+    pure acc
   let hoistLive (rhs : Term) (cont : Term → CommandElabM (TSyntax `doElem)) :
       CommandElabM Syntax := do
-    let rewritten ← rewriteTerm rhs
-    if isLiveStateExternalCall rhs then
-      let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (rhs.raw.reprint.getD "x")}")
-      let rest ← cont ⟨tmp.raw⟩
-      `(doElem| do
-          let $tmp ← $rewritten:term
-          $rest:doElem)
-    else
-      cont rewritten
+    let (binds, rewritten) ← hoistNested rhs
+    let rest ← cont rewritten
+    wrapBinds binds rest
   match stx with
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
       let rewritten ← args.mapM fun arg => do pure ⟨← go arg.raw⟩
