@@ -749,8 +749,9 @@ def externalCallContractWords {α : Type} [ExternalResult α]
     (arity : Nat := 1) (siteId : Nat := 0) : Contract α := fun state =>
   match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run state with
   | .success (.success returndata) post =>
-      if returndata.length = arity then
-        .success (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
+      if arity ≤ returndata.length then
+        .success (ExternalResult.fromWords
+          ((returndata.take arity).map Core.Uint256.ofNat)) post
       else
         .revert "external call returned malformed data" state
   | .success (.failure _) _ | .success (.revert _) _ =>
@@ -924,9 +925,10 @@ theorem externalCallContractWords_adv_run {α : Type} [ExternalResult α]
     externalCallContractWords (α := α) name args adv arity siteId s =
       match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run s with
       | .success (.success returndata) post =>
-          if returndata.length = arity then
+          if arity ≤ returndata.length then
             ContractResult.success
-              (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
+              (ExternalResult.fromWords
+                ((returndata.take arity).map Core.Uint256.ofNat)) post
           else
             ContractResult.revert "external call returned malformed data" s
       | .success (.failure _) _ | .success (.revert _) _ =>

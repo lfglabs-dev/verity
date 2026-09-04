@@ -853,4 +853,14 @@ example :
       (arityAdversary 1 []) 1 4).run defaultState =
       ContractResult.revert "external call returned malformed data" defaultState := rfl
 
+/-- Bound helpers decode the declared prefix and tolerate trailing returndata,
+matching the compilation model's external-call binding semantics. -/
+example :
+    (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" []
+      (arityAdversary 1 [7, 9]) 1 4).run defaultState =
+      ContractResult.success 7
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "dirtyUint" [] .success [7, 9] 4]
+            returndata := [7, 9] } := rfl
+
 end Contracts.Smoke
