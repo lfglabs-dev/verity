@@ -2445,27 +2445,32 @@ private partial def threadAdversaryThroughExecutableSyntax
     | _ => pure stx
   let rewriteTerm (t : Term) : CommandElabM Term := do
     rewriteLinkedCallTerm externalDecls params adv ⟨← go t.raw⟩
-  let rec hoistNested (t : Term) : CommandElabM (Array (Ident × Term) × Term) := do
+  let rec hoistNested (bindSelf : Bool) (t : Term) :
+      CommandElabM (Array (Ident × Term) × Term) := do
+    let bindCall (binds : Array (Ident × Term)) (call : Term) :
+        CommandElabM (Array (Ident × Term) × Term) := do
+      let rewritten ← rewriteTerm call
+      if bindSelf then
+        let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+        pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+      else
+        pure (binds, rewritten)
     match t.raw with
     | .node info kind args =>
         let mut binds : Array (Ident × Term) := #[]
         let mut newArgs := args
         for i in [:args.size] do
-          let (inner, nt) ← hoistNested ⟨args[i]!⟩
+          let (inner, nt) ← hoistNested true ⟨args[i]!⟩
           binds := binds ++ inner
           newArgs := newArgs.set! i nt.raw
         let rebuilt : Term := ⟨Syntax.node info kind newArgs⟩
         if isLiveStateExternalCall rebuilt then
-          let rewritten ← rewriteTerm rebuilt
-          let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
-          pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+          bindCall binds rebuilt
         else
           pure (binds, rebuilt)
     | _ =>
         if isLiveStateExternalCall t then
-          let rewritten ← rewriteTerm t
-          let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
-          pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
+          bindCall #[] t
         else
           pure (#[], t)
   let wrapBinds (binds : Array (Ident × Term)) (body : TSyntax `doElem) :
@@ -2476,9 +2481,9 @@ private partial def threadAdversaryThroughExecutableSyntax
         let $tmp ← $call:term
         $acc:doElem)
     pure acc
-  let hoistLive (rhs : Term) (cont : Term → CommandElabM (TSyntax `doElem)) :
-      CommandElabM Syntax := do
-    let (binds, rewritten) ← hoistNested rhs
+  let hoistLive (bindSelf : Bool) (rhs : Term)
+      (cont : Term → CommandElabM (TSyntax `doElem)) : CommandElabM Syntax := do
+    let (binds, rewritten) ← hoistNested bindSelf rhs
     let rest ← cont rewritten
     wrapBinds binds rest
   match stx with
@@ -2490,31 +2495,19 @@ private partial def threadAdversaryThroughExecutableSyntax
           let mut rhs : Term := ⟨fn.raw⟩
           for arg in rewritten do
             rhs ← `(term| $rhs $arg)
-          if isLiveStateExternalCall rhs then
-            let rewritten ← rewriteTerm rhs
-            `(doElem| let $name ← $rewritten:term)
-          else
-            hoistLive rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
+          hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $rhs:term) =>
-      if isLiveStateExternalCall rhs then
-        let rewritten ← rewriteTerm rhs
-        `(doElem| let $name ← $rewritten:term)
-      else
-        hoistLive rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
+      hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $pat:term ← $rhs:term) =>
-      if isLiveStateExternalCall rhs then
-        let rewritten ← rewriteTerm rhs
-        `(doElem| let $pat:term ← $rewritten:term)
-      else
-        hoistLive rhs fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
+      hoistLive false rhs fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
   | `(doElem| let $name:ident := $rhs:term) =>
-      hoistLive rhs fun rewritten =>
+      hoistLive (isLiveStateExternalCall rhs) rhs fun rewritten =>
         if isLiveStateExternalCall rhs then
           `(doElem| let $name ← $rewritten:term)
         else
           `(doElem| let $name := $rewritten:term)
   | `(doElem| return $value:term) =>
-      hoistLive value fun rewritten => `(doElem| return $rewritten:term)
+      hoistLive true value fun rewritten => `(doElem| return $rewritten:term)
   | `(doElem| ecmBind $_names:term $_module:term $args:term) =>
       let argList ← expectTermListLiteral args
       `(doElem| let _ ← ecmCallWords $adv (List.flatten [ $[ExternalArg.toWords $argList],* ]))
@@ -2527,12 +2520,12 @@ private partial def threadAdversaryThroughExecutableSyntax
           for arg in rewritten do
             stmt ← `(term| $stmt $arg)
           if isLiveStateExternalCall stmt then
-            hoistLive stmt fun rewritten => `(doElem| $rewritten:term)
+            hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
           else
             recurseChildren
   | `(doElem| $stmt:term) =>
       if isLiveStateExternalCall stmt then
-        hoistLive stmt fun rewritten => `(doElem| $rewritten:term)
+        hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
       else
         recurseChildren
   | `(term| $name:ident $args:term*) =>
