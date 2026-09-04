@@ -2534,18 +2534,18 @@ private partial def threadAdversaryThroughExecutableSyntax
   | `(term| $name:ident $args:term*) =>
       let rewritten ← args.mapM fun arg => do pure ⟨← go arg.raw⟩
       match ← threadHelperApp? adversarialHelpers name rewritten adv with
-      | some app => pure app
+      | some app => pure app.raw
       | none =>
           if isLiveStateExternalCall ⟨stx⟩ then
-            rewriteLinkedCallTerm externalDecls params adv ⟨stx⟩
+            (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv ⟨stx⟩
           else
-            return ⟨← recurseChildren⟩
+            recurseChildren
   | _ =>
       let asTerm : Term := ⟨stx⟩
       if isLiveStateExternalCall asTerm then
-        rewriteLinkedCallTerm externalDecls params adv asTerm
+        (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv asTerm
       else
-        return ⟨← recurseChildren⟩
+        recurseChildren
 
 private def mkModelParamsTerm (params : Array ParamDecl) : CommandElabM Term := do
   let xs ← params.mapM fun p => do
