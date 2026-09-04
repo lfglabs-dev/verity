@@ -2539,13 +2539,13 @@ private partial def threadAdversaryThroughExecutableSyntax
           if isLiveStateExternalCall ⟨stx⟩ then
             rewriteLinkedCallTerm externalDecls params adv ⟨stx⟩
           else
-            recurseChildren
+            (⟨·⟩) <$> recurseChildren
   | _ =>
       let asTerm : Term := ⟨stx⟩
       if isLiveStateExternalCall asTerm then
         rewriteLinkedCallTerm externalDecls params adv asTerm
       else
-        recurseChildren
+        (⟨·⟩) <$> recurseChildren
 
 private def mkModelParamsTerm (params : Array ParamDecl) : CommandElabM Term := do
   let xs ← params.mapM fun p => do
