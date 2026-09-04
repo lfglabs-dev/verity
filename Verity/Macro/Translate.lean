@@ -2487,14 +2487,14 @@ private partial def threadAdversaryThroughExecutableSyntax
     let rest ← cont rewritten
     wrapBinds binds rest
   match stx with
-  | `(doElem| let $name:ident ← tryExternalCall $extName:term $args:term) =>
-      hoistLive false (← `(term| tryExternalCall $extName $args)) fun rewritten =>
+  | `(doElem| let $name:ident ← tryExternalCall $extName:term [ $[$args:term],* ]) =>
+      hoistLive false (← `(term| tryExternalCall $extName [ $[$args],* ])) fun rewritten =>
         `(doElem| let $name ← $rewritten:term)
-  | `(doElem| let $pat:term ← tryExternalCall $extName:term $args:term) =>
-      hoistLive false (← `(term| tryExternalCall $extName $args)) fun rewritten =>
+  | `(doElem| let $pat:term ← tryExternalCall $extName:term [ $[$args:term],* ]) =>
+      hoistLive false (← `(term| tryExternalCall $extName [ $[$args],* ])) fun rewritten =>
         `(doElem| let $pat:term ← $rewritten:term)
-  | `(doElem| let $name:ident ← callResult $extName:term $args:term) =>
-      hoistLive false (← `(term| callResult $extName $args)) fun rewritten =>
+  | `(doElem| let $name:ident ← callResult $extName:term [ $[$args:term],* ]) =>
+      hoistLive false (← `(term| callResult $extName [ $[$args],* ])) fun rewritten =>
         `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
       let rewritten ← args.mapM fun arg => do pure ⟨← go arg.raw⟩
