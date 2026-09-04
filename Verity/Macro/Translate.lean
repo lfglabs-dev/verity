@@ -2487,6 +2487,15 @@ private partial def threadAdversaryThroughExecutableSyntax
     let rest ← cont rewritten
     wrapBinds binds rest
   match stx with
+  | `(doElem| let $name:ident ← tryExternalCall $extName:term $args:term) =>
+      hoistLive false (← `(term| tryExternalCall $extName $args)) fun rewritten =>
+        `(doElem| let $name ← $rewritten:term)
+  | `(doElem| let $pat:term ← tryExternalCall $extName:term $args:term) =>
+      hoistLive false (← `(term| tryExternalCall $extName $args)) fun rewritten =>
+        `(doElem| let $pat:term ← $rewritten:term)
+  | `(doElem| let $name:ident ← callResult $extName:term $args:term) =>
+      hoistLive false (← `(term| callResult $extName $args)) fun rewritten =>
+        `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
       let rewritten ← args.mapM fun arg => do pure ⟨← go arg.raw⟩
       match ← threadHelperApp? adversarialHelpers fn rewritten adv with
@@ -2519,15 +2528,9 @@ private partial def threadAdversaryThroughExecutableSyntax
           let mut stmt : Term := ⟨fn.raw⟩
           for arg in rewritten do
             stmt ← `(term| $stmt $arg)
-          if isLiveStateExternalCall stmt then
-            hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
-          else
-            recurseChildren
+          hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
   | `(doElem| $stmt:term) =>
-      if isLiveStateExternalCall stmt then
-        hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
-      else
-        recurseChildren
+      hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
   | `(term| $name:ident $args:term*) =>
       let rewritten ← args.mapM fun arg => do pure ⟨← go arg.raw⟩
       match ← threadHelperApp? adversarialHelpers name rewritten adv with
