@@ -862,7 +862,7 @@ theorem externalCallBindTo_adv_apply {α : Type} [ExternalArg α]
 theorem callResultWords_adv_run {α : Type} [ExternalResult α] [Inhabited α]
     (adv : AdversaryModel) (name : String) (args : List Uint256) (s : ContractState)
     (arity : Nat := 1) (siteId : Nat := 0) :
-    (callResultWords (α := α) name args adv arity siteId).run s =
+    callResultWords (α := α) name args adv arity siteId s =
       match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run s with
       | .success (.success returndata) post =>
           .success { success := true, returndata := failedExternalResult returndata } post
@@ -873,7 +873,7 @@ theorem callResultWords_adv_run {α : Type} [ExternalResult α] [Inhabited α]
 theorem tryExternalCallWords_adv_run {α : Type} [ExternalResult α] [Inhabited α]
     (adv : AdversaryModel) (name : String) (args : List Uint256) (s : ContractState)
     (arity : Nat := 1) (siteId : Nat := 0) :
-    (tryExternalCallWords (α := α) name args adv arity siteId).run s =
+    tryExternalCallWords (α := α) name args adv arity siteId s =
       match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run s with
       | .success (.success returndata) post =>
           .success (true, failedExternalResult returndata) post
@@ -884,7 +884,7 @@ theorem tryExternalCallWords_adv_run {α : Type} [ExternalResult α] [Inhabited 
 theorem externalCallContractWords_adv_run {α : Type} [ExternalResult α]
     (adv : AdversaryModel) (name : String) (args : List Uint256) (s : ContractState)
     (arity : Nat := 1) (siteId : Nat := 0) :
-    (externalCallContractWords (α := α) name args adv arity siteId).run s =
+    externalCallContractWords (α := α) name args adv arity siteId s =
       match (commonExternalCall adv (linkedCallSite name args arity .call 0 0 [] siteId)).run s with
       | .success (.success returndata) post =>
           if returndata.length < arity then
