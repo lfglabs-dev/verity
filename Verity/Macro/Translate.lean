@@ -2449,7 +2449,7 @@ private partial def threadAdversaryThroughExecutableSyntax
       CommandElabM Syntax := do
     let rewritten ← rewriteTerm rhs
     if isLiveStateExternalCall rhs then
-      let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{(← mkFreshId).toString}")
+      let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (rhs.raw.reprint.getD "x")}")
       let rest ← cont ⟨tmp.raw⟩
       `(doElem| do
           let $tmp ← $rewritten:term
@@ -2469,7 +2469,7 @@ private partial def threadAdversaryThroughExecutableSyntax
   | `(doElem| let $name:ident ← $rhs:term) =>
       hoistLive rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $pat:term ← $rhs:term) =>
-      hoistLive rhs fun rewritten => `(doElem| let $pat ← $rewritten:term)
+      hoistLive rhs fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
   | `(doElem| let $name:ident := $rhs:term) =>
       hoistLive rhs fun rewritten =>
         if isLiveStateExternalCall rhs then
