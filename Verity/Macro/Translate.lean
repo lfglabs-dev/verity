@@ -2446,21 +2446,28 @@ private partial def threadAdversaryThroughExecutableSyntax
   let rewriteTerm (t : Term) : CommandElabM Term := do
     rewriteLinkedCallTerm externalDecls params adv ⟨← go t.raw⟩
   let rec hoistNested (t : Term) : CommandElabM (Array (Ident × Term) × Term) := do
-    if isLiveStateExternalCall t then
-      let rewritten ← rewriteTerm t
-      let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
-      pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
-    else
-      match t.raw with
-      | .node info kind args =>
-          let mut binds : Array (Ident × Term) := #[]
-          let mut newArgs := args
-          for i in [:args.size] do
-            let (inner, nt) ← hoistNested ⟨args[i]!⟩
-            binds := binds ++ inner
-            newArgs := newArgs.set! i nt.raw
-          pure (binds, ⟨Syntax.node info kind newArgs⟩)
-      | _ => pure (#[], t)
+    match t.raw with
+    | .node info kind args =>
+        let mut binds : Array (Ident × Term) := #[]
+        let mut newArgs := args
+        for i in [:args.size] do
+          let (inner, nt) ← hoistNested ⟨args[i]!⟩
+          binds := binds ++ inner
+          newArgs := newArgs.set! i nt.raw
+        let rebuilt : Term := ⟨Syntax.node info kind newArgs⟩
+        if isLiveStateExternalCall rebuilt then
+          let rewritten ← rewriteTerm rebuilt
+          let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+          pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+        else
+          pure (binds, rebuilt)
+    | _ =>
+        if isLiveStateExternalCall t then
+          let rewritten ← rewriteTerm t
+          let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+          pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
+        else
+          pure (#[], t)
   let wrapBinds (binds : Array (Ident × Term)) (body : TSyntax `doElem) :
       CommandElabM (TSyntax `doElem) := do
     let mut acc := body
@@ -2483,7 +2490,11 @@ private partial def threadAdversaryThroughExecutableSyntax
           let mut rhs : Term := ⟨fn.raw⟩
           for arg in rewritten do
             rhs ← `(term| $rhs $arg)
-          hoistLive rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
+          if isLiveStateExternalCall rhs then
+            let rewritten ← rewriteTerm rhs
+            `(doElem| let $name ← $rewritten:term)
+          else
+            hoistLive rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $rhs:term) =>
       if isLiveStateExternalCall rhs then
         let rewritten ← rewriteTerm rhs
