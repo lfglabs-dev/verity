@@ -2357,11 +2357,20 @@ private def rewriteLinkedCallTerm
   | `(term| externalCall $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
-      let arity ← match externalDecls.find? (fun ext => ext.name == extName) with
-        | some ext => flattenedExternalArity ext
-        | none => pure 1
-      `(term| externalCallContractWords $name
-          (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
+      match externalDecls.find? (fun ext => ext.name == extName) with
+      | some ext =>
+          let arity := natTerm (← flattenedExternalArity ext)
+          let resultTy ← externalReturnTypeTerm ext
+          let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+            let tyTerm ← contractValueTypeTerm ty
+            `(($arg : $tyTerm))
+          `(term| externalCallContractWords (α := $resultTy) $name
+              (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256)))
+              $adv $arity $siteId)
+      | none =>
+          `(term| externalCallContractWords $name
+              (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256)))
+              $adv 1 $siteId)
   | `(term| callResult $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2398,6 +2407,19 @@ private def rewriteLinkedCallTerm
   | `(term| ecmDo $_module:term $args:term) =>
       let argList ← expectTermListLiteral args
       `(term| ecmDoWords $adv (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))))
+  | `(term| externalCallBind ([] : List String) $fnName:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent fnName
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      match externalDecls.find? (fun ext => ext.name == extName) with
+      | some ext =>
+          let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+            let tyTerm ← contractValueTypeTerm ty
+            `(($arg : $tyTerm))
+          `(term| externalCallEffectWords $fnName
+              (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256)))
+              $adv $siteId)
+      | none =>
+          `(term| externalCallBind ([] : List String) $fnName [ $[$args],* ] $adv $siteId)
   | `(term| externalCallBind $names:term $fnName:term $args:term) =>
       let extName ← expectStringOrIdent fnName
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
