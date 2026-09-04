@@ -2486,15 +2486,17 @@ private partial def threadAdversaryThroughExecutableSyntax
       match ← threadHelperApp? adversarialHelpers fn rewritten adv with
       | some app => `(doElem| $app:term)
       | none =>
-          let stmt : Term := ⟨stx⟩
-          let rewritten ← rewriteTerm stmt
+          let mut stmt : Term := ⟨fn.raw⟩
+          for arg in rewritten do
+            stmt ← `(term| $stmt $arg)
           if isLiveStateExternalCall stmt then
+            let rewritten ← rewriteLinkedCallTerm externalDecls params adv stmt
             `(doElem| $rewritten:term)
           else
             recurseChildren
   | `(doElem| $stmt:term) =>
-      let rewritten ← rewriteTerm stmt
       if isLiveStateExternalCall stmt then
+        let rewritten ← rewriteLinkedCallTerm externalDecls params adv ⟨← go stmt.raw⟩
         `(doElem| $rewritten:term)
       else
         recurseChildren
@@ -2502,7 +2504,11 @@ private partial def threadAdversaryThroughExecutableSyntax
       let rewritten ← args.mapM fun arg => do pure ⟨← go arg.raw⟩
       match ← threadHelperApp? adversarialHelpers name rewritten adv with
       | some app => pure app
-      | none => rewriteLinkedCallTerm externalDecls params adv ⟨stx⟩
+      | none =>
+          if isLiveStateExternalCall ⟨stx⟩ then
+            rewriteLinkedCallTerm externalDecls params adv ⟨stx⟩
+          else
+            recurseChildren
   | _ =>
       let asTerm : Term := ⟨stx⟩
       if isLiveStateExternalCall asTerm then
