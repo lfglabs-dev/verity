@@ -2282,6 +2282,16 @@ private def flattenedExternalArity (ext : ExternalDecl) : CommandElabM Nat := do
             total := total + names.length
       pure total
 
+private def externalReturnTypeTerm (ext : ExternalDecl) : CommandElabM Term := do
+  let tys ← ext.returnTys.mapM contractValueTypeTerm
+  let rec tupleType : List Term → CommandElabM Term
+    | [] => `(Unit)
+    | [ty] => pure ty
+    | ty :: rest => do
+        let tail ← tupleType rest
+        `($ty × $tail)
+  tupleType tys.toList
+
 private def helperCallWithAdv (name : Ident) (args : Array Term) (adv : Term) : CommandElabM Term := do
   let mut app : Term := ⟨name.raw⟩
   app ← `(term| $app $adv)
@@ -2339,9 +2349,7 @@ private def rewriteLinkedCallTerm
         `(term| externalCallEffectWords $(strTerm extName)
           (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $siteId)
       else
-        let resultTy ← match ext.returnTys[0]? with
-          | some ty => contractValueTypeTerm ty
-          | none => `(Unit)
+        let resultTy ← externalReturnTypeTerm ext
         `(term| externalCallContractWords (α := $resultTy) $(strTerm extName)
           (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
   | `(term| externalCall $name:term [ $[$args:term],* ]) =>
@@ -2357,8 +2365,8 @@ private def rewriteLinkedCallTerm
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
       let ext? := externalDecls.find? (fun ext => ext.name == extName)
       let arity ← match ext? with | some ext => flattenedExternalArity ext | none => pure 1
-      let resultTy ← match ext?.bind (fun ext => ext.returnTys[0]?) with
-        | some ty => contractValueTypeTerm ty
+      let resultTy ← match ext? with
+        | some ext => externalReturnTypeTerm ext
         | none => `(Unit)
       `(term| callResultWords (α := $resultTy) $name
           (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
@@ -2367,8 +2375,8 @@ private def rewriteLinkedCallTerm
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
       let ext? := externalDecls.find? (fun ext => ext.name == extName)
       let arity ← match ext? with | some ext => flattenedExternalArity ext | none => pure 1
-      let resultTy ← match ext?.bind (fun ext => ext.returnTys[0]?) with
-        | some ty => contractValueTypeTerm ty
+      let resultTy ← match ext? with
+        | some ext => externalReturnTypeTerm ext
         | none => `(Unit)
       `(term| tryExternalCallWords (α := $resultTy) $name
           (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
@@ -2683,9 +2691,22 @@ private partial def threadAdversaryThroughExecutableSyntax
         (← `(doElem| requireError $rewrittenCond $errorName:ident($[$rewrittenArgs],*)))
   | `(doElem| return $value:term) =>
       hoistLive true value fun rewritten => `(doElem| return $rewritten:term)
-  | `(doElem| ecmBind $_names:term $_module:term $args:term) =>
+  | `(doElem| ecmBind $names:term $_module:term $args:term) =>
       let argList ← expectTermListLiteral args
-      `(doElem| let _ ← ecmCallWords $adv (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))))
+      let resultNames ← expectStringList names
+      let ids := resultNames.map (mkIdent ∘ Name.mkSimple)
+      let arity := natTerm ids.size
+      if ids.size == 1 then
+        let id := ids[0]!
+        `(doElem| let $id ← (externalCallContractWords "ecm"
+          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))) $adv $arity))
+      else if ids.size == 2 then
+        let left := ids[0]!
+        let right := ids[1]!
+        `(doElem| let ($left, $right) ← (ecmCallPairWords $adv
+          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256)))))
+      else
+        throwErrorAt names "executable ecmBind currently supports one or two results"
   | `(doElem| $fn:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
       match ← threadHelperApp? adversarialHelpers fn original adv with

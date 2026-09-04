@@ -804,6 +804,10 @@ def ecmCallWords (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat := 0) : Contract Uint256 :=
   externalCallContractWords (α := Uint256) "ecm" args adv 1 siteId
 
+def ecmCallPairWords (adv : AdversaryModel) (args : List Uint256)
+    (siteId : Nat := 0) : Contract (Uint256 × Uint256) :=
+  externalCallContractWords (α := Uint256 × Uint256) "ecm" args adv 2 siteId
+
 def ecmDoWords (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat := 0) : Contract Unit :=
   externalCallEffectWords "ecm" args adv siteId

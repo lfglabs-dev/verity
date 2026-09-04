@@ -851,6 +851,6 @@ example :
 example :
     (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" []
       (arityAdversary 1 []) 1 4).run defaultState =
-      ContractResult.revert "external call returned insufficient data" defaultState := rfl
+      ContractResult.revert "external call returned malformed data" defaultState := rfl
 
 end Contracts.Smoke
