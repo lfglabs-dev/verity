@@ -480,7 +480,7 @@ example :
       ] := rfl
 
 example :
-    ((LowLevelTryCatchSmoke.catchFailure .stub).run Verity.defaultState).getValue? = some 0 := by
+    ((LowLevelTryCatchSmoke.catchFailure .stub).run Verity.defaultState).getValue? = some 7 := by
   decide
 
 example :
@@ -489,7 +489,7 @@ example :
 
 example :
     ((LowLevelTryCatchSmoke.catchFailureWithShadowedParam .stub 5).run
-      Verity.defaultState).getValue? = some 0 := by
+      Verity.defaultState).getValue? = some 11 := by
   decide
 
 example :

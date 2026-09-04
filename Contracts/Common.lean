@@ -529,6 +529,8 @@ instance : ExternalArg Bool where
   toWords value := [if value then 1 else 0]
 instance : ExternalArg Nat where
   toWords value := [value]
+instance [ExternalArg α] [ExternalArg β] : ExternalArg (α × β) where
+  toWords value := ExternalArg.toWords value.1 ++ ExternalArg.toWords value.2
 /-- Canonical first-word projection used when a word-like source expression
 is consumed by an executable helper whose Lean API takes `Uint256`. -/
 def externalArgWord {α : Type} [ExternalArg α] (value : α) : Uint256 :=

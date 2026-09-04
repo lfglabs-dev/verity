@@ -2323,7 +2323,9 @@ private def rewriteTypedInterfaceCall?
   let some ext := externalDecls.find? (fun ext => ext.name == extName) | pure none
   let siteId := natTerm (linkedExternalSiteId externalDecls extName)
   let arity := natTerm (← flattenedExternalArity ext)
-  let rewritten ← argTerms.mapM fun arg => pure arg
+  let rewritten ← argTerms.zip ext.params |>.mapM fun (arg, ty) => do
+    let tyTerm ← contractValueTypeTerm ty
+    `(($arg : $tyTerm))
   if ext.returnTys.isEmpty then
     some <$> `(term| externalCallEffectWords $(strTerm extName)
       (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $siteId)
@@ -4571,6 +4573,17 @@ def mkStructEventArgInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd
   let structId := decl.ident
   `(command| instance : CoeTC $structId _root_.Contracts.EventArg where
       coe _ := _root_.Contracts.EventArg.word (pure (0 : _root_.Verity.Uint256)))
+
+def mkStructExternalArgInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
+  let structId := decl.ident
+  let valueId := mkIdent (Name.mkSimple "value")
+  let fieldIds := decl.fields.map (·.ident)
+  let encodedFields ← fieldIds.mapM fun fieldId =>
+    `(term| _root_.Contracts.ExternalArg.toWords $valueId.$fieldId)
+  `(command| instance : _root_.Contracts.ExternalArg $structId where
+      toWords := fun $valueId => List.flatten
+        ([ $[$encodedFields],* ] :
+          List (List _root_.Verity.Uint256)))
 
 /-- Generate a `def storageNamespace : Nat := <keccak-value>` command for
     the current contract.  Uses the resolved namespace value from
