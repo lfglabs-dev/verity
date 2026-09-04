@@ -2485,9 +2485,17 @@ private partial def threadAdversaryThroughExecutableSyntax
             rhs ← `(term| $rhs $arg)
           hoistLive rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $rhs:term) =>
-      hoistLive rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
+      if isLiveStateExternalCall rhs then
+        let rewritten ← rewriteTerm rhs
+        `(doElem| let $name ← $rewritten:term)
+      else
+        hoistLive rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $pat:term ← $rhs:term) =>
-      hoistLive rhs fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
+      if isLiveStateExternalCall rhs then
+        let rewritten ← rewriteTerm rhs
+        `(doElem| let $pat:term ← $rewritten:term)
+      else
+        hoistLive rhs fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
   | `(doElem| let $name:ident := $rhs:term) =>
       hoistLive rhs fun rewritten =>
         if isLiveStateExternalCall rhs then
@@ -2508,14 +2516,12 @@ private partial def threadAdversaryThroughExecutableSyntax
           for arg in rewritten do
             stmt ← `(term| $stmt $arg)
           if isLiveStateExternalCall stmt then
-            let rewritten ← rewriteLinkedCallTerm externalDecls params adv stmt
-            `(doElem| $rewritten:term)
+            hoistLive stmt fun rewritten => `(doElem| $rewritten:term)
           else
             recurseChildren
   | `(doElem| $stmt:term) =>
       if isLiveStateExternalCall stmt then
-        let rewritten ← rewriteLinkedCallTerm externalDecls params adv ⟨← go stmt.raw⟩
-        `(doElem| $rewritten:term)
+        hoistLive stmt fun rewritten => `(doElem| $rewritten:term)
       else
         recurseChildren
   | `(term| $name:ident $args:term*) =>
