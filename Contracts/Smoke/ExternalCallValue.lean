@@ -38,6 +38,12 @@ private def failAdversary :
   result := fun _ _ => .failure []
   gasUsed := fun _ _ => 0
 
+private def oversizedAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ w => w
+  result := fun _ _ => .success [7, 9]
+  gasUsed := fun _ _ => 0
+
 private def echoEnv : CallEnv :=
   { oracle := probeOracle
     adversary := echoAdversary
@@ -51,6 +57,16 @@ private def revertEnv : CallEnv :=
 private def failEnv : CallEnv :=
   { oracle := probeOracle
     adversary := failAdversary
+    resolve := fun _ => some { target := 9, value := 0, siteId := 0 } }
+
+private def oversizedEnv : CallEnv :=
+  { oracle := probeOracle
+    adversary := oversizedAdversary
+    resolve := fun _ => some { target := 9, value := 0, siteId := 0 } }
+
+private def identityEnv : CallEnv :=
+  { oracle := probeOracle
+    adversary := identityAdversary
     resolve := fun _ => some { target := 9, value := 0, siteId := 0 } }
 
 /-- Caller state whose pre-call buffer is stale, so a lane that fails to
@@ -72,6 +88,17 @@ private def rawCallLetVarWorks : Bool :=
     | _ => false
 
 example : rawCallLetVarWorks = true := by
+  native_decide
+
+/-- A linked call nested under result normalization is evaluated through the
+call environment, and its post-state is retained. -/
+private def nestedLinkedCallWorks : Bool :=
+  match evalExprCall echoEnv [] staleCaller
+      (.bitAnd (.externalCall "linked" [.literal 7]) (.literal 255)) with
+  | some (value, post) => value == 7 && post.world.calls.length == 1
+  | none => false
+
+example : nestedLinkedCallWorks = true := by
   native_decide
 
 private def callBitBuffer (r : Option (Nat × Compiler.CompilationModel.Denote.DenoteState)) :
@@ -124,6 +151,41 @@ example :
 example :
     outcomeBuffer (execTryExternalCallBind echoEnv [] staleCaller "ok" ["r"] "linked"
       [.literal 7]) = some [7] := by
+  native_decide
+
+/-- Successful try calls reject returndata outside the declared arity. -/
+private def oversizedTryReverts : Bool :=
+  match execTryExternalCallBind oversizedEnv [] staleCaller "ok" ["r"] "linked" [] with
+  | .revert => true
+  | _ => false
+
+example : oversizedTryReverts = true := by
+  native_decide
+
+private def effectOnlyEcm : Compiler.ECM.ExternalCallModule where
+  name := "effectOnly"
+  numArgs := 0
+  resultVars := []
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ _ => pure []
+
+/-- ECM statements use the supplied adversary and enforce zero result words. -/
+private def oversizedEffectOnlyEcmReverts : Bool :=
+  match execStmtWithCalls oversizedEnv [] staleCaller (.ecm effectOnlyEcm []) with
+  | .revert => true
+  | _ => false
+
+example : oversizedEffectOnlyEcmReverts = true := by
+  native_decide
+
+private def emptyEffectOnlyEcmSucceeds : Bool :=
+  match execStmtWithCalls identityEnv [] staleCaller (.ecm effectOnlyEcm []) with
+  | .continue post => post.world.calls.length == 1
+  | _ => false
+
+example : emptyEffectOnlyEcmSucceeds = true := by
   native_decide
 
 /-! #### Insufficient caller balance (PR #2400 Codex P1, round 2)

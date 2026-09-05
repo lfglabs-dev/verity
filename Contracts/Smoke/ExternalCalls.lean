@@ -142,7 +142,7 @@ example :
       [ Compiler.CompilationModel.Stmt.return
           (Compiler.CompilationModel.Expr.externalCall
             "hashArray"
-            [ Compiler.CompilationModel.Expr.param "leaves_data_offset"
+            [ Compiler.CompilationModel.Expr.literal 0
             , Compiler.CompilationModel.Expr.param "leaves_length"
             ])
       ] := rfl
@@ -152,7 +152,7 @@ example :
       [ Compiler.CompilationModel.Stmt.externalCallBind
           []
           "notifyArray"
-          [ Compiler.CompilationModel.Expr.param "leaves_data_offset"
+          [ Compiler.CompilationModel.Expr.literal 0
           , Compiler.CompilationModel.Expr.param "leaves_length"
           ]
       , Compiler.CompilationModel.Stmt.stop
@@ -164,7 +164,7 @@ example :
           "discard"
           (Compiler.CompilationModel.Expr.externalCall
             "hashArray"
-            [ Compiler.CompilationModel.Expr.param "leaves_data_offset"
+            [ Compiler.CompilationModel.Expr.literal 0
             , Compiler.CompilationModel.Expr.param "leaves_length"
             ])
       , Compiler.CompilationModel.Stmt.stop
@@ -176,7 +176,7 @@ example :
           "_success"
           ["h"]
           "hashArray"
-          [ Compiler.CompilationModel.Expr.param "leaves_data_offset"
+          [ Compiler.CompilationModel.Expr.literal 0
           , Compiler.CompilationModel.Expr.param "leaves_length"
           ]
       , Compiler.CompilationModel.Stmt.assignVar "_success"
@@ -406,7 +406,7 @@ example :
       [ Compiler.CompilationModel.Stmt.return
           (Compiler.CompilationModel.Expr.externalCall
             "hashBytes"
-            [ Compiler.CompilationModel.Expr.param "payload_data_offset"
+            [ Compiler.CompilationModel.Expr.literal 0
             , Compiler.CompilationModel.Expr.param "payload_length"
             ])
       ] := rfl
@@ -488,6 +488,12 @@ private def tripleResultAdversary :
   result := fun _ _ => .success [1, 2, 3]
   gasUsed := fun _ _ => 0
 
+private def unexpectedEffectResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [1]
+  gasUsed := fun _ _ => 0
+
 example :
     (((GenericECMTripleResultSmoke.storeThird tripleResultAdversary).run defaultState).getState
       ).storage 0 = 3 := by
@@ -498,6 +504,15 @@ verity_contract GenericECMWriteSmoke where
 
   function runEffect (lhs : Uint256, rhs : Uint256) : Unit := do
     ecmDo genericECMEffectDemoModule [lhs, rhs]
+
+private def unexpectedEffectResultReverts : Bool :=
+  match (GenericECMWriteSmoke.runEffect unexpectedEffectResultAdversary 1 2).run
+      defaultState with
+  | .revert _ _ => true
+  | _ => false
+
+example : unexpectedEffectResultReverts = true := by
+  native_decide
 
 verity_contract BubblingValueCallECMSmoke where
   storage

@@ -1049,9 +1049,7 @@ def ecmCallPairWords (mod : Compiler.ECM.ExternalCallModule)
 def ecmDoWords (mod : Compiler.ECM.ExternalCallModule)
     (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat := 0) : Contract Unit :=
-  if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
-    externalStaticCallEffectWords mod.summaryName args adv siteId
-  else externalCallEffectWords mod.summaryName args adv siteId
+  ecmCallTypedWords (α := Unit) mod adv args siteId
 
 def externalCallBind {α : Type} [ExternalArg α]
     (names : List String) (name : String) (args : List α)

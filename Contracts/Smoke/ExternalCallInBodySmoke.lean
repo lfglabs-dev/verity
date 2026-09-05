@@ -289,7 +289,7 @@ example : (ExternalCallInBodySmoke.linkedRead_modelBody).take 1 =
 
 example : (ExternalCallInBodySmoke.linkedWrite_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind [] "deposit"
-      [ .param "amount", .param "pubkey_data_offset", .param "pubkey_length" ]] := rfl
+      [ .param "amount", .literal 0, .param "pubkey_length" ]] := rfl
 
 example : (ExternalCallInBodySmoke.pureNarrow_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.letVar "result"

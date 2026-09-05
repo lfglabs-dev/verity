@@ -165,6 +165,40 @@ def evalExprCall (env : CallEnv) (fields : List Field) (state : DenoteState) :
         { siteId := t, kind := .delegatecall, target := t, value := 0
           calldata := readMemoryWords state.world.memory io isz, gas := g }
       applyRawCall env state site oo osz
+  | .externalCall name args => do
+      let link ← env.resolve name
+      let argWords ← evalExprList env.oracle fields state args
+      let paid ← debitSelfBalance state.world link.value
+      let site : CallSite :=
+        { siteId := link.siteId, kind := .call, target := link.target
+          value := link.value, calldata := argWords, name := name
+          returnArity := 1, gas := paid.selfBalance.val }
+      let obs := denoteCallJournaled env.adversary site
+        { world := paid, gasRemaining := site.gas }
+      match obs.result with
+      | .success [result] =>
+          some (wordNormalize result, { state with world := { obs.state.world with
+            returndata := [wordNormalize result] } })
+      | _ => none
+  | .bitAnd a b => do
+      let (av, afterA) ← evalExprCall env fields state a
+      let (bv, afterB) ← evalExprCall env fields afterA b
+      let result ← evalExpr env.oracle fields afterB (.bitAnd (.literal av) (.literal bv))
+      some (result, afterB)
+  | .signextend a b => do
+      let (av, afterA) ← evalExprCall env fields state a
+      let (bv, afterB) ← evalExprCall env fields afterA b
+      let result ← evalExpr env.oracle fields afterB (.signextend (.literal av) (.literal bv))
+      some (result, afterB)
+  | .eq a b => do
+      let (av, afterA) ← evalExprCall env fields state a
+      let (bv, afterB) ← evalExprCall env fields afterA b
+      let result ← evalExpr env.oracle fields afterB (.eq (.literal av) (.literal bv))
+      some (result, afterB)
+  | .logicalNot a => do
+      let (av, post) ← evalExprCall env fields state a
+      let result ← evalExpr env.oracle fields post (.logicalNot (.literal av))
+      some (result, post)
   | e =>
       (evalExpr env.oracle fields state e).map (fun n => (n, state))
 
@@ -225,13 +259,15 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
             { world := paid, gasRemaining := site.gas }
           match obs.result with
           | .success data =>
-              .continue
-                { state with
-                  world := { obs.state.world with
-                    returndata := data.map wordNormalize }
-                  bindings :=
-                    bindResultWords
-                      (bindValue state.bindings successVar 1) resultVars data }
+              if data.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                    world := { obs.state.world with
+                      returndata := data.map wordNormalize }
+                    bindings :=
+                      bindResultWords
+                        (bindValue state.bindings successVar 1) resultVars data }
           | .failure _ | .revert _ =>
               .continue
                 { state with
@@ -269,6 +305,30 @@ mutual
         execExternalCallBind env fields state resultVars name args
     | state, .tryExternalCallBind successVar resultVars name args =>
         execTryExternalCallBind env fields state successVar resultVars name args
+    | state, .ecm mod args =>
+        match evalExprList env.oracle fields state args with
+        | some argWords =>
+            let kind :=
+              if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+                CallKind.staticcall
+              else CallKind.call
+            let site : CallSite :=
+              { siteId := state.externalCallIndex, kind := kind, target := 0,
+                value := 0, calldata := argWords, name := mod.summaryName,
+                returnArity := mod.resultVars.length, gas := state.world.selfBalance.val }
+            let obs := denoteCallJournaled env.adversary site
+              { world := state.world, gasRemaining := site.gas }
+            match obs.result with
+            | .success data =>
+                if data.length != mod.resultVars.length then .revert
+                else .continue
+                  { state with
+                    world := { mod.committedWorld (some obs.state.world) state.world with
+                      returndata := data.map wordNormalize }
+                    bindings := bindResultWords state.bindings mod.resultVars data
+                    externalCallIndex := state.externalCallIndex + 1 }
+            | .failure _ | .revert _ => .revert
+        | none => .revert
     | state, .ite cond thenBranch elseBranch =>
         match evalExpr env.oracle fields state cond with
         | some resolved =>

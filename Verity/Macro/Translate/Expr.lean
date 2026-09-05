@@ -3750,7 +3750,7 @@ partial def translatePureExprWithTypes
               match directParamNameWithType? params arg with
               | some (name, ty) =>
                   if externalCallDynamicArgSupported ty then
-                    out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset")))
+                    out := out.push (← `(Compiler.CompilationModel.Expr.literal 0))
                     out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_length")))
                   else
                     out := out.push (← translatePureExprWithTypes fields constDecls immutableDecls params locals arg visitingConstants linkedExternalLowerer?)
@@ -4574,7 +4574,7 @@ def translateLinkedExternalCallArgs
         match directParamNameWithType? params arg with
         | some (name, ty) =>
             if externalCallDynamicArgSupported ty then
-              out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset")))
+              out := out.push (← `(Compiler.CompilationModel.Expr.literal 0))
               out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_length")))
             else
               out := out.push (← translateScalar)
@@ -4927,7 +4927,7 @@ def expectEcmExprList
         match directParamNameWithType? params x with
         | some (name, ty) =>
             if externalCallDynamicArgSupported ty then
-              out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_data_offset")))
+              out := out.push (← `(Compiler.CompilationModel.Expr.literal 0))
               out := out.push (← `(Compiler.CompilationModel.Expr.param $(strTerm s!"{name}_length")))
             else
               match ← translateAbiEncodeProjection? fields constDecls immutableDecls params locals x with
