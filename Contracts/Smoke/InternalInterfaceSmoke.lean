@@ -151,9 +151,10 @@ private def staticReadAdversary :
 
 example :
     let result := (MorphoStyleOracleSummarySmoke.snapshotPrice
-      staticReadAdversary (0 : Address)).run defaultState
+      staticReadAdversary (23 : Address)).run defaultState
     result.getValue? = some 37 ∧
-      result.getState.calls.map (·.kind) = [.staticcall] := by
+      result.getState.calls.map (·.kind) = [.staticcall] ∧
+      result.getState.calls.map (·.target) = [23] := by
   decide
 
 -- Void (no-`returns`) interface methods lower to the no-output `externalCallNoReturn` ECM:

@@ -2103,7 +2103,8 @@ private partial def rewriteForEachExecutableDoElem
                   let some interfaceName := lookupInterfaceName? params locals targetName
                     | pure (#[elem], locals.push (mkTypedLocal (toString name.getId) retTy))
                   let extName := interfaceExternalName interfaceName methodName
-                  let linked ← `(term| externalCall $(strTerm extName) [ $[$argTerms],* ])
+                  let linked ← `(term| __verityTypedCall $target $(strTerm extName)
+                    [ $[$argTerms],* ])
                   pure (#[← `(doElem| let $name:ident ← $linked:term)],
                     locals.push (mkTypedLocal (toString name.getId) retTy))
               | none =>
@@ -2220,7 +2221,8 @@ private partial def rewriteForEachExecutableDoElem
                 let some interfaceName := lookupInterfaceName? params locals targetName
                   | pure (#[elem], locals)
                 let extName := interfaceExternalName interfaceName methodName
-                let linked ← `(term| externalCallBind ([] : List String) $(strTerm extName) [ $[$argTerms],* ])
+                let linked ← `(term| __verityTypedEffect $target $(strTerm extName)
+                  [ $[$argTerms],* ])
                 pure (#[← `(doElem| $linked:term)], locals)
             | none => pure (#[elem], locals)
           else
@@ -2357,23 +2359,55 @@ private def rewriteTypedInterfaceCall?
     executableLinkedArgWords (← `(($arg : $tyTerm))) ty
   if ext.returnTys.isEmpty then
     if isView then
-      some <$> `(term| externalStaticCallEffectWords $(strTerm extName)
+      some <$> `(term| externalStaticCallEffectWordsTo $(strTerm extName) $target
         (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
     else
-      some <$> `(term| externalCallEffectWords $(strTerm extName)
+      some <$> `(term| externalCallEffectWordsTo $(strTerm extName) $target
         (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
   else
     if isView then
-      some <$> `(term| externalStaticCallContractWords $(strTerm extName)
+      some <$> `(term| externalStaticCallContractWordsTo $(strTerm extName) $target
         (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
     else
-      some <$> `(term| externalCallContractWords $(strTerm extName)
+      some <$> `(term| externalCallContractWordsTo $(strTerm extName) $target
         (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
 
 private def rewriteLinkedCallTerm
     (externalDecls : Array ExternalDecl) (params : Array ParamDecl)
     (adv : Term) (stx : Term) : CommandElabM Term := do
   match stx with
+  | `(term| __verityTypedCall $target:term $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let ext ← match externalDecls.find? (fun candidate => candidate.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown interface external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      let arity := natTerm (← flattenedExternalArity ext)
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let resultTy ← externalReturnTypeTerm ext
+      if ext.isView then
+        `(term| externalStaticCallContractWordsTo (α := $resultTy) $name $target
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+      else
+        `(term| externalCallContractWordsTo (α := $resultTy) $name $target
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+  | `(term| __verityTypedEffect $target:term $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let ext ← match externalDecls.find? (fun candidate => candidate.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown interface external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      if ext.isView then
+        `(term| externalStaticCallEffectWordsTo $name $target
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+      else
+        `(term| externalCallEffectWordsTo $name $target
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
   | `(term| callExternal $name:ident ($[$args:term],*)) =>
       let extName := toString name.getId
       let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
@@ -2530,6 +2564,8 @@ private def rewriteLinkedCallTerm
 
 private def isLiveStateExternalCall (stx : Term) : Bool :=
   match stx with
+  | `(term| __verityTypedCall $_ $_ [ $[$_],* ])
+  | `(term| __verityTypedEffect $_ $_ [ $[$_],* ])
   | `(term| callExternal $_ ($[$_],*))
   | `(term| externalCall $_ [ $[$_],* ])
   | `(term| callResult $_ [ $[$_],* ])
@@ -2787,7 +2823,13 @@ private partial def threadAdversaryThroughExecutableSyntax
         | some app =>
             hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
         | none =>
-          if fnName == "tryExternalCall" || fnName == "callResult" || fnName == "callExternal"
+          if fnName == "__verityTypedCall" then
+            match stx with
+            | `(doElem| let $_ ← $rhs:term) =>
+                let rewritten ← rewriteLinkedCallTerm externalDecls params adv rhs
+                `(doElem| let $name ← $rewritten:term)
+            | _ => recurseChildren
+          else if fnName == "tryExternalCall" || fnName == "callResult" || fnName == "callExternal"
               || fnName == "externalCall" || fnName == "externalCallBind" then
             match stx with
             | `(doElem| let $_ ← $rhs:term) =>
@@ -2875,7 +2917,13 @@ private partial def threadAdversaryThroughExecutableSyntax
         throwErrorAt names "executable ecmBind currently supports one or two results"
   | `(doElem| $fn:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
-      match ← threadHelperApp? adversarialHelpers fn original adv with
+      if toString fn.getId == "__verityTypedEffect" then
+        match stx with
+        | `(doElem| $rhs:term) =>
+            let rewritten ← rewriteLinkedCallTerm externalDecls params adv rhs
+            `(doElem| $rewritten:term)
+        | _ => recurseChildren
+      else match ← threadHelperApp? adversarialHelpers fn original adv with
       | some app =>
           hoistLive false app fun rewritten => `(doElem| $rewritten:term)
       | none =>
@@ -5022,9 +5070,12 @@ def validateFunctionDeclsPublic
       throwErrorAt fn.ident s!"function '{fn.name}': nonreentrant and cei_safe are mutually exclusive"
     validateFunctionBodyExprTypes fields errorDecls eventDecls constDecls immutableDecls externalDecls functions fn
 
-/-- Apply `with` modifiers in declared order: mixin modifiers call the
-    imported Lean `def`; host-local modifiers are inlined (hosts do not
-    emit modifier defs). CompilationModel inlines every modifier body. -/
+def modifierContainsExternalCallSyntaxPublic (modDecl : ModifierDecl) : Bool :=
+  syntaxContainsCallExternal modDecl.body.raw
+
+/-- Apply `with` modifiers in declared order. Inline both mixin and host-local
+    bodies so the later executable adversary pass sees the same external-call
+    syntax that the CompilationModel inlines. -/
 def prefixMixinModifierExecutableBody
     (resolvedIncludes : Array Name) (fn : FunctionDecl) (body : Term)
     (hostModifiers : Array ModifierDecl := #[]) :
@@ -5034,22 +5085,32 @@ def prefixMixinModifierExecutableBody
   let mut preludes : Array (TSyntax `doElem) := #[]
   for modIdent in fn.modifiers do
     let modName := toString modIdent.getId
-    let mut qual? : Option Name := none
+    let mut resolved? : Option (Name × ModifierDecl) := none
     for mixinName in resolvedIncludes do
-      if qual?.isNone then
+      if resolved?.isNone then
         match (← lookupContractSyntax mixinName) with
         | some mixin =>
-            if mixin.modifiers.any (fun m => m.name == modName) then
-              qual? := some (mixinName ++ modIdent.getId)
+            if let some modDecl := mixin.modifiers.find? (fun m => m.name == modName) then
+              resolved? := some (mixinName ++ modIdent.getId, modDecl)
         | none => pure ()
-    match qual? with
-    | some q =>
-        preludes := preludes.push (← `(doElem| $(mkIdent q):ident))
+    match resolved? with
+    | some (qualifiedName, mixinMod) =>
+      if modifierContainsExternalCallSyntaxPublic mixinMod then
+        let modifierElems ← doElems mixinMod.body
+        let modifierLocals ← localBinderNames mixinMod.body.raw
+        if let some captured := modifierLocals.find? (fun name =>
+            fn.params.any (fun param => paramReservesName param name)) then
+          throwErrorAt modIdent
+            s!"modifier '{modName}' local '{captured}' conflicts with a function parameter; rename one of them"
+        preludes := preludes.push (← `(doElem| if true then $[$modifierElems:doElem]* else
+          require false "unreachable modifier scope"))
+      else
+        preludes := preludes.push (← `(doElem| $(mkIdent qualifiedName):ident))
     | none =>
-        let some localMod := hostModifiers.find? (fun m => m.name == modName)
+        let some hostMod := hostModifiers.find? (fun m => m.name == modName)
           | throwErrorAt modIdent s!"function '{fn.name}' references unknown modifier '{modName}'"
-        let modifierElems ← doElems localMod.body
-        let modifierLocals ← localBinderNames localMod.body.raw
+        let modifierElems ← doElems hostMod.body
+        let modifierLocals ← localBinderNames hostMod.body.raw
         if let some captured := modifierLocals.find? (fun name =>
             fn.params.any (fun param => paramReservesName param name)) then
           throwErrorAt modIdent
@@ -5074,17 +5135,43 @@ private def constructorContainsExternalCall
     immutableDecls externalDecls functions ctor
   translatedBodyContainsExternalCall stmts
 
+private def constructorAdversarialHelpers
+    (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl) :
+    CommandElabM (Array FunctionDecl) := do
+  let mut adversarial : Array FunctionDecl := #[]
+  for helper in functions do
+    let stmts ← translateBodyToStmtTerms fields #[] errorDecls constDecls immutableDecls
+      externalDecls functions helper
+    if ← translatedBodyContainsExternalCall stmts then
+      adversarial := adversarial.push helper
+  for _ in [:functions.size] do
+    let names := adversarial.map (·.name)
+    let mut grew := false
+    for helper in functions do
+      if !adversarial.any (fun candidate => candidate.name == helper.name) &&
+          syntaxReferencesAnyHelper names helper.body.raw then
+        adversarial := adversarial.push helper
+        grew := true
+    if !grew then break
+  pure adversarial
+
 def mkConstructorDefCommandPublic
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
     (ctor : ConstructorDecl) : CommandElabM Cmd := do
-  let containsExternalCall ← constructorContainsExternalCall fields errorDecls constDecls
+  let directlyContainsExternalCall ← constructorContainsExternalCall fields errorDecls constDecls
     immutableDecls externalDecls functions ctor
+  let adversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
+    immutableDecls externalDecls functions
+  let containsExternalCall := directlyContainsExternalCall ||
+    syntaxReferencesAnyHelper (adversarialHelpers.map (·.name)) ctor.body.raw
   let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
   let advTerm : Term := ⟨advIdent.raw⟩
-  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls #[]
+  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers
     ctor.params advTerm executableBody.raw⟩
   let fnType ← if containsExternalCall then
       mkContractFnTypeWithAdversary ctor.params .unit
@@ -5102,14 +5189,21 @@ def mkHostConstructorDefCommandPublic
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
     (resolvedIncludes : Array Name) (ctor : ConstructorDecl) : CommandElabM Cmd := do
-  let ownExternal ← constructorContainsExternalCall fields errorDecls constDecls
+  let ownDirectExternal ← constructorContainsExternalCall fields errorDecls constDecls
     immutableDecls externalDecls functions ctor
+  let ownAdversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
+    immutableDecls externalDecls functions
+  let ownExternal := ownDirectExternal ||
+    syntaxReferencesAnyHelper (ownAdversarialHelpers.map (·.name)) ctor.body.raw
   let mut mixinExternal : Array Name := #[]
   for mixinName in resolvedIncludes do
     if let some mixin ← lookupContractSyntax mixinName then
       if let some mixinCtor := mixin.ctor then
-        if ← constructorContainsExternalCall mixin.fields mixin.errorDecls mixin.constDecls
-            mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor then
+        let direct ← constructorContainsExternalCall mixin.fields mixin.errorDecls mixin.constDecls
+          mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor
+        let helpers ← constructorAdversarialHelpers mixin.fields mixin.errorDecls mixin.constDecls
+          mixin.immutableDecls mixin.externalDecls mixin.functions
+        if direct || syntaxReferencesAnyHelper (helpers.map (·.name)) mixinCtor.body.raw then
           mixinExternal := mixinExternal.push mixinName
   let containsExternalCall := ownExternal || !mixinExternal.isEmpty
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
@@ -5141,7 +5235,7 @@ def mkHostConstructorDefCommandPublic
             preludes := preludes.push (← `(doElem| $tgt:ident $args*))
       let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
       let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params body
-      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls #[]
+      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls ownAdversarialHelpers
         ctor.params advTerm executableBody.raw⟩
       let fnValue ← if containsExternalCall then
           mkContractFnValueWithAdversary advIdent ctor.params executableBody
@@ -5169,8 +5263,9 @@ def mkIncludeAliasCommandsPublic
             let tgt := mkIdent (mixinName ++ fn.ident.getId)
             cmds := cmds.push (← `(command| abbrev $(fn.ident) := $tgt))
         for modDecl in mixin.modifiers do
-          let tgt := mkIdent (mixinName ++ modDecl.ident.getId)
-          cmds := cmds.push (← `(command| abbrev $(modDecl.ident) := $tgt))
+          unless modifierContainsExternalCallSyntaxPublic modDecl do
+            let tgt := mkIdent (mixinName ++ modDecl.ident.getId)
+            cmds := cmds.push (← `(command| abbrev $(modDecl.ident) := $tgt))
         if mixin.ctor.isSome then
           let tgt := mkIdent (mixinName ++ Name.mkSimple "constructor")
           let id : Ident := mkIdent (Name.mkSimple s!"{mixinShortName mixinName}_constructor")

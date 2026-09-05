@@ -213,6 +213,20 @@ verity_contract IncludeModifierOrderHost include IncludeOrderMixin where
 
 #check_contract IncludeModifierOrderHost
 
+verity_mixin IncludeAdversarialModifierMixin where
+  storage
+  linked_externals
+    external authorizeModifier()
+  modifier externalGuard := do
+    callExternal authorizeModifier()
+
+verity_contract IncludeAdversarialModifierHost include IncludeAdversarialModifierMixin where
+  storage
+  function reentrancy_trusted guarded () with externalGuard : Unit := do
+    pure ()
+
+example : Contract Unit := IncludeAdversarialModifierHost.guarded .stub
+
 verity_mixin IncludeHelperMixinA where
   storage
     a : Uint256 := slot 0

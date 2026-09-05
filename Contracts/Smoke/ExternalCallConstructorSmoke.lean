@@ -10,6 +10,8 @@ verity_mixin ExternalCallConstructorMixin where
   linked_externals
     external initializeRemote(Uint256)
   constructor (seed : Uint256) := do
+    initializeHelper(seed)
+  function internal initializeHelper (seed : Uint256) : Unit := do
     callExternal initializeRemote(seed)
 
 verity_contract ExternalCallConstructorHost include ExternalCallConstructorMixin where
