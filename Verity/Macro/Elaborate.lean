@@ -163,13 +163,17 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
         elabCommand (← mkModifierDefCommandPublic modDecl)
       match ctor with
       | some ctorDecl =>
-          elabCommand (← mkConstructorDefCommandPublic ctorDecl)
+          elabCommand (← mkConstructorDefCommandPublic translationFields translationErrorDecls
+            translationConstDecls translationImmutableDecls translationExternalDecls
+            translationFunctions ctorDecl)
       | none => pure ()
 
     if !resolvedIncludes.isEmpty then
       match ctor with
       | some ctorDecl =>
-          elabCommand (← mkHostConstructorDefCommandPublic resolvedIncludes ctorDecl)
+          elabCommand (← mkHostConstructorDefCommandPublic translationFields
+            translationErrorDecls translationConstDecls translationImmutableDecls
+            translationExternalDecls translationFunctions resolvedIncludes ctorDecl)
       | none => pure ()
 
     -- Translation (not storage-def emission) must see mixin fields/decls so

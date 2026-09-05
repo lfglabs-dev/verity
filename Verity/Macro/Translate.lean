@@ -5065,15 +5065,59 @@ def prefixMixinModifierExecutableBody
 def mkModifierDefCommandPublic (modDecl : ModifierDecl) : CommandElabM Cmd := do
   `(command| def $(modDecl.ident) : Verity.Contract Unit := $(modDecl.body))
 
-def mkConstructorDefCommandPublic (ctor : ConstructorDecl) : CommandElabM Cmd := do
-  let fnType ← mkContractFnType ctor.params .unit
-  let fnValue ← mkContractFnValue ctor.params ctor.body
+private def constructorContainsExternalCall
+    (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
+    (ctor : ConstructorDecl) : CommandElabM Bool := do
+  let stmts ← translateConstructorBodyToStmtTerms fields errorDecls constDecls
+    immutableDecls externalDecls functions ctor
+  translatedBodyContainsExternalCall stmts
+
+def mkConstructorDefCommandPublic
+    (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
+    (ctor : ConstructorDecl) : CommandElabM Cmd := do
+  let containsExternalCall ← constructorContainsExternalCall fields errorDecls constDecls
+    immutableDecls externalDecls functions ctor
+  let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
+  let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
+  let advTerm : Term := ⟨advIdent.raw⟩
+  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls #[]
+    ctor.params advTerm executableBody.raw⟩
+  let fnType ← if containsExternalCall then
+      mkContractFnTypeWithAdversary ctor.params .unit
+    else
+      mkContractFnType ctor.params .unit
+  let fnValue ← if containsExternalCall then
+      mkContractFnValueWithAdversary advIdent ctor.params executableBody
+    else
+      mkContractFnValue ctor.params executableBody
   let id : Ident := mkIdent (Name.mkSimple "constructor")
   `(command| def $id : $fnType := $fnValue)
 
 def mkHostConstructorDefCommandPublic
+    (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
     (resolvedIncludes : Array Name) (ctor : ConstructorDecl) : CommandElabM Cmd := do
-  let fnType ← mkContractFnType ctor.params .unit
+  let ownExternal ← constructorContainsExternalCall fields errorDecls constDecls
+    immutableDecls externalDecls functions ctor
+  let mut mixinExternal : Array Name := #[]
+  for mixinName in resolvedIncludes do
+    if let some mixin ← lookupContractSyntax mixinName then
+      if let some mixinCtor := mixin.ctor then
+        if ← constructorContainsExternalCall mixin.fields mixin.errorDecls mixin.constDecls
+            mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor then
+          mixinExternal := mixinExternal.push mixinName
+  let containsExternalCall := ownExternal || !mixinExternal.isEmpty
+  let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
+  let advTerm : Term := ⟨advIdent.raw⟩
+  let fnType ← if containsExternalCall then
+      mkContractFnTypeWithAdversary ctor.params .unit
+    else
+      mkContractFnType ctor.params .unit
   match ctor.body with
   | `(term| do $[$elems:doElem]*) =>
       let mut preludes : Array (TSyntax `doElem) := #[]
@@ -5083,16 +5127,31 @@ def mkHostConstructorDefCommandPublic
           if targetName.isNone && namesMixin (toString mixinIdent.getId) mixinName then
             targetName := some (mixinName ++ Name.mkSimple "constructor")
         let tgt := mkIdent (targetName.getD (mixinIdent.getId ++ Name.mkSimple "constructor"))
+        let needsAdversary := mixinExternal.any fun name =>
+          namesMixin (toString mixinIdent.getId) name
         if args.isEmpty then
-          preludes := preludes.push (← `(doElem| $tgt:ident))
+          if needsAdversary then
+            preludes := preludes.push (← `(doElem| $tgt:ident $advTerm))
+          else
+            preludes := preludes.push (← `(doElem| $tgt:ident))
         else
-          preludes := preludes.push (← `(doElem| $tgt:ident $args*))
+          if needsAdversary then
+            preludes := preludes.push (← `(doElem| $tgt:ident $advTerm $args*))
+          else
+            preludes := preludes.push (← `(doElem| $tgt:ident $args*))
       let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
-      let fnValue ← mkContractFnValue ctor.params body
+      let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params body
+      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls #[]
+        ctor.params advTerm executableBody.raw⟩
+      let fnValue ← if containsExternalCall then
+          mkContractFnValueWithAdversary advIdent ctor.params executableBody
+        else
+          mkContractFnValue ctor.params executableBody
       let id : Ident := mkIdent (Name.mkSimple "constructor")
       `(command| def $id : $fnType := $fnValue)
   | _ =>
-      mkConstructorDefCommandPublic ctor
+      mkConstructorDefCommandPublic fields errorDecls constDecls immutableDecls
+        externalDecls functions ctor
 
 def mkIncludeAliasCommandsPublic
     (resolvedIncludes : Array Name) : CommandElabM (Array Cmd) := do
