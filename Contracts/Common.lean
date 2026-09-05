@@ -720,7 +720,7 @@ private def resolvedLinkedCall (ctx : ExecutableCallContext) (name : String)
     (kind : Compiler.CompilationModel.DenoteExternalCalls.CallKind)
     (fallbackSiteId : Nat) : Contract ExternalCallResult := fun state =>
   match ctx.resolve name fallbackSiteId with
-  | none => ContractResult.success (.failure []) { state with returndata := [] }
+  | none => ContractResult.success (.failure []) state
   | some link =>
       let value := if kind == .call then link.value else 0
       match Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance state value with

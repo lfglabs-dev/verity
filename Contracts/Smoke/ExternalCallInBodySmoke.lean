@@ -72,6 +72,9 @@ verity_contract ExternalCallInBodySmoke where
     let result ← adversarialForwarder(value)
     return result
 
+  function helperNameShadow (adversarialLeaf : Uint256) : Uint256 := do
+    return adversarialLeaf
+
   function reentrancy_trusted conditionalLinkedRead (takeCall : Bool) : Uint256 := do
     if takeCall then
       return callExternal narrowEcho(1)
@@ -861,6 +864,21 @@ private def resolvedLinkContext : Contracts.ExecutableCallContext :=
       if name == "getDepositableEther" then
         some { target := 5, value := 3, siteId := 19 }
       else none }
+
+private def unresolvedLinkContext : Contracts.ExecutableCallContext :=
+  { adversary := .stub
+    resolve := fun _ _ => none }
+
+example :
+    ((ExternalCallInBodySmoke.helperNameShadow 7).run defaultState).getValue? = some 7 := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with returndata := [41, 42] }
+    let out := (Contracts.tryExternalCallWordsResolved (α := Uint256)
+      "missing" [] unresolvedLinkContext).run s
+    out.getValue?.map Prod.fst = some false ∧ out.getState.returndata = [41, 42] := by
+  decide
 
 example :
     let s : ContractState := { defaultState with selfBalance := 7 }

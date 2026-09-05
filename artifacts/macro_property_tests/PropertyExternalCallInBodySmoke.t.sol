@@ -59,7 +59,16 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 6: TODO decode and assert `conditionalLinkedRead` result
+    // Property 6: helperNameShadow returns the direct parameter value
+    function testAuto_HelperNameShadow_ReturnsDirectParam() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("helperNameShadow(uint256)", uint256(1)));
+        require(ok, "helperNameShadow reverted unexpectedly");
+        assertEq(ret.length, 32, "helperNameShadow ABI return length mismatch (expected 32 bytes)");
+        uint256 actual = abi.decode(ret, (uint256));
+        assertEq(actual, uint256(1), "helperNameShadow should preserve the expected value");
+    }
+    // Property 7: TODO decode and assert `conditionalLinkedRead` result
     function testTODO_ConditionalLinkedRead_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("conditionalLinkedRead(bool)", true));
@@ -68,25 +77,25 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 7: revertNestedExternalArg has no unexpected revert
+    // Property 8: revertNestedExternalArg has no unexpected revert
     function testAuto_RevertNestedExternalArg_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("revertNestedExternalArg()"));
         require(ok, "revertNestedExternalArg reverted unexpectedly");
     }
-    // Property 8: revertErrorNestedExternalArg has no unexpected revert
+    // Property 9: revertErrorNestedExternalArg has no unexpected revert
     function testAuto_RevertErrorNestedExternalArg_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("revertErrorNestedExternalArg()"));
         require(ok, "revertErrorNestedExternalArg reverted unexpectedly");
     }
-    // Property 9: panicNestedExternalArg has no unexpected revert
+    // Property 10: panicNestedExternalArg has no unexpected revert
     function testAuto_PanicNestedExternalArg_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("panicNestedExternalArg()"));
         require(ok, "panicNestedExternalArg reverted unexpectedly");
     }
-    // Property 10: TODO decode and assert `pureNarrow` result
+    // Property 11: TODO decode and assert `pureNarrow` result
     function testTODO_PureNarrow_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureNarrow()"));
@@ -95,7 +104,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 11: TODO decode and assert `pureDirtyUint` result
+    // Property 12: TODO decode and assert `pureDirtyUint` result
     function testTODO_PureDirtyUint_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureDirtyUint()"));
@@ -104,7 +113,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 12: TODO decode and assert `mutableDirtyUint` result
+    // Property 13: TODO decode and assert `mutableDirtyUint` result
     function testTODO_MutableDirtyUint_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("mutableDirtyUint()"));
@@ -113,7 +122,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 13: TODO decode and assert `adversaryNameDoesNotCapture` result
+    // Property 14: TODO decode and assert `adversaryNameDoesNotCapture` result
     function testTODO_AdversaryNameDoesNotCapture_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("adversaryNameDoesNotCapture(uint256)", uint256(1)));
@@ -122,7 +131,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 14: TODO decode and assert `directDirtyUint` result
+    // Property 15: TODO decode and assert `directDirtyUint` result
     function testTODO_DirectDirtyUint_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("directDirtyUint()"));
@@ -131,7 +140,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 15: TODO decode and assert `nestedDirtyUint` result
+    // Property 16: TODO decode and assert `nestedDirtyUint` result
     function testTODO_NestedDirtyUint_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("nestedDirtyUint()"));
@@ -140,7 +149,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 16: TODO decode and assert `nestedExternalArg` result
+    // Property 17: TODO decode and assert `nestedExternalArg` result
     function testTODO_NestedExternalArg_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("nestedExternalArg()"));
@@ -149,7 +158,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 17: TODO decode and assert `bindDirtyUint` result
+    // Property 18: TODO decode and assert `bindDirtyUint` result
     function testTODO_BindDirtyUint_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyUint()"));
@@ -158,7 +167,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 18: TODO decode and assert `tryDirtyUint` result
+    // Property 19: TODO decode and assert `tryDirtyUint` result
     function testTODO_TryDirtyUint_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("tryDirtyUint()"));
@@ -167,7 +176,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 19: TODO decode and assert `callResultDirtyUint` result
+    // Property 20: TODO decode and assert `callResultDirtyUint` result
     function testTODO_CallResultDirtyUint_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("callResultDirtyUint()"));
@@ -176,7 +185,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 20: TODO decode and assert `tryNotifyBool` result
+    // Property 21: TODO decode and assert `tryNotifyBool` result
     function testTODO_TryNotifyBool_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("tryNotifyBool(bool)", true));
@@ -185,7 +194,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 21: TODO decode and assert `tryDirtyPair` result
+    // Property 22: TODO decode and assert `tryDirtyPair` result
     function testTODO_TryDirtyPair_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("tryDirtyPair()"));
@@ -194,7 +203,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 22: TODO decode and assert `duplicateIdenticalCalls` result
+    // Property 23: TODO decode and assert `duplicateIdenticalCalls` result
     function testTODO_DuplicateIdenticalCalls_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("duplicateIdenticalCalls()"));
@@ -203,7 +212,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 23: TODO decode and assert `dynamicTry` result
+    // Property 24: TODO decode and assert `dynamicTry` result
     function testTODO_DynamicTry_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("dynamicTry(bytes)", hex"CAFE"));
@@ -212,7 +221,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 24: TODO decode and assert `bindDirtyAddress` result
+    // Property 25: TODO decode and assert `bindDirtyAddress` result
     function testTODO_BindDirtyAddress_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyAddress()"));
@@ -221,7 +230,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 25: TODO decode and assert `bindDirtyBool` result
+    // Property 26: TODO decode and assert `bindDirtyBool` result
     function testTODO_BindDirtyBool_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyBool()"));
@@ -230,7 +239,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 26: TODO decode and assert `leanHelperNestedExternal` result
+    // Property 27: TODO decode and assert `leanHelperNestedExternal` result
     function testTODO_LeanHelperNestedExternal_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("leanHelperNestedExternal()"));
@@ -239,7 +248,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 27: TODO decode and assert `bindNestedExternalArg` result
+    // Property 28: TODO decode and assert `bindNestedExternalArg` result
     function testTODO_BindNestedExternalArg_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindNestedExternalArg()"));
@@ -248,49 +257,49 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 28: statementNestedExternalArg has no unexpected revert
+    // Property 29: statementNestedExternalArg has no unexpected revert
     function testAuto_StatementNestedExternalArg_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("statementNestedExternalArg()"));
         require(ok, "statementNestedExternalArg reverted unexpectedly");
     }
-    // Property 29: legacyNarrowArgs has no unexpected revert
+    // Property 30: legacyNarrowArgs has no unexpected revert
     function testAuto_LegacyNarrowArgs_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("legacyNarrowArgs()"));
         require(ok, "legacyNarrowArgs reverted unexpectedly");
     }
-    // Property 30: emitNestedExternalArg has no unexpected revert
+    // Property 31: emitNestedExternalArg has no unexpected revert
     function testAuto_EmitNestedExternalArg_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("emitNestedExternalArg()"));
         require(ok, "emitNestedExternalArg reverted unexpectedly");
     }
-    // Property 31: customErrorNestedExternalArg has no unexpected revert
+    // Property 32: customErrorNestedExternalArg has no unexpected revert
     function testAuto_CustomErrorNestedExternalArg_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("customErrorNestedExternalArg()"));
         require(ok, "customErrorNestedExternalArg reverted unexpectedly");
     }
-    // Property 32: consumeHelper has no unexpected revert
+    // Property 33: consumeHelper has no unexpected revert
     function testAuto_ConsumeHelper_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("consumeHelper(uint256)", uint256(1)));
         require(ok, "consumeHelper reverted unexpectedly");
     }
-    // Property 33: helperNestedExternalArg has no unexpected revert
+    // Property 34: helperNestedExternalArg has no unexpected revert
     function testAuto_HelperNestedExternalArg_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("helperNestedExternalArg()"));
         require(ok, "helperNestedExternalArg reverted unexpectedly");
     }
-    // Property 34: ecmNestedExternalArg has no unexpected revert
+    // Property 35: ecmNestedExternalArg has no unexpected revert
     function testAuto_EcmNestedExternalArg_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("ecmNestedExternalArg()"));
         require(ok, "ecmNestedExternalArg reverted unexpectedly");
     }
-    // Property 35: TODO decode and assert `erc20BalanceNestedExternalArg` result
+    // Property 36: TODO decode and assert `erc20BalanceNestedExternalArg` result
     function testTODO_Erc20BalanceNestedExternalArg_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("erc20BalanceNestedExternalArg()"));
@@ -299,7 +308,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 36: TODO decode and assert `erc20AllowanceNestedExternalArg` result
+    // Property 37: TODO decode and assert `erc20AllowanceNestedExternalArg` result
     function testTODO_Erc20AllowanceNestedExternalArg_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("erc20AllowanceNestedExternalArg()"));
@@ -308,7 +317,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 37: TODO decode and assert `erc20SupplyNestedExternalArg` result
+    // Property 38: TODO decode and assert `erc20SupplyNestedExternalArg` result
     function testTODO_Erc20SupplyNestedExternalArg_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("erc20SupplyNestedExternalArg()"));
@@ -317,7 +326,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 38: TODO decode and assert `mappingNestedExternalArg` result
+    // Property 39: TODO decode and assert `mappingNestedExternalArg` result
     function testTODO_MappingNestedExternalArg_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("mappingNestedExternalArg()"));
@@ -326,7 +335,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 39: TODO decode and assert `tupleNestedExternalResult` result
+    // Property 40: TODO decode and assert `tupleNestedExternalResult` result
     function testTODO_TupleNestedExternalResult_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("tupleNestedExternalResult()"));
@@ -335,7 +344,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 40: TODO decode and assert `tupleNestedExternalReturn` result
+    // Property 41: TODO decode and assert `tupleNestedExternalReturn` result
     function testTODO_TupleNestedExternalReturn_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("tupleNestedExternalReturn()"));
@@ -344,7 +353,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 41: TODO decode and assert `pureDirtyInt` result
+    // Property 42: TODO decode and assert `pureDirtyInt` result
     function testTODO_PureDirtyInt_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureDirtyInt()"));
@@ -353,7 +362,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 42: TODO decode and assert `bindDirtyInt` result
+    // Property 43: TODO decode and assert `bindDirtyInt` result
     function testTODO_BindDirtyInt_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyInt()"));
@@ -362,7 +371,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 43: TODO decode and assert `pureDirtyBytes` result
+    // Property 44: TODO decode and assert `pureDirtyBytes` result
     function testTODO_PureDirtyBytes_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("pureDirtyBytes()"));
@@ -371,7 +380,7 @@ contract PropertyExternalCallInBodySmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 44: TODO decode and assert `bindDirtyBytes` result
+    // Property 45: TODO decode and assert `bindDirtyBytes` result
     function testTODO_BindDirtyBytes_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("bindDirtyBytes()"));

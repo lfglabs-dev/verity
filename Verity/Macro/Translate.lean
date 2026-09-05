@@ -2279,12 +2279,16 @@ private def translatedBodyContainsExternalCall
     | _ => throwErrorAt bodyTerm
         "failed to reduce the translated external-call predicate"
 
-private partial def syntaxReferencesAnyHelper
-    (helperNames : Array String) (stx : Syntax) : Bool :=
+private partial def syntaxCallsAnyHelper
+    (helperNames : Array String) (stx : Syntax) : CommandElabM Bool := do
   match stx with
-  | .ident _ _ name _ => helperNames.contains name.toString
-  | .node _ _ args => args.any (syntaxReferencesAnyHelper helperNames)
-  | _ => false
+  | `(term| $name:ident($[$args:term],*)) =>
+      if helperNames.contains name.getId.toString then pure true
+      else args.anyM (syntaxCallsAnyHelper helperNames ∘ (fun term => term.raw))
+  | `(term| $name:ident $args:term*) =>
+      if helperNames.contains name.getId.toString then pure true
+      else args.anyM (syntaxCallsAnyHelper helperNames ∘ (fun term => term.raw))
+  | _ => stx.getArgs.anyM (syntaxCallsAnyHelper helperNames)
 
 private def linkedExternalSiteId (externalDecls : Array ExternalDecl) (name : String) : Nat :=
   (externalDecls.findIdx? (fun ext => ext.name == name)).getD 0
@@ -5262,8 +5266,9 @@ private def constructorAdversarialHelpers
     let names := adversarial.map (·.name)
     let mut grew := false
     for helper in functions do
+      let callsAdversarial ← syntaxCallsAnyHelper names helper.body.raw
       if !adversarial.any (fun candidate => candidate.name == helper.name) &&
-          syntaxReferencesAnyHelper names helper.body.raw then
+          callsAdversarial then
         adversarial := adversarial.push helper
         grew := true
     if !grew then break
@@ -5278,8 +5283,10 @@ def mkConstructorDefCommandPublic
     immutableDecls externalDecls functions ctor
   let adversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
     immutableDecls externalDecls functions
+  let callsAdversarial ←
+    syntaxCallsAnyHelper (adversarialHelpers.map (·.name)) ctor.body.raw
   let containsExternalCall := directlyContainsExternalCall ||
-    syntaxReferencesAnyHelper (adversarialHelpers.map (·.name)) ctor.body.raw
+    callsAdversarial
   let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
   let advTerm : Term := ⟨advIdent.raw⟩
@@ -5305,8 +5312,10 @@ def mkHostConstructorDefCommandPublic
     immutableDecls externalDecls functions ctor
   let ownAdversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
     immutableDecls externalDecls functions
+  let ownCallsAdversarial ←
+    syntaxCallsAnyHelper (ownAdversarialHelpers.map (·.name)) ctor.body.raw
   let ownExternal := ownDirectExternal ||
-    syntaxReferencesAnyHelper (ownAdversarialHelpers.map (·.name)) ctor.body.raw
+    ownCallsAdversarial
   let mut mixinExternal : Array Name := #[]
   for mixinName in resolvedIncludes do
     if let some mixin ← lookupContractSyntax mixinName then
@@ -5315,7 +5324,8 @@ def mkHostConstructorDefCommandPublic
           mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor
         let helpers ← constructorAdversarialHelpers mixin.fields mixin.errorDecls mixin.constDecls
           mixin.immutableDecls mixin.externalDecls mixin.functions
-        if direct || syntaxReferencesAnyHelper (helpers.map (·.name)) mixinCtor.body.raw then
+        let callsAdversarial ← syntaxCallsAnyHelper (helpers.map (·.name)) mixinCtor.body.raw
+        if direct || callsAdversarial then
           mixinExternal := mixinExternal.push mixinName
   let containsExternalCall := ownExternal || !mixinExternal.isEmpty
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
@@ -5470,15 +5480,17 @@ def mkFunctionCommandsPublic
     let adversarialNames := adversarialHelpers.map (·.name)
     let mut grew := false
     for (helper, helperModel) in translatedHelpers do
+      let callsAdversarial ← syntaxCallsAnyHelper adversarialNames helperModel.body.raw
       if !adversarialHelpers.any (fun candidate => candidate.name == helper.name) &&
-          syntaxReferencesAnyHelper adversarialNames helperModel.body.raw then
+          callsAdversarial then
         adversarialHelpers := adversarialHelpers.push helper
         grew := true
     if !grew then
       break
   let adversarialNames := adversarialHelpers.map (·.name)
+  let callsAdversarial ← syntaxCallsAnyHelper adversarialNames modelFn.body.raw
   let containsExternalCall := directlyContainsExternalCall ||
-    syntaxReferencesAnyHelper adversarialNames modelFn.body.raw
+    callsAdversarial
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw
