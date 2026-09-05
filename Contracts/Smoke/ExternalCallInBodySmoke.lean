@@ -865,4 +865,19 @@ example :
       defaultState).getValue? = some 41 := by
   decide
 
+example :
+    ((ExternalCallInBodySmoke.customErrorNestedExternalArg transitiveAdversary).run
+      defaultState).getState.calls = [] := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with selfBalance := 10 }
+    ((ExternalCallInBodySmoke.lowLevel transitiveAdversary 7 1).run s).getState.memory 96 = 41 := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with returndata := [41] }
+    (ExternalCallInBodySmoke.composedReturnDataSize.run s).getValue? = some 33 := by
+  decide
+
 end Contracts.Smoke

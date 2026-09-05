@@ -2467,6 +2467,11 @@ private def rewriteLinkedCallTerm
       `(term| evmStaticCallWords $adv $gas $target $inOffset $inSize $outOffset $outSize)
   | `(term| delegatecall $gas $target $inOffset $inSize $outOffset $outSize) =>
       `(term| evmDelegateCallWords $adv $gas $target $inOffset $inSize $outOffset $outSize)
+  | `(term| returnDataSize()) | `(term| returndataSize) =>
+      `(term| returndataSizeLive)
+  | `(term| returnDataCopy($destOffset, $sourceOffset, $size))
+    | `(term| returndataCopy $destOffset $sourceOffset $size) =>
+      `(term| returndataCopyLive $destOffset $sourceOffset $size)
   | `(term| ecmCall $_moduleFactory:term $args:term) =>
       let argList ← expectTermListLiteral args
       `(term| ecmCallWords $adv (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))))
@@ -2534,6 +2539,10 @@ private def isLiveStateExternalCall (stx : Term) : Bool :=
   | `(term| call $_ $_ $_ $_ $_ $_ $_)
   | `(term| staticcall $_ $_ $_ $_ $_ $_)
   | `(term| delegatecall $_ $_ $_ $_ $_ $_)
+  | `(term| returnDataSize())
+  | `(term| returndataSize)
+  | `(term| returnDataCopy($_, $_, $_))
+  | `(term| returndataCopy $_ $_ $_)
   | `(term| ecmCall $_ $_)
   | `(term| ecmDo $_ $_)
   | `(term| externalCallBind $_ $_ $_)
@@ -2686,16 +2695,16 @@ private partial def threadAdversaryThroughExecutableSyntax
       (monadic pureBinding : Term → CommandElabM (TSyntax `doElem)) : CommandElabM Syntax := do
     let (binds, rewritten) ← hoistNested true rhs
     let rewrittenIdent? : Option Name :=
-      match rewritten with
+      match stripParens rewritten with
       | `(term| $tmp:ident) => some tmp.getId
       | `(term| ($tmp:ident : $_ty:term)) => some tmp.getId
       | _ => none
     let outerWasBound := rewrittenIdent?.any fun rewrittenName =>
       binds.any fun (tmp, _) => tmp.getId == rewrittenName
     let pureValue : Term :=
-      match rewritten with
+      match stripParens rewritten with
       | `(term| ($tmp:ident : $_ty:term)) => ⟨tmp.raw⟩
-      | _ => rewritten
+      | stripped => stripped
     let rest ← if outerWasBound then pureBinding pureValue else monadic rewritten
     wrapBinds binds rest
   match stx with
@@ -2818,14 +2827,16 @@ private partial def threadAdversaryThroughExecutableSyntax
         `(doElem| if $rewritten:term then $rewrittenThen:doSeq else $rewrittenElse:doSeq)
   | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
       let (condBinds, rewrittenCond) ← hoistNested true cond
-      let mut binds := condBinds
+      let mut argBinds : Array (Ident × Term) := #[]
       let mut rewrittenArgs : Array Term := #[]
       for arg in args.getElems do
         let (inner, rewritten) ← hoistNested true arg
-        binds := binds ++ inner
+        argBinds := argBinds ++ inner
         rewrittenArgs := rewrittenArgs.push rewritten
-      wrapBinds binds
-        (← `(doElem| requireError $rewrittenCond $errorName:ident($[$rewrittenArgs],*)))
+      let failure ← wrapBinds argBinds
+        (← `(doElem| revertError $errorName:ident($[$rewrittenArgs],*)))
+      wrapBinds condBinds
+        (← `(doElem| if $rewrittenCond then pure () else do $failure:doElem))
   | `(doElem| revert $errorName:ident($args,*)) =>
       let mut binds : Array (Ident × Term) := #[]
       let mut rewrittenArgs : Array Term := #[]

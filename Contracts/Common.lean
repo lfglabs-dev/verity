@@ -4,6 +4,7 @@ import Verity.Core
 import Verity.Core.Semantics
 import Verity.Core.Model.ContractExternalCall
 import Verity.Core.Model.DenoteFunctionCalls
+import Verity.Core.Model.Denote
 import Verity.EVM.Uint256
 import Verity.Macro
 import Verity.Stdlib.Math
@@ -496,6 +497,15 @@ def mstore (offset value : Uint256) : Contract Unit := fun state =>
   ContractResult.success () { state with
     memory := Compiler.CompilationModel.DenoteFunctionCalls.writeMemoryWords
       state.memory offset.val [value.val] 32 }
+def returndataSizeLive : Contract Uint256 := fun state =>
+  ContractResult.success (Core.Uint256.ofNat (32 * state.returndata.length)) state
+def returndataCopyLive (destOffset sourceOffset size : Uint256) : Contract Unit := fun state =>
+  if sourceOffset.val + size.val <= 32 * state.returndata.length then
+    ContractResult.success () { state with
+      memory := Compiler.CompilationModel.Denote.returndatacopyMemoryPaddedUint256
+        state.returndata destOffset.val sourceOffset.val size.val state.memory }
+  else
+    ContractResult.revert "returndatacopy out of bounds" state
 def tstore (offset value : Uint256) : Contract Unit := fun state =>
   ContractResult.success () (state.writeTransient (offset : Nat) value)
 /-- Canonical journal-word encoding for executable external-call arguments.
