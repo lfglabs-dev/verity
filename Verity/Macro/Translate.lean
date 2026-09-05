@@ -2635,13 +2635,16 @@ private partial def threadAdversaryThroughExecutableSyntax
     | _ => pure stx
   let rewriteTerm (t : Term) : CommandElabM Term := do
     rewriteLinkedCallTerm externalDecls params adv t
+  let freshExternalIdent (origin : Term) : CommandElabM Ident :=
+    Lean.Elab.Term.mkFreshIdent
+      (mkIdentFrom origin.raw (Name.mkSimple "__verity_ext")).raw
   let rec hoistNested (bindSelf : Bool) (t : Term) :
       CommandElabM (Array (Ident × Term) × Term) := do
     let bindCall (binds : Array (Ident × Term)) (call : Term) :
         CommandElabM (Array (Ident × Term) × Term) := do
       let rewritten ← rewriteTerm call
       if bindSelf then
-        let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+        let tmp ← freshExternalIdent t
         pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
       else
         pure (binds, rewritten)
@@ -2683,7 +2686,7 @@ private partial def threadAdversaryThroughExecutableSyntax
           let thenContract ← branchContract thenBinds rewrittenThen
           let elseContract ← branchContract elseBinds rewrittenElse
           let conditional ← `(term| if $rewrittenCond then $thenContract else $elseContract)
-          let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "if")}")
+          let tmp ← freshExternalIdent t
           pure (condBinds.push (tmp, conditional), ⟨tmp.raw⟩)
     | _ => match t.raw with
       | .node info kind args =>
@@ -2700,7 +2703,7 @@ private partial def threadAdversaryThroughExecutableSyntax
           match ← rewriteTypedInterfaceCall? externalDecls params adv rebuilt with
           | some rewritten =>
               if bindSelf then
-                let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+                let tmp ← freshExternalIdent t
                 pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
               else
                 pure (binds, rewritten)
@@ -2712,7 +2715,7 @@ private partial def threadAdversaryThroughExecutableSyntax
           match ← rewriteTypedInterfaceCall? externalDecls params adv t with
           | some rewritten =>
               if bindSelf then
-                let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+                let tmp ← freshExternalIdent t
                 pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
               else
                 pure (#[], rewritten)

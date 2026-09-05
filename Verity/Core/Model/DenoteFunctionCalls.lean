@@ -214,7 +214,9 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
           .continue
             { state with
               world := { state.world with returndata := [] }
-              bindings := bindValue state.bindings successVar 0 }
+              bindings := bindResultWords
+                (bindValue state.bindings successVar 0) resultVars
+                (List.replicate resultVars.length 0) }
       | some paid =>
           let site : CallSite :=
             { siteId := link.siteId, kind := .call, target := link.target
@@ -238,9 +240,13 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
                       returndata := obs.result.returndata.map wordNormalize
                       calls := state.world.calls ++
                         [journalEntry site obs.result] }
-                  bindings := bindValue state.bindings successVar 0 }
+                  bindings := bindResultWords
+                    (bindValue state.bindings successVar 0) resultVars
+                    (obs.result.returndata ++ List.replicate resultVars.length 0) }
   | _, _ =>
-      .continue { state with bindings := bindValue state.bindings successVar 0 }
+      .continue { state with
+        bindings := bindResultWords (bindValue state.bindings successVar 0)
+          resultVars (List.replicate resultVars.length 0) }
 
 mutual
   def execStmtWithCalls (env : CallEnv) (fields : List Field) :

@@ -69,6 +69,9 @@ private def callBitBuffer (r : Option (Nat × Compiler.CompilationModel.Denote.D
 private def outcomeBuffer (r : StmtOutcome) : Option (List Nat) :=
   match r with | .continue s => some s.world.returndata | _ => none
 
+private def outcomeBinding (name : String) (r : StmtOutcome) : Option Nat :=
+  match r with | .continue s => s.bindings.lookup name | _ => none
+
 /-- `applyRawCall` success installs the callee's words as the buffer. -/
 example :
     callBitBuffer (applyRawCall echoEnv staleCaller rawCallSite 0 0) = some (1, [7]) := by
@@ -99,6 +102,11 @@ example :
     outcomeBuffer (execTryExternalCallBind revertEnv [] staleCaller "ok" ["r"] "linked"
       [.literal 7]) = some [5] := by
   native_decide
+
+example :
+    outcomeBinding "r" (execTryExternalCallBind revertEnv [] staleCaller "ok" ["r"]
+      "linked" [.literal 7]) = some 5 := by
+  decide
 
 /-- Regression: the try-lane success branch installs the returned words. -/
 example :

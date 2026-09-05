@@ -136,6 +136,9 @@ verity_contract ExternalCallInBodySmoke where
     let (_success, result) ← tryExternalCall "dirtyPair" []
     return result.narrow
 
+  function reentrancy_trusted duplicateIdenticalCalls () : Uint32 := do
+    return callExternal dirtyUint() + callExternal dirtyUint()
+
   function reentrancy_trusted bindDirtyAddress () : Address := do
     let result ← callExternal dirtyAddress()
     return result
@@ -897,6 +900,17 @@ private def structResultAdversary :
 example :
     ((ExternalCallInBodySmoke.tryDirtyPair structResultAdversary).run defaultState).getValue? =
       some 7 := by
+  decide
+
+private def orderedResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ state => .success [state.calls.length + 1]
+  gasUsed := fun _ _ => 0
+
+example :
+    ((ExternalCallInBodySmoke.duplicateIdenticalCalls orderedResultAdversary).run
+      defaultState).getValue? = some 3 := by
   decide
 
 example :
