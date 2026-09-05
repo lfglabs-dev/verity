@@ -60,6 +60,32 @@ verity_contract ExternalCallInBodySmoke where
   function reentrancy_trusted linkedWrite (amount : Uint256, pubkey : Bytes) : Unit := do
     callExternal deposit(amount, pubkey)
 
+  function reentrancy_trusted adversarialLeaf (value : Uint32) : Uint32 := do
+    return callExternal dirtySink(value)
+
+  function reentrancy_trusted adversarialForwarder (value : Uint32) : Uint32 := do
+    let result ← adversarialLeaf(value)
+    return result
+
+  function reentrancy_trusted transitiveAdversarialCall (value : Uint32) : Uint32 := do
+    let result ← adversarialForwarder(value)
+    return result
+
+  function reentrancy_trusted conditionalLinkedRead (takeCall : Bool) : Uint256 := do
+    if takeCall then
+      return callExternal narrowEcho(1)
+    else
+      return 7
+
+  function reentrancy_trusted revertNestedExternalArg () : Unit := do
+    revert Failure(callExternal narrowEcho(1))
+
+  function reentrancy_trusted revertErrorNestedExternalArg () : Unit := do
+    revertError Failure(callExternal narrowEcho(1))
+
+  function reentrancy_trusted panicNestedExternalArg () : Unit := do
+    panic(callExternal narrowEcho(1))
+
   function reentrancy_trusted pureNarrow () : Uint256 := do
     let result := callExternal narrowEcho(0xdeadbeef)
     return result
@@ -807,6 +833,12 @@ private def balanceAdversary :
   result := fun _ s => .success [s.selfBalance.val]
   gasUsed := fun _ _ => 0
 
+private def transitiveAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [41]
+  gasUsed := fun _ _ => 0
+
 example :
     let s : ContractState := { defaultState with selfBalance := 7 }
     (Contracts.externalCallContractWords (α := Uint256) "getDepositableEther" []
@@ -815,5 +847,22 @@ example :
         { s with
             calls := [Contracts.linkedCallEntry "getDepositableEther" [] .success [7] 0]
             returndata := [7] } := rfl
+
+example :
+    ((ExternalCallInBodySmoke.conditionalLinkedRead .stub false).run defaultState).getValue? =
+      some 7 ∧
+    ((ExternalCallInBodySmoke.conditionalLinkedRead .stub false).run defaultState).getState.calls =
+      [] := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.conditionalLinkedRead .stub true).run defaultState).getState.calls.length =
+      1 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.transitiveAdversarialCall transitiveAdversary 1).run
+      defaultState).getValue? = some 41 := by
+  decide
 
 end Contracts.Smoke

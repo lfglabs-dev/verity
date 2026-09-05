@@ -488,6 +488,11 @@ example :
   decide
 
 example :
+    let result := (LowLevelTryCatchSmoke.skipExternalCatchOnSuccess .stub).run Verity.defaultState
+    result.getValue? = some 0 ∧ result.getState.calls.length = 1 := by
+  decide
+
+example :
     ((LowLevelTryCatchSmoke.catchFailureWithShadowedParam .stub 5).run
       Verity.defaultState).getValue? = some 11 := by
   decide

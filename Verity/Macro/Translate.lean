@@ -2274,6 +2274,13 @@ private def translatedBodyContainsExternalCall
     | _ => throwErrorAt bodyTerm
         "failed to reduce the translated external-call predicate"
 
+private partial def syntaxReferencesAnyHelper
+    (helperNames : Array String) (stx : Syntax) : Bool :=
+  match stx with
+  | .ident _ _ name _ => helperNames.contains name.toString
+  | .node _ _ args => args.any (syntaxReferencesAnyHelper helperNames)
+  | _ => false
+
 private def linkedExternalSiteId (externalDecls : Array ExternalDecl) (name : String) : Nat :=
   (externalDecls.findIdx? (fun ext => ext.name == name)).getD 0
 
@@ -2323,7 +2330,8 @@ private def threadHelperApp?
     (adversarialHelpers : Array FunctionDecl) (name : Ident) (args : Array Term)
     (adv : Term) : CommandElabM (Option Term) := do
   let helper? := adversarialHelpers.find? fun fn =>
-    (fn.name == toString name.getId || fn.ident.getId == name.getId) &&
+    (fn.name == toString name.getId || fn.ident.getId == name.getId ||
+      (toString name.getId).endsWith ("." ++ fn.name)) &&
       fn.params.size == args.size
   match helper? with
   | some _ => some <$> helperCallWithAdv name args adv
@@ -2599,6 +2607,24 @@ private partial def threadAdversaryThroughExecutableSyntax
         let bodyRaw : Syntax ← go body.raw
         let rewrittenBody : Term := ⟨bodyRaw⟩
         pure (#[], ← `(term| fun $name => $rewrittenBody))
+    | `(term| do $body:doSeq) =>
+        let bodyRaw : Syntax ← go body.raw
+        let rewrittenBody : TSyntax ``Lean.Parser.Term.doSeq := ⟨bodyRaw⟩
+        pure (#[], ← `(term| do $rewrittenBody))
+    | `(term| $name:ident($[$args:term],*)) =>
+        match ← threadHelperApp? adversarialHelpers name args adv with
+        | some app => pure (#[], app)
+        | none =>
+            let mut binds : Array (Ident × Term) := #[]
+            let mut rewrittenArgs : Array Term := #[]
+            for arg in args do
+              let (inner, rewritten) ← hoistNested true arg
+              binds := binds ++ inner
+              rewrittenArgs := rewrittenArgs.push rewritten
+            let mut app : Term := ⟨name.raw⟩
+            for arg in rewrittenArgs do
+              app ← `(term| $app $arg)
+            pure (binds, app)
     | `(term| if $cond:term then $thenValue:term else $elseValue:term) =>
         let (condBinds, rewrittenCond) ← hoistNested true cond
         let (thenBinds, rewrittenThen) ← hoistNested true thenValue
@@ -2722,6 +2748,10 @@ private partial def threadAdversaryThroughExecutableSyntax
       wrapBinds binds
         (← `(doElem| let $pat:term ← (totalSupply
           (externalArgAddress $rewrittenToken) $adv)))
+  | `(doElem| let $name:ident ← $fn:ident($[$args:term],*)) =>
+      match ← threadHelperApp? adversarialHelpers fn args adv with
+      | some app => `(doElem| let $name ← $app:term)
+      | none => recurseChildren
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
       let fnName := toString fn.getId
@@ -5139,8 +5169,9 @@ def mkFunctionCommandsPublic
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
   let _opensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
-  let containsExternalCall ← translatedBodyContainsExternalCall stmtTerms
+  let directlyContainsExternalCall ← translatedBodyContainsExternalCall stmtTerms
   let mut adversarialHelpers : Array FunctionDecl := #[]
+  let mut translatedHelpers : Array (FunctionDecl × FunctionDecl) := #[]
   for helper in functions do
     let helperModel ←
       if helper.modifiers.isEmpty || allModifiers.isEmpty then
@@ -5152,8 +5183,25 @@ def mkFunctionCommandsPublic
         | none => pure helper
     let helperStmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls
       immutableDecls externalDecls functions helperModel
+    translatedHelpers := translatedHelpers.push (helper, helperModel)
     if ← translatedBodyContainsExternalCall helperStmtTerms then
       adversarialHelpers := adversarialHelpers.push helper
+  -- External-call capability is transitive across internal helpers. Iterate to a
+  -- fixed point so every caller in a multi-hop helper chain receives and forwards
+  -- the same adversary instead of silently falling back to the stub.
+  for _ in [:functions.size] do
+    let adversarialNames := adversarialHelpers.map (·.name)
+    let mut grew := false
+    for (helper, helperModel) in translatedHelpers do
+      if !adversarialHelpers.any (fun candidate => candidate.name == helper.name) &&
+          syntaxReferencesAnyHelper adversarialNames helperModel.body.raw then
+        adversarialHelpers := adversarialHelpers.push helper
+        grew := true
+    if !grew then
+      break
+  let adversarialNames := adversarialHelpers.map (·.name)
+  let containsExternalCall := directlyContainsExternalCall ||
+    syntaxReferencesAnyHelper adversarialNames modelFn.body.raw
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw

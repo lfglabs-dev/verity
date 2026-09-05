@@ -515,6 +515,8 @@ set_option linter.unusedVariables false in
 verity_contract LowLevelTryCatchSmoke where
   storage
     lastOutcome : Uint256 := slot 0
+  linked_externals
+    external catchHook() -> (Uint256)
 
   function allow_post_interaction_writes reentrancy_trusted catchFailure ()
     local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
@@ -540,6 +542,16 @@ verity_contract LowLevelTryCatchSmoke where
     := do
     tryCatch (call 0 0 1 0 0 0 0) (do
       setStorage lastOutcome 11)
+    let current ← getStorage lastOutcome
+    return current
+
+  function allow_post_interaction_writes reentrancy_trusted skipExternalCatchOnSuccess ()
+    local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
+    : Uint256
+    := do
+    tryCatch (call 1 0 0 0 0 0 0) (do
+      let value ← callExternal catchHook()
+      setStorage lastOutcome value)
     let current ← getStorage lastOutcome
     return current
 
