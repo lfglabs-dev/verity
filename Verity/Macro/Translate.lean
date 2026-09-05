@@ -2296,6 +2296,12 @@ private def flattenedExternalArity (ext : ExternalDecl) : CommandElabM Nat := do
             total := total + names.length
       pure total
 
+private def executableLinkedArgWords (arg : Term) (ty : ValueType) : CommandElabM Term := do
+  if externalCallDynamicArgSupported ty then
+    `(externalDynamicArgWords $arg)
+  else
+    `(ExternalArg.toWords $arg)
+
 private def externalReturnTypeTerm (ext : ExternalDecl) : CommandElabM Term := do
   let tys ← ext.returnTys.mapM contractValueTypeTerm
   let rec tupleType : List Term → CommandElabM Term
@@ -2335,25 +2341,26 @@ private def rewriteTypedInterfaceCall?
   let some interfaceName := lookupInterfaceName? params #[] targetName | pure none
   let extName := interfaceExternalName interfaceName methodName
   let some ext := externalDecls.find? (fun ext => ext.name == extName) | pure none
+  let isView := externalDecls.any (fun candidate => candidate.name == extName && candidate.isView)
   let siteId := natTerm (linkedExternalSiteId externalDecls extName)
   let arity := natTerm (← flattenedExternalArity ext)
   let rewritten ← argTerms.zip ext.params |>.mapM fun (arg, ty) => do
     let tyTerm ← contractValueTypeTerm ty
-    `(($arg : $tyTerm))
+    executableLinkedArgWords (← `(($arg : $tyTerm))) ty
   if ext.returnTys.isEmpty then
-    if ext.isView then
+    if isView then
       some <$> `(term| externalStaticCallEffectWords $(strTerm extName)
-        (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $siteId)
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
     else
       some <$> `(term| externalCallEffectWords $(strTerm extName)
-        (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $siteId)
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
   else
-    if ext.isView then
+    if isView then
       some <$> `(term| externalStaticCallContractWords $(strTerm extName)
-        (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
     else
       some <$> `(term| externalCallContractWords $(strTerm extName)
-        (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
 
 private def rewriteLinkedCallTerm
     (externalDecls : Array ExternalDecl) (params : Array ParamDecl)
@@ -2366,16 +2373,16 @@ private def rewriteLinkedCallTerm
         | none => throwErrorAt name s!"unknown linked external '{extName}'"
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
         let tyTerm ← contractValueTypeTerm ty
-        `(($arg : $tyTerm))
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
       let arity := natTerm (← flattenedExternalArity ext)
       if ext.returnTys.isEmpty then
         `(term| externalCallEffectWords $(strTerm extName)
-          (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $siteId)
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
       else
         let resultTy ← externalReturnTypeTerm ext
         `(term| externalCallContractWords (α := $resultTy) $(strTerm extName)
-          (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
   | `(term| externalCall $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2385,14 +2392,43 @@ private def rewriteLinkedCallTerm
           let resultTy ← externalReturnTypeTerm ext
           let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
             let tyTerm ← contractValueTypeTerm ty
-            `(($arg : $tyTerm))
-          `(term| externalCallContractWords (α := $resultTy) $name
-              (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256)))
-              $adv $arity $siteId)
+            executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+          if ext.isView then
+            `(term| externalStaticCallContractWords (α := $resultTy) $name
+                (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
+                $adv $arity $siteId)
+          else
+            `(term| externalCallContractWords (α := $resultTy) $name
+                (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
+                $adv $arity $siteId)
       | none =>
           `(term| externalCallContractWords $name
               (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256)))
               $adv 1 $siteId)
+  | `(term| externalStaticCall $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let ext ← match externalDecls.find? (fun candidate => candidate.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown interface external '{extName}'"
+      let arity := natTerm (← flattenedExternalArity ext)
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      `(term| externalStaticCallContractWords $name
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
+          $adv $arity $siteId)
+  | `(term| externalStaticCallEffect $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let ext ← match externalDecls.find? (fun candidate => candidate.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown interface external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      `(term| externalStaticCallEffectWords $name
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
   | `(term| callResult $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2436,10 +2472,13 @@ private def rewriteLinkedCallTerm
       | some ext =>
           let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
             let tyTerm ← contractValueTypeTerm ty
-            `(($arg : $tyTerm))
-          `(term| externalCallEffectWords $fnName
-              (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256)))
-              $adv $siteId)
+            executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+          if ext.isView then
+            `(term| externalStaticCallEffectWords $fnName
+                (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+          else
+            `(term| externalCallEffectWords $fnName
+                (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
       | none =>
           `(term| externalCallBind ([] : List String) $fnName [ $[$args],* ] $adv $siteId)
   | `(term| externalCallBind $names:term $fnName:term $args:term) =>
@@ -2550,8 +2589,30 @@ private partial def threadAdversaryThroughExecutableSyntax
         pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
       else
         pure (binds, rewritten)
-    match t.raw with
-    | .node info kind args =>
+    let branchContract (binds : Array (Ident × Term)) (value : Term) : CommandElabM Term := do
+      let mut body ← `(term| pure $value)
+      for (tmp, call) in binds.reverse do
+        body ← `(term| _root_.Verity.bind $call (fun $tmp => $body))
+      pure body
+    match t with
+    | `(term| fun $name:ident => $body:term) =>
+        let bodyRaw : Syntax ← go body.raw
+        let rewrittenBody : Term := ⟨bodyRaw⟩
+        pure (#[], ← `(term| fun $name => $rewrittenBody))
+    | `(term| if $cond:term then $thenValue:term else $elseValue:term) =>
+        let (condBinds, rewrittenCond) ← hoistNested true cond
+        let (thenBinds, rewrittenThen) ← hoistNested true thenValue
+        let (elseBinds, rewrittenElse) ← hoistNested true elseValue
+        if thenBinds.isEmpty && elseBinds.isEmpty then
+          pure (condBinds, ← `(term| if $rewrittenCond then $rewrittenThen else $rewrittenElse))
+        else
+          let thenContract ← branchContract thenBinds rewrittenThen
+          let elseContract ← branchContract elseBinds rewrittenElse
+          let conditional ← `(term| if $rewrittenCond then $thenContract else $elseContract)
+          let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "if")}")
+          pure (condBinds.push (tmp, conditional), ⟨tmp.raw⟩)
+    | _ => match t.raw with
+      | .node info kind args =>
         let mut binds : Array (Ident × Term) := #[]
         let mut newArgs := args
         for i in [:args.size] do
@@ -2570,18 +2631,18 @@ private partial def threadAdversaryThroughExecutableSyntax
               else
                 pure (binds, rewritten)
           | none => pure (binds, rebuilt)
-    | _ =>
-      if isLiveStateExternalCall t then
-        bindCall #[] t
-      else
-        match ← rewriteTypedInterfaceCall? externalDecls params adv t with
-        | some rewritten =>
-            if bindSelf then
-              let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
-              pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
-            else
-              pure (#[], rewritten)
-        | none => pure (#[], t)
+      | _ =>
+        if isLiveStateExternalCall t then
+          bindCall #[] t
+        else
+          match ← rewriteTypedInterfaceCall? externalDecls params adv t with
+          | some rewritten =>
+              if bindSelf then
+                let tmp := mkIdent (Name.mkSimple s!"__verity_ext_{hash (t.raw.reprint.getD "x")}")
+                pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
+              else
+                pure (#[], rewritten)
+          | none => pure (#[], t)
   let wrapBinds (binds : Array (Ident × Term)) (body : TSyntax `doElem) :
       CommandElabM (TSyntax `doElem) := do
     let mut acc := body
@@ -2735,6 +2796,24 @@ private partial def threadAdversaryThroughExecutableSyntax
         rewrittenArgs := rewrittenArgs.push rewritten
       wrapBinds binds
         (← `(doElem| requireError $rewrittenCond $errorName:ident($[$rewrittenArgs],*)))
+  | `(doElem| revert $errorName:ident($args,*)) =>
+      let mut binds : Array (Ident × Term) := #[]
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args.getElems do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      wrapBinds binds (← `(doElem| revert $errorName:ident($[$rewrittenArgs],*)))
+  | `(doElem| revertError $errorName:ident($args,*)) =>
+      let mut binds : Array (Ident × Term) := #[]
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args.getElems do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      wrapBinds binds (← `(doElem| revertError $errorName:ident($[$rewrittenArgs],*)))
+  | `(doElem| panic($code:term)) =>
+      hoistLive true code fun rewritten => `(doElem| panic($rewritten))
   | `(doElem| return $value:term) =>
       hoistLive true value fun rewritten => `(doElem| return $rewritten:term)
   | `(doElem| ecmBind $names:term $_module:term $args:term) =>
@@ -5059,7 +5138,7 @@ def mkFunctionCommandsPublic
       | some inlined => pure inlined
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
-  let opensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
+  let _opensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
   let containsExternalCall ← translatedBodyContainsExternalCall stmtTerms
   let mut adversarialHelpers : Array FunctionDecl := #[]
   for helper in functions do

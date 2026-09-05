@@ -542,6 +542,11 @@ def externalArgWord {α : Type} [ExternalArg α] (value : α) : Uint256 :=
 /-- Address view of the canonical external-argument word. -/
 def externalArgAddress {α : Type} [ExternalArg α] (value : α) : Address :=
   wordToAddress (externalArgWord value)
+/-- Executable counterpart of the model's direct dynamic-parameter
+`data_offset, length` abstraction. The executable plane has no calldata
+pointer, so its canonical synthetic data offset is zero. -/
+def externalDynamicArgWords {α : Type} [ArrayLength α] (value : α) : List Uint256 :=
+  [0, ArrayLength.size value]
 instance [ExternalArg α] : ExternalArg (Array α) where
   toWords values := values.size :: (values.toList.flatMap ExternalArg.toWords)
 instance : ExternalArg ByteArray where
