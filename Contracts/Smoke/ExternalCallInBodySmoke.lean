@@ -843,7 +843,7 @@ private def resolvedLinkAdversary :
     Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
   stateTransition := fun _ state => state
   result := fun site state =>
-    .success [site.target + site.value + state.selfBalance.val]
+    .success [site.target + site.value + site.gas + state.selfBalance.val]
   gasUsed := fun _ _ => 0
 
 private def resolvedLinkContext : Contracts.ExecutableCallContext :=
@@ -882,10 +882,21 @@ example :
 example :
     let s : ContractState := { defaultState with selfBalance := 20 }
     let out := (ExternalCallInBodySmoke.linkedRead resolvedLinkContext).run s
-    out.getValue? = some 25 ∧
+    out.getValue? = some 42 ∧
       out.getState.selfBalance = 17 ∧
       out.getState.calls.map (fun call => (call.siteId, call.target, call.value)) =
         [(19, 5, 3)] := by
+  decide
+
+private def structResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [7, 9]
+  gasUsed := fun _ _ => 0
+
+example :
+    ((ExternalCallInBodySmoke.tryDirtyPair structResultAdversary).run defaultState).getValue? =
+      some 7 := by
   decide
 
 example :

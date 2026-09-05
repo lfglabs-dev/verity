@@ -720,7 +720,8 @@ private def resolvedLinkedCall (ctx : ExecutableCallContext) (name : String)
       | none => ContractResult.success (.failure []) { state with returndata := [] }
       | some paid =>
           match (commonExternalCall ctx.adversary
-              (linkedCallSite name args arity kind link.target value [] link.siteId)).run paid with
+              { linkedCallSite name args arity kind link.target value [] link.siteId with
+                gas := paid.selfBalance.val }).run paid with
           | .success result post =>
               match result with
               | .success _ => .success result post

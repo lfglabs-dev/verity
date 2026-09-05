@@ -4800,6 +4800,27 @@ def mkStructExternalArgInstanceCommandPublic (decl : StructDecl) : CommandElabM 
         ([ $[$encodedFields],* ] :
           List (List _root_.Verity.Uint256)))
 
+def mkStructExternalResultInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
+  let structId := decl.ident
+  let fieldIds := decl.fields.map (·.ident)
+  let fieldTys ← decl.fields.mapM (fun field => contractValueTypeTerm field.ty)
+  let counts ← fieldTys.mapM fun fieldTy =>
+    `(term| _root_.Contracts.ExternalResult.wordCount (α := $fieldTy))
+  let total ← counts.foldlM (init := ← `(term| 0)) fun acc count =>
+    `(term| $acc + $count)
+  let mut offset ← `(term| 0)
+  let mut decoded : Array Term := #[]
+  for fieldTy in fieldTys do
+    decoded := decoded.push (← `(term|
+      _root_.Contracts.ExternalResult.fromWords (α := $fieldTy) (words.drop $offset)))
+    offset ← `(term| $offset +
+      _root_.Contracts.ExternalResult.wordCount (α := $fieldTy))
+  `(command| instance : _root_.Contracts.ExternalResult $structId where
+      wordCount := $total
+      fromWord := fun value =>
+        _root_.Contracts.ExternalResult.fromWords [value]
+      fromWords := fun words => { $[$fieldIds:ident := $decoded:term],* })
+
 /-- Generate a `def storageNamespace : Nat := <keccak-value>` command for
     the current contract.  Uses the resolved namespace value from
     `parseContractSyntax` to respect custom `storage_namespace "key"`.
