@@ -1908,10 +1908,13 @@ private def mkContractFnType (params : Array ParamDecl) (retTy : ValueType) : Co
 private def adversaryModelTypeTerm : CommandElabM Term :=
   `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
 
+private def executableCallContextTypeTerm : CommandElabM Term :=
+  `(ExecutableCallContext)
+
 private def mkContractFnTypeWithAdversary
     (params : Array ParamDecl) (retTy : ValueType) : CommandElabM Term := do
   let base ← mkContractFnType params retTy
-  `(($(← adversaryModelTypeTerm)) → $base)
+  `(($(← executableCallContextTypeTerm)) → $base)
 
 private def mkTupleProjectionTerm (base : Term) (elemTys : List ValueType) (idx : Nat) : CommandElabM Term := do
   let rec go (tupleTerm : Term) (remaining : List ValueType) (targetIdx : Nat) : CommandElabM Term := do
@@ -2248,7 +2251,7 @@ private def mkContractFnValue (params : Array ParamDecl) (body : Term) : Command
 private def mkContractFnValueWithAdversary
     (adv : Ident) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
   let value ← mkContractFnValue params body
-  `(fun ($adv : $(← adversaryModelTypeTerm)) => $value)
+  `(fun ($adv : $(← executableCallContextTypeTerm)) => $value)
 
 def translatedBodyOpensReentrancyWindow
     (stmtTerms : Array Term) : CommandElabM Bool := do
@@ -2419,11 +2422,11 @@ private def rewriteLinkedCallTerm
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
       let arity := natTerm (← flattenedExternalArity ext)
       if ext.returnTys.isEmpty then
-        `(term| externalCallEffectWords $(strTerm extName)
+        `(term| externalCallEffectWordsResolved $(strTerm extName)
           (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
       else
         let resultTy ← externalReturnTypeTerm ext
-        `(term| externalCallContractWords (α := $resultTy) $(strTerm extName)
+        `(term| externalCallContractWordsResolved (α := $resultTy) $(strTerm extName)
           (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
   | `(term| externalCall $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
@@ -2436,15 +2439,15 @@ private def rewriteLinkedCallTerm
             let tyTerm ← contractValueTypeTerm ty
             executableLinkedArgWords (← `(($arg : $tyTerm))) ty
           if ext.isView then
-            `(term| externalStaticCallContractWords (α := $resultTy) $name
+            `(term| externalStaticCallContractWordsResolved (α := $resultTy) $name
                 (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
                 $adv $arity $siteId)
           else
-            `(term| externalCallContractWords (α := $resultTy) $name
+            `(term| externalCallContractWordsResolved (α := $resultTy) $name
                 (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
                 $adv $arity $siteId)
       | none =>
-          `(term| externalCallContractWords $name
+          `(term| externalCallContractWordsResolved $name
               (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256)))
               $adv 1 $siteId)
   | `(term| externalStaticCall $name:term [ $[$args:term],* ]) =>
@@ -2457,7 +2460,7 @@ private def rewriteLinkedCallTerm
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
         let tyTerm ← contractValueTypeTerm ty
         executableLinkedArgWords (← `(($arg : $tyTerm))) ty
-      `(term| externalStaticCallContractWords $name
+      `(term| externalStaticCallContractWordsResolved $name
           (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
           $adv $arity $siteId)
   | `(term| externalStaticCallEffect $name:term [ $[$args:term],* ]) =>
@@ -2469,7 +2472,7 @@ private def rewriteLinkedCallTerm
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
         let tyTerm ← contractValueTypeTerm ty
         executableLinkedArgWords (← `(($arg : $tyTerm))) ty
-      `(term| externalStaticCallEffectWords $name
+      `(term| externalStaticCallEffectWordsResolved $name
           (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
   | `(term| callResult $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
@@ -2479,7 +2482,7 @@ private def rewriteLinkedCallTerm
       let resultTy ← match ext? with
         | some ext => externalReturnTypeTerm ext
         | none => `(Unit)
-      `(term| callResultWords (α := $resultTy) $name
+      `(term| callResultWordsResolved (α := $resultTy) $name
           (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
   | `(term| tryExternalCall $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
@@ -2489,7 +2492,7 @@ private def rewriteLinkedCallTerm
       let resultTy ← match ext? with
         | some ext => externalReturnTypeTerm ext
         | none => `(Unit)
-      `(term| tryExternalCallWords (α := $resultTy) $name
+      `(term| tryExternalCallWordsResolved (α := $resultTy) $name
           (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
   | `(term| evmCall($gas, $target, $value, $inOffset, $inSize, $outOffset, $outSize)) =>
       `(term| evmCallWords $adv $gas $target $value $inOffset $inSize $outOffset $outSize)
@@ -2521,17 +2524,17 @@ private def rewriteLinkedCallTerm
             let tyTerm ← contractValueTypeTerm ty
             executableLinkedArgWords (← `(($arg : $tyTerm))) ty
           if ext.isView then
-            `(term| externalStaticCallEffectWords $fnName
+            `(term| externalStaticCallEffectWordsResolved $fnName
                 (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
           else
-            `(term| externalCallEffectWords $fnName
+            `(term| externalCallEffectWordsResolved $fnName
                 (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
       | none =>
-          `(term| externalCallBind ([] : List String) $fnName [ $[$args],* ] $adv $siteId)
+          `(term| externalCallBindResolved ([] : List String) $fnName [ $[$args],* ] $adv $siteId)
   | `(term| externalCallBind $names:term $fnName:term $args:term) =>
       let extName ← expectStringOrIdent fnName
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
-      `(term| externalCallBind $names $fnName $args $adv $siteId)
+      `(term| externalCallBindResolved $names $fnName $args $adv $siteId)
   | `(term| tryExternalCallBind $_successVar:term $_names:term $fnName:term $args:term) =>
       let extName ← expectStringOrIdent fnName
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2539,7 +2542,7 @@ private def rewriteLinkedCallTerm
         | some ext => flattenedExternalArity ext
         | none => pure 1
       let argList ← expectTermListLiteral args
-      `(term| tryExternalCallWords $fnName
+      `(term| tryExternalCallWordsResolved $fnName
           (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
   | `(term| balanceOf $token:term $owner:term) =>
       `(term| balanceOf $token $owner $adv)

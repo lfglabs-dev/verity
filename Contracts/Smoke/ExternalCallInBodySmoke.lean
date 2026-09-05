@@ -839,6 +839,20 @@ private def transitiveAdversary :
   result := fun _ _ => .success [41]
   gasUsed := fun _ _ => 0
 
+private def resolvedLinkAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site state =>
+    .success [site.target + site.value + state.selfBalance.val]
+  gasUsed := fun _ _ => 0
+
+private def resolvedLinkContext : Contracts.ExecutableCallContext :=
+  { adversary := resolvedLinkAdversary
+    resolve := fun name _ =>
+      if name == "getDepositableEther" then
+        some { target := 5, value := 3, siteId := 19 }
+      else none }
+
 example :
     let s : ContractState := { defaultState with selfBalance := 7 }
     (Contracts.externalCallContractWords (α := Uint256) "getDepositableEther" []
@@ -863,6 +877,15 @@ example :
 example :
     ((ExternalCallInBodySmoke.transitiveAdversarialCall transitiveAdversary 1).run
       defaultState).getValue? = some 41 := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with selfBalance := 20 }
+    let out := (ExternalCallInBodySmoke.linkedRead resolvedLinkContext).run s
+    out.getValue? = some 25 ∧
+      out.getState.selfBalance = 17 ∧
+      out.getState.calls.map (fun call => (call.siteId, call.target, call.value)) =
+        [(19, 5, 3)] := by
   decide
 
 example :
