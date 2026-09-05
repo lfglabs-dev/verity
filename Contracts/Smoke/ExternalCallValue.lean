@@ -78,6 +78,14 @@ private def staleCaller : Compiler.CompilationModel.Denote.DenoteState :=
 private def rawCallSite : CallSite :=
   { siteId := 0, kind := .call, target := 9, value := 0, calldata := [7], gas := 1000 }
 
+/-- Raw-call memory operands are byte ranges: one 32-byte region denotes one
+word, and consecutive words are read at 32-byte offsets. -/
+example : readMemoryWords (fun i => if i = 0 then 7 else if i = 32 then 9 else 11) 0 32 = [7] := by
+  native_decide
+
+example : readMemoryWords (fun i => if i = 0 then 7 else if i = 32 then 9 else 11) 0 64 = [7, 9] := by
+  native_decide
+
 private def rawCallLetVarWorks : Bool :=
     match execStmtWithCalls echoEnv [] staleCaller
         (.letVar "ok" (.call (.literal 1000) (.literal 9) (.literal 0)

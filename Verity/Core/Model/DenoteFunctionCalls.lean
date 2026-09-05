@@ -38,9 +38,9 @@ structure CallEnv where
   adversary : AdversaryModel
   resolve : String → Option LinkedExternal
 
-/-- Word-addressed calldata read for `Expr.call` memory operands. -/
+/-- Read the words intersecting the byte range supplied to an EVM call. -/
 def readMemoryWords (mem : Nat → Core.Uint256) (offset size : Nat) : List Nat :=
-  (List.range size).map (fun i => (mem (offset + i)).val)
+  (List.range ((size + 31) / 32)).map (fun i => (mem (offset + 32 * i)).val)
 
 /-- Word-addressed returndata write. Writes `min words.length outSize` words. -/
 def writeMemoryWords (mem : Nat → Core.Uint256) (offset : Nat) :
