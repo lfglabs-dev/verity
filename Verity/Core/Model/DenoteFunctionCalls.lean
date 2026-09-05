@@ -296,6 +296,10 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
                   bindings := bindResultWords
                     (bindValue post.bindings successVar 0) resultVars
                     (obs.result.returndata ++ List.replicate resultVars.length 0) }
+  | none, some (_, post) =>
+      .continue { post with
+        bindings := bindResultWords (bindValue post.bindings successVar 0)
+          resultVars (List.replicate resultVars.length 0) }
   | _, _ =>
       .continue { state with
         bindings := bindResultWords (bindValue state.bindings successVar 0)

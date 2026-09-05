@@ -69,6 +69,13 @@ private def identityEnv : CallEnv :=
     adversary := identityAdversary
     resolve := fun _ => some { target := 9, value := 0, siteId := 0 } }
 
+private def nestedOnlyEnv : CallEnv :=
+  { oracle := probeOracle
+    adversary := echoAdversary
+    resolve := fun name =>
+      if name == "linked" then some { target := 9, value := 0, siteId := 0 }
+      else none }
+
 /-- Caller state whose pre-call buffer is stale, so a lane that fails to
 install the new call's data is caught reading `[3]`. -/
 private def staleCaller : Compiler.CompilationModel.Denote.DenoteState :=
@@ -204,6 +211,20 @@ private def oversizedTryReverts : Bool :=
   | _ => false
 
 example : oversizedTryReverts = true := by
+  native_decide
+
+/-- An unresolved outer try-call retains the post-state produced while
+evaluating its nested call-bearing arguments. -/
+private def unresolvedTryRetainsArgumentCall : Bool :=
+  match execTryExternalCallBind nestedOnlyEnv [] staleCaller "ok" ["r"] "missing"
+      [.externalCall "linked" [.literal 7]] with
+  | .continue post =>
+      post.world.calls.length == 1 &&
+        Compiler.CompilationModel.Denote.lookupValue post.bindings "ok" == 0 &&
+        Compiler.CompilationModel.Denote.lookupValue post.bindings "r" == 0
+  | _ => false
+
+example : unresolvedTryRetainsArgumentCall = true := by
   native_decide
 
 private def effectOnlyEcm : Compiler.ECM.ExternalCallModule where
