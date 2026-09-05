@@ -101,6 +101,42 @@ private def nestedLinkedCallWorks : Bool :=
 example : nestedLinkedCallWorks = true := by
   native_decide
 
+/-! #### Call-bearing operands in non-binding statements
+
+The widened evaluator must thread the call post-state into every statement
+family, not only local bindings and returns. -/
+
+private def linkedSeven : Compiler.CompilationModel.Expr :=
+  .externalCall "linked" [.literal 7]
+
+private def callBearingMstoreWorks : Bool :=
+  match execStmtWithCalls echoEnv [] staleCaller (.mstore (.literal 0) linkedSeven) with
+  | .continue post => post.world.memory 0 == 7 && post.world.calls.length == 1
+  | _ => false
+
+example : callBearingMstoreWorks = true := by
+  native_decide
+
+private def callBearingRequireWorks : Bool :=
+  match execStmtWithCalls echoEnv [] staleCaller (.require linkedSeven "linked") with
+  | .continue post => post.world.calls.length == 1
+  | _ => false
+
+example : callBearingRequireWorks = true := by
+  native_decide
+
+private def callStorageFields : List Compiler.CompilationModel.Field :=
+  [⟨"saved", .uint256, false, some 0, none, []⟩]
+
+private def callBearingStorageWriteWorks : Bool :=
+  match execStmtWithCalls echoEnv callStorageFields staleCaller
+      (.setStorage "saved" linkedSeven) with
+  | .continue post => post.world.storage 0 == 7 && post.world.calls.length == 1
+  | _ => false
+
+example : callBearingStorageWriteWorks = true := by
+  native_decide
+
 private def callBitBuffer (r : Option (Nat × Compiler.CompilationModel.Denote.DenoteState)) :
     Option (Nat × List Nat) :=
   r.map (fun (b, s) => (b, s.world.returndata))
