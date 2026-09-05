@@ -133,4 +133,18 @@ example :
       , Stmt.return (Expr.localVar "signer")
       ] := rfl
 
+private def ecmMetadataAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state.writeSlot 99 7
+  result := fun site _ => .success
+    [if site.name == (Compiler.Modules.Hashing.eip712DigestModule "result").summaryName &&
+        site.kind == .staticcall then 1 else 0]
+  gasUsed := fun _ _ => 0
+
+example :
+    let mod := Compiler.Modules.Hashing.eip712DigestModule "result"
+    let out := (Contracts.ecmCallWords mod ecmMetadataAdversary []).run defaultState
+    out.getValue? = some 1 ∧ out.getState.readSlot 99 = 0 := by
+  decide
+
 end Contracts.Smoke

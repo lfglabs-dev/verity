@@ -1019,17 +1019,26 @@ def tryExternalCallWordsResolved {α : Type} [ExternalResult α] [Inhabited α]
 
 /-- Mutable ECM executable crossing: consults the caller adversary instead of
 the no-op `ecmCall` syntax fallback. -/
-def ecmCallWords (adv : AdversaryModel) (args : List Uint256)
+def ecmCallWords (mod : Compiler.ECM.ExternalCallModule)
+    (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat := 0) : Contract Uint256 :=
-  externalCallContractWords (α := Uint256) "ecm" args adv 1 siteId
+  if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+    externalStaticCallContractWords (α := Uint256) mod.summaryName args adv 1 siteId
+  else externalCallContractWords (α := Uint256) mod.summaryName args adv 1 siteId
 
-def ecmCallPairWords (adv : AdversaryModel) (args : List Uint256)
+def ecmCallPairWords (mod : Compiler.ECM.ExternalCallModule)
+    (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat := 0) : Contract (Uint256 × Uint256) :=
-  externalCallContractWords (α := Uint256 × Uint256) "ecm" args adv 2 siteId
+  if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+    externalStaticCallContractWords (α := Uint256 × Uint256) mod.summaryName args adv 2 siteId
+  else externalCallContractWords (α := Uint256 × Uint256) mod.summaryName args adv 2 siteId
 
-def ecmDoWords (adv : AdversaryModel) (args : List Uint256)
+def ecmDoWords (mod : Compiler.ECM.ExternalCallModule)
+    (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat := 0) : Contract Unit :=
-  externalCallEffectWords "ecm" args adv siteId
+  if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+    externalStaticCallEffectWords mod.summaryName args adv siteId
+  else externalCallEffectWords mod.summaryName args adv siteId
 
 def externalCallBind {α : Type} [ExternalArg α]
     (names : List String) (name : String) (args : List α)
