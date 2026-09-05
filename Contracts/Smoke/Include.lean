@@ -218,7 +218,7 @@ verity_mixin IncludeAdversarialModifierMixin where
   linked_externals
     external authorizeModifier()
   modifier externalGuard := do
-    callExternal authorizeModifier()
+    let _success ← tryExternalCall "authorizeModifier" []
 
 verity_contract IncludeAdversarialModifierHost include IncludeAdversarialModifierMixin where
   storage

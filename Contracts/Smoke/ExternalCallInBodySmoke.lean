@@ -43,6 +43,7 @@ verity_contract ExternalCallInBodySmoke where
     external dirtyUint_try() -> (Bool, Uint32)
     external dirtyPair() -> (NarrowPair)
     external dirtyPair_try() -> (Bool, NarrowPair)
+    external dirtyBytesArg(Bytes) -> (Uint256)
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
     external dirtyAddress() -> (Address)
@@ -138,6 +139,11 @@ verity_contract ExternalCallInBodySmoke where
 
   function reentrancy_trusted duplicateIdenticalCalls () : Uint32 := do
     return callExternal dirtyUint() + callExternal dirtyUint()
+
+  function reentrancy_trusted dynamicTry (payload : Bytes) : Uint256 := do
+    let (_success, result) ← tryExternalCall "dirtyBytesArg" [payload]
+    return result
+
 
   function reentrancy_trusted bindDirtyAddress () : Address := do
     let result ← callExternal dirtyAddress()
@@ -902,6 +908,11 @@ example :
       some 7 := by
   decide
 
+example :
+    ((Contracts.externalCallContractWords (α := Array Uint256) "dirtyFixed" []
+      structResultAdversary 2).run defaultState).getValue? = some #[7, 9] := by
+  native_decide
+
 private def orderedResultAdversary :
     Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
   stateTransition := fun _ state => state
@@ -911,6 +922,23 @@ private def orderedResultAdversary :
 example :
     ((ExternalCallInBodySmoke.duplicateIdenticalCalls orderedResultAdversary).run
       defaultState).getValue? = some 3 := by
+  decide
+
+private def calldataAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site _ => .success [site.calldata.getLast?.getD 0]
+  gasUsed := fun _ _ => 0
+
+example :
+    let s : ContractState := { defaultState with selfBalance := 20 }
+    ((ExternalCallInBodySmoke.lowLevel calldataAdversary 7 3).run s).getState.calls.head?.map
+      (fun call => call.calldata.head?.getD 0) = some 3 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.dynamicTry calldataAdversary "ab".toUTF8).run
+      defaultState).getValue? = some 2 := by
   decide
 
 example :

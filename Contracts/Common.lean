@@ -587,6 +587,13 @@ instance [ExternalResult α] [ExternalResult β] : ExternalResult (α × β) whe
     let leftCount := ExternalResult.wordCount (α := α)
     (ExternalResult.fromWords (words.take leftCount),
       ExternalResult.fromWords (words.drop leftCount))
+instance [ExternalResult α] : ExternalResult (Array α) where
+  fromWord value := #[ExternalResult.fromWord value]
+  fromWords words :=
+    let width := ExternalResult.wordCount (α := α)
+    if width == 0 then #[] else
+      (List.range (words.length / width)).toArray.map fun i =>
+        ExternalResult.fromWords (words.drop (i * width) |>.take width)
 
 namespace Call
 

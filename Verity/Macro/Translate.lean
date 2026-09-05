@@ -2482,8 +2482,13 @@ private def rewriteLinkedCallTerm
       let resultTy ← match ext? with
         | some ext => externalReturnTypeTerm ext
         | none => `(Unit)
+      let rewritten ← match ext? with
+        | some ext => args.zip ext.params |>.mapM fun (arg, ty) => do
+            let tyTerm ← contractValueTypeTerm ty
+            executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+        | none => args.mapM fun arg => `(ExternalArg.toWords $arg)
       `(term| callResultWordsResolved (α := $resultTy) $name
-          (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
   | `(term| tryExternalCall $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2492,8 +2497,13 @@ private def rewriteLinkedCallTerm
       let resultTy ← match ext? with
         | some ext => externalReturnTypeTerm ext
         | none => `(Unit)
+      let rewritten ← match ext? with
+        | some ext => args.zip ext.params |>.mapM fun (arg, ty) => do
+            let tyTerm ← contractValueTypeTerm ty
+            executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+        | none => args.mapM fun arg => `(ExternalArg.toWords $arg)
       `(term| tryExternalCallWordsResolved (α := $resultTy) $name
-          (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
   | `(term| evmCall($gas, $target, $value, $inOffset, $inSize, $outOffset, $outSize)) =>
       `(term| evmCallWords $adv $gas $target $value $inOffset $inSize $outOffset $outSize)
   | `(term| evmStaticCall($gas, $target, $inOffset, $inSize, $outOffset, $outSize)) =>
@@ -2509,6 +2519,8 @@ private def rewriteLinkedCallTerm
   | `(term| returnDataCopy($destOffset, $sourceOffset, $size))
     | `(term| returndataCopy $destOffset $sourceOffset $size) =>
       `(term| returndataCopyLive $destOffset $sourceOffset $size)
+  | `(term| memoryStore($offset, $value)) =>
+      `(term| mstore (externalArgWord $offset) (externalArgWord $value))
   | `(term| ecmCall $_moduleFactory:term $args:term) =>
       let argList ← expectTermListLiteral args
       `(term| ecmCallWords $adv (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))))
@@ -2582,6 +2594,7 @@ private def isLiveStateExternalCall (stx : Term) : Bool :=
   | `(term| returndataSize)
   | `(term| returnDataCopy($_, $_, $_))
   | `(term| returndataCopy $_ $_ $_)
+  | `(term| memoryStore($_, $_))
   | `(term| ecmCall $_ $_)
   | `(term| ecmDo $_ $_)
   | `(term| externalCallBind $_ $_ $_)
@@ -5097,8 +5110,14 @@ def validateFunctionDeclsPublic
       throwErrorAt fn.ident s!"function '{fn.name}': nonreentrant and cei_safe are mutually exclusive"
     validateFunctionBodyExprTypes fields errorDecls eventDecls constDecls immutableDecls externalDecls functions fn
 
+private partial def syntaxContainsLiveExternalCall (stx : Syntax) : Bool :=
+  isLiveStateExternalCall ⟨stx⟩ || (typedDotCallSyntax? ⟨stx⟩).isSome ||
+    match stx with
+    | .node _ _ args => args.any syntaxContainsLiveExternalCall
+    | _ => false
+
 def modifierContainsExternalCallSyntaxPublic (modDecl : ModifierDecl) : Bool :=
-  syntaxContainsCallExternal modDecl.body.raw
+  syntaxContainsLiveExternalCall modDecl.body.raw
 
 /-- Apply `with` modifiers in declared order. Inline both mixin and host-local
     bodies so the later executable adversary pass sees the same external-call
