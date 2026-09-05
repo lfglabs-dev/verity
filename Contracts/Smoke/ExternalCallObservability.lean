@@ -319,6 +319,13 @@ theorem same_length_array_mutation_observable (s : ContractState) :
 /-- Dynamic byte encoding is length-delimited and retains every byte. -/
 example : ExternalArg.toWords (⟨#[0x11, 0x12]⟩ : ByteArray) = [2, 0x11, 0x12] := rfl
 
+example : ExternalArg.toWords "ab" = [2, 0x61, 0x62] := rfl
+
+example :
+    let post := ((Contracts.mstore 7 11).run defaultState).snd
+    post.memory 7 = 11 ∧ post.memory 8 = 0 := by
+  decide
+
 /-- Same-length byte content mutations are observable at the journal. -/
 theorem same_length_bytes_mutation_observable (s : ContractState) :
     ((Contracts.externalCallBind ([] : List String) "bytesArg"

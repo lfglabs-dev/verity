@@ -143,6 +143,19 @@ def morphoOracleReadUsesSummary : Bool :=
 example : morphoOracleReadUsesSummary = true := by
   decide
 
+private def staticReadAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [37]
+  gasUsed := fun _ _ => 0
+
+example :
+    let result := (MorphoStyleOracleSummarySmoke.snapshotPrice
+      staticReadAdversary (0 : Address)).run defaultState
+    result.getValue? = some 37 ∧
+      result.getState.calls.map (·.kind) = [.staticcall] := by
+  decide
+
 -- Void (no-`returns`) interface methods lower to the no-output `externalCallNoReturn` ECM:
 -- a selector+args `call(...)` that bubbles failure returndata but performs no `returndatasize`
 -- check and binds no result. This is what real void callees (e.g. Aave V3 `supply`/`borrow`,

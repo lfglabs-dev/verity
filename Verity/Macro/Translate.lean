@@ -2260,6 +2260,20 @@ def translatedBodyOpensReentrancyWindow
     | _ => throwErrorAt bodyTerm
         "failed to reduce the translated reentrancy-window predicate"
 
+private def translatedBodyContainsExternalCall
+    (stmtTerms : Array Term) : CommandElabM Bool := do
+  let bodyTerm : Term ← `([ $[$stmtTerms],* ])
+  liftTermElabM do
+    let predicate : Term ← `(
+      Compiler.CompilationModel.Stmt.anyDeepList
+        Compiler.CompilationModel.stmtContainsExternalCallNode $bodyTerm)
+    let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
+    match ← Lean.Meta.withTransparency .all (Lean.Meta.whnf expr) with
+    | .const ``Bool.true _ => pure true
+    | .const ``Bool.false _ => pure false
+    | _ => throwErrorAt bodyTerm
+        "failed to reduce the translated external-call predicate"
+
 private def linkedExternalSiteId (externalDecls : Array ExternalDecl) (name : String) : Nat :=
   (externalDecls.findIdx? (fun ext => ext.name == name)).getD 0
 
@@ -2327,11 +2341,19 @@ private def rewriteTypedInterfaceCall?
     let tyTerm ← contractValueTypeTerm ty
     `(($arg : $tyTerm))
   if ext.returnTys.isEmpty then
-    some <$> `(term| externalCallEffectWords $(strTerm extName)
-      (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $siteId)
+    if ext.isView then
+      some <$> `(term| externalStaticCallEffectWords $(strTerm extName)
+        (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $siteId)
+    else
+      some <$> `(term| externalCallEffectWords $(strTerm extName)
+        (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $siteId)
   else
-    some <$> `(term| externalCallContractWords $(strTerm extName)
-      (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+    if ext.isView then
+      some <$> `(term| externalStaticCallContractWords $(strTerm extName)
+        (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+    else
+      some <$> `(term| externalCallContractWords $(strTerm extName)
+        (List.flatten ([ $[ExternalArg.toWords $rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
 
 private def rewriteLinkedCallTerm
     (externalDecls : Array ExternalDecl) (params : Array ParamDecl)
@@ -5038,6 +5060,7 @@ def mkFunctionCommandsPublic
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
   let opensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
+  let containsExternalCall ← translatedBodyContainsExternalCall stmtTerms
   let mut adversarialHelpers : Array FunctionDecl := #[]
   for helper in functions do
     let helperModel ←
@@ -5050,22 +5073,22 @@ def mkFunctionCommandsPublic
         | none => pure helper
     let helperStmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls
       immutableDecls externalDecls functions helperModel
-    if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
+    if ← translatedBodyContainsExternalCall helperStmtTerms then
       adversarialHelpers := adversarialHelpers.push helper
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw
-  let advTerm : Term ← if opensReentrancyWindow then
+  let advTerm : Term ← if containsExternalCall then
       pure ⟨advIdent.raw⟩
     else
       `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
-  let fnType ← if opensReentrancyWindow then
+  let fnType ← if containsExternalCall then
       mkContractFnTypeWithAdversary fn.params fn.returnTy
     else
       mkContractFnType fn.params fn.returnTy
   let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
     adversarialHelpers fn.params advTerm fnExecutableBody.raw⟩
-  let fnValue ← if opensReentrancyWindow then
+  let fnValue ← if containsExternalCall then
       mkContractFnValueWithAdversary advIdent fn.params fnExecutableBody
     else
       mkContractFnValue fn.params fnExecutableBody

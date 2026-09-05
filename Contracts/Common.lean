@@ -492,7 +492,10 @@ def rawLog (topics : List Uint256) (dataOffset dataSize : Uint256) : Contract Un
       events := state.events ++
         [{ name := s!"log{topics.length}", args := [dataOffset, dataSize], indexedArgs := topics }]
     }
-def mstore (_offset _value : Uint256) : Contract Unit := pure ()
+def mstore (offset value : Uint256) : Contract Unit := fun state =>
+  ContractResult.success () { state with
+    memory := Compiler.CompilationModel.DenoteFunctionCalls.writeMemoryWords
+      state.memory offset.val [value.val] 32 }
 def tstore (offset value : Uint256) : Contract Unit := fun state =>
   ContractResult.success () (state.writeTransient (offset : Nat) value)
 /-- Canonical journal-word encoding for executable external-call arguments.
@@ -543,6 +546,8 @@ instance [ExternalArg α] : ExternalArg (Array α) where
   toWords values := values.size :: (values.toList.flatMap ExternalArg.toWords)
 instance : ExternalArg ByteArray where
   toWords bytes := bytes.size :: (bytes.data.toList.map (fun byte => (byte.toNat : Uint256)))
+instance : ExternalArg String where
+  toWords value := ExternalArg.toWords value.toUTF8
 instance : ExternalResult Uint256 where
   fromWord value := value
 instance : ExternalResult Uint16 where
@@ -760,10 +765,35 @@ def externalCallContractWords {α : Type} [ExternalResult α]
       .revert "external call failed" state
   | .revert message _ => .revert message state
 
+def externalStaticCallContractWords {α : Type} [ExternalResult α]
+    (name : String) (args : List Uint256) (adv : AdversaryModel := .stub)
+    (arity : Nat := 1) (siteId : Nat := 0) : Contract α := fun state =>
+  match (commonExternalCall adv
+      (linkedCallSite name args arity .staticcall 0 0 [] siteId)).run state with
+  | .success (.success returndata) post =>
+      if arity ≤ returndata.length then
+        .success (ExternalResult.fromWords
+          ((returndata.take arity).map Core.Uint256.ofNat)) post
+      else
+        .revert "external call returned malformed data" state
+  | .success (.failure _) _ | .success (.revert _) _ =>
+      .revert "external call failed" state
+  | .revert message _ => .revert message state
+
 def externalCallEffectWords
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub)
     (siteId : Nat := 0) : Contract Unit :=
   Verity.bind (commonExternalCall adv (linkedCallSite name args 0 .call 0 0 [] siteId)) fun result =>
+    match result with
+    | .success _ => pure ()
+    | .failure _ | .revert _ => fun state =>
+        ContractResult.revert "external call failed" state
+
+def externalStaticCallEffectWords
+    (name : String) (args : List Uint256) (adv : AdversaryModel := .stub)
+    (siteId : Nat := 0) : Contract Unit :=
+  Verity.bind (commonExternalCall adv
+      (linkedCallSite name args 0 .staticcall 0 0 [] siteId)) fun result =>
     match result with
     | .success _ => pure ()
     | .failure _ | .revert _ => fun state =>
