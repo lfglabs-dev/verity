@@ -62,6 +62,18 @@ private def staleCaller : Compiler.CompilationModel.Denote.DenoteState :=
 private def rawCallSite : CallSite :=
   { siteId := 0, kind := .call, target := 9, value := 0, calldata := [7], gas := 1000 }
 
+private def rawCallLetVarWorks : Bool :=
+    match execStmtWithCalls echoEnv [] staleCaller
+        (.letVar "ok" (.call (.literal 1000) (.literal 9) (.literal 0)
+          (.literal 0) (.literal 0) (.literal 0) (.literal 0))) with
+    | .continue post =>
+        Compiler.CompilationModel.Denote.lookupValue post.bindings "ok" == 1 &&
+          post.world.calls.length == 1
+    | _ => false
+
+example : rawCallLetVarWorks = true := by
+  native_decide
+
 private def callBitBuffer (r : Option (Nat × Compiler.CompilationModel.Denote.DenoteState)) :
     Option (Nat × List Nat) :=
   r.map (fun (b, s) => (b, s.world.returndata))

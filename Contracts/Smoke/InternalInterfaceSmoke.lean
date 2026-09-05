@@ -113,10 +113,15 @@ verity_contract TypedInterfaceNestedFixedReturnSmoke where
   interfaces
     interface IPool where
       function fetch() returns (Tuple [FixedArray Uint256 2, Uint256])
+      function submitFixed(FixedArray Uint256 2) returns (Uint256)
     end
 
   function fetchNested (pool : IPool) : Tuple [FixedArray Uint256 2, Uint256] := do
     let result ← pool.fetch
+    return result
+
+  function submitFixed (pool : IPool, values : FixedArray Uint256 2) : Uint256 := do
+    let result ← pool.submitFixed values
     return result
 
 private def nestedFixedResultAdversary :
@@ -125,9 +130,20 @@ private def nestedFixedResultAdversary :
   result := fun _ _ => .success [7, 9, 11]
   gasUsed := fun _ _ => 0
 
+private def fixedArgumentAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site _ => .success [site.calldata.getLast?.getD 0]
+  gasUsed := fun _ _ => 0
+
 example :
     ((TypedInterfaceNestedFixedReturnSmoke.fetchNested nestedFixedResultAdversary 1).run
       defaultState).getValue? = some (#[7, 9], 11) := by
+  native_decide
+
+example :
+    ((TypedInterfaceNestedFixedReturnSmoke.submitFixed fixedArgumentAdversary 1 #[7, 9]).run
+      defaultState).getValue? = some 9 := by
   native_decide
 
 verity_contract MorphoStyleOracleSummarySmoke where

@@ -465,6 +465,34 @@ verity_contract GenericECMMultiResultSmoke where
     setStorage lastX sumX
     setStorage lastY sumY
 
+def genericECMTripleResultModule : Compiler.ECM.ExternalCallModule where
+  name := "genericTripleResult"
+  numArgs := 0
+  resultVars := ["first", "second", "third"]
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ctx _args => pure []
+
+verity_contract GenericECMTripleResultSmoke where
+  storage
+    last : Uint256 := slot 0
+
+  function allow_post_interaction_writes storeThird () : Unit := do
+    ecmBind [first, second, third] genericECMTripleResultModule []
+    setStorage last third
+
+private def tripleResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [1, 2, 3]
+  gasUsed := fun _ _ => 0
+
+example :
+    (((GenericECMTripleResultSmoke.storeThird tripleResultAdversary).run defaultState).getState
+      ).storage 0 = 3 := by
+  native_decide
+
 verity_contract GenericECMWriteSmoke where
   storage
 

@@ -2313,10 +2313,17 @@ private def flattenedExternalArity (ext : ExternalDecl) : CommandElabM Nat := do
       pure total
 
 private def executableLinkedArgWords (arg : Term) (ty : ValueType) : CommandElabM Term := do
-  if externalCallDynamicArgSupported ty then
-    `(externalDynamicArgWords $arg)
-  else
-    `(ExternalArg.toWords $arg)
+  match ty with
+  | .fixedArray elemTy _ =>
+      let value ← Lean.Elab.Term.mkFreshIdent (mkIdent `_fixedElem).raw
+      let valueTerm : Term := ⟨value.raw⟩
+      let elemWords ← executableLinkedArgWords valueTerm elemTy
+      `(term| ($arg).toList.flatMap (fun $value => $elemWords))
+  | _ =>
+      if externalCallDynamicArgSupported ty then
+        `(externalDynamicArgWords $arg)
+      else
+        `(ExternalArg.toWords $arg)
 
 private partial def executableExternalResultDecoder (ty : ValueType) : CommandElabM Term := do
   match ty with
@@ -3002,8 +3009,31 @@ private partial def threadAdversaryThroughExecutableSyntax
         let right := ids[1]!
         `(doElem| let ($left, $right) ← (ecmCallPairWords $module $adv
           (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256)))))
+      else if ids.isEmpty then
+        `(doElem| ecmDoWords $module $adv
+          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))))
       else
-        throwErrorAt names "executable ecmBind currently supports one or two results"
+        let idTerms := ids.map (fun id => (⟨id.raw⟩ : Term))
+        let rec nestedTuple (terms : List Term) : CommandElabM Term := do
+          match terms with
+          | [left, right] => `(term| ($left, $right))
+          | head :: tail =>
+              let rest ← nestedTuple tail
+              `(term| ($head, $rest))
+          | _ => throwErrorAt names "ECM tuple binding requires at least two results"
+        let tuplePattern ← nestedTuple idTerms.toList
+        let uintTy ← `(term| Uint256)
+        let rec nestedTupleType (terms : List Term) : CommandElabM Term := do
+          match terms with
+          | [left, right] => `(term| $left × $right)
+          | head :: tail =>
+              let rest ← nestedTupleType tail
+              `(term| $head × $rest)
+          | _ => throwErrorAt names "ECM tuple type requires at least two results"
+        let tupleType ← nestedTupleType (ids.toList.map (fun _ => uintTy))
+        `(doElem| let $tuplePattern:term ← (ecmCallTypedWords (α := $tupleType)
+          $module $adv
+          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256)))))
   | `(doElem| $fn:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
       if toString fn.getId == "__verityTypedEffect" then

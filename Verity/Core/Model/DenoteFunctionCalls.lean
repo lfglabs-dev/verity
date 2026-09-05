@@ -251,6 +251,20 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
 mutual
   def execStmtWithCalls (env : CallEnv) (fields : List Field) :
       DenoteState → Stmt → StmtOutcome
+    | state, .letVar name value =>
+        match evalExprCall env fields state value with
+        | some (resolved, post) =>
+            .continue { post with bindings := bindValue post.bindings name resolved }
+        | none => .revert
+    | state, .assignVar name value =>
+        match evalExprCall env fields state value with
+        | some (resolved, post) =>
+            .continue { post with bindings := bindValue post.bindings name resolved }
+        | none => .revert
+    | state, .return value =>
+        match evalExprCall env fields state value with
+        | some (resolved, post) => .return resolved post
+        | none => .revert
     | state, .externalCallBind resultVars name args =>
         execExternalCallBind env fields state resultVars name args
     | state, .tryExternalCallBind successVar resultVars name args =>

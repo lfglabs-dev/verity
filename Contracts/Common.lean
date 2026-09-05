@@ -1019,19 +1019,32 @@ def tryExternalCallWordsResolved {α : Type} [ExternalResult α] [Inhabited α]
 
 /-- Mutable ECM executable crossing: consults the caller adversary instead of
 the no-op `ecmCall` syntax fallback. -/
+def ecmCallTypedWords {α : Type} [ExternalResult α]
+    (mod : Compiler.ECM.ExternalCallModule)
+    (adv : AdversaryModel) (args : List Uint256)
+    (siteId : Nat := 0) : Contract α := fun state =>
+  let kind := if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+    Compiler.CompilationModel.DenoteExternalCalls.CallKind.staticcall
+  else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call
+  match (commonExternalCall adv
+      (linkedCallSite mod.summaryName args mod.resultVars.length kind 0 0 [] siteId)).run state with
+  | .success (.success returndata) post =>
+      if returndata.length = mod.resultVars.length then
+        .success (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
+      else .revert "ECM returned malformed data" state
+  | .success (.failure _) _ | .success (.revert _) _ =>
+      .revert "ECM call failed" state
+  | .revert message _ => .revert message state
+
 def ecmCallWords (mod : Compiler.ECM.ExternalCallModule)
     (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat := 0) : Contract Uint256 :=
-  if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
-    externalStaticCallContractWords (α := Uint256) mod.summaryName args adv 1 siteId
-  else externalCallContractWords (α := Uint256) mod.summaryName args adv 1 siteId
+  ecmCallTypedWords mod adv args siteId
 
 def ecmCallPairWords (mod : Compiler.ECM.ExternalCallModule)
     (adv : AdversaryModel) (args : List Uint256)
     (siteId : Nat := 0) : Contract (Uint256 × Uint256) :=
-  if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
-    externalStaticCallContractWords (α := Uint256 × Uint256) mod.summaryName args adv 2 siteId
-  else externalCallContractWords (α := Uint256 × Uint256) mod.summaryName args adv 2 siteId
+  ecmCallTypedWords mod adv args siteId
 
 def ecmDoWords (mod : Compiler.ECM.ExternalCallModule)
     (adv : AdversaryModel) (args : List Uint256)

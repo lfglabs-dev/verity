@@ -147,4 +147,19 @@ example :
     out.getValue? = some 1 ∧ out.getState.readSlot 99 = 0 := by
   decide
 
+private def oversizedEcmResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [1, 2]
+  gasUsed := fun _ _ => 0
+
+private def oversizedEcmResultReverts : Bool :=
+    let mod := Compiler.Modules.Hashing.eip712DigestModule "result"
+    match (Contracts.ecmCallWords mod oversizedEcmResultAdversary []).run defaultState with
+    | .revert _ _ => true
+    | _ => false
+
+example : oversizedEcmResultReverts = true := by
+  decide
+
 end Contracts.Smoke
