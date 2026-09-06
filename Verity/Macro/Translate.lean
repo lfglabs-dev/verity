@@ -5322,7 +5322,10 @@ def mkConstructorDefCommandPublic
     callsAdversarial
   let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
-  let advTerm : Term := ⟨advIdent.raw⟩
+  let advTerm : Term ← if opensReentrancyWindow then
+      pure ⟨advIdent.raw⟩
+    else
+      `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
   let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers
     ctor.params advTerm executableBody.raw⟩
   let fnType ← if opensReentrancyWindow then
@@ -5362,7 +5365,10 @@ def mkHostConstructorDefCommandPublic
           mixinExternal := mixinExternal.push mixinName
   let containsExternalCall := ownExternal || !mixinExternal.isEmpty
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
-  let advTerm : Term := ⟨advIdent.raw⟩
+  let advTerm : Term ← if containsExternalCall then
+      pure ⟨advIdent.raw⟩
+    else
+      `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
   let fnType ← if containsExternalCall then
       mkContractFnTypeWithAdversary ctor.params .unit
     else
