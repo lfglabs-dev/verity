@@ -180,6 +180,11 @@ def evalExprCall (env : CallEnv) (fields : List Field) (state : DenoteState) :
           some (wordNormalize result, { state with world := { obs.state.world with
             returndata := [wordNormalize result] } })
       | _ => none
+  | .add a b => do
+      let (av, afterA) ← evalExprCall env fields state a
+      let (bv, afterB) ← evalExprCall env fields afterA b
+      let result ← evalExpr env.oracle fields afterB (.add (.literal av) (.literal bv))
+      some (result, afterB)
   | .bitAnd a b => do
       let (av, afterA) ← evalExprCall env fields state a
       let (bv, afterB) ← evalExprCall env fields afterA b
@@ -238,7 +243,8 @@ def execExternalCallBind (env : CallEnv) (fields : List Field)
       | some paid =>
           let site : CallSite :=
             { siteId := link.siteId, kind := .call, target := link.target
-              value := link.value, calldata := argWords, gas := paid.selfBalance.val }
+              value := link.value, calldata := argWords, name := externalName
+              returnArity := resultVars.length, gas := paid.selfBalance.val }
           let obs := denoteCallJournaled env.adversary site
             { world := paid, gasRemaining := site.gas }
           match obs.result with
@@ -271,7 +277,8 @@ def execTryExternalCallBind (env : CallEnv) (fields : List Field)
       | some paid =>
           let site : CallSite :=
             { siteId := link.siteId, kind := .call, target := link.target
-              value := link.value, calldata := argWords, gas := paid.selfBalance.val }
+              value := link.value, calldata := argWords, name := externalName
+              returnArity := resultVars.length, gas := paid.selfBalance.val }
           let obs := denoteCallJournaled env.adversary site
             { world := paid, gasRemaining := site.gas }
           match obs.result with

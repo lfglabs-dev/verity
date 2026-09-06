@@ -5279,7 +5279,7 @@ private def constructorContainsExternalCall
     (ctor : ConstructorDecl) : CommandElabM Bool := do
   let stmts ← translateConstructorBodyToStmtTerms fields errorDecls constDecls
     immutableDecls externalDecls functions ctor
-  translatedBodyContainsExternalCall stmts
+  translatedBodyOpensReentrancyWindow stmts
 
 private def constructorAdversarialHelpers
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
@@ -5290,7 +5290,7 @@ private def constructorAdversarialHelpers
   for helper in functions do
     let stmts ← translateBodyToStmtTerms fields #[] errorDecls constDecls immutableDecls
       externalDecls functions helper
-    if ← translatedBodyContainsExternalCall stmts then
+    if ← translatedBodyOpensReentrancyWindow stmts then
       adversarial := adversarial.push helper
   for _ in [:functions.size] do
     let names := adversarial.map (·.name)
@@ -5485,8 +5485,7 @@ def mkFunctionCommandsPublic
       | some inlined => pure inlined
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
-  let _opensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
-  let directlyContainsExternalCall ← translatedBodyContainsExternalCall stmtTerms
+  let directlyOpensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
   let mut adversarialHelpers : Array FunctionDecl := #[]
   let mut translatedHelpers : Array (FunctionDecl × FunctionDecl) := #[]
   for helper in functions do
@@ -5501,7 +5500,7 @@ def mkFunctionCommandsPublic
     let helperStmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls
       immutableDecls externalDecls functions helperModel
     translatedHelpers := translatedHelpers.push (helper, helperModel)
-    if ← translatedBodyContainsExternalCall helperStmtTerms then
+    if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
       adversarialHelpers := adversarialHelpers.push helper
   -- External-call capability is transitive across internal helpers. Iterate to a
   -- fixed point so every caller in a multi-hop helper chain receives and forwards
@@ -5519,7 +5518,7 @@ def mkFunctionCommandsPublic
       break
   let adversarialNames := adversarialHelpers.map (·.name)
   let callsAdversarial ← syntaxCallsAnyHelper adversarialNames modelFn.body.raw
-  let containsExternalCall := directlyContainsExternalCall ||
+  let containsExternalCall := directlyOpensReentrancyWindow ||
     callsAdversarial
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.

@@ -69,6 +69,11 @@ private def identityEnv : CallEnv :=
     adversary := identityAdversary
     resolve := fun _ => some { target := 9, value := 0, siteId := 0 } }
 
+private def stubEnv : CallEnv :=
+  { oracle := probeOracle
+    adversary := AdversaryModel.stub
+    resolve := fun _ => some { target := 9, value := 0, siteId := 0 } }
+
 private def nestedOnlyEnv : CallEnv :=
   { oracle := probeOracle
     adversary := echoAdversary
@@ -202,6 +207,12 @@ example :
 example :
     outcomeBuffer (execTryExternalCallBind echoEnv [] staleCaller "ok" ["r"] "linked"
       [.literal 7]) = some [7] := by
+  native_decide
+
+/-- A result-returning try call supplies its exact name and arity to `.stub`. -/
+example :
+    outcomeBinding "r" (execTryExternalCallBind stubEnv [] staleCaller "ok" ["r"]
+      "linked" [.literal 7]) = some (AdversaryModel.stubWord "linked" [7]) := by
   native_decide
 
 /-- Successful try calls reject returndata outside the declared arity. -/

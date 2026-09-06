@@ -289,7 +289,7 @@ example : (ExternalCallInBodySmoke.linkedRead_modelBody).take 1 =
 
 example : (ExternalCallInBodySmoke.linkedWrite_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.externalCallBind [] "deposit"
-      [ .param "amount", .literal 0, .param "pubkey_length" ]] := rfl
+      [ .param "amount", .param "pubkey_data_offset", .param "pubkey_length" ]] := rfl
 
 example : (ExternalCallInBodySmoke.pureNarrow_modelBody).take 1 =
     [Compiler.CompilationModel.Stmt.letVar "result"
@@ -349,6 +349,10 @@ example : (ExternalCallInBodySmoke.tryDirtyPair_modelBody).take 4 =
     , .assignVar "result_narrow"
         (.bitAnd (.localVar "result_narrow") (.literal (2 ^ 32 - 1)))
     , .return (.localVar "result_narrow") ] := rfl
+
+example : (ExternalCallInBodySmoke.dynamicTry_modelBody).take 1 =
+    [.tryExternalCallBind "_success" ["result"] "dirtyBytesArg"
+      [.param "payload_data_offset", .param "payload_length"]] := rfl
 
 example : (ExternalCallInBodySmoke.bindDirtyAddress_modelBody).take 2 =
     [ .externalCallBind ["result"] "dirtyAddress" []

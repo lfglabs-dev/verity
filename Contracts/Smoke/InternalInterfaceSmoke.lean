@@ -182,17 +182,9 @@ def morphoOracleReadUsesSummary : Bool :=
 example : morphoOracleReadUsesSummary = true := by
   decide
 
-private def staticReadAdversary :
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
-  stateTransition := fun _ state => state
-  result := fun _ _ => .success [37]
-  gasUsed := fun _ _ => 0
-
 example :
-    let result := (MorphoStyleOracleSummarySmoke.snapshotPrice
-      staticReadAdversary (23 : Address)).run defaultState
-    result.getValue? = some 37 ∧
-      result.getState.calls.map (·.kind) = [.staticcall] ∧
+    let result := (MorphoStyleOracleSummarySmoke.snapshotPrice (23 : Address)).run defaultState
+    result.getState.calls.map (·.kind) = [.staticcall] ∧
       result.getState.calls.map (·.target) = [23] := by
   decide
 
