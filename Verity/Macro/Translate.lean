@@ -16,8 +16,6 @@ import Verity.Macro.Internal
 import Verity.Macro.Storage
 import Verity.Macro.Types
 import Verity.Macro.Syntax
-import Verity.Core.Model.CallbackBridge
-import Verity.Core.Model.NonReentrantGuard
 
 namespace Verity.Macro
 
