@@ -259,7 +259,7 @@ def recoverSignerModelUsesEcrecoverEcm : Bool :=
 example : recoverSignerModelUsesEcrecoverEcm = true := by native_decide
 
 def recoverSignerExecutableNeedsNoAdversary : Bool :=
-  match MacroEcrecover.recoverSigner .stub 10 27 30 40 Verity.defaultState with
+  match MacroEcrecover.recoverSigner 10 27 30 40 Verity.defaultState with
   | .success _ state =>
       state.sender == Verity.defaultState.sender
   | .revert _ _ => false
