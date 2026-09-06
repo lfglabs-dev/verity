@@ -72,7 +72,8 @@ example :
       ContractResult.success
         { success := true, returndata := (7 : Uint256) }
         { defaultState with
-            calls := [Contracts.linkedCallEntry "echo" [7] .success [7]] } := by
+            calls := [Contracts.linkedCallEntry "echo" [7] .success [7]]
+            returndata := [7] } := by
   rfl
 
 namespace StatefulExternalSmoke
@@ -464,11 +465,85 @@ verity_contract GenericECMMultiResultSmoke where
     setStorage lastX sumX
     setStorage lastY sumY
 
+def genericECMTripleResultModule : Compiler.ECM.ExternalCallModule where
+  name := "genericTripleResult"
+  numArgs := 0
+  resultVars := ["first", "second", "third"]
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ctx _args => pure []
+
+verity_contract GenericECMTripleResultSmoke where
+  storage
+    last : Uint256 := slot 0
+
+  function allow_post_interaction_writes storeThird () : Unit := do
+    ecmBind [first, second, third] genericECMTripleResultModule []
+    setStorage last third
+
+/-- A read-only ECM uses the deterministic stub without exposing an adversary parameter. -/
+example :
+    ((GenericECMTripleResultSmoke.storeThird).run defaultState).getState.calls.length = 1 := by
+  decide
+
 verity_contract GenericECMWriteSmoke where
   storage
 
   function runEffect (lhs : Uint256, rhs : Uint256) : Unit := do
     ecmDo genericECMEffectDemoModule [lhs, rhs]
+
+example :
+    ((GenericECMWriteSmoke.runEffect 1 2).run defaultState).getState.calls.length = 1 := by
+  native_decide
+
+def directDynamicEcmResultModule (resultVar : String) : Compiler.ECM.ExternalCallModule where
+  name := "directDynamicEcmResult"
+  numArgs := 2
+  resultVars := [resultVar]
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ctx _args => pure []
+
+def directDynamicEcmEffectModule : Compiler.ECM.ExternalCallModule where
+  name := "directDynamicEcmEffect"
+  numArgs := 2
+  resultVars := []
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ctx _args => pure []
+
+verity_contract DirectDynamicECMArgSmoke where
+  storage
+
+  function fromCall (payload : Bytes) : Uint256 := do
+    let result ← ecmCall directDynamicEcmResultModule [payload]
+    return result
+
+  function fromDo (message : String) : Unit := do
+    ecmDo directDynamicEcmEffectModule [message]
+
+  function fromBind (values : Array Uint256) : Unit := do
+    ecmBind [result] (directDynamicEcmResultModule "result") [values]
+
+/-- Executable ECM calls use the same synthetic `data_offset, length` key as
+the model for direct bytes, string, and dynamic-array parameters. -/
+example :
+    ((DirectDynamicECMArgSmoke.fromCall (ByteArray.mk #[1, 2, 3])).run defaultState).getState.calls.head?.map
+        (fun call => call.calldata) = some [0, 3] := by
+  decide
+
+example :
+    ((DirectDynamicECMArgSmoke.fromDo "verity").run
+      defaultState).getState.calls.head?.map (fun call => call.calldata) = some [0, 6] := by
+  decide
+
+example :
+    ((DirectDynamicECMArgSmoke.fromBind #[4, 5]).run
+      defaultState).getState.calls.head?.map (fun call => call.calldata) = some [0, 2] := by
+  decide
 
 verity_contract BubblingValueCallECMSmoke where
   storage
@@ -514,7 +589,6 @@ set_option linter.unusedVariables false in
 verity_contract LowLevelTryCatchSmoke where
   storage
     lastOutcome : Uint256 := slot 0
-
   function allow_post_interaction_writes reentrancy_trusted catchFailure ()
     local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
     : Uint256
@@ -539,6 +613,16 @@ verity_contract LowLevelTryCatchSmoke where
     := do
     tryCatch (call 0 0 1 0 0 0 0) (do
       setStorage lastOutcome 11)
+    let current ← getStorage lastOutcome
+    return current
+
+  function allow_post_interaction_writes reentrancy_trusted skipExternalCatchOnSuccess ()
+    local_obligations [manual_low_level_refinement := assumed "Low-level call success/failure boundary still requires a manual refinement argument."]
+    : Uint256
+    := do
+    tryCatch (call 1 0 0 0 0 0 0) (do
+      let value ← evmCall(1, 0, 0, 0, 0, 0, 0)
+      setStorage lastOutcome value)
     let current ← getStorage lastOutcome
     return current
 
@@ -805,5 +889,61 @@ verity_contract StructMappingWrongScalarAddressReadAccessor where
   function delegateWord () : Address := do
     let word ← getStorageAddr positions
     return word
+
+/-! ### PR3 executable close-out: arity and failure continuation -/
+
+private def arityAdversary (arity : Nat) (words : List Nat) :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site _ =>
+    if site.returnArity = arity then .success words else .success []
+  gasUsed := fun _ _ => 0
+
+private def failAdv :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .failure [5]
+  gasUsed := fun _ _ => 0
+
+/-- Declared arity 0: a successful empty payload continues as `(true, default)`. -/
+example :
+    (Contracts.tryExternalCallWords (α := Unit) "notifyBool" [1]
+      (arityAdversary 0 []) 0 15).run defaultState =
+      ContractResult.success (true, ())
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "notifyBool" [1] .success [] 15]
+            returndata := [] } := rfl
+
+/-- Declared arity 2: both words are accepted; the helper no longer reverts
+on a non-singleton payload. -/
+example :
+    (Contracts.tryExternalCallWords (α := Uint256) "dirtyPair" []
+      (arityAdversary 2 [7, 9]) 2 6).run defaultState =
+      ContractResult.success (true, (7 : Uint256))
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "dirtyPair" [] .success [7, 9] 6]
+            returndata := [7, 9] } := rfl
+
+/-- Bound helpers auto-revert on adversary failure instead of fabricating 0. -/
+example :
+    (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" [] failAdv 1 4).run
+      defaultState =
+      ContractResult.revert "external call failed" defaultState := rfl
+
+/-- Bound helpers auto-revert when success returndata is shorter than arity. -/
+example :
+    (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" []
+      (arityAdversary 1 []) 1 4).run defaultState =
+      ContractResult.revert "external call returned malformed data" defaultState := rfl
+
+/-- Bound helpers decode the declared prefix and tolerate trailing returndata,
+matching the compilation model's external-call binding semantics. -/
+example :
+    (Contracts.externalCallContractWords (α := Uint256) "dirtyUint" []
+      (arityAdversary 1 [7, 9]) 1 4).run defaultState =
+      ContractResult.success 7
+        { defaultState with
+            calls := [Contracts.linkedCallEntry "dirtyUint" [] .success [7, 9] 4]
+            returndata := [7, 9] } := rfl
 
 end Contracts.Smoke

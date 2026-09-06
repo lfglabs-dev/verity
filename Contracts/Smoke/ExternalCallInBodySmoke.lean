@@ -43,6 +43,7 @@ verity_contract ExternalCallInBodySmoke where
     external dirtyUint_try() -> (Bool, Uint32)
     external dirtyPair() -> (NarrowPair)
     external dirtyPair_try() -> (Bool, NarrowPair)
+    external dirtyBytesArg(Bytes) -> (Uint256)
     external dirtyInt() -> (Int32)
     external dirtyBytes() -> (Bytes4)
     external dirtyAddress() -> (Address)
@@ -60,6 +61,35 @@ verity_contract ExternalCallInBodySmoke where
   function reentrancy_trusted linkedWrite (amount : Uint256, pubkey : Bytes) : Unit := do
     callExternal deposit(amount, pubkey)
 
+  function reentrancy_trusted adversarialLeaf (value : Uint32) : Uint32 := do
+    return callExternal dirtySink(value)
+
+  function reentrancy_trusted adversarialForwarder (value : Uint32) : Uint32 := do
+    let result ← adversarialLeaf(value)
+    return result
+
+  function reentrancy_trusted transitiveAdversarialCall (value : Uint32) : Uint32 := do
+    let result ← adversarialForwarder(value)
+    return result
+
+  function helperNameShadow (adversarialLeaf : Uint256) : Uint256 := do
+    return adversarialLeaf
+
+  function reentrancy_trusted conditionalLinkedRead (takeCall : Bool) : Uint256 := do
+    if takeCall then
+      return callExternal narrowEcho(1)
+    else
+      return 7
+
+  function reentrancy_trusted revertNestedExternalArg () : Unit := do
+    revert Failure(callExternal narrowEcho(1))
+
+  function reentrancy_trusted revertErrorNestedExternalArg () : Unit := do
+    revertError Failure(callExternal narrowEcho(1))
+
+  function reentrancy_trusted panicNestedExternalArg () : Unit := do
+    panic(callExternal narrowEcho(1))
+
   function reentrancy_trusted pureNarrow () : Uint256 := do
     let result := callExternal narrowEcho(0xdeadbeef)
     return result
@@ -67,6 +97,14 @@ verity_contract ExternalCallInBodySmoke where
   function reentrancy_trusted pureDirtyUint () : Uint32 := do
     let result := callExternal dirtyUint()
     return result
+
+  function reentrancy_trusted mutableDirtyUint () : Uint32 := do
+    let mut result := callExternal dirtyUint()
+    result := callExternal dirtyUint()
+    return result
+
+  function reentrancy_trusted adversaryNameDoesNotCapture (_adv : Uint256) : Uint32 := do
+    return callExternal dirtyUint()
 
   function reentrancy_trusted directDirtyUint () : Uint32 := do
     return callExternal dirtyUint()
@@ -101,6 +139,14 @@ verity_contract ExternalCallInBodySmoke where
   function reentrancy_trusted tryDirtyPair () : Uint32 := do
     let (_success, result) ← tryExternalCall "dirtyPair" []
     return result.narrow
+
+  function reentrancy_trusted duplicateIdenticalCalls () : Uint32 := do
+    return callExternal dirtyUint() + callExternal dirtyUint()
+
+  function reentrancy_trusted dynamicTry (payload : Bytes) : Uint256 := do
+    let (_success, result) ← tryExternalCall "dirtyBytesArg" [payload]
+    return result
+
 
   function reentrancy_trusted bindDirtyAddress () : Address := do
     let result ← callExternal dirtyAddress()
@@ -303,6 +349,10 @@ example : (ExternalCallInBodySmoke.tryDirtyPair_modelBody).take 4 =
     , .assignVar "result_narrow"
         (.bitAnd (.localVar "result_narrow") (.literal (2 ^ 32 - 1)))
     , .return (.localVar "result_narrow") ] := rfl
+
+example : (ExternalCallInBodySmoke.dynamicTry_modelBody).take 1 =
+    [.tryExternalCallBind "_success" ["result"] "dirtyBytesArg"
+      [.param "payload_data_offset", .param "payload_length"]] := rfl
 
 example : (ExternalCallInBodySmoke.bindDirtyAddress_modelBody).take 2 =
     [ .externalCallBind ["result"] "dirtyAddress" []
@@ -790,5 +840,142 @@ example : ExternalCallInBodySmoke.tupleArrayLinkedIndexReturn_modelBody =
         , Compiler.CompilationModel.Expr.arrayElementWord "cuts"
             (Compiler.CompilationModel.Expr.localVar "arrayElement_index") 2 1 ] ] := by
   rfl
+
+/-- Live-state expression/bind helpers observe the caller `selfBalance`, not
+`defaultState`. -/
+private def balanceAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ s => .success [s.selfBalance.val]
+  gasUsed := fun _ _ => 0
+
+private def transitiveAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [41]
+  gasUsed := fun _ _ => 0
+
+private def resolvedLinkAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site state =>
+    .success [site.target + site.value + site.gas + state.selfBalance.val]
+  gasUsed := fun _ _ => 0
+
+private def resolvedLinkContext : Contracts.ExecutableCallContext :=
+  { adversary := resolvedLinkAdversary
+    resolve := fun name _ =>
+      if name == "getDepositableEther" then
+        some { target := 5, value := 3, siteId := 19 }
+      else none }
+
+private def unresolvedLinkContext : Contracts.ExecutableCallContext :=
+  { adversary := .stub
+    resolve := fun _ _ => none }
+
+example :
+    ((ExternalCallInBodySmoke.helperNameShadow 7).run defaultState).getValue? = some 7 := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with returndata := [41, 42] }
+    let out := (Contracts.tryExternalCallWordsResolved (α := Uint256)
+      "missing" [] unresolvedLinkContext).run s
+    out.getValue?.map Prod.fst = some false ∧ out.getState.returndata = [41, 42] := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with selfBalance := 7 }
+    (Contracts.externalCallContractWords (α := Uint256) "getDepositableEther" []
+      balanceAdversary 1 0).run s =
+      ContractResult.success (7 : Uint256)
+        { s with
+            calls := [Contracts.linkedCallEntry "getDepositableEther" [] .success [7] 0]
+            returndata := [7] } := rfl
+
+example :
+    ((ExternalCallInBodySmoke.conditionalLinkedRead .stub false).run defaultState).getValue? =
+      some 7 ∧
+    ((ExternalCallInBodySmoke.conditionalLinkedRead .stub false).run defaultState).getState.calls =
+      [] := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.conditionalLinkedRead .stub true).run defaultState).getState.calls.length =
+      1 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.transitiveAdversarialCall transitiveAdversary 1).run
+      defaultState).getValue? = some 41 := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with selfBalance := 20 }
+    let out := (ExternalCallInBodySmoke.linkedRead resolvedLinkContext).run s
+    out.getValue? = some 42 ∧
+      out.getState.selfBalance = 17 ∧
+      out.getState.calls.map (fun call => (call.siteId, call.target, call.value)) =
+        [(19, 5, 3)] := by
+  decide
+
+private def structResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [7, 9]
+  gasUsed := fun _ _ => 0
+
+example :
+    ((ExternalCallInBodySmoke.tryDirtyPair structResultAdversary).run defaultState).getValue? =
+      some 7 := by
+  decide
+
+example :
+    ((Contracts.externalCallContractWords (α := Array Uint256) "dirtyFixed" []
+      structResultAdversary 2).run defaultState).getValue? = some #[7, 9] := by
+  native_decide
+
+private def orderedResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ state => .success [state.calls.length + 1]
+  gasUsed := fun _ _ => 0
+
+example :
+    ((ExternalCallInBodySmoke.duplicateIdenticalCalls orderedResultAdversary).run
+      defaultState).getValue? = some 3 := by
+  decide
+
+private def calldataAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site _ => .success [site.calldata.getLast?.getD 0]
+  gasUsed := fun _ _ => 0
+
+example :
+    let s : ContractState := { defaultState with selfBalance := 20 }
+    ((ExternalCallInBodySmoke.lowLevel calldataAdversary 7 3).run s).getState.calls.head?.map
+      (fun call => call.calldata.head?.getD 0) = some 3 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.dynamicTry calldataAdversary "ab".toUTF8).run
+      defaultState).getValue? = some 2 := by
+  decide
+
+example :
+    ((ExternalCallInBodySmoke.customErrorNestedExternalArg transitiveAdversary).run
+      defaultState).getState.calls = [] := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with selfBalance := 10 }
+    ((ExternalCallInBodySmoke.lowLevel transitiveAdversary 7 1).run s).getState.memory 96 = 41 := by
+  decide
+
+example :
+    let s : ContractState := { defaultState with returndata := [41] }
+    (ExternalCallInBodySmoke.composedReturnDataSize.run s).getValue? = some 33 := by
+  decide
 
 end Contracts.Smoke

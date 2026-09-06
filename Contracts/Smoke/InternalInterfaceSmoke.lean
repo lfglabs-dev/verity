@@ -107,6 +107,45 @@ example :
           | _ => false)) = true := by
   decide
 
+verity_contract TypedInterfaceNestedFixedReturnSmoke where
+  storage
+
+  interfaces
+    interface IPool where
+      function fetch() returns (Tuple [FixedArray Uint256 2, Uint256])
+      function submitFixed(FixedArray Uint256 2) returns (Uint256)
+    end
+
+  function fetchNested (pool : IPool) : Tuple [FixedArray Uint256 2, Uint256] := do
+    let result ← pool.fetch
+    return result
+
+  function submitFixed (pool : IPool, values : FixedArray Uint256 2) : Uint256 := do
+    let result ← pool.submitFixed values
+    return result
+
+private def nestedFixedResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [7, 9, 11]
+  gasUsed := fun _ _ => 0
+
+private def fixedArgumentAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site _ => .success [site.calldata.getLast?.getD 0]
+  gasUsed := fun _ _ => 0
+
+example :
+    ((TypedInterfaceNestedFixedReturnSmoke.fetchNested nestedFixedResultAdversary 1).run
+      defaultState).getValue? = some (#[7, 9], 11) := by
+  native_decide
+
+example :
+    ((TypedInterfaceNestedFixedReturnSmoke.submitFixed fixedArgumentAdversary 1 #[7, 9]).run
+      defaultState).getValue? = some 9 := by
+  native_decide
+
 verity_contract MorphoStyleOracleSummarySmoke where
   storage
     lastPrice : Uint256 := slot 0
@@ -141,6 +180,12 @@ def morphoOracleReadUsesSummary : Bool :=
         | _ => false))
 
 example : morphoOracleReadUsesSummary = true := by
+  decide
+
+example :
+    let result := (MorphoStyleOracleSummarySmoke.snapshotPrice (23 : Address)).run defaultState
+    result.getState.calls.map (·.kind) = [.staticcall] ∧
+      result.getState.calls.map (·.target) = [23] := by
   decide
 
 -- Void (no-`returns`) interface methods lower to the no-output `externalCallNoReturn` ECM:

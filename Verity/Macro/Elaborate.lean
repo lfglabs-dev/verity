@@ -134,6 +134,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
     for structDecl in structDecls do
       elabCommand (← mkStructDefCommandPublic structDecl)
       elabCommand (← mkStructEventArgInstanceCommandPublic structDecl)
+      elabCommand (← mkStructExternalArgInstanceCommandPublic structDecl)
+      elabCommand (← mkStructExternalResultInstanceCommandPublic structDecl)
 
     let aliasCmds ← mkIncludeAliasCommandsPublic resolvedIncludes
     for cmd in aliasCmds do
@@ -159,17 +161,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
 
     if isMixin then
       for modDecl in modifiers do
-        elabCommand (← mkModifierDefCommandPublic modDecl)
-      match ctor with
-      | some ctorDecl =>
-          elabCommand (← mkConstructorDefCommandPublic ctorDecl)
-      | none => pure ()
-
-    if !resolvedIncludes.isEmpty then
-      match ctor with
-      | some ctorDecl =>
-          elabCommand (← mkHostConstructorDefCommandPublic resolvedIncludes ctorDecl)
-      | none => pure ()
+        unless modifierContainsExternalCallSyntaxPublic modDecl do
+          elabCommand (← mkModifierDefCommandPublic modDecl)
 
     -- Translation (not storage-def emission) must see mixin fields/decls so
     -- inlined mixin-modifier CompilationModel bodies can resolve slots,
@@ -182,6 +175,24 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
+
+    -- Constructors may call internal helpers, so emit them only after the
+    -- executable helper definitions are available in the namespace.
+    if isMixin then
+      match ctor with
+      | some ctorDecl =>
+          elabCommand (← mkConstructorDefCommandPublic translationFields translationErrorDecls
+            translationConstDecls translationImmutableDecls translationExternalDecls
+            translationFunctions ctorDecl)
+      | none => pure ()
+
+    if !resolvedIncludes.isEmpty then
+      match ctor with
+      | some ctorDecl =>
+          elabCommand (← mkHostConstructorDefCommandPublic translationFields
+            translationErrorDecls translationConstDecls translationImmutableDecls
+            translationExternalDecls translationFunctions resolvedIncludes ctorDecl)
+      | none => pure ()
 
     let specName : Ident :=
       if resolvedIncludes.isEmpty then mkIdent (Name.mkSimple "spec")

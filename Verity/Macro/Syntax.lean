@@ -158,9 +158,6 @@ macro_rules
       `(doElem| let _ ← (fun s => .success 0 s))
   | `(doElem| let $name:ident ← returnDataSize()) =>
       `(doElem| let $name ← (fun s => .success 0 s))
-  | `(callExternal $_name:ident ($[$_args:term],*)) => `(by exact default)
-  | `(evmCall($[$_args:term],*)) => `(by exact default)
-  | `(evmStaticCall($[$_args:term],*)) => `(by exact default)
   | `(memoryLoad($_offset)) => `(by exact default)
   | `(returnDataSize()) => `(0)
   | `(memoryStore($_offset, $_value)) => `(by exact default)
