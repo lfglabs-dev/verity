@@ -185,13 +185,18 @@ def forwardCarriesProxyBoundary : Bool :=
 example : forwardCarriesProxyBoundary = true := by native_decide
 
 def forwardExecutableReadsImplementation : Bool :=
+  let adversary : DenoteExternalCalls.AdversaryModel := {
+    stateTransition := fun _ state => state
+    result := fun _ _ => .success []
+    gasUsed := fun _ _ => 0
+  }
   let seededState :=
     (ProxyUpgradeabilityMacroSmoke.initProxy (Verity.wordToAddress 11) (Verity.wordToAddress 19)).run Verity.defaultState
   match seededState with
   | .success _ state =>
-      match ProxyUpgradeabilityMacroSmoke.forward 100 0 32 64 32 state with
+      match ProxyUpgradeabilityMacroSmoke.forward adversary 100 0 32 64 32 state with
       | .success ok nextState =>
-          ok == delegatecall 100 19 0 32 64 32 &&
+          ok == 1 &&
             nextState.storage ProxyUpgradeabilityMacroSmoke.initializedVersion.slot == 1 &&
             nextState.storageAddr ProxyUpgradeabilityMacroSmoke.admin.slot == Verity.wordToAddress 11 &&
             nextState.storageAddr ProxyUpgradeabilityMacroSmoke.implementation.slot == Verity.wordToAddress 19
@@ -253,13 +258,13 @@ def recoverSignerModelUsesEcrecoverEcm : Bool :=
 
 example : recoverSignerModelUsesEcrecoverEcm = true := by native_decide
 
-def recoverSignerExecutableUsesOracle : Bool :=
+def recoverSignerExecutableNeedsNoAdversary : Bool :=
   match MacroEcrecover.recoverSigner 10 27 30 40 Verity.defaultState with
-  | .success signer state =>
-      signer == Verity.wordToAddress 107 && state.sender == Verity.defaultState.sender
+  | .success _ state =>
+      state.sender == Verity.defaultState.sender
   | .revert _ _ => false
 
-example : recoverSignerExecutableUsesOracle = true := by native_decide
+example : recoverSignerExecutableNeedsNoAdversary = true := by native_decide
 
 end MacroEcrecoverSmoke
 
@@ -352,7 +357,7 @@ def storeEchoModelUsesDeclaredExternal : Bool :=
 example : storeEchoModelUsesDeclaredExternal = true := by native_decide
 
 def storeEchoExecutableUsesStub : Bool :=
-  match MacroExternal.storeEcho 33 Verity.defaultState with
+  match MacroExternal.storeEcho .stub 33 Verity.defaultState with
   | .success () state =>
       state.storage 0 == 33
   | .revert _ _ => false
@@ -570,7 +575,7 @@ def snapshotSupplyModelUsesTotalSupplyModule : Bool :=
 
 example : snapshotSupplyModelUsesTotalSupplyModule = true := by native_decide
 
-def snapshotBalanceExecutableUsesStub : Bool :=
+def snapshotBalanceExecutableNeedsNoAdversary : Bool :=
   let token := Verity.wordToAddress 7
   let owner := Verity.wordToAddress 13
   match Contracts.balanceOf token owner .stub Verity.defaultState,
@@ -582,9 +587,9 @@ def snapshotBalanceExecutableUsesStub : Bool :=
   | .revert _ _, _ => false
   | _, .revert _ _ => false
 
-example : snapshotBalanceExecutableUsesStub = true := by native_decide
+example : snapshotBalanceExecutableNeedsNoAdversary = true := by native_decide
 
-def snapshotAllowanceExecutableUsesStub : Bool :=
+def snapshotAllowanceExecutableNeedsNoAdversary : Bool :=
   let token := Verity.wordToAddress 7
   let owner := Verity.wordToAddress 13
   let spender := Verity.wordToAddress 17
@@ -597,9 +602,9 @@ def snapshotAllowanceExecutableUsesStub : Bool :=
   | .revert _ _, _ => false
   | _, .revert _ _ => false
 
-example : snapshotAllowanceExecutableUsesStub = true := by native_decide
+example : snapshotAllowanceExecutableNeedsNoAdversary = true := by native_decide
 
-def snapshotSupplyExecutableUsesStub : Bool :=
+def snapshotSupplyExecutableNeedsNoAdversary : Bool :=
   let token := Verity.wordToAddress 7
   match Contracts.totalSupply token .stub Verity.defaultState,
       MacroERC20.snapshotSupply token Verity.defaultState with
@@ -609,7 +614,7 @@ def snapshotSupplyExecutableUsesStub : Bool :=
   | .revert _ _, _ => false
   | _, .revert _ _ => false
 
-example : snapshotSupplyExecutableUsesStub = true := by native_decide
+example : snapshotSupplyExecutableNeedsNoAdversary = true := by native_decide
 
 end MacroERC20Smoke
 

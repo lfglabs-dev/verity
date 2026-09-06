@@ -29,6 +29,9 @@ EXCLUDED_CONTRACTS = {
     "FixedArrayStructSmoke",
     "LinkedExternalProjectedArrayArgSmoke",
     "NestedStructArrayProjectionSmoke",
+    # Nested fixed-array return decoding is covered by its executable Lean
+    # regression; Solidity signature synthesis does not yet map FixedArray.
+    "TypedInterfaceNestedFixedReturnSmoke",
     # The generated no-revert stub cannot currently fund the contract before
     # exercising `callWithValue`; Lean/Yul/trust-report tests cover this ECM.
     "CallWithValueSmoke",

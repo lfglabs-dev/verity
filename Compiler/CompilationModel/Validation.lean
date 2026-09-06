@@ -692,8 +692,9 @@ def matchBranchesContainExternalCall (branches : List (String × List String × 
     `delegatecall`) stays window-opening: it reaches an external contract that
     may re-enter. -/
 def stmtReentrancyWindowNode : Stmt → Bool
-  | Stmt.ecm mod _ =>
-      mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.call
+  | Stmt.ecm mod args =>
+      mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.call ||
+        args.any exprContainsExternalCall
   | s => stmtContainsExternalCallNode s
 
 /-- Whether a statement (deeply) opens a cross-function reentrancy window. -/
