@@ -504,6 +504,61 @@ example :
     ((GenericECMWriteSmoke.runEffect .stub 1 2).run defaultState).getState.calls.length = 1 := by
   native_decide
 
+def directDynamicEcmResultModule (resultVar : String) : Compiler.ECM.ExternalCallModule where
+  name := "directDynamicEcmResult"
+  numArgs := 2
+  resultVars := [resultVar]
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ctx _args => pure []
+
+def directDynamicEcmEffectModule : Compiler.ECM.ExternalCallModule where
+  name := "directDynamicEcmEffect"
+  numArgs := 2
+  resultVars := []
+  writesState := false
+  readsState := false
+  axioms := []
+  compile := fun _ctx _args => pure []
+
+verity_contract DirectDynamicECMArgSmoke where
+  storage
+
+  function fromCall (payload : Bytes) : Uint256 := do
+    let result ← ecmCall directDynamicEcmResultModule [payload]
+    return result
+
+  function fromDo (message : String) : Unit := do
+    ecmDo directDynamicEcmEffectModule [message]
+
+  function fromBind (values : Array Uint256) : Unit := do
+    ecmBind [result] (directDynamicEcmResultModule "result") [values]
+
+private def successfulDynamicEcmAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site _ => .success (List.replicate site.returnArity 9)
+  gasUsed := fun _ _ => 0
+
+/-- Executable ECM calls use the same synthetic `data_offset, length` key as
+the model for direct bytes, string, and dynamic-array parameters. -/
+example :
+    ((DirectDynamicECMArgSmoke.fromCall successfulDynamicEcmAdversary
+      (ByteArray.mk #[1, 2, 3])).run defaultState).getState.calls.head?.map
+        (fun call => call.calldata) = some [0, 3] := by
+  decide
+
+example :
+    ((DirectDynamicECMArgSmoke.fromDo successfulDynamicEcmAdversary "verity").run
+      defaultState).getState.calls.head?.map (fun call => call.calldata) = some [0, 6] := by
+  decide
+
+example :
+    ((DirectDynamicECMArgSmoke.fromBind successfulDynamicEcmAdversary #[4, 5]).run
+      defaultState).getState.calls.head?.map (fun call => call.calldata) = some [0, 2] := by
+  decide
+
 verity_contract BubblingValueCallECMSmoke where
   storage
 

@@ -2325,6 +2325,19 @@ private def executableLinkedArgWords (arg : Term) (ty : ValueType) : CommandElab
       else
         `(ExternalArg.toWords $arg)
 
+/-- Keep executable ECM request keys aligned with `expectEcmExprList`: a direct
+dynamic source parameter denotes its synthetic calldata offset and length, not
+the value-oriented `ExternalArg` length-and-contents journal encoding. -/
+private def executableEcmArgWords
+    (params : Array ParamDecl) (arg : Term) : CommandElabM Term := do
+  match directParamNameWithType? params arg with
+  | some (_, ty) =>
+      if externalCallDynamicArgSupported ty then
+        `(externalDynamicArgWords $arg)
+      else
+        `(ExternalArg.toWords $arg)
+  | none => `(ExternalArg.toWords $arg)
+
 private partial def executableExternalResultDecoder (ty : ValueType) : CommandElabM Term := do
   match ty with
   | .fixedArray elemTy size =>
@@ -2600,11 +2613,14 @@ private def rewriteLinkedCallTerm
       `(term| mstore (externalArgWord $offset) (externalArgWord $value))
   | `(term| ecmCall $moduleFactory:term $args:term) =>
       let argList ← expectTermListLiteral args
+      let argWords ← argList.mapM (executableEcmArgWords params)
       `(term| ecmCallWords (($moduleFactory) "__verity_ecm_result") $adv
-        (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))))
+        (List.flatten ([ $[$argWords],* ] : List (List Uint256))))
   | `(term| ecmDo $module:term $args:term) =>
       let argList ← expectTermListLiteral args
-      `(term| ecmDoWords $module $adv (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))))
+      let argWords ← argList.mapM (executableEcmArgWords params)
+      `(term| ecmDoWords $module $adv
+        (List.flatten ([ $[$argWords],* ] : List (List Uint256))))
   | `(term| externalCallBind ([] : List String) $fnName:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent fnName
       let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2998,20 +3014,21 @@ private partial def threadAdversaryThroughExecutableSyntax
       hoistLive true value fun rewritten => `(doElem| return $rewritten:term)
   | `(doElem| ecmBind $names:term $module:term $args:term) =>
       let argList ← expectTermListLiteral args
+      let argWords ← argList.mapM (executableEcmArgWords params)
       let resultNames ← expectStringList names
       let ids := resultNames.map (mkIdent ∘ Name.mkSimple)
       if ids.size == 1 then
         let id := ids[0]!
         `(doElem| let $id ← (ecmCallWords $module $adv
-          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256)))))
+          (List.flatten ([ $[$argWords],* ] : List (List Uint256)))))
       else if ids.size == 2 then
         let left := ids[0]!
         let right := ids[1]!
         `(doElem| let ($left, $right) ← (ecmCallPairWords $module $adv
-          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256)))))
+          (List.flatten ([ $[$argWords],* ] : List (List Uint256)))))
       else if ids.isEmpty then
         `(doElem| ecmDoWords $module $adv
-          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))))
+          (List.flatten ([ $[$argWords],* ] : List (List Uint256))))
       else
         let idTerms := ids.map (fun id => (⟨id.raw⟩ : Term))
         let rec nestedTuple (terms : List Term) : CommandElabM Term := do
@@ -3033,7 +3050,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         let tupleType ← nestedTupleType (ids.toList.map (fun _ => uintTy))
         `(doElem| let $tuplePattern:term ← (ecmCallTypedWords (α := $tupleType)
           $module $adv
-          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256)))))
+          (List.flatten ([ $[$argWords],* ] : List (List Uint256)))))
   | `(doElem| $fn:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
       if toString fn.getId == "__verityTypedEffect" then
