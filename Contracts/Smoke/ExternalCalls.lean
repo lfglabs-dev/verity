@@ -482,16 +482,9 @@ verity_contract GenericECMTripleResultSmoke where
     ecmBind [first, second, third] genericECMTripleResultModule []
     setStorage last third
 
-private def tripleResultAdversary :
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
-  stateTransition := fun _ state => state
-  result := fun _ _ => .success [1, 2, 3]
-  gasUsed := fun _ _ => 0
-
-/-- A read-only ECM still receives the caller-supplied adversary. -/
+/-- A read-only ECM uses the deterministic stub without exposing an adversary parameter. -/
 example :
-    ((GenericECMTripleResultSmoke.storeThird tripleResultAdversary).run
-      defaultState).getState.storage GenericECMTripleResultSmoke.last.slot = 3 := by
+    ((GenericECMTripleResultSmoke.storeThird).run defaultState).getState.calls.length = 1 := by
   decide
 
 verity_contract GenericECMWriteSmoke where
@@ -501,7 +494,7 @@ verity_contract GenericECMWriteSmoke where
     ecmDo genericECMEffectDemoModule [lhs, rhs]
 
 example :
-    ((GenericECMWriteSmoke.runEffect .stub 1 2).run defaultState).getState.calls.length = 1 := by
+    ((GenericECMWriteSmoke.runEffect 1 2).run defaultState).getState.calls.length = 1 := by
   native_decide
 
 def directDynamicEcmResultModule (resultVar : String) : Compiler.ECM.ExternalCallModule where
@@ -535,27 +528,20 @@ verity_contract DirectDynamicECMArgSmoke where
   function fromBind (values : Array Uint256) : Unit := do
     ecmBind [result] (directDynamicEcmResultModule "result") [values]
 
-private def successfulDynamicEcmAdversary :
-    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
-  stateTransition := fun _ state => state
-  result := fun site _ => .success (List.replicate site.returnArity 9)
-  gasUsed := fun _ _ => 0
-
 /-- Executable ECM calls use the same synthetic `data_offset, length` key as
 the model for direct bytes, string, and dynamic-array parameters. -/
 example :
-    ((DirectDynamicECMArgSmoke.fromCall successfulDynamicEcmAdversary
-      (ByteArray.mk #[1, 2, 3])).run defaultState).getState.calls.head?.map
+    ((DirectDynamicECMArgSmoke.fromCall (ByteArray.mk #[1, 2, 3])).run defaultState).getState.calls.head?.map
         (fun call => call.calldata) = some [0, 3] := by
   decide
 
 example :
-    ((DirectDynamicECMArgSmoke.fromDo successfulDynamicEcmAdversary "verity").run
+    ((DirectDynamicECMArgSmoke.fromDo "verity").run
       defaultState).getState.calls.head?.map (fun call => call.calldata) = some [0, 6] := by
   decide
 
 example :
-    ((DirectDynamicECMArgSmoke.fromBind successfulDynamicEcmAdversary #[4, 5]).run
+    ((DirectDynamicECMArgSmoke.fromBind #[4, 5]).run
       defaultState).getState.calls.head?.map (fun call => call.calldata) = some [0, 2] := by
   decide
 
