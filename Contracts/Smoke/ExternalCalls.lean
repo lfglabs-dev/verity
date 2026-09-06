@@ -482,9 +482,17 @@ verity_contract GenericECMTripleResultSmoke where
     ecmBind [first, second, third] genericECMTripleResultModule []
     setStorage last third
 
+private def tripleResultAdversary :
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun _ _ => .success [1, 2, 3]
+  gasUsed := fun _ _ => 0
+
+/-- A read-only ECM still receives the caller-supplied adversary. -/
 example :
-    ((GenericECMTripleResultSmoke.storeThird.run defaultState).getState.calls.length) = 1 := by
-  native_decide
+    ((GenericECMTripleResultSmoke.storeThird tripleResultAdversary).run
+      defaultState).getState.storage GenericECMTripleResultSmoke.last.slot = 3 := by
+  decide
 
 verity_contract GenericECMWriteSmoke where
   storage
@@ -493,7 +501,7 @@ verity_contract GenericECMWriteSmoke where
     ecmDo genericECMEffectDemoModule [lhs, rhs]
 
 example :
-    ((GenericECMWriteSmoke.runEffect 1 2).run defaultState).getState.calls.length = 1 := by
+    ((GenericECMWriteSmoke.runEffect .stub 1 2).run defaultState).getState.calls.length = 1 := by
   native_decide
 
 verity_contract BubblingValueCallECMSmoke where
