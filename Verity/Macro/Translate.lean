@@ -16,6 +16,8 @@ import Verity.Macro.Internal
 import Verity.Macro.Storage
 import Verity.Macro.Types
 import Verity.Macro.Syntax
+import Verity.Core.Model.CallbackBridge
+import Verity.Core.Model.NonReentrantGuard
 
 namespace Verity.Macro
 
@@ -4960,7 +4962,7 @@ def validateGeneratedDefNamesPublic
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
     (functions : Array FunctionDecl) : CommandElabM Unit := do
-  let reservedGeneratedNames : Array String := #["spec", "storageNamespace"]
+  let reservedGeneratedNames : Array String := #["spec", "storageNamespace", "entrypointRegistry"]
   let mut generatedHelperNames : Array String := reservedGeneratedNames
   if hasStructMapping fields then
     generatedHelperNames := generatedHelperNames.push "structMember"
@@ -5542,6 +5544,13 @@ def mkFunctionCommandsPublic
       mkContractFnType fn.params fn.returnTy
   let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
     adversarialHelpers fn.params advTerm fnExecutableBody.raw⟩
+  let fnExecutableBody ← match fn.nonReentrantLock with
+    | some lockIdent =>
+        let lockName := toString lockIdent.getId
+        let some lockField := fields.find? (fun field => field.name == lockName)
+          | throwErrorAt lockIdent s!"unknown nonreentrant lock field '{lockName}'"
+        `(Verity.Core.NonReentrantGuard.guarded $(natTerm lockField.slotNum) $fnExecutableBody)
+    | none => pure fnExecutableBody
   let fnValue ← if opensReentrancyWindow then
       mkContractFnValueWithAdversary advIdent fn.params fnExecutableBody
     else
@@ -5566,6 +5575,32 @@ def mkFunctionCommandsPublic
   let returnsTerm ← modelReturnsTerm fn.returnTy
 
   let fnCmd : Cmd ← `(command| def $fn.ident : $fnType := $fnValue)
+  let entrypointPredicateName ← mkSuffixedIdent fn.ident "_entrypoint"
+  let registryAdvIdent ← Lean.Elab.Term.mkFreshIdent
+    (mkIdentFrom fn.ident `_registryAdv).raw
+  let transitionIdent ← Lean.Elab.Term.mkFreshIdent
+    (mkIdentFrom fn.ident `_transition).raw
+  let mut applied : Term := fn.ident
+  if opensReentrancyWindow then
+    applied ← `($applied (ExecutableCallContext.ofAdversary $(⟨registryAdvIdent.raw⟩)))
+  let mut registryParams : Array (Ident × Term) := #[]
+  for param in fn.params do
+    let paramTy ← contractValueTypeTerm param.ty
+    let paramIdent ← Lean.Elab.Term.mkFreshIdent
+      (mkIdentFrom param.ident `_registryArg).raw
+    registryParams := registryParams.push (⟨paramIdent.raw⟩, paramTy)
+    applied ← `($applied $(⟨paramIdent.raw⟩))
+  let mut registryBody : Term ←
+    `(($(⟨transitionIdent.raw⟩) : Verity.ContractState → Verity.ContractState) =
+      ($applied).runState)
+  for (paramIdent, paramTy) in registryParams.reverse do
+    registryBody ← `(∃ $paramIdent : $paramTy, $registryBody)
+  let entrypointCmd : Cmd ← `(command|
+    def $entrypointPredicateName
+        ($(⟨registryAdvIdent.raw⟩) :
+          Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
+        ($(⟨transitionIdent.raw⟩) : Verity.ContractState → Verity.ContractState) : Prop :=
+      $registryBody)
   let bodyCmd : Cmd ← `(command| def $modelBodyName : List Compiler.CompilationModel.Stmt := [ $[$stmtTerms],* ])
   let modelNameTerm :=
     if fn.isInternal then
@@ -5592,7 +5627,23 @@ def mkFunctionCommandsPublic
     body := $modelBodyName
     isInternal := $internalTerm
   })
-  pure #[fnCmd, bodyCmd, modelCmd]
+  pure #[fnCmd, entrypointCmd, bodyCmd, modelCmd]
+
+/-- Emit the contract-wide union of all externally callable entrypoint
+predicates.  Each per-function predicate keeps arguments existential and uses
+the registry's explicit adversary when the function opens a reentrancy window. -/
+def mkEntrypointRegistryCommandPublic (functions : Array FunctionDecl) : CommandElabM Cmd := do
+  let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_registryAdv).raw
+  let transitionIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_transition).raw
+  let mut body : Term ← `(False)
+  for fn in functions.reverse do
+    unless fn.isInternal do
+      let predicateName ← mkSuffixedIdent fn.ident "_entrypoint"
+      body ← `($predicateName $(⟨advIdent.raw⟩) $(⟨transitionIdent.raw⟩) ∨ $body)
+  let id := mkIdent (Name.mkSimple "entrypointRegistry")
+  `(command|
+    def $id : Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry :=
+      fun $(⟨advIdent.raw⟩) $(⟨transitionIdent.raw⟩) => $body)
 
 def mkSpecCommandPublic
     (contractName : String)

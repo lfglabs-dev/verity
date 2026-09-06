@@ -22,15 +22,31 @@ namespace Compiler.CompilationModel.DenoteExternalCalls
 open Verity.Core.Invariant (Preserves runSeq)
 open Verity.Core.Reentrancy (ReentrancySpec)
 
+/-- The macro-emitted registry is a predicate rather than a list of already
+applied functions.  This keeps entrypoint arguments existential and, crucially,
+indexes every executable transition by the same explicit adversary used at the
+call boundary. -/
+abbrev EntrypointRegistry :=
+  AdversaryModel → (Verity.ContractState → Verity.ContractState) → Prop
+
+namespace EntrypointRegistry
+
+/-- Compatibility adapter for the original, argument-free worked examples. -/
+def ofList (entrypoints : List (Verity.ContractState → Verity.ContractState)) :
+    EntrypointRegistry :=
+  fun _ entrypoint => entrypoint ∈ entrypoints
+
+end EntrypointRegistry
+
 /-- Each mutable transition is some finite reentry schedule drawn from the
 registry.  Static sites are unrestricted: `denoteCall` never commits their
 transitions, and `Conforms` separately pins them externally. -/
 def CallbackBounded
-    (entrypoints : List (Verity.ContractState → Verity.ContractState))
+    (entrypoints : EntrypointRegistry)
     (adversary : AdversaryModel) : Prop :=
   ∀ site world, site.kind ≠ .staticcall →
     ∃ sched : List (Verity.ContractState → Verity.ContractState),
-      (∀ f ∈ sched, f ∈ entrypoints) ∧
+      (∀ f ∈ sched, entrypoints adversary f) ∧
         adversary.stateTransition site world = runSeq sched world
 
 /-- One external call under a callback-bounded adversary preserves the spec
@@ -38,7 +54,7 @@ invariant: rollback outcomes keep the pre-call world, and committed outcomes
 are reentry schedules, covered by the per-entrypoint obligations. -/
 theorem CallbackBounded.denoteCall_preserves (spec : ReentrancySpec)
     {adversary : AdversaryModel}
-    (h : CallbackBounded spec.entrypoints adversary)
+    (h : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
     (site : CallSite) (state : CallState)
     (hInv : spec.Inv state.world) :
     spec.Inv (denoteCall adversary site state).state.world := by
@@ -78,7 +94,7 @@ sequence of externally opened windows — each free to reenter through any
 registered schedule — can break it. -/
 theorem CallbackBounded.denote_preserves (spec : ReentrancySpec)
     {adversary : AdversaryModel}
-    (h : CallbackBounded spec.entrypoints adversary)
+    (h : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
     (prog : CallProgram α) (state : CallState)
     (hInv : spec.Inv state.world) :
     spec.Inv (denote prog adversary state).2.world := by
@@ -94,7 +110,7 @@ invariant state by the program law, and a reverted one by rollback to the
 initial state. -/
 theorem CallbackBounded.transaction_preserves (spec : ReentrancySpec)
     {adversary : AdversaryModel}
-    (h : CallbackBounded spec.entrypoints adversary)
+    (h : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
     (prog : CallProgram (TransactionResult α)) (state : CallState)
     (hInv : spec.Inv state.world) :
     spec.Inv (denoteTransaction prog adversary state).state.world := by

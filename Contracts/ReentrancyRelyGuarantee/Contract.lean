@@ -203,7 +203,7 @@ any `CallProgram`, and through the transaction commit/revert boundary. -/
 open Compiler.CompilationModel.DenoteExternalCalls in
 theorem callback_bounded_program_preserves_I
     {adversary : AdversaryModel}
-    (hbound : CallbackBounded spec.entrypoints adversary)
+    (hbound : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
     (prog : CallProgram α) (state : CallState) (hInv : I state.world) :
     I (denote prog adversary state).2.world :=
   hbound.denote_preserves spec prog state hInv
@@ -211,7 +211,7 @@ theorem callback_bounded_program_preserves_I
 open Compiler.CompilationModel.DenoteExternalCalls in
 theorem callback_bounded_transaction_preserves_I
     {adversary : AdversaryModel} {α : Type}
-    (hbound : CallbackBounded spec.entrypoints adversary)
+    (hbound : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
     (prog : CallProgram (TransactionResult α)) (state : CallState)
     (hInv : I state.world) :
     I (denoteTransaction prog adversary state).state.world :=

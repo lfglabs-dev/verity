@@ -176,6 +176,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
 
+    elabCommand (← mkEntrypointRegistryCommandPublic translationFunctions)
+
     -- Constructors may call internal helpers, so emit them only after the
     -- executable helper definitions are available in the namespace.
     if isMixin then
