@@ -2265,20 +2265,6 @@ def translatedBodyOpensReentrancyWindow
     | _ => throwErrorAt bodyTerm
         "failed to reduce the translated reentrancy-window predicate"
 
-private def translatedBodyContainsExternalCall
-    (stmtTerms : Array Term) : CommandElabM Bool := do
-  let bodyTerm : Term ← `([ $[$stmtTerms],* ])
-  liftTermElabM do
-    let predicate : Term ← `(
-      Compiler.CompilationModel.Stmt.anyDeepList
-        Compiler.CompilationModel.stmtContainsExternalCallNode $bodyTerm)
-    let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
-    match ← Lean.Meta.withTransparency .all (Lean.Meta.whnf expr) with
-    | .const ``Bool.true _ => pure true
-    | .const ``Bool.false _ => pure false
-    | _ => throwErrorAt bodyTerm
-        "failed to reduce the translated external-call predicate"
-
 private partial def syntaxCallsAnyHelper
     (helperNames : Array String) (stx : Syntax) : CommandElabM Bool := do
   match stx with
@@ -5289,14 +5275,14 @@ def prefixMixinModifierExecutableBody
 def mkModifierDefCommandPublic (modDecl : ModifierDecl) : CommandElabM Cmd := do
   `(command| def $(modDecl.ident) : Verity.Contract Unit := $(modDecl.body))
 
-private def constructorContainsExternalCall
+private def constructorOpensReentrancyWindow
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
     (ctor : ConstructorDecl) : CommandElabM Bool := do
   let stmts ← translateConstructorBodyToStmtTerms fields errorDecls constDecls
     immutableDecls externalDecls functions ctor
-  translatedBodyContainsExternalCall stmts
+  translatedBodyOpensReentrancyWindow stmts
 
 private def constructorAdversarialHelpers
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
@@ -5307,7 +5293,7 @@ private def constructorAdversarialHelpers
   for helper in functions do
     let stmts ← translateBodyToStmtTerms fields #[] errorDecls constDecls immutableDecls
       externalDecls functions helper
-    if ← translatedBodyContainsExternalCall stmts then
+    if ← translatedBodyOpensReentrancyWindow stmts then
       adversarial := adversarial.push helper
   for _ in [:functions.size] do
     let names := adversarial.map (·.name)
@@ -5326,24 +5312,24 @@ def mkConstructorDefCommandPublic
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
     (ctor : ConstructorDecl) : CommandElabM Cmd := do
-  let directlyContainsExternalCall ← constructorContainsExternalCall fields errorDecls constDecls
+  let directlyOpensReentrancyWindow ← constructorOpensReentrancyWindow fields errorDecls constDecls
     immutableDecls externalDecls functions ctor
   let adversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
     immutableDecls externalDecls functions
   let callsAdversarial ←
     syntaxCallsAnyHelper (adversarialHelpers.map (·.name)) ctor.body.raw
-  let containsExternalCall := directlyContainsExternalCall ||
+  let opensReentrancyWindow := directlyOpensReentrancyWindow ||
     callsAdversarial
   let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
   let advTerm : Term := ⟨advIdent.raw⟩
   let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers
     ctor.params advTerm executableBody.raw⟩
-  let fnType ← if containsExternalCall then
+  let fnType ← if opensReentrancyWindow then
       mkContractFnTypeWithAdversary ctor.params .unit
     else
       mkContractFnType ctor.params .unit
-  let fnValue ← if containsExternalCall then
+  let fnValue ← if opensReentrancyWindow then
       mkContractFnValueWithAdversary advIdent ctor.params executableBody
     else
       mkContractFnValue ctor.params executableBody
@@ -5355,7 +5341,7 @@ def mkHostConstructorDefCommandPublic
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
     (resolvedIncludes : Array Name) (ctor : ConstructorDecl) : CommandElabM Cmd := do
-  let ownDirectExternal ← constructorContainsExternalCall fields errorDecls constDecls
+  let ownDirectExternal ← constructorOpensReentrancyWindow fields errorDecls constDecls
     immutableDecls externalDecls functions ctor
   let ownAdversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
     immutableDecls externalDecls functions
@@ -5367,7 +5353,7 @@ def mkHostConstructorDefCommandPublic
   for mixinName in resolvedIncludes do
     if let some mixin ← lookupContractSyntax mixinName then
       if let some mixinCtor := mixin.ctor then
-        let direct ← constructorContainsExternalCall mixin.fields mixin.errorDecls mixin.constDecls
+        let direct ← constructorOpensReentrancyWindow mixin.fields mixin.errorDecls mixin.constDecls
           mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor
         let helpers ← constructorAdversarialHelpers mixin.fields mixin.errorDecls mixin.constDecls
           mixin.immutableDecls mixin.externalDecls mixin.functions
@@ -5502,7 +5488,7 @@ def mkFunctionCommandsPublic
       | some inlined => pure inlined
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
-  let directlyContainsExternalCall ← translatedBodyContainsExternalCall stmtTerms
+  let directlyOpensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
   let mut adversarialHelpers : Array FunctionDecl := #[]
   let mut translatedHelpers : Array (FunctionDecl × FunctionDecl) := #[]
   for helper in functions do
@@ -5517,9 +5503,9 @@ def mkFunctionCommandsPublic
     let helperStmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls
       immutableDecls externalDecls functions helperModel
     translatedHelpers := translatedHelpers.push (helper, helperModel)
-    if ← translatedBodyContainsExternalCall helperStmtTerms then
+    if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
       adversarialHelpers := adversarialHelpers.push helper
-  -- External-call capability is transitive across internal helpers. Iterate to a
+  -- Reentrancy-window capability is transitive across internal helpers. Iterate to a
   -- fixed point so every caller in a multi-hop helper chain receives and forwards
   -- the same adversary instead of silently falling back to the stub.
   for _ in [:functions.size] do
@@ -5535,22 +5521,22 @@ def mkFunctionCommandsPublic
       break
   let adversarialNames := adversarialHelpers.map (·.name)
   let callsAdversarial ← syntaxCallsAnyHelper adversarialNames modelFn.body.raw
-  let containsExternalCall := directlyContainsExternalCall ||
+  let opensReentrancyWindow := directlyOpensReentrancyWindow ||
     callsAdversarial
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw
-  let advTerm : Term ← if containsExternalCall then
+  let advTerm : Term ← if opensReentrancyWindow then
       pure ⟨advIdent.raw⟩
     else
       `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
-  let fnType ← if containsExternalCall then
+  let fnType ← if opensReentrancyWindow then
       mkContractFnTypeWithAdversary fn.params fn.returnTy
     else
       mkContractFnType fn.params fn.returnTy
   let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
     adversarialHelpers fn.params advTerm fnExecutableBody.raw⟩
-  let fnValue ← if containsExternalCall then
+  let fnValue ← if opensReentrancyWindow then
       mkContractFnValueWithAdversary advIdent fn.params fnExecutableBody
     else
       mkContractFnValue fn.params fnExecutableBody

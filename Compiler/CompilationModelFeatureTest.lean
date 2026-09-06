@@ -579,7 +579,7 @@ def snapshotBalanceExecutableNeedsNoAdversary : Bool :=
   let token := Verity.wordToAddress 7
   let owner := Verity.wordToAddress 13
   match Contracts.balanceOf token owner .stub Verity.defaultState,
-      MacroERC20.snapshotBalance .stub token owner Verity.defaultState with
+      MacroERC20.snapshotBalance token owner Verity.defaultState with
   | .success expected _, .success balance state =>
       balance == expected &&
       state.storage 0 == expected &&
@@ -594,7 +594,7 @@ def snapshotAllowanceExecutableNeedsNoAdversary : Bool :=
   let owner := Verity.wordToAddress 13
   let spender := Verity.wordToAddress 17
   match Contracts.allowance token owner spender .stub Verity.defaultState,
-      MacroERC20.snapshotAllowance .stub token owner spender Verity.defaultState with
+      MacroERC20.snapshotAllowance token owner spender Verity.defaultState with
   | .success expected _, .success current state =>
       current == expected &&
       state.storage 1 == expected &&
@@ -607,7 +607,7 @@ example : snapshotAllowanceExecutableNeedsNoAdversary = true := by native_decide
 def snapshotSupplyExecutableNeedsNoAdversary : Bool :=
   let token := Verity.wordToAddress 7
   match Contracts.totalSupply token .stub Verity.defaultState,
-      MacroERC20.snapshotSupply .stub token Verity.defaultState with
+      MacroERC20.snapshotSupply token Verity.defaultState with
   | .success expected _, .success supply state =>
       supply == expected &&
       state.storage 2 == expected
