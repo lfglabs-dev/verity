@@ -214,6 +214,19 @@ verity_contract NonreentrantQualifiedHelperResolution where
     let echoed := externalCall "echo" [x]
     return (echoed, echoed)
 
+  function overloadedTrusted (_who : Address) : Uint256 := do
+    return 0
+
+  function nonreentrant(lock) reentrancy_trusted overloadedTrusted (x : Uint256) : Uint256 := do
+    return x
+
+  function overloadedAdversarial (_who : Address) : Uint256 := do
+    return 0
+
+  function nonreentrant(lock) reentrancy_trusted overloadedAdversarial (x : Uint256) : Uint256 := do
+    let echoed := externalCall "echo" [x]
+    return echoed
+
   function qualifiedSpace (x : Uint256) : Uint256 := do
     let y ← QualifiedHelperLibrary.trustedEntry x
     return y
@@ -229,6 +242,14 @@ verity_contract NonreentrantQualifiedHelperResolution where
   function qualifiedAdversarialDestructure (x : Uint256) : Uint256 := do
     let (left, right) ← QualifiedHelperLibrary.adversarialPair x
     return (add left right)
+
+  function overloadedTrustedCaller (x : Uint256) : Unit := do
+    let y ← overloadedTrusted x
+    require (y == x) "wrong trusted overload"
+
+  function overloadedAdversarialCaller (x : Uint256) : Unit := do
+    let y ← overloadedAdversarial x
+    require (y == x) "wrong adversarial overload"
 
 #check_contract NonreentrantQualifiedHelperResolution
 

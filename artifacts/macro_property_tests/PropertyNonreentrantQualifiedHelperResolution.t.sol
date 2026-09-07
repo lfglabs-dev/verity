@@ -54,7 +54,43 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 5: TODO decode and assert `qualifiedSpace` result
+    // Property 5: overloadedTrusted returns the declared constant result
+    function testAuto_OverloadedTrusted_ReturnsDeclaredConstant() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("overloadedTrusted(address)", alice));
+        require(ok, "overloadedTrusted reverted unexpectedly");
+        assertEq(ret.length, 32, "overloadedTrusted ABI return length mismatch (expected 32 bytes)");
+        uint256 actual = abi.decode(ret, (uint256));
+        assertEq(actual, 0, "overloadedTrusted should return the declared constant");
+    }
+    // Property 6: overloadedTrusted returns the direct parameter value
+    function testAuto_OverloadedTrusted_ReturnsDirectParam() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("overloadedTrusted(uint256)", uint256(1)));
+        require(ok, "overloadedTrusted reverted unexpectedly");
+        assertEq(ret.length, 32, "overloadedTrusted ABI return length mismatch (expected 32 bytes)");
+        uint256 actual = abi.decode(ret, (uint256));
+        assertEq(actual, uint256(1), "overloadedTrusted should preserve the expected value");
+    }
+    // Property 7: overloadedAdversarial returns the declared constant result
+    function testAuto_OverloadedAdversarial_ReturnsDeclaredConstant() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("overloadedAdversarial(address)", alice));
+        require(ok, "overloadedAdversarial reverted unexpectedly");
+        assertEq(ret.length, 32, "overloadedAdversarial ABI return length mismatch (expected 32 bytes)");
+        uint256 actual = abi.decode(ret, (uint256));
+        assertEq(actual, 0, "overloadedAdversarial should return the declared constant");
+    }
+    // Property 8: TODO decode and assert `overloadedAdversarial` result
+    function testTODO_OverloadedAdversarial_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("overloadedAdversarial(uint256)", uint256(1)));
+        require(ok, "overloadedAdversarial reverted unexpectedly");
+        assertEq(ret.length, 32, "overloadedAdversarial ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 9: TODO decode and assert `qualifiedSpace` result
     function testTODO_QualifiedSpace_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedSpace(uint256)", uint256(1)));
@@ -63,7 +99,7 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 6: TODO decode and assert `qualifiedDestructure` result
+    // Property 10: TODO decode and assert `qualifiedDestructure` result
     function testTODO_QualifiedDestructure_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedDestructure(uint256)", uint256(1)));
@@ -72,7 +108,7 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 7: TODO decode and assert `qualifiedAdversarialSpace` result
+    // Property 11: TODO decode and assert `qualifiedAdversarialSpace` result
     function testTODO_QualifiedAdversarialSpace_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedAdversarialSpace(uint256)", uint256(1)));
@@ -81,7 +117,7 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 8: TODO decode and assert `qualifiedAdversarialDestructure` result
+    // Property 12: TODO decode and assert `qualifiedAdversarialDestructure` result
     function testTODO_QualifiedAdversarialDestructure_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedAdversarialDestructure(uint256)", uint256(1)));
@@ -89,5 +125,17 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         assertEq(ret.length, 32, "qualifiedAdversarialDestructure ABI return length mismatch (expected 32 bytes)");
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
+    }
+    // Property 13: overloadedTrustedCaller has no unexpected revert
+    function testAuto_OverloadedTrustedCaller_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedCaller(uint256)", uint256(1)));
+        require(ok, "overloadedTrustedCaller reverted unexpectedly");
+    }
+    // Property 14: overloadedAdversarialCaller has no unexpected revert
+    function testAuto_OverloadedAdversarialCaller_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialCaller(uint256)", uint256(1)));
+        require(ok, "overloadedAdversarialCaller reverted unexpectedly");
     }
 }
