@@ -85,7 +85,6 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   let isMixin := parsed.isMixin
   let resolvedIncludes := parsed.resolvedIncludes
 
-  validateGeneratedDefNamesPublic fields constDecls immutableDecls functions
   validateConstantDeclsPublic constDecls
   validateImmutableDeclsPublic fields constDecls immutableDecls ctor
   validateExternalDeclsPublic externalDecls
@@ -121,6 +120,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   let translationExternalDecls := mixinExternalDecls ++ externalDecls
   let translationFunctions := mixinFunctions ++ functions
   let translationRoleDecls := mixinRoleDecls ++ roleDecls
+  validateGeneratedDefNamesPublic structDecls translationFields translationConstDecls
+    translationImmutableDecls (mixinModifiers ++ modifiers) translationFunctions
   validateFunctionDeclsPublic translationFields translationErrorDecls translationEventDecls
     translationConstDecls translationImmutableDecls translationExternalDecls ctor
     (mixinModifiers ++ modifiers) translationFunctions

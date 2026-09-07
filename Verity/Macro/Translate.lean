@@ -2394,13 +2394,21 @@ private def helperCallWithAdv (name : Ident) (args : Array Term) (adv : Term) : 
     app ← `(term| $app $arg)
   pure app
 
+private def helperCall (name : Ident) (args : Array Term) : CommandElabM Term := do
+  let mut app : Term := ⟨name.raw⟩
+  for arg in args do
+    app ← `(term| $app $arg)
+  pure app
+
 private def threadHelperApp?
-    (adversarialHelpers : Array FunctionDecl) (name : Ident) (args : Array Term)
+    (helpers : Array FunctionDecl) (adversarialHelpers : Array FunctionDecl)
+    (name : Ident) (args : Array Term)
     (adv : Term) : CommandElabM (Option Term) := do
-  let helper? := adversarialHelpers.find? fun fn =>
+  let matchesHelper := fun (fn : FunctionDecl) =>
     (fn.name == toString name.getId || fn.ident.getId == name.getId ||
       (toString name.getId).endsWith ("." ++ fn.name)) &&
       fn.params.size == args.size
+  let helper? := helpers.find? matchesHelper
   match helper? with
   | some helper =>
       let target ←
@@ -2408,7 +2416,12 @@ private def threadHelperApp?
           mkSuffixedIdent name "_unguarded"
         else
           pure name
-      some <$> helperCallWithAdv target args adv
+      if adversarialHelpers.any matchesHelper then
+        some <$> helperCallWithAdv target args adv
+      else if helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
+        some <$> helperCall target args
+      else
+        pure none
   | none => pure none
 
 private def rewriteTypedInterfaceCall?
@@ -2723,10 +2736,11 @@ private def adaptHoistedWordContext (stx : Term) : CommandElabM Term := do
 
 private partial def threadAdversaryThroughExecutableSyntax
     (externalDecls : Array ExternalDecl)
+    (helpers : Array FunctionDecl)
     (adversarialHelpers : Array FunctionDecl)
     (params : Array ParamDecl)
     (adv : Term) (stx : Syntax) : CommandElabM Syntax := do
-  let go := threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers params adv
+  let go := threadAdversaryThroughExecutableSyntax externalDecls helpers adversarialHelpers params adv
   let recurseChildren : CommandElabM Syntax := do
     match stx with
     | .node info kind args =>
@@ -2762,7 +2776,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         let rewrittenBody : TSyntax ``Lean.Parser.Term.doSeq := ⟨bodyRaw⟩
         pure (#[], ← `(term| do $rewrittenBody))
     | `(term| $name:ident($[$args:term],*)) =>
-        match ← threadHelperApp? adversarialHelpers name args adv with
+        match ← threadHelperApp? helpers adversarialHelpers name args adv with
         | some app => pure (#[], app)
         | none =>
             let mut binds : Array (Ident × Term) := #[]
@@ -2899,7 +2913,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         (← `(doElem| let $pat:term ← (totalSupply
           (externalArgAddress $rewrittenToken) $adv)))
   | `(doElem| let $name:ident ← $fn:ident($[$args:term],*)) =>
-      match ← threadHelperApp? adversarialHelpers fn args adv with
+      match ← threadHelperApp? helpers adversarialHelpers fn args adv with
       | some app => `(doElem| let $name ← $app:term)
       | none => recurseChildren
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
@@ -2924,7 +2938,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         wrapBinds binds
           (← `(doElem| let $name ← (totalSupply (externalArgAddress $token) $adv)))
       else
-        match ← threadHelperApp? adversarialHelpers fn original adv with
+        match ← threadHelperApp? helpers adversarialHelpers fn original adv with
         | some app =>
             hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
         | none =>
@@ -3051,7 +3065,7 @@ private partial def threadAdversaryThroughExecutableSyntax
             let rewritten ← rewriteLinkedCallTerm externalDecls params adv rhs
             `(doElem| $rewritten:term)
         | _ => recurseChildren
-      else match ← threadHelperApp? adversarialHelpers fn original adv with
+      else match ← threadHelperApp? helpers adversarialHelpers fn original adv with
       | some app =>
           hoistLive false app fun rewritten => `(doElem| $rewritten:term)
       | none =>
@@ -3063,7 +3077,7 @@ private partial def threadAdversaryThroughExecutableSyntax
       hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
   | `(term| $name:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
-      match ← threadHelperApp? adversarialHelpers name original adv with
+      match ← threadHelperApp? helpers adversarialHelpers name original adv with
       | some app => pure app.raw
       | none =>
           if isLiveStateExternalCall ⟨stx⟩ then
@@ -4962,9 +4976,11 @@ def validateConstantDeclsPublic (constDecls : Array ConstantDecl) : CommandElabM
   validateConstantExprTypes constDecls
 
 def validateGeneratedDefNamesPublic
+    (structDecls : Array StructDecl)
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
+    (modifiers : Array ModifierDecl)
     (functions : Array FunctionDecl) : CommandElabM Unit := do
   let reservedGeneratedNames : Array String := #["spec", "storageNamespace", "entrypointRegistry"]
   let mut generatedHelperNames : Array String := reservedGeneratedNames
@@ -5088,6 +5104,15 @@ def validateGeneratedDefNamesPublic
         throwErrorAt fn.ident
           s!"function '{fn.name}' generates duplicate helper declaration '{helperName}'"
       generatedHelperNames := generatedHelperNames.push helperName
+
+  for structDecl in structDecls do
+    if generatedHelperNames.contains structDecl.name then
+      throwErrorAt structDecl.ident
+        s!"struct '{structDecl.name}' conflicts with generated declaration '{structDecl.name}'"
+  for modifierDecl in modifiers do
+    if generatedHelperNames.contains modifierDecl.name then
+      throwErrorAt modifierDecl.ident
+        s!"modifier '{modifierDecl.name}' conflicts with generated declaration '{modifierDecl.name}'"
 
 def validateImmutableDeclsPublic
     (fields : Array StorageFieldDecl)
@@ -5338,7 +5363,7 @@ def mkConstructorDefCommandPublic
       pure ⟨advIdent.raw⟩
     else
       `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
-  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers
+  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls functions adversarialHelpers
     ctor.params advTerm executableBody.raw⟩
   let fnType ← if opensReentrancyWindow then
       mkContractFnTypeWithAdversary ctor.params .unit
@@ -5408,7 +5433,7 @@ def mkHostConstructorDefCommandPublic
             preludes := preludes.push (← `(doElem| $tgt:ident $args*))
       let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
       let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params body
-      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls ownAdversarialHelpers
+      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls functions ownAdversarialHelpers
         ctor.params advTerm executableBody.raw⟩
       let fnValue ← if containsExternalCall then
           mkContractFnValueWithAdversary advIdent ctor.params executableBody
@@ -5559,7 +5584,7 @@ def mkFunctionCommandsPublic
       mkContractFnTypeWithAdversary fn.params fn.returnTy
     else
       mkContractFnType fn.params fn.returnTy
-  let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
+  let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls functions
     adversarialHelpers fn.params advTerm fnExecutableBody.raw⟩
   let mut extraExecutableCmds : Array Cmd := #[]
   if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
