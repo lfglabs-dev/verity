@@ -2402,7 +2402,13 @@ private def threadHelperApp?
       (toString name.getId).endsWith ("." ++ fn.name)) &&
       fn.params.size == args.size
   match helper? with
-  | some _ => some <$> helperCallWithAdv name args adv
+  | some helper =>
+      let target ←
+        if helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
+          mkSuffixedIdent name "_unguarded"
+        else
+          pure name
+      some <$> helperCallWithAdv target args adv
   | none => pure none
 
 private def rewriteTypedInterfaceCall?
@@ -5044,6 +5050,7 @@ def validateGeneratedDefNamesPublic
 
     let helperNames :=
       #[ s!"{generatedFnName}_modelBody"
+       , s!"{generatedFnName}_entrypoint"
        , s!"{generatedFnName}_model"
        , s!"{generatedFnName}_bridge"
        , s!"{generatedFnName}_semantic_preservation"
@@ -5059,6 +5066,11 @@ def validateGeneratedDefNamesPublic
        , s!"{generatedFnName}_requires_role"
        , s!"{generatedFnName}_access_control"
        ]
+    let helperNames :=
+      if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
+        helperNames.push s!"{generatedFnName}_unguarded"
+      else
+        helperNames
     for helperName in helperNames do
       if storageNames.contains helperName then
         throwErrorAt fn.ident
@@ -5423,6 +5435,13 @@ def mkIncludeAliasCommandsPublic
           unless fn.isInternal do
             let tgt := mkIdent (mixinName ++ fn.ident.getId)
             cmds := cmds.push (← `(command| abbrev $(fn.ident) := $tgt))
+            let predicateId ← mkSuffixedIdent fn.ident "_entrypoint"
+            let predicateTgt ← mkSuffixedIdent tgt "_entrypoint"
+            cmds := cmds.push (← `(command| abbrev $predicateId := $predicateTgt))
+            if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
+              let unguardedId ← mkSuffixedIdent fn.ident "_unguarded"
+              let unguardedTgt ← mkSuffixedIdent tgt "_unguarded"
+              cmds := cmds.push (← `(command| abbrev $unguardedId := $unguardedTgt))
         for modDecl in mixin.modifiers do
           unless modifierContainsExternalCallSyntaxPublic modDecl do
             let tgt := mkIdent (mixinName ++ modDecl.ident.getId)
@@ -5542,6 +5561,15 @@ def mkFunctionCommandsPublic
       mkContractFnType fn.params fn.returnTy
   let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
     adversarialHelpers fn.params advTerm fnExecutableBody.raw⟩
+  let mut extraExecutableCmds : Array Cmd := #[]
+  if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
+    let unguardedId ← mkSuffixedIdent fn.ident "_unguarded"
+    let unguardedValue ← if opensReentrancyWindow then
+        mkContractFnValueWithAdversary advIdent fn.params fnExecutableBody
+      else
+        mkContractFnValue fn.params fnExecutableBody
+    extraExecutableCmds := extraExecutableCmds.push
+      (← `(command| def $unguardedId : $fnType := $unguardedValue))
   let fnExecutableBody ← match fn.nonReentrantLock with
     | some lockIdent =>
         let lockName := toString lockIdent.getId
@@ -5628,7 +5656,7 @@ def mkFunctionCommandsPublic
     body := $modelBodyName
     isInternal := $internalTerm
   })
-  pure #[fnCmd, entrypointCmd, bodyCmd, modelCmd]
+  pure (extraExecutableCmds ++ #[fnCmd, entrypointCmd, bodyCmd, modelCmd])
 
 /-- Emit the contract-wide union of all externally callable entrypoint
 predicates.  Each per-function predicate keeps arguments existential and uses

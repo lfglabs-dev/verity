@@ -9,12 +9,12 @@ First machine-checked brick of the `guarded` ↔ emitted-Yul correspondence
 `Compiler.CompilationModel.nonReentrantGuardPrologue` are evaluated under the
 IR interpreter used by the IR-generation proofs.
 
-- lock slot reads `1` → the frame reverts with the state untouched;
+- lock slot reads nonzero → the frame reverts with the state untouched;
 - lock slot reads `0` → execution falls through with the lock set to `1` and
   nothing else changed;
 - the release statement spliced by `applyLockReleaseOnExits` resets the slot;
-- on the reachable (binary) lock values, the Yul decision `eq(tload(slot), 1)`
-  agrees with the source-model decision `lock ≠ 0` of
+- the Yul decision on `tload(slot)` agrees with the source-model decision
+  `lock ≠ 0` of
   `Verity.Core.Model.NonReentrantGuard.guarded`.
 
 Still open: pushing these statement-level facts through
@@ -29,7 +29,7 @@ open Compiler.CompilationModel
 
 /-- The exact prologue shape emitted for a resolved lock slot. -/
 def guardPrologueStmts (slot : Nat) : List YulStmt :=
-  [ .if_ (.call "eq" [.call "tload" [.lit slot], .lit 1])
+  [ .if_ (.call "tload" [.lit slot])
       [.exprStmt (.call "revert" [.lit 0, .lit 0])],
     .exprStmt (.call "tstore" [.lit slot, .lit 1]) ]
 
@@ -45,22 +45,20 @@ theorem nonReentrantGuardPrologue_eq (fields : List Field) (lockField : String)
     nonReentrantGuardPrologue fields lockField = .ok (guardPrologueStmts slot) := by
   simp [nonReentrantGuardPrologue, h, guardPrologueStmts, pure, Except.pure]
 
-/-- Lock held (`tload = 1`) → the prologue reverts and the state is untouched. -/
+/-- Lock held (`tload ≠ 0`) → the prologue reverts and the state is untouched. -/
 theorem execIRStmts_guardPrologue_locked (fuel : Nat) (state : IRState) (slot : Nat)
     (hslot : slot < Compiler.Constants.evmModulus)
-    (hlock : state.transientStorage slot = 1) :
+    (hlock : state.transientStorage slot ≠ 0) :
     execIRStmts (fuel + 3) state (guardPrologueStmts slot) = .revert state := by
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
-  have hone : (1 : Nat) < Compiler.Constants.evmModulus := by
-    simp [Compiler.Constants.evmModulus]
   cases fuel with
   | zero =>
       simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
+        evalIRExprs, hmod, hlock,
         YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
   | succ n =>
       simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
+        evalIRExprs, hmod, hlock,
         YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
 
 /-- Lock free (`tload = 0`) → the prologue acquires the lock and changes
@@ -87,11 +85,9 @@ theorem execIRStmt_lockRelease (fuel : Nat) (state : IRState) (slot : Nat)
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
   simp [lockReleaseStmt, execIRStmt, evalIRExpr, hmod]
 
-/-- On the reachable (binary) lock values, the Yul decision `eq(lock, 1)`
-agrees with the source model's `lock ≠ 0` (`NonReentrantGuard.guarded`). -/
-theorem guard_decision_agrees (v : Nat) (hv : v = 0 ∨ v = 1) :
-    (v = 1) ↔ v ≠ 0 := by
-  rcases hv with h | h <;> simp [h]
+/-- The emitted Yul and source model use the same nonzero lock decision. -/
+theorem guard_decision_agrees (v : Nat) : (v ≠ 0) ↔ v ≠ 0 := by
+  rfl
 
 /-- Acquire-then-release round-trips the lock slot: the transient storage
 function is extensionally the initial one when the slot started free. -/
