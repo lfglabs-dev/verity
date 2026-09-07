@@ -5,8 +5,6 @@ import Verity.Macro.Translate
 import Verity.Macro.Bridge
 import Verity.Core.Intrinsics
 import Verity.Core.Uint256
-import Verity.Core.Model.CallbackBridge
-import Verity.Core.Model.NonReentrantGuard
 
 namespace Verity.Macro
 

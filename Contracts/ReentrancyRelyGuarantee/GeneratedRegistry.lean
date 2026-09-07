@@ -1,0 +1,48 @@
+import Contracts.Common
+import Verity.Core.Model.CallbackBridge
+import Verity.Core.Model.NonReentrantGuard
+
+namespace Contracts.ReentrancyRelyGuarantee
+
+open Contracts
+open Verity hiding pure bind
+
+/-! Focused generated consumer for the registry/guard boundary.  It contains
+an actual mutable external-call window, so the executable entrypoint must take
+an explicit adversary and the nonreentrant annotation must guard that same
+generated function. -/
+verity_contract GeneratedRegistry where
+  storage
+    lock : Uint256 := slot 0
+  linked_externals
+    external ping(Uint256) -> (Uint256)
+
+  function nonreentrant(lock) guardedPing (value : Uint256) : Unit := do
+    let _response := externalCall "ping" [value]
+    return ()
+
+  function noop (value : Uint256) : Uint256 := do
+    return value
+
+namespace GeneratedRegistry
+
+open Compiler.CompilationModel.DenoteExternalCalls
+
+/-- The generated registry uses its explicit adversary at the external-call
+entrypoint; there is no `.stub` compatibility path in this theorem surface. -/
+theorem guardedPing_registered (adv : AdversaryModel) (value : Uint256) :
+    entrypointRegistry adv
+      (guardedPing (ExecutableCallContext.ofAdversary adv) value).runState := by
+  left
+  exact ⟨value, rfl⟩
+
+/-- The executable generated entrypoint is definitionally protected by the
+canonical source guard at the same slot used by the compiled dispatch guard. -/
+theorem guardedPing_reentry_blocked (adv : AdversaryModel) (value : Uint256)
+    (state : ContractState) (hlock : state.transientStorage 0 ≠ 0) :
+    (guardedPing (ExecutableCallContext.ofAdversary adv) value).runState state = state := by
+  apply Verity.Core.NonReentrantGuard.guarded_reentry_blocked
+  exact hlock
+
+end GeneratedRegistry
+end Contracts.ReentrancyRelyGuarantee

@@ -49,6 +49,55 @@ def CallbackBounded
       (∀ f ∈ sched, entrypoints adversary f) ∧
         adversary.stateTransition site world = runSeq sched world
 
+/-- The sole proof obligation at the generated-registry boundary: every
+transition admitted by the registry for this adversary preserves the caller's
+invariant. -/
+def RegistryPreserves (Inv : Verity.ContractState → Prop)
+    (entrypoints : EntrypointRegistry) (adversary : AdversaryModel) : Prop :=
+  ∀ f, entrypoints adversary f → Preserves Inv f
+
+/-- A call through the restricted generated-registry boundary preserves any
+invariant discharged for every registered, fully-applied entrypoint. -/
+theorem CallbackBounded.denoteCall_preserves_registry
+    (Inv : Verity.ContractState → Prop) (entrypoints : EntrypointRegistry)
+    {adversary : AdversaryModel}
+    (hbound : CallbackBounded entrypoints adversary)
+    (hregistry : RegistryPreserves Inv entrypoints adversary)
+    (site : CallSite) (state : CallState) (hInv : Inv state.world) :
+    Inv (denoteCall adversary site state).state.world := by
+  cases hkind : site.kind with
+  | staticcall =>
+      rw [denoteCall_staticcall_world adversary site state hkind]
+      exact hInv
+  | call =>
+      cases hres : adversary.result site state.world with
+      | success data =>
+          rw [denoteCall_call_success_world adversary site state data hkind hres]
+          obtain ⟨sched, hmem, htrans⟩ := hbound site state.world (by simp [hkind])
+          rw [htrans]
+          exact Verity.Core.Invariant.runSeq_preserves sched
+            (fun f hf => hregistry f (hmem f hf)) state.world hInv
+      | failure data =>
+          rw [denoteCall_failure_world adversary site state data (Or.inl hkind) hres]
+          exact hInv
+      | revert data =>
+          rw [denoteCall_revert_world adversary site state data (Or.inl hkind) hres]
+          exact hInv
+  | delegatecall =>
+      cases hres : adversary.result site state.world with
+      | success data =>
+          rw [denoteCall_delegatecall_success_world adversary site state data hkind hres]
+          obtain ⟨sched, hmem, htrans⟩ := hbound site state.world (by simp [hkind])
+          rw [htrans]
+          exact Verity.Core.Invariant.runSeq_preserves sched
+            (fun f hf => hregistry f (hmem f hf)) state.world hInv
+      | failure data =>
+          rw [denoteCall_failure_world adversary site state data (Or.inr hkind) hres]
+          exact hInv
+      | revert data =>
+          rw [denoteCall_revert_world adversary site state data (Or.inr hkind) hres]
+          exact hInv
+
 /-- One external call under a callback-bounded adversary preserves the spec
 invariant: rollback outcomes keep the pre-call world, and committed outcomes
 are reentry schedules, covered by the per-entrypoint obligations. -/
