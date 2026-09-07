@@ -46,6 +46,8 @@ theorem guardedPing_reentry_blocked (adv : AdversaryModel) (value : Uint256)
 
 end GeneratedRegistry
 
+open Compiler.CompilationModel.DenoteExternalCalls
+
 /-- `ReentrancyRelyGuarantee` consumes the emitted registry at the restricted
 callback boundary.  Contract-specific preservation obligations remain with
 authors; this PR establishes only the generated registry/guard connection. -/
