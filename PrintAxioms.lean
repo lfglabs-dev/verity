@@ -38,6 +38,7 @@ import Contracts.Vault.Proofs.Native
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Model.CommonExternalCallEquivalence
+import Verity.Proofs.Model.GeneratedEntrypointRegistry
 import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
@@ -717,6 +718,10 @@ end Verity.AxiomAudit
   Contracts.safeApprove_eq_stub
   Contracts.legacyStringSafeTransfer_eq_stub
   Contracts.legacyStringSafeTransferFrom_eq_stub
+
+  -- Verity/Proofs/Model/GeneratedEntrypointRegistry.lean
+  Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_registered
+  Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_reentry_blocked
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -7515,4 +7520,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6953 theorems/lemmas (4963 public, 1990 private, 0 sorry'd)
+-- Total: 6955 theorems/lemmas (4965 public, 1990 private, 0 sorry'd)
