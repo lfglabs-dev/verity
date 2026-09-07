@@ -175,6 +175,38 @@ verity_contract NonreentrantTrustedInternalHelperAccepted where
 
 #check_contract NonreentrantTrustedInternalHelperAccepted
 
+-- Regression for Codex's PR #2406 qualified-helper finding.  Qualified Lean
+-- helpers that merely share a guarded local function's final name must retain
+-- their qualifier; they do not resolve to the generated lock-free shadow.
+verity_contract QualifiedHelperLibrary where
+  storage
+
+  function trustedEntry (x : Uint256) : Uint256 := do
+    return x
+
+  function trustedPair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    return (x, x)
+
+verity_contract NonreentrantQualifiedHelperResolution where
+  storage
+    lock : Uint256 := slot 0
+
+  function nonreentrant(lock) reentrancy_trusted trustedEntry (x : Uint256) : Uint256 := do
+    return x
+
+  function nonreentrant(lock) reentrancy_trusted trustedPair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    return (x, x)
+
+  function qualifiedSpace (x : Uint256) : Uint256 := do
+    let y ← QualifiedHelperLibrary.trustedEntry x
+    return y
+
+  function qualifiedDestructure (x : Uint256) : Uint256 := do
+    let (left, right) ← QualifiedHelperLibrary.trustedPair x
+    return (add left right)
+
+#check_contract NonreentrantQualifiedHelperResolution
+
 -- ════════════════════════════════════════════════════════════════════════════
 -- Stress-test contracts: edge-case coverage for Language Design Axes (#1731)
 -- ════════════════════════════════════════════════════════════════════════════

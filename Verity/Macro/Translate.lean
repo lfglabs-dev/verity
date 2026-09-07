@@ -2408,11 +2408,15 @@ private def threadHelperApp?
     (fn.name == toString name.getId || fn.ident.getId == name.getId ||
       (toString name.getId).endsWith ("." ++ fn.name)) &&
       fn.params.size == args.size
+  let matchesExactHelper := fun (fn : FunctionDecl) =>
+    (fn.name == toString name.getId || fn.ident.getId == name.getId) &&
+      fn.params.size == args.size
   let helper? := helpers.find? matchesHelper
   match helper? with
   | some helper =>
       let target ←
-        if helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
+        if helper.nonReentrantLock.isSome && helper.reentrancyTrusted &&
+            matchesExactHelper helper then
           mkSuffixedIdent name "_unguarded"
         else
           pure name
