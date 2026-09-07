@@ -2405,7 +2405,7 @@ private def threadHelperApp?
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (helpers : Array FunctionDecl) (adversarialHelpers : Array FunctionDecl)
-    (params : Array ParamDecl)
+    (params : Array ParamDecl) (locals : Array TypedLocal)
     (name : Ident) (args : Array Term)
     (adv : Term) : CommandElabM (Option Term) := do
   let matchesHelper := fun (fn : FunctionDecl) =>
@@ -2423,7 +2423,7 @@ private def threadHelperApp?
       let app ← helperCall name args
       try
         pure ((← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls
-          helpers params #[] app).map (·.1))
+          helpers params locals app).map (·.1))
       catch _ =>
         -- Validation reports ill-typed or ambiguous calls. If local binders keep
         -- the argument types unavailable here, leave the original call intact
@@ -2763,9 +2763,10 @@ private partial def threadAdversaryThroughExecutableSyntax
     (helpers : Array FunctionDecl)
     (adversarialHelpers : Array FunctionDecl)
     (params : Array ParamDecl)
+    (locals : Array TypedLocal)
     (adv : Term) (stx : Syntax) : CommandElabM Syntax := do
   let go := threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls helpers adversarialHelpers params adv
+    externalDecls helpers adversarialHelpers params locals adv
   let recurseChildren : CommandElabM Syntax := do
     match stx with
     | .node info kind args =>
@@ -2776,6 +2777,26 @@ private partial def threadAdversaryThroughExecutableSyntax
   let freshExternalIdent (origin : Term) : CommandElabM Ident :=
     Lean.Elab.Term.mkFreshIdent
       (mkIdentFrom origin.raw (Name.mkSimple "__verity_ext")).raw
+  let extendLocals (scope : Array TypedLocal) (elem : TSyntax `doElem) : CommandElabM (Array TypedLocal) := do
+    let infer (name : Ident) (rhs : Term) := do
+      try
+        let ty ←
+          match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls
+              helpers params scope rhs with
+          | some (helper, _) => pure helper.returnTy
+          | none => inferPureExprType fields constDecls immutableDecls externalDecls params scope rhs
+        pure (scope.push (mkTypedLocal (toString name.getId) ty))
+      catch _ => pure scope
+    match elem with
+    | `(doElem| let $name:ident := $rhs:term) => infer name rhs
+    | `(doElem| let mut $name:ident := $rhs:term) => infer name rhs
+    | `(doElem| let $name:ident ← $rhs:term) =>
+        try
+          let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls
+            helpers params scope rhs
+          pure (scope.push (mkTypedLocal (toString name.getId) ty))
+        catch _ => pure scope
+    | _ => pure scope
   let rec hoistNested (bindSelf : Bool) (t : Term) :
       CommandElabM (Array (Ident × Term) × Term) := do
     let bindCall (binds : Array (Ident × Term)) (call : Term) :
@@ -2802,7 +2823,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         pure (#[], ← `(term| do $rewrittenBody))
     | `(term| $name:ident($[$args:term],*)) =>
         match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-            helpers adversarialHelpers params name args adv with
+            helpers adversarialHelpers params locals name args adv with
         | some app => pure (#[], app)
         | none =>
             let mut binds : Array (Ident × Term) := #[]
@@ -2889,6 +2910,15 @@ private partial def threadAdversaryThroughExecutableSyntax
     let rest ← if outerWasBound then pureBinding pureValue else monadic rewritten
     wrapBinds binds rest
   match stx with
+  | `(doSeq| $[$elems:doElem]*) =>
+      let mut scope := locals
+      let mut rewritten : Array (TSyntax `doElem) := #[]
+      for elem in elems do
+        let raw ← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+          externalDecls helpers adversarialHelpers params scope adv elem.raw
+        rewritten := rewritten.push ⟨raw⟩
+        scope ← extendLocals scope elem
+      `(doSeq| $[$rewritten:doElem]*)
   | `(doElem| let $pat:term ← tryExternalCall $name:term [ $[$args:term],* ]) =>
       let mut binds : Array (Ident × Term) := #[]
       let mut rewrittenArgs : Array Term := #[]
@@ -2940,7 +2970,7 @@ private partial def threadAdversaryThroughExecutableSyntax
           (externalArgAddress $rewrittenToken) $adv)))
   | `(doElem| let $name:ident ← $fn:ident($[$args:term],*)) =>
       match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-          helpers adversarialHelpers params fn args adv with
+          helpers adversarialHelpers params locals fn args adv with
       | some app => `(doElem| let $name ← $app:term)
       | none => recurseChildren
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
@@ -2966,7 +2996,7 @@ private partial def threadAdversaryThroughExecutableSyntax
           (← `(doElem| let $name ← (totalSupply (externalArgAddress $token) $adv)))
       else
         match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-            helpers adversarialHelpers params fn original adv with
+            helpers adversarialHelpers params locals fn original adv with
         | some app =>
             hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
         | none =>
@@ -3095,7 +3125,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         | _ => recurseChildren
       else
         match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-            helpers adversarialHelpers params fn original adv with
+          helpers adversarialHelpers params locals fn original adv with
         | some app =>
             hoistLive false app fun rewritten => `(doElem| $rewritten:term)
         | none =>
@@ -3108,7 +3138,7 @@ private partial def threadAdversaryThroughExecutableSyntax
   | `(term| $name:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
       match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-          helpers adversarialHelpers params name original adv with
+          helpers adversarialHelpers params locals name original adv with
       | some app => pure app.raw
       | none =>
           if isLiveStateExternalCall ⟨stx⟩ then
@@ -5395,7 +5425,7 @@ def mkConstructorDefCommandPublic
     else
       `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
   let executableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls functions adversarialHelpers ctor.params advTerm executableBody.raw⟩
+    externalDecls functions adversarialHelpers ctor.params #[] advTerm executableBody.raw⟩
   let fnType ← if opensReentrancyWindow then
       mkContractFnTypeWithAdversary ctor.params .unit
     else
@@ -5465,7 +5495,7 @@ def mkHostConstructorDefCommandPublic
       let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
       let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params body
       let executableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-        externalDecls functions ownAdversarialHelpers ctor.params advTerm executableBody.raw⟩
+        externalDecls functions ownAdversarialHelpers ctor.params #[] advTerm executableBody.raw⟩
       let fnValue ← if containsExternalCall then
           mkContractFnValueWithAdversary advIdent ctor.params executableBody
         else
@@ -5616,7 +5646,7 @@ def mkFunctionCommandsPublic
     else
       mkContractFnType fn.params fn.returnTy
   let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls functions adversarialHelpers fn.params advTerm fnExecutableBody.raw⟩
+    externalDecls functions adversarialHelpers fn.params #[] advTerm fnExecutableBody.raw⟩
   let mut extraExecutableCmds : Array Cmd := #[]
   if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
     let unguardedId ← mkSuffixedIdent fn.ident "_unguarded"

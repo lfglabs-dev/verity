@@ -196,6 +196,7 @@ verity_contract QualifiedHelperLibrary where
 verity_contract NonreentrantQualifiedHelperResolution where
   storage
     lock : Uint256 := slot 0
+    value : Uint256 := slot 1
 
   linked_externals
     external echo(Uint256) -> (Uint256)
@@ -250,6 +251,16 @@ verity_contract NonreentrantQualifiedHelperResolution where
   function overloadedAdversarialCaller (x : Uint256) : Unit := do
     let y ← overloadedAdversarial x
     require (y == x) "wrong adversarial overload"
+
+  function overloadedTrustedLocalCaller () : Unit := do
+    let x ← getStorage value
+    let y ← overloadedTrusted x
+    require (y == x) "wrong trusted local overload"
+
+  function overloadedAdversarialLocalCaller () : Unit := do
+    let x ← getStorage value
+    let y ← overloadedAdversarial x
+    require (y == x) "wrong adversarial local overload"
 
 #check_contract NonreentrantQualifiedHelperResolution
 

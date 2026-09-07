@@ -138,4 +138,16 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialCaller(uint256)", uint256(1)));
         require(ok, "overloadedAdversarialCaller reverted unexpectedly");
     }
+    // Property 15: overloadedTrustedLocalCaller has no unexpected revert
+    function testAuto_OverloadedTrustedLocalCaller_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedLocalCaller()"));
+        require(ok, "overloadedTrustedLocalCaller reverted unexpectedly");
+    }
+    // Property 16: overloadedAdversarialLocalCaller has no unexpected revert
+    function testAuto_OverloadedAdversarialLocalCaller_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialLocalCaller()"));
+        require(ok, "overloadedAdversarialLocalCaller reverted unexpectedly");
+    }
 }
