@@ -16,10 +16,10 @@
   },
   "theorems": {
     "categories": 15,
-    "coverage_percent": 78,
+    "coverage_percent": 77,
     "covered": 255,
-    "excluded": 74,
-    "non_stdlib_total": 329,
+    "excluded": 75,
+    "non_stdlib_total": 330,
     "per_contract": {
       "Counter": 31,
       "ERC20": 22,
@@ -31,15 +31,15 @@
       "OwnedCounter": 63,
       "OwnedCounterComposed": 6,
       "ReentrancyExample": 5,
-      "ReentrancyRelyGuarantee": 10,
+      "ReentrancyRelyGuarantee": 11,
       "SafeCounter": 25,
       "SimpleStorage": 20,
       "SimpleToken": 61,
       "Vault": 9
     },
-    "proven": 329,
+    "proven": 330,
     "stdlib": 0,
-    "total": 329
+    "total": 330
   },
   "toolchain": {
     "lean": "leanprover/lean4:v4.31.0",

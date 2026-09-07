@@ -22,7 +22,7 @@ import Verity.Core
 import Verity.Core.Semantics
 import Verity.Core.Reentrancy
 import Verity.Core.Model.CallbackBridge
-import Contracts.ReentrancyRelyGuarantee.GeneratedRegistry
+import Verity.Proofs.Model.GeneratedEntrypointRegistry
 
 namespace Contracts.ReentrancyRelyGuarantee
 
