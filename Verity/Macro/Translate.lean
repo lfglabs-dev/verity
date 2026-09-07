@@ -2420,7 +2420,7 @@ private def threadHelperApp?
           mkSuffixedIdent name "_unguarded"
         else
           pure name
-      if adversarialHelpers.any matchesHelper then
+      if adversarialHelpers.any matchesExactHelper then
         some <$> helperCallWithAdv target args adv
       else if helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
         some <$> helperCall target args

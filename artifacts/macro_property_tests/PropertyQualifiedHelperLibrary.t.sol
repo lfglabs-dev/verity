@@ -36,4 +36,23 @@ contract PropertyQualifiedHelperLibraryTest is YulTestBase {
         assertEq(actual0, uint256(1), "trustedPair tuple element 0 should preserve the inferred result");
         assertEq(actual1, uint256(1), "trustedPair tuple element 1 should preserve the inferred result");
     }
+    // Property 3: adversarialEntry returns the direct parameter value
+    function testAuto_AdversarialEntry_ReturnsDirectParam() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("adversarialEntry(uint256)", uint256(1)));
+        require(ok, "adversarialEntry reverted unexpectedly");
+        assertEq(ret.length, 32, "adversarialEntry ABI return length mismatch (expected 32 bytes)");
+        uint256 actual = abi.decode(ret, (uint256));
+        assertEq(actual, uint256(1), "adversarialEntry should preserve the expected value");
+    }
+    // Property 4: adversarialPair decodes and matches the inferred tuple result
+    function testAuto_AdversarialPair_ReturnsInferredTupleResult() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("adversarialPair(uint256)", uint256(1)));
+        require(ok, "adversarialPair reverted unexpectedly");
+        require(ret.length >= 64, "adversarialPair ABI tuple return payload unexpectedly short");
+        (uint256 actual0, uint256 actual1) = abi.decode(ret, (uint256, uint256));
+        assertEq(actual0, uint256(1), "adversarialPair tuple element 0 should preserve the inferred result");
+        assertEq(actual1, uint256(1), "adversarialPair tuple element 1 should preserve the inferred result");
+    }
 }

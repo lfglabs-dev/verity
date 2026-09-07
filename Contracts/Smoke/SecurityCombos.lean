@@ -187,9 +187,18 @@ verity_contract QualifiedHelperLibrary where
   function trustedPair (x : Uint256) : Tuple [Uint256, Uint256] := do
     return (x, x)
 
+  function adversarialEntry (x : Uint256) : Uint256 := do
+    return x
+
+  function adversarialPair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    return (x, x)
+
 verity_contract NonreentrantQualifiedHelperResolution where
   storage
     lock : Uint256 := slot 0
+
+  linked_externals
+    external echo(Uint256) -> (Uint256)
 
   function nonreentrant(lock) reentrancy_trusted trustedEntry (x : Uint256) : Uint256 := do
     return x
@@ -197,12 +206,28 @@ verity_contract NonreentrantQualifiedHelperResolution where
   function nonreentrant(lock) reentrancy_trusted trustedPair (x : Uint256) : Tuple [Uint256, Uint256] := do
     return (x, x)
 
+  function nonreentrant(lock) reentrancy_trusted adversarialEntry (x : Uint256) : Uint256 := do
+    let echoed := externalCall "echo" [x]
+    return echoed
+
+  function nonreentrant(lock) reentrancy_trusted adversarialPair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    let echoed := externalCall "echo" [x]
+    return (echoed, echoed)
+
   function qualifiedSpace (x : Uint256) : Uint256 := do
     let y ← QualifiedHelperLibrary.trustedEntry x
     return y
 
   function qualifiedDestructure (x : Uint256) : Uint256 := do
     let (left, right) ← QualifiedHelperLibrary.trustedPair x
+    return (add left right)
+
+  function qualifiedAdversarialSpace (x : Uint256) : Uint256 := do
+    let y ← QualifiedHelperLibrary.adversarialEntry x
+    return y
+
+  function qualifiedAdversarialDestructure (x : Uint256) : Uint256 := do
+    let (left, right) ← QualifiedHelperLibrary.adversarialPair x
     return (add left right)
 
 #check_contract NonreentrantQualifiedHelperResolution

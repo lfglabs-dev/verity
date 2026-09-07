@@ -36,7 +36,25 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         assertEq(actual0, uint256(1), "trustedPair tuple element 0 should preserve the inferred result");
         assertEq(actual1, uint256(1), "trustedPair tuple element 1 should preserve the inferred result");
     }
-    // Property 3: TODO decode and assert `qualifiedSpace` result
+    // Property 3: TODO decode and assert `adversarialEntry` result
+    function testTODO_AdversarialEntry_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("adversarialEntry(uint256)", uint256(1)));
+        require(ok, "adversarialEntry reverted unexpectedly");
+        assertEq(ret.length, 32, "adversarialEntry ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 4: TODO decode and assert `adversarialPair` result
+    function testTODO_AdversarialPair_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("adversarialPair(uint256)", uint256(1)));
+        require(ok, "adversarialPair reverted unexpectedly");
+        require(ret.length >= 64, "adversarialPair ABI tuple return payload unexpectedly short");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 5: TODO decode and assert `qualifiedSpace` result
     function testTODO_QualifiedSpace_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedSpace(uint256)", uint256(1)));
@@ -45,12 +63,30 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 4: TODO decode and assert `qualifiedDestructure` result
+    // Property 6: TODO decode and assert `qualifiedDestructure` result
     function testTODO_QualifiedDestructure_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedDestructure(uint256)", uint256(1)));
         require(ok, "qualifiedDestructure reverted unexpectedly");
         assertEq(ret.length, 32, "qualifiedDestructure ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 7: TODO decode and assert `qualifiedAdversarialSpace` result
+    function testTODO_QualifiedAdversarialSpace_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedAdversarialSpace(uint256)", uint256(1)));
+        require(ok, "qualifiedAdversarialSpace reverted unexpectedly");
+        assertEq(ret.length, 32, "qualifiedAdversarialSpace ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 8: TODO decode and assert `qualifiedAdversarialDestructure` result
+    function testTODO_QualifiedAdversarialDestructure_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedAdversarialDestructure(uint256)", uint256(1)));
+        require(ok, "qualifiedAdversarialDestructure reverted unexpectedly");
+        assertEq(ret.length, 32, "qualifiedAdversarialDestructure ABI return length mismatch (expected 32 bytes)");
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
