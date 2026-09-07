@@ -45,4 +45,19 @@ theorem guardedPing_reentry_blocked (adv : AdversaryModel) (value : Uint256)
   exact hlock
 
 end GeneratedRegistry
+
+/-- `ReentrancyRelyGuarantee` consumes the emitted registry at the restricted
+callback boundary.  Contract-specific preservation obligations remain with
+authors; this PR establishes only the generated registry/guard connection. -/
+theorem generated_registry_callback_preserves
+    {adversary : AdversaryModel}
+    (hbound : CallbackBounded GeneratedRegistry.entrypointRegistry adversary)
+    (hregistry : RegistryPreserves (fun _ => True)
+      GeneratedRegistry.entrypointRegistry adversary)
+    (site : CallSite) (state : CallState) :
+    (fun _ : ContractState => True)
+      (denoteCall adversary site state).state.world :=
+  hbound.denoteCall_preserves_registry (fun _ => True)
+    GeneratedRegistry.entrypointRegistry hregistry site state trivial
+
 end Contracts.ReentrancyRelyGuarantee

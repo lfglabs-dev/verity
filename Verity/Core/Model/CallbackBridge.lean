@@ -36,6 +36,10 @@ def ofList (entrypoints : List (Verity.ContractState → Verity.ContractState)) 
     EntrypointRegistry :=
   fun _ entrypoint => entrypoint ∈ entrypoints
 
+instance : Coe (List (Verity.ContractState → Verity.ContractState))
+    EntrypointRegistry where
+  coe := ofList
+
 end EntrypointRegistry
 
 /-- Each mutable transition is some finite reentry schedule drawn from the

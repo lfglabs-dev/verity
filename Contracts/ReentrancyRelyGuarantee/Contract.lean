@@ -22,7 +22,6 @@ import Verity.Core
 import Verity.Core.Semantics
 import Verity.Core.Reentrancy
 import Verity.Core.Model.CallbackBridge
-import Verity.Proofs.Model.GeneratedEntrypointRegistry
 
 namespace Contracts.ReentrancyRelyGuarantee
 
@@ -204,7 +203,7 @@ any `CallProgram`, and through the transaction commit/revert boundary. -/
 open Compiler.CompilationModel.DenoteExternalCalls in
 theorem callback_bounded_program_preserves_I
     {adversary : AdversaryModel}
-    (hbound : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
+    (hbound : CallbackBounded spec.entrypoints adversary)
     (prog : CallProgram α) (state : CallState) (hInv : I state.world) :
     I (denote prog adversary state).2.world :=
   hbound.denote_preserves spec prog state hInv
@@ -212,27 +211,10 @@ theorem callback_bounded_program_preserves_I
 open Compiler.CompilationModel.DenoteExternalCalls in
 theorem callback_bounded_transaction_preserves_I
     {adversary : AdversaryModel} {α : Type}
-    (hbound : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
+    (hbound : CallbackBounded spec.entrypoints adversary)
     (prog : CallProgram (TransactionResult α)) (state : CallState)
     (hInv : I state.world) :
     I (denoteTransaction prog adversary state).state.world :=
   hbound.transaction_preserves spec prog state hInv
-
-/-! ## Generated-registry consumer boundary -/
-
-/- `ReentrancyRelyGuarantee` consumes the macro-emitted registry directly at
-the callback boundary.  This deliberately small invariant isolates the PR4
-connection; contract-specific preservation obligations remain with authors. -/
-open Compiler.CompilationModel.DenoteExternalCalls in
-theorem generated_registry_callback_preserves
-    {adversary : AdversaryModel}
-    (hbound : CallbackBounded GeneratedRegistry.entrypointRegistry adversary)
-    (hregistry : RegistryPreserves (fun _ => True)
-      GeneratedRegistry.entrypointRegistry adversary)
-    (site : CallSite) (state : CallState) :
-    (fun _ : ContractState => True)
-      (denoteCall adversary site state).state.world :=
-  hbound.denoteCall_preserves_registry (fun _ => True)
-    GeneratedRegistry.entrypointRegistry hregistry site state trivial
 
 end Contracts.ReentrancyRelyGuarantee
