@@ -722,6 +722,7 @@ end Verity.AxiomAudit
   -- Verity/Proofs/Model/GeneratedEntrypointRegistry.lean
   Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_registered
   Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_reentry_blocked
+  Contracts.ReentrancyRelyGuarantee.generated_registry_callback_preserves
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -7520,4 +7521,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6955 theorems/lemmas (4965 public, 1990 private, 0 sorry'd)
+-- Total: 6956 theorems/lemmas (4966 public, 1990 private, 0 sorry'd)
