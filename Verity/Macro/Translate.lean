@@ -5578,26 +5578,29 @@ def mkFunctionCommandsPublic
     (mkIdentFrom fn.ident `_registryAdv).raw
   let transitionIdent ← Lean.Elab.Term.mkFreshIdent
     (mkIdentFrom fn.ident `_transition).raw
+  let registryAdv : Ident := ⟨registryAdvIdent.raw⟩
+  let transition : Ident := ⟨transitionIdent.raw⟩
   let mut applied : Term := fn.ident
   if opensReentrancyWindow then
-    applied ← `($applied (ExecutableCallContext.ofAdversary $(⟨registryAdvIdent.raw⟩)))
+    applied ← `($applied (ExecutableCallContext.ofAdversary $registryAdv:ident))
   let mut registryParams : Array (Ident × Term) := #[]
   for param in fn.params do
     let paramTy ← contractValueTypeTerm param.ty
     let paramIdent ← Lean.Elab.Term.mkFreshIdent
       (mkIdentFrom param.ident `_registryArg).raw
-    registryParams := registryParams.push (⟨paramIdent.raw⟩, paramTy)
-    applied ← `($applied $(⟨paramIdent.raw⟩))
+    let registryParam : Ident := ⟨paramIdent.raw⟩
+    registryParams := registryParams.push (registryParam, paramTy)
+    applied ← `($applied $registryParam:ident)
   let mut registryBody : Term ←
-    `(($(⟨transitionIdent.raw⟩) : Verity.ContractState → Verity.ContractState) =
+    `(($transition:ident : Verity.ContractState → Verity.ContractState) =
       ($applied).runState)
   for (paramIdent, paramTy) in registryParams.reverse do
-    registryBody ← `(∃ $paramIdent : $paramTy, $registryBody)
+    registryBody ← `(∃ $paramIdent:ident : $paramTy, $registryBody)
   let entrypointCmd : Cmd ← `(command|
     def $entrypointPredicateName
-        ($(⟨registryAdvIdent.raw⟩) :
+        ($registryAdv:ident :
           Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
-        ($(⟨transitionIdent.raw⟩) : Verity.ContractState → Verity.ContractState) : Prop :=
+        ($transition:ident : Verity.ContractState → Verity.ContractState) : Prop :=
       $registryBody)
   let bodyCmd : Cmd ← `(command| def $modelBodyName : List Compiler.CompilationModel.Stmt := [ $[$stmtTerms],* ])
   let modelNameTerm :=
@@ -5633,15 +5636,17 @@ the registry's explicit adversary when the function opens a reentrancy window. -
 def mkEntrypointRegistryCommandPublic (functions : Array FunctionDecl) : CommandElabM Cmd := do
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_registryAdv).raw
   let transitionIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_transition).raw
+  let registryAdv : Ident := ⟨advIdent.raw⟩
+  let transition : Ident := ⟨transitionIdent.raw⟩
   let mut body : Term ← `(False)
   for fn in functions.reverse do
     unless fn.isInternal do
       let predicateName ← mkSuffixedIdent fn.ident "_entrypoint"
-      body ← `($predicateName $(⟨advIdent.raw⟩) $(⟨transitionIdent.raw⟩) ∨ $body)
+      body ← `($predicateName $registryAdv:ident $transition:ident ∨ $body)
   let id := mkIdent (Name.mkSimple "entrypointRegistry")
   `(command|
     def $id : Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry :=
-      fun $(⟨advIdent.raw⟩) $(⟨transitionIdent.raw⟩) => $body)
+      fun $registryAdv:ident $transition:ident => $body)
 
 def mkSpecCommandPublic
     (contractName : String)
