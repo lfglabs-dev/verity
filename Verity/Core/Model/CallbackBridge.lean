@@ -22,23 +22,217 @@ namespace Compiler.CompilationModel.DenoteExternalCalls
 open Verity.Core.Invariant (Preserves runSeq)
 open Verity.Core.Reentrancy (ReentrancySpec)
 
+/-- The macro-emitted registry is a predicate rather than a list of already
+applied functions.  This keeps entrypoint arguments existential and, crucially,
+indexes every executable transition by the same explicit adversary used at the
+call boundary. -/
+abbrev EntrypointRegistry :=
+  AdversaryModel → (Verity.ContractState → Verity.ContractState) → Prop
+
+namespace EntrypointRegistry
+
+/-- Compatibility adapter for the original, argument-free worked examples. -/
+def ofList (entrypoints : List (Verity.ContractState → Verity.ContractState)) :
+    EntrypointRegistry :=
+  fun _ entrypoint => entrypoint ∈ entrypoints
+
+instance : Coe (List (Verity.ContractState → Verity.ContractState))
+    EntrypointRegistry where
+  coe := ofList
+
+end EntrypointRegistry
+
+/-- EVM frame data chosen by a callee when it calls back into the current
+contract.  Entrypoint arguments remain existential in the generated
+registry; this record covers the ambient values observable through
+`msg.sender`, `msg.value`, and raw calldata intrinsics. -/
+structure CallbackContext where
+  sender : Verity.Address
+  msgValue : Verity.Uint256
+  calldataSize : Verity.Uint256
+  calldata : List Nat
+
+/-- Execute a registered callback in its own call frame, then restore the
+outer frame's ambient context while retaining the callback's contract-state
+effects. -/
+def withCallbackContext (ctx : CallbackContext) (world : Verity.ContractState) :
+    Verity.ContractState :=
+  { world with
+    sender := ctx.sender
+    msgValue := ctx.msgValue
+    selfBalance := world.selfBalance + ctx.msgValue
+    calldataSize := ctx.calldataSize
+    calldata := ctx.calldata
+    memory := fun _ => 0
+    returndata := [] }
+
+def restoreCallbackContext (outer callbackResult : Verity.ContractState) :
+    Verity.ContractState :=
+  { callbackResult with
+    sender := outer.sender
+    msgValue := outer.msgValue
+    calldataSize := outer.calldataSize
+    calldata := outer.calldata
+    memory := outer.memory
+    returndata := outer.returndata }
+
+def callbackTransition (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState) :
+    Verity.ContractState → Verity.ContractState :=
+  fun outer => restoreCallbackContext outer (entrypoint (withCallbackContext ctx outer))
+
+/-- Run an executable callback while retaining its success/revert outcome.
+Successful callbacks commit their state after restoring the caller's ambient
+frame; reverting callbacks roll back the entire callback, including the value
+credit installed on entry. -/
+def callbackContractTransition (ctx : CallbackContext)
+    (entrypoint : Verity.Contract α) :
+    Verity.ContractState → Verity.ContractState :=
+  fun outer =>
+    match entrypoint.run (withCallbackContext ctx outer) with
+    | .success _ callbackResult => restoreCallbackContext outer callbackResult
+    | .revert _ _ => outer
+
+@[simp] theorem callbackContractTransition_success (ctx : CallbackContext)
+    (entrypoint : Verity.Contract α) (outer callbackResult : Verity.ContractState)
+    (value : α)
+    (hrun : entrypoint.run (withCallbackContext ctx outer) =
+      Verity.ContractResult.success value callbackResult) :
+    callbackContractTransition ctx entrypoint outer =
+      restoreCallbackContext outer callbackResult := by
+  simp [callbackContractTransition, hrun]
+
+@[simp] theorem callbackContractTransition_revert (ctx : CallbackContext)
+    (entrypoint : Verity.Contract α) (outer : Verity.ContractState) (message : String)
+    (hrun : entrypoint.run (withCallbackContext ctx outer) =
+      Verity.ContractResult.revert message (withCallbackContext ctx outer)) :
+    callbackContractTransition ctx entrypoint outer = outer := by
+  simp [callbackContractTransition, hrun]
+
+@[simp] theorem withCallbackContext_sender (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).sender = ctx.sender := rfl
+
+@[simp] theorem withCallbackContext_msgValue (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).msgValue = ctx.msgValue := rfl
+
+@[simp] theorem withCallbackContext_calldata (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).calldata = ctx.calldata := rfl
+
+@[simp] theorem withCallbackContext_calldataSize (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).calldataSize = ctx.calldataSize := rfl
+
+@[simp] theorem withCallbackContext_selfBalance (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).selfBalance = world.selfBalance + ctx.msgValue := rfl
+
+@[simp] theorem withCallbackContext_returndata (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).returndata = [] := rfl
+
+@[simp] theorem withCallbackContext_memory (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).memory = (fun _ => 0) := rfl
+
+@[simp] theorem callbackTransition_restores_sender (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).sender = outer.sender := rfl
+
+@[simp] theorem callbackTransition_restores_msgValue (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).msgValue = outer.msgValue := rfl
+
+@[simp] theorem callbackTransition_restores_calldata (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).calldata = outer.calldata := rfl
+
+@[simp] theorem callbackTransition_restores_calldataSize (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).calldataSize = outer.calldataSize := rfl
+
+@[simp] theorem callbackTransition_restores_memory (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).memory = outer.memory := rfl
+
+@[simp] theorem callbackTransition_restores_returndata (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).returndata = outer.returndata := rfl
+
 /-- Each mutable transition is some finite reentry schedule drawn from the
 registry.  Static sites are unrestricted: `denoteCall` never commits their
 transitions, and `Conforms` separately pins them externally. -/
 def CallbackBounded
-    (entrypoints : List (Verity.ContractState → Verity.ContractState))
+    (entrypoints : EntrypointRegistry)
     (adversary : AdversaryModel) : Prop :=
   ∀ site world, site.kind ≠ .staticcall →
     ∃ sched : List (Verity.ContractState → Verity.ContractState),
-      (∀ f ∈ sched, f ∈ entrypoints) ∧
+      (∀ f ∈ sched, entrypoints adversary f) ∧
         adversary.stateTransition site world = runSeq sched world
+
+/-- The sole proof obligation at the generated-registry boundary: every
+transition admitted by the registry for this adversary preserves the caller's
+invariant. -/
+def RegistryPreserves (Inv : Verity.ContractState → Prop)
+    (entrypoints : EntrypointRegistry) (adversary : AdversaryModel) : Prop :=
+  ∀ f, entrypoints adversary f → Preserves Inv f
+
+/-- A call through the restricted generated-registry boundary preserves any
+invariant discharged for every registered, fully-applied entrypoint. -/
+theorem CallbackBounded.denoteCall_preserves_registry
+    (Inv : Verity.ContractState → Prop) (entrypoints : EntrypointRegistry)
+    {adversary : AdversaryModel}
+    (hbound : CallbackBounded entrypoints adversary)
+    (hregistry : RegistryPreserves Inv entrypoints adversary)
+    (site : CallSite) (state : CallState) (hInv : Inv state.world) :
+    Inv (denoteCall adversary site state).state.world := by
+  cases hkind : site.kind with
+  | staticcall =>
+      rw [denoteCall_staticcall_world adversary site state hkind]
+      exact hInv
+  | call =>
+      cases hres : adversary.result site state.world with
+      | success data =>
+          rw [denoteCall_call_success_world adversary site state data hkind hres]
+          obtain ⟨sched, hmem, htrans⟩ := hbound site state.world (by simp [hkind])
+          rw [htrans]
+          exact Verity.Core.Invariant.runSeq_preserves sched
+            (fun f hf => hregistry f (hmem f hf)) state.world hInv
+      | failure data =>
+          rw [denoteCall_failure_world adversary site state data (Or.inl hkind) hres]
+          exact hInv
+      | revert data =>
+          rw [denoteCall_revert_world adversary site state data (Or.inl hkind) hres]
+          exact hInv
+  | delegatecall =>
+      cases hres : adversary.result site state.world with
+      | success data =>
+          rw [denoteCall_delegatecall_success_world adversary site state data hkind hres]
+          obtain ⟨sched, hmem, htrans⟩ := hbound site state.world (by simp [hkind])
+          rw [htrans]
+          exact Verity.Core.Invariant.runSeq_preserves sched
+            (fun f hf => hregistry f (hmem f hf)) state.world hInv
+      | failure data =>
+          rw [denoteCall_failure_world adversary site state data (Or.inr hkind) hres]
+          exact hInv
+      | revert data =>
+          rw [denoteCall_revert_world adversary site state data (Or.inr hkind) hres]
+          exact hInv
 
 /-- One external call under a callback-bounded adversary preserves the spec
 invariant: rollback outcomes keep the pre-call world, and committed outcomes
 are reentry schedules, covered by the per-entrypoint obligations. -/
 theorem CallbackBounded.denoteCall_preserves (spec : ReentrancySpec)
     {adversary : AdversaryModel}
-    (h : CallbackBounded spec.entrypoints adversary)
+    (h : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
     (site : CallSite) (state : CallState)
     (hInv : spec.Inv state.world) :
     spec.Inv (denoteCall adversary site state).state.world := by
@@ -78,7 +272,7 @@ sequence of externally opened windows — each free to reenter through any
 registered schedule — can break it. -/
 theorem CallbackBounded.denote_preserves (spec : ReentrancySpec)
     {adversary : AdversaryModel}
-    (h : CallbackBounded spec.entrypoints adversary)
+    (h : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
     (prog : CallProgram α) (state : CallState)
     (hInv : spec.Inv state.world) :
     spec.Inv (denote prog adversary state).2.world := by
@@ -94,7 +288,7 @@ invariant state by the program law, and a reverted one by rollback to the
 initial state. -/
 theorem CallbackBounded.transaction_preserves (spec : ReentrancySpec)
     {adversary : AdversaryModel}
-    (h : CallbackBounded spec.entrypoints adversary)
+    (h : CallbackBounded (EntrypointRegistry.ofList spec.entrypoints) adversary)
     (prog : CallProgram (TransactionResult α)) (state : CallState)
     (hInv : spec.Inv state.world) :
     spec.Inv (denoteTransaction prog adversary state).state.world := by

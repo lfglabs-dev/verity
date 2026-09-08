@@ -2,6 +2,8 @@ import Verity.Macro.Syntax
 import Verity.Macro.Translate
 import Verity.Macro.Bridge
 import Verity.Macro.Elaborate
+import Verity.Core.Model.CallbackBridge
+import Verity.Core.Model.NonReentrantGuard
 import Verity.Macro.SpecGen
 import Verity.Macro.KeccakLit
 import Verity.Macro.KeccakString

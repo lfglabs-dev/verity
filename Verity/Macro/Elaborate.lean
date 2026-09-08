@@ -85,7 +85,6 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   let isMixin := parsed.isMixin
   let resolvedIncludes := parsed.resolvedIncludes
 
-  validateGeneratedDefNamesPublic fields constDecls immutableDecls functions
   validateConstantDeclsPublic constDecls
   validateImmutableDeclsPublic fields constDecls immutableDecls ctor
   validateExternalDeclsPublic externalDecls
@@ -121,6 +120,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   let translationExternalDecls := mixinExternalDecls ++ externalDecls
   let translationFunctions := mixinFunctions ++ functions
   let translationRoleDecls := mixinRoleDecls ++ roleDecls
+  validateGeneratedDefNamesPublic structDecls translationFields translationConstDecls
+    translationImmutableDecls (mixinModifiers ++ modifiers) translationFunctions
   validateFunctionDeclsPublic translationFields translationErrorDecls translationEventDecls
     translationConstDecls translationImmutableDecls translationExternalDecls ctor
     (mixinModifiers ++ modifiers) translationFunctions
@@ -175,6 +176,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
+
+    elabCommand (← mkEntrypointRegistryCommandPublic translationFunctions)
 
     -- Constructors may call internal helpers, so emit them only after the
     -- executable helper definitions are available in the namespace.

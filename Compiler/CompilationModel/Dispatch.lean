@@ -205,7 +205,7 @@ def compileFunctionSpec (fields : List Field) (events : List EventDef) (errors :
 
     The emitted Yul is:
     ```yul
-    if eq(tload(<lockSlot>), 1) { revert(0, 0) }
+    if tload(<lockSlot>) { revert(0, 0) }
     tstore(<lockSlot>, 1)
     ```
 
@@ -224,7 +224,7 @@ def nonReentrantGuardPrologue (fields : List Field) (lockField : String) :
       let lockSlot := YulExpr.lit slot
       let revertOnReentry :=
         YulStmt.if_
-          (YulExpr.call "eq" [YulExpr.call "tload" [lockSlot], YulExpr.lit 1])
+          (YulExpr.call "tload" [lockSlot])
           [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
       let acquire :=
         YulStmt.exprStmt (YulExpr.call "tstore" [lockSlot, YulExpr.lit 1])

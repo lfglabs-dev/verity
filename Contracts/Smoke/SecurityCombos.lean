@@ -175,6 +175,140 @@ verity_contract NonreentrantTrustedInternalHelperAccepted where
 
 #check_contract NonreentrantTrustedInternalHelperAccepted
 
+-- Regression for Codex's PR #2406 qualified-helper finding.  Qualified Lean
+-- helpers that merely share a guarded local function's final name must retain
+-- their qualifier; they do not resolve to the generated lock-free shadow.
+verity_contract QualifiedHelperLibrary where
+  storage
+
+  function trustedEntry (x : Uint256) : Uint256 := do
+    return x
+
+  function trustedPair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    return (x, x)
+
+  function adversarialEntry (x : Uint256) : Uint256 := do
+    return x
+
+  function adversarialPair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    return (x, x)
+
+verity_contract NonreentrantQualifiedHelperResolution where
+  storage
+    lock : Uint256 := slot 0
+    value : Uint256 := slot 1
+
+  linked_externals
+    external echo(Uint256) -> (Uint256)
+
+  function nonreentrant(lock) reentrancy_trusted trustedEntry (x : Uint256) : Uint256 := do
+    return x
+
+  function nonreentrant(lock) reentrancy_trusted trustedPair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    return (x, x)
+
+  function nonreentrant(lock) reentrancy_trusted adversarialEntry (x : Uint256) : Uint256 := do
+    let echoed := externalCall "echo" [x]
+    return echoed
+
+  function nonreentrant(lock) reentrancy_trusted adversarialPair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    let echoed := externalCall "echo" [x]
+    return (echoed, echoed)
+
+  function overloadedTrusted (_who : Address) : Uint256 := do
+    return 0
+
+  function nonreentrant(lock) reentrancy_trusted overloadedTrusted (x : Uint256) : Uint256 := do
+    return x
+
+  function overloadedAdversarial (_who : Address) : Uint256 := do
+    return 0
+
+  function nonreentrant(lock) reentrancy_trusted overloadedAdversarial (x : Uint256) : Uint256 := do
+    let echoed := externalCall "echo" [x]
+    return echoed
+
+  function makePair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    return (x, x)
+
+  function qualifiedSpace (x : Uint256) : Uint256 := do
+    let y ← QualifiedHelperLibrary.trustedEntry x
+    return y
+
+  function qualifiedDestructure (x : Uint256) : Uint256 := do
+    let (left, right) ← QualifiedHelperLibrary.trustedPair x
+    return (add left right)
+
+  function qualifiedAdversarialSpace (x : Uint256) : Uint256 := do
+    let y ← QualifiedHelperLibrary.adversarialEntry x
+    return y
+
+  function qualifiedAdversarialDestructure (x : Uint256) : Uint256 := do
+    let (left, right) ← QualifiedHelperLibrary.adversarialPair x
+    return (add left right)
+
+  function reentrancy_trusted qualifiedNestedExternal (x : Uint256) : Uint256 := do
+    let y ← QualifiedHelperLibrary.trustedEntry (externalCall "echo" [x])
+    return y
+
+  function reentrancy_trusted trustedNestedExternal (x : Uint256) : Uint256 := do
+    let y ← trustedEntry(externalCall "echo" [x])
+    return y
+
+  function overloadedTrustedCaller (x : Uint256) : Unit := do
+    let y ← overloadedTrusted x
+    require (y == x) "wrong trusted overload"
+
+  function overloadedAdversarialCaller (x : Uint256) : Unit := do
+    let y ← overloadedAdversarial x
+    require (y == x) "wrong adversarial overload"
+
+  function overloadedTrustedLocalCaller () : Unit := do
+    let x ← getStorage value
+    let y ← overloadedTrusted x
+    require (y == x) "wrong trusted local overload"
+
+  function overloadedAdversarialLocalCaller () : Unit := do
+    let x ← getStorage value
+    let y ← overloadedAdversarial x
+    require (y == x) "wrong adversarial local overload"
+
+  function overloadedTrustedTupleLocalCaller (x : Uint256) : Unit := do
+    let (left, _right) ← makePair x
+    let y ← overloadedTrusted left
+    require (y == x) "wrong trusted tuple-local overload"
+
+  function overloadedAdversarialTupleLocalCaller (x : Uint256) : Unit := do
+    let (_left, right) ← makePair x
+    let y ← overloadedAdversarial right
+    require (y == x) "wrong adversarial tuple-local overload"
+
+  function overloadedTrustedQualifiedTupleCaller (x : Uint256) : Unit := do
+    let (left, _right) ← QualifiedHelperLibrary.trustedPair x
+    let y ← overloadedTrusted left
+    require (y == x) "wrong qualified tuple-local overload"
+
+  function nonreentrant(lock) reentrancy_trusted staticResultControlsStorage
+      (target : Uint256, x : Uint256)
+      local_obligations [manual_low_level_refinement := assumed "Static-call result threading is the explicit low-level boundary under test."] : Unit := do
+    let observed ← evmStaticCall(50000, target, 0, 0, 0, 0)
+    if observed == x then
+      setStorage value observed
+    else
+      pure ()
+
+  function overloadedTrustedForEachCaller () : Unit := do
+    forEach "i" 1 (do
+      let y ← overloadedTrusted i
+      require (y == i) "wrong trusted loop-local overload")
+
+  function overloadedAdversarialForEachSetBitCaller () : Unit := do
+    forEachSetBit "i" 1 (do
+      let y ← overloadedAdversarial i
+      require (y == i) "wrong adversarial loop-local overload")
+
+#check_contract NonreentrantQualifiedHelperResolution
+
 -- ════════════════════════════════════════════════════════════════════════════
 -- Stress-test contracts: edge-case coverage for Language Design Axes (#1731)
 -- ════════════════════════════════════════════════════════════════════════════
