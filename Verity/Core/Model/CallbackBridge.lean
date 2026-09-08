@@ -63,6 +63,7 @@ def withCallbackContext (ctx : CallbackContext) (world : Verity.ContractState) :
     selfBalance := world.selfBalance + ctx.msgValue
     calldataSize := ctx.calldataSize
     calldata := ctx.calldata
+    memory := fun _ => 0
     returndata := [] }
 
 def restoreCallbackContext (outer callbackResult : Verity.ContractState) :
@@ -71,7 +72,9 @@ def restoreCallbackContext (outer callbackResult : Verity.ContractState) :
     sender := outer.sender
     msgValue := outer.msgValue
     calldataSize := outer.calldataSize
-    calldata := outer.calldata }
+    calldata := outer.calldata
+    memory := outer.memory
+    returndata := outer.returndata }
 
 def callbackTransition (ctx : CallbackContext)
     (entrypoint : Verity.ContractState → Verity.ContractState) :
@@ -102,6 +105,10 @@ def callbackTransition (ctx : CallbackContext)
     (world : Verity.ContractState) :
     (withCallbackContext ctx world).returndata = [] := rfl
 
+@[simp] theorem withCallbackContext_memory (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).memory = (fun _ => 0) := rfl
+
 @[simp] theorem callbackTransition_restores_sender (ctx : CallbackContext)
     (entrypoint : Verity.ContractState → Verity.ContractState)
     (outer : Verity.ContractState) :
@@ -121,6 +128,16 @@ def callbackTransition (ctx : CallbackContext)
     (entrypoint : Verity.ContractState → Verity.ContractState)
     (outer : Verity.ContractState) :
     (callbackTransition ctx entrypoint outer).calldataSize = outer.calldataSize := rfl
+
+@[simp] theorem callbackTransition_restores_memory (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).memory = outer.memory := rfl
+
+@[simp] theorem callbackTransition_restores_returndata (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).returndata = outer.returndata := rfl
 
 /-- Each mutable transition is some finite reentry schedule drawn from the
 registry.  Static sites are unrestricted: `denoteCall` never commits their
