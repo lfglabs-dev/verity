@@ -2431,6 +2431,11 @@ private def threadHelperApp?
         pure none
   match helper? with
   | some helper =>
+      if !matchesExactHelper helper then
+        -- A qualified application whose suffix happens to match a local helper
+        -- is not a local helper call.  Leave it to the recursive traversal so
+        -- linked calls nested in its arguments still receive the adversary.
+        return none
       let target ←
         if helper.nonReentrantLock.isSome && helper.reentrancyTrusted &&
             matchesExactHelper helper then
@@ -2817,6 +2822,8 @@ private partial def threadAdversaryThroughExecutableSyntax
     match tupleScope? with
     | some tupleScope => pure tupleScope
     | none => match elem with
+      | `(doElem| let $name:ident : Uint256 := $_rhs:term) =>
+          pure (scope.push (mkTypedLocal (toString name.getId) .uint256))
       | `(doElem| let $name:ident := $rhs:term) => infer name rhs
       | `(doElem| let mut $name:ident := $rhs:term) => infer name rhs
       | `(doElem| let $name:ident ← $rhs:term) =>

@@ -247,6 +247,10 @@ verity_contract NonreentrantQualifiedHelperResolution where
     let (left, right) ← QualifiedHelperLibrary.adversarialPair x
     return (add left right)
 
+  function reentrancy_trusted qualifiedNestedExternal (x : Uint256) : Uint256 := do
+    let y ← QualifiedHelperLibrary.trustedEntry (externalCall "echo" [x])
+    return y
+
   function overloadedTrustedCaller (x : Uint256) : Unit := do
     let y ← overloadedTrusted x
     require (y == x) "wrong trusted overload"
@@ -274,6 +278,16 @@ verity_contract NonreentrantQualifiedHelperResolution where
     let (_left, right) ← makePair x
     let y ← overloadedAdversarial right
     require (y == x) "wrong adversarial tuple-local overload"
+
+  function overloadedTrustedForEachCaller () : Unit := do
+    forEach "i" 1 (do
+      let y ← overloadedTrusted i
+      require (y == i) "wrong trusted loop-local overload")
+
+  function overloadedAdversarialForEachSetBitCaller () : Unit := do
+    forEachSetBit "i" 1 (do
+      let y ← overloadedAdversarial i
+      require (y == i) "wrong adversarial loop-local overload")
 
 #check_contract NonreentrantQualifiedHelperResolution
 
