@@ -251,6 +251,10 @@ verity_contract NonreentrantQualifiedHelperResolution where
     let y ← QualifiedHelperLibrary.trustedEntry (externalCall "echo" [x])
     return y
 
+  function reentrancy_trusted trustedNestedExternal (x : Uint256) : Uint256 := do
+    let y ← trustedEntry(externalCall "echo" [x])
+    return y
+
   function overloadedTrustedCaller (x : Uint256) : Unit := do
     let y ← overloadedTrusted x
     require (y == x) "wrong trusted overload"
@@ -278,6 +282,20 @@ verity_contract NonreentrantQualifiedHelperResolution where
     let (_left, right) ← makePair x
     let y ← overloadedAdversarial right
     require (y == x) "wrong adversarial tuple-local overload"
+
+  function overloadedTrustedQualifiedTupleCaller (x : Uint256) : Unit := do
+    let (left, _right) ← QualifiedHelperLibrary.trustedPair x
+    let y ← overloadedTrusted left
+    require (y == x) "wrong qualified tuple-local overload"
+
+  function nonreentrant(lock) reentrancy_trusted staticResultControlsStorage
+      (target : Uint256, x : Uint256)
+      local_obligations [manual_low_level_refinement := assumed "Static-call result threading is the explicit low-level boundary under test."] : Unit := do
+    let observed ← evmStaticCall(50000, target, 0, 0, 0, 0)
+    if observed == x then
+      setStorage value observed
+    else
+      pure ()
 
   function overloadedTrustedForEachCaller () : Unit := do
     forEach "i" 1 (do

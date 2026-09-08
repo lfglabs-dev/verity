@@ -42,6 +42,76 @@ instance : Coe (List (Verity.ContractState → Verity.ContractState))
 
 end EntrypointRegistry
 
+/-- EVM frame data chosen by a callee when it calls back into the current
+contract.  Entrypoint arguments remain existential in the generated
+registry; this record covers the ambient values observable through
+`msg.sender`, `msg.value`, and raw calldata intrinsics. -/
+structure CallbackContext where
+  sender : Verity.Address
+  msgValue : Verity.Uint256
+  calldataSize : Verity.Uint256
+  calldata : List Nat
+
+/-- Execute a registered callback in its own call frame, then restore the
+outer frame's ambient context while retaining the callback's contract-state
+effects. -/
+def withCallbackContext (ctx : CallbackContext) (world : Verity.ContractState) :
+    Verity.ContractState :=
+  { world with
+    sender := ctx.sender
+    msgValue := ctx.msgValue
+    calldataSize := ctx.calldataSize
+    calldata := ctx.calldata }
+
+def restoreCallbackContext (outer callbackResult : Verity.ContractState) :
+    Verity.ContractState :=
+  { callbackResult with
+    sender := outer.sender
+    msgValue := outer.msgValue
+    calldataSize := outer.calldataSize
+    calldata := outer.calldata }
+
+def callbackTransition (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState) :
+    Verity.ContractState → Verity.ContractState :=
+  fun outer => restoreCallbackContext outer (entrypoint (withCallbackContext ctx outer))
+
+@[simp] theorem withCallbackContext_sender (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).sender = ctx.sender := rfl
+
+@[simp] theorem withCallbackContext_msgValue (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).msgValue = ctx.msgValue := rfl
+
+@[simp] theorem withCallbackContext_calldata (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).calldata = ctx.calldata := rfl
+
+@[simp] theorem withCallbackContext_calldataSize (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).calldataSize = ctx.calldataSize := rfl
+
+@[simp] theorem callbackTransition_restores_sender (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).sender = outer.sender := rfl
+
+@[simp] theorem callbackTransition_restores_msgValue (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).msgValue = outer.msgValue := rfl
+
+@[simp] theorem callbackTransition_restores_calldata (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).calldata = outer.calldata := rfl
+
+@[simp] theorem callbackTransition_restores_calldataSize (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).calldataSize = outer.calldataSize := rfl
+
 /-- Each mutable transition is some finite reentry schedule drawn from the
 registry.  Static sites are unrestricted: `denoteCall` never commits their
 transitions, and `Conforms` separately pins them externally. -/
