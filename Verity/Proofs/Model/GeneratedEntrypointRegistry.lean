@@ -41,7 +41,7 @@ theorem guardedPing_registered (adv : AdversaryModel) (ctx : CallbackContext)
 /-- The executable generated entrypoint is definitionally protected by the
 canonical source guard at the same slot used by the compiled dispatch guard. -/
 theorem guardedPing_reentry_blocked (adv : AdversaryModel) (value : Uint256)
-    (state : ContractState) (hlock : state.transientStorage 0 = 1) :
+    (state : ContractState) (hlock : state.transientStorage 0 ≠ 0) :
     (guardedPing (ExecutableCallContext.ofAdversary adv) value).runState state = state := by
   apply Verity.Core.NonReentrantGuard.guarded_reentry_blocked
   exact hlock

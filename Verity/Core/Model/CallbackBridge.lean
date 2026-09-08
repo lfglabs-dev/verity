@@ -60,8 +60,10 @@ def withCallbackContext (ctx : CallbackContext) (world : Verity.ContractState) :
   { world with
     sender := ctx.sender
     msgValue := ctx.msgValue
+    selfBalance := world.selfBalance + ctx.msgValue
     calldataSize := ctx.calldataSize
-    calldata := ctx.calldata }
+    calldata := ctx.calldata
+    returndata := [] }
 
 def restoreCallbackContext (outer callbackResult : Verity.ContractState) :
     Verity.ContractState :=
@@ -91,6 +93,14 @@ def callbackTransition (ctx : CallbackContext)
 @[simp] theorem withCallbackContext_calldataSize (ctx : CallbackContext)
     (world : Verity.ContractState) :
     (withCallbackContext ctx world).calldataSize = ctx.calldataSize := rfl
+
+@[simp] theorem withCallbackContext_selfBalance (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).selfBalance = world.selfBalance + ctx.msgValue := rfl
+
+@[simp] theorem withCallbackContext_returndata (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).returndata = [] := rfl
 
 @[simp] theorem callbackTransition_restores_sender (ctx : CallbackContext)
     (entrypoint : Verity.ContractState → Verity.ContractState)

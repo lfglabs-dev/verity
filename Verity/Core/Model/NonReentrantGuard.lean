@@ -47,24 +47,23 @@ def setLock (slot : Nat) (value : Uint256) (s : ContractState) : ContractState :
 /-- Executable semantics of a `nonreentrant(slot)` entrypoint. -/
 def guarded (slot : Nat) (body : Contract α) : Contract α :=
   fun s =>
-    if s.transientStorage slot ≠ 1 then
+    if s.transientStorage slot = 0 then
       match body.run (setLock slot 1 s) with
       | .success a s' => .success a (setLock slot 0 s')
       | .revert msg _ => .revert msg s
     else
       ContractResult.revert "reentrant call blocked" s
 
-/-- The compiler's sentinel value is held → the guarded entrypoint reverts
-without touching the state. Other transient values are not treated as held. -/
+/-- Any nonzero lock value is held, matching the compiled `tload` guard. -/
 theorem guarded_locked_reverts (slot : Nat) (body : Contract α)
-    (s : ContractState) (hlock : s.transientStorage slot = 1) :
+    (s : ContractState) (hlock : s.transientStorage slot ≠ 0) :
     guarded slot body s = ContractResult.revert "reentrant call blocked" s := by
   simp [guarded, hlock]
 
 /-- Lock free → the body runs from the locked state; successful exits release
 the lock, reverting exits roll back to the pre-call state. -/
 theorem guarded_free_runs_body (slot : Nat) (body : Contract α)
-    (s : ContractState) (hfree : s.transientStorage slot ≠ 1) :
+    (s : ContractState) (hfree : s.transientStorage slot = 0) :
     guarded slot body s =
       match body.run (setLock slot 1 s) with
       | .success a s' => .success a (setLock slot 0 s')
@@ -82,18 +81,18 @@ theorem guarded_success_releases (slot : Nat) (body : Contract α)
     (s s' : ContractState) (a : α)
     (hrun : guarded slot body s = ContractResult.success a s') :
     s'.transientStorage slot = 0 := by
-  by_cases hfree : s.transientStorage slot ≠ 1
+  by_cases hfree : s.transientStorage slot = 0
   · rw [guarded_free_runs_body slot body s hfree] at hrun
     cases hbody : body.run (setLock slot 1 s) with
     | success b sb => rw [hbody] at hrun; injection hrun with _ hs; rw [← hs]; simp
     | revert msg sr => rw [hbody] at hrun; cases hrun
-  · rw [guarded_locked_reverts slot body s (by simpa using hfree)] at hrun
+  · rw [guarded_locked_reverts slot body s hfree] at hrun
     cases hrun
 
 /-- The reentry-window theorem: while the lock is held, a callback into any
 same-lock guarded entrypoint is the identity as a state transformer. -/
 theorem guarded_reentry_blocked (slot : Nat) (body : Contract α)
-    (s : ContractState) (hlock : s.transientStorage slot = 1) :
+    (s : ContractState) (hlock : s.transientStorage slot ≠ 0) :
     (guarded slot body).runState s = s := by
   unfold Contract.runState
   rw [guarded_locked_reverts slot body s hlock]
@@ -102,7 +101,7 @@ theorem guarded_reentry_blocked (slot : Nat) (body : Contract α)
 identity on locked states: no interleaving of guarded entrypoints can act
 inside the window.  This is the schedule-level closure of the guard. -/
 theorem runSeq_guarded_locked_id (slot : Nat) (entries : List (Contract Unit))
-    (s : ContractState) (hlock : s.transientStorage slot = 1) :
+    (s : ContractState) (hlock : s.transientStorage slot ≠ 0) :
     runSeq (entries.map (fun entry => (guarded slot entry).runState)) s = s := by
   induction entries with
   | nil => rfl
@@ -115,7 +114,7 @@ theorem runSeq_guarded_locked_id (slot : Nat) (entries : List (Contract Unit))
 packaged in the `Preserves` shape used by `ReentrancySpec` registries. -/
 theorem guarded_preserves_on_locked (slot : Nat) (body : Contract Unit)
     (Inv : ContractState → Prop) :
-    ∀ s, s.transientStorage slot = 1 → Inv s →
+    ∀ s, s.transientStorage slot ≠ 0 → Inv s →
       Inv ((guarded slot body).runState s) := by
   intro s hlock hInv
   rw [guarded_reentry_blocked slot body s hlock]
