@@ -228,6 +228,9 @@ verity_contract NonreentrantQualifiedHelperResolution where
     let echoed := externalCall "echo" [x]
     return echoed
 
+  function makePair (x : Uint256) : Tuple [Uint256, Uint256] := do
+    return (x, x)
+
   function qualifiedSpace (x : Uint256) : Uint256 := do
     let y ← QualifiedHelperLibrary.trustedEntry x
     return y
@@ -261,6 +264,16 @@ verity_contract NonreentrantQualifiedHelperResolution where
     let x ← getStorage value
     let y ← overloadedAdversarial x
     require (y == x) "wrong adversarial local overload"
+
+  function overloadedTrustedTupleLocalCaller (x : Uint256) : Unit := do
+    let (left, _right) ← makePair x
+    let y ← overloadedTrusted left
+    require (y == x) "wrong trusted tuple-local overload"
+
+  function overloadedAdversarialTupleLocalCaller (x : Uint256) : Unit := do
+    let (_left, right) ← makePair x
+    let y ← overloadedAdversarial right
+    require (y == x) "wrong adversarial tuple-local overload"
 
 #check_contract NonreentrantQualifiedHelperResolution
 

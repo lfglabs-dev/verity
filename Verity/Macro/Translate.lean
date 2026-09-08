@@ -2787,16 +2787,45 @@ private partial def threadAdversaryThroughExecutableSyntax
           | none => inferPureExprType fields constDecls immutableDecls externalDecls params scope rhs
         pure (scope.push (mkTypedLocal (toString name.getId) ty))
       catch _ => pure scope
-    match elem with
-    | `(doElem| let $name:ident := $rhs:term) => infer name rhs
-    | `(doElem| let mut $name:ident := $rhs:term) => infer name rhs
-    | `(doElem| let $name:ident ← $rhs:term) =>
-        try
-          let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls
-            helpers params scope rhs
-          pure (scope.push (mkTypedLocal (toString name.getId) ty))
-        catch _ => pure scope
-    | _ => pure scope
+    let inferTuple (names : Array (Option String)) (rhs : Term) := do
+      try
+        match ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls
+            helpers params scope rhs with
+        | some valueTys =>
+            if names.size != valueTys.size then
+              pure scope
+            else
+              let typedNames := (names.zip valueTys).filterMap fun (name?, ty) =>
+                name?.map (fun name => mkTypedLocal name ty)
+              pure (scope ++ typedNames)
+        | none => pure scope
+      catch _ => pure scope
+    let tupleScope? ← do
+      let stx := elem.raw
+      if stx.getKind == `Lean.Parser.Term.doLet then
+        let patDecl := stx[3][0]
+        match tupleBinderNames? patDecl[0] with
+        | some names => pure (some (← inferTuple names ⟨patDecl[4]⟩))
+        | none => pure none
+      else if stx.getKind == `Lean.Parser.Term.doLetArrow then
+        let patDecl := stx[3]
+        match tupleBinderNames? patDecl[0] with
+        | some names => pure (some (← inferTuple names ⟨patDecl[3][0]⟩))
+        | none => pure none
+      else
+        pure none
+    match tupleScope? with
+    | some tupleScope => pure tupleScope
+    | none => match elem with
+      | `(doElem| let $name:ident := $rhs:term) => infer name rhs
+      | `(doElem| let mut $name:ident := $rhs:term) => infer name rhs
+      | `(doElem| let $name:ident ← $rhs:term) =>
+          try
+            let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls
+              helpers params scope rhs
+            pure (scope.push (mkTypedLocal (toString name.getId) ty))
+          catch _ => pure scope
+      | _ => pure scope
   let rec hoistNested (bindSelf : Bool) (t : Term) :
       CommandElabM (Array (Ident × Term) × Term) := do
     let bindCall (binds : Array (Ident × Term)) (call : Term) :

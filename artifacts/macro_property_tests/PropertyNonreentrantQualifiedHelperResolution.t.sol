@@ -90,7 +90,17 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 9: TODO decode and assert `qualifiedSpace` result
+    // Property 9: makePair decodes and matches the inferred tuple result
+    function testAuto_MakePair_ReturnsInferredTupleResult() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("makePair(uint256)", uint256(1)));
+        require(ok, "makePair reverted unexpectedly");
+        require(ret.length >= 64, "makePair ABI tuple return payload unexpectedly short");
+        (uint256 actual0, uint256 actual1) = abi.decode(ret, (uint256, uint256));
+        assertEq(actual0, uint256(1), "makePair tuple element 0 should preserve the inferred result");
+        assertEq(actual1, uint256(1), "makePair tuple element 1 should preserve the inferred result");
+    }
+    // Property 10: TODO decode and assert `qualifiedSpace` result
     function testTODO_QualifiedSpace_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedSpace(uint256)", uint256(1)));
@@ -99,7 +109,7 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 10: TODO decode and assert `qualifiedDestructure` result
+    // Property 11: TODO decode and assert `qualifiedDestructure` result
     function testTODO_QualifiedDestructure_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedDestructure(uint256)", uint256(1)));
@@ -108,7 +118,7 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 11: TODO decode and assert `qualifiedAdversarialSpace` result
+    // Property 12: TODO decode and assert `qualifiedAdversarialSpace` result
     function testTODO_QualifiedAdversarialSpace_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedAdversarialSpace(uint256)", uint256(1)));
@@ -117,7 +127,7 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 12: TODO decode and assert `qualifiedAdversarialDestructure` result
+    // Property 13: TODO decode and assert `qualifiedAdversarialDestructure` result
     function testTODO_QualifiedAdversarialDestructure_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("qualifiedAdversarialDestructure(uint256)", uint256(1)));
@@ -126,28 +136,40 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 13: overloadedTrustedCaller has no unexpected revert
+    // Property 14: overloadedTrustedCaller has no unexpected revert
     function testAuto_OverloadedTrustedCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedCaller(uint256)", uint256(1)));
         require(ok, "overloadedTrustedCaller reverted unexpectedly");
     }
-    // Property 14: overloadedAdversarialCaller has no unexpected revert
+    // Property 15: overloadedAdversarialCaller has no unexpected revert
     function testAuto_OverloadedAdversarialCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialCaller(uint256)", uint256(1)));
         require(ok, "overloadedAdversarialCaller reverted unexpectedly");
     }
-    // Property 15: overloadedTrustedLocalCaller has no unexpected revert
+    // Property 16: overloadedTrustedLocalCaller has no unexpected revert
     function testAuto_OverloadedTrustedLocalCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedLocalCaller()"));
         require(ok, "overloadedTrustedLocalCaller reverted unexpectedly");
     }
-    // Property 16: overloadedAdversarialLocalCaller has no unexpected revert
+    // Property 17: overloadedAdversarialLocalCaller has no unexpected revert
     function testAuto_OverloadedAdversarialLocalCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialLocalCaller()"));
         require(ok, "overloadedAdversarialLocalCaller reverted unexpectedly");
+    }
+    // Property 18: overloadedTrustedTupleLocalCaller has no unexpected revert
+    function testAuto_OverloadedTrustedTupleLocalCaller_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedTupleLocalCaller(uint256)", uint256(1)));
+        require(ok, "overloadedTrustedTupleLocalCaller reverted unexpectedly");
+    }
+    // Property 19: overloadedAdversarialTupleLocalCaller has no unexpected revert
+    function testAuto_OverloadedAdversarialTupleLocalCaller_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialTupleLocalCaller(uint256)", uint256(1)));
+        require(ok, "overloadedAdversarialTupleLocalCaller reverted unexpectedly");
     }
 }
