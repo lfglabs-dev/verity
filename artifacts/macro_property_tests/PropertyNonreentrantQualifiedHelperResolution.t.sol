@@ -145,49 +145,64 @@ contract PropertyNonreentrantQualifiedHelperResolutionTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 15: overloadedTrustedCaller has no unexpected revert
+    // Property 15: TODO decode and assert `trustedNestedExternal` result
+    function testTODO_TrustedNestedExternal_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("trustedNestedExternal(uint256)", uint256(1)));
+        require(ok, "trustedNestedExternal reverted unexpectedly");
+        assertEq(ret.length, 32, "trustedNestedExternal ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 16: overloadedTrustedCaller has no unexpected revert
     function testAuto_OverloadedTrustedCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedCaller(uint256)", uint256(1)));
         require(ok, "overloadedTrustedCaller reverted unexpectedly");
     }
-    // Property 16: overloadedAdversarialCaller has no unexpected revert
+    // Property 17: overloadedAdversarialCaller has no unexpected revert
     function testAuto_OverloadedAdversarialCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialCaller(uint256)", uint256(1)));
         require(ok, "overloadedAdversarialCaller reverted unexpectedly");
     }
-    // Property 17: overloadedTrustedLocalCaller has no unexpected revert
+    // Property 18: overloadedTrustedLocalCaller has no unexpected revert
     function testAuto_OverloadedTrustedLocalCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedLocalCaller()"));
         require(ok, "overloadedTrustedLocalCaller reverted unexpectedly");
     }
-    // Property 18: overloadedAdversarialLocalCaller has no unexpected revert
+    // Property 19: overloadedAdversarialLocalCaller has no unexpected revert
     function testAuto_OverloadedAdversarialLocalCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialLocalCaller()"));
         require(ok, "overloadedAdversarialLocalCaller reverted unexpectedly");
     }
-    // Property 19: overloadedTrustedTupleLocalCaller has no unexpected revert
+    // Property 20: overloadedTrustedTupleLocalCaller has no unexpected revert
     function testAuto_OverloadedTrustedTupleLocalCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedTupleLocalCaller(uint256)", uint256(1)));
         require(ok, "overloadedTrustedTupleLocalCaller reverted unexpectedly");
     }
-    // Property 20: overloadedAdversarialTupleLocalCaller has no unexpected revert
+    // Property 21: overloadedAdversarialTupleLocalCaller has no unexpected revert
     function testAuto_OverloadedAdversarialTupleLocalCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialTupleLocalCaller(uint256)", uint256(1)));
         require(ok, "overloadedAdversarialTupleLocalCaller reverted unexpectedly");
     }
-    // Property 21: overloadedTrustedForEachCaller has no unexpected revert
+    // Property 22: overloadedTrustedQualifiedTupleCaller has no unexpected revert
+    function testAuto_OverloadedTrustedQualifiedTupleCaller_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedQualifiedTupleCaller(uint256)", uint256(1)));
+        require(ok, "overloadedTrustedQualifiedTupleCaller reverted unexpectedly");
+    }
+    // Property 23: overloadedTrustedForEachCaller has no unexpected revert
     function testAuto_OverloadedTrustedForEachCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedTrustedForEachCaller()"));
         require(ok, "overloadedTrustedForEachCaller reverted unexpectedly");
     }
-    // Property 22: overloadedAdversarialForEachSetBitCaller has no unexpected revert
+    // Property 24: overloadedAdversarialForEachSetBitCaller has no unexpected revert
     function testAuto_OverloadedAdversarialForEachSetBitCaller_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("overloadedAdversarialForEachSetBitCaller()"));
