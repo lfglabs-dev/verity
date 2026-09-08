@@ -81,6 +81,34 @@ def callbackTransition (ctx : CallbackContext)
     Verity.ContractState → Verity.ContractState :=
   fun outer => restoreCallbackContext outer (entrypoint (withCallbackContext ctx outer))
 
+/-- Run an executable callback while retaining its success/revert outcome.
+Successful callbacks commit their state after restoring the caller's ambient
+frame; reverting callbacks roll back the entire callback, including the value
+credit installed on entry. -/
+def callbackContractTransition (ctx : CallbackContext)
+    (entrypoint : Verity.Contract α) :
+    Verity.ContractState → Verity.ContractState :=
+  fun outer =>
+    match entrypoint.run (withCallbackContext ctx outer) with
+    | .success _ callbackResult => restoreCallbackContext outer callbackResult
+    | .revert _ _ => outer
+
+@[simp] theorem callbackContractTransition_success (ctx : CallbackContext)
+    (entrypoint : Verity.Contract α) (outer callbackResult : Verity.ContractState)
+    (value : α)
+    (hrun : entrypoint.run (withCallbackContext ctx outer) =
+      Verity.ContractResult.success value callbackResult) :
+    callbackContractTransition ctx entrypoint outer =
+      restoreCallbackContext outer callbackResult := by
+  simp [callbackContractTransition, hrun]
+
+@[simp] theorem callbackContractTransition_revert (ctx : CallbackContext)
+    (entrypoint : Verity.Contract α) (outer : Verity.ContractState) (message : String)
+    (hrun : entrypoint.run (withCallbackContext ctx outer) =
+      Verity.ContractResult.revert message (withCallbackContext ctx outer)) :
+    callbackContractTransition ctx entrypoint outer = outer := by
+  simp [callbackContractTransition, hrun]
+
 @[simp] theorem withCallbackContext_sender (ctx : CallbackContext)
     (world : Verity.ContractState) :
     (withCallbackContext ctx world).sender = ctx.sender := rfl

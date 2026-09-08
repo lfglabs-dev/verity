@@ -5824,8 +5824,10 @@ def mkFunctionCommandsPublic
     applied ← `($applied $registryParam:ident)
   let mut registryBody : Term ←
     `(($transition:ident : Verity.ContractState → Verity.ContractState) =
-      Compiler.CompilationModel.DenoteExternalCalls.callbackTransition
-        $context:ident ($applied).runState)
+      Compiler.CompilationModel.DenoteExternalCalls.callbackContractTransition
+        $context:ident $applied)
+  if !fn.isPayable then
+    registryBody ← `(($context:ident).msgValue = 0 ∧ $registryBody)
   for (paramIdent, paramTy) in registryParams.reverse do
     registryBody ← `(∃ $paramIdent:ident : $paramTy, $registryBody)
   registryBody ←

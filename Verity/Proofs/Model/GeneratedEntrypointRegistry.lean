@@ -31,12 +31,12 @@ open Compiler.CompilationModel.DenoteExternalCalls
 /-- The generated registry uses its explicit adversary at the external-call
 entrypoint; there is no `.stub` compatibility path in this theorem surface. -/
 theorem guardedPing_registered (adv : AdversaryModel) (ctx : CallbackContext)
-    (value : Uint256) :
+    (value : Uint256) (hvalue : ctx.msgValue = 0) :
     entrypointRegistry adv
-      (callbackTransition ctx
-        (guardedPing_registry (ExecutableCallContext.ofAdversary adv) value).runState) := by
+      (callbackContractTransition ctx
+        (guardedPing_registry (ExecutableCallContext.ofAdversary adv) value)) := by
   left
-  exact ⟨ctx, value, rfl⟩
+  exact ⟨ctx, value, hvalue, rfl⟩
 
 /-- The executable generated entrypoint is definitionally protected by the
 canonical source guard at the same slot used by the compiled dispatch guard. -/
