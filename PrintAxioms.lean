@@ -34,6 +34,7 @@ import Contracts.SimpleToken.Proofs.Correctness
 import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
+import Contracts.Vault.Proofs.Execution
 import Contracts.Vault.Proofs.Native
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
@@ -681,6 +682,23 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.totalSupply_preserves_state
   Contracts.Vault.Proofs.balanceOf_meets_spec
   Contracts.Vault.Proofs.balanceOf_preserves_state
+
+  -- Contracts/Vault/Proofs/Execution.lean
+  Contracts.Vault.Execution.balance_meets_spec
+  Contracts.Vault.Execution.deposit_meets_spec
+  Contracts.Vault.Execution.withdraw_meets_spec
+  Contracts.Vault.Execution.deposit_nonpayable
+  Contracts.Vault.Execution.deposit_late_overflow_rollback
+  Contracts.Vault.Execution.withdraw_insufficient_shares
+  Contracts.Vault.Execution.deposit_frame
+  Contracts.Vault.Execution.totalAssets_getter
+  Contracts.Vault.Execution.totalSupply_getter
+  Contracts.Vault.Execution.shareBalances_getter
+  Contracts.Vault.Execution.withdraw_nonpayable
+  Contracts.Vault.Execution.withdraw_insufficient_assets
+  Contracts.Vault.Execution.withdraw_insufficient_supply
+  Contracts.Vault.Execution.deposit_existing_spec
+  Contracts.Vault.Execution.withdraw_existing_spec
 
   -- Contracts/Vault/Proofs/Native.lean
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
@@ -7515,4 +7533,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6953 theorems/lemmas (4963 public, 1990 private, 0 sorry'd)
+-- Total: 6968 theorems/lemmas (4978 public, 1990 private, 0 sorry'd)
