@@ -2,6 +2,40 @@
 
 This document states what Verity proves and what it still trusts.
 
+## Proof-only Solidity Vault import
+
+This POC is separate from the verified compilation pipeline below. It trusts
+pinned solc's typed AST/storage layout, `scripts/solidity_contract.py` validation,
+and `Verity/Solidity.lean` translation to preserve Solidity meaning. Kernel
+checking establishes well-typed definitions and theorems about their execution,
+not a Solidity-to-Verity equivalence theorem. `sourceDigest` is provenance, not
+proof of correspondence. It hashes the compiler input/output, Python frontend,
+Lean translation implementation, and verified solc checksum/version. It is not
+full build identity: transitive Verity semantics, Lean toolchain, and Lake build
+policy are tracked separately by normal build dependencies, not this digest.
+The recursive closed AST schema permits explicitly typed documentation and
+compiler metadata, but rejects unknown fields/node kinds and contract `layout at`.
+Canonical package containment is checked independently of source registration.
+Local AST caches are trusted build artifacts: their
+self-recorded hashes detect accidental corruption, not malicious replacement.
+
+The accepted fragment covers the existing Vault: full-width scalars,
+address-to-uint256 mappings and public getters, straight-line reads/writes,
+locals, checked addition/subtraction, and comparison/custom-error guards.
+Unknown executable constructs are rejected; this is not general Solidity support.
+Arguments/context are already typed and decoded. `Contract.run` rolls back
+failed executions; errors are model strings, not verified ABI revert bytes.
+The storage model uses logical keys, not a proof of physical keccak layout.
+There is no deployment, calldata/dispatch, gas, external interaction, bytecode,
+or full EVM equivalence claim. Initial states are arbitrary, not proven deployed
+states. Arithmetic success premises restrict success theorems; separate failure
+proofs cover nonpayability, insufficient balances and late-overflow rollback.
+
+Lake's dedicated `SolidityVault` target tracks source/compiler/Python-and-Lean-importer/build
+policy bytes and normal Lean dependencies. Acceptance evidence is obtained with
+`python3 scripts/check_solidity_contract.py`; stale editor snapshots are not a
+current-source proof certificate. No additional project axiom is introduced.
+
 ## Compilation Pipeline
 
 ```

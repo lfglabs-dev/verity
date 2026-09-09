@@ -22,6 +22,33 @@ lean_lib «Verity» where
     .one `Verity.Proofs.LoopSimulationResultAware
   ]
 
+input_file vaultSolidity where
+  path := "examples/solidity/Vault.sol"
+  text := false
+
+input_file vaultFrontend where
+  path := "scripts/solidity_contract.py"
+  text := false
+
+input_file vaultLeanImporter where
+  path := "Verity/Solidity.lean"
+  text := false
+
+input_file vaultSolc where
+  path := ".lake/solidity-import/solc"
+  text := false
+
+input_file vaultBuildPolicy where
+  path := "lakefile.lean"
+  text := false
+
+lean_lib «SolidityFrontend» where
+  globs := #[.one `Verity.Solidity]
+
+lean_lib «SolidityVault» where
+  globs := #[.submodules `Contracts.SolidityVault]
+  needs := #[vaultSolidity, vaultFrontend, vaultLeanImporter, vaultSolc, vaultBuildPolicy]
+
 lean_lib «Contracts» where
   globs := #[
     .one `Contracts,

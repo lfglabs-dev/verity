@@ -5,6 +5,27 @@ reviewable. Keep it synchronized with `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`
 whenever semantics, trusted components, generated audit artifacts, or CI
 boundary checks change.
 
+## Proof-only Solidity Vault POC
+
+The focused suite also probes recursive AST rejection (including metadata),
+contract `layout at`, registered-source symlink escape, and Lean importer digest
+sensitivity. The digest scope is documented in `TRUST_ASSUMPTIONS.md`; it is not
+a transitive build identity.
+
+Evidence command: `python3 scripts/check_solidity_contract.py` (after
+`lake build SolidityVault` and installation of the pinned compiler).
+The focused runner builds and audits the imported execution proofs, changes
+accepted deposit/getter behavior while preserving source mtime and requires
+old proofs to fail, rejects unsupported source, checks unchanged artifacts/cache,
+and exercises Python-importer and compiler content invalidation. Mutations occur
+only in disposable copies. This is local acceptance evidence, not a new CI job,
+bytecode/runtime test, or proof of translation correctness.
+
+The authored surface is existing `examples/solidity/Vault.sol` plus
+`Contracts/SolidityVault/{Contract,Spec,Proof}.lean`; no generated model source or
+bytecode is emitted. Trust and axiom scope are recorded in
+`TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
+
 ## Current Audit State
 
 - Lean proof placeholders: 0 `sorry` in compiler/proof modules.

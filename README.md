@@ -21,6 +21,32 @@
 
 **Verity** is a formally verified smart contract compiler written in [Lean 4](https://lean-lang.org/). You write contracts in an embedded DSL, state what they should do, prove those properties hold, and compile to EVM bytecode. The compiler itself is proven to preserve semantics across three verified layers. Full documentation lives at [**veritylang.com**](https://veritylang.com).
 
+## Proof-only Solidity Vault import (POC)
+
+`Contracts/SolidityVault/Contract.lean` imports the existing
+`examples/solidity/Vault.sol` with `solidity_contract Imported from
+"../../examples/solidity/Vault.sol"`. The frontend requests typed AST and storage
+layout from pinned solc 0.8.33, then registers transparent, kernel-checked
+`Verity.Contract` definitions directly in memory. There is no generated model
+`.lean`, CompilationModel, or bytecode. `Spec.lean` and `Proof.lean` refer to those
+imported executions, not the handwritten Vault implementation.
+
+With the Lean/package prerequisites installed, put the pinned Linux solc binary
+at `.lake/solidity-import/solc` (executable; SHA-256
+`1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468`), then run:
+
+```sh
+lake build SolidityVault
+python3 scripts/check_solidity_contract.py
+```
+
+The acceptance script uses disposable copies for source mutations, rejection,
+content-based Lake freshness, cache reuse, compiler/importer invalidation, and
+an audit of every Vault theorem. It never mutates the original Solidity file.
+Save Solidity, rebuild this dedicated target, then reload the Lean editor:
+an already-open editor snapshot does not automatically watch `.sol` changes.
+See [the trust boundary](TRUST_ASSUMPTIONS.md#proof-only-solidity-vault-import).
+
 ## Verification status
 
 All proofs are machine-checked by the Lean kernel. CI rebuilds the proof development on every commit, and repository checks enforce that no proof is left incomplete (no `sorry`) and that the compiler proof stack carries 0 axioms (see [AXIOMS.md](AXIOMS.md)). Verification is scoped rather than total: the generic compiler theorems cover an explicitly documented fragment of the language, and the precise boundary between what is proven and what is trusted is maintained in [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md).

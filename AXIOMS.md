@@ -2,6 +2,16 @@
 
 This file is the authoritative registry of axioms used by Verity proof code.
 
+## Proof-only Solidity Vault audit
+
+`Contracts/SolidityVault/Proof.lean` prints the axioms of every theorem.
+`python3 scripts/check_solidity_contract.py` re-executes that audit and requires
+coverage of all declared theorems, rejecting `sorryAx` and project axioms.
+The exercised Vault proofs report only the standard Lean foundations `propext`
+and `Quot.sound`; they do not depend on `solidityMappingSlot_injective`.
+This does not remove the trusted Solidity frontend/translation boundary described
+in `TRUST_ASSUMPTIONS.md`, or change the compiler axiom registry below.
+
 ## Policy
 
 Axioms are exceptional. When an axiom exists, it must have:
