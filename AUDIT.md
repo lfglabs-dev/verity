@@ -22,8 +22,12 @@ only in disposable copies. This is local acceptance evidence, not a new CI job,
 bytecode/runtime test, or proof of translation correctness.
 
 The authored surface is existing `examples/solidity/Vault.sol` plus
-`Contracts/SolidityVault/{Contract,Spec,Proof}.lean`; no generated model source or
-bytecode is emitted. Trust and axiom scope are recorded in
+`Contracts/Vault/{Solidity,Implementations,Spec}.lean` and `Proofs/Execution.lean`.
+The same theorem statements and proofs are checked for `.verity` and `.solidity`,
+including the pre-existing deposit/withdrawal specs. Native Vault now uses matching
+typed custom errors and deposit write order. `Implementations.lean` makes the
+nonpayable entry boundary explicit: native bodies get the compiler dispatch rule;
+imported functions already include it. No generated model source or bytecode is emitted. Trust and axiom scope are recorded in
 `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
 
 ## Current Audit State

@@ -19,6 +19,11 @@ verity_contract Vault where
     totalSupplySlot : Uint256 := slot 1
     shareBalancesSlot : Address → Uint256 := slot 2
 
+  errors
+    error InsufficientShares()
+    error InsufficientAssets()
+    error InsufficientSupply()
+
   constructor () := do
     setStorage totalAssetsSlot 0
     setStorage totalSupplySlot 0
@@ -26,23 +31,23 @@ verity_contract Vault where
   function deposit (assets : Uint256) : Unit := do
     let sender ← msgSender
     let currentShares ← getMapping shareBalancesSlot sender
-    let newShares ← requireSomeUint (safeAdd currentShares assets) "Share balance overflow"
-    let currentAssets ← getStorage totalAssetsSlot
-    let newAssets ← requireSomeUint (safeAdd currentAssets assets) "Total assets overflow"
-    let currentSupply ← getStorage totalSupplySlot
-    let newSupply ← requireSomeUint (safeAdd currentSupply assets) "Total supply overflow"
+    let newShares ← requireSomeUint (safeAdd currentShares assets) "Panic(0x11)"
     setMapping shareBalancesSlot sender newShares
+    let currentAssets ← getStorage totalAssetsSlot
+    let newAssets ← requireSomeUint (safeAdd currentAssets assets) "Panic(0x11)"
     setStorage totalAssetsSlot newAssets
+    let currentSupply ← getStorage totalSupplySlot
+    let newSupply ← requireSomeUint (safeAdd currentSupply assets) "Panic(0x11)"
     setStorage totalSupplySlot newSupply
 
   function withdraw (shares : Uint256) : Unit := do
     let sender ← msgSender
     let currentShares ← getMapping shareBalancesSlot sender
-    require (currentShares >= shares) "Insufficient shares"
+    requireError (currentShares >= shares) InsufficientShares()
     let currentAssets ← getStorage totalAssetsSlot
-    require (currentAssets >= shares) "Insufficient assets"
+    requireError (currentAssets >= shares) InsufficientAssets()
     let currentSupply ← getStorage totalSupplySlot
-    require (currentSupply >= shares) "Insufficient supply"
+    requireError (currentSupply >= shares) InsufficientSupply()
     setMapping shareBalancesSlot sender (sub currentShares shares)
     setStorage totalAssetsSlot (sub currentAssets shares)
     setStorage totalSupplySlot (sub currentSupply shares)

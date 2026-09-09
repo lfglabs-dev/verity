@@ -35,7 +35,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='verity-vault-check-') as directory:
         root = Path(directory)
         # Copy mutable build outputs (never hardlink); share only prebuilt dependencies.
-        for name in ('Verity', 'Contracts/SolidityVault', 'scripts', 'examples/solidity'):
+        for name in ('Verity', 'Compiler', 'Contracts', 'scripts', 'examples/solidity'):
             shutil.copytree(ROOT / name, root / name)
         for name in ('lakefile.lean', 'lake-manifest.json', 'lean-toolchain'):
             shutil.copy2(ROOT / name, root / name)
@@ -59,15 +59,15 @@ def main():
             return run(root, ['python3', str(frontend), str(source)], success, contains)
         def artifacts():
             return {str(p.relative_to(root)): (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest())
-                    for p in (root / '.lake/build/lib/lean/Contracts/SolidityVault').glob('*.olean')}
+                    for p in (root / '.lake/build/lib/lean/Contracts/Vault').rglob('*.olean')}
         def caches():
             return {p.name: (p.stat().st_mtime_ns, p.read_bytes()) for p in compiler.parent.glob('*.json')}
         build()
         check(True, 'baseline lake build SolidityVault')
-        proof = root / 'Contracts/SolidityVault/Proof.lean'
+        proof = root / 'Contracts/Vault/Proofs/Execution.lean'
         theorem_names = re.findall(r'^theorem\s+(\w+)', proof.read_text(), re.M)
         audit = run(root, ['lake', 'env', 'lean', str(proof)])
-        entries = re.findall(r"'Contracts.SolidityVault.(\w+)' depends on axioms: \[([^\]]*)\]", audit)
+        entries = re.findall(r"'Contracts.Vault.Execution.(\w+)' depends on axioms: \[([^\]]*)\]", audit)
         check(set(theorem_names) == {name for name, _ in entries}, 'every theorem appears in actual #print axioms output')
         axioms = {a.strip() for _, values in entries for a in values.split(',') if a.strip()}
         check(axioms <= {'propext', 'Quot.sound', 'Classical.choice'}, 'no project axioms or sorryAx: ' + ', '.join(sorted(axioms)))
@@ -141,12 +141,28 @@ for mutation in ('unknown child', 'altered block', 'metadata child'):
             edit(original.replace(old, new))
             changed_model = json.loads(model())
             check(changed_model['functions'] != baseline_model['functions'], name + ' changes accepted AST behavior')
-            out = build(False, 'Contracts.SolidityVault.Proof')
+            out = build(False, 'Contracts.Vault.Proofs.Execution')
             check('unsolved goals' in out or 'Type mismatch' in out or 'type mismatch' in out,
                   name + ' preserved-mtime source edit rebuilds and breaks existing proof')
             check(before != artifacts(), name + ' refreshes dependent oleans')
             edit(original)
             build()
+        # Both branches really participate in the shared proof; the entry adapter
+        # cannot silently conceal a native payable declaration.
+        native = root / 'Contracts/Vault/Vault.lean'
+        native_original = native.read_bytes()
+        try:
+            native.write_bytes(native_original.replace(b'InsufficientShares', b'NotEnoughShares'))
+            build(False, 'Contracts.Vault.Proofs.Execution')
+            check(True, 'native custom-error mutation breaks the same shared proof')
+            native.write_bytes(native_original)
+            build()
+            native.write_bytes(native_original.replace(b'function deposit', b'function payable deposit'))
+            build(False, 'did not evaluate to `true`')
+            check(True, 'native payable mutation rejected by entry-boundary metadata check')
+        finally:
+            native.write_bytes(native_original)
+        build()
         for name, old, new, diagnostic in (
             ('contract layout at', b'contract Vault {', b'contract Vault layout at 100 {', 'layout at'),
             ('initializer', b'uint256 public totalAssets;', b'uint256 public totalAssets = 1;', 'initializer'),

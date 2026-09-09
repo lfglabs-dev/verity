@@ -23,13 +23,14 @@
 
 ## Proof-only Solidity Vault import (POC)
 
-`Contracts/SolidityVault/Contract.lean` imports the existing
-`examples/solidity/Vault.sol` with `solidity_contract Imported from
+`Contracts/Vault/Solidity.lean` imports the existing
+`examples/solidity/Vault.sol` with `solidity_contract Solidity from
 "../../examples/solidity/Vault.sol"`. The frontend requests typed AST and storage
 layout from pinned solc 0.8.33, then registers transparent, kernel-checked
 `Verity.Contract` definitions directly in memory. There is no generated model
-`.lean`, CompilationModel, or bytecode. `Spec.lean` and `Proof.lean` refer to those
-imported executions, not the handwritten Vault implementation.
+`.lean`, CompilationModel, or bytecode. Both the handwritten and imported Vault
+use the same `Contracts/Vault/Spec.lean` and `Proofs/Execution.lean`.
+See [Vault's two-implementation walkthrough](Contracts/Vault/README.md).
 
 With the Lean/package prerequisites installed, put the pinned Linux solc binary
 at `.lake/solidity-import/solc` (executable; SHA-256

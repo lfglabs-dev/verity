@@ -31,6 +31,17 @@ or full EVM equivalence claim. Initial states are arbitrary, not proven deployed
 states. Arithmetic success premises restrict success theorems; separate failure
 proofs cover nonpayability, insufficient balances and late-overflow rollback.
 
+Both implementations use the shared Vault specification and execution proof file.
+`Implementations.lean` explicitly wraps native function bodies with the nonpayable
+entry check already present in `Compiler/CodegenCommon.lean:dispatchBody`; imported
+entrypoints already contain this guard. This is a proof-facing entry adapter, not
+a new compiler rule or a theorem bridging the wrapper to deployed dispatch.
+Zero-argument custom errors use Verity's `Name()` model convention. The native
+Vault declares typed withdrawal errors; arithmetic panic strings remain a model
+representation, not an assertion of matching EVM revert bytes. Native deposit
+write order follows the Solidity source. The shared statements do not assert
+full equivalence of all executions or all public/deployment interfaces.
+
 Lake's dedicated `SolidityVault` target tracks source/compiler/Python-and-Lean-importer/build
 policy bytes and normal Lean dependencies. Acceptance evidence is obtained with
 `python3 scripts/check_solidity_contract.py`; stale editor snapshots are not a

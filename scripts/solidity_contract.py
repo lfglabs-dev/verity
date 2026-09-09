@@ -314,7 +314,8 @@ def main():
                 need(callee['nodeType'] == 'Identifier' and callee['referencedDeclaration'] in errors and not call['arguments'], n, 'unsupported revert')
                 condition = expr(n['condition'], scope)
                 need(condition[0] == '<', n, 'only uint256 comparison guard supported')
-                result.append(['guard', condition, errors[callee['referencedDeclaration']]])
+                # Match Verity's zero-argument custom-error display convention.
+                result.append(['guard', condition, errors[callee['referencedDeclaration']] + '()'])
             elif k == 'Return':
                 need(i == len(nodes)-1 and returns == 'uint256' and n['expression'] is not None, n, 'only terminal scalar return')
                 result.append(['return', expr(n['expression'], scope)])

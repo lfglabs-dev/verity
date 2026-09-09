@@ -46,7 +46,8 @@ lean_lib «SolidityFrontend» where
   globs := #[.one `Verity.Solidity]
 
 lean_lib «SolidityVault» where
-  globs := #[.submodules `Contracts.SolidityVault]
+  globs := #[.one `Contracts.Vault.Solidity, .one `Contracts.Vault.Implementations,
+    .one `Contracts.Vault.Proofs.Execution]
   needs := #[vaultSolidity, vaultFrontend, vaultLeanImporter, vaultSolc, vaultBuildPolicy]
 
 lean_lib «Contracts» where
@@ -65,7 +66,11 @@ lean_lib «Contracts» where
     .andSubmodules `Contracts.OwnedCounterComposed,
     .andSubmodules `Contracts.SafeCounter,
     .andSubmodules `Contracts.Ledger,
-    .andSubmodules `Contracts.Vault,
+    .one `Contracts.Vault, .one `Contracts.Vault.Vault,
+    .one `Contracts.Vault.Spec, .one `Contracts.Vault.Invariants,
+    .one `Contracts.Vault.SpecProofs, .one `Contracts.Vault.Proofs.Basic,
+    .one `Contracts.Vault.Proofs.Correctness, .one `Contracts.Vault.Proofs.Conservation,
+    .one `Contracts.Vault.Proofs.Native,
     .andSubmodules `Contracts.ERC20,
     .andSubmodules `Contracts.ERC721,
     .andSubmodules `Contracts.SimpleToken,
