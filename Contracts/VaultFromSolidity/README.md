@@ -9,8 +9,7 @@ the handwritten `Contracts/Vault` example.
 | File | Role |
 | --- | --- |
 | `Vault.sol` | The original Solidity implementation. |
-| `Importer/scripts/solidity_importer.py` | Runs pinned solc, validates the supported AST and emits structured JSON. |
-| `Importer/SolidityImporter.lean` | Implements `solidity_contract` and registers checked Verity definitions in Lean. |
+| `Importer/Importer.lean` | Runs pinned solc, validates typed AST/storage layout, translates, and registers checked Verity definitions. |
 | `VaultFromSolidity.lean` | Points the importer at `Vault.sol`. |
 | `Spec.lean` | Human-written requirements for the imported contract. |
 | `Proofs/Execution.lean` | Proofs that the imported contract satisfies those requirements. |
@@ -24,10 +23,11 @@ the handwritten `Contracts/Vault` example.
 4. Prove it in `Proofs/Execution.lean`.
 5. Run `lake build VaultFromSolidity` and reload the Lean editor after Solidity changes.
 
-The importer asks pinned solc for the typed AST and storage layout. The Python
-frontend rejects unsupported constructs and emits a small JSON model. The Lean
-importer converts that model into transparent, kernel-checked `Verity.Contract`
-definitions directly in memory. It does not generate model `.lean` files or
+`Importer.lean` invokes pinned solc with `--standard-json` and
+`--no-import-callback`, then parses and validates its typed AST and storage
+layout in Lean. Explicit `translateExpr` / `translateStmt` cases construct
+transparent, kernel-checked `Verity.Contract` definitions directly in memory.
+There is no Python frontend, custom serialized IR, generated Lean source, or
 bytecode.
 
 The current proof of concept accepts only this registered Vault and a deliberately

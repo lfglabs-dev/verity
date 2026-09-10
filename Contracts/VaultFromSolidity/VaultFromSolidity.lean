@@ -1,4 +1,4 @@
-import Contracts.VaultFromSolidity.Importer.SolidityImporter
+import Contracts.VaultFromSolidity.Importer.Importer
 
 namespace Contracts
 

@@ -5,24 +5,33 @@ This document states what Verity proves and what it still trusts.
 ## Proof-only Solidity Vault import
 
 This POC is separate from the verified compilation pipeline below. It trusts
-pinned solc's typed AST/storage layout, the colocated Python frontend, and
-`Contracts/VaultFromSolidity/Importer/SolidityImporter.lean` translation to
-preserve Solidity meaning. Kernel
-checking establishes well-typed definitions and theorems about their execution,
-not a Solidity-to-Verity equivalence theorem. `sourceDigest` is provenance, not
-proof of correspondence. It hashes the compiler input/output, Python frontend,
-Lean translation implementation, and verified solc checksum/version. It is not
-full build identity: transitive Verity semantics, Lean toolchain, and Lake build
-policy are tracked separately by normal build dependencies, not this digest.
-The recursive closed AST schema permits explicitly typed documentation and
-compiler metadata, but rejects unknown fields/node kinds and contract `layout at`.
-Canonical package containment is checked independently of source registration.
-Declaration registration disables asynchronous kernel checking inside the import
-transaction, restores the pre-import environment on failure, and checks each
-body against its typed return signature before registration. Safe transparent
-definitions are also compiled by Lean for ordinary executable consumers.
-Local AST caches are trusted build artifacts: their
-self-recorded hashes detect accidental corruption, not malicious replacement.
+pinned solc's typed AST/storage layout and the Lean translation in
+`Contracts/VaultFromSolidity/Importer/Importer.lean` to preserve Solidity
+meaning. Kernel checking establishes well-typed definitions and theorems about
+their execution, not a Solidity-to-Verity equivalence theorem. `sourceDigest`
+is provenance, not proof of correspondence. It hashes the compiler
+input/output, Lean importer implementation, and verified solc checksum/version.
+The Linux host's fixed `/usr/bin/sha256sum` is trusted for compiler-pin checks;
+the digest is checked before version inspection, immediately before compilation,
+and again after compilation, so `PATH` substitution and persistent compiler
+replacement fail closed. As with all local builds, a concurrently malicious
+process with the builder's own filesystem privileges is outside the threat model.
+It is not full build identity: transitive Verity semantics, Lean toolchain, and
+Lake build policy are tracked separately by normal build dependencies, not this
+digest. The recursive closed AST schema rejects unknown fields/node kinds and
+contract `layout at`; semantically used type metadata and all storage-layout
+records are checked explicitly. Canonical package containment is checked
+independently of source registration.
+
+`Importer.lean` runs pinned solc itself with `--standard-json` and
+`--no-import-callback`, parses the typed AST/storage layout, validates the
+closed subset, resolves IDs/types/storage slots, and constructs expressions
+through explicit `translateExpr` / `translateStmt` cases. Declaration
+registration disables asynchronous kernel checking inside the transaction,
+restores the pre-import environment on failure, checks every body against its
+typed return signature, and registers safe transparent definitions. The
+frontend emits no generated Lean source and keeps no serialized AST/model
+cache.
 
 The accepted fragment covers the existing Vault: full-width scalars,
 address-to-uint256 mappings and public getters, straight-line reads/writes,
@@ -42,11 +51,12 @@ arithmetic panic strings remain a model representation, not an assertion of
 matching EVM revert bytes. The statements do not assert full equivalence of all
 executions or all public/deployment interfaces.
 
-Lake's dedicated `VaultFromSolidity` target tracks source/compiler/Python-and-Lean-importer/build
+Lake's dedicated `VaultFromSolidity` target tracks source/compiler/Lean-importer/build
 policy bytes and normal Lean dependencies. Acceptance evidence is obtained with
 `python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py`;
-stale editor snapshots are not a
-current-source proof certificate. No additional project axiom is introduced.
+that Python file only orchestrates disposable builds and mutations and is not in
+the translation path. Stale editor snapshots are not a current-source proof
+certificate. No additional project axiom is introduced.
 
 ## Compilation Pipeline
 

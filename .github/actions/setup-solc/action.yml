@@ -1,6 +1,12 @@
 name: Setup solc
 description: Cache and install the Solidity compiler
 
+inputs:
+  destination:
+    description: Optional repository-local path at which to copy the verified binary
+    required: false
+    default: ''
+
 runs:
   using: composite
   steps:
@@ -46,4 +52,12 @@ runs:
 
     - name: Verify solc
       shell: bash
-      run: solc --version
+      run: |
+        solc --version
+        destination='${{ inputs.destination }}'
+        if [ -n "$destination" ]; then
+          mkdir -p "$(dirname "$destination")"
+          cp "$(command -v solc)" "$destination"
+          chmod +x "$destination"
+          echo "${SOLC_SHA256}  ${destination}" | sha256sum -c -
+        fi

@@ -26,12 +26,8 @@ input_file vaultSolidity where
   path := "Contracts/VaultFromSolidity/Vault.sol"
   text := false
 
-input_file vaultFrontend where
-  path := "Contracts/VaultFromSolidity/Importer/scripts/solidity_importer.py"
-  text := false
-
 input_file vaultLeanImporter where
-  path := "Contracts/VaultFromSolidity/Importer/SolidityImporter.lean"
+  path := "Contracts/VaultFromSolidity/Importer/Importer.lean"
   text := false
 
 input_file vaultSolc where
@@ -43,13 +39,13 @@ input_file vaultBuildPolicy where
   text := false
 
 lean_lib «VaultSolidityImporter» where
-  globs := #[.one `Contracts.VaultFromSolidity.Importer.SolidityImporter]
+  globs := #[.one `Contracts.VaultFromSolidity.Importer.Importer]
 
 lean_lib «VaultFromSolidity» where
   globs := #[.one `Contracts.VaultFromSolidity.VaultFromSolidity,
     .one `Contracts.VaultFromSolidity.Spec,
     .one `Contracts.VaultFromSolidity.Proofs.Execution]
-  needs := #[vaultSolidity, vaultFrontend, vaultLeanImporter, vaultSolc, vaultBuildPolicy]
+  needs := #[vaultSolidity, vaultLeanImporter, vaultSolc, vaultBuildPolicy]
 
 lean_lib «Contracts» where
   globs := #[

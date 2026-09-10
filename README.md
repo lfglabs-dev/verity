@@ -25,30 +25,28 @@
 
 `Contracts/VaultFromSolidity/VaultFromSolidity.lean` imports the colocated
 `Vault.sol` with `solidity_contract VaultFromSolidity from "Vault.sol"`.
-The frontend requests typed AST and storage
-layout from pinned solc 0.8.33, then registers transparent, kernel-checked
-`Verity.Contract` definitions directly in memory. There is no generated model
-`.lean`, CompilationModel, or bytecode. The example is independent of the
+The Lean frontend invokes pinned solc 0.8.33 for typed AST and storage layout,
+validates and translates them directly, then registers transparent,
+kernel-checked `Verity.Contract` definitions in memory. There is no Python
+frontend, custom serialized IR, generated `.lean`, CompilationModel, or
+bytecode. The example is independent of the
 handwritten `Contracts/Vault` contract. See the
 [Vault-from-Solidity walkthrough](Contracts/VaultFromSolidity/README.md).
 
-With the Lean/package prerequisites installed, put the pinned solc 0.8.33 binary
-at `.lake/solidity-import/solc` and make it executable. Accepted official SHA-256
-digests are `1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468`
-for Linux amd64 and
-`8324280591ce398d7e2722846bc10ecf1779b13a328ef97b687c92cd9c70801a`
-for macOS amd64, then run:
+With the Lean/package prerequisites installed, put the official Linux-amd64 solc
+0.8.33 binary at `.lake/solidity-import/solc` and make it executable. Its accepted
+SHA-256 digest is
+`1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468`, then run:
 
 ```sh
 lake build VaultFromSolidity
 python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py
 ```
 
-The acceptance script uses disposable copies for source mutations, rejection,
-content-based Lake freshness, cache reuse, compiler/importer invalidation, and
-an audit of every Vault theorem. It also tests declaration-registration rollback
-and cold-cache builds. On Linux it also denies new sockets with `strace`; normal
-imports do not require `strace`. It never mutates the original Solidity file.
+The acceptance script uses disposable copies for source mutations, fail-closed
+rejection, content-based Lake freshness, compiler/importer/build-policy
+invalidation, declaration-registration rollback, and an audit of every Vault
+theorem. It never mutates the original Solidity file.
 Save Solidity, rebuild this dedicated target, then reload the Lean editor:
 an already-open editor snapshot does not automatically watch `.sol` changes.
 See [the trust boundary](TRUST_ASSUMPTIONS.md#proof-only-solidity-vault-import).

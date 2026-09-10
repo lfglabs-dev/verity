@@ -7,29 +7,31 @@ boundary checks change.
 
 ## Proof-only Solidity Vault POC
 
-The focused suite also probes recursive AST rejection (including metadata),
-contract `layout at`, registered-source symlink escape, and Lean importer digest
-sensitivity. It also checks safe transparent declarations, duplicate aliases,
-a deliberately malformed late declaration and complete registration rollback,
-and a cold-cache build, with new network sockets denied using strace on Linux.
-The digest scope is documented in `TRUST_ASSUMPTIONS.md`; it is not
-a transitive build identity.
+The focused suite probes unknown, wrong-typed, and missing AST fields (including
+documentation metadata), invalid source spans, and malformed storage layout
+through synthetic compiler-output mutations, plus unsupported source constructs,
+contract `layout at`,
+registered-source symlink escape, and Lean importer digest sensitivity. It also
+checks safe transparent declarations, duplicate aliases, a deliberately
+malformed late declaration and complete registration rollback, plus the pinned
+compiler's checksum. The digest scope is documented in `TRUST_ASSUMPTIONS.md`; it is not a transitive build identity.
 
 Evidence command:
 `python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py`
 (after `lake build VaultFromSolidity` and installation of the pinned compiler).
 The focused runner builds and audits the imported execution proofs, changes
-accepted deposit/getter behavior while preserving source mtime and requires
-old proofs to fail, rejects unsupported source, checks unchanged artifacts/cache,
-and exercises Python-importer and compiler content invalidation. Mutations occur
-only in disposable copies. This is local acceptance evidence, not a new CI job,
+accepted deposit/getter behavior while preserving source mtime and requires old
+proofs to fail, rejects unsupported source, checks unchanged artifacts, and
+exercises Lean-importer and compiler content invalidation. Mutations occur only
+in disposable copies. This is local acceptance evidence, not a new CI job,
 bytecode/runtime test, or proof of translation correctness.
 
 The complete example surface lives under `Contracts/VaultFromSolidity`: Solidity
-source, Python and Lean importers, specification, execution proofs and focused
-acceptance tests. It is independent of the handwritten `Contracts/Vault` example.
-No generated model source or bytecode is emitted. Trust and axiom scope are
-recorded in `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
+source, Lean importer, specification, execution proofs and focused acceptance
+tests. It is independent of the handwritten `Contracts/Vault` example. No
+Python frontend, custom serialized IR, generated Lean source, or bytecode is in
+the translation path. Trust and axiom scope are recorded in
+`TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
 
 ## Current Audit State
 
