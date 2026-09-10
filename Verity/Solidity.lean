@@ -182,7 +182,11 @@ private def importModel (ns : Name) (model : Json) : MetaM Unit := do
       register (ns ++ Name.mkSimple getter) value
   for f in functions do
     let value ← params (← arr (← field f "params")).toList [] fun locals => do
-      nonpayable (← body slots locals (← arr (← field f "body")).toList)
+      let code ← body slots locals (← arr (← field f "body")).toList
+      let expected ← mkAppM ``Verity.Contract #[← valueType (← str (← field f "returns"))]
+      unless ← isDefEq (← inferType code) expected do
+        throwError "imported body does not match typed AST return signature"
+      nonpayable code
     register (ns ++ Name.mkSimple (← str (← field f "name"))) value
   register (ns ++ `sourceDigest) (mkStrLit (← str (← field model "digest")))
 
@@ -205,7 +209,9 @@ syntax (name := solidityContract) "solidity_contract " ident " from " str : comm
       | .ok j => pure j
       | .error e => throwError "invalid frontend JSON: {e}"
     let ns := (← getCurrNamespace) ++ stx[1].getId
-    liftTermElabM <| importModel ns model
+    -- A checking error must be raised inside this transaction, not in a later
+    -- async task after partial declarations have escaped the rollback handler.
+    liftTermElabM <| withOptions (Elab.async.set · false) (importModel ns model)
   catch e =>
     setEnv saved
     throw e

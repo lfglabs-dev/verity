@@ -4,9 +4,12 @@ This file is the authoritative registry of axioms used by Verity proof code.
 
 ## Proof-only Solidity Vault audit
 
-`Contracts/Vault/Proofs/Execution.lean` prints the axioms of every theorem.
-`python3 scripts/check_solidity_contract.py` re-executes that audit and requires
+`PrintAxioms.lean` includes the shared Vault execution theorems. The focused
+`python3 scripts/check_solidity_contract.py` runs `#print axioms` in a disposable
+audit module for every theorem in `Contracts/Vault/Proofs/Execution.lean` and requires
 coverage of all declared theorems, rejecting `sorryAx` and project axioms.
+Its malformed-declaration probe also checks that kernel error recovery does not
+leave any partial declarations or fallback axioms in the import namespace.
 The shared Vault proofs report only the standard Lean foundations `propext`,
 `Classical.choice`, and `Quot.sound`; they do not depend on `solidityMappingSlot_injective`.
 This does not remove the trusted Solidity frontend/translation boundary described

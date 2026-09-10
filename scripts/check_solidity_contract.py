@@ -32,7 +32,7 @@ def run(root, args, success=True, contains=None):
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix='verity-vault-check-') as directory:
+    with tempfile.TemporaryDirectory(prefix='verity-vault-check-', dir=ROOT.parent) as directory:
         root = Path(directory)
         # Copy mutable build outputs (never hardlink); share only prebuilt dependencies.
         for name in ('Verity', 'Compiler', 'Contracts', 'scripts', 'examples/solidity'):
@@ -66,7 +66,13 @@ def main():
         check(True, 'baseline lake build SolidityVault')
         proof = root / 'Contracts/Vault/Proofs/Execution.lean'
         theorem_names = re.findall(r'^theorem\s+(\w+)', proof.read_text(), re.M)
-        audit = run(root, ['lake', 'env', 'lean', str(proof)])
+        audit_file = root / '.lake/solidity-import/AxiomAudit.lean'
+        try:
+            audit_file.write_text('import Contracts.Vault.Proofs.Execution\n' +
+                '\n'.join('#print axioms Contracts.Vault.Execution.' + name for name in theorem_names) + '\n')
+            audit = run(root, ['lake', 'env', 'lean', str(audit_file)])
+        finally:
+            audit_file.unlink(missing_ok=True)
         entries = re.findall(r"'Contracts.Vault.Execution.(\w+)' depends on axioms: \[([^\]]*)\]", audit)
         check(set(theorem_names) == {name for name, _ in entries}, 'every theorem appears in actual #print axioms output')
         axioms = {a.strip() for _, values in entries for a in values.split(',') if a.strip()}
@@ -114,7 +120,7 @@ for mutation in ('unknown child', 'altered block', 'metadata child'):
         check(all('rejected ' + name in probe for name in ('unknown child', 'altered block', 'metadata child')),
               'closed recursive AST schema rejects unknown executable children and altered body kind; accepts documentation')
         # Even the registered source must remain inside the canonical package root.
-        with tempfile.TemporaryDirectory(prefix='verity-vault-outside-') as outside:
+        with tempfile.TemporaryDirectory(prefix='verity-vault-outside-', dir=ROOT.parent) as outside:
             escaped = Path(outside) / 'Vault.sol'
             escaped.write_bytes(original)
             source.unlink()
@@ -221,6 +227,105 @@ for mutation in ('unknown child', 'altered block', 'metadata child'):
         check(True, 'compiler content change invalidates Lake and fails closed')
         compiler.write_bytes(compiler_original)
         build()
+        # Authored diagnostic snippets, not generated semantic/model source.
+        probe_file = root / '.lake/solidity-import/RegistrationProbe.lean'
+        try:
+            probe_file.write_text('''import Contracts.Vault.Solidity
+open Lean Elab Command
+run_cmd do
+  for suffix in ["totalAssetsSlot", "totalSupplySlot", "shareBalancesSlot",
+                 "deposit", "withdraw", "balanceOf", "totalAssets", "totalSupply",
+                 "shareBalances", "sourceDigest"] do
+    let name := `Contracts.Vault.Solidity ++ Name.mkSimple suffix
+    let some (.defnInfo info) := (← getEnv).find? name
+      | throwError "not a transparent definition: {name}"
+    unless info.safety == .safe && !info.value.hasMVar && !info.value.hasFVar do
+      throwError "unsafe or unclosed definition: {name}"
+    for dep in info.value.getUsedConstants do
+      if dep.toString.startsWith "Contracts." &&
+          !dep.toString.startsWith "Contracts.Vault.Solidity." then
+        throwError "imported declaration depends on handwritten contract: {dep}"
+  let some (.defnInfo deposit) := (← getEnv).find? `Contracts.Vault.Solidity.deposit
+    | throwError "missing imported deposit"
+  for dep in [``Verity.setMapping, ``Verity.setStorage, ``Verity.Stdlib.Math.safeAdd] do
+    unless deposit.value.getUsedConstants.contains dep do
+      throwError "missing source-derived deposit operation: {dep}"
+  logInfo "CHECKED_TRANSPARENT_DECLARATIONS"
+solidity_contract Existing from "../../examples/solidity/Vault.sol"
+run_cmd do
+  let original ← getEnv
+  let mut rejected := false
+  try
+    SolidityImporter.elabSolidityContract (← `(command| solidity_contract $(mkIdent `Existing):ident from "../../examples/solidity/Vault.sol"))
+  catch _ => rejected := true
+  unless rejected do throwError "duplicate alias accepted"
+  let some (.defnInfo before) := original.find? `Existing.deposit
+    | throwError "missing initial declaration"
+  let some (.defnInfo after) := (← getEnv).find? `Existing.deposit
+    | throwError "lost initial declaration"
+  unless before.value == after.value && before.type == after.type do
+    throwError "duplicate alias changed prior declaration"
+  logInfo "DUPLICATE_ALIAS_REJECTED"
+''')
+            result = run(root, ['lake', 'env', 'lean', str(probe_file)])
+            check('CHECKED_TRANSPARENT_DECLARATIONS' in result and 'DUPLICATE_ALIAS_REJECTED' in result,
+                  'all ten imported declarations safe/transparent/closed; duplicate alias rejected without overwrite')
+            # Corrupt the type of a late declaration, after slots/getters were
+            # registered. The real command must synchronously catch the kernel
+            # error and restore the entire pre-import environment.
+            lean_original = lean_importer.read_bytes()
+            try:
+                lean_importer.write_bytes(lean_original.replace(
+                    b'    type := type\n',
+                    b'    type := if name.toString.endsWith ".deposit" then mkConst ``Nat else type\n'))
+                run(root, ['lake', 'build', 'SolidityFrontend'])
+                probe_file.write_text('''import Verity.Solidity
+open Lean Elab Command
+set_option Elab.async true
+run_cmd do
+  let mut rejected := false
+  try
+    SolidityImporter.elabSolidityContract (← `(command| solidity_contract $(mkIdent `Broken):ident from "../../examples/solidity/Vault.sol"))
+  catch e =>
+    rejected := true
+    logInfo m!"EXPECTED_KERNEL_ERROR {e.toMessageData}"
+  unless rejected do throwError "malformed declaration accepted"
+  for suffix in ["totalAssetsSlot", "totalSupplySlot", "shareBalancesSlot",
+                 "totalAssets", "totalSupply", "shareBalances", "deposit", "sourceDigest"] do
+    if (← getEnv).contains (`Broken ++ Name.mkSimple suffix) then
+      throwError "partial/fallback declaration escaped rollback: {suffix}"
+  logInfo "KERNEL_REJECTION_ROLLED_BACK"
+''')
+                result = run(root, ['lake', 'env', 'lean', str(probe_file)])
+                check('KERNEL_REJECTION_ROLLED_BACK' in result and '(kernel)' in result,
+                      'malformed late declaration rejected synchronously; no partial definitions or fallback axioms escape')
+            finally:
+                lean_importer.write_bytes(lean_original)
+            build()
+        finally:
+            probe_file.unlink(missing_ok=True)
+        # Deliberately corrupt the frontend return metadata without replacing a
+        # body: Lean must reject the inconsistent typed interface before export.
+        try:
+            frontend.write_bytes(frontend_original.replace(
+                b'dict(name=name, params=params, returns=returns, body=',
+                b"dict(name=name, params=params, returns='unit', body="))
+            build(False, 'imported body does not match typed AST return signature')
+            check(True, 'inconsistent typed return metadata rejected before declaration export')
+        finally:
+            frontend.write_bytes(frontend_original)
+        build()
+        # Cold compiler cache, with new sockets denied for the whole process tree.
+        # strace is an explicit test prerequisite, not needed by normal imports.
+        for path in compiler.parent.glob('*.json'):
+            path.unlink()
+        # Force only the imported wrapper to elaborate again, keeping prerequisites.
+        for path in (root / '.lake/build/lib/lean/Contracts/Vault').glob('Solidity.*'):
+            path.unlink()
+        run(root, ['strace', '-f', '-e', 'inject=socket:error=EPERM', '-o',
+                   str(root / '.lake/solidity-import/offline.trace'),
+                   'lake', 'build', 'SolidityVault'])
+        check(bool(caches()), 'cold AST cache and current-source Lake build succeed with new network sockets denied')
         check(set(root.rglob('*.lean')) == lean_sources, 'no generated model .lean files')
         check(source.read_bytes() == original and frontend.read_bytes() == frontend_original,
               'temporary source and importer restored; final baseline build passes')

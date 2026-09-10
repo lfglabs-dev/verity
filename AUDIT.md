@@ -9,7 +9,10 @@ boundary checks change.
 
 The focused suite also probes recursive AST rejection (including metadata),
 contract `layout at`, registered-source symlink escape, and Lean importer digest
-sensitivity. The digest scope is documented in `TRUST_ASSUMPTIONS.md`; it is not
+sensitivity. It also checks safe transparent declarations, duplicate aliases,
+a deliberately malformed late declaration and complete registration rollback,
+and a cold-cache build with new network sockets denied using strace.
+The digest scope is documented in `TRUST_ASSUMPTIONS.md`; it is not
 a transitive build identity.
 
 Evidence command: `python3 scripts/check_solidity_contract.py` (after

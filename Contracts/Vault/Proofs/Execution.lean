@@ -144,21 +144,4 @@ theorem withdraw_existing_spec (impl : Implementation) (s : ContractState) (amou
     Verity.EVM.Uint256.sub]
   repeat' constructor
 
-#print axioms deposit_existing_spec
-#print axioms withdraw_existing_spec
-
-#print axioms deposit_frame
-#print axioms totalAssets_getter
-#print axioms totalSupply_getter
-#print axioms shareBalances_getter
-#print axioms withdraw_nonpayable
-#print axioms withdraw_insufficient_assets
-#print axioms withdraw_insufficient_supply
-#print axioms balance_meets_spec
-#print axioms deposit_meets_spec
-#print axioms withdraw_meets_spec
-#print axioms deposit_nonpayable
-#print axioms deposit_late_overflow_rollback
-#print axioms withdraw_insufficient_shares
-
 end Contracts.Vault.Execution

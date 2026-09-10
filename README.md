@@ -43,7 +43,9 @@ python3 scripts/check_solidity_contract.py
 
 The acceptance script uses disposable copies for source mutations, rejection,
 content-based Lake freshness, cache reuse, compiler/importer invalidation, and
-an audit of every Vault theorem. It never mutates the original Solidity file.
+an audit of every Vault theorem. It also tests declaration-registration rollback
+and cold-cache builds with new sockets denied (the test runner requires Linux
+`strace`; normal imports do not). It never mutates the original Solidity file.
 Save Solidity, rebuild this dedicated target, then reload the Lean editor:
 an already-open editor snapshot does not automatically watch `.sol` changes.
 See [the trust boundary](TRUST_ASSUMPTIONS.md#proof-only-solidity-vault-import).

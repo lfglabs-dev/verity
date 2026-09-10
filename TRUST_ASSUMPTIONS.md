@@ -16,6 +16,10 @@ policy are tracked separately by normal build dependencies, not this digest.
 The recursive closed AST schema permits explicitly typed documentation and
 compiler metadata, but rejects unknown fields/node kinds and contract `layout at`.
 Canonical package containment is checked independently of source registration.
+Declaration registration disables asynchronous kernel checking inside the import
+transaction, restores the pre-import environment on failure, and checks each
+body against its typed return signature before registration. Safe transparent
+definitions are also compiled by Lean for ordinary executable consumers.
 Local AST caches are trusted build artifacts: their
 self-recorded hashes detect accidental corruption, not malicious replacement.
 
