@@ -3,7 +3,7 @@ pragma solidity ^0.8.33;
 
 /// @title Vault
 /// @notice Minimal ERC4626-style vault with 1:1 asset/share accounting.
-/// @dev Reference implementation matching `Contracts/Vault/Vault.lean`.
+/// @dev Source contract for the proof-only Solidity importer example.
 contract Vault {
     uint256 public totalAssets;
     uint256 public totalSupply;

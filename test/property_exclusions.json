@@ -15,6 +15,23 @@
   "vaultMinimal_runtime_lowers_native",
   "vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value"
  ],
+ "VaultFromSolidity": [
+  "balance_meets_spec",
+  "deposit_existing_spec",
+  "deposit_frame",
+  "deposit_late_overflow_rollback",
+  "deposit_meets_spec",
+  "deposit_nonpayable",
+  "shareBalances_getter",
+  "totalAssets_getter",
+  "totalSupply_getter",
+  "withdraw_existing_spec",
+  "withdraw_insufficient_assets",
+  "withdraw_insufficient_shares",
+  "withdraw_insufficient_supply",
+  "withdraw_meets_spec",
+  "withdraw_nonpayable"
+ ],
  "Counter": [
   "getStorage_reads_count",
   "previewAddTwice_correct",

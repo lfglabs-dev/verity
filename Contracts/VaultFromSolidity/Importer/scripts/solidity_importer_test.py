@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Focused proof-only Vault acceptance checks; all mutations are in a disposable copy.
+"""Focused Vault-from-Solidity acceptance checks; mutations use a disposable copy.
 
-Prerequisite: lake build SolidityVault and the pinned .lake/solidity-import/solc.
+Prerequisite: lake build VaultFromSolidity and the pinned .lake/solidity-import/solc.
 Runs no bytecode compiler and writes no generated model Lean source.
 """
 import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import shutil
 import subprocess
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 ENV = dict(os.environ, PATH=f"{Path.home()}/.elan/bin:{Path.home()}/.local/bin:" + os.environ['PATH'])
 
 
@@ -42,10 +43,10 @@ def main():
         for name in ('build', 'solidity-import'):
             shutil.copytree(ROOT / '.lake' / name, root / '.lake' / name)
         (root / '.lake/packages').symlink_to(ROOT / '.lake/packages', target_is_directory=True)
-        source = root / 'examples/solidity/Vault.sol'
+        source = root / 'Contracts/VaultFromSolidity/Vault.sol'
         original = source.read_bytes()
         stamp = source.stat()
-        frontend = root / 'scripts/solidity_contract.py'
+        frontend = root / 'Contracts/VaultFromSolidity/Importer/scripts/solidity_importer.py'
         frontend_original = frontend.read_bytes()
         compiler = root / '.lake/solidity-import/solc'
         compiler_original = compiler.read_bytes()
@@ -54,26 +55,29 @@ def main():
             source.write_bytes(data)
             os.utime(source, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
         def build(success=True, contains=None):
-            return run(root, ['lake', 'build', 'SolidityVault'], success, contains)
+            return run(root, ['lake', 'build', 'VaultFromSolidity'], success, contains)
         def model(success=True, contains=None):
             return run(root, ['python3', str(frontend), str(source)], success, contains)
         def artifacts():
             return {str(p.relative_to(root)): (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest())
-                    for p in (root / '.lake/build/lib/lean/Contracts/Vault').rglob('*.olean')}
+                    for p in (root / '.lake/build/lib/lean/Contracts/VaultFromSolidity').rglob('*.olean')}
         def caches():
             return {p.name: (p.stat().st_mtime_ns, p.read_bytes()) for p in compiler.parent.glob('*.json')}
         build()
-        check(True, 'baseline lake build SolidityVault')
-        proof = root / 'Contracts/Vault/Proofs/Execution.lean'
+        check(True, 'baseline lake build VaultFromSolidity')
+        proof = root / 'Contracts/VaultFromSolidity/Proofs/Execution.lean'
         theorem_names = re.findall(r'^theorem\s+(\w+)', proof.read_text(), re.M)
         audit_file = root / '.lake/solidity-import/AxiomAudit.lean'
         try:
-            audit_file.write_text('import Contracts.Vault.Proofs.Execution\n' +
-                '\n'.join('#print axioms Contracts.Vault.Execution.' + name for name in theorem_names) + '\n')
+            audit_file.write_text('import Contracts.VaultFromSolidity.Proofs.Execution\n' +
+                '\n'.join('#print axioms Contracts.VaultFromSolidity.Proofs.Execution.' + name
+                          for name in theorem_names) + '\n')
             audit = run(root, ['lake', 'env', 'lean', str(audit_file)])
         finally:
             audit_file.unlink(missing_ok=True)
-        entries = re.findall(r"'Contracts.Vault.Execution.(\w+)' depends on axioms: \[([^\]]*)\]", audit)
+        entries = re.findall(
+            r"'Contracts.VaultFromSolidity.Proofs.Execution.(\w+)' depends on axioms: \[([^\]]*)\]",
+            audit)
         check(set(theorem_names) == {name for name, _ in entries}, 'every theorem appears in actual #print axioms output')
         axioms = {a.strip() for _, values in entries for a in values.split(',') if a.strip()}
         check(axioms <= {'propext', 'Quot.sound', 'Classical.choice'}, 'no project axioms or sorryAx: ' + ', '.join(sorted(axioms)))
@@ -147,28 +151,12 @@ for mutation in ('unknown child', 'altered block', 'metadata child'):
             edit(original.replace(old, new))
             changed_model = json.loads(model())
             check(changed_model['functions'] != baseline_model['functions'], name + ' changes accepted AST behavior')
-            out = build(False, 'Contracts.Vault.Proofs.Execution')
+            out = build(False, 'Contracts.VaultFromSolidity.Proofs.Execution')
             check('unsolved goals' in out or 'Type mismatch' in out or 'type mismatch' in out,
                   name + ' preserved-mtime source edit rebuilds and breaks existing proof')
             check(before != artifacts(), name + ' refreshes dependent oleans')
             edit(original)
             build()
-        # Both branches really participate in the shared proof; the entry adapter
-        # cannot silently conceal a native payable declaration.
-        native = root / 'Contracts/Vault/Vault.lean'
-        native_original = native.read_bytes()
-        try:
-            native.write_bytes(native_original.replace(b'InsufficientShares', b'NotEnoughShares'))
-            build(False, 'Contracts.Vault.Proofs.Execution')
-            check(True, 'native custom-error mutation breaks the same shared proof')
-            native.write_bytes(native_original)
-            build()
-            native.write_bytes(native_original.replace(b'function deposit', b'function payable deposit'))
-            build(False, 'did not evaluate to `true`')
-            check(True, 'native payable mutation rejected by entry-boundary metadata check')
-        finally:
-            native.write_bytes(native_original)
-        build()
         for name, old, new, diagnostic in (
             ('contract layout at', b'contract Vault {', b'contract Vault layout at 100 {', 'layout at'),
             ('initializer', b'uint256 public totalAssets;', b'uint256 public totalAssets = 1;', 'initializer'),
@@ -179,7 +167,7 @@ for mutation in ('unknown child', 'altered block', 'metadata child'):
         ):
             edit(original.replace(old, new))
             output = model(False, diagnostic)
-            check(re.search(r'examples/solidity/Vault.sol:\d+:\d+:', output) is not None,
+            check(re.search(r'Contracts/VaultFromSolidity/Vault.sol:\d+:\d+:', output) is not None,
                   name + ' rejected with source location')
         # Exercise an import failure through Lake as well as the frontend.
         build(False, 'unsupported binary')
@@ -193,7 +181,7 @@ for mutation in ('unknown child', 'altered block', 'metadata child'):
         check(json.loads(model())['digest'] != baseline_model['digest'], 'importer change updates sourceDigest')
         frontend.write_bytes(frontend_original)
         build()
-        lean_importer = root / 'Verity/Solidity.lean'
+        lean_importer = root / 'Contracts/VaultFromSolidity/Importer/SolidityImporter.lean'
         lean_original = lean_importer.read_bytes()
         try:
             lean_importer.write_bytes(lean_original + b'\n-- acceptance translation identity probe\n')
@@ -230,33 +218,33 @@ for mutation in ('unknown child', 'altered block', 'metadata child'):
         # Authored diagnostic snippets, not generated semantic/model source.
         probe_file = root / '.lake/solidity-import/RegistrationProbe.lean'
         try:
-            probe_file.write_text('''import Contracts.Vault.Solidity
+            probe_file.write_text('''import Contracts.VaultFromSolidity.VaultFromSolidity
 open Lean Elab Command
 run_cmd do
   for suffix in ["totalAssetsSlot", "totalSupplySlot", "shareBalancesSlot",
                  "deposit", "withdraw", "balanceOf", "totalAssets", "totalSupply",
                  "shareBalances", "sourceDigest"] do
-    let name := `Contracts.Vault.Solidity ++ Name.mkSimple suffix
+    let name := `Contracts.VaultFromSolidity ++ Name.mkSimple suffix
     let some (.defnInfo info) := (← getEnv).find? name
       | throwError "not a transparent definition: {name}"
     unless info.safety == .safe && !info.value.hasMVar && !info.value.hasFVar do
       throwError "unsafe or unclosed definition: {name}"
     for dep in info.value.getUsedConstants do
       if dep.toString.startsWith "Contracts." &&
-          !dep.toString.startsWith "Contracts.Vault.Solidity." then
+          !dep.toString.startsWith "Contracts.VaultFromSolidity." then
         throwError "imported declaration depends on handwritten contract: {dep}"
-  let some (.defnInfo deposit) := (← getEnv).find? `Contracts.Vault.Solidity.deposit
+  let some (.defnInfo deposit) := (← getEnv).find? `Contracts.VaultFromSolidity.deposit
     | throwError "missing imported deposit"
   for dep in [``Verity.setMapping, ``Verity.setStorage, ``Verity.Stdlib.Math.safeAdd] do
     unless deposit.value.getUsedConstants.contains dep do
       throwError "missing source-derived deposit operation: {dep}"
   logInfo "CHECKED_TRANSPARENT_DECLARATIONS"
-solidity_contract Existing from "../../examples/solidity/Vault.sol"
+solidity_contract Existing from "../../Contracts/VaultFromSolidity/Vault.sol"
 run_cmd do
   let original ← getEnv
   let mut rejected := false
   try
-    SolidityImporter.elabSolidityContract (← `(command| solidity_contract $(mkIdent `Existing):ident from "../../examples/solidity/Vault.sol"))
+    SolidityImporter.elabSolidityContract (← `(command| solidity_contract $(mkIdent `Existing):ident from "../../Contracts/VaultFromSolidity/Vault.sol"))
   catch _ => rejected := true
   unless rejected do throwError "duplicate alias accepted"
   let some (.defnInfo before) := original.find? `Existing.deposit
@@ -278,14 +266,14 @@ run_cmd do
                 lean_importer.write_bytes(lean_original.replace(
                     b'    type := type\n',
                     b'    type := if name.toString.endsWith ".deposit" then mkConst ``Nat else type\n'))
-                run(root, ['lake', 'build', 'SolidityFrontend'])
-                probe_file.write_text('''import Verity.Solidity
+                run(root, ['lake', 'build', 'VaultSolidityImporter'])
+                probe_file.write_text('''import Contracts.VaultFromSolidity.Importer.SolidityImporter
 open Lean Elab Command
 set_option Elab.async true
 run_cmd do
   let mut rejected := false
   try
-    SolidityImporter.elabSolidityContract (← `(command| solidity_contract $(mkIdent `Broken):ident from "../../examples/solidity/Vault.sol"))
+    SolidityImporter.elabSolidityContract (← `(command| solidity_contract $(mkIdent `Broken):ident from "../../Contracts/VaultFromSolidity/Vault.sol"))
   catch e =>
     rejected := true
     logInfo m!"EXPECTED_KERNEL_ERROR {e.toMessageData}"
@@ -320,12 +308,17 @@ run_cmd do
         for path in compiler.parent.glob('*.json'):
             path.unlink()
         # Force only the imported wrapper to elaborate again, keeping prerequisites.
-        for path in (root / '.lake/build/lib/lean/Contracts/Vault').glob('Solidity.*'):
+        for path in (root / '.lake/build/lib/lean/Contracts/VaultFromSolidity').glob('VaultFromSolidity.*'):
             path.unlink()
-        run(root, ['strace', '-f', '-e', 'inject=socket:error=EPERM', '-o',
-                   str(root / '.lake/solidity-import/offline.trace'),
-                   'lake', 'build', 'SolidityVault'])
-        check(bool(caches()), 'cold AST cache and current-source Lake build succeed with new network sockets denied')
+        if platform.system() == 'Linux':
+            run(root, ['strace', '-f', '-e', 'inject=socket:error=EPERM', '-o',
+                       str(root / '.lake/solidity-import/offline.trace'),
+                       'lake', 'build', 'VaultFromSolidity'])
+            check(True, 'Linux cold-cache build succeeds with new network sockets denied')
+        else:
+            build()
+            check(True, 'cold-cache build succeeds (socket-denial probe is Linux-only)')
+        check(bool(caches()), 'cold AST cache and current-source Lake build succeed')
         check(set(root.rglob('*.lean')) == lean_sources, 'no generated model .lean files')
         check(source.read_bytes() == original and frontend.read_bytes() == frontend_original,
               'temporary source and importer restored; final baseline build passes')

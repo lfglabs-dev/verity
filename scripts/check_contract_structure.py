@@ -21,6 +21,7 @@ EXCLUDED_CONTRACTS = {
     "ReentrancyRelyGuarantee",  # Proof-only rely-guarantee framework example, inline proofs
     "Ownable",                  # Mixin facet: named-slot proofs + footprint, no Foundry/Yul twin
     "OwnedCounterComposed",     # Include-host acceptance example; OwnedCounter keeps Yul/difftest
+    "VaultFromSolidity",       # Proof-only imported model with its own focused structure
 }
 
 # Contracts excluded from property test check
@@ -30,6 +31,7 @@ EXCLUDED_FROM_PROPERTY_TESTS = {
     "ReentrancyRelyGuarantee",  # Abstract state-transformer proofs, no compiled contract to property-test
     "Ownable",                  # Mixin proofs are reused by hosts; no compiled property harness
     "OwnedCounterComposed",     # Proof-composition host; OwnedCounter remains the Foundry target
+    "VaultFromSolidity",       # Imported-model theorems are covered by the focused mutation suite
 }
 
 # Contracts excluded from differential test check
@@ -40,6 +42,7 @@ EXCLUDED_FROM_DIFFERENTIAL_TESTS = {
     "ReentrancyRelyGuarantee",  # No compiled bytecode (abstract proofs), nothing to differential-test
     "Ownable",                  # Mixin facet; no dedicated Yul/Foundry twin
     "OwnedCounterComposed",     # Selectors/layout stay on OwnedCounter until bit-identical
+    "VaultFromSolidity",       # Proof-only importer emits no bytecode for differential testing
 }
 
 # Expected files for each contract (relative to ROOT)

@@ -23,15 +23,15 @@ lean_lib «Verity» where
   ]
 
 input_file vaultSolidity where
-  path := "examples/solidity/Vault.sol"
+  path := "Contracts/VaultFromSolidity/Vault.sol"
   text := false
 
 input_file vaultFrontend where
-  path := "scripts/solidity_contract.py"
+  path := "Contracts/VaultFromSolidity/Importer/scripts/solidity_importer.py"
   text := false
 
 input_file vaultLeanImporter where
-  path := "Verity/Solidity.lean"
+  path := "Contracts/VaultFromSolidity/Importer/SolidityImporter.lean"
   text := false
 
 input_file vaultSolc where
@@ -42,12 +42,13 @@ input_file vaultBuildPolicy where
   path := "lakefile.lean"
   text := false
 
-lean_lib «SolidityFrontend» where
-  globs := #[.one `Verity.Solidity]
+lean_lib «VaultSolidityImporter» where
+  globs := #[.one `Contracts.VaultFromSolidity.Importer.SolidityImporter]
 
-lean_lib «SolidityVault» where
-  globs := #[.one `Contracts.Vault.Solidity, .one `Contracts.Vault.Implementations,
-    .one `Contracts.Vault.Proofs.Execution]
+lean_lib «VaultFromSolidity» where
+  globs := #[.one `Contracts.VaultFromSolidity.VaultFromSolidity,
+    .one `Contracts.VaultFromSolidity.Spec,
+    .one `Contracts.VaultFromSolidity.Proofs.Execution]
   needs := #[vaultSolidity, vaultFrontend, vaultLeanImporter, vaultSolc, vaultBuildPolicy]
 
 lean_lib «Contracts» where

@@ -55,28 +55,4 @@ def withdraw_share_sum_equation (shares : Uint256) (s s' : ContractState) : Prop
 def assets_supply_synced (s : ContractState) : Prop :=
   s.storage 0 = s.storage 1
 
-/-- Exact post-state, including Verity's ghost key-enumeration metadata. -/
-def accountingState (s : ContractState) (shares assets supply : Uint256) : ContractState :=
-  let mapped := { s.writeMap 2 s.sender shares with
-    knownAddresses := fun slotIdx => if slotIdx == 2 then
-      (s.knownAddresses slotIdx).insert s.sender else s.knownAddresses slotIdx }
-  (mapped.writeSlot 0 assets).writeSlot 1 supply
-
-def deposit_execution (deposit : Uint256 → Contract Unit) (s : ContractState) (amount : Uint256) : Prop :=
-  (deposit amount).run s = ContractResult.success ()
-    (accountingState s (s.readMap 2 s.sender + amount)
-      (s.readSlot 0 + amount)
-      (s.readSlot 1 + amount))
-
-def withdraw_execution (withdraw : Uint256 → Contract Unit) (s : ContractState) (amount : Uint256) : Prop :=
-  (withdraw amount).run s = ContractResult.success ()
-    (accountingState s (s.readMap 2 s.sender - amount)
-      (s.readSlot 0 - amount)
-      (s.readSlot 1 - amount))
-
-def balance_execution (balanceOf : Address → Contract Uint256) (s : ContractState) (account : Address) : Prop :=
-  (balanceOf account).run s =
-    ContractResult.success (s.readMap 2 account) s
-
-
 end Contracts.Vault.Spec

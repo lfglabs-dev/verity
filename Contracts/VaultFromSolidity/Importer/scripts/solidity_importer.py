@@ -3,13 +3,17 @@
 import hashlib
 import json
 import pathlib
+import platform
 import re
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-SOURCE = 'examples/solidity/Vault.sol'
-PIN = '1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468'
+ROOT = pathlib.Path(__file__).resolve().parents[4]
+SOURCE = 'Contracts/VaultFromSolidity/Vault.sol'
+PINS = {
+    'Linux': '1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468',
+    'Darwin': '8324280591ce398d7e2722846bc10ecf1779b13a328ef97b687c92cd9c70801a',
+}
 SETTINGS = dict(optimizer={'enabled': False}, viaIR=False, evmVersion='cancun',
                 remappings=[], outputSelection={'*': {'': ['ast'], '*': ['storageLayout']}})
 
@@ -167,6 +171,10 @@ def validate_ast(ast, need):
 
 
 def main():
+    system = platform.system()
+    if system not in PINS:
+        raise ValueError(f'unsupported compiler platform: {system}')
+    pin = PINS[system]
     source = pathlib.Path(sys.argv[1]).resolve(strict=True)
     if not source.is_relative_to(ROOT.resolve(strict=True)):
         raise ValueError('source outside package')
@@ -174,14 +182,14 @@ def main():
         raise ValueError('unregistered source or source outside package')
     raw = source.read_bytes()
     binary = ROOT / '.lake/solidity-import/solc'
-    if digest(binary.read_bytes()) != PIN:
+    if digest(binary.read_bytes()) != pin:
         raise ValueError('compiler checksum mismatch')
     version = subprocess.check_output([str(binary), '--version']).decode()
     if '0.8.33+commit.64118f21.' not in version:
         raise ValueError('compiler version mismatch')
     inp = dict(language='Solidity', sources={SOURCE: {'content': raw.decode()}}, settings=SETTINGS)
     encoded = json.dumps(inp, sort_keys=True).encode()
-    key = digest(encoded + PIN.encode())
+    key = digest(encoded + pin.encode())
     cache = binary.parent / (key + '.json')
     if cache.exists():
         record = json.loads(cache.read_text())
@@ -339,8 +347,8 @@ def main():
     print(json.dumps(dict(fields=list(fields.values()), functions=output,
                          digest=digest(json.dumps(dict(input=inp, output=out,
                              pythonImporter=digest(pathlib.Path(__file__).read_bytes()),
-                             leanImporter=digest((ROOT / 'Verity/Solidity.lean').read_bytes()),
-                             compilerSha256=PIN, compilerVersion=version), sort_keys=True).encode()))))
+                             leanImporter=digest((ROOT / 'Contracts/VaultFromSolidity/Importer/SolidityImporter.lean').read_bytes()),
+                             compilerSha256=pin, compilerVersion=version), sort_keys=True).encode()))))
 
 if __name__ == '__main__':
     try:

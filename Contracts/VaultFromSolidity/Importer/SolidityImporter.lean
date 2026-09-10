@@ -1,7 +1,7 @@
 import Lean
 import Verity.Stdlib.Math
 
-/-! Proof-only, closed typed-AST importer. No source renderer or parse-back. -/
+/-! Proof-only, closed typed-AST importer for the Vault-from-Solidity example. -/
 open Lean Meta Elab Command
 
 namespace SolidityImporter
@@ -203,7 +203,8 @@ syntax (name := solidityContract) "solidity_contract " ident " from " str : comm
       let some p := root.parent | throwError "package root not found"
       if p == root then throwError "package root not found"
       root := p
-    let output ← IO.Process.output {cmd := "python3", args := #[(root / "scripts/solidity_contract.py").toString, source.toString]}
+    let frontend := root / "Contracts/VaultFromSolidity/Importer/scripts/solidity_importer.py"
+    let output ← IO.Process.output {cmd := "python3", args := #[frontend.toString, source.toString]}
     unless output.exitCode == 0 do throwError "Solidity import failed:\n{output.stderr}"
     let model ← match Json.parse output.stdout with
       | .ok j => pure j

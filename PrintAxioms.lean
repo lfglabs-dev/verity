@@ -34,8 +34,8 @@ import Contracts.SimpleToken.Proofs.Correctness
 import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
-import Contracts.Vault.Proofs.Execution
 import Contracts.Vault.Proofs.Native
+import Contracts.VaultFromSolidity.Proofs.Execution
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Model.CommonExternalCallEquivalence
@@ -683,27 +683,27 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.balanceOf_meets_spec
   Contracts.Vault.Proofs.balanceOf_preserves_state
 
-  -- Contracts/Vault/Proofs/Execution.lean
-  Contracts.Vault.Execution.balance_meets_spec
-  Contracts.Vault.Execution.deposit_meets_spec
-  Contracts.Vault.Execution.withdraw_meets_spec
-  Contracts.Vault.Execution.deposit_nonpayable
-  Contracts.Vault.Execution.deposit_late_overflow_rollback
-  Contracts.Vault.Execution.withdraw_insufficient_shares
-  Contracts.Vault.Execution.deposit_frame
-  Contracts.Vault.Execution.totalAssets_getter
-  Contracts.Vault.Execution.totalSupply_getter
-  Contracts.Vault.Execution.shareBalances_getter
-  Contracts.Vault.Execution.withdraw_nonpayable
-  Contracts.Vault.Execution.withdraw_insufficient_assets
-  Contracts.Vault.Execution.withdraw_insufficient_supply
-  Contracts.Vault.Execution.deposit_existing_spec
-  Contracts.Vault.Execution.withdraw_existing_spec
-
   -- Contracts/Vault/Proofs/Native.lean
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
+
+  -- Contracts/VaultFromSolidity/Proofs/Execution.lean
+  Contracts.VaultFromSolidity.Proofs.Execution.balance_meets_spec
+  Contracts.VaultFromSolidity.Proofs.Execution.deposit_meets_spec
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_meets_spec
+  Contracts.VaultFromSolidity.Proofs.Execution.deposit_nonpayable
+  Contracts.VaultFromSolidity.Proofs.Execution.deposit_late_overflow_rollback
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_insufficient_shares
+  Contracts.VaultFromSolidity.Proofs.Execution.deposit_frame
+  Contracts.VaultFromSolidity.Proofs.Execution.totalAssets_getter
+  Contracts.VaultFromSolidity.Proofs.Execution.totalSupply_getter
+  Contracts.VaultFromSolidity.Proofs.Execution.shareBalances_getter
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_nonpayable
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_insufficient_assets
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_insufficient_supply
+  Contracts.VaultFromSolidity.Proofs.Execution.deposit_existing_spec
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_existing_spec
 
   -- Verity/Proofs/CheckedExternalCallConsumer.lean
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
