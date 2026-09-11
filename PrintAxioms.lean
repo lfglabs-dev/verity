@@ -35,6 +35,7 @@ import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
+import Contracts.VaultFromSolidity.Proofs.Execution
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Model.CommonExternalCallEquivalence
@@ -686,6 +687,13 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
+
+  -- Contracts/VaultFromSolidity/Proofs/Execution.lean
+  Contracts.VaultFromSolidity.Proofs.Execution.balance_meets_spec
+  Contracts.VaultFromSolidity.Proofs.Execution.deposit_meets_spec
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_meets_spec
+  Contracts.VaultFromSolidity.Proofs.Execution.deposit_preserves_solvency
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_preserves_solvency
 
   -- Verity/Proofs/CheckedExternalCallConsumer.lean
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
@@ -7515,4 +7523,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6953 theorems/lemmas (4963 public, 1990 private, 0 sorry'd)
+-- Total: 6958 theorems/lemmas (4968 public, 1990 private, 0 sorry'd)

@@ -15,6 +15,13 @@
   "vaultMinimal_runtime_lowers_native",
   "vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value"
  ],
+ "VaultFromSolidity": [
+  "balance_meets_spec",
+  "deposit_meets_spec",
+  "deposit_preserves_solvency",
+  "withdraw_meets_spec",
+  "withdraw_preserves_solvency"
+ ],
  "Counter": [
   "getStorage_reads_count",
   "previewAddTwice_correct",

@@ -31,9 +31,9 @@ Every transition inside the proof envelope is either fully verified or recorded 
 
 <!-- BEGIN GENERATED QUICK FACTS -->
 - **Language**: Lean 4.31.0
-- **Core Size**: 1991 lines
-- **Verified Contracts**: 15 (Counter, ERC20, ERC721, Ledger, LocalObligationMacroSmoke, Ownable, Owned, OwnedCounter, OwnedCounterComposed, ReentrancyExample, ReentrancyRelyGuarantee, SafeCounter, SimpleStorage, SimpleToken, Vault)
-- **Theorems**: 329 across 15 categories, 329 fully proven
+- **Core Size**: 2040 lines
+- **Verified Contracts**: 16 (Counter, ERC20, ERC721, Ledger, LocalObligationMacroSmoke, Ownable, Owned, OwnedCounter, OwnedCounterComposed, ReentrancyExample, ReentrancyRelyGuarantee, SafeCounter, SimpleStorage, SimpleToken, Vault, VaultFromSolidity)
+- **Theorems**: 334 across 16 categories, 334 fully proven
 - **Axioms**: 1 documented Lean axioms (see AXIOMS.md)
 - **Tests**: 528 Foundry tests, 239 property tests
 - **Build**: `lake build` verifies all proofs

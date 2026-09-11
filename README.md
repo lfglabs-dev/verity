@@ -21,6 +21,37 @@
 
 **Verity** is a formally verified smart contract compiler written in [Lean 4](https://lean-lang.org/). You write contracts in an embedded DSL, state what they should do, prove those properties hold, and compile to EVM bytecode. The compiler itself is proven to preserve semantics across three verified layers. Full documentation lives at [**veritylang.com**](https://veritylang.com).
 
+## Proof-only Solidity Vault import (POC)
+
+`Contracts/VaultFromSolidity/VaultFromSolidity.lean` imports the colocated
+`Vault.sol` with `solidity_contract VaultFromSolidity from "Vault.sol"`.
+The Lean frontend invokes pinned solc 0.8.33 for typed AST and storage layout,
+validates and translates them directly, then registers transparent,
+kernel-checked `Verity.Contract` definitions in memory. There is no Python
+frontend, custom serialized IR, generated `.lean`, CompilationModel, or
+bytecode. The example is independent of the
+handwritten `Contracts/Vault` contract. `Spec.lean` states the vault's solvency
+invariant plus the exact post-state of each entry point, and
+`Proofs/Execution.lean` proves them against the imported definitions.
+
+With the Lean/package prerequisites installed, put the official Linux-amd64 solc
+0.8.33 binary at `.lake/solidity-import/solc` and make it executable. Its accepted
+SHA-256 digest is
+`1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468`, then run:
+
+```sh
+lake build VaultFromSolidity
+python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py
+```
+
+The acceptance script uses disposable copies for source mutations, fail-closed
+rejection, content-based Lake freshness, compiler/importer/build-policy
+invalidation, declaration-registration rollback, and an audit of every Vault
+theorem. It never mutates the original Solidity file.
+Save Solidity, rebuild this dedicated target, then reload the Lean editor:
+an already-open editor snapshot does not automatically watch `.sol` changes.
+See [the trust boundary](TRUST_ASSUMPTIONS.md#proof-only-solidity-vault-import).
+
 ## Verification status
 
 All proofs are machine-checked by the Lean kernel. CI rebuilds the proof development on every commit, and repository checks enforce that no proof is left incomplete (no `sorry`) and that the compiler proof stack carries 0 axioms (see [AXIOMS.md](AXIOMS.md)). Verification is scoped rather than total: the generic compiler theorems cover an explicitly documented fragment of the language, and the precise boundary between what is proven and what is trusted is maintained in [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md).

@@ -2,6 +2,66 @@
 
 This document states what Verity proves and what it still trusts.
 
+## Proof-only Solidity Vault import
+
+This POC is separate from the verified compilation pipeline below. It trusts
+pinned solc's typed AST/storage layout and the Lean translation in
+`Contracts/VaultFromSolidity/Importer/Importer.lean` to preserve Solidity
+meaning. Kernel checking establishes well-typed definitions and theorems about
+their execution, not a Solidity-to-Verity equivalence theorem. `sourceDigest`
+is provenance, not proof of correspondence. It hashes the compiler
+input/output, Lean importer implementation, and verified solc checksum/version.
+The Linux host's fixed `/usr/bin/sha256sum` is trusted for compiler-pin checks;
+the digest is checked before version inspection, immediately before compilation,
+and again after compilation, so `PATH` substitution and persistent compiler
+replacement fail closed. As with all local builds, a concurrently malicious
+process with the builder's own filesystem privileges is outside the threat model.
+It is not full build identity: transitive Verity semantics, Lean toolchain, and
+Lake build policy are tracked separately by normal build dependencies, not this
+digest. The recursive closed AST schema rejects unknown fields/node kinds and
+contract `layout at`; semantically used type metadata and all storage-layout
+records are checked explicitly. Canonical package containment is checked
+independently of source registration.
+
+`Importer.lean` runs pinned solc itself with `--standard-json` and
+`--no-import-callback`, parses the typed AST/storage layout, validates the
+closed subset, resolves IDs/types/storage slots, and constructs expressions
+through explicit `translateExpr` / `translateStmt` cases. Declaration
+registration disables asynchronous kernel checking inside the transaction,
+restores the pre-import environment on failure, checks every body against its
+typed return signature, and registers safe transparent definitions. The
+frontend emits no generated Lean source and keeps no serialized AST/model
+cache.
+
+The accepted fragment covers the existing Vault: full-width scalars,
+address-to-uint256 mappings and public getters, straight-line reads/writes,
+locals, checked addition/subtraction, and comparison/custom-error guards.
+Unknown executable constructs are rejected; this is not general Solidity support.
+Arguments/context are already typed and decoded. `Contract.run` rolls back
+failed executions; errors are model strings, not verified ABI revert bytes.
+The storage model uses logical keys, not a proof of physical keccak layout.
+There is no deployment, calldata/dispatch, gas, external interaction, bytecode,
+or full EVM equivalence claim. Initial states are arbitrary, not proven deployed
+states. Arithmetic success premises restrict the success theorems. The example keeps one
+readable proof set: the exact post-state of each entry point plus the vault's
+solvency invariant (`totalAssets = totalSupply`) preserved by deposit and
+withdrawal. Revert-path behaviour (nonpayability, insufficient
+shares/assets/supply, late-overflow rollback) is exercised by the acceptance
+suite, not proved here.
+
+The specification and execution proof file refer directly to the imported
+definitions. Zero-argument custom errors use Verity's `Name()` model convention;
+arithmetic panic strings remain a model representation, not an assertion of
+matching EVM revert bytes. The statements do not assert full equivalence of all
+executions or all public/deployment interfaces.
+
+Lake's dedicated `VaultFromSolidity` target tracks source/compiler/Lean-importer/build
+policy bytes and normal Lean dependencies. Acceptance evidence is obtained with
+`python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py`;
+that Python file only orchestrates disposable builds and mutations and is not in
+the translation path. Stale editor snapshots are not a current-source proof
+certificate. No additional project axiom is introduced.
+
 ## Compilation Pipeline
 
 ```
