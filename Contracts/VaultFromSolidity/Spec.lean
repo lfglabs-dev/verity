@@ -1,37 +1,37 @@
-import Verity.Specs.Common
-import Verity.Specs.Common.Sum
 import Verity.EVM.Uint256
 import Contracts.VaultFromSolidity.VaultFromSolidity
+
+/-!
+# What the imported Vault is supposed to do
+
+`Importer.lean` turns `Vault.sol` into ordinary Verity definitions: `deposit`,
+`withdraw`, `balanceOf`, and one `StorageSlot` per state variable
+(slot `0 = totalAssets`, slot `1 = totalSupply`, slot `2 = shareBalances`).
+
+This file states two things about them:
+
+* `solvent` -- the property that matters for the contract as a whole. Shares are
+  issued one-for-one against assets, so every share outstanding must stay backed
+  by an asset the vault accounts for.
+* `deposit_execution` / `withdraw_execution` / `balance_execution` -- the exact
+  state each entry point produces. These pin down behaviour precisely enough to
+  derive `solvent`, and they are what a Solidity mutation has to break.
+-/
 
 namespace Contracts.VaultFromSolidity.Spec
 
 open Verity
-open Verity.Specs
 open Verity.EVM.Uint256
 
-def storageUnchangedExceptAssetSlots (s s' : ContractState) : Prop :=
-  ∀ slotIdx : Nat, slotIdx ≠ 0 → slotIdx ≠ 1 → s'.storage slotIdx = s.storage slotIdx
+/-- The vault's main invariant: issued shares are exactly backed by assets
+(`totalAssets = totalSupply`). If this ever breaks, shares stop being
+redeemable one-for-one and the vault is insolvent. -/
+def solvent (s : ContractState) : Prop :=
+  s.readSlot 0 = s.readSlot 1
 
-def sameStorageExceptAssetSlots (s s' : ContractState) : Prop :=
-  storageUnchangedExceptAssetSlots s s' ∧
-  Specs.sameStorageAddr s s' ∧
-  Specs.sameContext s s'
-
-def deposit_spec (assets : Uint256) (s s' : ContractState) : Prop :=
-  s'.storageMap 2 s.sender = add (s.storageMap 2 s.sender) assets ∧
-  s'.storage 0 = add (s.storage 0) assets ∧
-  s'.storage 1 = add (s.storage 1) assets ∧
-  Specs.storageMapUnchangedExceptKeyAtSlot 2 s.sender s s' ∧
-  sameStorageExceptAssetSlots s s'
-
-def withdraw_spec (shares : Uint256) (s s' : ContractState) : Prop :=
-  s'.storageMap 2 s.sender = sub (s.storageMap 2 s.sender) shares ∧
-  s'.storage 0 = sub (s.storage 0) shares ∧
-  s'.storage 1 = sub (s.storage 1) shares ∧
-  Specs.storageMapUnchangedExceptKeyAtSlot 2 s.sender s s' ∧
-  sameStorageExceptAssetSlots s s'
-
-/-- Exact post-state, including Verity's ghost key-enumeration metadata. -/
+/-- Exact post-state of a successful `deposit`/`withdraw`: the caller's share
+balance and both totals move together, including Verity's ghost
+key-enumeration metadata. -/
 def accountingState (s : ContractState) (shares assets supply : Uint256) : ContractState :=
   let mapped := { s.writeMap 2 s.sender shares with
     knownAddresses := fun slotIdx => if slotIdx == 2 then

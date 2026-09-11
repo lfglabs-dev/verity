@@ -30,8 +30,9 @@ validates and translates them directly, then registers transparent,
 kernel-checked `Verity.Contract` definitions in memory. There is no Python
 frontend, custom serialized IR, generated `.lean`, CompilationModel, or
 bytecode. The example is independent of the
-handwritten `Contracts/Vault` contract. See the
-[Vault-from-Solidity walkthrough](Contracts/VaultFromSolidity/README.md).
+handwritten `Contracts/Vault` contract. `Spec.lean` states the vault's solvency
+invariant plus the exact post-state of each entry point, and
+`Proofs/Execution.lean` proves them against the imported definitions.
 
 With the Lean/package prerequisites installed, put the official Linux-amd64 solc
 0.8.33 binary at `.lake/solidity-import/solc` and make it executable. Its accepted

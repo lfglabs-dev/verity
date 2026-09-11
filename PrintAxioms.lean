@@ -692,18 +692,8 @@ end Verity.AxiomAudit
   Contracts.VaultFromSolidity.Proofs.Execution.balance_meets_spec
   Contracts.VaultFromSolidity.Proofs.Execution.deposit_meets_spec
   Contracts.VaultFromSolidity.Proofs.Execution.withdraw_meets_spec
-  Contracts.VaultFromSolidity.Proofs.Execution.deposit_nonpayable
-  Contracts.VaultFromSolidity.Proofs.Execution.deposit_late_overflow_rollback
-  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_insufficient_shares
-  Contracts.VaultFromSolidity.Proofs.Execution.deposit_frame
-  Contracts.VaultFromSolidity.Proofs.Execution.totalAssets_getter
-  Contracts.VaultFromSolidity.Proofs.Execution.totalSupply_getter
-  Contracts.VaultFromSolidity.Proofs.Execution.shareBalances_getter
-  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_nonpayable
-  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_insufficient_assets
-  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_insufficient_supply
-  Contracts.VaultFromSolidity.Proofs.Execution.deposit_existing_spec
-  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_existing_spec
+  Contracts.VaultFromSolidity.Proofs.Execution.deposit_preserves_solvency
+  Contracts.VaultFromSolidity.Proofs.Execution.withdraw_preserves_solvency
 
   -- Verity/Proofs/CheckedExternalCallConsumer.lean
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
@@ -7533,4 +7523,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6968 theorems/lemmas (4978 public, 1990 private, 0 sorry'd)
+-- Total: 6958 theorems/lemmas (4968 public, 1990 private, 0 sorry'd)

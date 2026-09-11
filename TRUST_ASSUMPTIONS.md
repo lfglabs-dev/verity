@@ -42,8 +42,12 @@ failed executions; errors are model strings, not verified ABI revert bytes.
 The storage model uses logical keys, not a proof of physical keccak layout.
 There is no deployment, calldata/dispatch, gas, external interaction, bytecode,
 or full EVM equivalence claim. Initial states are arbitrary, not proven deployed
-states. Arithmetic success premises restrict success theorems; separate failure
-proofs cover nonpayability, insufficient balances and late-overflow rollback.
+states. Arithmetic success premises restrict the success theorems. The example keeps one
+readable proof set: the exact post-state of each entry point plus the vault's
+solvency invariant (`totalAssets = totalSupply`) preserved by deposit and
+withdrawal. Revert-path behaviour (nonpayability, insufficient
+shares/assets/supply, late-overflow rollback) is exercised by the acceptance
+suite, not proved here.
 
 The specification and execution proof file refer directly to the imported
 definitions. Zero-argument custom errors use Verity's `Name()` model convention;
