@@ -6,6 +6,7 @@ namespace Contracts.ReentrancyRelyGuarantee
 
 open Contracts
 open Verity hiding pure bind
+open Compiler.CompilationModel.DenoteExternalCalls
 
 /-! Focused generated consumer for the registry/guard boundary.  It contains
 an actual mutable external-call window, so the executable entrypoint must take
@@ -26,8 +27,6 @@ verity_contract GeneratedRegistry where
 
 namespace GeneratedRegistry
 
-open Compiler.CompilationModel.DenoteExternalCalls
-
 /-- The generated registry uses its explicit adversary at the external-call
 entrypoint; there is no `.stub` compatibility path in this theorem surface. -/
 theorem guardedPing_registered (adv : AdversaryModel) (ctx : CallbackContext)
@@ -47,8 +46,6 @@ theorem guardedPing_reentry_blocked (adv : AdversaryModel) (value : Uint256)
   exact hlock
 
 end GeneratedRegistry
-
-open Compiler.CompilationModel.DenoteExternalCalls
 
 /-- `ReentrancyRelyGuarantee` consumes the emitted registry at the restricted
 callback boundary.  Contract-specific preservation obligations remain with
