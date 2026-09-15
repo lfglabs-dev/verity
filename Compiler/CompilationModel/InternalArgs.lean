@@ -3,7 +3,8 @@ import Compiler.CompilationModel.AbiTypeLayout
 
 namespace Compiler.CompilationModel
 
-partial def staticParamBindingNames (name : String) (ty : ParamType) : List String :=
+mutual
+def staticParamBindingNames (name : String) (ty : ParamType) : List String :=
   match ty with
   | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
   | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
@@ -11,23 +12,27 @@ partial def staticParamBindingNames (name : String) (ty : ParamType) : List Stri
       [name]
   | ParamType.fixedArray elemTy n =>
       (List.range n).flatMap (fun i => staticParamBindingNames s!"{name}_{i}" elemTy)
-  | ParamType.tuple elemTys =>
-      let rec go (tys : List ParamType) (idx : Nat) : List String :=
-        match tys with
-        | [] => []
-        | elemTy :: rest =>
-            staticParamBindingNames s!"{name}_{idx}" elemTy ++ go rest (idx + 1)
-      go elemTys 0
+  | ParamType.tuple elemTys => staticTupleBindingNames name elemTys 0
   | ParamType.adt _ maxFields =>
       name :: (List.range maxFields).map (fun i => s!"{name}_f{i}")
   | ParamType.newtypeOf _ baseType =>
       staticParamBindingNames name baseType
   | _ => []
 
+termination_by sizeOf ty
+
+def staticTupleBindingNames (name : String) (tys : List ParamType) (idx : Nat) : List String :=
+  match tys with
+  | [] => []
+  | ty :: rest =>
+      staticParamBindingNames s!"{name}_{idx}" ty ++ staticTupleBindingNames name rest (idx + 1)
+termination_by sizeOf tys
+end
+
 def dynamicParamBindingNames (name : String) : List String :=
   [s!"{name}_offset", s!"{name}_length", s!"{name}_data_offset"]
 
-partial def internalParamYulNamesForType (name : String) : ParamType → List String
+def internalParamYulNamesForType (name : String) : ParamType → List String
   | ParamType.array _ =>
       [s!"{name}_data_offset", s!"{name}_length"]
   | ParamType.bytes | ParamType.string =>
