@@ -3058,13 +3058,15 @@ private partial def threadAdversaryThroughExecutableSyntax
       match ← threadHelperApp? fields constDecls immutableDecls externalDecls
           helpers adversarialHelpers registryOnlyHelpers params locals fn original adv with
       | some _ =>
+          let mut binds : Array (Ident × Term) := #[]
           let mut hoisted : Array Term := #[]
           for a in args do
-            let (_, h) ← hoistNested true a
+            let (inner, h) ← hoistNested true a
+            binds := binds ++ inner
             hoisted := hoisted.push h
           match ← threadHelperApp? fields constDecls immutableDecls externalDecls
               helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv with
-          | some app => `(doElem| let $name ← $app:term)
+          | some app => wrapBinds binds (← `(doElem| let $name ← $app:term))
           | none => recurseChildren
       | none => recurseChildren
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
