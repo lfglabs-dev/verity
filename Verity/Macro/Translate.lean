@@ -1909,7 +1909,7 @@ private def adversaryModelTypeTerm : CommandElabM Term :=
   `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
 
 private def executableCallContextTypeTerm : CommandElabM Term :=
-  `(ExecutableCallContext)
+  `(Contracts.ExecutableCallContext)
 
 private def mkContractFnTypeWithAdversary
     (params : Array ParamDecl) (retTy : ValueType) : CommandElabM Term := do
@@ -2421,7 +2421,8 @@ private def threadHelperApp?
     (registryOnlyHelpers : Array FunctionDecl)
     (params : Array ParamDecl) (locals : Array TypedLocal)
     (name : Ident) (args : Array Term)
-    (adv : Term) : CommandElabM (Option Term) := do
+    (adv : Term)
+    (originalArgsForOverload : Option (Array Term) := none) : CommandElabM (Option Term) := do
   let matchesHelper := fun (fn : FunctionDecl) =>
     (fn.name == toString name.getId || fn.ident.getId == name.getId ||
       (toString name.getId).endsWith ("." ++ fn.name)) &&
@@ -2434,7 +2435,8 @@ private def threadHelperApp?
     if exactCandidates.size <= 1 then
       pure (exactCandidates[0]? <|> helpers.find? matchesHelper)
     else
-      let app ← helperCall name args
+      let resolveArgs := originalArgsForOverload.getD args
+      let app ← helperCall name resolveArgs
       try
         pure ((← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls
           helpers params locals app).map (·.1))
@@ -2461,7 +2463,7 @@ private def threadHelperApp?
             matchesExactHelper helper then
           mkSuffixedIdent helper.ident "_unguarded"
         else
-          pure name
+          pure helper.ident
       if matchesExactHelper helper && adversarialHelpers.any (fun candidate =>
           functionSignatureKey candidate == functionSignatureKey helper) then
         some <$> helperCallWithAdv target args adv
@@ -2885,19 +2887,38 @@ private partial def threadAdversaryThroughExecutableSyntax
         let rewrittenBody : TSyntax ``Lean.Parser.Term.doSeq := ⟨bodyRaw⟩
         pure (#[], ← `(term| do $rewrittenBody))
     | `(term| $name:ident($[$args:term],*)) =>
-        let mut binds : Array (Ident × Term) := #[]
-        let mut rewrittenArgs : Array Term := #[]
-        for arg in args do
-          let (inner, rewritten) ← hoistNested true arg
-          binds := binds ++ inner
-          rewrittenArgs := rewrittenArgs.push rewritten
+        let original := args.map fun a => (⟨a.raw⟩ : Term)
+        -- Resolve overloads using original source arguments so mangled helper.idents
+        -- for non-guarded adversarial overloads are selected before hoisting rewrites the args.
         match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-            helpers adversarialHelpers registryOnlyHelpers params locals name rewrittenArgs adv with
-        | some app => pure (binds, app)
+            helpers adversarialHelpers registryOnlyHelpers params locals name original adv with
+        | some _selectedApp =>
+            -- Now hoist nested external-call arguments (or type generated locals soundly),
+            -- then thread the selected helper using the hoisted arguments.
+            let mut binds : Array (Ident × Term) := #[]
+            let mut hoisted : Array Term := #[]
+            for arg in args do
+              let (inner, rewritten) ← hoistNested true arg
+              binds := binds ++ inner
+              hoisted := hoisted.push rewritten
+            match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                helpers adversarialHelpers registryOnlyHelpers params locals name hoisted adv with
+            | some app => pure (binds, app)
+            | none =>
+                let mut app : Term := ⟨name.raw⟩
+                for h in hoisted do
+                  app ← `(term| $app $h)
+                pure (binds, app)
         | none =>
+            let mut binds : Array (Ident × Term) := #[]
+            let mut hoisted : Array Term := #[]
+            for arg in args do
+              let (inner, rewritten) ← hoistNested true arg
+              binds := binds ++ inner
+              hoisted := hoisted.push rewritten
             let mut app : Term := ⟨name.raw⟩
-            for arg in rewrittenArgs do
-              app ← `(term| $app $arg)
+            for h in hoisted do
+              app ← `(term| $app $h)
             pure (binds, app)
     | `(term| if $cond:term then $thenValue:term else $elseValue:term) =>
         let (condBinds, rewrittenCond) ← hoistNested true cond
@@ -3032,9 +3053,19 @@ private partial def threadAdversaryThroughExecutableSyntax
         (← `(doElem| let $pat:term ← (totalSupply
           (externalArgAddress $rewrittenToken) $adv)))
   | `(doElem| let $name:ident ← $fn:ident($[$args:term],*)) =>
+      let original := args.map fun a => (⟨a.raw⟩ : Term)
+      -- Resolve overload using original source args (r3956459377), hoist after selection (r3956459383)
       match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-          helpers adversarialHelpers registryOnlyHelpers params locals fn args adv with
-      | some app => `(doElem| let $name ← $app:term)
+          helpers adversarialHelpers registryOnlyHelpers params locals fn original adv with
+      | some _ =>
+          let mut hoisted : Array Term := #[]
+          for a in args do
+            let (_, h) ← hoistNested true a
+            hoisted := hoisted.push h
+          match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv with
+          | some app => `(doElem| let $name ← $app:term)
+          | none => recurseChildren
       | none => recurseChildren
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
@@ -5813,7 +5844,7 @@ def mkFunctionCommandsPublic
   let transition : Ident := ⟨transitionIdent.raw⟩
   let context : Ident := ⟨contextIdent.raw⟩
   let mut applied : Term := registryId
-  applied ← `($applied (ExecutableCallContext.ofAdversary $registryAdv:ident))
+  applied ← `($applied (Contracts.ExecutableCallContext.ofAdversary $registryAdv:ident))
   let mut registryParams : Array (Ident × Term) := #[]
   for param in fn.params do
     let paramTy ← contractValueTypeTerm param.ty

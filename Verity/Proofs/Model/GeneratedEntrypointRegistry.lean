@@ -34,7 +34,7 @@ theorem guardedPing_registered (adv : AdversaryModel) (ctx : CallbackContext)
     (value : Uint256) (hvalue : ctx.msgValue = 0) :
     entrypointRegistry adv
       (callbackContractTransition ctx
-        (guardedPing_registry (ExecutableCallContext.ofAdversary adv) value)) := by
+        (guardedPing_registry (Contracts.ExecutableCallContext.ofAdversary adv) value)) := by
   left
   exact ⟨ctx, value, hvalue, rfl⟩
 
@@ -42,7 +42,7 @@ theorem guardedPing_registered (adv : AdversaryModel) (ctx : CallbackContext)
 canonical source guard at the same slot used by the compiled dispatch guard. -/
 theorem guardedPing_reentry_blocked (adv : AdversaryModel) (value : Uint256)
     (state : ContractState) (hlock : state.transientStorage 0 ≠ 0) :
-    (guardedPing (ExecutableCallContext.ofAdversary adv) value).runState state = state := by
+    (guardedPing (Contracts.ExecutableCallContext.ofAdversary adv) value).runState state = state := by
   apply Verity.Core.NonReentrantGuard.guarded_reentry_blocked
   exact hlock
 
