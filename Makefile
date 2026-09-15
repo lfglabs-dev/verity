@@ -165,6 +165,7 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/generate_print_axioms.py --check
 	python3 scripts/generate_trust_surface_report.py --check
 	python3 scripts/lean_lint.py --only proof_length
+	python3 scripts/lean_lint.py --only spec_named_storage
 	python3 scripts/check_issue_1060_integrity.py
 	python3 scripts/update_doc_numbers.py --check
 	python3 -m unittest discover -s scripts -p 'test_*.py' -v

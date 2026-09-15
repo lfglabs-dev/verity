@@ -5,6 +5,48 @@ reviewable. Keep it synchronized with `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`
 whenever semantics, trusted components, generated audit artifacts, or CI
 boundary checks change.
 
+## Proof-only Solidity Vault POC
+
+The focused suite probes unknown, wrong-typed, and missing AST fields (including
+documentation metadata), invalid source spans, and malformed storage layout
+through synthetic compiler-output mutations, plus unsupported source constructs,
+contract `layout at`,
+registered-source symlink escape, and Lean importer digest sensitivity. It also
+checks safe transparent declarations, duplicate aliases, a deliberately
+malformed late declaration and complete registration rollback (including the
+named storage view), plus the pinned compiler's checksum. Named-storage checks
+cover `v.totalAssets` dot notation and `#print Storage.shareBalances`, a
+declaration-reorder mutation that moves solc slots while every proof still
+builds, a state-variable rename that makes `Spec.lean` fail to elaborate, and a
+Solidity variable named `Storage` rejected with a source position. Behaviour
+mutations must break both the exact-state lemma and the `*_meets_spec`
+theorem of the affected entry point, and three `Spec.lean` mutations that
+weaken a promise must fail inside the corresponding `*_meets_spec` theorem
+while leaving the exact-state lemmas green. The `spec_named_storage`
+lean_lint rule (in `make check`) rejects every raw `ContractState` accessor
+(the list is read from `Verity/Core.lean`), raw storage fields, direct
+`ContractState` mentions, positional projections, and `knownAddresses` in
+opted-in spec files. The digest scope is documented in `TRUST_ASSUMPTIONS.md`; it is not a transitive build identity.
+
+Evidence command:
+`python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py`
+(after `lake build VaultFromSolidity` and installation of the pinned compiler).
+The focused runner builds and audits the imported execution proofs, changes
+accepted deposit/getter behavior while preserving source mtime and requires old
+proofs to fail at both the exact-state and spec layer, weakens the named spec
+and requires the spec theorems to fail, rejects unsupported source, checks
+unchanged artifacts, and
+exercises Lean-importer and compiler content invalidation. Mutations occur only
+in disposable copies. This is local acceptance evidence, not a new CI job,
+bytecode/runtime test, or proof of translation correctness.
+
+The complete example surface lives under `Contracts/VaultFromSolidity`: Solidity
+source, Lean importer, specification, execution proofs and focused acceptance
+tests. It is independent of the handwritten `Contracts/Vault` example. No
+Python frontend, custom serialized IR, generated Lean source, or bytecode is in
+the translation path. Trust and axiom scope are recorded in
+`TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
+
 ## Current Audit State
 
 - Lean proof placeholders: 0 `sorry` in compiler/proof modules.

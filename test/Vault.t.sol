@@ -2,7 +2,7 @@
 pragma solidity ^0.8.33;
 
 import "forge-std/Test.sol";
-import "../examples/solidity/Vault.sol";
+import "../Contracts/VaultFromSolidity/Vault.sol";
 
 contract VaultTest is Test {
     Vault internal vault;
