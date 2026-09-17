@@ -30,6 +30,14 @@ input_file vaultLeanImporter where
   path := "Contracts/VaultFromSolidity/Importer/Importer.lean"
   text := false
 
+input_file vaultLeanSyntax where
+  path := "Contracts/VaultFromSolidity/Importer/Syntax.lean"
+  text := false
+
+input_file vaultLeanSemantics where
+  path := "Contracts/VaultFromSolidity/Importer/Semantics.lean"
+  text := false
+
 input_file vaultSolc where
   path := ".lake/solidity-import/solc"
   text := false
@@ -39,13 +47,16 @@ input_file vaultBuildPolicy where
   text := false
 
 lean_lib «VaultSolidityImporter» where
-  globs := #[.one `Contracts.VaultFromSolidity.Importer.Importer]
+  globs := #[.one `Contracts.VaultFromSolidity.Importer.Syntax,
+    .one `Contracts.VaultFromSolidity.Importer.Semantics,
+    .one `Contracts.VaultFromSolidity.Importer.Importer]
 
 lean_lib «VaultFromSolidity» where
   globs := #[.one `Contracts.VaultFromSolidity.VaultFromSolidity,
     .one `Contracts.VaultFromSolidity.Spec,
     .one `Contracts.VaultFromSolidity.Proofs.ExecutionProof]
-  needs := #[vaultSolidity, vaultLeanImporter, vaultSolc, vaultBuildPolicy]
+  needs := #[vaultSolidity, vaultLeanImporter, vaultLeanSyntax, vaultLeanSemantics, vaultSolc,
+    vaultBuildPolicy]
 
 lean_lib «Contracts» where
   globs := #[

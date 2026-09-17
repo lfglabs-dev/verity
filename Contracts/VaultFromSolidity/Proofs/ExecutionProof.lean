@@ -7,8 +7,9 @@ Three layers, deliberately kept small:
 
 1. `*_exact_state` -- internal: each entry point produces exactly this raw
    `ContractState`, including Verity's ghost key-enumeration metadata. These
-   unfold the definitions `Importer.lean` registered from `Vault.sol`, so they
-   fail if the Solidity source changes behaviour.
+   unfold the definitions `Importer.lean` registered from `Vault.sol` -- each one
+   `Sol.Fn.meaning` applied to the parsed Solidity AST -- so they fail if the
+   Solidity source changes behaviour.
 2. `*_meets_spec` -- the named-storage promise from `Spec`. Each states that
    the call succeeds under its precondition and that the successful post-state
    (or, for `balanceOf`, the returned value) satisfies the spec. These are
@@ -41,6 +42,12 @@ def accountingState (s : ContractState) (shares assets supply : Uint256) : Contr
 
 macro "reduce_vault" : tactic => `(tactic|
   simp_all [depositFits, withdrawCovered, accountingState, view,
+    SolidityImporter.Sol.Fn.meaning, SolidityImporter.Sol.nonpayable,
+    SolidityImporter.Sol.Stmt.meaning, SolidityImporter.Sol.assignWith,
+    SolidityImporter.Sol.Expr.meaning, SolidityImporter.Sol.checked,
+    SolidityImporter.Sol.Env.get, SolidityImporter.Sol.Slots.get,
+    SolidityImporter.Sol.Ty.denote, SolidityImporter.Sol.Ret.denote,
+    SolidityImporter.Sol.StorageTy.denote,
     Storage.totalAssets, Storage.totalSupply, Storage.shareBalances,
     deposit, withdraw, balanceOf, totalAssets, totalSupply,
     shareBalances, totalAssetsSlot, totalSupplySlot, shareBalancesSlot,
