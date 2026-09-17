@@ -9,9 +9,9 @@ touch `ContractState` directly at all: no raw accessor (`readSlot`, `readMap`,
 mention, no positional projection, and no Verity ghost `knownAddresses`
 bookkeeping. Names come from a generated storage view (see
 `Contracts/VaultFromSolidity/Importer/Importer.lean`); `Storage` is a
-transparent definition equal to `ContractState`, so the gate rejects the
-accessor names wherever they appear rather than trying to spot a numeric slot
-argument after them.
+kernel-checked structure whose `view` reads through `<var>Slot` handles, so
+the gate rejects the accessor names wherever they appear rather than trying
+to spot a numeric slot argument after them.
 
 The raw accessor list is read from `Verity/Core.lean` (every definition in the
 `ContractState` namespace plus the storage-backing fields), so a new accessor

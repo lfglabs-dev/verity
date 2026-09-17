@@ -30,11 +30,14 @@ through explicit `translateExpr` / `translateStmt` cases. Declaration
 registration disables asynchronous kernel checking inside the transaction,
 restores the pre-import environment on failure, checks every body against its
 typed return signature, and registers safe transparent definitions. The same
-transaction registers the named storage view: `Storage` (a definition equal to
-`ContractState`), one `Storage.<var>` reader per state variable that reads
-through the imported `<var>Slot` handle, and `view : ContractState → Storage`.
-These are safe transparent `defnDecl`s like the rest; `Storage` and `view` are
-reserved Solidity names. The frontend emits no generated Lean source and keeps
+transaction elaborates `Storage` with the standard structure command (the one
+use of that elaborator; kernel-checked, rolled back on failure), then
+registers `view : ContractState → Storage` built from the imported
+`<var>Slot` handles, tags slot handles, getters, functions, and `view` into
+the `solidity_import` simp set, and registers a deterministic entry-point
+relation `step` (functions in source order, then public getters in field
+order). `Storage`, `view`, and `step` are reserved Solidity names. The
+frontend emits no generated Lean source and keeps
 no serialized AST/model cache.
 
 The accepted fragment covers the existing Vault: full-width scalars,
@@ -47,20 +50,20 @@ The storage model uses logical keys, not a proof of physical keccak layout.
 There is no deployment, calldata/dispatch, gas, external interaction, bytecode,
 or full EVM equivalence claim. Initial states are arbitrary, not proven deployed
 states. Arithmetic success premises restrict the success theorems. The example keeps one
-readable proof set: the exact post-state of each entry point plus the vault's
-solvency invariant (`totalAssets = totalSupply`) preserved by deposit and
-withdrawal. Revert-path behaviour (nonpayability, insufficient
-shares/assets/supply, late-overflow rollback) is exercised by the acceptance
-suite, not proved here.
+readable proof set: each successful entry point meets its named-storage spec
+(`*_success_spec`), each spec holds under its precondition (`*_meets_spec`),
+and the vault's solvency invariant (`totalAssets = totalSupply`) is preserved
+by `step` (`solvent_invariant`). Rollback on revert is proved by `run_snd_cases`;
+the revert conditions themselves are exercised by the acceptance suite, not proved.
 
 The specification states its promises over the imported storage view
 (`v.totalAssets`, `v.shareBalances account`) rather than raw slot numbers; the
 execution proof file relates that view to the imported definitions. Each
 `*_meets_spec` theorem asserts that the call succeeds under its precondition
 and that the successful post-state (or returned value) meets the spec, so a
-reverting implementation cannot satisfy it; the internal `*_exact_state` lemmas
-pin the full raw post-state. The view adds no
-trust: each reader unfolds to `ContractState.readSlot`/`readMap` at the slot
+reverting implementation cannot satisfy it; the `*_success_spec` theorems pin
+the same named-storage equations from a success hypothesis. The view adds no
+trust: `view` unfolds to `ContractState.readSlot`/`readMap` at the slot
 solc's storage layout assigned. Zero-argument custom errors use Verity's `Name()` model convention;
 arithmetic panic strings remain a model representation, not an assertion of
 matching EVM revert bytes. The statements do not assert full equivalence of all

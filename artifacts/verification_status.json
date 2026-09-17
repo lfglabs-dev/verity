@@ -18,8 +18,8 @@
     "categories": 16,
     "coverage_percent": 76,
     "covered": 255,
-    "excluded": 82,
-    "non_stdlib_total": 337,
+    "excluded": 81,
+    "non_stdlib_total": 336,
     "per_contract": {
       "Counter": 31,
       "ERC20": 22,
@@ -36,11 +36,11 @@
       "SimpleStorage": 20,
       "SimpleToken": 61,
       "Vault": 9,
-      "VaultFromSolidity": 8
+      "VaultFromSolidity": 7
     },
-    "proven": 337,
+    "proven": 336,
     "stdlib": 0,
-    "total": 337
+    "total": 336
   },
   "toolchain": {
     "lean": "leanprover/lean4:v4.31.0",

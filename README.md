@@ -32,9 +32,9 @@ frontend, custom serialized IR, generated `.lean`, CompilationModel, or
 bytecode. The example is independent of the
 handwritten `Contracts/Vault` contract.
 
-The importer also registers a read-only storage view named after the Solidity
-state variables, so `Spec.lean` reads like the contract instead of naming raw
-slots:
+The importer elaborates a kernel-checked `Storage` structure named after the
+Solidity state variables, so `Spec.lean` reads like the contract instead of
+naming raw slots:
 
 ```lean
 -- before
@@ -50,11 +50,13 @@ def deposit_spec (amount : Uint256) (caller : Address) (pre post : Storage) : Pr
   ∀ other, other ≠ caller → post.shareBalances other = pre.shareBalances other
 ```
 
-Each `Storage.<var>` reader goes through the `<var>Slot` handle solc's storage
+`view` constructs that `Storage` from the `<var>Slot` handles solc's storage
 layout produced, so reordering the Solidity declarations moves the slots without
 touching the spec, and renaming a variable makes the spec fail to elaborate.
-`Proofs/ExecutionProof.lean` proves the spec and solvency preservation against
-the imported definitions.
+`#print view` shows the `readSlot`/`readMap` unfolding. The importer also
+registers a deterministic entry-point relation `step`. `Proofs/ExecutionProof.lean`
+proves each successful call meets its spec and that `solvent` is preserved by
+`step` (`solvent_invariant`).
 
 With the Lean/package prerequisites installed, put the official Linux-amd64 solc
 0.8.33 binary at `.lake/solidity-import/solc` and make it executable. Its accepted

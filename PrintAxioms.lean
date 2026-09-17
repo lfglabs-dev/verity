@@ -44,6 +44,7 @@ import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
+import Verity.Proofs.Stdlib.SolidityImport
 import Compiler.Proofs.AbiDynamicEventObservable
 import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.AbiEventObservable
@@ -690,14 +691,13 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
 
   -- Contracts/VaultFromSolidity/Proofs/ExecutionProof.lean
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_exact_state
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_exact_state
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_exact_state
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_success_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_success_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_success_spec
   Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_meets_spec
   Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_meets_spec
   Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_meets_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_preserves_solvency
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_preserves_solvency
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.solvent_invariant
 
   -- Verity/Proofs/CheckedExternalCallConsumer.lean
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
@@ -1119,6 +1119,10 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.safeDiv_self
   Verity.Proofs.Stdlib.Math.safeMul_result_bounded
   Verity.Proofs.Stdlib.Math.safeDiv_result_le_numerator
+
+  -- Verity/Proofs/Stdlib/SolidityImport.lean
+  Verity.Proofs.Stdlib.SolidityImport.run_snd_cases
+  Verity.Proofs.Stdlib.SolidityImport.uint256_eq_zero_iff
 
   -- Compiler/Proofs/AbiDynamicEventObservable.lean
   Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_append
@@ -7532,4 +7536,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6964 theorems/lemmas (4974 public, 1990 private, 0 sorry'd)
+-- Total: 6965 theorems/lemmas (4975 public, 1990 private, 0 sorry'd)

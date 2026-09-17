@@ -1,5 +1,6 @@
 import Lean
 import Verity.Stdlib.Math
+import Verity.Core.SolidityImportAttr
 import Compiler.Sha256.Engine
 
 /-!
@@ -7,10 +8,12 @@ A proof-only Solidity frontend. This module invokes pinned `solc --standard-json
 validates a closed typed-AST/storage-layout subset, and directly registers safe,
 transparent Verity definitions. It emits neither an intermediate IR nor Lean source.
 
-Besides the executable model it registers a read-only storage view: `Storage` is a
-synonym for `ContractState`, `Storage.<var>` reads each state variable through its
-`<var>Slot` handle, and `view` coerces a state into it. Specs can then say
-`v.totalAssets` instead of naming a raw slot number.
+Besides the executable model it elaborates a kernel-checked `Storage` structure
+(the one use of the standard command elaborator in this frontend), registers
+`view : ContractState → Storage` from the `<var>Slot` handles, tags imported
+declarations into the `solidity_import` simp set, and registers a deterministic
+entry-point relation `step`. Specs can then say `v.totalAssets` instead of naming
+a raw slot number.
 -/
 
 open Lean Meta Elab Command
@@ -347,7 +350,7 @@ private def validName (name : String) : Bool :=
   match name.toList with
   | [] => false
   | c :: cs => c.isAlpha && cs.all (fun c => c.isAlphanum || c == '_') &&
-      !["sourceDigest", "Storage", "view"].contains name
+      !["sourceDigest", "Storage", "view", "step"].contains name
 
 private def identifier (ctx : SourceContext) (j : Json) : MetaM String := do
   let name ← str (← field j "name")
@@ -517,7 +520,8 @@ private def seq (m t : Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
     let next ← k x
     mkAppM ``Verity.bind #[m, ← mkLambdaFVars #[x] next]
 
-private def register (name : Name) (value : Expr) (type? : Option Expr := none) : MetaM Unit := do
+private def register (name : Name) (value : Expr) (type? : Option Expr := none)
+    (simp : Bool := true) : MetaM Unit := do
   if (← getEnv).contains name then throwError "declaration collision: {name}"
   let value ← instantiateMVars value
   let type ← instantiateMVars (← type?.getDM (inferType value))
@@ -526,6 +530,10 @@ private def register (name : Name) (value : Expr) (type? : Option Expr := none) 
   addDecl (.defnDecl { name, levelParams := [], type, value, hints := .regular 0, safety := .safe })
     (forceExpose := true)
   compileDecls #[name] (logErrors := false)
+  if simp then
+    let some ext ← getSimpExtension? `solidity_import
+      | throwError "solidity_import simp set is not registered"
+    ext.add (SimpEntry.toUnfold name) AttributeKind.global
 
 private abbrev Locals := List (Nat × String × Expr)
 private abbrev Slots := List (Nat × Expr)
@@ -747,9 +755,10 @@ private partial def translateParams (frontend : Frontend) (params : List Json) (
       withLocalDeclD (Name.mkSimple name) (← valueType typ) fun x => do
         mkLambdaFVars #[x] (← translateParams frontend ps ((id, typ, x) :: locals) k)
 
-private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
-  if debug.skipKernelTC.get (← getOptions) then throwError "kernel checking must be enabled"
-  let mut names := #[ns ++ `sourceDigest, ns ++ `Storage, ns ++ `view]
+private def checkCollisions (ns : Name) (frontend : Frontend) : MetaM Unit := do
+  let mut names := #[
+    ns ++ `sourceDigest, ns ++ `Storage, ns ++ `view, ns ++ `step,
+    ns ++ `Storage ++ `mk]
   for f in frontend.fields do
     names := names.push (ns ++ Name.mkSimple f.name)
     names := names.push (ns ++ `Storage ++ Name.mkSimple f.var)
@@ -760,6 +769,34 @@ private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
   for i in [:names.size] do
     if (← getEnv).contains names[i]! || (names.extract 0 i).contains names[i]! then
       throwError "declaration collision: {names[i]!}"
+
+/-- One use of the standard elaborator: kernel-check `Storage` as a real structure. -/
+private def storageStructure (alias : Name) (frontend : Frontend) : CommandElabM Syntax := do
+  let declId := mkIdent (alias ++ `Storage)
+  let binders : TSyntaxArray ``Parser.Command.structExplicitBinder ←
+    frontend.fields.toArray.mapM fun f => do
+      let fieldId := mkIdent (Name.mkSimple f.var)
+      let ty : Term ← if f.mapping then
+        `(Verity.Address → Verity.Uint256)
+      else
+        `(Verity.Uint256)
+      `(Parser.Command.structExplicitBinder| ($fieldId:ident : $ty))
+  `(command| structure $declId where $binders:structExplicitBinder*)
+
+private def mkEntryDisjunct (s s' : Expr) (name : Name) (binder? : Option (Name × Expr)) : MetaM Expr := do
+  match binder? with
+  | some (n, dom) =>
+    withLocalDeclD n dom fun x => do
+      let run ← mkAppM ``Verity.Contract.run #[mkApp (mkConst name) x, s]
+      let snd ← mkAppM ``Verity.ContractResult.snd #[run]
+      let eq ← mkEq s' snd
+      mkAppOptM ``Exists #[some dom, some (← mkLambdaFVars #[x] eq)]
+  | none =>
+    let run ← mkAppM ``Verity.Contract.run #[mkConst name, s]
+    let snd ← mkAppM ``Verity.ContractResult.snd #[run]
+    mkEq s' snd
+
+private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
   let mut slots : Slots := []
   for f in frontend.fields do
     let ty ← if f.mapping then mkArrow address uint else pure uint
@@ -767,31 +804,38 @@ private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
     let name := ns ++ Name.mkSimple f.name
     register name slot
     slots := (f.id, mkConst name) :: slots
-  -- Read-only named storage view. Every reader goes through the registered
-  -- `<var>Slot` handle, so `#print` shows which slot a name denotes.
+  -- Read-only named storage view. `Storage` is the kernel-checked structure
+  -- elaborated before this transaction; `view` builds it from `<var>Slot` handles.
   let state := mkConst ``Verity.ContractState
   let storageView := mkConst (ns ++ `Storage)
-  register (ns ++ `Storage) state
-  for f in frontend.fields do
-    let slot ← mkAppM ``Verity.StorageSlot.slot #[← lookupSlot slots f.id]
-    let value ← withLocalDeclD `v storageView fun v => do
+  let view ← withLocalDeclD `s state fun s => do
+    let mut args : Array Expr := #[]
+    for f in frontend.fields do
+      let slot ← mkAppM ``Verity.StorageSlot.slot #[← lookupSlot slots f.id]
       if f.mapping then
-        withLocalDeclD `key address fun key =>
-          mkLambdaFVars #[v, key] (mkAppN (mkConst ``Verity.ContractState.readMap) #[v, slot, key])
+        let reader ← withLocalDeclD `k address fun k =>
+          mkLambdaFVars #[k] (mkAppN (mkConst ``Verity.ContractState.readMap) #[s, slot, k])
+        args := args.push reader
       else
-        mkLambdaFVars #[v] (mkAppN (mkConst ``Verity.ContractState.readSlot) #[v, slot])
-    register (ns ++ `Storage ++ Name.mkSimple f.var) value
-  let view ← withLocalDeclD `s state fun s => mkLambdaFVars #[s] s
+        args := args.push (mkAppN (mkConst ``Verity.ContractState.readSlot) #[s, slot])
+    mkLambdaFVars #[s] (← mkAppM (ns ++ `Storage ++ `mk) args)
   register (ns ++ `view) view (some (← mkArrow state storageView))
+  let mut functionEntries : Array (Name × Option (Name × Expr)) := #[]
+  let mut getterEntries : Array (Name × Option (Name × Expr)) := #[]
   for f in frontend.fields do
     if let some getter := f.getter then
       let slot ← lookupSlot slots f.id
-      let value ← if f.mapping then
-          withLocalDeclD `account address fun account => do
-            let getter ← mkAppM ``Verity.getMapping #[slot, account]
-            mkLambdaFVars #[account] (← nonpayable getter)
-        else nonpayable (← mkAppM ``Verity.getStorage #[slot])
-      register (ns ++ Name.mkSimple getter) value
+      let gname := ns ++ Name.mkSimple getter
+      if f.mapping then
+        let value ← withLocalDeclD `account address fun account => do
+          let getterFn ← mkAppM ``Verity.getMapping #[slot, account]
+          mkLambdaFVars #[account] (← nonpayable getterFn)
+        register gname value
+        getterEntries := getterEntries.push (gname, some (`account, address))
+      else
+        let value ← nonpayable (← mkAppM ``Verity.getStorage #[slot])
+        register gname value
+        getterEntries := getterEntries.push (gname, none)
   for fn in frontend.functions do
     let name ← identifier frontend.source fn
     needAt frontend.source fn ((← str (← field fn "kind")) == "function" &&
@@ -814,8 +858,31 @@ private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
       unless ← isDefEq (← inferType code) expected do
         throwError "imported body does not match typed AST return signature"
       nonpayable code
-    register (ns ++ Name.mkSimple name) value
-  register (ns ++ `sourceDigest) (mkStrLit frontend.digest)
+    let fname := ns ++ Name.mkSimple name
+    let binder? ← if ps.size == 1 then
+      let p := ps[0]!
+      let ptyp ← typeString p
+      let pname ← identifier frontend.source p
+      let dom ← valueType ptyp
+      pure (some (Name.mkSimple pname, dom))
+    else
+      pure none
+    register fname value
+    functionEntries := functionEntries.push (fname, binder?)
+  let entries := functionEntries ++ getterEntries
+  let step ← withLocalDeclD `s state fun s =>
+    withLocalDeclD `s' state fun s' => do
+      let mut disjuncts : Array Expr := #[]
+      for (ename, binder?) in entries do
+        disjuncts := disjuncts.push (← mkEntryDisjunct s s' ename binder?)
+      if disjuncts.isEmpty then throwError "imported contract has no entry points"
+      let mut body := disjuncts.back!
+      for i in (List.range (disjuncts.size - 1)).reverse do
+        body := mkApp2 (mkConst ``Or) disjuncts[i]! body
+      mkLambdaFVars #[s, s'] body
+  let stepType ← mkArrow state (← mkArrow state (mkSort 0))
+  register (ns ++ `step) step (some stepType) (simp := false)
+  register (ns ++ `sourceDigest) (mkStrLit frontend.digest) (simp := false)
 
 private def compileFrontend (root source : System.FilePath) : MetaM Frontend := do
   let canonicalRoot ← IO.FS.realPath root
@@ -856,6 +923,7 @@ syntax (name := solidityContract) "solidity_contract " ident " from " str : comm
 @[command_elab solidityContract] def elabSolidityContract : CommandElab := fun stx => do
   let saved ← getEnv
   try
+    if debug.skipKernelTC.get (← getOptions) then throwError "kernel checking must be enabled"
     let authored ← IO.FS.realPath (← getFileName)
     let source := authored.parent.getD "." / stx[3].isStrLit?.get!
     let mut root := authored.parent.getD "."
@@ -864,7 +932,15 @@ syntax (name := solidityContract) "solidity_contract " ident " from " str : comm
       if parent == root then throwError "package root not found"
       root := parent
     let frontend ← liftTermElabM <| compileFrontend root source
-    let ns := (← getCurrNamespace) ++ stx[1].getId
+    let alias := stx[1].getId
+    let ns := (← getCurrNamespace) ++ alias
+    liftTermElabM <| checkCollisions ns frontend
+    -- The one use of the standard elaborator: kernel-check `Storage` as a real structure.
+    let storageStx ← storageStructure alias frontend
+    withScope (fun scope => { scope with opts := Elab.async.set scope.opts false }) do
+      elabCommand storageStx
+    if (← get).messages.hasErrors then
+      throwError "storage view elaboration failed"
     liftTermElabM <| withOptions (Elab.async.set · false) (importFrontend ns frontend)
   catch e =>
     setEnv saved
