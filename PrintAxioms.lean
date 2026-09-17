@@ -41,6 +41,7 @@ import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Model.CommonExternalCallEquivalence
 import Verity.Proofs.Model.GeneratedEntrypointRegistry
 import Verity.Proofs.Stdlib.Automation
+import Verity.Proofs.Stdlib.Int256
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
@@ -844,6 +845,50 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Automation.require_beq_isSuccess_true_iff_eq
   Verity.Proofs.Stdlib.Automation.require_beq_isSuccess_false_iff_ne
   Verity.Proofs.Stdlib.Automation.owner_guard_success_implies_storageAddr_eq_sender
+
+  -- Verity/Proofs/Stdlib/Int256.lean
+  -- Verity.Proofs.Stdlib.Int256.modulus_def  -- private
+  -- Verity.Proofs.Stdlib.Int256.natCast_emod_of_lt  -- private
+  -- Verity.Proofs.Stdlib.Int256.max_sub_min  -- private
+  -- Verity.Proofs.Stdlib.Int256.maxValue_nat  -- private
+  -- Verity.Proofs.Stdlib.Int256.natAbs_natCast  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_emod
+  -- Verity.Proofs.Stdlib.Int256.emod_neg_congr  -- private
+  Verity.Proofs.Stdlib.Int256.inRange_eq_of_emod_eq
+  Verity.Proofs.Stdlib.Int256.toInt_add_of_inRange
+  Verity.Proofs.Stdlib.Int256.toInt_mul_of_inRange
+  -- Verity.Proofs.Stdlib.Int256.sub_word  -- private
+  -- Verity.Proofs.Stdlib.Int256.sub_word_emod  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_sub_of_inRange
+  -- Verity.Proofs.Stdlib.Int256.neg_word  -- private
+  -- Verity.Proofs.Stdlib.Int256.neg_maxValue  -- private
+  -- Verity.Proofs.Stdlib.Int256.neg_minValue  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_neg_of_not_min
+  -- Verity.Proofs.Stdlib.Int256.toNat_lt_signBit_of_nonneg  -- private
+  -- Verity.Proofs.Stdlib.Int256.natAbs_le_signBit_of_inRange  -- private
+  -- Verity.Proofs.Stdlib.Int256.inRange_of_natAbs_lt_signBit  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_ofInt
+  -- Verity.Proofs.Stdlib.Int256.decide_natCast_lt_zero  -- private
+  -- Verity.Proofs.Stdlib.Int256.tdiv_eq_sign_natAbs  -- private
+  -- Verity.Proofs.Stdlib.Int256.tmod_eq_sign_natAbs  -- private
+  Verity.Proofs.Stdlib.Int256.div_eq_ofInt_tdiv
+  -- Verity.Proofs.Stdlib.Int256.tdiv_inRange_of_not_divFails  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_div_of_not_divFails
+  Verity.Proofs.Stdlib.Int256.mod_eq_ofInt_tmod
+  -- Verity.Proofs.Stdlib.Int256.tmod_inRange  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_mod_of_ne_zero
+  Verity.Proofs.Stdlib.Int256.addPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.subPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.mulPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.negPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.divPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.modPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.addPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.subPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.mulPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.negPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.divPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.modPanic_failure_iff
 
   -- Verity/Proofs/Stdlib/ListSum.lean
   Verity.Proofs.Stdlib.ListSum.countOcc_cons_eq
@@ -7536,4 +7581,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6965 theorems/lemmas (4975 public, 1990 private, 0 sorry'd)
+-- Total: 7007 theorems/lemmas (4998 public, 2009 private, 0 sorry'd)
