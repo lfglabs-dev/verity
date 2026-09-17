@@ -3627,7 +3627,7 @@ theorem findDynamicArrayElementAtSlot_withTransactionContext
       rfl
   | cons field rest ih =>
       cases hty : field.ty with
-      | uint256 =>
+      | uint256 | int256 =>
           simpa [findDynamicArrayElementAtSlot.go, withTransactionContext, hty] using ih (idx + 1)
       | address =>
           simpa [findDynamicArrayElementAtSlot.go, withTransactionContext, hty] using ih (idx + 1)
@@ -3673,7 +3673,7 @@ theorem findDynamicArrayElementAtSlot_congr_storageArray
       rfl
   | cons field rest ih =>
       cases hty : field.ty with
-      | uint256 =>
+      | uint256 | int256 =>
           simpa [findDynamicArrayElementAtSlot.go, hty] using ih (idx + 1)
       | address =>
           simpa [findDynamicArrayElementAtSlot.go, hty] using ih (idx + 1)

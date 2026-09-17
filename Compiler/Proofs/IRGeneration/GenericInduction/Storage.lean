@@ -549,7 +549,7 @@ private theorem fieldWriteEntriesAt_alias_mem
     obtain ⟨aliasIdx, halias⟩ : ∃ i, (slot, i) ∈ aliasSlots.zipIdx :=
       exists_mem_zipIdx_of_mem hmem
     cases isTransient <;> cases ty with
-    | uint256 =>
+    | uint256 | int256 =>
         simp [fieldWriteEntriesAt, firstFieldWriteSlotConflict.fieldOccupiedSlots,
           SourceSemantics.wordNormalize]
         exact Or.inr ⟨slot, ⟨aliasIdx, halias⟩, by simp [SourceSemantics.wordNormalize]⟩
@@ -6821,7 +6821,7 @@ theorem compiledStmtStep_setStorage_aliasSlots
     cases hty : f.ty with
     | adt name maxFields =>
         exact False.elim (hNotAdt name maxFields hty)
-    | uint256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 | mappingFixedArray =>
+    | uint256 | int256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 | mappingFixedArray =>
         simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileSetStorage,
           hNotMapping, hfind, hwriteSlots, halias, hunpacked, hnotTransient, hvalueIR, hty,
           pure, Except.pure, Bind.bind, Except.bind]

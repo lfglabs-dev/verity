@@ -64,6 +64,19 @@ EXCLUDED_CONTRACTS = {
     "ModifierParameterCollisionBase",
     "ModifierLoopCollisionBase",
     "InheritedOverloadBase",
+    # Multi-parent / Pareto flatten fixtures. Parents and negative-test
+    # contracts are exercised through ParetoChild or #guard_msgs; standalone
+    # Foundry stubs would not cover flattening or diamond rejection.
+    "ParetoStorageParent",
+    "ParetoPausableParent",
+    "ParetoOwnableParent",
+    "SlotParentA",
+    "SlotParentB",
+    "SigParentA",
+    "SigParentB",
+    "DiamondBase",
+    "DiamondLeft",
+    "DiamondRight",
 }
 
 

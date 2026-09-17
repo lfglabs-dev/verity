@@ -266,21 +266,80 @@ let total ← requireSomeUint (safeAdd total amount) "Overflow"
 The macro lowers `let x ← addPanic a b` directly to the same IR as
 `let x ← requireSomeUint (safeAdd a b) "Panic(0x11): arithmetic overflow"`. -/
 
-/-- `a + b` on `Uint256` with Solidity-0.8 panic-on-overflow semantics. -/
-def addPanic (a b : Uint256) : Contract Uint256 :=
-  requireSomeUint (safeAdd a b) "Panic(0x11): arithmetic overflow"
+/-- Require with `Option Int256` — fails if `none`. -/
+def requireSomeInt (opt : Option Int256) (message : String) : Contract Int256 := do
+  match opt with
+  | some value => return value
+  | none => do
+    require false message
+    return 0
 
-/-- `a - b` on `Uint256` with Solidity-0.8 panic-on-underflow semantics. -/
-def subPanic (a b : Uint256) : Contract Uint256 :=
-  requireSomeUint (safeSub a b) "Panic(0x11): arithmetic underflow"
+/-- Type-directed Solidity-0.8 panic addition (`Uint256` and `Int256`). -/
+class AddPanic (α : Type) where
+  addPanic : α → α → Contract α
 
-/-- `a * b` on `Uint256` with Solidity-0.8 panic-on-overflow semantics. -/
-def mulPanic (a b : Uint256) : Contract Uint256 :=
-  requireSomeUint (safeMul a b) "Panic(0x11): arithmetic overflow"
+/-- Type-directed Solidity-0.8 panic subtraction. -/
+class SubPanic (α : Type) where
+  subPanic : α → α → Contract α
 
-/-- `a / b` on `Uint256` with Solidity-0.8 panic-on-division-by-zero semantics. -/
-def divPanic (a b : Uint256) : Contract Uint256 :=
-  requireSomeUint (safeDiv a b) "Panic(0x12): division by zero"
+/-- Type-directed Solidity-0.8 panic multiplication. -/
+class MulPanic (α : Type) where
+  mulPanic : α → α → Contract α
+
+/-- Type-directed Solidity-0.8 panic division. -/
+class DivPanic (α : Type) where
+  divPanic : α → α → Contract α
+
+instance : AddPanic Uint256 where
+  addPanic a b := requireSomeUint (safeAdd a b) "Panic(0x11): arithmetic overflow"
+
+instance : SubPanic Uint256 where
+  subPanic a b := requireSomeUint (safeSub a b) "Panic(0x11): arithmetic underflow"
+
+instance : MulPanic Uint256 where
+  mulPanic a b := requireSomeUint (safeMul a b) "Panic(0x11): arithmetic overflow"
+
+instance : DivPanic Uint256 where
+  divPanic a b := requireSomeUint (safeDiv a b) "Panic(0x12): division by zero"
+
+instance : AddPanic Int256 where
+  addPanic a b := requireSomeInt (Core.Int256.safeAdd a b) "Panic(0x11): arithmetic overflow"
+
+instance : SubPanic Int256 where
+  subPanic a b := requireSomeInt (Core.Int256.safeSub a b) "Panic(0x11): arithmetic overflow"
+
+instance : MulPanic Int256 where
+  mulPanic a b := requireSomeInt (Core.Int256.safeMul a b) "Panic(0x11): arithmetic overflow"
+
+instance : DivPanic Int256 where
+  divPanic a b := do
+    if (b : Int) = 0 then
+      require false "Panic(0x12): division by zero"
+      return 0
+    else if (a : Int) = Core.Int256.minValue && (b : Int) = -1 then
+      require false "Panic(0x11): arithmetic overflow"
+      return 0
+    else
+      return (a / b)
+
+export AddPanic (addPanic)
+export SubPanic (subPanic)
+export MulPanic (mulPanic)
+export DivPanic (divPanic)
+
+/-- `-a` on `Int256` with Solidity-0.8 panic-on-overflow semantics. -/
+def negPanic (value : Int256) : Contract Int256 :=
+  requireSomeInt (Core.Int256.safeNeg value) "Panic(0x11): arithmetic overflow"
+
+/-- `a % b` on `Int256` with Solidity-0.8 panic-on-division-by-zero semantics. -/
+def modPanic (a b : Int256) : Contract Int256 :=
+  requireSomeInt (Core.Int256.safeMod a b) "Panic(0x12): division by zero"
+
+@[simp] theorem requireSomeInt_some (v : Int256) (msg : String) (s : ContractState) :
+  (requireSomeInt (some v) msg).run s = ContractResult.success v s := rfl
+
+@[simp] theorem requireSomeInt_none (msg : String) (s : ContractState) :
+  (requireSomeInt none msg).run s = ContractResult.revert msg s := rfl
 
 -- Full-result simp lemmas for requireSomeUint
 @[simp] theorem requireSomeUint_some (v : Uint256) (msg : String) (s : ContractState) :

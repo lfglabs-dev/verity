@@ -109,6 +109,19 @@ def parseInterfaceFunction
       parseParts name (← parsePositionalParams paramTys) mods none
   | _ => throwErrorAt stx "invalid interface function declaration"
 
+def parseLinkedContract (stx : Syntax) : CommandElabM LinkedContractDecl := do
+  match stx with
+  | `(verityLinkedContract| $name:ident : $iface:ident := $callee:ident) =>
+      pure {
+        ident := name
+        name := toString name.getId
+        interfaceName := toString iface.getId
+        interfaceIdent := iface
+        calleeName := toString callee.getId
+        calleeIdent := callee
+      }
+  | _ => throwErrorAt stx "invalid linked_contracts binding; expected `name : IFace := Callee`"
+
 def parseInterface
     (newtypes : Array NewtypeDecl)
     (structDecls : Array StructDecl)

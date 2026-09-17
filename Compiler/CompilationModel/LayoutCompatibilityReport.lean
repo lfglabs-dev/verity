@@ -32,6 +32,7 @@ private def packedBitsJson (packed : PackedBits) : String :=
 
 private def fieldTypeSummary : FieldType → String
   | .uint256 => "uint256"
+  | .int256 => "int256"
   | .address => "address"
   | .fixedArrayUint128 size => s!"uint128[{size}]"
   | .adt name maxFields => s!"adt({name};maxFields={maxFields})"

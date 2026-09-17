@@ -148,6 +148,17 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Implication**: Semantic correctness does not imply gas-safety.
 - **Proxy note**: `delegatecall`-based proxy / upgradeability flows still sit outside the current native verified runtime model. Archive `--trust-report` and use `--deny-proxy-upgradeability` when proxy semantics must remain outside the selected verified subset (issue `#1420`).
 
+### 6b. Modeled-callee `linked_contracts` bindings
+
+- **Role**: A `linked_contracts name : IFace := Callee` section tells the
+  model plane that an interface-typed value is the named `verity_contract`.
+- **Trust**: model-level assumption that the runtime address holds that
+  contract. There is **no bytecode claim**: compilation-model lowering of a
+  bound call is the same ABI/ECM call as an unbound interface call.
+- **Semantics**: hops in `Verity.MultiContract.MultiWorld` (`ModeledCall.lean`).
+  `callEntry` is unchanged (still rejects `caller = callee`); self-calls use
+  the isolated CALL-shaped `selfCallEntry` / `Contract.selfCall`.
+
 ### 7. External Call Modules (ECMs)
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).
 - **Trust**: Each module's `compile` produces correct Yul. Bug in one module doesn't affect others. `selfDelegateMulticallBytes` is an explicitly trusted ECM boundary under `self_delegate_multicall_bytes_revert_bubbling`: the compiler emits concrete bounds checks for ABI element offsets, including a pre-add overflow guard before forming the calldata head offset, but full non-empty multicall revert-bubbling semantics are not yet machine-proven. First-class self-delegate sequences (`Verity.MultiContract.denoteSelfDelegateCalls`) are ordinary Lean functions: success threads one world, failure/revert restores the sequence-entry world and records returndata; they do not discharge the ECM assumption. `solidityMappingSlot_injective` remains the one documented Lean axiom.

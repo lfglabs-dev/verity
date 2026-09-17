@@ -60,7 +60,7 @@ def modelReturnTypeTerm (ty : ValueType) : CommandElabM Term :=
   match ty with
   | .unit => `(none)
   | .uint256 => `(some Compiler.CompilationModel.FieldType.uint256)
-  | .int256 => `(none)
+  | .int256 => `(some Compiler.CompilationModel.FieldType.int256)
   | .uint8 => `(none)
   | .uint16 => `(none)
   | .uintN _ | .intN _ | .bytesN _ => `(none)
@@ -2109,9 +2109,13 @@ partial def inferPureExprType
       let valueTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals value visitingConstants
       requireWordOperatorType value "byte value" valueTy
       pure .uint256
-  | `(term| slt $a $b) | `(term| sgt $a $b) => do
+  | `(term| slt $a $b) | `(term| sgt $a $b)
+  | `(term| sle $a $b) | `(term| sge $a $b) => do
       requireWordOperatorType a "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       requireWordOperatorType b "signed ordering comparison" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b visitingConstants)
+      pure .bool
+  | `(term| isNeg $a) => do
+      requireWordOperatorType a "signed sign test" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants)
       pure .bool
   | `(term| $a == $b) | `(term| $a != $b) => do
       let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a visitingConstants
@@ -2153,6 +2157,8 @@ partial def inferPureExprType
   -- computed during contract translation, so the result is unconditionally
   -- a `uint256` regardless of the literal content.
   | `(term| keccakString $_s:str) => pure .uint256
+  | `(term| selfCall $_fn:ident) =>
+      pure .uint256
   | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) => do
       for arg in [gas, target, value, inOffset, inSize, outOffset, outSize] do
         requireWordLikeType arg "low-level call" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
@@ -2660,10 +2666,23 @@ partial def inferBindSourceType
   | `(term| addPanic $a:term $b:term)
   | `(term| subPanic $a:term $b:term)
   | `(term| mulPanic $a:term $b:term)
-  | `(term| divPanic $a:term $b:term) => do
-      requireWordLikeType a "panic uint helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals a)
-      requireWordLikeType b "panic uint helper" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals b)
-      pure .uint256
+  | `(term| divPanic $a:term $b:term)
+  | `(term| modPanic $a:term $b:term) => do
+      let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
+      let rhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals b
+      if isSignedWordValueType lhsTy || isSignedWordValueType rhsTy then
+        unless lhsTy == rhsTy && isSignedWordValueType lhsTy do
+          throwErrorAt rhs "signed panic arithmetic requires Int256 operands of the same type"
+        pure lhsTy
+      else
+        requireWordLikeType a "panic uint helper" lhsTy
+        requireWordLikeType b "panic uint helper" rhsTy
+        pure .uint256
+  | `(term| negPanic $a:term) => do
+      let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
+      unless isSignedWordValueType ty do
+        throwErrorAt rhs "negPanic requires an Int256 operand"
+      pure ty
   | _ =>
       match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals rhs with
       | some (fn, _argTerms) =>
@@ -2967,6 +2986,9 @@ partial def validateConstantBody
   | `(term| sar $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
   | `(term| slt $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
   | `(term| sgt $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
+  | `(term| sle $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
+  | `(term| sge $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
+  | `(term| isNeg $a) => validateConstantBody constDecls a visiting
   | `(term| min $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
   | `(term| max $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
   | `(term| ceilDiv $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
@@ -3523,6 +3545,20 @@ partial def translatePureExprWithTypes
       else
         `(Compiler.CompilationModel.Expr.lt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| slt $a $b) => `(Compiler.CompilationModel.Expr.slt $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
+  | `(term| sle $a $b) =>
+      `(Compiler.CompilationModel.Expr.logicalNot
+          (Compiler.CompilationModel.Expr.sgt
+            $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+            $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)))
+  | `(term| sge $a $b) =>
+      `(Compiler.CompilationModel.Expr.logicalNot
+          (Compiler.CompilationModel.Expr.slt
+            $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+            $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?)))
+  | `(term| isNeg $a) =>
+      `(Compiler.CompilationModel.Expr.slt
+          $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?)
+          (Compiler.CompilationModel.Expr.literal 0))
   | `(term| $a <= $b) => do
       let lhsTy ← inferExprType a
       let rhsTy ← inferExprType b
@@ -3565,6 +3601,15 @@ partial def translatePureExprWithTypes
   | `(term| keccakString $s:str) =>
       let digest := KeccakEngine.keccak256_str_nat s.getString
       `(Compiler.CompilationModel.Expr.literal $(natTerm digest))
+  | `(term| selfCall $_fn:ident) =>
+      `(Compiler.CompilationModel.Expr.call
+          (Compiler.CompilationModel.Expr.literal 0)
+          Compiler.CompilationModel.Expr.contractAddress
+          (Compiler.CompilationModel.Expr.literal 0)
+          (Compiler.CompilationModel.Expr.literal 0)
+          (Compiler.CompilationModel.Expr.literal 0)
+          (Compiler.CompilationModel.Expr.literal 0)
+          (Compiler.CompilationModel.Expr.literal 0))
   | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) =>
       `(Compiler.CompilationModel.Expr.call
           $(← translatePureExprWithTypes fields constDecls immutableDecls params locals gas visitingConstants linkedExternalLowerer?)
@@ -5435,50 +5480,168 @@ def translateSafeRequireBind
   -- `let x ← requireSomeUint (safeAdd a b) "Panic(0x11): arithmetic overflow"`,
   -- and analogously for `subPanic` / `mulPanic` / `divPanic`. The fixed
   -- message mirrors Solidity 0.8's `Panic(0x11)` (overflow / underflow)
-  -- and `Panic(0x12)` (division by zero) opcodes.
-  | `(term| addPanic $a:term $b:term) =>
+  -- and `Panic(0x12)` (division by zero) opcodes. Signed `Int256` operands
+  -- lower to `slt`/`sdiv`/`smod` overflow guards instead of the unsigned
+  -- wrap checks.
+  | `(term| addPanic $a:term $b:term) => do
+      let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
+      if isSignedWordValueType lhsTy then
+        let msgLit := strTerm "Panic(0x11): arithmetic overflow"
+        let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
+        let aNeg : Term ← `(Compiler.CompilationModel.Expr.slt $aExpr $zeroExpr)
+        let bNeg : Term ← `(Compiler.CompilationModel.Expr.slt $bExpr $zeroExpr)
+        let rNeg : Term ← `(Compiler.CompilationModel.Expr.slt $valueExpr $zeroExpr)
+        let sameSign : Term ← `(Compiler.CompilationModel.Expr.eq $aNeg $bNeg)
+        let signChanged : Term ←
+          `(Compiler.CompilationModel.Expr.logicalNot
+              (Compiler.CompilationModel.Expr.eq $aNeg $rNeg))
+        let overflow : Term ← `(Compiler.CompilationModel.Expr.logicalAnd $sameSign $signChanged)
+        let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalNot $overflow)
+        pure (some #[
+          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+        ])
+      else
+        let msgLit := strTerm "Panic(0x11): arithmetic overflow"
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
+        let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $valueExpr $aExpr)
+        pure (some #[
+          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+        ])
+  | `(term| subPanic $a:term $b:term) => do
+      let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
+      if isSignedWordValueType lhsTy then
+        let msgLit := strTerm "Panic(0x11): arithmetic overflow"
+        let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
+        let aNeg : Term ← `(Compiler.CompilationModel.Expr.slt $aExpr $zeroExpr)
+        let bNeg : Term ← `(Compiler.CompilationModel.Expr.slt $bExpr $zeroExpr)
+        let rNeg : Term ← `(Compiler.CompilationModel.Expr.slt $valueExpr $zeroExpr)
+        let differentSign : Term ←
+          `(Compiler.CompilationModel.Expr.logicalNot
+              (Compiler.CompilationModel.Expr.eq $aNeg $bNeg))
+        let signChanged : Term ←
+          `(Compiler.CompilationModel.Expr.logicalNot
+              (Compiler.CompilationModel.Expr.eq $aNeg $rNeg))
+        let overflow : Term ← `(Compiler.CompilationModel.Expr.logicalAnd $differentSign $signChanged)
+        let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalNot $overflow)
+        pure (some #[
+          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+        ])
+      else
+        let msgLit := strTerm "Panic(0x11): arithmetic underflow"
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
+        let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
+        pure (some #[
+          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+        ])
+  | `(term| mulPanic $a:term $b:term) => do
+      let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
+      let aExpr ← translateOperand a
+      let bExpr ← translateOperand b
       let msgLit := strTerm "Panic(0x11): arithmetic overflow"
+      if isSignedWordValueType lhsTy then
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
+        let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+        let minusOne : Term ←
+          `(Compiler.CompilationModel.Expr.sub
+              (Compiler.CompilationModel.Expr.literal 0)
+              (Compiler.CompilationModel.Expr.literal 1))
+        let minVal : Term ← `(Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ 255)))
+        let xZero : Term ← `(Compiler.CompilationModel.Expr.eq $aExpr $zeroExpr)
+        let reconstructed : Term ← `(Compiler.CompilationModel.Expr.sdiv $valueExpr $aExpr)
+        let reconEq : Term ← `(Compiler.CompilationModel.Expr.eq $reconstructed $bExpr)
+        let special : Term ←
+          `(Compiler.CompilationModel.Expr.logicalAnd
+              (Compiler.CompilationModel.Expr.eq $aExpr $minusOne)
+              (Compiler.CompilationModel.Expr.eq $bExpr $minVal))
+        let guardExpr : Term ←
+          `(Compiler.CompilationModel.Expr.logicalOr $xZero
+              (Compiler.CompilationModel.Expr.logicalAnd $reconEq
+                (Compiler.CompilationModel.Expr.logicalNot $special)))
+        pure (some #[
+          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+        ])
+      else
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
+        let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
+        let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
+        let quotientExpr : Term ← `(Compiler.CompilationModel.Expr.div $valueExpr $bExpr)
+        let noOverflowExpr : Term ← `(Compiler.CompilationModel.Expr.eq $quotientExpr $aExpr)
+        let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $noOverflowExpr)
+        pure (some #[
+          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+        ])
+  | `(term| divPanic $a:term $b:term) => do
+      let lhsTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals a
       let aExpr ← translateOperand a
       let bExpr ← translateOperand b
-      let valueExpr : Term ← `(Compiler.CompilationModel.Expr.add $aExpr $bExpr)
-      let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $valueExpr $aExpr)
-      pure (some #[
-        (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
-        (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-      ])
-  | `(term| subPanic $a:term $b:term) =>
-      let msgLit := strTerm "Panic(0x11): arithmetic underflow"
-      let aExpr ← translateOperand a
-      let bExpr ← translateOperand b
-      let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sub $aExpr $bExpr)
-      let guardExpr : Term ← `(Compiler.CompilationModel.Expr.ge $aExpr $bExpr)
-      pure (some #[
-        (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
-        (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
-      ])
-  | `(term| mulPanic $a:term $b:term) =>
-      let msgLit := strTerm "Panic(0x11): arithmetic overflow"
-      let aExpr ← translateOperand a
-      let bExpr ← translateOperand b
-      let valueExpr : Term ← `(Compiler.CompilationModel.Expr.mul $aExpr $bExpr)
       let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
-      let divisorZeroExpr : Term ← `(Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr)
-      let quotientExpr : Term ← `(Compiler.CompilationModel.Expr.div $valueExpr $bExpr)
-      let noOverflowExpr : Term ← `(Compiler.CompilationModel.Expr.eq $quotientExpr $aExpr)
-      let guardExpr : Term ← `(Compiler.CompilationModel.Expr.logicalOr $divisorZeroExpr $noOverflowExpr)
+      if isSignedWordValueType lhsTy then
+        let overflowLit := strTerm "Panic(0x11): arithmetic overflow"
+        let zeroLit := strTerm "Panic(0x12): division by zero"
+        let minusOne : Term ←
+          `(Compiler.CompilationModel.Expr.sub
+              (Compiler.CompilationModel.Expr.literal 0)
+              (Compiler.CompilationModel.Expr.literal 1))
+        let minVal : Term ← `(Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ 255)))
+        let nonzero : Term ←
+          `(Compiler.CompilationModel.Expr.logicalNot
+              (Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr))
+        let notMinDivNeg1 : Term ←
+          `(Compiler.CompilationModel.Expr.logicalNot
+              (Compiler.CompilationModel.Expr.logicalAnd
+                (Compiler.CompilationModel.Expr.eq $aExpr $minVal)
+                (Compiler.CompilationModel.Expr.eq $bExpr $minusOne)))
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.sdiv $aExpr $bExpr)
+        pure (some #[
+          (← `(Compiler.CompilationModel.Stmt.require $nonzero $zeroLit)),
+          (← `(Compiler.CompilationModel.Stmt.require $notMinDivNeg1 $overflowLit)),
+          (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+        ])
+      else
+        let msgLit := strTerm "Panic(0x12): division by zero"
+        let valueExpr : Term ← `(Compiler.CompilationModel.Expr.div $aExpr $bExpr)
+        let guardExpr : Term ←
+          `(Compiler.CompilationModel.Expr.logicalNot
+              (Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr))
+        pure (some #[
+          (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
+          (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
+        ])
+  | `(term| negPanic $a:term) => do
+      let aExpr ← translateOperand a
+      let msgLit := strTerm "Panic(0x11): arithmetic overflow"
+      let minVal : Term ← `(Compiler.CompilationModel.Expr.literal $(natTerm (2 ^ 255)))
+      let guardExpr : Term ←
+        `(Compiler.CompilationModel.Expr.logicalNot
+            (Compiler.CompilationModel.Expr.eq $aExpr $minVal))
+      let valueExpr : Term ←
+        `(Compiler.CompilationModel.Expr.sub
+            (Compiler.CompilationModel.Expr.literal 0) $aExpr)
       pure (some #[
         (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
       ])
-  | `(term| divPanic $a:term $b:term) =>
-      let msgLit := strTerm "Panic(0x12): division by zero"
+  | `(term| modPanic $a:term $b:term) => do
       let aExpr ← translateOperand a
       let bExpr ← translateOperand b
-      let valueExpr : Term ← `(Compiler.CompilationModel.Expr.div $aExpr $bExpr)
+      let msgLit := strTerm "Panic(0x12): division by zero"
       let zeroExpr : Term ← `(Compiler.CompilationModel.Expr.literal 0)
       let guardExpr : Term ←
         `(Compiler.CompilationModel.Expr.logicalNot
             (Compiler.CompilationModel.Expr.eq $bExpr $zeroExpr))
+      let valueExpr : Term ← `(Compiler.CompilationModel.Expr.smod $aExpr $bExpr)
       pure (some #[
         (← `(Compiler.CompilationModel.Stmt.require $guardExpr $msgLit)),
         (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $valueExpr))
