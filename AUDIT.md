@@ -44,7 +44,9 @@ The complete example surface lives under `Contracts/VaultFromSolidity`: Solidity
 source, Lean importer, specification, execution proofs and focused acceptance
 tests. It is independent of the handwritten `Contracts/Vault` example. No
 Python frontend, custom serialized IR, generated Lean source, or bytecode is in
-the translation path. Trust and axiom scope are recorded in
+the translation path: the accepted Solidity subset is the kernel-checked
+inductive in `Importer/Syntax.lean` and `Importer/Semantics.lean` is its single
+meaning. Trust and axiom scope are recorded in
 `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
 
 ## Current Audit State

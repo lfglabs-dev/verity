@@ -25,11 +25,15 @@ independently of source registration.
 
 `Importer.lean` runs pinned solc itself with `--standard-json` and
 `--no-import-callback`, parses the typed AST/storage layout, validates the
-closed subset, resolves IDs/types/storage slots, and constructs expressions
-through explicit `translateExpr` / `translateStmt` cases. Declaration
+closed subset, resolves IDs/types/storage slots, and parses it into the closed,
+intrinsically typed inductive in `Syntax.lean`. Each entry point is registered
+as `Semantics.lean`'s `Fn.meaning` applied to that parsed term, so
+`Semantics.lean` is the single definition of what each construct means and is
+part of the digest. Declaration
 registration disables asynchronous kernel checking inside the transaction,
-restores the pre-import environment on failure, checks every body against its
-typed return signature, and registers safe transparent definitions. The same
+restores the pre-import environment on failure, parses every body at its typed
+return signature (an ill-typed body is unrepresentable), and registers safe
+transparent definitions. The same
 transaction elaborates `Storage` with the standard structure command (the one
 use of that elaborator; kernel-checked, rolled back on failure), then
 registers `view : ContractState → Storage` built from the imported
@@ -38,7 +42,10 @@ the `solidity_import` simp set, and registers a deterministic entry-point
 relation `step` (functions in source order, then public getters in field
 order). `Storage`, `view`, and `step` are reserved Solidity names. The
 frontend emits no generated Lean source and keeps
-no serialized AST/model cache.
+no serialized AST/model cache; the parsed term is a kernel-checked Lean value,
+never serialized. `Semantics.lean` tags its definitions into the
+`solidity_import` simp set, so `solidity_simp` unfolds `Fn.meaning` down to the
+Verity primitives exactly as it did before the split.
 
 The accepted fragment covers the existing Vault: full-width scalars,
 address-to-uint256 mappings and public getters, straight-line reads/writes,

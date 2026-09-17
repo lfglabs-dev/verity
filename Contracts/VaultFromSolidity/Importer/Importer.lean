@@ -2,11 +2,15 @@ import Lean
 import Verity.Stdlib.Math
 import Verity.Core.SolidityImportAttr
 import Compiler.Sha256.Engine
+import Contracts.VaultFromSolidity.Importer.Semantics
 
 /-!
 A proof-only Solidity frontend. This module invokes pinned `solc --standard-json`,
-validates a closed typed-AST/storage-layout subset, and directly registers safe,
-transparent Verity definitions. It emits neither an intermediate IR nor Lean source.
+validates a closed typed-AST/storage-layout subset, parses it into the closed,
+intrinsically typed inductive in `Syntax.lean`, and registers each entry point as
+`Semantics.lean`'s `Fn.meaning` applied to that parsed term. The accepted subset is
+a kernel-checked Lean value, so nothing is serialized, no intermediate IR is
+materialised, and no Lean source is generated or written to disk.
 
 Besides the executable model it elaborates a kernel-checked `Storage` structure
 (the one use of the standard command elaborator in this frontend), registers
@@ -506,19 +510,6 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
 
 private def uint := mkConst ``Verity.Core.Uint256
 private def address := mkConst ``Verity.Core.Address
-private def unit := mkConst ``Unit
-private def valueType (s : String) : MetaM Expr :=
-  match s with
-  | "uint256" => pure uint
-  | "address" => pure address
-  | "unit" => pure unit
-  | _ => throwError "unsupported type {s}"
-
-private def ret (x : Expr) : MetaM Expr := mkAppM ``Verity.pure #[x]
-private def seq (m t : Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
-  withLocalDeclD `value t fun x => do
-    let next ← k x
-    mkAppM ``Verity.bind #[m, ← mkLambdaFVars #[x] next]
 
 private def register (name : Name) (value : Expr) (type? : Option Expr := none)
     (simp : Bool := true) : MetaM Unit := do
@@ -535,24 +526,6 @@ private def register (name : Name) (value : Expr) (type? : Option Expr := none)
       | throwError "solidity_import simp set is not registered"
     ext.add (SimpEntry.toUnfold name) AttributeKind.global
 
-private abbrev Locals := List (Nat × String × Expr)
-private abbrev Slots := List (Nat × Expr)
-
-private def lookupLocal (locals : Locals) (id : Nat) : Option (String × Expr) :=
-  (locals.find? fun x => x.1 == id).map fun x => (x.2.1, x.2.2)
-
-private def lookupSlot (slots : Slots) (id : Nat) : MetaM Expr :=
-  match slots.lookup id with
-  | some e => pure e
-  | none => throwError "unresolved declaration id {id}"
-
-private def checked (op : String) (a b : Expr) : MetaM Expr := do
-  let fn ← match op with
-    | "+" | "+=" => pure ``Verity.Stdlib.Math.safeAdd
-    | "-" | "-=" => pure ``Verity.Stdlib.Math.safeSub
-    | _ => throwError "unsupported arithmetic {op}"
-  mkAppM ``Verity.Stdlib.Math.requireSomeUint #[← mkAppM fn #[a, b], mkStrLit "Panic(0x11)"]
-
 private def requireType (frontend : Frontend) (j : Json) (expected : String) : MetaM Unit := do
   let actual ← typeString j
   let identifier ← str (← field (← field j "typeDescriptions") "typeIdentifier")
@@ -565,22 +538,125 @@ private def requireType (frontend : Frontend) (j : Json) (expected : String) : M
     | _ => ""
   needAt frontend.source j (actual == expected && identifier == expectedIdentifier) ("expected " ++ expected)
 
-private partial def translateExpr (frontend : Frontend) (slots : Slots) (locals : Locals) (j : Json)
-    (k : Expr → MetaM Expr) : MetaM Expr := do
+private def validateValueDecl (frontend : Frontend) (p : Json) : MetaM Unit := do
+  needAt frontend.source p (!(← bool (← field p "stateVariable")) &&
+    !(← bool (← field p "constant")) &&
+    (← str (← field p "mutability")) == "mutable" &&
+    (← str (← field p "storageLocation")) == "default" &&
+    (← str (← field p "visibility")) == "internal" &&
+    (field? p "value").all Json.isNull) "unsupported parameter declaration"
+
+/-- The Lean type of an AST-level value type. -/
+private def valueType : Sol.Ty → Expr
+  | .uint => uint
+  | .addr => address
+
+/-- Solc's name for an AST-level value type, for `requireType`. -/
+private def typeName : Sol.Ty → String
+  | .uint => "uint256"
+  | .addr => "address"
+
+/-- The result of a function body as a Lean type. -/
+private def resultType : Sol.Ret → Expr
+  | .unit => mkConst ``Unit
+  | .uint => uint
+
+/-- The imported state variables, in importer field order, as the AST's layout. -/
+private def layoutOf (fields : List FieldInfo) : Sol.Layout :=
+  fields.map fun f => if f.mapping then .mapping else .scalar
+
+/-- Storage shape of an imported field. -/
+private def storageShape (f : FieldInfo) : Sol.StorageTy :=
+  if f.mapping then .mapping else .scalar
+
+/-- Position of a solc declaration in the imported field order. -/
+private def fieldIndex (fields : List FieldInfo) (id : Nat) : Option Nat :=
+  go fields 0
+where
+  go : List FieldInfo → Nat → Option Nat
+    | [], _ => none
+    | f :: fs, i => if f.id == id then some i else go fs (i + 1)
+
+/-- The typed handle of an imported state variable. -/
+private def svar (frontend : Frontend) (L : Sol.Layout) (id : Nat) (s : Sol.StorageTy)
+    (j : Json) : MetaM (Sol.SVar L s) := do
+  let some i := fieldIndex frontend.fields id | failAt frontend.source j "unresolved declaration id"
+  let some entry := Sol.SVar.ofIndex L i | failAt frontend.source j "unresolved declaration id"
+  if h : entry.1 = s then pure (h ▸ entry.2) else failAt frontend.source j "storage type mismatch"
+
+/-- Parsing scope: solc declaration id to typed de Bruijn handle. -/
+private structure Scope (Γ : Sol.Ctx) where
+  vars : List (Nat × Σ t, Sol.Var Γ t)
+
+/-- Bind one more local in front of a scope. -/
+private def Scope.push (sc : Scope Γ) (id : Nat) : Scope (.uint :: Γ) :=
+  ⟨(id, ⟨.uint, .here⟩) :: sc.vars.map fun v => (v.1, ⟨v.2.1, .there v.2.2⟩)⟩
+
+/-- The typed handle a solc declaration id refers to, if it is in scope. -/
+private def Scope.find? (sc : Scope Γ) (id : Nat) : Option (Σ t, Sol.Var Γ t) :=
+  (sc.vars.find? fun v => v.1 == id).map (·.2)
+
+/-- Every variable of a context, index 0 first. -/
+private def varHandles : (Γ : Sol.Ctx) → List (Σ t, Sol.Var Γ t)
+  | [] => []
+  | t :: ts => ⟨t, .here⟩ :: (varHandles ts).map fun v => ⟨v.1, .there v.2⟩
+
+/-- The scope parameters induce: de Bruijn order binds the last parameter innermost. -/
+private def scopeOf (params : List (Nat × Sol.Ty × String)) (Γ : Sol.Ctx) : Scope Γ :=
+  ⟨(varHandles Γ).zip params.reverse |>.map fun entry => (entry.2.1, entry.1)⟩
+
+-- The constructors of these indexed families take the *index* first:
+-- `Slots.cons : {L : Layout} -> {st : StorageTy} -> st.denote -> Slots L -> Slots (st :: L)`,
+-- likewise `Env.cons : {Γ : Ctx} -> {t : Ty} -> ...`. `mkAppOptM` is positional, so the
+-- indices are supplied in that order.
+
+/-- The `Slots` term for the imported state variables, in layout order. -/
+private def slotsTerm : (handles : List (Sol.StorageTy × Expr)) → MetaM Expr
+  | [] => pure (mkConst ``Sol.Slots.nil)
+  | (st, h) :: rest => do
+      let restE ← slotsTerm rest
+      let tail : Sol.Layout := rest.map (·.1)
+      mkAppOptM ``Sol.Slots.cons #[some (toExpr tail), some (toExpr st), some h, some restE]
+
+/-- The `Env` term for the bound parameters, in de Bruijn order. -/
+private def envTerm : (xs : List (Expr × Sol.Ty)) → MetaM Expr
+  | [] => pure (mkConst ``Sol.Env.nil)
+  | (x, t) :: rest => do
+      let restE ← envTerm rest
+      let tail : Sol.Ctx := rest.map (·.2)
+      mkAppOptM ``Sol.Env.cons #[some (toExpr tail), some (toExpr t), some x, some restE]
+
+/-- Bind the parameters left to right and hand the caller their variables in
+de Bruijn order (last parameter first). -/
+private partial def withParams (ps : List (Nat × Sol.Ty × String)) (acc : List (Expr × Sol.Ty))
+    (k : List (Expr × Sol.Ty) → MetaM Expr) : MetaM Expr := do
+  match ps with
+  | [] => k acc
+  | p :: rest =>
+      withLocalDeclD (Name.mkSimple p.2.2) (valueType p.2.1) fun x => do
+        mkLambdaFVars #[x] (← withParams rest ((x, p.2.1) :: acc) k)
+
+/-- Parse an expression of the expected AST value type. Solc's own
+`typeDescriptions` are still checked, so the parser has to agree with the
+compiler about the type of every node it accepts. -/
+private partial def parseExpr (frontend : Frontend) (L : Sol.Layout) (sc : Scope Γ) (t : Sol.Ty)
+    (j : Json) : MetaM (Sol.Expr L Γ t) := do
   match ← nodeKind j with
   | "Identifier" =>
       let rid ← int (← field j "referencedDeclaration")
       if rid < 0 then failAt frontend.source j "unresolved builtin identifier"
       let id := rid.toNat
-      if let some (typ, value) := lookupLocal locals id then
-        requireType frontend j typ
-        k value
+      if let some v := sc.find? id then
+        requireType frontend j (typeName v.1)
+        if h : v.1 = t then pure (.var (h ▸ v.2)) else failAt frontend.source j "local type mismatch"
       else
         let some info := frontend.fields.find? (·.id == id)
           | failAt frontend.source j "unresolved declaration reference"
         needAt frontend.source j (!info.mapping) "mapping requires index access"
         requireType frontend j "uint256"
-        seq (← mkAppM ``Verity.getStorage #[← lookupSlot slots id]) uint k
+        match t with
+        | .uint => pure (.load (← svar frontend L id .scalar j))
+        | .addr => failAt frontend.source j "uint256 expression in address position"
   | "MemberAccess" =>
       let base ← field j "expression"
       needAt frontend.source j ((← str (← field j "memberName")) == "sender" &&
@@ -589,7 +665,9 @@ private partial def translateExpr (frontend : Frontend) (slots : Slots) (locals 
         (field? j "referencedDeclaration").all Json.isNull) "only builtin msg.sender supported"
       requireType frontend base "msg"
       requireType frontend j "address"
-      seq (mkConst ``Verity.msgSender) address k
+      match t with
+      | .addr => pure .sender
+      | .uint => failAt frontend.source j "address expression in uint256 position"
   | "IndexAccess" =>
       let base ← field j "baseExpression"
       needAt frontend.source j ((← nodeKind base) == "Identifier") "unsupported index base"
@@ -601,16 +679,19 @@ private partial def translateExpr (frontend : Frontend) (slots : Slots) (locals 
       let index ← field j "indexExpression"
       requireType frontend index "address"
       requireType frontend j "uint256"
-      translateExpr frontend slots locals index fun key => do
-        let slot ← lookupSlot slots info.id
-        seq (← mkAppM ``Verity.getMapping #[slot, key]) uint k
+      let key ← parseExpr frontend L sc .addr index
+      match t with
+      | .uint => pure (.index (← svar frontend L info.id .mapping j) key)
+      | .addr => failAt frontend.source j "uint256 expression in address position"
   | "Literal" =>
       let value ← str (← field j "value")
       let some n := value.toNat? | failAt frontend.source j "unsupported literal"
       needAt frontend.source j ((← str (← field j "kind")) == "number" &&
         (field? j "subdenomination").all Json.isNull && n < 2^256) "unsupported literal"
       needAt frontend.source j ((← typeString j).startsWith "int_const ") "unsupported literal type"
-      k (← mkAppM ``Verity.Core.Uint256.ofNat #[mkNatLit n])
+      match t with
+      | .uint => pure (.lit n)
+      | .addr => failAt frontend.source j "uint256 expression in address position"
   | "BinaryOperation" =>
       let op ← str (← field j "operator")
       needAt frontend.source j (op == "+" || op == "-") "unsupported binary operation/types"
@@ -618,13 +699,17 @@ private partial def translateExpr (frontend : Frontend) (slots : Slots) (locals 
       let left ← field j "leftExpression"
       let right ← field j "rightExpression"
       requireType frontend left "uint256"; requireType frontend right "uint256"
-      translateExpr frontend slots locals left fun a => do
-        translateExpr frontend slots locals right fun b => do
-          seq (← checked op a b) uint k
+      let a ← parseExpr frontend L sc .uint left
+      let b ← parseExpr frontend L sc .uint right
+      let aop : Sol.ArithOp := if op == "+" then .add else .sub
+      match t with
+      | .uint => pure (.arith aop a b)
+      | .addr => failAt frontend.source j "uint256 expression in address position"
   | _ => failAt frontend.source j "unsupported expression"
 
-private def translateLValue (frontend : Frontend) (slots : Slots) (locals : Locals) (j : Json)
-    (k : Expr → Option Expr → MetaM Expr) : MetaM Expr := do
+/-- Parse a storage assignment target. -/
+private def parseLValue (frontend : Frontend) (L : Sol.Layout) (sc : Scope Γ) (j : Json) :
+    MetaM (Sol.LVal L Γ) := do
   match ← nodeKind j with
   | "Identifier" =>
       let rid ← int (← field j "referencedDeclaration")
@@ -632,7 +717,7 @@ private def translateLValue (frontend : Frontend) (slots : Slots) (locals : Loca
         | failAt frontend.source j "unsupported storage lvalue"
       needAt frontend.source j (!info.mapping) "mapping requires index access"
       requireType frontend j "uint256"
-      k (← lookupSlot slots info.id) none
+      pure (.scalar (← svar frontend L info.id .scalar j))
   | "IndexAccess" =>
       let base ← field j "baseExpression"
       needAt frontend.source j ((← nodeKind base) == "Identifier") "unsupported index base"
@@ -644,16 +729,18 @@ private def translateLValue (frontend : Frontend) (slots : Slots) (locals : Loca
       let index ← field j "indexExpression"
       requireType frontend index "address"
       requireType frontend j "uint256"
-      translateExpr frontend slots locals index fun key => do
-        k (← lookupSlot slots info.id) (some key)
+      let key ← parseExpr frontend L sc .addr index
+      pure (.mapping (← svar frontend L info.id .mapping j) key)
   | _ => failAt frontend.source j "only storage assignment supported"
 
-private partial def translateStmts (frontend : Frontend) (slots : Slots) (locals : Locals)
-    (returns : String) (nodes : List Json) : MetaM Expr := do
+/-- Parse the statements of a function body in source order. -/
+private partial def parseStmts (frontend : Frontend) (L : Sol.Layout) (sc : Scope Γ) (r : Sol.Ret)
+    (nodes : List Json) : MetaM (Sol.Stmt L Γ r) := do
   match nodes with
   | [] =>
-      if returns == "unit" then ret (mkConst ``Unit.unit)
-      else throwError "missing terminal return"
+      match r with
+      | .unit => pure .done
+      | .uint => throwError "missing terminal return"
   | node :: rest =>
       match ← nodeKind node with
       | "ExpressionStatement" =>
@@ -662,21 +749,10 @@ private partial def translateStmts (frontend : Frontend) (slots : Slots) (locals
           requireType frontend assignment "uint256"
           let op ← str (← field assignment "operator")
           needAt frontend.source assignment (op == "=" || op == "+=" || op == "-=") "unsupported assignment"
-          translateLValue frontend slots locals (← field assignment "leftHandSide") fun slot key => do
-            let write (value : Expr) : MetaM Expr := do
-              let action ← match key with
-                | none => mkAppM ``Verity.setStorage #[slot, value]
-                | some index => mkAppM ``Verity.setMapping #[slot, index, value]
-              seq action unit fun _ => translateStmts frontend slots locals returns rest
-            let rhsNode ← field assignment "rightHandSide"
-            if op == "=" then translateExpr frontend slots locals rhsNode write
-            else
-              let read ← match key with
-                | none => mkAppM ``Verity.getStorage #[slot]
-                | some index => mkAppM ``Verity.getMapping #[slot, index]
-              seq read uint fun old => do
-                translateExpr frontend slots locals rhsNode fun rhs => do
-                  seq (← checked op old rhs) uint write
+          let lv ← parseLValue frontend L sc (← field assignment "leftHandSide")
+          let rhs ← parseExpr frontend L sc .uint (← field assignment "rightHandSide")
+          let aop : Sol.AssignOp := if op == "=" then .set else if op == "+=" then .add else .sub
+          pure (.assign lv aop rhs (← parseStmts frontend L sc r rest))
       | "VariableDeclarationStatement" =>
           let declarations ← arr (← field node "declarations")
           needAt frontend.source node (declarations.size == 1) "unsupported locals"
@@ -690,8 +766,8 @@ private partial def translateStmts (frontend : Frontend) (slots : Slots) (locals
           let id ← nodeId declaration
           let _ ← identifier frontend.source declaration
           let initialValue ← field node "initialValue"
-          translateExpr frontend slots locals initialValue fun value =>
-            translateStmts frontend slots ((id, "uint256", value) :: locals) returns rest
+          let value ← parseExpr frontend L sc .uint initialValue
+          pure (.local_ value (← parseStmts frontend L (sc.push id) r rest))
       | "IfStatement" =>
           let falseBody := field? node "falseBody"
           let trueBody ← field node "trueBody"
@@ -715,45 +791,16 @@ private partial def translateStmts (frontend : Frontend) (slots : Slots) (locals
           let left ← field condition "leftExpression"
           let right ← field condition "rightExpression"
           requireType frontend left "uint256"; requireType frontend right "uint256"
-          translateExpr frontend slots locals left fun a =>
-            translateExpr frontend slots locals right fun b => do
-              let av ← mkAppM ``Verity.Core.Uint256.val #[a]
-              let bv ← mkAppM ``Verity.Core.Uint256.val #[b]
-              let allowed ← mkAppM ``Nat.ble #[bv, av]
-              let guard ← mkAppM ``Verity.require #[allowed, mkStrLit (errorName ++ "()")]
-              seq guard unit fun _ => translateStmts frontend slots locals returns rest
+          let a ← parseExpr frontend L sc .uint left
+          let b ← parseExpr frontend L sc .uint right
+          pure (.guard a b (errorName ++ "()") (← parseStmts frontend L sc r rest))
       | "Return" =>
-          needAt frontend.source node (rest.isEmpty && returns == "uint256") "only terminal scalar return"
-          translateExpr frontend slots locals (← field node "expression") ret
+          match r with
+          | .uint =>
+              needAt frontend.source node rest.isEmpty "only terminal scalar return"
+              pure (.ret (← parseExpr frontend L sc .uint (← field node "expression")))
+          | .unit => failAt frontend.source node "only terminal scalar return"
       | _ => failAt frontend.source node "unsupported statement"
-
-private def nonpayable (m : Expr) : MetaM Expr :=
-  seq (mkConst ``Verity.msgValue) uint fun value => do
-    let n ← mkAppM ``Verity.Core.Uint256.val #[value]
-    let zero ← mkAppM ``Nat.beq #[n, mkNatLit 0]
-    let guard ← mkAppM ``Verity.require #[zero, mkStrLit "Nonpayable"]
-    seq guard unit fun _ => pure m
-
-private def validateValueDecl (frontend : Frontend) (p : Json) : MetaM Unit := do
-  needAt frontend.source p (!(← bool (← field p "stateVariable")) &&
-    !(← bool (← field p "constant")) &&
-    (← str (← field p "mutability")) == "mutable" &&
-    (← str (← field p "storageLocation")) == "default" &&
-    (← str (← field p "visibility")) == "internal" &&
-    (field? p "value").all Json.isNull) "unsupported parameter declaration"
-
-private partial def translateParams (frontend : Frontend) (params : List Json) (locals : Locals)
-    (k : Locals → MetaM Expr) : MetaM Expr := do
-  match params with
-  | [] => k locals
-  | p :: ps =>
-      validateValueDecl frontend p
-      let typ ← typeString p
-      needAt frontend.source p (typ == "uint256" || typ == "address") "unsupported value type"
-      let name ← identifier frontend.source p
-      let id ← nodeId p
-      withLocalDeclD (Name.mkSimple name) (← valueType typ) fun x => do
-        mkLambdaFVars #[x] (← translateParams frontend ps ((id, typ, x) :: locals) k)
 
 private def checkCollisions (ns : Name) (frontend : Frontend) : MetaM Unit := do
   let mut names := #[
@@ -797,22 +844,26 @@ private def mkEntryDisjunct (s s' : Expr) (name : Name) (binder? : Option (Name 
     mkEq s' snd
 
 private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
-  let mut slots : Slots := []
+  let L := layoutOf frontend.fields
+  -- Register one `<var>Slot` handle per state variable, then hand the same
+  -- handles to the parsed source as its `Slots` index.
+  let mut registered : List (FieldInfo × Expr) := []
   for f in frontend.fields do
     let ty ← if f.mapping then mkArrow address uint else pure uint
     let slot ← mkAppOptM ``Verity.StorageSlot.mk #[some ty, some (mkNatLit f.slot)]
     let name := ns ++ Name.mkSimple f.name
     register name slot
-    slots := (f.id, mkConst name) :: slots
+    registered := registered ++ [(f, mkConst name)]
+  let slotsE ← slotsTerm (registered.map fun h => (storageShape h.1, h.2))
   -- Read-only named storage view. `Storage` is the kernel-checked structure
   -- elaborated before this transaction; `view` builds it from `<var>Slot` handles.
   let state := mkConst ``Verity.ContractState
   let storageView := mkConst (ns ++ `Storage)
   let view ← withLocalDeclD `s state fun s => do
     let mut args : Array Expr := #[]
-    for f in frontend.fields do
-      let slot ← mkAppM ``Verity.StorageSlot.slot #[← lookupSlot slots f.id]
-      if f.mapping then
+    for h in registered do
+      let slot ← mkAppM ``Verity.StorageSlot.slot #[h.2]
+      if h.1.mapping then
         let reader ← withLocalDeclD `k address fun k =>
           mkLambdaFVars #[k] (mkAppN (mkConst ``Verity.ContractState.readMap) #[s, slot, k])
         args := args.push reader
@@ -822,18 +873,17 @@ private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
   register (ns ++ `view) view (some (← mkArrow state storageView))
   let mut functionEntries : Array (Name × Option (Name × Expr)) := #[]
   let mut getterEntries : Array (Name × Option (Name × Expr)) := #[]
-  for f in frontend.fields do
-    if let some getter := f.getter then
-      let slot ← lookupSlot slots f.id
+  for h in registered do
+    if let some getter := h.1.getter then
       let gname := ns ++ Name.mkSimple getter
-      if f.mapping then
+      if h.1.mapping then
         let value ← withLocalDeclD `account address fun account => do
-          let getterFn ← mkAppM ``Verity.getMapping #[slot, account]
-          mkLambdaFVars #[account] (← nonpayable getterFn)
+          let getterFn ← mkAppM ``Verity.getMapping #[h.2, account]
+          mkLambdaFVars #[account] (← mkAppM ``Sol.nonpayable #[getterFn])
         register gname value
         getterEntries := getterEntries.push (gname, some (`account, address))
       else
-        let value ← nonpayable (← mkAppM ``Verity.getStorage #[slot])
+        let value ← mkAppM ``Sol.nonpayable #[← mkAppM ``Verity.getStorage #[h.2]]
         register gname value
         getterEntries := getterEntries.push (gname, none)
   for fn in frontend.functions do
@@ -850,24 +900,32 @@ private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
       validateValueDecl frontend r
       needAt frontend.source r ((← str (← field r "name")).isEmpty && (← typeString r) == "uint256")
         "unsupported return type"
-    let returns := if rs.isEmpty then "unit" else "uint256"
-    let value ← translateParams frontend ps.toList [] fun locals => do
-      let code ← translateStmts frontend slots locals returns
-        (← arr (← field (← field fn "body") "statements")).toList
-      let expected ← mkAppM ``Verity.Contract #[← valueType returns]
-      unless ← isDefEq (← inferType code) expected do
-        throwError "imported body does not match typed AST return signature"
-      nonpayable code
+    let returns : Sol.Ret := if rs.isEmpty then .unit else .uint
+    let mut params : List (Nat × Sol.Ty × String) := []
+    for p in ps do
+      validateValueDecl frontend p
+      let typ ← typeString p
+      needAt frontend.source p (typ == "uint256" || typ == "address") "unsupported value type"
+      let paramName ← identifier frontend.source p
+      let paramId ← nodeId p
+      params := params ++ [(paramId, if typ == "address" then Sol.Ty.addr else Sol.Ty.uint, paramName)]
+    -- De Bruijn: the last parameter is bound innermost, so the context lists the
+    -- parameters in reverse declaration order and the environment matches it.
+    let Γ : Sol.Ctx := params.reverse.map fun p => p.2.1
+    let body ← parseStmts frontend L (scopeOf params Γ) returns
+      (← arr (← field (← field fn "body") "statements")).toList
+    let value ← withParams params [] fun xs => do
+      let envE ← envTerm xs
+      pure (mkAppN (mkConst ``Sol.Fn.meaning)
+        #[toExpr L, toExpr Γ, toExpr returns, toExpr body, slotsE, envE])
+    let mut type := ← mkAppM ``Verity.Contract #[resultType returns]
+    for p in params.reverse do
+      type ← mkArrow (valueType p.2.1) type
     let fname := ns ++ Name.mkSimple name
-    let binder? ← if ps.size == 1 then
-      let p := ps[0]!
-      let ptyp ← typeString p
-      let pname ← identifier frontend.source p
-      let dom ← valueType ptyp
-      pure (some (Name.mkSimple pname, dom))
-    else
-      pure none
-    register fname value
+    let binder? ← match params with
+      | [p] => pure (some (Name.mkSimple p.2.2, valueType p.2.1))
+      | _ => pure none
+    register fname value (some type)
     functionEntries := functionEntries.push (fname, binder?)
   let entries := functionEntries ++ getterEntries
   let step ← withLocalDeclD `s state fun s =>
@@ -914,9 +972,14 @@ private def compileFrontend (root source : System.FilePath) : MetaM Frontend := 
     (some input.compress)
   unless output.exitCode == 0 do throwError "solc failed: {output.stderr}"
   verifyCompiler compiler
-  let importerText ← IO.FS.readFile
-    (canonicalRoot / "Contracts/VaultFromSolidity/Importer/Importer.lean")
-  parseCompilerOutput canonicalSource registeredSource sourceBytes output.stdout versionOut.stdout importerText
+  -- The digest covers the whole trusted translation: the parser, the accepted
+  -- subset and its meaning.
+  let importerDir := canonicalRoot / "Contracts/VaultFromSolidity/Importer"
+  let importerText ← IO.FS.readFile (importerDir / "Importer.lean")
+  let syntaxText ← IO.FS.readFile (importerDir / "Syntax.lean")
+  let semanticsText ← IO.FS.readFile (importerDir / "Semantics.lean")
+  parseCompilerOutput canonicalSource registeredSource sourceBytes output.stdout versionOut.stdout
+    (importerText ++ syntaxText ++ semanticsText)
 
 syntax (name := solidityContract) "solidity_contract " ident " from " str : command
 

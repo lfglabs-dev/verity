@@ -26,8 +26,11 @@
 `Contracts/VaultFromSolidity/VaultFromSolidity.lean` imports the colocated
 `Vault.sol` with `solidity_contract VaultFromSolidity from "Vault.sol"`.
 The Lean frontend invokes pinned solc 0.8.33 for typed AST and storage layout,
-validates and translates them directly, then registers transparent,
-kernel-checked `Verity.Contract` definitions in memory. There is no Python
+validates them, and parses them into the closed, intrinsically typed inductive in
+`Contracts/VaultFromSolidity/Importer/Syntax.lean`. `Importer/Semantics.lean`
+gives each construct its one meaning, and each entry point is registered in
+memory as `Fn.meaning` applied to its parsed term, as a transparent,
+kernel-checked `Verity.Contract` definition. There is no Python
 frontend, custom serialized IR, generated `.lean`, CompilationModel, or
 bytecode. The example is independent of the
 handwritten `Contracts/Vault` contract.
