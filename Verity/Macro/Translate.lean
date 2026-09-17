@@ -2452,6 +2452,10 @@ private def threadHelperApp?
         -- is not a local helper call.  Leave it to the recursive traversal so
         -- linked calls nested in its arguments still receive the adversary.
         return none
+      -- `registryOnlyHelpers` is the set that must be called as `_registry`
+      -- / `_registry_unguarded`. Public bodies pass `#[]`; registry bodies pass
+      -- every adversarial helper, including window-opening ones, so a nested
+      -- `hop` cannot drop into the stub-only public helper.
       let registryOnly := registryOnlyHelpers.any (fun candidate =>
         functionSignatureKey candidate == functionSignatureKey helper)
       let target ←
@@ -5756,9 +5760,6 @@ def mkFunctionCommandsPublic
   let windowNames := windowHelpers.map (·.name)
   let callsWindow ← syntaxCallsAnyHelper windowNames modelFn.body.raw
   let opensReentrancyWindow := directlyOpensReentrancyWindow || callsWindow
-  let registryOnlyHelpers := adversarialHelpers.filter fun helper =>
-    !windowHelpers.any (fun candidate =>
-      functionSignatureKey candidate == functionSignatureKey helper)
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw
@@ -5772,8 +5773,13 @@ def mkFunctionCommandsPublic
       mkContractFnType fn.params fn.returnTy
   let publicExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
     externalDecls functions windowHelpers #[] fn.params #[] advTerm fnExecutableBody.raw⟩
+  -- Registry executables must route every adversarial helper, including
+  -- window-opening helpers, to `_registry` / `_registry_unguarded`. Restricting
+  -- the suffix to non-window helpers let `entry_registry` call public `hop`,
+  -- which then used stub-only nested view helpers and under-approximated the
+  -- compiled callee-controlled ECM.
   let registryExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls functions adversarialHelpers registryOnlyHelpers fn.params #[]
+    externalDecls functions adversarialHelpers adversarialHelpers fn.params #[]
       (⟨advIdent.raw⟩ : Term) fnExecutableBody.raw⟩
   let mut extraExecutableCmds : Array Cmd := #[]
   if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
