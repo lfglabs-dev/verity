@@ -430,16 +430,21 @@ def writeContractSlot (s : ContractState) (contract : Nat) (slot : Nat)
     { s with storageWords := fun key =>
         if key == .contractSlot contract slot then value else s.storageWords key }
 
+/-- Replace the whole word map. Canonical bulk surface for hop namespacing
+    (`switchSlotWorld`) and the denotational channel rebuilds. -/
+def withStorageWords (s : ContractState) (f : StorageKey → Uint256) : ContractState :=
+  { s with storageWords := f }
+
 /-- Park the current unqualified `.slot` world under `parkId` and load
     `loadId`'s `contractSlot` world into `.slot`. Mapping/addr/transient
     channels stay global (see G2). Involutive when the ids are swapped. -/
 def switchSlotWorld (s : ContractState) (parkId loadId : Nat) : ContractState :=
-  { s with storageWords := fun key =>
-      match key with
-      | .slot n => s.storageWords (.contractSlot loadId n)
-      | .contractSlot id n =>
-          if id == parkId then s.storageWords (.slot n) else s.storageWords key
-      | k => s.storageWords key }
+  s.withStorageWords fun key =>
+    match key with
+    | .slot n => s.storageWords (.contractSlot loadId n)
+    | .contractSlot id n =>
+        if id == parkId then s.storageWords (.slot n) else s.storageWords key
+    | k => s.storageWords key
 
 /-- CALL-shaped hop entry: callee sees `sender := caller`, `thisAddress := callee`,
     `msgValue := 0`, empty returndata, and its namespaced scalar slots. -/
@@ -982,9 +987,9 @@ storage view) are channel-wide, not slot-guarded; this is their sanctioned
 surface. The C5 flip reimplements it as a `.slot`-key-restricted update. -/
 def withStorageChannel (s : ContractState)
     (f : (Nat → Uint256) → Nat → Uint256) : ContractState :=
-  { s with storageWords := fun key => match key with
-      | .slot slot => f s.storage slot
-      | _ => s.storageWords key }
+  s.withStorageWords fun key => match key with
+    | .slot slot => f s.storage slot
+    | _ => s.storageWords key
 
 private theorem mem_of_contains_true {α : Type} [BEq α] [LawfulBEq α]
     {xs : List α} {x : α} (h : xs.contains x = true) : x ∈ xs :=
