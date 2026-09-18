@@ -28,6 +28,48 @@ class ParseContractsTests(unittest.TestCase):
         parsed = gen.parse_contracts(src, Path("dummy.lean"))
         self.assertEqual(parsed["Child"].constructor.params[0].name, "x")
 
+    def test_parse_multi_parent_is_list(self) -> None:
+        src = textwrap.dedent(
+            """
+            verity_contract StorageParent where
+              storage
+                one : Uint256 := slot 0
+
+            verity_contract PausableParent where
+              storage
+                paused : Uint256 := slot 2
+
+            verity_contract OwnableParent where
+              storage
+                owner : Address := slot 3
+              constructor (initialOwner : Address) := do
+                setStorageAddr owner initialOwner
+
+            verity_contract Child is StorageParent, PausableParent, OwnableParent where
+              storage
+                extra : Uint256 := slot 4
+              constructor (initialOwner : Address) OwnableParent(initialOwner) := do
+                setStorage extra 0
+            """
+        )
+        parsed = gen.parse_contracts(src, Path("dummy.lean"))
+        self.assertEqual(
+            parsed["Child"].parent_names,
+            ("StorageParent", "PausableParent", "OwnableParent"),
+        )
+        self.assertEqual(parsed["Child"].parent_name, "StorageParent")
+        self.assertIsNotNone(parsed["OwnableParent"].constructor)
+        self.assertIsNotNone(parsed["Child"].constructor)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "Multi.lean"
+            source.write_text(src, encoding="utf-8")
+            contracts = gen.collect_contracts([source])
+            self.assertIn("one", contracts["Child"].storage_slots)
+            self.assertIn("paused", contracts["Child"].storage_slots)
+            self.assertIn("owner", contracts["Child"].storage_slots)
+            self.assertIn("extra", contracts["Child"].storage_slots)
+
     def test_collect_contracts_rejects_unresolved_parent(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             source = Path(tmpdir) / "Child.lean"

@@ -35,12 +35,16 @@ import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
+import Contracts.VaultFromSolidity.Proofs.ExecutionProof
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
+import Verity.Proofs.Model.CommonExternalCallEquivalence
 import Verity.Proofs.Stdlib.Automation
+import Verity.Proofs.Stdlib.Int256
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
+import Verity.Proofs.Stdlib.SolidityImport
 import Compiler.Proofs.AbiDynamicEventObservable
 import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.AbiEventObservable
@@ -686,6 +690,15 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
 
+  -- Contracts/VaultFromSolidity/Proofs/ExecutionProof.lean
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_success_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_success_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_success_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_meets_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_meets_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_meets_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.solvent_invariant
+
   -- Verity/Proofs/CheckedExternalCallConsumer.lean
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_success_world
@@ -699,6 +712,23 @@ end Verity.AxiomAudit
   Verity.Proofs.LoopSimulationResultAware.forEach_rel_execForEachLoop_result_aware
   Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_success_bridge
   Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_earlyExit_bridge
+
+  -- Verity/Proofs/Model/CommonExternalCallEquivalence.lean
+  Contracts.commonExternalCall_eq_model
+  Contracts.externalCallWords_eq_stub_result
+  Contracts.callResultWords_eq_stub
+  Contracts.tryExternalCallWords_eq_stub
+  Contracts.externalCallBind_eq_stub
+  Contracts.externalCallBindTo_eq_stub
+  Contracts.balanceOf_eq_stub
+  Contracts.allowance_eq_stub
+  Contracts.totalSupply_eq_stub
+  Contracts.erc20Write_eq_stub
+  Contracts.safeTransfer_eq_stub
+  Contracts.safeTransferFrom_eq_stub
+  Contracts.safeApprove_eq_stub
+  Contracts.legacyStringSafeTransfer_eq_stub
+  Contracts.legacyStringSafeTransferFrom_eq_stub
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -809,6 +839,50 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Automation.require_beq_isSuccess_true_iff_eq
   Verity.Proofs.Stdlib.Automation.require_beq_isSuccess_false_iff_ne
   Verity.Proofs.Stdlib.Automation.owner_guard_success_implies_storageAddr_eq_sender
+
+  -- Verity/Proofs/Stdlib/Int256.lean
+  -- Verity.Proofs.Stdlib.Int256.modulus_def  -- private
+  -- Verity.Proofs.Stdlib.Int256.natCast_emod_of_lt  -- private
+  -- Verity.Proofs.Stdlib.Int256.max_sub_min  -- private
+  -- Verity.Proofs.Stdlib.Int256.maxValue_nat  -- private
+  -- Verity.Proofs.Stdlib.Int256.natAbs_natCast  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_emod
+  -- Verity.Proofs.Stdlib.Int256.emod_neg_congr  -- private
+  Verity.Proofs.Stdlib.Int256.inRange_eq_of_emod_eq
+  Verity.Proofs.Stdlib.Int256.toInt_add_of_inRange
+  Verity.Proofs.Stdlib.Int256.toInt_mul_of_inRange
+  -- Verity.Proofs.Stdlib.Int256.sub_word  -- private
+  -- Verity.Proofs.Stdlib.Int256.sub_word_emod  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_sub_of_inRange
+  -- Verity.Proofs.Stdlib.Int256.neg_word  -- private
+  -- Verity.Proofs.Stdlib.Int256.neg_maxValue  -- private
+  -- Verity.Proofs.Stdlib.Int256.neg_minValue  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_neg_of_not_min
+  -- Verity.Proofs.Stdlib.Int256.toNat_lt_signBit_of_nonneg  -- private
+  -- Verity.Proofs.Stdlib.Int256.natAbs_le_signBit_of_inRange  -- private
+  -- Verity.Proofs.Stdlib.Int256.inRange_of_natAbs_lt_signBit  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_ofInt
+  -- Verity.Proofs.Stdlib.Int256.decide_natCast_lt_zero  -- private
+  -- Verity.Proofs.Stdlib.Int256.tdiv_eq_sign_natAbs  -- private
+  -- Verity.Proofs.Stdlib.Int256.tmod_eq_sign_natAbs  -- private
+  Verity.Proofs.Stdlib.Int256.div_eq_ofInt_tdiv
+  -- Verity.Proofs.Stdlib.Int256.tdiv_inRange_of_not_divFails  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_div_of_not_divFails
+  Verity.Proofs.Stdlib.Int256.mod_eq_ofInt_tmod
+  -- Verity.Proofs.Stdlib.Int256.tmod_inRange  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_mod_of_ne_zero
+  Verity.Proofs.Stdlib.Int256.addPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.subPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.mulPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.negPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.divPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.modPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.addPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.subPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.mulPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.negPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.divPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.modPanic_failure_iff
 
   -- Verity/Proofs/Stdlib/ListSum.lean
   Verity.Proofs.Stdlib.ListSum.countOcc_cons_eq
@@ -1084,6 +1158,10 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.safeDiv_self
   Verity.Proofs.Stdlib.Math.safeMul_result_bounded
   Verity.Proofs.Stdlib.Math.safeDiv_result_le_numerator
+
+  -- Verity/Proofs/Stdlib/SolidityImport.lean
+  Verity.Proofs.Stdlib.SolidityImport.run_snd_cases
+  Verity.Proofs.Stdlib.SolidityImport.uint256_eq_zero_iff
 
   -- Compiler/Proofs/AbiDynamicEventObservable.lean
   Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_append
@@ -7499,4 +7577,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6940 theorems/lemmas (4950 public, 1990 private, 0 sorry'd)
+-- Total: 7006 theorems/lemmas (4997 public, 2009 private, 0 sorry'd)

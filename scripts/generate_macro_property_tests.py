@@ -21,8 +21,9 @@ from property_utils import ROOT
 
 CONTRACT_RE = re.compile(
     r"^\s*verity_contract\s+([A-Za-z_][A-Za-z0-9_]*)"
-    r"(?:\s+is\s+([A-Za-z_][A-Za-z0-9_.]*))?\s+where\s*$"
+    r"(?:\s+is\s+([A-Za-z_][A-Za-z0-9_.,\s]*))?\s+where\s*$"
 )
+PARENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 NAMESPACE_RE = re.compile(r"^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$")
 END_NAMESPACE_RE = re.compile(r"^\s*end\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$")
 CHECK_CONTRACT_RE = re.compile(r"^\s*#check_contract\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
@@ -174,6 +175,7 @@ class ContractDecl:
     source: Path
     namespace: tuple[str, ...] = ()
     parent_name: str | None = None
+    parent_names: tuple[str, ...] = ()
     storage_types: dict[str, str] = field(default_factory=dict)
     transient_slots: frozenset[str] = frozenset()
     newtypes: dict[str, str] = field(default_factory=dict)
@@ -208,6 +210,15 @@ class StraightLineExecutionResult:
 
 def _normalize_type(type_src: str) -> str:
     return " ".join(type_src.strip().split())
+
+
+def _parse_parent_names(raw: str | None) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    names = tuple(PARENT_NAME_RE.findall(raw))
+    if not names:
+        raise ValueError(f"invalid `is` parent list: {raw!r}")
+    return names
 
 
 def _param_is_func_ptr(param: ParamDecl) -> bool:
@@ -322,6 +333,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
     current_namespace: tuple[str, ...] = ()
     namespace_stack: list[tuple[str, ...]] = []
     current_parent_name: str | None = None
+    current_parent_names: tuple[str, ...] = ()
     current_constructor: ConstructorDecl | None = None
     current_storage_slots: dict[str, int] = {}
     current_transient_slots: set[str] = set()
@@ -373,7 +385,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_body = []
 
     def flush_current() -> None:
-        nonlocal current_name, current_namespace, current_parent_name, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_enums_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
+        nonlocal current_name, current_namespace, current_parent_name, current_parent_names, current_constructor, current_storage_slots, current_transient_slots, current_storage_types, current_newtypes, current_structs, current_constants, current_immutables, current_functions, in_types_block, in_enums_block, in_storage_block, in_constants_block, in_immutables_block, pending_storage_lines, current_struct_block_comment
         if current_name is None:
             return
         flush_struct()
@@ -387,6 +399,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             name=current_name,
             namespace=current_namespace,
             parent_name=current_parent_name,
+            parent_names=current_parent_names,
             constructor=current_constructor,
             functions=tuple(current_functions),
             storage_slots=dict(current_storage_slots),
@@ -401,6 +414,7 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
         current_name = None
         current_namespace = ()
         current_parent_name = None
+        current_parent_names = ()
         current_constructor = None
         current_storage_slots = {}
         current_transient_slots = set()
@@ -440,7 +454,8 @@ def parse_contracts(text: str, source: Path) -> dict[str, ContractDecl]:
             flush_current()
             current_name = cm.group(1)
             current_namespace = tuple(part for ns in namespace_stack for part in ns)
-            current_parent_name = cm.group(2)
+            current_parent_names = _parse_parent_names(cm.group(2))
+            current_parent_name = current_parent_names[0] if current_parent_names else None
             continue
 
         # Clear guard_pending on any non-blank, non-comment line that isn't
@@ -717,26 +732,21 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
         for contract in all_contracts.values()
     }
 
-    def resolve(name: str) -> ContractDecl:
-        if name in resolved:
-            return resolved[name]
-        child = all_contracts[name]
-        if child.parent_name is None:
-            resolved[name] = child
-            return child
-        if "." in child.parent_name:
-            parent_decl = qualified_contracts.get(child.parent_name)
+    def lookup_parent(child: ContractDecl, parent_name: str) -> ContractDecl:
+        if "." in parent_name:
+            parent_decl = qualified_contracts.get(parent_name)
         else:
-            relative_parent = ".".join((*child.namespace, child.parent_name))
+            relative_parent = ".".join((*child.namespace, parent_name))
             parent_decl = qualified_contracts.get(relative_parent)
             if parent_decl is None:
-                parent_decl = qualified_contracts.get(child.parent_name)
+                parent_decl = qualified_contracts.get(parent_name)
         if parent_decl is None:
             raise ValueError(
-                f"unresolved parent contract '{child.parent_name}' for '{child.name}'"
+                f"unresolved parent contract '{parent_name}' for '{child.name}'"
             )
-        parent_key = parent_decl.name
-        parent = resolve(parent_key)
+        return parent_decl
+
+    def inherit(parent: ContractDecl, child: ContractDecl) -> ContractDecl:
         merged_newtypes = parent.newtypes | child.newtypes
         merged_structs = parent.structs | child.structs
         child_functions = tuple(
@@ -759,7 +769,7 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
         }
         for fn in child_functions:
             inherited_functions[(fn.name, tuple(param.lean_type for param in fn.params))] = fn
-        merged = replace(
+        return replace(
             child,
             constructor=child_constructor,
             functions=tuple(inherited_functions.values()),
@@ -778,6 +788,22 @@ def collect_contracts(paths: list[Path]) -> dict[str, ContractDecl]:
             constants=parent.constants | child.constants,
             immutables=parent.immutables | child.immutables,
         )
+
+    def resolve(name: str) -> ContractDecl:
+        if name in resolved:
+            return resolved[name]
+        child = all_contracts[name]
+        parent_names = child.parent_names or (
+            (child.parent_name,) if child.parent_name is not None else ()
+        )
+        if not parent_names:
+            resolved[name] = child
+            return child
+        merged_parent = resolve(lookup_parent(child, parent_names[0]).name)
+        for parent_name in parent_names[1:]:
+            nxt = resolve(lookup_parent(child, parent_name).name)
+            merged_parent = inherit(merged_parent, nxt)
+        merged = inherit(merged_parent, child)
         resolved[name] = merged
         return merged
 

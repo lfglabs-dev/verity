@@ -1,8 +1,9 @@
 # Modifiers, inheritance, and mixins
 
 `verity_contract` supports precondition-only user-defined modifiers, flattened
-single inheritance, mixin include (import, not flatten), direct parent/mixin
-constructor calls, and compile-time `virtual`/`override` specialization.
+inheritance (`is A` or `is A, B, C`), mixin include (import, not flatten),
+direct parent/mixin constructor calls, and compile-time `virtual`/`override`
+specialization.
 
 ## Modifiers
 
@@ -12,14 +13,23 @@ function body in both executable semantics and the compilation model. The
 current stage is intended for checks such as `onlyOwner`; Solidity-style `_`
 placement and postcondition code are not supported.
 
-## Single-parent flatten (`is`)
+## Flatten (`is`)
 
-A child uses `verity_contract Child is Parent where`. The parent must already
-be elaborated (same module or imported `.olean`). Storage, declarations,
+A child uses `verity_contract Child is Parent where` or
+`verity_contract Child is A, B, C where`. Each parent must already be
+elaborated (same module or imported `.olean`). Storage, declarations,
 modifiers, and functions are **flattened** into the child: new `StorageSlot`
-and function definitions are generated. A child constructor calls its direct
-parent with `constructor (...) Parent(args...) := do ...`; parent initialization
-runs before the child body.
+and function definitions are generated.
+
+Multi-parent flattening is **left to right**: apply the existing single-parent
+flatten for `A`, then `B` onto the result, then `C`. There is no C3
+linearization. The same ancestor reached twice (a diamond) is a compile-time
+error naming both paths.
+
+A child constructor names each parent that has a constructor, in `is` order:
+`constructor (...) A(args) B(args) C(args) := do ...`. Parent initialization
+runs in that order, then the child body. Parents without a constructor are
+omitted from the call list.
 
 Mark a parent slot with `function virtual ...` and replace the same ABI
 signature in the child with `function override ...`. Missing targets,
@@ -27,8 +37,14 @@ overrides of non-virtual functions, and accidental signature collisions are
 compile-time errors. Dispatch is specialized during elaboration, so no runtime
 dispatch table or additional proof axiom is introduced.
 
+Sibling parents may not share a storage slot number, a non-overridable
+function signature, or a modifier/role/error/event name. Collision errors
+name both parents.
+
 Because `is` re-elaborates a copied syntax tree, parent proofs do **not**
 apply to the child. Use mixin `include` when you need proof reuse.
+
+`is` and `include` cannot be combined. Cross-namespace inheritance is rejected.
 
 ## Mixin include (import, not flatten)
 
@@ -54,5 +70,6 @@ Mixin slots are absolute as written (including mixin-owned ERC-7201 roots).
 The host does not remap mixin slots. v1 has no `exclude` and no `override`
 on the include path.
 
-Multiple `is` parents / C3 linearization, abstract body-less functions,
-parameterized modifiers, and modifier postludes remain out of scope.
+C3 linearization, abstract body-less functions, parameterized modifiers, and
+modifier postludes remain out of scope. Multi-parent `is A, B, C` is
+left-to-right flatten with diamond rejection; it is not Solidity MRO.

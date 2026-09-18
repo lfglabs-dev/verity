@@ -77,6 +77,11 @@ private partial def validateDoSeqExprTypes
       pure ()
   | _ => throwErrorAt doSeq "unsupported branch body; expected do-sequence"
 
+private partial def expectDoBlock (stx : Term) : CommandElabM DoSeq := do
+  match stripParens stx with
+  | `(term| do $body:doSeq) => pure body
+  | _ => throwErrorAt stx "tryCall branch must be a do block"
+
 private partial def validateDoElemsExprTypes
     (ownerName : String)
     (returnTy : ValueType)
@@ -314,6 +319,19 @@ private partial def validateDoElemExprTypes
           let (payloadName?, catchElems) ← parseTryCatchHandler handler
           validateTryCatchHandlerDoesNotUsePayload handler payloadName? catchElems
           let _ ← validateDoElemsExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls eventDecls functions params locals catchElems
+          pure locals
+      | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
+          match stripParens attempt with
+          | `(term| selfCall $fn:ident) =>
+              unless functions.any (fun f => f.name == toString fn.getId) do
+                throwErrorAt fn s!"selfCall '{fn.getId}' does not name a function of this contract"
+          | _ =>
+              requireWordLikeType attempt "try attempt"
+                (← inferPureExprType fields constDecls immutableDecls externalDecls params locals attempt)
+          let succSeq ← expectDoBlock succ
+          let failSeq ← expectDoBlock fail
+          validateDoSeqExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls eventDecls functions params locals succSeq
+          validateDoSeqExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls eventDecls functions params locals failSeq
           pure locals
       | `(doElem| unsafe $_reason:str do $body:doSeq) =>
           validateDoSeqExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls eventDecls functions params locals body
@@ -1667,6 +1685,40 @@ private partial def translateDoElem
             ],
             locals,
             mutableLocals)
+      | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
+          let trySuccessName :=
+            freshSyntheticLocalName "verity_try_success" params locals mutableLocals
+          let attemptExpr ←
+            match stripParens attempt with
+            | `(term| selfCall $_fn:ident) =>
+                -- CALL-with-status to this (empty calldata). Selector encoding of
+                -- the named function is a documented compilation-model gap.
+                `(Compiler.CompilationModel.Expr.call
+                    (Compiler.CompilationModel.Expr.literal 0)
+                    Compiler.CompilationModel.Expr.contractAddress
+                    (Compiler.CompilationModel.Expr.literal 0)
+                    (Compiler.CompilationModel.Expr.literal 0)
+                    (Compiler.CompilationModel.Expr.literal 0)
+                    (Compiler.CompilationModel.Expr.literal 0)
+                    (Compiler.CompilationModel.Expr.literal 0))
+            | _ =>
+                translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals attempt
+          let succSeq ← expectDoBlock succ
+          let failSeq ← expectDoBlock fail
+          let succStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals succSeq
+          let failStmts ← translateDoSeqToStmtTerms fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals failSeq
+          pure
+            (#[
+              (← `(Compiler.CompilationModel.Stmt.letVar $(strTerm trySuccessName) $attemptExpr)),
+              (← `(Compiler.CompilationModel.Stmt.ite
+                    (Compiler.CompilationModel.Expr.eq
+                      (Compiler.CompilationModel.Expr.localVar $(strTerm trySuccessName))
+                      (Compiler.CompilationModel.Expr.literal 0))
+                    [ $[$failStmts],* ]
+                    [ $[$succStmts],* ]))
+            ],
+            locals,
+            mutableLocals)
       | `(doElem| forEach $name:term $count:term $body:term) =>
           let loopVar := ← expectStringOrIdent name
           let countExpr ← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals count
@@ -1905,6 +1957,17 @@ private def mkContractFnType (params : Array ParamDecl) (retTy : ValueType) : Co
     ty ← `(($(← contractValueTypeTerm param.ty)) → $ty)
   pure ty
 
+private def adversaryModelTypeTerm : CommandElabM Term :=
+  `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
+
+private def executableCallContextTypeTerm : CommandElabM Term :=
+  `(ExecutableCallContext)
+
+private def mkContractFnTypeWithAdversary
+    (params : Array ParamDecl) (retTy : ValueType) : CommandElabM Term := do
+  let base ← mkContractFnType params retTy
+  `(($(← executableCallContextTypeTerm)) → $base)
+
 private def mkTupleProjectionTerm (base : Term) (elemTys : List ValueType) (idx : Nat) : CommandElabM Term := do
   let rec go (tupleTerm : Term) (remaining : List ValueType) (targetIdx : Nat) : CommandElabM Term := do
     match remaining with
@@ -2086,9 +2149,21 @@ private partial def rewriteForEachExecutableDoElem
       | _ =>
           match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
           | some retTy =>
-              let retTyTerm ← contractValueTypeTerm retTy
-              pure (#[← `(doElem| let $name:ident := (panic! "typed interface calls are compiler-only in executable wrappers" : $retTyTerm))],
-                locals.push (mkTypedLocal (toString name.getId) retTy))
+              match typedDotCallSyntax? rhs with
+              | some (target, methodName, argTerms) =>
+                  let targetName ←
+                    match stripParens target with
+                    | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
+                    | _ => pure ""
+                  let some interfaceName := lookupInterfaceName? params locals targetName
+                    | pure (#[elem], locals.push (mkTypedLocal (toString name.getId) retTy))
+                  let extName := interfaceExternalName interfaceName methodName
+                  let linked ← `(term| __verityTypedCall $target $(strTerm extName)
+                    [ $[$argTerms],* ])
+                  pure (#[← `(doElem| let $name:ident ← $linked:term)],
+                    locals.push (mkTypedLocal (toString name.getId) retTy))
+              | none =>
+                  pure (#[elem], locals.push (mkTypedLocal (toString name.getId) retTy))
           | none =>
               match stripParens rhs with
               | `(term| tryExternalCall $extNameTerm:term $_args:term) =>
@@ -2149,6 +2224,21 @@ private partial def rewriteForEachExecutableDoElem
       | _ =>
           throwErrorAt handler
             "tryCatch handler must be `fun _ => do ...` or a direct `do ...` block"
+  | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
+      let succSeq ← expectDoBlock succ
+      let failSeq ← expectDoBlock fail
+      let succ ← rewriteForEachExecutableDoSeq fields externalDecls params locals succSeq
+      let fail ← rewriteForEachExecutableDoSeq fields externalDecls params locals failSeq
+      let attemptLean ←
+        match stripParens attempt with
+        | `(term| selfCall $fn:ident) =>
+            `(term| _root_.Verity.Contract.selfCall $fn)
+        | _ =>
+            `(term| (pure $attempt : _root_.Verity.Contract Uint256))
+      pure (#[← `(doElem|
+        _root_.Verity.Contract.tryWith $attemptLean
+          (fun _ => do $succ)
+          (fun _ => do $fail))], locals)
   | `(doElem| unsafe $_reason:str do $body:doSeq) =>
       let body ← rewriteForEachExecutableDoSeq fields externalDecls params locals body
       pure (#[← `(doElem| do $body)], locals)
@@ -2192,7 +2282,19 @@ private partial def rewriteForEachExecutableDoElem
           | _ => pure (#[elem], locals)
       | _ =>
           if (← isVoidTypedInterfaceCall? externalDecls params locals stmt) then
-            pure (#[← `(doElem| pure ())], locals)
+            match typedDotCallSyntax? stmt with
+            | some (target, methodName, argTerms) =>
+                let targetName ←
+                  match stripParens target with
+                  | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
+                  | _ => pure ""
+                let some interfaceName := lookupInterfaceName? params locals targetName
+                  | pure (#[elem], locals)
+                let extName := interfaceExternalName interfaceName methodName
+                let linked ← `(term| __verityTypedEffect $target $(strTerm extName)
+                  [ $[$argTerms],* ])
+                pure (#[← `(doElem| $linked:term)], locals)
+            | none => pure (#[elem], locals)
           else
             pure (#[elem], locals)
   | other =>
@@ -2212,6 +2314,829 @@ private def mkContractFnValue (params : Array ParamDecl) (body : Term) : Command
     let pid := param.ident
     value ← `(fun ($pid : $(← contractValueTypeTerm param.ty)) => $value)
   pure value
+
+private def mkContractFnValueWithAdversary
+    (adv : Ident) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
+  let value ← mkContractFnValue params body
+  `(fun ($adv : $(← executableCallContextTypeTerm)) => $value)
+
+def translatedBodyOpensReentrancyWindow
+    (stmtTerms : Array Term) : CommandElabM Bool := do
+  let bodyTerm : Term ← `([ $[$stmtTerms],* ])
+  liftTermElabM do
+    let predicate : Term ← `($(bodyTerm).any Compiler.CompilationModel.stmtOpensReentrancyWindow)
+    let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
+    match ← Lean.Meta.withTransparency .all (Lean.Meta.whnf expr) with
+    | .const ``Bool.true _ => pure true
+    | .const ``Bool.false _ => pure false
+    | _ => throwErrorAt bodyTerm
+        "failed to reduce the translated reentrancy-window predicate"
+
+private partial def syntaxCallsAnyHelper
+    (helperNames : Array String) (stx : Syntax) : CommandElabM Bool := do
+  match stx with
+  | `(term| $name:ident($[$args:term],*)) =>
+      if helperNames.contains name.getId.toString then pure true
+      else args.anyM (syntaxCallsAnyHelper helperNames ∘ (fun term => term.raw))
+  | `(term| $name:ident $args:term*) =>
+      if helperNames.contains name.getId.toString then pure true
+      else args.anyM (syntaxCallsAnyHelper helperNames ∘ (fun term => term.raw))
+  | _ => stx.getArgs.anyM (syntaxCallsAnyHelper helperNames)
+
+private def linkedExternalSiteId (externalDecls : Array ExternalDecl) (name : String) : Nat :=
+  (externalDecls.findIdx? (fun ext => ext.name == name)).getD 0
+
+private def flattenedExternalArity (ext : ExternalDecl) : CommandElabM Nat := do
+  match ext.returnTys.toList with
+  | [] => pure 0
+  | [ty] =>
+      match staticAbiWordCount? ty with
+      | some n => pure n
+      | none =>
+          let names ← flattenExternalResultNames "result" ty
+          pure names.length
+  | tys =>
+      let mut total := 0
+      for ty in tys do
+        match staticAbiWordCount? ty with
+        | some n => total := total + n
+        | none =>
+            let names ← flattenExternalResultNames "result" ty
+            total := total + names.length
+      pure total
+
+private def executableLinkedArgWords (arg : Term) (ty : ValueType) : CommandElabM Term := do
+  match ty with
+  | .fixedArray elemTy _ =>
+      let value ← Lean.Elab.Term.mkFreshIdent (mkIdent `_fixedElem).raw
+      let valueTerm : Term := ⟨value.raw⟩
+      let elemWords ← executableLinkedArgWords valueTerm elemTy
+      `(term| ($arg).toList.flatMap (fun $value => $elemWords))
+  | _ =>
+      if externalCallDynamicArgSupported ty then
+        `(externalDynamicArgWords $arg)
+      else
+        `(ExternalArg.toWords $arg)
+
+/-- Keep executable ECM request keys aligned with `expectEcmExprList`: a direct
+dynamic source parameter denotes its synthetic calldata offset and length, not
+the value-oriented `ExternalArg` length-and-contents journal encoding. -/
+private def executableEcmArgWords
+    (params : Array ParamDecl) (arg : Term) : CommandElabM Term := do
+  match directParamNameWithType? params arg with
+  | some (_, ty) =>
+      if externalCallDynamicArgSupported ty then
+        `(externalDynamicArgWords $arg)
+      else
+        `(ExternalArg.toWords $arg)
+  | none => `(ExternalArg.toWords $arg)
+
+private partial def executableExternalResultDecoder (ty : ValueType) : CommandElabM Term := do
+  match ty with
+  | .fixedArray elemTy size =>
+      let elemDecoder ← executableExternalResultDecoder elemTy
+      let width := (staticAbiWordCount? elemTy).getD 1
+      `(term| fun words : List Uint256 =>
+        (List.range $(natTerm size)).toArray.map fun i =>
+          $elemDecoder ((words.drop (i * $(natTerm width))).take $(natTerm width)))
+  | .tuple tys =>
+      let rec decodeTuple (rest : List ValueType) (offset : Nat) : CommandElabM Term := do
+        match rest with
+        | [] => `(term| ())
+        | [last] =>
+            let decoder ← executableExternalResultDecoder last
+            `(term| $decoder (words.drop $(natTerm offset)))
+        | head :: tail =>
+            let decoder ← executableExternalResultDecoder head
+            let width := (staticAbiWordCount? head).getD 1
+            let decodedTail ← decodeTuple tail (offset + width)
+            `(term| ($decoder ((words.drop $(natTerm offset)).take $(natTerm width)), $decodedTail))
+      let decoded ← decodeTuple tys 0
+      `(term| fun words : List Uint256 => $decoded)
+  | .struct name fields =>
+      let structId := mkIdent (Name.mkSimple name)
+      let mut offset := 0
+      let mut fieldIds : Array Ident := #[]
+      let mut values : Array Term := #[]
+      for (fieldName, fieldTy) in fields do
+        let decoder ← executableExternalResultDecoder fieldTy
+        let width := (staticAbiWordCount? fieldTy).getD 1
+        fieldIds := fieldIds.push (mkIdent (Name.mkSimple fieldName))
+        values := values.push (← `(term|
+          $decoder ((words.drop $(natTerm offset)).take $(natTerm width))))
+        offset := offset + width
+      `(term| fun words : List Uint256 =>
+        (show $structId from { $[$fieldIds:ident := $values:term],* }))
+  | .newtype _ baseTy => executableExternalResultDecoder baseTy
+  | _ => `(term| fun words : List Uint256 => ExternalResult.fromWords words)
+
+private def withDeclaredExternalResultDecoder
+    (ext : ExternalDecl) (resultTy body : Term) : CommandElabM Term := do
+  let sourceTy := match ext.returnTys.toList with
+    | [] => ValueType.unit
+    | [ty] => ty
+    | tys => .tuple tys
+  let decoder ← executableExternalResultDecoder sourceTy
+  let width ← flattenedExternalArity ext
+  `(term| letI : ExternalResult $resultTy :=
+      { wordCount := $(natTerm width)
+        fromWord := fun value => $decoder [value]
+        fromWords := $decoder }
+    $body)
+
+private def externalReturnTypeTerm (ext : ExternalDecl) : CommandElabM Term := do
+  let tys ← ext.returnTys.mapM contractValueTypeTerm
+  let rec tupleType : List Term → CommandElabM Term
+    | [] => `(Unit)
+    | [ty] => pure ty
+    | ty :: rest => do
+        let tail ← tupleType rest
+        `($ty × $tail)
+  tupleType tys.toList
+
+private def helperCallWithAdv (name : Ident) (args : Array Term) (adv : Term) : CommandElabM Term := do
+  let mut app : Term := ⟨name.raw⟩
+  app ← `(term| $app $adv)
+  for arg in args do
+    app ← `(term| $app $arg)
+  pure app
+
+private def threadHelperApp?
+    (adversarialHelpers : Array FunctionDecl) (name : Ident) (args : Array Term)
+    (adv : Term) : CommandElabM (Option Term) := do
+  let helper? := adversarialHelpers.find? fun fn =>
+    (fn.name == toString name.getId || fn.ident.getId == name.getId ||
+      (toString name.getId).endsWith ("." ++ fn.name)) &&
+      fn.params.size == args.size
+  match helper? with
+  | some _ => some <$> helperCallWithAdv name args adv
+  | none => pure none
+
+private def rewriteTypedInterfaceCall?
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (adv : Term) (stx : Term) : CommandElabM (Option Term) := do
+  let some (target, methodName, argTerms) := typedDotCallSyntax? stx | pure none
+  let targetName ←
+    match stripParens target with
+    | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
+    | _ => pure ""
+  let some interfaceName := lookupInterfaceName? params #[] targetName | pure none
+  let extName := interfaceExternalName interfaceName methodName
+  let some ext := externalDecls.find? (fun ext => ext.name == extName) | pure none
+  let isView := externalDecls.any (fun candidate => candidate.name == extName && candidate.isView)
+  let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+  let arity := natTerm (← flattenedExternalArity ext)
+  let rewritten ← argTerms.zip ext.params |>.mapM fun (arg, ty) => do
+    let tyTerm ← contractValueTypeTerm ty
+    executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+  if ext.returnTys.isEmpty then
+    if isView then
+      some <$> `(term| externalStaticCallEffectWordsTo $(strTerm extName) $target
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+    else
+      some <$> `(term| externalCallEffectWordsTo $(strTerm extName) $target
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+  else
+    let resultTy ← externalReturnTypeTerm ext
+    let call ← if isView then
+      `(term| externalStaticCallContractWordsTo (α := $resultTy) $(strTerm extName) $target
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+    else
+      `(term| externalCallContractWordsTo (α := $resultTy) $(strTerm extName) $target
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+    some <$> withDeclaredExternalResultDecoder ext resultTy call
+
+private def rewriteLinkedCallTerm
+    (externalDecls : Array ExternalDecl) (params : Array ParamDecl)
+    (adv : Term) (stx : Term) : CommandElabM Term := do
+  match stx with
+  | `(term| __verityTypedCall $target:term $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let ext ← match externalDecls.find? (fun candidate => candidate.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown interface external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      let arity := natTerm (← flattenedExternalArity ext)
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let resultTy ← externalReturnTypeTerm ext
+      let call ← if ext.isView then
+        `(term| externalStaticCallContractWordsTo (α := $resultTy) $name $target
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+      else
+        `(term| externalCallContractWordsTo (α := $resultTy) $name $target
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+      withDeclaredExternalResultDecoder ext resultTy call
+  | `(term| __verityTypedEffect $target:term $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let ext ← match externalDecls.find? (fun candidate => candidate.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown interface external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      if ext.isView then
+        `(term| externalStaticCallEffectWordsTo $name $target
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+      else
+        `(term| externalCallEffectWordsTo $name $target
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+  | `(term| callExternal $name:ident ($[$args:term],*)) =>
+      let extName := toString name.getId
+      let ext ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown linked external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let arity := natTerm (← flattenedExternalArity ext)
+      if ext.returnTys.isEmpty then
+        `(term| externalCallEffectWordsResolved $(strTerm extName)
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+      else
+        let resultTy ← externalReturnTypeTerm ext
+        let call ← `(term| externalCallContractWordsResolved (α := $resultTy) $(strTerm extName)
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $arity $siteId)
+        withDeclaredExternalResultDecoder ext resultTy call
+  | `(term| externalCall $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      match externalDecls.find? (fun ext => ext.name == extName) with
+      | some ext =>
+          let arity := natTerm (← flattenedExternalArity ext)
+          let resultTy ← externalReturnTypeTerm ext
+          let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+            let tyTerm ← contractValueTypeTerm ty
+            executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+          let call ← if ext.isView then
+            `(term| externalStaticCallContractWordsResolved (α := $resultTy) $name
+                (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
+                $adv $arity $siteId)
+          else
+            `(term| externalCallContractWordsResolved (α := $resultTy) $name
+                (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
+                $adv $arity $siteId)
+          withDeclaredExternalResultDecoder ext resultTy call
+      | none =>
+          `(term| externalCallContractWordsResolved $name
+              (List.flatten ([ $[ExternalArg.toWords $args],* ] : List (List Uint256)))
+              $adv 1 $siteId)
+  | `(term| externalStaticCall $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let ext ← match externalDecls.find? (fun candidate => candidate.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown interface external '{extName}'"
+      let arity := natTerm (← flattenedExternalArity ext)
+      let resultTy ← externalReturnTypeTerm ext
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      let call ← `(term| externalStaticCallContractWordsResolved (α := $resultTy) $name
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256)))
+          $adv $arity $siteId)
+      withDeclaredExternalResultDecoder ext resultTy call
+  | `(term| externalStaticCallEffect $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let ext ← match externalDecls.find? (fun candidate => candidate.name == extName) with
+        | some ext => pure ext
+        | none => throwErrorAt name s!"unknown interface external '{extName}'"
+      let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+        let tyTerm ← contractValueTypeTerm ty
+        executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+      `(term| externalStaticCallEffectWordsResolved $name
+          (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+  | `(term| callResult $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let ext? := externalDecls.find? (fun ext => ext.name == extName)
+      let arity ← match ext? with | some ext => flattenedExternalArity ext | none => pure 1
+      let resultTy ← match ext? with
+        | some ext => externalReturnTypeTerm ext
+        | none => `(Unit)
+      let rewritten ← match ext? with
+        | some ext => args.zip ext.params |>.mapM fun (arg, ty) => do
+            let tyTerm ← contractValueTypeTerm ty
+            executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+        | none => args.mapM fun arg => `(ExternalArg.toWords $arg)
+      let call ← `(term| callResultWordsResolved (α := $resultTy) $name
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
+      match ext? with
+      | some ext => withDeclaredExternalResultDecoder ext resultTy call
+      | none => pure call
+  | `(term| tryExternalCall $name:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent name
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let ext? := externalDecls.find? (fun ext => ext.name == extName)
+      let arity ← match ext? with | some ext => flattenedExternalArity ext | none => pure 1
+      let resultTy ← match ext? with
+        | some ext => externalReturnTypeTerm ext
+        | none => `(Unit)
+      let rewritten ← match ext? with
+        | some ext => args.zip ext.params |>.mapM fun (arg, ty) => do
+            let tyTerm ← contractValueTypeTerm ty
+            executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+        | none => args.mapM fun arg => `(ExternalArg.toWords $arg)
+      let call ← `(term| tryExternalCallWordsResolved (α := $resultTy) $name
+        (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
+      match ext? with
+      | some ext => withDeclaredExternalResultDecoder ext resultTy call
+      | none => pure call
+  | `(term| evmCall($gas, $target, $value, $inOffset, $inSize, $outOffset, $outSize)) =>
+      `(term| evmCallWords $adv $gas $target $value $inOffset $inSize $outOffset $outSize)
+  | `(term| evmStaticCall($gas, $target, $inOffset, $inSize, $outOffset, $outSize)) =>
+      `(term| evmStaticCallWords $adv $gas $target $inOffset $inSize $outOffset $outSize)
+  | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) =>
+      `(term| evmCallWords $adv $gas $target $value $inOffset $inSize $outOffset $outSize)
+  | `(term| staticcall $gas $target $inOffset $inSize $outOffset $outSize) =>
+      `(term| evmStaticCallWords $adv $gas $target $inOffset $inSize $outOffset $outSize)
+  | `(term| delegatecall $gas $target $inOffset $inSize $outOffset $outSize) =>
+      `(term| evmDelegateCallWords $adv $gas $target $inOffset $inSize $outOffset $outSize)
+  | `(term| returnDataSize()) | `(term| returndataSize) =>
+      `(term| returndataSizeLive)
+  | `(term| returnDataCopy($destOffset, $sourceOffset, $size))
+    | `(term| returndataCopy $destOffset $sourceOffset $size) =>
+      `(term| returndataCopyLive $destOffset $sourceOffset $size)
+  | `(term| memoryStore($offset, $value)) =>
+      `(term| mstore (externalArgWord $offset) (externalArgWord $value))
+  | `(term| ecmCall $moduleFactory:term $args:term) =>
+      let argList ← expectTermListLiteral args
+      let argWords ← argList.mapM (executableEcmArgWords params)
+      `(term| ecmCallWords (($moduleFactory) "__verity_ecm_result") $adv
+        (List.flatten ([ $[$argWords],* ] : List (List Uint256))))
+  | `(term| ecmDo $module:term $args:term) =>
+      let argList ← expectTermListLiteral args
+      let argWords ← argList.mapM (executableEcmArgWords params)
+      `(term| ecmDoWords $module $adv
+        (List.flatten ([ $[$argWords],* ] : List (List Uint256))))
+  | `(term| externalCallBind ([] : List String) $fnName:term [ $[$args:term],* ]) =>
+      let extName ← expectStringOrIdent fnName
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      match externalDecls.find? (fun ext => ext.name == extName) with
+      | some ext =>
+          let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
+            let tyTerm ← contractValueTypeTerm ty
+            executableLinkedArgWords (← `(($arg : $tyTerm))) ty
+          if ext.isView then
+            `(term| externalStaticCallEffectWordsResolved $fnName
+                (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+          else
+            `(term| externalCallEffectWordsResolved $fnName
+                (List.flatten ([ $[$rewritten],* ] : List (List Uint256))) $adv $siteId)
+      | none =>
+          `(term| externalCallBindResolved ([] : List String) $fnName [ $[$args],* ] $adv $siteId)
+  | `(term| externalCallBind $names:term $fnName:term $args:term) =>
+      let extName ← expectStringOrIdent fnName
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      `(term| externalCallBindResolved $names $fnName $args $adv $siteId)
+  | `(term| tryExternalCallBind $_successVar:term $_names:term $fnName:term $args:term) =>
+      let extName ← expectStringOrIdent fnName
+      let siteId := natTerm (linkedExternalSiteId externalDecls extName)
+      let arity ← match externalDecls.find? (fun ext => ext.name == extName) with
+        | some ext => flattenedExternalArity ext
+        | none => pure 1
+      let argList ← expectTermListLiteral args
+      `(term| tryExternalCallWordsResolved $fnName
+          (List.flatten ([ $[ExternalArg.toWords $argList],* ] : List (List Uint256))) $adv $(natTerm arity) $siteId)
+  | `(term| balanceOf $token:term $owner:term) =>
+      `(term| balanceOf $token $owner $adv)
+  | `(term| allowance $token:term $owner:term $spender:term) =>
+      `(term| allowance $token $owner $spender $adv)
+  | `(term| totalSupply $token:term) =>
+      `(term| totalSupply $token $adv)
+  | `(term| safeTransfer $token:term $toAddr:term $amount:term) =>
+      `(term| safeTransfer $token $toAddr $amount $adv)
+  | `(term| safeTransferFrom $token:term $fromAddr:term $toAddr:term $amount:term) =>
+      `(term| safeTransferFrom $token $fromAddr $toAddr $amount $adv)
+  | `(term| safeApprove $token:term $spender:term $amount:term) =>
+      `(term| safeApprove $token $spender $amount $adv)
+  | `(term| legacyStringSafeTransfer $token:term $toAddr:term $amount:term) =>
+      `(term| legacyStringSafeTransfer $token $toAddr $amount $adv)
+  | `(term| legacyStringSafeTransferFrom $token:term $fromAddr:term $toAddr:term $amount:term) =>
+      `(term| legacyStringSafeTransferFrom $token $fromAddr $toAddr $amount $adv)
+  | other =>
+      match ← rewriteTypedInterfaceCall? externalDecls params adv ⟨other.raw⟩ with
+      | some rewritten => pure rewritten
+      | none => pure other
+
+private def isLiveStateExternalCall (stx : Term) : Bool :=
+  match stx with
+  | `(term| __verityTypedCall $_ $_ [ $[$_],* ])
+  | `(term| __verityTypedEffect $_ $_ [ $[$_],* ])
+  | `(term| callExternal $_ ($[$_],*))
+  | `(term| externalCall $_ [ $[$_],* ])
+  | `(term| callResult $_ [ $[$_],* ])
+  | `(term| tryExternalCall $_ [ $[$_],* ])
+  | `(term| evmCall($[$_],*))
+  | `(term| evmStaticCall($[$_],*))
+  | `(term| call $_ $_ $_ $_ $_ $_ $_)
+  | `(term| staticcall $_ $_ $_ $_ $_ $_)
+  | `(term| delegatecall $_ $_ $_ $_ $_ $_)
+  | `(term| returnDataSize())
+  | `(term| returndataSize)
+  | `(term| returnDataCopy($_, $_, $_))
+  | `(term| returndataCopy $_ $_ $_)
+  | `(term| memoryStore($_, $_))
+  | `(term| ecmCall $_ $_)
+  | `(term| ecmDo $_ $_)
+  | `(term| externalCallBind $_ $_ $_)
+  | `(term| tryExternalCallBind $_ $_ $_ $_)
+  | `(term| balanceOf $_ $_)
+  | `(term| allowance $_ $_ $_)
+  | `(term| totalSupply $_)
+  | `(term| safeTransfer $_ $_ $_)
+  | `(term| safeTransferFrom $_ $_ $_ $_)
+  | `(term| safeApprove $_ $_ $_)
+  | `(term| legacyStringSafeTransfer $_ $_ $_)
+  | `(term| legacyStringSafeTransferFrom $_ $_ $_ $_) => true
+  | _ => false
+
+/-- Restore the source language's word-like coercions after a live external
+call has been hoisted into a concretely typed Lean temporary. -/
+private def adaptHoistedWordContext (stx : Term) : CommandElabM Term := do
+  match stx with
+  | `(term| rawLog [ $[$topics:term],* ] $dataOffset:term $dataSize:term) =>
+      `(term| rawLog [ $[externalArgWord $topics],* ]
+        (externalArgWord $dataOffset) (externalArgWord $dataSize))
+  | `(term| linkedWordPassthrough $value:term) =>
+      `(term| linkedWordPassthrough (externalArgWord $value))
+  | `(term| memoryLoad($offset:term)) =>
+      `(term| memoryLoad(externalArgWord $offset))
+  | `(term| arrayElement $values:term $index:term) =>
+      `(term| arrayElement $values (externalArgWord $index))
+  | `(term| arrayElementChecked $values:term $index:term) =>
+      `(term| arrayElementChecked $values (externalArgWord $index))
+  | `(term| getMappingUint $field:term $key:term) =>
+      `(term| getMappingUint $field (externalArgWord $key))
+  | `(term| balanceOf $token:term $owner:term) =>
+      `(term| balanceOf (externalArgAddress $token) (externalArgAddress $owner))
+  | `(term| allowance $token:term $owner:term $spender:term) =>
+      `(term| allowance (externalArgAddress $token) (externalArgAddress $owner)
+        (externalArgAddress $spender))
+  | `(term| totalSupply $token:term) =>
+      `(term| totalSupply (externalArgAddress $token))
+  | _ => pure stx
+
+private partial def threadAdversaryThroughExecutableSyntax
+    (externalDecls : Array ExternalDecl)
+    (adversarialHelpers : Array FunctionDecl)
+    (params : Array ParamDecl)
+    (adv : Term) (stx : Syntax) : CommandElabM Syntax := do
+  let go := threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers params adv
+  let recurseChildren : CommandElabM Syntax := do
+    match stx with
+    | .node info kind args =>
+        pure (.node info kind (← args.mapM go))
+    | _ => pure stx
+  let rewriteTerm (t : Term) : CommandElabM Term := do
+    rewriteLinkedCallTerm externalDecls params adv t
+  let freshExternalIdent (origin : Term) : CommandElabM Ident :=
+    Lean.Elab.Term.mkFreshIdent
+      (mkIdentFrom origin.raw (Name.mkSimple "__verity_ext")).raw
+  let rec hoistNested (bindSelf : Bool) (t : Term) :
+      CommandElabM (Array (Ident × Term) × Term) := do
+    let bindCall (binds : Array (Ident × Term)) (call : Term) :
+        CommandElabM (Array (Ident × Term) × Term) := do
+      let rewritten ← rewriteTerm call
+      if bindSelf then
+        let tmp ← freshExternalIdent t
+        pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+      else
+        pure (binds, rewritten)
+    let branchContract (binds : Array (Ident × Term)) (value : Term) : CommandElabM Term := do
+      let mut body ← `(term| pure $value)
+      for (tmp, call) in binds.reverse do
+        body ← `(term| _root_.Verity.bind $call (fun $tmp => $body))
+      pure body
+    match t with
+    | `(term| fun $name:ident => $body:term) =>
+        let bodyRaw : Syntax ← go body.raw
+        let rewrittenBody : Term := ⟨bodyRaw⟩
+        pure (#[], ← `(term| fun $name => $rewrittenBody))
+    | `(term| do $body:doSeq) =>
+        let bodyRaw : Syntax ← go body.raw
+        let rewrittenBody : TSyntax ``Lean.Parser.Term.doSeq := ⟨bodyRaw⟩
+        pure (#[], ← `(term| do $rewrittenBody))
+    | `(term| $name:ident($[$args:term],*)) =>
+        match ← threadHelperApp? adversarialHelpers name args adv with
+        | some app => pure (#[], app)
+        | none =>
+            let mut binds : Array (Ident × Term) := #[]
+            let mut rewrittenArgs : Array Term := #[]
+            for arg in args do
+              let (inner, rewritten) ← hoistNested true arg
+              binds := binds ++ inner
+              rewrittenArgs := rewrittenArgs.push rewritten
+            let mut app : Term := ⟨name.raw⟩
+            for arg in rewrittenArgs do
+              app ← `(term| $app $arg)
+            pure (binds, app)
+    | `(term| if $cond:term then $thenValue:term else $elseValue:term) =>
+        let (condBinds, rewrittenCond) ← hoistNested true cond
+        let (thenBinds, rewrittenThen) ← hoistNested true thenValue
+        let (elseBinds, rewrittenElse) ← hoistNested true elseValue
+        if thenBinds.isEmpty && elseBinds.isEmpty then
+          pure (condBinds, ← `(term| if $rewrittenCond then $rewrittenThen else $rewrittenElse))
+        else
+          let thenContract ← branchContract thenBinds rewrittenThen
+          let elseContract ← branchContract elseBinds rewrittenElse
+          let conditional ← `(term| if $rewrittenCond then $thenContract else $elseContract)
+          let tmp ← freshExternalIdent t
+          pure (condBinds.push (tmp, conditional), ⟨tmp.raw⟩)
+    | _ => match t.raw with
+      | .node info kind args =>
+        let mut binds : Array (Ident × Term) := #[]
+        let mut newArgs := args
+        for i in [:args.size] do
+          let (inner, nt) ← hoistNested true ⟨args[i]!⟩
+          binds := binds ++ inner
+          newArgs := newArgs.set! i nt.raw
+        let rebuilt ← adaptHoistedWordContext ⟨Syntax.node info kind newArgs⟩
+        if isLiveStateExternalCall rebuilt then
+          bindCall binds rebuilt
+        else
+          match ← rewriteTypedInterfaceCall? externalDecls params adv rebuilt with
+          | some rewritten =>
+              if bindSelf then
+                let tmp ← freshExternalIdent t
+                pure (binds.push (tmp, rewritten), ⟨tmp.raw⟩)
+              else
+                pure (binds, rewritten)
+          | none => pure (binds, rebuilt)
+      | _ =>
+        if isLiveStateExternalCall t then
+          bindCall #[] t
+        else
+          match ← rewriteTypedInterfaceCall? externalDecls params adv t with
+          | some rewritten =>
+              if bindSelf then
+                let tmp ← freshExternalIdent t
+                pure (#[(tmp, rewritten)], ⟨tmp.raw⟩)
+              else
+                pure (#[], rewritten)
+          | none => pure (#[], t)
+  let wrapBinds (binds : Array (Ident × Term)) (body : TSyntax `doElem) :
+      CommandElabM (TSyntax `doElem) := do
+    let mut acc := body
+    for (tmp, call) in binds.reverse do
+      acc ← `(doElem| do
+        let $tmp ← $call:term
+        $acc:doElem)
+    pure acc
+  let hoistLive (bindSelf : Bool) (rhs : Term)
+      (cont : Term → CommandElabM (TSyntax `doElem)) : CommandElabM Syntax := do
+    let (binds, rewritten) ← hoistNested bindSelf rhs
+    let rest ← cont rewritten
+    wrapBinds binds rest
+  let hoistBound (rhs : Term)
+      (monadic pureBinding : Term → CommandElabM (TSyntax `doElem)) : CommandElabM Syntax := do
+    let (binds, rewritten) ← hoistNested true rhs
+    let rewrittenIdent? : Option Name :=
+      match stripParens rewritten with
+      | `(term| $tmp:ident) => some tmp.getId
+      | `(term| ($tmp:ident : $_ty:term)) => some tmp.getId
+      | _ => none
+    let outerWasBound := rewrittenIdent?.any fun rewrittenName =>
+      binds.any fun (tmp, _) => tmp.getId == rewrittenName
+    let pureValue : Term :=
+      match stripParens rewritten with
+      | `(term| ($tmp:ident : $_ty:term)) => ⟨tmp.raw⟩
+      | stripped => stripped
+    let rest ← if outerWasBound then pureBinding pureValue else monadic rewritten
+    wrapBinds binds rest
+  match stx with
+  | `(doElem| let $pat:term ← tryExternalCall $name:term [ $[$args:term],* ]) =>
+      let mut binds : Array (Ident × Term) := #[]
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      let call ← `(term| tryExternalCall $name [ $[$rewrittenArgs],* ])
+      let rewritten ← rewriteLinkedCallTerm externalDecls params adv call
+      wrapBinds binds (← `(doElem| let $pat:term ← $rewritten:term))
+  | `(doElem| let $pat:term ← callResult $name:term [ $[$args:term],* ]) =>
+      let mut binds : Array (Ident × Term) := #[]
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      let call ← `(term| callResult $name [ $[$rewrittenArgs],* ])
+      let rewritten ← rewriteLinkedCallTerm externalDecls params adv call
+      wrapBinds binds (← `(doElem| let $pat:term ← $rewritten:term))
+  | `(doElem| let $pat:term ← callExternal $name:ident ($[$args:term],*)) =>
+      let mut binds : Array (Ident × Term) := #[]
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      let call ← `(term| callExternal $name ($[$rewrittenArgs],*))
+      let rewritten ← rewriteLinkedCallTerm externalDecls params adv call
+      wrapBinds binds (← `(doElem| let $pat:term ← $rewritten:term))
+  | `(doElem| let $pat:term ← balanceOf $token:term $owner:term) =>
+      let (tokenBinds, rewrittenToken) ← hoistNested true token
+      let (ownerBinds, rewrittenOwner) ← hoistNested true owner
+      wrapBinds (tokenBinds ++ ownerBinds)
+        (← `(doElem| let $pat:term ← (balanceOf
+          (externalArgAddress $rewrittenToken) (externalArgAddress $rewrittenOwner) $adv)))
+  | `(doElem| let $pat:term ← allowance $token:term $owner:term $spender:term) =>
+      let (tokenBinds, rewrittenToken) ← hoistNested true token
+      let (ownerBinds, rewrittenOwner) ← hoistNested true owner
+      let (spenderBinds, rewrittenSpender) ← hoistNested true spender
+      wrapBinds (tokenBinds ++ ownerBinds ++ spenderBinds)
+        (← `(doElem| let $pat:term ← (allowance
+          (externalArgAddress $rewrittenToken) (externalArgAddress $rewrittenOwner)
+          (externalArgAddress $rewrittenSpender) $adv)))
+  | `(doElem| let $pat:term ← totalSupply $token:term) =>
+      let (binds, rewrittenToken) ← hoistNested true token
+      wrapBinds binds
+        (← `(doElem| let $pat:term ← (totalSupply
+          (externalArgAddress $rewrittenToken) $adv)))
+  | `(doElem| let $name:ident ← $fn:ident($[$args:term],*)) =>
+      match ← threadHelperApp? adversarialHelpers fn args adv with
+      | some app => `(doElem| let $name ← $app:term)
+      | none => recurseChildren
+  | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
+      let original := args.map fun arg => (⟨arg.raw⟩ : Term)
+      let fnName := toString fn.getId
+      if fnName == "balanceOf" && original.size == 2 then
+        let (tokenBinds, token) ← hoistNested true original[0]!
+        let (ownerBinds, owner) ← hoistNested true original[1]!
+        wrapBinds (tokenBinds ++ ownerBinds)
+          (← `(doElem| let $name ← (balanceOf
+            (externalArgAddress $token) (externalArgAddress $owner) $adv)))
+      else if fnName == "allowance" && original.size == 3 then
+        let (tokenBinds, token) ← hoistNested true original[0]!
+        let (ownerBinds, owner) ← hoistNested true original[1]!
+        let (spenderBinds, spender) ← hoistNested true original[2]!
+        wrapBinds (tokenBinds ++ ownerBinds ++ spenderBinds)
+          (← `(doElem| let $name ← (allowance
+            (externalArgAddress $token) (externalArgAddress $owner)
+            (externalArgAddress $spender) $adv)))
+      else if fnName == "totalSupply" && original.size == 1 then
+        let (binds, token) ← hoistNested true original[0]!
+        wrapBinds binds
+          (← `(doElem| let $name ← (totalSupply (externalArgAddress $token) $adv)))
+      else
+        match ← threadHelperApp? adversarialHelpers fn original adv with
+        | some app =>
+            hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
+        | none =>
+          if fnName == "__verityTypedCall" then
+            match stx with
+            | `(doElem| let $_ ← $rhs:term) =>
+                let rewritten ← rewriteLinkedCallTerm externalDecls params adv rhs
+                `(doElem| let $name ← $rewritten:term)
+            | _ => recurseChildren
+          else if fnName == "tryExternalCall" || fnName == "callResult" || fnName == "callExternal"
+              || fnName == "externalCall" || fnName == "externalCallBind" then
+            match stx with
+            | `(doElem| let $_ ← $rhs:term) =>
+                hoistBound rhs
+                  (fun rewritten => `(doElem| let $name ← $rewritten:term))
+                  (fun rewritten => `(doElem| let $name := $rewritten:term))
+            | _ => recurseChildren
+          else
+            let mut rhs : Term := ⟨fn.raw⟩
+            for arg in original do
+              rhs ← `(term| $rhs $arg)
+            hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
+  | `(doElem| let $name:ident ← $rhs:term) =>
+      hoistBound rhs
+        (fun rewritten => `(doElem| let $name ← $rewritten:term))
+        (fun rewritten => `(doElem| let $name := $rewritten:term))
+  | `(doElem| let $pat:term ← $rhs:term) =>
+      hoistBound rhs
+        (fun rewritten => `(doElem| let $pat:term ← $rewritten:term))
+        (fun rewritten => `(doElem| let $pat:term := $rewritten:term))
+  | `(doElem| let mut $name:ident := $rhs:term) =>
+      hoistLive true rhs fun rewritten =>
+        `(doElem| let mut $name := $rewritten:term)
+  | `(doElem| let $name:ident := $rhs:term) =>
+      hoistLive true rhs fun rewritten =>
+        `(doElem| let $name := $rewritten:term)
+  | `(doElem| let $pat:term := $rhs:term) =>
+      hoistLive true rhs fun rewritten =>
+        `(doElem| let $pat:term := $rewritten:term)
+  | `(doElem| $name:ident := $rhs:term) =>
+      hoistLive true rhs fun rewritten =>
+        `(doElem| $name:ident := $rewritten:term)
+  | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
+      let rewrittenThen := ⟨← go thenBranch.raw⟩
+      let rewrittenElse := ⟨← go elseBranch.raw⟩
+      hoistLive true cond fun rewritten =>
+        `(doElem| if $rewritten:term then $rewrittenThen:doSeq else $rewrittenElse:doSeq)
+  | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
+      let (condBinds, rewrittenCond) ← hoistNested true cond
+      let mut argBinds : Array (Ident × Term) := #[]
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args.getElems do
+        let (inner, rewritten) ← hoistNested true arg
+        argBinds := argBinds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      let failure ← wrapBinds argBinds
+        (← `(doElem| revertError $errorName:ident($[$rewrittenArgs],*)))
+      wrapBinds condBinds
+        (← `(doElem| if $rewrittenCond then pure () else do $failure:doElem))
+  | `(doElem| revert $errorName:ident($args,*)) =>
+      let mut binds : Array (Ident × Term) := #[]
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args.getElems do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      wrapBinds binds (← `(doElem| revert $errorName:ident($[$rewrittenArgs],*)))
+  | `(doElem| revertError $errorName:ident($args,*)) =>
+      let mut binds : Array (Ident × Term) := #[]
+      let mut rewrittenArgs : Array Term := #[]
+      for arg in args.getElems do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        rewrittenArgs := rewrittenArgs.push rewritten
+      wrapBinds binds (← `(doElem| revertError $errorName:ident($[$rewrittenArgs],*)))
+  | `(doElem| panic($code:term)) =>
+      hoistLive true code fun rewritten => `(doElem| panic($rewritten))
+  | `(doElem| return $value:term) =>
+      hoistLive true value fun rewritten => `(doElem| return $rewritten:term)
+  | `(doElem| ecmBind $names:term $module:term $args:term) =>
+      let argList ← expectTermListLiteral args
+      let argWords ← argList.mapM (executableEcmArgWords params)
+      let resultNames ← expectStringList names
+      let ids := resultNames.map (mkIdent ∘ Name.mkSimple)
+      if ids.size == 1 then
+        let id := ids[0]!
+        `(doElem| let $id ← (ecmCallWords $module $adv
+          (List.flatten ([ $[$argWords],* ] : List (List Uint256)))))
+      else if ids.size == 2 then
+        let left := ids[0]!
+        let right := ids[1]!
+        `(doElem| let ($left, $right) ← (ecmCallPairWords $module $adv
+          (List.flatten ([ $[$argWords],* ] : List (List Uint256)))))
+      else if ids.isEmpty then
+        `(doElem| ecmDoWords $module $adv
+          (List.flatten ([ $[$argWords],* ] : List (List Uint256))))
+      else
+        let idTerms := ids.map (fun id => (⟨id.raw⟩ : Term))
+        let rec nestedTuple (terms : List Term) : CommandElabM Term := do
+          match terms with
+          | [left, right] => `(term| ($left, $right))
+          | head :: tail =>
+              let rest ← nestedTuple tail
+              `(term| ($head, $rest))
+          | _ => throwErrorAt names "ECM tuple binding requires at least two results"
+        let tuplePattern ← nestedTuple idTerms.toList
+        let uintTy ← `(term| Uint256)
+        let rec nestedTupleType (terms : List Term) : CommandElabM Term := do
+          match terms with
+          | [left, right] => `(term| $left × $right)
+          | head :: tail =>
+              let rest ← nestedTupleType tail
+              `(term| $head × $rest)
+          | _ => throwErrorAt names "ECM tuple type requires at least two results"
+        let tupleType ← nestedTupleType (ids.toList.map (fun _ => uintTy))
+        `(doElem| let $tuplePattern:term ← (ecmCallTypedWords (α := $tupleType)
+          $module $adv
+          (List.flatten ([ $[$argWords],* ] : List (List Uint256)))))
+  | `(doElem| $fn:ident $args:term*) =>
+      let original := args.map fun arg => (⟨arg.raw⟩ : Term)
+      if toString fn.getId == "__verityTypedEffect" then
+        match stx with
+        | `(doElem| $rhs:term) =>
+            let rewritten ← rewriteLinkedCallTerm externalDecls params adv rhs
+            `(doElem| $rewritten:term)
+        | _ => recurseChildren
+      else match ← threadHelperApp? adversarialHelpers fn original adv with
+      | some app =>
+          hoistLive false app fun rewritten => `(doElem| $rewritten:term)
+      | none =>
+          match stx with
+          | `(doElem| $stmt:term) =>
+              hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
+          | _ => recurseChildren
+  | `(doElem| $stmt:term) =>
+      hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
+  | `(term| $name:ident $args:term*) =>
+      let original := args.map fun arg => (⟨arg.raw⟩ : Term)
+      match ← threadHelperApp? adversarialHelpers name original adv with
+      | some app => pure app.raw
+      | none =>
+          if isLiveStateExternalCall ⟨stx⟩ then
+            (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv ⟨stx⟩
+          else
+            recurseChildren
+  | _ =>
+      let asTerm : Term := ⟨stx⟩
+      if isLiveStateExternalCall asTerm then
+        (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv asTerm
+      else
+        recurseChildren
 
 private def mkModelParamsTerm (params : Array ParamDecl) : CommandElabM Term := do
   let xs ← params.mapM fun p => do
@@ -3022,6 +3947,11 @@ private partial def offsetStorageAccessorTree (offset : Nat) : StorageAccessorTr
 structure ParsedContractSyntax where
   contractName : Ident
   parentName? : Option Ident := none
+  /-- Direct `is` parents, left to right. -/
+  parentNames : Array Ident := #[]
+  /-- Fully-qualified ancestor names including this contract. Used to reject
+      diamonds under multi-parent `is`. -/
+  flattenedAncestors : Array Name := #[]
   newtypeDecls : Array NewtypeDecl
   structDecls : Array StructDecl
   adtDecls : Array AdtDecl
@@ -3033,6 +3963,7 @@ structure ParsedContractSyntax where
   constDecls : Array ConstantDecl
   immutableDecls : Array ImmutableDecl
   interfaceDecls : Array InterfaceDecl
+  linkedContracts : Array LinkedContractDecl := #[]
   externalDecls : Array ExternalDecl
   ctor : Option ConstructorDecl
   modifiers : Array ModifierDecl
@@ -3261,6 +4192,145 @@ private def composeConstructors
         body := combinedBody
       })
 
+/-- Bind one inherited constructor's arguments and wrap its body in a nested
+    lexical scope. Shared by multi-parent flattening. -/
+private def scopedInheritedConstructor
+    (_parentName : Ident)
+    (parentContract : ParsedContractSyntax)
+    (parentCtor : ConstructorDecl)
+    (childContract : ParsedContractSyntax)
+    (childParams : Array ParamDecl)
+    (args : Array Term)
+    (calledAt : Syntax)
+    : CommandElabM (Array String × TSyntax `doElem) := do
+  for (param, arg) in parentCtor.params.zip args do
+    let argTy ← inferPureExprType
+      (parentContract.fields ++ childContract.fields)
+      (parentContract.constDecls ++ childContract.constDecls)
+      (parentContract.immutableDecls ++ childContract.immutableDecls)
+      (parentContract.externalDecls ++ childContract.externalDecls)
+      childParams #[] arg
+    unless argumentTypeMatchesParam arg argTy param.ty do
+      throwErrorAt arg
+        s!"parent constructor parameter '{param.name}' expects {renderValueType param.ty}, got {renderValueType argTy}"
+  let inheritedBinderNames := parentCtor.boundParentParamNames ++ (← localBinderNames parentCtor.body.raw)
+  if let some captured := inheritedBinderNames.find? (fun name =>
+      childParams.any (fun childParam => paramReservesName childParam name)) then
+    throwErrorAt calledAt s!"ancestor constructor binding '{captured}' conflicts with a child constructor parameter; rename the child parameter"
+  let mut parentBindings : Array (TSyntax `doElem) := #[]
+  let mut dynamicParamBindings : Array (String × Syntax) := #[]
+  let mut boundParentParamNames := inheritedBinderNames
+  for (param, arg) in parentCtor.params.zip args do
+    let directChildParam? := match stripParens arg with
+      | `(term| $name:ident) =>
+          childParams.find? (fun (childParam : ParamDecl) =>
+            declaredNameMatches (toString name.getId) childParam.name)
+      | _ => childParams.find? (fun childParam =>
+          (stripParens arg).raw.reprint.getD "" == childParam.name)
+    let isIdentityArg := directChildParam?.any (fun childParam => childParam.name == param.name)
+    if !isIdentityArg then
+      if childParams.any (fun childParam => paramReservesName childParam param.name) then
+        throwErrorAt arg s!"parent constructor parameter '{param.name}' conflicts with a child constructor parameter; rename the child parameter"
+      if valueTypeUsesDynamicData param.ty && directChildParam?.isSome then
+        dynamicParamBindings := dynamicParamBindings.push (param.name, arg.raw)
+      else
+        let normalizedArg ← normalizeParentConstructorArg param.ty arg
+        let binding ← `(doElem| let $param.ident := $normalizedArg)
+        parentBindings := parentBindings.push binding
+        boundParentParamNames := boundParentParamNames.push param.name
+  let parentBody := substituteDynamicParentParams dynamicParamBindings parentCtor.body
+  let parentElems ← doElems parentBody
+  let scopedParent ← `(doElem| if true then
+    $[$parentBindings:doElem]*
+    $[$parentElems:doElem]*
+    else
+      pure ())
+  pure (boundParentParamNames, scopedParent)
+
+/-- Compose every direct parent's constructor, left to right, then the child
+    body. Named inits must match `is A, B, C` order. -/
+private def composeMultiParentConstructors
+    (parents : Array (Ident × Name × ParsedContractSyntax))
+    (child : ParsedContractSyntax)
+    : CommandElabM (Option ConstructorDecl) := do
+  let inits := child.ctor.map (·.mixinInits) |>.getD #[]
+  let childParams := child.ctor.map (·.params) |>.getD #[]
+  let mut initIdx : Nat := 0
+  let mut prelude : Array (TSyntax `doElem) := #[]
+  let mut boundNames : Array String := #[]
+  let mut extraObligations : Array LocalObligationDecl := #[]
+  for (parentIdent, _, parentContract) in parents do
+    let parentLabel := toString parentIdent.getId
+    let nextInit? : Option (Ident × Array Term) := inits[initIdx]?
+    match parentContract.ctor with
+    | none =>
+        if let some (id, _) := nextInit? then
+          if id.getId == parentIdent.getId then
+            throwErrorAt id "parent constructor call supplied, but the parent has no constructor"
+    | some parentCtor =>
+        let (calledAt, args) ← match nextInit? with
+          | some (id, namedArgs) =>
+              if id.getId == parentIdent.getId then
+                initIdx := initIdx + 1
+                if namedArgs.size != parentCtor.params.size then
+                  throwErrorAt id
+                    s!"parent constructor '{parentLabel}' expects {parentCtor.params.size} argument(s), got {namedArgs.size}"
+                pure (id.raw, namedArgs)
+              else if let some (laterId, _) :=
+                  inits.find? (fun (named, _) => named.getId == parentIdent.getId) then
+                throwErrorAt laterId
+                  s!"constructor calls parent '{parentLabel}' out of `is` order"
+              else if child.ctor.isNone && parentCtor.params.isEmpty then
+                pure (parentIdent.raw, #[])
+              else
+                throwErrorAt parentIdent
+                  s!"constructor must call parent constructor '{parentLabel}'"
+          | none =>
+              if child.ctor.isNone && parentCtor.params.isEmpty then
+                pure (parentIdent.raw, #[])
+              else if child.ctor.isNone then
+                throwErrorAt parentIdent
+                  s!"parent constructor '{parentLabel}' expects {parentCtor.params.size} argument(s); add an explicit parent constructor call"
+              else
+                throwErrorAt parentIdent
+                  s!"constructor must call parent constructor '{parentLabel}'"
+        let (names, scopedElem) ← scopedInheritedConstructor
+          parentIdent parentContract parentCtor child childParams args calledAt
+        prelude := prelude.push scopedElem
+        boundNames := boundNames ++ names
+        extraObligations := extraObligations ++ parentCtor.localObligations
+  if let some (id, _) := inits[initIdx]? then
+    throwErrorAt id s!"constructor calls '{id.getId}', which is not a direct `is` parent"
+  match child.ctor with
+  | none =>
+      if prelude.isEmpty then
+        pure none
+      else
+        let combinedBody ← `(term| do $[$prelude:doElem]*)
+        pure (some {
+          params := #[]
+          isPayable := false
+          localObligations := extraObligations
+          boundParentParamNames := boundNames
+          parentName? := none
+          parentArgs := #[]
+          mixinInits := #[]
+          body := combinedBody
+        })
+  | some childCtor =>
+      let childElems ← doElems childCtor.body
+      let combinedBody ← `(term| do $[$prelude:doElem]* $[$childElems:doElem]*)
+      pure (some {
+        childCtor with
+        isPayable := childCtor.isPayable
+        localObligations := extraObligations ++ childCtor.localObligations
+        boundParentParamNames := boundNames ++ childCtor.boundParentParamNames
+        parentName? := none
+        parentArgs := #[]
+        mixinInits := #[]
+        body := combinedBody
+      })
+
 private def flattenSingleInheritance
     (parentName : Ident) (parent child : ParsedContractSyntax) : CommandElabM ParsedContractSyntax := do
   let duplicateFields := child.fields.filter fun field => parent.fields.any (fun inherited => inherited.name == field.name)
@@ -3327,6 +4397,7 @@ private def flattenSingleInheritance
     constDecls := parent.constDecls ++ child.constDecls
     immutableDecls := inheritedImmutables ++ child.immutableDecls
     interfaceDecls := parent.interfaceDecls ++ child.interfaceDecls
+    linkedContracts := parent.linkedContracts ++ child.linkedContracts
     externalDecls := parent.externalDecls ++ child.externalDecls
     ctor := ctor
     modifiers := parent.modifiers ++ child.modifiers
@@ -3591,6 +4662,202 @@ private def fieldOccupiedSlots (field : StorageFieldDecl) : Array Nat :=
 private def fieldDeclaredNames (field : StorageFieldDecl) : Array String :=
   #[field.name] ++ field.aliases.toArray
 
+private def ancestorsOf (resolvedName : Name) (parsed : ParsedContractSyntax) : Array Name :=
+  if parsed.flattenedAncestors.isEmpty then #[resolvedName]
+  else parsed.flattenedAncestors
+
+private def checkDiamond
+    (parents : Array (Ident × Name × ParsedContractSyntax)) : CommandElabM Unit := do
+  let mut seen : Array (Name × Ident) := #[]
+  for (parentIdent, resolvedName, parsed) in parents do
+    for anc in ancestorsOf resolvedName parsed do
+      if let some (_, viaIdent) := seen.find? (fun (n, _) => n == anc) then
+        throwErrorAt parentIdent
+          s!"diamond inheritance: ancestor '{anc}' is reached twice (via '{viaIdent.getId}' and '{parentIdent.getId}')"
+      seen := seen.push (anc, parentIdent)
+
+/-- Left-to-right sibling merge of `is A, B, C` parents. Collisions fail closed
+    with both parent names; no override between siblings. -/
+private def mergeSiblingParents
+    (parents : Array (Ident × Name × ParsedContractSyntax)) :
+    CommandElabM ParsedContractSyntax := do
+  let some (firstIdent, _firstResolved, firstParsed) := parents[0]?
+    | throwError "internal error: mergeSiblingParents requires at least one parent"
+  checkDiamond parents
+  let firstLabel := toString firstIdent.getId
+  let mut acc := firstParsed
+  let mut fieldOwner : Array (String × String) :=
+    (firstParsed.fields.flatMap fieldDeclaredNames).map fun n => (n, firstLabel)
+  let mut persistOwner : Array (Nat × String × String) :=
+    (firstParsed.fields.filter (fun f => !f.isTransient)).flatMap fun field =>
+      (fieldOccupiedSlots field).map fun sl => (sl, firstLabel, field.name)
+  let mut transientOwner : Array (Nat × String × String) :=
+    (firstParsed.fields.filter (·.isTransient)).flatMap fun field =>
+      (fieldOccupiedSlots field).map fun sl => (sl, firstLabel, field.name)
+  let mut modOwner : Array (String × String) :=
+    firstParsed.modifiers.map fun m => (m.name, firstLabel)
+  let mut roleOwner : Array (String × String) :=
+    firstParsed.roleDecls.map fun r => (r.name, firstLabel)
+  let mut fnOwner : Array (String × String) :=
+    firstParsed.functions.map fun fn => (functionSignatureKey fn, firstLabel)
+  let mut errorOwner : Array (String × String) :=
+    firstParsed.errorDecls.map fun e => (e.name, firstLabel)
+  let mut eventOwner : Array (String × String) :=
+    firstParsed.eventDecls.map fun e => (e.name, firstLabel)
+  let mut constOwner : Array (String × String) :=
+    firstParsed.constDecls.map fun c => (c.name, firstLabel)
+  let mut immOwner : Array (String × String) :=
+    firstParsed.immutableDecls.map fun i => (i.name, firstLabel)
+  let mut typeOwner : Array (String × String) :=
+    (firstParsed.newtypeDecls.map fun d => (localDeclName d.name, firstLabel)) ++
+    (firstParsed.structDecls.map fun d => (localDeclName d.name, firstLabel)) ++
+    (firstParsed.adtDecls.map fun d => (localDeclName d.name, firstLabel))
+  let mut ifaceOwner : Array (String × String) :=
+    firstParsed.interfaceDecls.map fun d => (localDeclName d.name, firstLabel)
+  let mut linkedOwner : Array (String × String) :=
+    firstParsed.linkedContracts.map fun d => (d.name, firstLabel)
+  for i in [1:parents.size] do
+    let some (parentIdent, _resolvedName, parsed) := parents[i]?
+      | throwError "internal error: missing parent in mergeSiblingParents"
+    let label := toString parentIdent.getId
+    for field in parsed.fields do
+      for n in fieldDeclaredNames field do
+        if let some via := (fieldOwner.find? (fun (name, _) => name == n)).map (·.2) then
+          throwErrorAt field.ident
+            s!"storage field '{n}' from parent '{label}' duplicates a field from parent '{via}'"
+        fieldOwner := fieldOwner.push (n, label)
+      let occupied := fieldOccupiedSlots field
+      if field.isTransient then
+        for sl in occupied do
+          if let some (_, via, viaField) := transientOwner.find? (fun (s, _, _) => s == sl) then
+            throwErrorAt field.ident
+              s!"duplicate storage slot {sl} from parent '{label}' field '{field.name}' overlaps parent '{via}' field '{viaField}'"
+          transientOwner := transientOwner.push (sl, label, field.name)
+      else
+        for sl in occupied do
+          if let some (_, via, viaField) := persistOwner.find? (fun (s, _, _) => s == sl) then
+            throwErrorAt field.ident
+              s!"duplicate storage slot {sl} from parent '{label}' field '{field.name}' overlaps parent '{via}' field '{viaField}'"
+          persistOwner := persistOwner.push (sl, label, field.name)
+    for modDecl in parsed.modifiers do
+      if let some via := (modOwner.find? (fun (n, _) => n == modDecl.name)).map (·.2) then
+        throwErrorAt modDecl.ident
+          s!"modifier '{modDecl.name}' from parent '{label}' duplicates a modifier from parent '{via}'"
+      modOwner := modOwner.push (modDecl.name, label)
+    for roleDecl in parsed.roleDecls do
+      if let some via := (roleOwner.find? (fun (n, _) => n == roleDecl.name)).map (·.2) then
+        throwErrorAt roleDecl.ident
+          s!"role '{roleDecl.name}' from parent '{label}' duplicates a role from parent '{via}'"
+      roleOwner := roleOwner.push (roleDecl.name, label)
+    for fn in parsed.functions do
+      let key := functionSignatureKey fn
+      if let some via := (fnOwner.find? (fun (k, _) => k == key)).map (·.2) then
+        throwErrorAt fn.ident
+          s!"function '{fn.name}' from parent '{label}' duplicates a function from parent '{via}'"
+      fnOwner := fnOwner.push (key, label)
+    for err in parsed.errorDecls do
+      if let some via := (errorOwner.find? (fun (n, _) => n == err.name)).map (·.2) then
+        throwErrorAt err.ident
+          s!"error '{err.name}' from parent '{label}' duplicates an error from parent '{via}'"
+      errorOwner := errorOwner.push (err.name, label)
+    for ev in parsed.eventDecls do
+      if let some via := (eventOwner.find? (fun (n, _) => n == ev.name)).map (·.2) then
+        throwErrorAt ev.ident
+          s!"event '{ev.name}' from parent '{label}' duplicates an event from parent '{via}'"
+      eventOwner := eventOwner.push (ev.name, label)
+    for c in parsed.constDecls do
+      if let some via := (constOwner.find? (fun (n, _) => n == c.name)).map (·.2) then
+        throwErrorAt c.ident
+          s!"constant '{c.name}' from parent '{label}' duplicates a constant from parent '{via}'"
+      constOwner := constOwner.push (c.name, label)
+    for imm in parsed.immutableDecls do
+      if let some via := (immOwner.find? (fun (n, _) => n == imm.name)).map (·.2) then
+        throwErrorAt imm.ident
+          s!"immutable '{imm.name}' from parent '{label}' duplicates an immutable from parent '{via}'"
+      immOwner := immOwner.push (imm.name, label)
+    let typeNames :=
+      (parsed.newtypeDecls.map fun d => (d.ident, localDeclName d.name)) ++
+      (parsed.structDecls.map fun d => (d.ident, localDeclName d.name)) ++
+      (parsed.adtDecls.map fun d => (d.ident, localDeclName d.name))
+    for (id, n) in typeNames do
+      if let some via := (typeOwner.find? (fun (name, _) => name == n)).map (·.2) then
+        throwErrorAt id
+          s!"type '{n}' from parent '{label}' duplicates a type from parent '{via}'"
+      typeOwner := typeOwner.push (n, label)
+    for iface in parsed.interfaceDecls do
+      let n := localDeclName iface.name
+      if let some via := (ifaceOwner.find? (fun (name, _) => name == n)).map (·.2) then
+        throwErrorAt iface.ident
+          s!"interface '{n}' from parent '{label}' duplicates an interface from parent '{via}'"
+      ifaceOwner := ifaceOwner.push (n, label)
+    for binding in parsed.linkedContracts do
+      if let some via := (linkedOwner.find? (fun (n, _) => n == binding.name)).map (·.2) then
+        throwErrorAt binding.ident
+          s!"linked_contracts '{binding.name}' from parent '{label}' duplicates a binding from parent '{via}'"
+      linkedOwner := linkedOwner.push (binding.name, label)
+    acc := {
+      acc with
+      newtypeDecls := acc.newtypeDecls ++ parsed.newtypeDecls
+      structDecls := acc.structDecls ++ parsed.structDecls
+      adtDecls := acc.adtDecls ++ parsed.adtDecls
+      fields := acc.fields ++ parsed.fields
+      roleDecls := acc.roleDecls ++ parsed.roleDecls
+      storageStructAccessors := acc.storageStructAccessors ++ parsed.storageStructAccessors
+      errorDecls := acc.errorDecls ++ parsed.errorDecls
+      eventDecls := acc.eventDecls ++ parsed.eventDecls
+      constDecls := acc.constDecls ++ parsed.constDecls
+      immutableDecls := acc.immutableDecls ++ parsed.immutableDecls
+      interfaceDecls := acc.interfaceDecls ++ parsed.interfaceDecls
+      linkedContracts := acc.linkedContracts ++ parsed.linkedContracts
+      externalDecls := acc.externalDecls ++ parsed.externalDecls
+      modifiers := acc.modifiers ++ parsed.modifiers
+      functions := acc.functions ++ parsed.functions
+      storageNamespace :=
+        if !acc.fields.isEmpty then acc.storageNamespace
+        else parsed.storageNamespace
+    }
+  pure {
+    acc with
+    functions := assignOverloadInternalIdents acc.functions
+    flattenedAncestors := parents.flatMap fun (_, n, p) => ancestorsOf n p
+    parentNames := parents.map (·.1)
+  }
+
+/-- Flatten `is A, B, C` onto the child: sibling-merge parents left to right,
+    compose constructors in `is` order, then reuse single-parent flatten so
+    the child can override inherited virtuals. -/
+private def applyMultiParentFlatten
+    (parents : Array (Ident × Name × ParsedContractSyntax))
+    (merged : ParsedContractSyntax)
+    (child : ParsedContractSyntax)
+    : CommandElabM ParsedContractSyntax := do
+  let some (firstIdent, _, _) := parents[0]?
+    | throwError "internal error: applyMultiParentFlatten requires at least one parent"
+  let composedCtor ← composeMultiParentConstructors parents child
+  let substitutedImmutables : Array ImmutableDecl :=
+    parents.flatMap fun (parentIdent, _, parent) =>
+      match parent.ctor, child.ctor with
+      | some parentCtor, some childCtor =>
+          let args :=
+            match childCtor.mixinInits.find? (fun (id, _) => id.getId == parentIdent.getId) with
+            | some (_, as) => as
+            | none => #[]
+          let bindings := parentCtor.params.zip args |>.map fun (param, arg) =>
+            (param.name, arg.raw)
+          parent.immutableDecls.map fun imm =>
+            { imm with body := substitutePureInitializerParams bindings imm.body }
+      | _, _ => parent.immutableDecls
+  for field in child.fields do
+    for sl in fieldOccupiedSlots field do
+      for inherited in merged.fields do
+        if inherited.isTransient == field.isTransient then
+          if (fieldOccupiedSlots inherited).contains sl then
+            throwErrorAt field.ident
+              s!"duplicate storage slot {sl} overlaps inherited field '{inherited.name}' from a parent"
+  let merged := { merged with ctor := none, immutableDecls := substitutedImmutables }
+  let own := { child with ctor := composedCtor }
+  flattenSingleInheritance firstIdent merged own
+
 private def pushUniqueIncludeName
     (kind : String) (mixinName : Name) (name : String) (seen : Array String) :
     CommandElabM (Array String) := do
@@ -3738,36 +5005,62 @@ private def finishIncludeContract
     resolvedIncludes := mixins.map (·.1)
   }
 
+private def attachAncestry
+    (currentNs : Name) (contractName : Ident)
+    (parents : Array (Ident × Name × ParsedContractSyntax))
+    (parsed : ParsedContractSyntax) : ParsedContractSyntax :=
+  let selfName := currentNs ++ contractName.getId
+  let parentAncs := parents.flatMap fun (_, n, p) => ancestorsOf n p
+  { parsed with
+    parentNames := parents.map (·.1)
+    flattenedAncestors := parentAncs ++ #[selfName]
+  }
+
 partial def parseContractSyntax
     (stx : Syntax)
     : CommandElabM ParsedContractSyntax := do
   match stx with
-  | `(command| verity_contract $contractName:ident $[is $parentName:ident]? $[include $[$includeNames:ident],*]? where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+  | `(command| verity_contract $contractName:ident $[is $[$parentNames:ident],*]? $[include $[$includeNames:ident],*]? where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_contracts $[$linkedDecls:verityLinkedContract]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$entrypoints:veritySpecialEntrypoint]* $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
       let includeIdents : Array Ident :=
         match includeNames with
         | some ids => ids
         | none => #[]
-      if parentName.isSome && !includeIdents.isEmpty then
+      let parentIdents : Array Ident :=
+        match parentNames with
+        | some ids => ids
+        | none => #[]
+      if !parentIdents.isEmpty && !includeIdents.isEmpty then
         throwErrorAt stx "cannot combine `is` inheritance with `include` mixins"
 
       -- Resolve inheritance before parsing the child: inherited user-defined
       -- types are valid in every child declaration and function signature.
       let currentNs ← getCurrNamespace
-      let mut parent? : Option ParsedContractSyntax := none
-      if let some parentIdent := parentName then
+      let mut resolvedParents : Array (Ident × Name × ParsedContractSyntax) := #[]
+      for parentIdent in parentIdents do
         let candidates := [currentNs ++ parentIdent.getId, parentIdent.getId]
-        let mut resolvedParentName? : Option Name := none
+        let mut found : Option (Name × ParsedContractSyntax) := none
         for candidate in candidates do
-          if parent?.isNone then
-            parent? ← lookupContractSyntax candidate
-            if parent?.isSome then
-              resolvedParentName? := some candidate
-        if parent?.isNone then
-          throwErrorAt parentIdent s!"unknown parent contract '{parentIdent.getId}'; import or declare the parent before the child"
-        if let some resolvedParentName := resolvedParentName? then
-          if resolvedParentName.getPrefix != currentNs then
+          if found.isNone then
+            match (← lookupContractSyntax candidate) with
+            | some parsed => found := some (candidate, parsed)
+            | none => pure ()
+        match found with
+        | none =>
             throwErrorAt parentIdent
-              "cross-namespace inheritance is not supported because inherited bodies must retain the parent's lexical namespace; declare the child in the parent's namespace"
+              s!"unknown parent contract '{parentIdent.getId}'; import or declare the parent before the child"
+        | some (resolvedParentName, parsed) =>
+            if resolvedParentName.getPrefix != currentNs then
+              throwErrorAt parentIdent
+                "cross-namespace inheritance is not supported because inherited bodies must retain the parent's lexical namespace; declare the child in the parent's namespace"
+            resolvedParents := resolvedParents.push (parentIdent, resolvedParentName, parsed)
+      let parent? : Option ParsedContractSyntax ←
+        match resolvedParents.size with
+        | 0 => pure none
+        | 1 =>
+            let some (_, _, parsed) := resolvedParents[0]?
+              | pure none
+            pure (some parsed)
+        | _ => some <$> mergeSiblingParents resolvedParents
       -- Parse newtypes first — they are needed by all downstream type resolution
       let parsedNewtypes ←
         match newtypeDecls with
@@ -3888,6 +5181,30 @@ partial def parseContractSyntax
         if seenInterfaceNames.contains ifaceLocalName then
           throwErrorAt iface.ident s!"duplicate interface name '{ifaceLocalName}'"
         seenInterfaceNames := seenInterfaceNames.push ifaceLocalName
+      let parsedLinkedContracts ←
+        match linkedDecls with
+        | some decls => decls.mapM parseLinkedContract
+        | none => pure #[]
+      let availableInterfaceNames := seenInterfaceNames
+      let mut seenLinkedNames : Array String := parent?.map (fun p =>
+        p.linkedContracts.map (·.name)) |>.getD #[]
+      for binding in parsedLinkedContracts do
+        if seenLinkedNames.contains binding.name then
+          throwErrorAt binding.ident s!"duplicate linked_contracts name '{binding.name}'"
+        unless availableInterfaceNames.contains binding.interfaceName ||
+            availableInterfaceNames.contains (localDeclName binding.interfaceName) do
+          throwErrorAt binding.interfaceIdent
+            s!"linked_contracts '{binding.name}' refers to unknown interface '{binding.interfaceName}'"
+        let calleeCandidates := [currentNs ++ binding.calleeIdent.getId, binding.calleeIdent.getId]
+        let mut foundCallee := false
+        for candidate in calleeCandidates do
+          if !foundCallee then
+            if (← lookupContractSyntax candidate).isSome then
+              foundCallee := true
+        unless foundCallee do
+          throwErrorAt binding.calleeIdent
+            s!"linked_contracts '{binding.name}' refers to unknown contract '{binding.calleeName}'; declare the callee before the caller"
+        seenLinkedNames := seenLinkedNames.push binding.name
       let inheritedInterfaceNames := parent?.map (fun p =>
         p.interfaceDecls.map (·.name)) |>.getD #[]
       let interfaceNames := inheritedInterfaceNames ++ parsedInterfaces.map (·.name)
@@ -3991,7 +5308,8 @@ partial def parseContractSyntax
       let parsedFunctions := enumCastFunctions ++ parsedUserFunctions
       let own : ParsedContractSyntax := {
         contractName := contractName
-        parentName? := parentName
+        parentName? := parentIdents[0]?
+        parentNames := parentIdents
         newtypeDecls := parsedNewtypes
         structDecls := parsedStructs
         adtDecls := parsedAdts
@@ -4003,6 +5321,7 @@ partial def parseContractSyntax
         constDecls := parsedConstants
         immutableDecls := parsedImmutables
         interfaceDecls := parsedInterfaces
+        linkedContracts := parsedLinkedContracts
         externalDecls := parsedExternals
         ctor := (← ctor.mapM fun ctorStx => do
           guardEnumConstructor (← parseConstructor typeNewtypes typeStructs typeAdts ctorStx))
@@ -4010,20 +5329,28 @@ partial def parseContractSyntax
         functions := parsedFunctions
         storageNamespace := firstNamespaceOpt
       }
-      match parentName with
-      | some parentIdent =>
-          let some parent := parent? | unreachable!
+      if resolvedParents.size == 0 then
+        if includeIdents.isEmpty then
+          let inlined := { own with functions := (← inlineModifierPrefixes own.modifiers own.functions) }
+          pure (attachAncestry currentNs contractName resolvedParents inlined)
+        else
+          let included ← finishIncludeContract currentNs includeIdents own
+          pure (attachAncestry currentNs contractName resolvedParents included)
+      else if resolvedParents.size == 1 then
+          let some (parentIdent, _, parent) := resolvedParents[0]? | unreachable!
           let flattened ← flattenSingleInheritance parentIdent parent own
-          pure { flattened with
+          let inlined := { flattened with
             functions := (← inlineModifierPrefixes flattened.modifiers flattened.functions) }
-      | none =>
-          if includeIdents.isEmpty then
-            pure { own with functions := (← inlineModifierPrefixes own.modifiers own.functions) }
-          else
-            finishIncludeContract currentNs includeIdents own
-  | `(command| verity_mixin $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
+          pure (attachAncestry currentNs contractName resolvedParents inlined)
+      else
+          let some merged := parent? | unreachable!
+          let flattened ← applyMultiParentFlatten resolvedParents merged own
+          let inlined := { flattened with
+            functions := (← inlineModifierPrefixes flattened.modifiers flattened.functions) }
+          pure (attachAncestry currentNs contractName resolvedParents inlined)
+  | `(command| verity_mixin $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_contracts $[$linkedDecls:verityLinkedContract]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*) =>
       -- Reuse the contract parser by wrapping mixin syntax as a contract with no parent/includes/entrypoints.
-      let wrapped ← `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*)
+      let wrapped ← `(command| verity_contract $contractName:ident where $[types $[$newtypeDecls:verityNewtype]*]? $[enums $[$enumDecls:verityEnumDecl]*]? $[inductive $[$adtDecls:verityAdtDecl]*]? $[$nsSpec:verityNamespaceSpec]? storage $[$storageItems:verityStorageItem]* $[roles $[$roleDecls:verityRoleDecl]*]? $[$structDecls:verityStructDecl]* $[errors $[$errorDecls:verityError]*]? $[event_defs $[$eventDecls:verityEvent]*]? $[constants $[$constantDecls:verityConstant]*]? $[immutables $[$immutableDecls:verityImmutable]*]? $[interfaces $[$interfaceDecls:verityInterface]*]? $[linked_contracts $[$linkedDecls:verityLinkedContract]*]? $[linked_externals $[$externalDecls:verityExternal]*]? $[$ctor:verityConstructor]? $[$modifierDecls:verityModifier]* $[$functions:verityFunction]*)
       let parsed ← parseContractSyntax wrapped
       pure { parsed with isMixin := true }
   | _ => throwErrorAt stx "invalid verity_contract declaration"
@@ -4049,6 +5376,38 @@ def mkStructEventArgInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd
   let structId := decl.ident
   `(command| instance : CoeTC $structId _root_.Contracts.EventArg where
       coe _ := _root_.Contracts.EventArg.word (pure (0 : _root_.Verity.Uint256)))
+
+def mkStructExternalArgInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
+  let structId := decl.ident
+  let valueId := mkIdent (Name.mkSimple "value")
+  let fieldIds := decl.fields.map (·.ident)
+  let encodedFields ← fieldIds.mapM fun fieldId =>
+    `(term| _root_.Contracts.ExternalArg.toWords $valueId.$fieldId)
+  `(command| instance : _root_.Contracts.ExternalArg $structId where
+      toWords := fun $valueId => List.flatten
+        ([ $[$encodedFields],* ] :
+          List (List _root_.Verity.Uint256)))
+
+def mkStructExternalResultInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
+  let structId := decl.ident
+  let fieldIds := decl.fields.map (·.ident)
+  let fieldTys ← decl.fields.mapM (fun field => contractValueTypeTerm field.ty)
+  let counts ← fieldTys.mapM fun fieldTy =>
+    `(term| _root_.Contracts.ExternalResult.wordCount (α := $fieldTy))
+  let total ← counts.foldlM (init := ← `(term| 0)) fun acc count =>
+    `(term| $acc + $count)
+  let mut offset ← `(term| 0)
+  let mut decoded : Array Term := #[]
+  for fieldTy in fieldTys do
+    decoded := decoded.push (← `(term|
+      _root_.Contracts.ExternalResult.fromWords (α := $fieldTy) (words.drop $offset)))
+    offset ← `(term| $offset +
+      _root_.Contracts.ExternalResult.wordCount (α := $fieldTy))
+  `(command| instance : _root_.Contracts.ExternalResult $structId where
+      wordCount := $total
+      fromWord := fun value =>
+        _root_.Contracts.ExternalResult.fromWords [value]
+      fromWords := fun words => { $[$fieldIds:ident := $decoded:term],* })
 
 /-- Generate a `def storageNamespace : Nat := <keccak-value>` command for
     the current contract.  Uses the resolved namespace value from
@@ -4323,9 +5682,18 @@ def validateFunctionDeclsPublic
       throwErrorAt fn.ident s!"function '{fn.name}': nonreentrant and cei_safe are mutually exclusive"
     validateFunctionBodyExprTypes fields errorDecls eventDecls constDecls immutableDecls externalDecls functions fn
 
-/-- Apply `with` modifiers in declared order: mixin modifiers call the
-    imported Lean `def`; host-local modifiers are inlined (hosts do not
-    emit modifier defs). CompilationModel inlines every modifier body. -/
+private partial def syntaxContainsLiveExternalCall (stx : Syntax) : Bool :=
+  isLiveStateExternalCall ⟨stx⟩ || (typedDotCallSyntax? ⟨stx⟩).isSome ||
+    match stx with
+    | .node _ _ args => args.any syntaxContainsLiveExternalCall
+    | _ => false
+
+def modifierContainsExternalCallSyntaxPublic (modDecl : ModifierDecl) : Bool :=
+  syntaxContainsLiveExternalCall modDecl.body.raw
+
+/-- Apply `with` modifiers in declared order. Inline both mixin and host-local
+    bodies so the later executable adversary pass sees the same external-call
+    syntax that the CompilationModel inlines. -/
 def prefixMixinModifierExecutableBody
     (resolvedIncludes : Array Name) (fn : FunctionDecl) (body : Term)
     (hostModifiers : Array ModifierDecl := #[]) :
@@ -4335,22 +5703,32 @@ def prefixMixinModifierExecutableBody
   let mut preludes : Array (TSyntax `doElem) := #[]
   for modIdent in fn.modifiers do
     let modName := toString modIdent.getId
-    let mut qual? : Option Name := none
+    let mut resolved? : Option (Name × ModifierDecl) := none
     for mixinName in resolvedIncludes do
-      if qual?.isNone then
+      if resolved?.isNone then
         match (← lookupContractSyntax mixinName) with
         | some mixin =>
-            if mixin.modifiers.any (fun m => m.name == modName) then
-              qual? := some (mixinName ++ modIdent.getId)
+            if let some modDecl := mixin.modifiers.find? (fun m => m.name == modName) then
+              resolved? := some (mixinName ++ modIdent.getId, modDecl)
         | none => pure ()
-    match qual? with
-    | some q =>
-        preludes := preludes.push (← `(doElem| $(mkIdent q):ident))
+    match resolved? with
+    | some (qualifiedName, mixinMod) =>
+      if modifierContainsExternalCallSyntaxPublic mixinMod then
+        let modifierElems ← doElems mixinMod.body
+        let modifierLocals ← localBinderNames mixinMod.body.raw
+        if let some captured := modifierLocals.find? (fun name =>
+            fn.params.any (fun param => paramReservesName param name)) then
+          throwErrorAt modIdent
+            s!"modifier '{modName}' local '{captured}' conflicts with a function parameter; rename one of them"
+        preludes := preludes.push (← `(doElem| if true then $[$modifierElems:doElem]* else
+          require false "unreachable modifier scope"))
+      else
+        preludes := preludes.push (← `(doElem| $(mkIdent qualifiedName):ident))
     | none =>
-        let some localMod := hostModifiers.find? (fun m => m.name == modName)
+        let some hostMod := hostModifiers.find? (fun m => m.name == modName)
           | throwErrorAt modIdent s!"function '{fn.name}' references unknown modifier '{modName}'"
-        let modifierElems ← doElems localMod.body
-        let modifierLocals ← localBinderNames localMod.body.raw
+        let modifierElems ← doElems hostMod.body
+        let modifierLocals ← localBinderNames hostMod.body.raw
         if let some captured := modifierLocals.find? (fun name =>
             fn.params.any (fun param => paramReservesName param name)) then
           throwErrorAt modIdent
@@ -4366,15 +5744,104 @@ def prefixMixinModifierExecutableBody
 def mkModifierDefCommandPublic (modDecl : ModifierDecl) : CommandElabM Cmd := do
   `(command| def $(modDecl.ident) : Verity.Contract Unit := $(modDecl.body))
 
-def mkConstructorDefCommandPublic (ctor : ConstructorDecl) : CommandElabM Cmd := do
-  let fnType ← mkContractFnType ctor.params .unit
-  let fnValue ← mkContractFnValue ctor.params ctor.body
+private def constructorOpensReentrancyWindow
+    (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
+    (ctor : ConstructorDecl) : CommandElabM Bool := do
+  let stmts ← translateConstructorBodyToStmtTerms fields errorDecls constDecls
+    immutableDecls externalDecls functions ctor
+  translatedBodyOpensReentrancyWindow stmts
+
+private def constructorAdversarialHelpers
+    (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl) :
+    CommandElabM (Array FunctionDecl) := do
+  let mut adversarial : Array FunctionDecl := #[]
+  for helper in functions do
+    let stmts ← translateBodyToStmtTerms fields #[] errorDecls constDecls immutableDecls
+      externalDecls functions helper
+    if ← translatedBodyOpensReentrancyWindow stmts then
+      adversarial := adversarial.push helper
+  for _ in [:functions.size] do
+    let names := adversarial.map (·.name)
+    let mut grew := false
+    for helper in functions do
+      let callsAdversarial ← syntaxCallsAnyHelper names helper.body.raw
+      if !adversarial.any (fun candidate => candidate.name == helper.name) &&
+          callsAdversarial then
+        adversarial := adversarial.push helper
+        grew := true
+    if !grew then break
+  pure adversarial
+
+def mkConstructorDefCommandPublic
+    (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
+    (ctor : ConstructorDecl) : CommandElabM Cmd := do
+  let directlyOpensReentrancyWindow ← constructorOpensReentrancyWindow fields errorDecls constDecls
+    immutableDecls externalDecls functions ctor
+  let adversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
+    immutableDecls externalDecls functions
+  let callsAdversarial ←
+    syntaxCallsAnyHelper (adversarialHelpers.map (·.name)) ctor.body.raw
+  let opensReentrancyWindow := directlyOpensReentrancyWindow ||
+    callsAdversarial
+  let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
+  let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
+  let advTerm : Term ← if opensReentrancyWindow then
+      pure ⟨advIdent.raw⟩
+    else
+      `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
+  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers
+    ctor.params advTerm executableBody.raw⟩
+  let fnType ← if opensReentrancyWindow then
+      mkContractFnTypeWithAdversary ctor.params .unit
+    else
+      mkContractFnType ctor.params .unit
+  let fnValue ← if opensReentrancyWindow then
+      mkContractFnValueWithAdversary advIdent ctor.params executableBody
+    else
+      mkContractFnValue ctor.params executableBody
   let id : Ident := mkIdent (Name.mkSimple "constructor")
   `(command| def $id : $fnType := $fnValue)
 
 def mkHostConstructorDefCommandPublic
+    (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
     (resolvedIncludes : Array Name) (ctor : ConstructorDecl) : CommandElabM Cmd := do
-  let fnType ← mkContractFnType ctor.params .unit
+  let ownDirectExternal ← constructorOpensReentrancyWindow fields errorDecls constDecls
+    immutableDecls externalDecls functions ctor
+  let ownAdversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
+    immutableDecls externalDecls functions
+  let ownCallsAdversarial ←
+    syntaxCallsAnyHelper (ownAdversarialHelpers.map (·.name)) ctor.body.raw
+  let ownExternal := ownDirectExternal ||
+    ownCallsAdversarial
+  let mut mixinExternal : Array Name := #[]
+  for mixinName in resolvedIncludes do
+    if let some mixin ← lookupContractSyntax mixinName then
+      if let some mixinCtor := mixin.ctor then
+        let direct ← constructorOpensReentrancyWindow mixin.fields mixin.errorDecls mixin.constDecls
+          mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor
+        let helpers ← constructorAdversarialHelpers mixin.fields mixin.errorDecls mixin.constDecls
+          mixin.immutableDecls mixin.externalDecls mixin.functions
+        let callsAdversarial ← syntaxCallsAnyHelper (helpers.map (·.name)) mixinCtor.body.raw
+        if direct || callsAdversarial then
+          mixinExternal := mixinExternal.push mixinName
+  let containsExternalCall := ownExternal || !mixinExternal.isEmpty
+  let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
+  let advTerm : Term ← if containsExternalCall then
+      pure ⟨advIdent.raw⟩
+    else
+      `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
+  let fnType ← if containsExternalCall then
+      mkContractFnTypeWithAdversary ctor.params .unit
+    else
+      mkContractFnType ctor.params .unit
   match ctor.body with
   | `(term| do $[$elems:doElem]*) =>
       let mut preludes : Array (TSyntax `doElem) := #[]
@@ -4384,16 +5851,31 @@ def mkHostConstructorDefCommandPublic
           if targetName.isNone && namesMixin (toString mixinIdent.getId) mixinName then
             targetName := some (mixinName ++ Name.mkSimple "constructor")
         let tgt := mkIdent (targetName.getD (mixinIdent.getId ++ Name.mkSimple "constructor"))
+        let needsAdversary := mixinExternal.any fun name =>
+          namesMixin (toString mixinIdent.getId) name
         if args.isEmpty then
-          preludes := preludes.push (← `(doElem| $tgt:ident))
+          if needsAdversary then
+            preludes := preludes.push (← `(doElem| $tgt:ident $advTerm))
+          else
+            preludes := preludes.push (← `(doElem| $tgt:ident))
         else
-          preludes := preludes.push (← `(doElem| $tgt:ident $args*))
+          if needsAdversary then
+            preludes := preludes.push (← `(doElem| $tgt:ident $advTerm $args*))
+          else
+            preludes := preludes.push (← `(doElem| $tgt:ident $args*))
       let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
-      let fnValue ← mkContractFnValue ctor.params body
+      let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params body
+      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls ownAdversarialHelpers
+        ctor.params advTerm executableBody.raw⟩
+      let fnValue ← if containsExternalCall then
+          mkContractFnValueWithAdversary advIdent ctor.params executableBody
+        else
+          mkContractFnValue ctor.params executableBody
       let id : Ident := mkIdent (Name.mkSimple "constructor")
       `(command| def $id : $fnType := $fnValue)
   | _ =>
-      mkConstructorDefCommandPublic ctor
+      mkConstructorDefCommandPublic fields errorDecls constDecls immutableDecls
+        externalDecls functions ctor
 
 def mkIncludeAliasCommandsPublic
     (resolvedIncludes : Array Name) : CommandElabM (Array Cmd) := do
@@ -4411,8 +5893,9 @@ def mkIncludeAliasCommandsPublic
             let tgt := mkIdent (mixinName ++ fn.ident.getId)
             cmds := cmds.push (← `(command| abbrev $(fn.ident) := $tgt))
         for modDecl in mixin.modifiers do
-          let tgt := mkIdent (mixinName ++ modDecl.ident.getId)
-          cmds := cmds.push (← `(command| abbrev $(modDecl.ident) := $tgt))
+          unless modifierContainsExternalCallSyntaxPublic modDecl do
+            let tgt := mkIdent (mixinName ++ modDecl.ident.getId)
+            cmds := cmds.push (← `(command| abbrev $(modDecl.ident) := $tgt))
         if mixin.ctor.isSome then
           let tgt := mkIdent (mixinName ++ Name.mkSimple "constructor")
           let id : Ident := mkIdent (Name.mkSimple s!"{mixinShortName mixinName}_constructor")
@@ -4444,7 +5927,6 @@ def mkFunctionCommandsPublic
     (resolvedIncludes : Array Name := #[])
     (boundImmutableDecls : Array ImmutableDecl := immutableDecls)
     (hostModifiers : Array ModifierDecl := #[]) : CommandElabM (Array Cmd) := do
-  let fnType ← mkContractFnType fn.params fn.returnTy
   -- Mixin modifiers belong after ABI/enum, init, and role guards, matching
   -- `translateBodyToStmtTerms`. Prefix them onto the source body so those
   -- wrappers stay outside.
@@ -4462,7 +5944,6 @@ def mkFunctionCommandsPublic
   -- them outside all executable wrappers makes ABI validation happen before
   -- initializer, role, and modifier effects (the inner copy is harmless).
   let fnExecutableBody ← prependEnumGuards fn.params fnExecutableBody
-  let fnValue ← mkContractFnValue fn.params fnExecutableBody
   let modelBodyName ← mkSuffixedIdent fn.ident "_modelBody"
   let modelName ← mkSuffixedIdent fn.ident "_model"
   -- CompilationModel inlines every modifier in declared `with` order so
@@ -4482,6 +5963,58 @@ def mkFunctionCommandsPublic
       | some inlined => pure inlined
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
+  let directlyOpensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
+  let mut adversarialHelpers : Array FunctionDecl := #[]
+  let mut translatedHelpers : Array (FunctionDecl × FunctionDecl) := #[]
+  for helper in functions do
+    let helperModel ←
+      if helper.modifiers.isEmpty || allModifiers.isEmpty then
+        pure helper
+      else
+        let arr ← inlineModifierPrefixes allModifiers #[helper]
+        match arr[0]? with
+        | some inlined => pure inlined
+        | none => pure helper
+    let helperStmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls
+      immutableDecls externalDecls functions helperModel
+    translatedHelpers := translatedHelpers.push (helper, helperModel)
+    if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
+      adversarialHelpers := adversarialHelpers.push helper
+  -- Reentrancy-window capability is transitive across internal helpers. Iterate to a
+  -- fixed point so every caller in a multi-hop helper chain receives and forwards
+  -- the same adversary instead of silently falling back to the stub.
+  for _ in [:functions.size] do
+    let adversarialNames := adversarialHelpers.map (·.name)
+    let mut grew := false
+    for (helper, helperModel) in translatedHelpers do
+      let callsAdversarial ← syntaxCallsAnyHelper adversarialNames helperModel.body.raw
+      if !adversarialHelpers.any (fun candidate => candidate.name == helper.name) &&
+          callsAdversarial then
+        adversarialHelpers := adversarialHelpers.push helper
+        grew := true
+    if !grew then
+      break
+  let adversarialNames := adversarialHelpers.map (·.name)
+  let callsAdversarial ← syntaxCallsAnyHelper adversarialNames modelFn.body.raw
+  let opensReentrancyWindow := directlyOpensReentrancyWindow ||
+    callsAdversarial
+  -- Keep the generated binder hygienic: source parameters and locals are allowed
+  -- to use `_adv` without capturing the adversary threaded into rewritten calls.
+  let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw
+  let advTerm : Term ← if opensReentrancyWindow then
+      pure ⟨advIdent.raw⟩
+    else
+      `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
+  let fnType ← if opensReentrancyWindow then
+      mkContractFnTypeWithAdversary fn.params fn.returnTy
+    else
+      mkContractFnType fn.params fn.returnTy
+  let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
+    adversarialHelpers fn.params advTerm fnExecutableBody.raw⟩
+  let fnValue ← if opensReentrancyWindow then
+      mkContractFnValueWithAdversary advIdent fn.params fnExecutableBody
+    else
+      mkContractFnValue fn.params fnExecutableBody
   let modelParams ← mkModelParamsTerm fn.params
   let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)

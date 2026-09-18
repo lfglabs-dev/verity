@@ -275,4 +275,56 @@ verity_contract SignedBuiltinSmoke where
     let saved ← getStorage signedSlot
     return saved
 
+-- Solidity-0.8 checked `int256` arithmetic plus an `Int256` storage field.
+-- Signed add/sub/mul/div panic on overflow / `minValue / -1` / divide-by-zero,
+-- and a negative-branch `if` uses signed comparison (`slt`).
+verity_contract Int256CheckedSmoke where
+  storage
+    last : Int256 := slot 0
+
+  function addChecked (a : Int256, b : Int256) : Int256 := do
+    let sum ← addPanic a b
+    setStorage last sum
+    return sum
+
+  function subChecked (a : Int256, b : Int256) : Int256 := do
+    let diff ← subPanic a b
+    setStorage last diff
+    return diff
+
+  function mulChecked (a : Int256, b : Int256) : Int256 := do
+    let prod ← mulPanic a b
+    setStorage last prod
+    return prod
+
+  function divChecked (a : Int256, b : Int256) : Int256 := do
+    let q ← divPanic a b
+    setStorage last q
+    return q
+
+  function negChecked (a : Int256) : Int256 := do
+    let n ← negPanic a
+    setStorage last n
+    return n
+
+  function applyDelta (delta : Int256) : Int256 := do
+    let current ← getStorage last
+    if delta < 0 then
+      let flipped ← negPanic delta
+      let next ← subPanic current flipped
+      setStorage last next
+      return next
+    else
+      let next ← addPanic current delta
+      setStorage last next
+      return next
+
+#check_contract Int256CheckedSmoke
+
+example : Int256CheckedSmoke.spec.fields.any (fun field =>
+    field.name == "last" && field.slot == some 0 &&
+      match field.ty with
+      | Compiler.CompilationModel.FieldType.int256 => true
+      | _ => false) := by decide
+
 end Contracts.Smoke

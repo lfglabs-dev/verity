@@ -33,6 +33,22 @@ abbrev neg := Verity.Core.Int256.neg
 
 abbrev isNeg := Verity.Core.Int256.isNeg
 abbrev isZero := Verity.Core.Int256.isZero
+abbrev slt := Verity.Core.Int256.slt
+abbrev sgt := Verity.Core.Int256.sgt
+abbrev sle := Verity.Core.Int256.sle
+abbrev sge := Verity.Core.Int256.sge
+abbrev safeAdd := Verity.Core.Int256.safeAdd
+abbrev safeSub := Verity.Core.Int256.safeSub
+abbrev safeMul := Verity.Core.Int256.safeMul
+abbrev safeDiv := Verity.Core.Int256.safeDiv
+abbrev safeNeg := Verity.Core.Int256.safeNeg
+abbrev safeMod := Verity.Core.Int256.safeMod
+abbrev addPanic := Verity.Core.Int256.addPanic
+abbrev subPanic := Verity.Core.Int256.subPanic
+abbrev mulPanic := Verity.Core.Int256.mulPanic
+abbrev divPanic := Verity.Core.Int256.divPanic
+abbrev negPanic := Verity.Core.Int256.negPanic
+abbrev modPanic := Verity.Core.Int256.modPanic
 
 theorem toInt_in_range (value : Verity.Core.Int256) :
     minValue ≤ (value : Int) ∧ (value : Int) ≤ maxValue :=

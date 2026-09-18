@@ -113,6 +113,10 @@ def storageArrayElemUsesOneStorageWord : StorageArrayElemType → Bool
 
 inductive FieldType
   | uint256
+  /-- Signed 256-bit storage word. Layout-identical to `uint256` (one EVM
+      word); the tag is preserved so `Int256` fields round-trip through
+      layout reports and `#check_contract`. -/
+  | int256
   | address
   /-- Solidity-packed fixed `uint128[N]`: two elements per storage word. -/
   | fixedArrayUint128 (size : Nat)

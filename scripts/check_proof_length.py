@@ -1048,6 +1048,11 @@ ALLOWLIST: set[str] = {
     # `decodeLengthPrefixedDynamicParam?_array_eq_some_inv` at the `?`.)
     "decodeLengthPrefixedDynamicParam",
     "bindExternalParam_array_eq_some_inv",
+    # Pareto int256 wrapping: two's-complement uniqueness for `ofInt` needs
+    # both sign cases plus modulus bookkeeping; `tdiv` in-range needs the
+    # `minValue / -1` boundary. Splitting would duplicate the residue lemmas.
+    "toInt_ofInt",
+    "tdiv_inRange_of_not_divFails",
 }
 
 # PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover

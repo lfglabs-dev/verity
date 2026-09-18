@@ -152,6 +152,96 @@ def isNeg (value : Int256) : Bool :=
 def isZero (value : Int256) : Bool :=
   value.word.val = 0
 
+/-- Signed less-than. Lowers to Yul `slt` from `verity_contract` bodies. -/
+def slt (a b : Int256) : Bool := decide ((a : Int) < (b : Int))
+
+/-- Signed greater-than. Lowers to Yul `sgt`. -/
+def sgt (a b : Int256) : Bool := decide ((a : Int) > (b : Int))
+
+/-- Signed less-or-equal. Lowers to Yul `iszero(sgt(...))`. -/
+def sle (a b : Int256) : Bool := decide ((a : Int) ≤ (b : Int))
+
+/-- Signed greater-or-equal. Lowers to Yul `iszero(slt(...))`. -/
+def sge (a b : Int256) : Bool := decide ((a : Int) ≥ (b : Int))
+
+/-- True iff `z` is a representable `int256` value. -/
+def inRange (z : Int) : Prop :=
+  minValue ≤ z ∧ z ≤ maxValue
+
+/-- Solidity 0.8 overflow condition for signed addition. -/
+def addOverflows (a b : Int256) : Prop :=
+  ¬ inRange ((a : Int) + (b : Int))
+
+/-- Solidity 0.8 overflow condition for signed subtraction. -/
+def subOverflows (a b : Int256) : Prop :=
+  ¬ inRange ((a : Int) - (b : Int))
+
+/-- Solidity 0.8 overflow condition for signed multiplication. -/
+def mulOverflows (a b : Int256) : Prop :=
+  ¬ inRange ((a : Int) * (b : Int))
+
+/-- Solidity 0.8 failure for signed division: divide-by-zero or `minValue / -1`. -/
+def divFails (a b : Int256) : Prop :=
+  (b : Int) = 0 ∨ ((a : Int) = minValue ∧ (b : Int) = -1)
+
+/-- Solidity 0.8 overflow condition for signed negation. -/
+def negOverflows (value : Int256) : Prop :=
+  (value : Int) = minValue
+
+/-- Solidity 0.8 failure for signed modulo: divide-by-zero only. -/
+def modFails (b : Int256) : Prop :=
+  (b : Int) = 0
+
+/-- Checked signed addition. `none` iff the mathematical sum is out of `int256` range. -/
+def safeAdd (a b : Int256) : Option Int256 :=
+  let s : Int := (a : Int) + (b : Int)
+  if minValue ≤ s ∧ s ≤ maxValue then some (a.add b) else none
+
+/-- Checked signed subtraction. `none` iff the mathematical difference is out of range. -/
+def safeSub (a b : Int256) : Option Int256 :=
+  let d : Int := (a : Int) - (b : Int)
+  if minValue ≤ d ∧ d ≤ maxValue then some (a.sub b) else none
+
+/-- Checked signed multiplication. `none` iff the mathematical product is out of range. -/
+def safeMul (a b : Int256) : Option Int256 :=
+  let p : Int := (a : Int) * (b : Int)
+  if minValue ≤ p ∧ p ≤ maxValue then some (a.mul b) else none
+
+/-- Checked signed division. `none` on divide-by-zero and on `minValue / -1`. -/
+def safeDiv (a b : Int256) : Option Int256 :=
+  if (b : Int) = 0 ∨ ((a : Int) = minValue ∧ (b : Int) = -1) then
+    none
+  else
+    some (a.div b)
+
+/-- Checked signed negation. `none` iff `value = minValue`. -/
+def safeNeg (value : Int256) : Option Int256 :=
+  if (value : Int) = minValue then none else some (neg value)
+
+/-- Checked signed modulo. `none` iff the divisor is zero. -/
+def safeMod (a b : Int256) : Option Int256 :=
+  if (b : Int) = 0 then none else some (a.mod b)
+
+/-- Solidity 0.8 panic-on-overflow addition, Option form.
+    `none` is `Panic(0x11)`. The `Contract` wrappers live in `Verity.Stdlib.Math`. -/
+def addPanic (a b : Int256) : Option Int256 := safeAdd a b
+
+/-- Solidity 0.8 panic-on-overflow subtraction, Option form. `none` is `Panic(0x11)`. -/
+def subPanic (a b : Int256) : Option Int256 := safeSub a b
+
+/-- Solidity 0.8 panic-on-overflow multiplication, Option form. `none` is `Panic(0x11)`. -/
+def mulPanic (a b : Int256) : Option Int256 := safeMul a b
+
+/-- Solidity 0.8 panic-on-failure division, Option form.
+    `none` covers both `Panic(0x12)` (divide-by-zero) and `Panic(0x11)` (`minValue / -1`). -/
+def divPanic (a b : Int256) : Option Int256 := safeDiv a b
+
+/-- Solidity 0.8 panic-on-overflow negation, Option form. `none` is `Panic(0x11)`. -/
+def negPanic (value : Int256) : Option Int256 := safeNeg value
+
+/-- Solidity 0.8 panic-on-zero-divisor modulo, Option form. `none` is `Panic(0x12)`. -/
+def modPanic (a b : Int256) : Option Int256 := safeMod a b
+
 instance : LT Int256 := ⟨fun a b => (a : Int) < (b : Int)⟩
 instance : LE Int256 := ⟨fun a b => (a : Int) ≤ (b : Int)⟩
 instance (a b : Int256) : Decidable (a < b) := by
@@ -200,6 +290,124 @@ instance : Neg Int256 := ⟨neg⟩
   cases h
   rfl
 
+theorem ext_val {a b : Int256} (h : a.word.val = b.word.val) : a = b := by
+  apply ext
+  exact Uint256.ext h
+
+theorem signBit_pos : 0 < signBit := by
+  decide
+
+theorem modulus_pos : 0 < modulus :=
+  Nat.lt_trans signBit_pos signBit_lt_modulus
+
+theorem inRange_toInt (value : Int256) : inRange (value : Int) :=
+  toInt_in_range value
+
+instance (z : Int) : Decidable (inRange z) :=
+  inferInstanceAs (Decidable (minValue ≤ z ∧ z ≤ maxValue))
+
+theorem add_word (a b : Int256) :
+    (a.add b).word.val = (a.word.val + b.word.val) % modulus := by
+  simp [add, ofUint256, HAdd.hAdd, Uint256.add, Uint256.val_ofNat, modulus]
+
+theorem mul_word (a b : Int256) :
+    (a.mul b).word.val = (a.word.val * b.word.val) % modulus := by
+  simp [mul, ofUint256, HMul.hMul, Uint256.mul, Uint256.val_ofNat, modulus]
+
+/-! ### Checked-arithmetic Option lemmas
+
+Each `*Panic` success case is the wrapping operation. Failure is exactly the
+Solidity 0.8 out-of-range / divide-by-zero / `minValue / -1` condition.
+The wrapping result equals the mathematical `Int` result on the success
+side; that identification is `toInt_add_of_inRange` and friends, proved
+from two's-complement residue uniqueness. -/
+
+theorem addPanic_success (a b : Int256)
+    (h : minValue ≤ (a : Int) + (b : Int) ∧ (a : Int) + (b : Int) ≤ maxValue) :
+    addPanic a b = some (a.add b) := by
+  unfold addPanic safeAdd
+  simp [h]
+
+theorem addPanic_failure (a b : Int256)
+    (h : ¬ (minValue ≤ (a : Int) + (b : Int) ∧ (a : Int) + (b : Int) ≤ maxValue)) :
+    addPanic a b = none := by
+  unfold addPanic safeAdd
+  simp [h]
+
+theorem subPanic_success (a b : Int256)
+    (h : minValue ≤ (a : Int) - (b : Int) ∧ (a : Int) - (b : Int) ≤ maxValue) :
+    subPanic a b = some (a.sub b) := by
+  unfold subPanic safeSub
+  simp [h]
+
+theorem subPanic_failure (a b : Int256)
+    (h : ¬ (minValue ≤ (a : Int) - (b : Int) ∧ (a : Int) - (b : Int) ≤ maxValue)) :
+    subPanic a b = none := by
+  unfold subPanic safeSub
+  simp [h]
+
+theorem mulPanic_success (a b : Int256)
+    (h : minValue ≤ (a : Int) * (b : Int) ∧ (a : Int) * (b : Int) ≤ maxValue) :
+    mulPanic a b = some (a.mul b) := by
+  unfold mulPanic safeMul
+  simp [h]
+
+theorem mulPanic_failure (a b : Int256)
+    (h : ¬ (minValue ≤ (a : Int) * (b : Int) ∧ (a : Int) * (b : Int) ≤ maxValue)) :
+    mulPanic a b = none := by
+  unfold mulPanic safeMul
+  simp [h]
+
+theorem divPanic_failure (a b : Int256) (h : divFails a b) :
+    divPanic a b = none := by
+  unfold divPanic safeDiv
+  split
+  · rfl
+  · next hne => exact (hne h).elim
+
+theorem divPanic_success (a b : Int256) (h : ¬ divFails a b) :
+    divPanic a b = some (a.div b) := by
+  unfold divPanic safeDiv
+  split
+  · next he => exact (h he).elim
+  · rfl
+
+theorem negPanic_success (value : Int256) (h : (value : Int) ≠ minValue) :
+    negPanic value = some (neg value) := by
+  unfold negPanic safeNeg
+  simp [h]
+
+theorem negPanic_failure (value : Int256) (h : (value : Int) = minValue) :
+    negPanic value = none := by
+  unfold negPanic safeNeg
+  simp [h]
+
+theorem modPanic_failure (a b : Int256) (h : (b : Int) = 0) :
+    modPanic a b = none := by
+  unfold modPanic safeMod
+  simp [h]
+
+theorem modPanic_success (a b : Int256) (h : (b : Int) ≠ 0) :
+    modPanic a b = some (a.mod b) := by
+  unfold modPanic safeMod
+  simp [h]
+
+theorem slt_iff (a b : Int256) : slt a b = true ↔ (a : Int) < (b : Int) := by
+  simp [slt]
+
+theorem sgt_iff (a b : Int256) : sgt a b = true ↔ (a : Int) > (b : Int) := by
+  simp [sgt]
+
+theorem sle_iff (a b : Int256) : sle a b = true ↔ (a : Int) ≤ (b : Int) := by
+  simp [sle]
+
+theorem sge_iff (a b : Int256) : sge a b = true ↔ (a : Int) ≥ (b : Int) := by
+  simp [sge]
+
+theorem isNeg_eq (value : Int256) :
+    isNeg value = decide (signBit ≤ value.word.val) := rfl
+
+
 section Examples
 
 example : (((Int256.ofUint256 (Uint256.ofNat (modulus - 1)) : Int256) : Int)) = -1 := by
@@ -242,6 +450,32 @@ example : (Int256.ofInt maxValue + 1 : Int256) = Int256.ofInt minValue := by
   native_decide
 
 end Examples
+
+end Int256
+
+namespace Uint256
+
+/-- Bit-reinterpretation as `Int256`. The high bit is the sign; there is no
+    range check. This matches Solidity's `int256(uint256(x))` cast. -/
+def toInt256 (value : Uint256) : Int256 := Int256.ofUint256 value
+
+@[simp] theorem toInt256_ofUint256 (value : Uint256) :
+    toInt256 value = Int256.ofUint256 value := rfl
+
+@[simp] theorem toUint256_toInt256 (value : Uint256) :
+    (toInt256 value).toUint256 = value := rfl
+
+end Uint256
+
+namespace Int256
+
+/-- Bit-reinterpretation as `Uint256`. There is no range check. This matches
+    Solidity's `uint256(int256(x))` cast. -/
+theorem toUint256_bit_reinterpret (value : Int256) :
+    toUint256 value = value.word := rfl
+
+@[simp] theorem ofUint256_toInt256 (value : Uint256) :
+    ofUint256 (Uint256.toInt256 value).toUint256 = ofUint256 value := rfl
 
 end Int256
 

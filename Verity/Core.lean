@@ -1457,6 +1457,36 @@ def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → 
     | ContractResult.success _ s' => ContractResult.success () s'
     | ContractResult.revert msg rollback => handler msg rollback
 
+/-- Modeled try/catch over a hop (`selfCall` or a callee body). The attempt
+    runs with `Contract.run` snapshot rollback. On revert the handler starts
+    at that snapshot. A revert inside `onSuccess` is **not** caught and
+    propagates with that continuation's state. Failed-call returndata is not
+    bound into the handler; read `ContractState.returndata` if needed. -/
+def Contract.tryWith {α : Type} (attempt : Contract α)
+    (onSuccess : α → Contract Unit) (onFailure : String → Contract Unit) :
+    Contract Unit :=
+  fun s =>
+    match Contract.run attempt s with
+    | ContractResult.success v s' => onSuccess v s'
+    | ContractResult.revert msg rollback => onFailure msg rollback
+
+/-- CALL-shaped same-contract hop (`this.f(...)`). Installs a new frame with
+    `sender := thisAddress`, `msgValue := 0`, and empty returndata. Success
+    commits callee storage and pops the frame (caller `sender`/`this`/`msgValue`
+    restored). Revert restores the pre-call snapshot so an enclosing try/catch
+    can handle it. Distinct from DELEGATECALL (`selfDelegateEntry`). -/
+def Contract.selfCall {α : Type} (body : Contract α) : Contract α := fun s =>
+  let snapSender := s.sender
+  let snapThis := s.thisAddress
+  let snapValue := s.msgValue
+  let entry : ContractState :=
+    { s with sender := snapThis, msgValue := 0, returndata := [] }
+  match body entry with
+  | ContractResult.success v s' =>
+      ContractResult.success v
+        { s' with sender := snapSender, thisAddress := snapThis, msgValue := snapValue }
+  | ContractResult.revert msg _ => ContractResult.revert msg s
+
 set_option warning.simp.varHead false in
 @[simp] theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractState}
     {a : α} {s' : ContractState} (h : c.run s = ContractResult.success a s') :
@@ -1518,6 +1548,40 @@ theorem bind_run_success {α β : Type} (ma : Contract α) (f : α → Contract 
     (Contract.tryCatch attempt handler).run state = (handler msg).run state := by
   unfold Contract.tryCatch Contract.run at *
   simp [h]
+
+/-- Caught failure runs the handler from the pre-call snapshot. -/
+theorem caught_failure_starts_at_snapshot {α : Type}
+    (attempt : Contract α) (onSuccess : α → Contract Unit)
+    (onFailure : String → Contract Unit) (s : ContractState) (msg : String)
+    (h : attempt.run s = ContractResult.revert msg s) :
+    Contract.tryWith attempt onSuccess onFailure s = onFailure msg s := by
+  unfold Contract.tryWith
+  rw [h]
+
+/-- A revert inside the success continuation is not caught. -/
+theorem success_body_failure_not_caught {α : Type}
+    (attempt : Contract α) (onSuccess : α → Contract Unit)
+    (onFailure : String → Contract Unit) (s s' s'' : ContractState)
+    (v : α) (msg : String)
+    (h : attempt.run s = ContractResult.success v s')
+    (hfail : onSuccess v s' = ContractResult.revert msg s'') :
+    Contract.tryWith attempt onSuccess onFailure s =
+      ContractResult.revert msg s'' := by
+  unfold Contract.tryWith
+  rw [h]
+  exact hfail
+
+/-- Successful hop plus successful continuation commit the continuation state. -/
+theorem try_success_commits {α : Type}
+    (attempt : Contract α) (onSuccess : α → Contract Unit)
+    (onFailure : String → Contract Unit) (s s' s'' : ContractState) (v : α)
+    (h : attempt.run s = ContractResult.success v s')
+    (hok : onSuccess v s' = ContractResult.success () s'') :
+    Contract.tryWith attempt onSuccess onFailure s =
+      ContractResult.success () s'' := by
+  unfold Contract.tryWith
+  rw [h]
+  exact hok
 
 -- Helper: check if result is success
 def ContractResult.isSuccess {α : Type} : ContractResult α → Bool

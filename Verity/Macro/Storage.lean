@@ -196,7 +196,7 @@ def modelStructMemberTerm (member : StructMemberDecl) : CommandElabM Term := do
 def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   match ty with
   | .scalar .uint256 => `(Compiler.CompilationModel.FieldType.uint256)
-  | .scalar .int256 => `(Compiler.CompilationModel.FieldType.uint256)
+  | .scalar .int256 => `(Compiler.CompilationModel.FieldType.int256)
   | .scalar .uint8 => throwError "storage fields cannot be Uint8; use Uint256 encoding"
   | .scalar .uint16 => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar (.uintN _) => `(Compiler.CompilationModel.FieldType.uint256)

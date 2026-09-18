@@ -84,6 +84,18 @@ For contracts that require overflow protection, the EDSL provides checked operat
 | `subPanic a b` | `Contract Uint256` | reverts with `Panic(0x11)` if `b > a` |
 | `mulPanic a b` | `Contract Uint256` | reverts with `Panic(0x11)` if `a * b > 2^256 - 1` |
 | `divPanic a b` | `Contract Uint256` | reverts with `Panic(0x12)` if `b = 0` |
+| `Int256.safeAdd a b` | `Option Int256` | `none` if the mathematical sum is outside `[-2^255, 2^255-1]` |
+| `Int256.safeSub a b` | `Option Int256` | `none` if the mathematical difference is out of range |
+| `Int256.safeMul a b` | `Option Int256` | `none` if the mathematical product is out of range |
+| `Int256.safeDiv a b` | `Option Int256` | `none` if `b = 0` or `a = minValue ∧ b = -1` |
+| `Int256.safeNeg a` | `Option Int256` | `none` if `a = minValue` |
+| `Int256.safeMod a b` | `Option Int256` | `none` if `b = 0` |
+| `addPanic a b` | `Contract Int256` | reverts with `Panic(0x11)` on signed overflow |
+| `subPanic a b` | `Contract Int256` | reverts with `Panic(0x11)` on signed overflow |
+| `mulPanic a b` | `Contract Int256` | reverts with `Panic(0x11)` on signed overflow |
+| `divPanic a b` | `Contract Int256` | `Panic(0x12)` on divide-by-zero; `Panic(0x11)` on `minValue / -1` |
+| `negPanic a` | `Contract Int256` | reverts with `Panic(0x11)` if `a = minValue` |
+| `modPanic a b` | `Contract Int256` | reverts with `Panic(0x12)` if `b = 0` |
 | `mulDiv512Down? a b c` | `Option Uint256` | `none` if `c = 0` or `floor(a * b / c) > 2^256 - 1`; product is unbounded |
 | `mulDiv512Up? a b c` | `Option Uint256` | `none` if `c = 0` or `ceil(a * b / c) > 2^256 - 1`; product is unbounded |
 
@@ -110,7 +122,22 @@ to the same checked guard/result shape as the explicit `requireSomeUint`
 spelling. The generated-Yul feature tests assert the guard lowering for all four
 safe arithmetic operations.
 
-**Correctness proofs**: `Verity/Proofs/Stdlib/Math.lean` proves that checked operations return the correct result within bounds and `none` otherwise (e.g., `safeAdd_some`, `safeAdd_none`).
+The same `addPanic`/`subPanic`/`mulPanic`/`divPanic` bind sources accept
+`Int256` operands. Those lower to signed overflow guards (`slt` same-sign /
+sign-change for add and sub, `sdiv` reconstruction plus the `minValue * -1`
+special case for mul, `sdiv` with divide-by-zero and `minValue / -1` for div).
+`negPanic` and `modPanic` are signed-only. Comparison helpers `slt`/`sgt`/`sle`/`sge`
+and `isNeg` lower to Yul `slt`/`sgt`.
+
+`Uint256.toInt256` and `Int256.toUint256` are **bit-reinterpretations** with no
+range check, matching Solidity's `int256(uint256(x))` / `uint256(int256(x))`.
+They are not checked casts.
+
+`Int256` storage fields compile as `FieldType.int256` (one EVM word, same
+layout as `uint256`) so they round-trip through storage layout reports and
+`#check_contract`.
+
+**Correctness proofs**: `Verity/Proofs/Stdlib/Math.lean` proves that checked operations return the correct result within bounds and `none` otherwise (e.g., `safeAdd_some`, `safeAdd_none`). `Verity/Core/Int256.lean` proves the signed `*Panic` success/failure boundary: success equals the mathematical `Int` result and failure is exactly the out-of-range condition.
 
 `Stdlib.Math` also exposes fixed-point helpers `mulDivDown`, `mulDivUp`, `wMulDown`, and `wDivUp` (the `w` variants fix the divisor/multiplier to `WAD = 10^18`). All lemmas are in `Verity/Proofs/Stdlib/Math.lean` and are intentionally **preconditioned**: they assume the widened numerator stays within `MAX_UINT256`.
 
