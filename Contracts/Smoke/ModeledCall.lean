@@ -145,4 +145,70 @@ theorem modeled_selfCall_restores_sender (s : ContractState) :
         Contract.selfCall revertBody s = ContractResult.revert "callee revert" s :=
   fun s' h => selfCall_failure revertBody s "callee revert" s' h
 
+def callerState : ContractState :=
+  { defaultState with thisAddress := addrA, sender := (1 : Address) }
+
+theorem caller_addr_ne_callee : callerState.thisAddress ≠ addrB := by
+  simpa [callerState] using modeled_addrs_ne
+
+theorem addrB_toNat_ne_zero : addrB.toNat ≠ 0 := by
+  intro h
+  have hb : addrB.val = 11 := rfl
+  have ht : addrB.toNat = addrB.val := rfl
+  rw [ht, hb] at h
+  cases h
+
+/-- Bound view hop reads the callee's namespaced slot, not the caller's. -/
+theorem hopCallView_reads_callee_slot :
+    (Contract.hopCallView addrB readBody
+      (callerState.writeContractSlot addrB.toNat 0 7)).getValue? = some (7 : Uint256) := by
+  set s := callerState.writeContractSlot addrB.toNat 0 7
+  have hneq : s.thisAddress ≠ addrB := by
+    simpa [s, ContractState.writeContractSlot_thisAddress] using caller_addr_ne_callee
+  rw [Contract.hopCallView_of_ne addrB readBody s hneq]
+  have hread :
+      readBody (s.enterHop s.thisAddress addrB) =
+        ContractResult.success (s.storageWords (.contractSlot addrB.toNat 0))
+          (s.enterHop s.thisAddress addrB) := by
+    simp [readBody, getStorage, ContractState.enterHop_readSlot]
+  simp [hread, ContractResult.getValue?]
+  exact ContractState.writeContractSlot_contract callerState addrB.toNat 0 7
+    addrB_toNat_ne_zero
+
+/-- Mutating hop commits the callee body into `contractSlot callee`. -/
+theorem hopCall_commits_callee_slot :
+    (Contract.hopCall addrB (writeBody 9) callerState).getState.storageWords
+      (.contractSlot addrB.toNat 0) = (9 : Uint256) := by
+  rw [Contract.hopCall_of_ne addrB (writeBody 9) callerState caller_addr_ne_callee]
+  have hwrite :
+      writeBody 9 (callerState.enterHop callerState.thisAddress addrB) =
+        ContractResult.success ()
+          ((callerState.enterHop callerState.thisAddress addrB).writeSlot 0 9) := by
+    simp [writeBody, setStorage]
+  simp [hwrite, ContractResult.getState, ContractState.exitHop,
+    ContractState.switchSlotWorld, ContractState.writeSlot, ContractState.readSlot]
+
+/-- Revert restores the pre-call snapshot, including caller slots. -/
+theorem hopCall_failure_restores :
+    Contract.hopCall addrB revertBody callerState =
+      ContractResult.revert "callee revert" callerState := by
+  rw [Contract.hopCall_of_ne addrB revertBody callerState caller_addr_ne_callee]
+  simp [revertBody]
+
+/-- View hop discards callee writes. -/
+theorem hopCallView_discards_callee_slot :
+    (Contract.hopCallView addrB (writeBody 9) callerState).getState.storageWords
+      (.contractSlot addrB.toNat 0) =
+      callerState.storageWords (.contractSlot addrB.toNat 0) := by
+  rw [Contract.hopCallView_of_ne addrB (writeBody 9) callerState caller_addr_ne_callee]
+  have hwrite :
+      writeBody 9 (callerState.enterHop callerState.thisAddress addrB) =
+        ContractResult.success ()
+          ((callerState.enterHop callerState.thisAddress addrB).writeSlot 0 9) := by
+    simp [writeBody, setStorage]
+  simp [hwrite, ContractResult.getState]
+
+/-- Callee storage field is slot 0, the key `writeContractSlot addrB 0` parks. -/
+theorem modeled_callee_value_slot : ModeledCallee.value.slot = 0 := rfl
+
 end Contracts.Smoke

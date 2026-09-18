@@ -90,9 +90,11 @@ restores the pre-call world and bubbles. `view` hops run the body and
 discard callee writes.
 
 The `Contract` monad still carries one `ContractState`. Cross-contract
-hops are a MultiWorld state transformer (`hop` / `hopContract`), not a
-second world type and not a field on `ContractState` (that would break
-EVMYulLean exhaustive matches). Same-contract `this.f(...)` uses
+hops are a MultiWorld state transformer (`hop` / `hopContract`) **and** an
+executable combinator (`Contract.hopCall` / `Contract.hopCallView`) that
+namespaces scalar slots through `StorageKey.contractSlot`. Generated bound
+calls run the callee body; they do not go through the adversary-oracle
+stub. Unbound interfaces keep the stub. Same-contract `this.f(...)` uses
 `Contract.selfCall` (new frame, sender replaced) so try/catch can wrap it.
 That is distinct from DELEGATECALL `selfDelegateEntry`.
 
