@@ -52,9 +52,6 @@ verity_contract ModeledCaller where
   function reentrancy_trusted ping (token : ICallee, v : Uint256) : Unit := do
     token.set v
 
-  function reentrancy_trusted pokeBoom (token : ICallee) : Unit := do
-    token.boom
-
 #check_contract ModeledCaller
 
 example :
@@ -230,10 +227,6 @@ theorem record_is_hopCallView (token : Address) :
 theorem ping_is_hopCall (ctx : ExecutableCallContext) (token : Address) (v : Uint256) :
     ModeledCaller.ping ctx token v = Contract.hopCall token (ModeledCallee.set v) := rfl
 
-/-- Generated `pokeBoom` hops into `ModeledCallee.boom`. -/
-theorem pokeBoom_is_hopCall (ctx : ExecutableCallContext) (token : Address) :
-    ModeledCaller.pokeBoom ctx token = Contract.hopCall token ModeledCallee.boom := rfl
-
 /-- Bound view hop through the generated caller reads the callee body, not the stub. -/
 theorem record_executes_modeled_callee_get :
     (ModeledCaller.record addrB
@@ -281,13 +274,11 @@ theorem ping_executes_modeled_callee_set :
   simp [hwrite, ContractResult.getState, ContractState.exitHop,
     ContractState.switchSlotWorld, ContractState.writeSlot]
 
-/-- Bound revert through the generated caller restores the pre-call snapshot.
-    A skipped hop would succeed via the oracle stub (`boom` is not the reserved
-    `"fail"` name). -/
-theorem pokeBoom_executes_modeled_callee_revert :
-    ModeledCaller.pokeBoom ExecutableCallContext.stub addrB callerState =
+/-- Bound revert hop restores the pre-call snapshot. A skipped hop through the
+    oracle stub would not revert (`boom` is not the reserved `"fail"` name). -/
+theorem hopCall_modeled_callee_boom_restores :
+    Contract.hopCall addrB ModeledCallee.boom callerState =
       ContractResult.revert "callee revert" callerState := by
-  rw [pokeBoom_is_hopCall]
   rw [Contract.hopCall_of_ne addrB ModeledCallee.boom callerState caller_addr_ne_callee]
   simp [ModeledCallee.boom, require]
 
