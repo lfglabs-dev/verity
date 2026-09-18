@@ -63,11 +63,14 @@ instance : Coe Uint256 Int256 := ⟨ofUint256⟩
   have h' : ¬ value.word.val < signBit := Nat.not_lt_of_ge h
   simp [Int256.toInt, h']
 
-theorem signBit_lt_modulus : signBit < modulus := by
-  native_decide
-
 theorem modulus_eq_two_mul_signBit : modulus = 2 * signBit := by
-  native_decide
+  show Uint256.modulus = 2 * 2 ^ 255
+  simp only [Uint256.modulus, UINT256_MODULUS]
+
+theorem signBit_lt_modulus : signBit < modulus := by
+  rw [modulus_eq_two_mul_signBit]
+  have h : 0 < signBit := Nat.pow_pos (by decide)
+  omega
 
 theorem minValue_le (value : Int256) : minValue ≤ (value : Int) := by
   by_cases h : value.word.val < signBit
@@ -97,10 +100,15 @@ theorem toInt_in_range (value : Int256) : minValue ≤ (value : Int) ∧ (value 
   exact ⟨minValue_le value, le_maxValue value⟩
 
 @[simp] theorem val_zero : ((0 : Int256) : Int) = 0 := by
-  native_decide
+  have h : (0 : Nat) < signBit := Nat.pow_pos (by decide)
+  show Int256.toInt (ofUint256 (0 : Uint256)) = 0
+  simp [Int256.toInt, ofUint256, h]
 
 @[simp] theorem val_one : ((1 : Int256) : Int) = 1 := by
-  native_decide
+  have h : (1 : Nat) < signBit := by
+    simp [signBit]
+  show Int256.toInt (ofUint256 (1 : Uint256)) = 1
+  simp [Int256.toInt, ofUint256, h]
 
 def add (a b : Int256) : Int256 := ofUint256 (a.word + b.word)
 
