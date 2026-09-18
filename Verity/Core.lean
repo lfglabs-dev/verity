@@ -435,6 +435,9 @@ def writeContractSlot (s : ContractState) (contract : Nat) (slot : Nat)
 def withStorageWords (s : ContractState) (f : StorageKey → Uint256) : ContractState :=
   { s with storageWords := f }
 
+@[simp] theorem storageWords_withStorageWords (s : ContractState) (f : StorageKey → Uint256) :
+    (s.withStorageWords f).storageWords = f := rfl
+
 /-- Park the current unqualified `.slot` world under `parkId` and load
     `loadId`'s `contractSlot` world into `.slot`. Mapping/addr/transient
     channels stay global (see G2). Involutive when the ids are swapped. -/
@@ -498,7 +501,8 @@ theorem writeContractSlot_contract (s : ContractState) (c n : Nat) (v : Uint256)
   split
   · rename_i h0
     have : c = 0 := by
-      simpa using h0
+      simp at h0
+      exact h0
     exact (h this).elim
   · simp
 
