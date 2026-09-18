@@ -447,7 +447,7 @@ def switchSlotWorld (s : ContractState) (parkId loadId : Nat) : ContractState :=
     | .slot n => s.storageWords (.contractSlot loadId n)
     | .contractSlot id n =>
         if id == parkId then s.storageWords (.slot n) else s.storageWords key
-    | k => s.storageWords key
+    | k => s.storageWords k
 
 /-- CALL-shaped hop entry: callee sees `sender := caller`, `thisAddress := callee`,
     `msgValue := 0`, empty returndata, and its namespaced scalar slots. -/
