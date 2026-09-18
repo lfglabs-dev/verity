@@ -52,13 +52,21 @@ private def dedupEcmModules (items : List ECM.ExternalCallModule) : List ECM.Ext
 
 private def collectLowLevelExprMechanics : Expr → List String
   | .intrinsic _ (.builtin "create2") _ args =>
-      ["create2"] ++ args.attach.flatMap (fun ⟨child, hchild⟩ => collectLowLevelExprMechanics child)
+      ["create2"] ++ args.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectLowLevelExprMechanics child)
   | .intrinsic _ (.builtin "extcodecopy") _ args =>
-      ["extcodecopy"] ++ args.attach.flatMap (fun ⟨child, hchild⟩ => collectLowLevelExprMechanics child)
+      ["extcodecopy"] ++ args.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectLowLevelExprMechanics child)
   | .intrinsic _ (.builtin "codecopy") _ args =>
-      ["codecopy"] ++ args.attach.flatMap (fun ⟨child, hchild⟩ => collectLowLevelExprMechanics child)
+      ["codecopy"] ++ args.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectLowLevelExprMechanics child)
   | .intrinsic _ _ _ args =>
-      args.attach.flatMap (fun ⟨child, hchild⟩ => collectLowLevelExprMechanics child)
+      args.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectLowLevelExprMechanics child)
   | .call gas target value inOffset inSize outOffset outSize =>
       ["call"] ++ collectLowLevelExprMechanics gas ++ collectLowLevelExprMechanics target ++
         collectLowLevelExprMechanics value ++ collectLowLevelExprMechanics inOffset ++
@@ -86,7 +94,9 @@ private def collectLowLevelExprMechanics : Expr → List String
   | .structMember _ key _ =>
       collectLowLevelExprMechanics key
   | .mappingChain _ keys =>
-      keys.attach.flatMap (fun ⟨child, hchild⟩ => collectLowLevelExprMechanics child)
+      keys.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectLowLevelExprMechanics child)
   | .mapping2 _ key1 key2
   | .mapping2Word _ key1 key2 _
   | .structMember2 _ key1 key2 _ =>
@@ -111,7 +121,9 @@ private def collectLowLevelExprMechanics : Expr → List String
       collectLowLevelExprMechanics offset ++ collectLowLevelExprMechanics size
   | .externalCall _ args
   | .internalCall _ args =>
-      args.attach.flatMap (fun ⟨child, hchild⟩ => collectLowLevelExprMechanics child)
+      args.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectLowLevelExprMechanics child)
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b
   | .eq a b | .gt a b | .sgt a b | .lt a b | .slt a b | .ge a b | .le a b
@@ -292,17 +304,27 @@ private def collectUnguardedLowLevelStmtMechanics : Stmt → List String
   | .setStructMember2 _ key1 key2 _ value =>
       collectLowLevelExprMechanics key1 ++ collectLowLevelExprMechanics key2 ++ collectLowLevelExprMechanics value
   | .ite cond thenBr elseBr =>
-      collectLowLevelExprMechanics cond ++ thenBr.attach.flatMap (fun ⟨child, hchild⟩ => collectUnguardedLowLevelStmtMechanics child) ++ elseBr.attach.flatMap (fun ⟨child, hchild⟩ => collectUnguardedLowLevelStmtMechanics child)
+      collectLowLevelExprMechanics cond ++ thenBr.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectUnguardedLowLevelStmtMechanics child) ++ elseBr.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectUnguardedLowLevelStmtMechanics child)
   | .forEach _ count body =>
-      collectLowLevelExprMechanics count ++ body.attach.flatMap (fun ⟨child, hchild⟩ => collectUnguardedLowLevelStmtMechanics child)
+      collectLowLevelExprMechanics count ++ body.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectUnguardedLowLevelStmtMechanics child)
   | .forEachSetBit _ bitmap body =>
-      collectLowLevelExprMechanics bitmap ++ body.attach.flatMap (fun ⟨child, hchild⟩ => collectUnguardedLowLevelStmtMechanics child)
+      collectLowLevelExprMechanics bitmap ++ body.attach.flatMap (fun ⟨child, hchild⟩ =>
+        have := List.sizeOf_lt_of_mem hchild
+        collectUnguardedLowLevelStmtMechanics child)
   | .unsafeBlock _ _ =>
       []
   | .matchAdt _ scrutinee branches =>
       collectLowLevelExprMechanics scrutinee ++
         branches.attach.flatMap fun ⟨(_, _, body), hbranch⟩ =>
-          body.attach.flatMap fun ⟨child, hchild⟩ => collectUnguardedLowLevelStmtMechanics child
+          body.attach.flatMap fun ⟨child, hchild⟩ =>
+            have := And.intro (List.sizeOf_lt_of_mem hbranch) (List.sizeOf_lt_of_mem hchild)
+            collectUnguardedLowLevelStmtMechanics child
   | .emit _ args
   | .internalCall _ args
   | .externalCallBind _ _ args | .tryExternalCallBind _ _ _ args
