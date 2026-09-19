@@ -2486,27 +2486,67 @@ private def lookupLinkedBinding?
       let ifaceBindings := linked.filter (fun b => b.interfaceName == iface)
       byName <|> (if ifaceBindings.size == 1 then ifaceBindings[0]? else none)
 
+private partial def exprIsExecutableCallContext (ty : Expr) : Bool :=
+  match ty.consumeMData with
+  | .const n _ =>
+    match n with
+    | .str _ "ExecutableCallContext" => true
+    | _ => false
+  | .app f _ => exprIsExecutableCallContext f
+  | _ => false
+
+/-- Generated functions that open a reentrancy window take `ExecutableCallContext`
+    as the first explicit binder (`mkContractFnTypeWithAdversary`). Skip implicit
+    binders so universe/instance prefixes cannot hide that head. -/
+private partial def forallHeadIsExecutableCallContext (ty : Expr) : Bool :=
+  match ty.consumeMData with
+  | .forallE _ binderTy body bi =>
+    if bi.isExplicit then
+      exprIsExecutableCallContext binderTy
+    else
+      forallHeadIsExecutableCallContext body
+  | _ => false
+
+/-- True when the already-elaborated callee `def` takes the executable call
+    context. Bound hops must forward the caller's context in that case; callees
+    that do not open a reentrancy window keep the ctx-free `hopCall` body. -/
+private def constantTakesExecutableCallContext (n : Name) : CommandElabM Bool := do
+  let env ← getEnv
+  let ns ← getCurrNamespace
+  let mut candidates : Array Name := #[ns ++ n, n]
+  for (resolved, rest) in (← resolveGlobalName n) do
+    if rest.isEmpty then
+      candidates := candidates.push resolved
+  for cand in candidates do
+    if let some info := env.find? cand then
+      if forallHeadIsExecutableCallContext info.type then
+        return true
+  return false
+
 private def boundCalleeBodyTerm (binding : LinkedContractDecl) (extName : String)
-    (args : Array Term) : CommandElabM Term := do
+    (args : Array Term) (adv : Term) : CommandElabM Term := do
   let method :=
     match extName.splitOn "." with
     | _iface :: m :: _ => m
     | _ => extName
-  let fnIdent := mkIdent (binding.calleeIdent.getId ++ Name.mkSimple method)
-  if args.isEmpty then
-    `(term| $fnIdent)
-  else
-    let mut app : Term ← `(term| $fnIdent)
-    for arg in args do
-      app ← `(term| $app $arg)
-    pure app
+  let fnName := binding.calleeIdent.getId ++ Name.mkSimple method
+  let fnIdent := mkIdent fnName
+  let mut app : Term ← `(term| $fnIdent)
+  -- Thread the caller's ExecutableCallContext into a bound callee that opens a
+  -- reentrancy window. Ctx-free callees (ModeledCallee.get/set) stay unchanged
+  -- so existing hopCall definitional theorems keep holding.
+  if ← constantTakesExecutableCallContext fnName then
+    app ← `(term| $app $adv)
+  for arg in args do
+    app ← `(term| $app $arg)
+  pure app
 
 private def hopBoundCallTerm?
     (linked : Array LinkedContractDecl) (target : Term) (targetName : String)
-    (extName : String) (args : Array Term) (isView : Bool) :
+    (extName : String) (args : Array Term) (isView : Bool) (adv : Term) :
     CommandElabM (Option Term) := do
   let some binding := lookupLinkedBinding? linked targetName extName | return none
-  let body ← boundCalleeBodyTerm binding extName args
+  let body ← boundCalleeBodyTerm binding extName args adv
   if isView then
     some <$> `(term| _root_.Verity.Contract.hopCallView $target $body)
   else
@@ -2526,7 +2566,7 @@ private def rewriteTypedInterfaceCall?
   let extName := interfaceExternalName interfaceName methodName
   let some ext := externalDecls.find? (fun ext => ext.name == extName) | pure none
   let isView := externalDecls.any (fun candidate => candidate.name == extName && candidate.isView)
-  match ← hopBoundCallTerm? linkedContracts target targetName extName argTerms isView with
+  match ← hopBoundCallTerm? linkedContracts target targetName extName argTerms isView adv with
   | some hop => return some hop
   | none => pure ()
   let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2565,7 +2605,7 @@ private def rewriteLinkedCallTerm
         match stripParens target with
         | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
         | _ => pure ""
-      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView with
+      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv with
       | some hop => return hop
       | none => pure ()
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
@@ -2590,7 +2630,7 @@ private def rewriteLinkedCallTerm
         match stripParens target with
         | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
         | _ => pure ""
-      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView with
+      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv with
       | some hop => return hop
       | none => pure ()
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
