@@ -186,8 +186,14 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   contract. There is **no bytecode claim**: compilation-model lowering of a
   bound call is the same ABI/ECM call as an unbound interface call.
 - **Semantics**: hops in `Verity.MultiContract.MultiWorld` (`ModeledCall.lean`).
-  `callEntry` is unchanged (still rejects `caller = callee`); self-calls use
-  the isolated CALL-shaped `selfCallEntry` / `Contract.selfCall`.
+  The executable plane of a bound call is `Contract.hopCall` /
+  `Contract.hopCallView`: scalar slots move through `StorageKey.contractSlot`,
+  success commits the callee world, revert restores the pre-call snapshot,
+  and view hops discard callee writes. Unbound interfaces still use the
+  adversary-oracle stub. Mapping/addr/transient channels stay global (G2).
+  Bindings cannot be cyclic (G15). `callEntry` is unchanged (still rejects
+  `caller = callee`); self-calls use the isolated CALL-shaped
+  `selfCallEntry` / `Contract.selfCall`.
 
 ### 7. External Call Modules (ECMs)
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).
