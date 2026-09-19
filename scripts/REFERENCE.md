@@ -64,6 +64,9 @@ Primary guards:
 
 ## Helpers and generators
 
+- `official_solc.py`: committed official solc SHA-256 pins and `list.json` helpers.
+- `setup_solc_importer.py`: fetch official `list.json`, verify the published digest, install `.lake/solidity-import/solc`.
+- `check_solc_pin.py --verify-published-checksums` / `make check-solc-published`: live list.json pin check.
 - `workflow_jobs.py`: shared workflow parsing and command matching helpers.
 - `generate_print_axioms.py`
 - `generate_contract.py`

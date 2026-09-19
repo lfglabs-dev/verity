@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -34,6 +35,11 @@ def lake_binary() -> str:
 
 LAKE = lake_binary()
 ENV = dict(os.environ)
+SOLC_PIN = (
+    "8324280591ce398d7e2722846bc10ecf1779b13a328ef97b687c92cd9c70801a"
+    if sys.platform == "darwin"
+    else "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468"
+)
 
 
 def check(ok: bool, message: str) -> None:
@@ -63,10 +69,17 @@ def main() -> None:
     check(not python_frontend.exists(), "no Python importer/frontend exists")
     check("--standard-json" in importer_text and "--no-import-callback" in importer_text,
           "Lean importer invokes pinned solc standard JSON with import callback disabled")
-    check("solcSha256" in importer_text and "compiler checksum mismatch" in importer_text,
-          "Lean importer enforces compiler checksum and version pin")
+    check("officialSolcSha256s" in importer_text and "compiler checksum mismatch" in importer_text,
+          "Lean importer enforces official compiler checksum allowlist and version pin")
+    check("0.8.33+commit.64118f21" in importer_text and "solcVersionPin" in importer_text,
+          "Lean importer pins the official solc release identity")
+    check(SOLC_PIN in importer_text and
+          "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468" in importer_text,
+          "Lean importer allowlists official linux-amd64 and macosx-amd64 checksums")
     check('cmd := "/usr/bin/sha256sum"' in importer_text and 'cmd := "sha256sum"' not in importer_text,
-          "compiler checksum utility uses a fixed path, not PATH lookup")
+          "Linux compiler checksum utility uses a fixed path, not PATH lookup")
+    check('cmd := "/usr/bin/shasum"' in importer_text and 'cmd := "shasum"' not in importer_text,
+          "macOS compiler checksum utility uses a fixed path, not PATH lookup")
     check("parseExpr" in importer_text and "parseStmts" in importer_text and
           "Expr.meaning" in semantics_text and "Stmt.meaning" in semantics_text,
           "Solidity constructs have explicit Lean parser and semantics functions")
@@ -471,7 +484,7 @@ solidity_contract Escaped from "../../Contracts/VaultFromSolidity/Vault.sol"
         # temporary wrapper is checksummed and accepted only in this disposable
         # package; production still executes the pinned binary directly.
         real_compiler = compiler.with_name("solc-real")
-        pin = b"1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468"
+        pin = SOLC_PIN.encode()
         for mode, diagnostic in (
             ("ast", "unexpected AST fields"),
             ("metadata", "unexpected AST fields"),

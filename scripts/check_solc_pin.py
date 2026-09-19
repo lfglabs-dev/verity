@@ -10,15 +10,23 @@ silent compiler-version drift by requiring one canonical solc version across:
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import official_solc
 
 ROOT = Path(__file__).resolve().parents[1]
 VERIFY_YML = ROOT / ".github" / "workflows" / "verify.yml"
 SETUP_SOLC_ACTION = ROOT / ".github" / "actions" / "setup-solc" / "action.yml"
 FOUNDRY_TOML = ROOT / "foundry.toml"
 TRUST_ASSUMPTIONS = ROOT / "TRUST_ASSUMPTIONS.md"
+MACOS_SOLC_SHA256 = official_solc.OFFICIAL_SOLC_SHA256["macosx-amd64"]
 
 SOLC_VERSION_RE = re.compile(r'^\s*SOLC_VERSION:\s*"([^"]+)"\s*$', re.MULTILINE)
 SOLC_URL_RE = re.compile(r'^\s*SOLC_URL:\s*"([^"]+)"\s*$', re.MULTILINE)
@@ -57,7 +65,28 @@ def _extract_canonical(
     return canonical
 
 
-def main() -> int:
+def _verify_published_checksums(errors: list[str]) -> None:
+    for platform_name, expected in official_solc.OFFICIAL_SOLC_SHA256.items():
+        try:
+            published = official_solc.published_sha256(platform_name)
+        except RuntimeError as err:
+            errors.append(str(err))
+            continue
+        if published != expected:
+            errors.append(
+                f"binaries.soliditylang.org {platform_name} {official_solc.SOLC_LONG_VERSION} "
+                f"SHA-256 {published} does not match committed pin {expected}"
+            )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--verify-published-checksums",
+        action="store_true",
+        help="fetch official list.json files and require SHA-256 pins to match",
+    )
+    args = parser.parse_args([] if argv is None else argv)
     errors: list[str] = []
 
     try:
@@ -72,7 +101,7 @@ def main() -> int:
     try:
         solc_version = _extract_canonical(SOLC_VERSION_RE, verify_text, "SOLC_VERSION", errors)
         solc_url = _extract_canonical(SOLC_URL_RE, verify_text, "SOLC_URL", errors)
-        _extract_canonical(SOLC_SHA256_RE, verify_text, "SOLC_SHA256", errors)
+        linux_sha256 = _extract_canonical(SOLC_SHA256_RE, verify_text, "SOLC_SHA256", errors)
     except ValueError as err:
         print(f"solc pin check failed: {err}", file=sys.stderr)
         return 1
@@ -116,6 +145,44 @@ def main() -> int:
     if re.search(r"\bsudo\b", action_text):
         errors.append(".github/actions/setup-solc/action.yml: solc install step must not require sudo")
 
+    importer = ROOT / "Contracts" / "VaultFromSolidity" / "Importer" / "Importer.lean"
+    if linux_sha256 != official_solc.OFFICIAL_SOLC_SHA256["linux-amd64"]:
+        errors.append(
+            ".github/workflows/verify.yml: SOLC_SHA256 must be the official "
+            "linux-amd64 list.json digest"
+        )
+
+    if importer.exists():
+        importer_text = _read(importer)
+        if official_solc.SOLC_LONG_VERSION not in importer_text:
+            errors.append(
+                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
+                f"must pin solcVersionPin {official_solc.SOLC_LONG_VERSION}"
+            )
+        if linux_sha256 not in importer_text:
+            errors.append(
+                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
+                "must pin verify.yml SOLC_SHA256 for linux-amd64"
+            )
+        if MACOS_SOLC_SHA256 not in importer_text:
+            errors.append(
+                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
+                "must pin the official macosx-amd64 solc SHA-256"
+            )
+        if "officialSolcSha256s" not in importer_text:
+            errors.append(
+                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
+                "must accept official solc builds via officialSolcSha256s"
+            )
+        if "/usr/bin/shasum" not in importer_text:
+            errors.append(
+                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
+                "macOS checksum path must be /usr/bin/shasum"
+            )
+
+    if args.verify_published_checksums:
+        _verify_published_checksums(errors)
+
     if errors:
         print("solc pin check failed:", file=sys.stderr)
         for err in errors:
@@ -130,4 +197,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
