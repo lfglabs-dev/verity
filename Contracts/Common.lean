@@ -687,6 +687,11 @@ structure ExecutableCallContext where
   adversary : AdversaryModel
   resolve : String → Nat → Option Compiler.CompilationModel.DenoteFunctionCalls.LinkedExternal
 
+/-- Bind an explicit adversary while pinning every resolved linked call to
+`target = 0` and `value = 0`. This is the registry/executable convenience
+boundary: the adversary is live, but link-time callee address and ETH value
+are the zero defaults. Callers that need a real target or nonzero value must
+supply `resolve` themselves (`ofCallEnv` or a custom context). -/
 def ExecutableCallContext.ofAdversary (adv : AdversaryModel) : ExecutableCallContext :=
   { adversary := adv
     resolve := fun _ fallbackSiteId =>

@@ -54,7 +54,7 @@ def guarded (slot : Nat) (body : Contract α) : Contract α :=
     else
       ContractResult.revert "reentrant call blocked" s
 
-/-- Lock held → the guarded entrypoint reverts without touching the state. -/
+/-- Any nonzero lock value is held, matching the compiled `tload` guard. -/
 theorem guarded_locked_reverts (slot : Nat) (body : Contract α)
     (s : ContractState) (hlock : s.transientStorage slot ≠ 0) :
     guarded slot body s = ContractResult.revert "reentrant call blocked" s := by
