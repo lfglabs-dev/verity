@@ -426,9 +426,23 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
   monadic, so `externalCall name [args]` used as a pure expression remains
   observationally silent; only the monadic forms journal. Specs that need
   call observability must use the monadic primitives.
-- **`callExternal name(args)` surface and the mapping stubs**
-  (`getMappingWord`/`setMappingWord`/`getMappingN`/`setMappingN`) remain
-  unmodeled no-ops at this plane.
+- **`callExternal name(args)` surface** remains an unmodeled no-op at this
+  plane.
+- **Hashed mapping accessors are executable, on the `.slot` channel.**
+  `getMappingN`/`setMappingN`, `getMappingWord`/`setMappingWord` and the
+  generated `structMember`/`setStructMember` family read and write
+  `ContractState.storage` at the Solidity keccak slot
+  (`Compiler.Proofs.abstractMappingSlot`, folded left over the key path, plus
+  the member word offset modulo `2^256`); `transient` mapping chains use the
+  `.transient` channel. `structMembers`/`structMembers2` destructuring lowers
+  to those reads. This channel is disjoint from the constructor-keyed
+  `storageMap`/`storageMapUint`/`storageMap2` channels behind
+  `getMapping`/`getMappingUint`/`getMapping2`; a field is accessed through
+  exactly one family, fixed by its declared storage type. Distinctness of two
+  hashed slots with different keys rests on the existing
+  `solidityMappingSlot_injective` axiom; adjacent struct words are distinct
+  without it (`Contracts.structSlot_ne_succ`). The pure expression form
+  `structMembers` outside `let (..) :=` / `return` still yields `default`.
 - **`externalCallBindTo` journals target and value and debits ETH
   on success.** It is still a stub for the callee return word
   (`externalCallStubWord`). Real callee state is the model-plane

@@ -439,6 +439,25 @@ sibling entrypoint.
   executable EDSL surface remains the constant-zero stub, alongside its
   `calldatasize` / `mload` / `extcodesize` placeholder siblings.
 
+## EDSL Executable Plane: Hashed Nested/Struct Mappings (2026-09)
+
+- `Contracts.getMappingN` / `setMappingN` / `getMappingWord` /
+  `setMappingWord` were `pure 0` / `pure ()` stubs: nested and struct
+  mappings had no executable state, so executable-plane theorems about
+  them were vacuous (#2416, Pareto G2). They now read and write the `.slot`
+  channel of `ContractState` at the Solidity keccak slot
+  (`Compiler.Proofs.abstractMappingSlot`, folded left over the key path;
+  struct/word offsets added modulo `2^256`), the same derivation the model
+  plane (`DenoteOracle.mappingSlot`) and the generated struct-mapping
+  accessors use. `transient` chains use the `.transient` channel.
+- `structMembers` / `structMembers2` destructuring lowers to per-member
+  `structMember` reads in the executable plane.
+- Hashed slots live in the `.slot` channel, disjoint from the
+  constructor-keyed `map` / `mapUint` / `map2` channels; distinctness of
+  slots under different keys uses the existing `solidityMappingSlot_injective`
+  axiom, adjacent struct words are distinct without it.
+- Smoke: `Contracts/Smoke/HashedMappings.lean`. Zero new axioms.
+
 ## Bounded Returndatacopy (2026-09)
 
 - Supersedes the conservative `returndataCopy` posture recorded above. Once the
