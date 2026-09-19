@@ -21,9 +21,9 @@ open Compiler.CompilationModel (Stmt Expr freeMemoryPointer)
 private def selectorHex (selector : Nat) : String :=
   "0x" ++ String.ofList (Nat.toDigits 16 selector)
 
-private def compileStaticSingleWordRead
+private def compileStaticWordRead
     (moduleName : String) (selector : Nat) (numStaticArgs : Nat)
-    (resultVar : String) (args : List YulExpr) : Except String (List YulStmt) := do
+    (resultVars : List String) (args : List YulExpr) : Except String (List YulStmt) := do
     if selector >= 2^32 then
       throw s!"{moduleName}: selector {selectorHex selector} exceeds 4 bytes"
     let targetExpr ← match args.head? with
@@ -31,7 +31,8 @@ private def compileStaticSingleWordRead
       | none => throw s!"{moduleName} expects at least 1 argument (target)"
     let staticArgExprs := args.drop 1
     let calldataSize := 4 + numStaticArgs * 32
-    let frameSize := ((Nat.max calldataSize 32 + 31) / 32) * 32
+    let returndataSize := resultVars.length * 32
+    let frameSize := ((Nat.max calldataSize returndataSize + 31) / 32) * 32
     let ptrName := "__oracle_ptr"
     let ptrExpr := YulExpr.ident ptrName
     let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
@@ -52,7 +53,7 @@ private def compileStaticSingleWordRead
       YulExpr.call "gas" [],
       targetExpr,
       ptrExpr, YulExpr.lit calldataSize,
-      ptrExpr, YulExpr.lit 32
+      ptrExpr, YulExpr.lit returndataSize
     ]
     let revertOnFailure := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__oracle_success"]) [
       YulStmt.let_ "__oracle_rds" (YulExpr.call "returndatasize" []),
@@ -61,17 +62,19 @@ private def compileStaticSingleWordRead
       ]),
       YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__oracle_rds"])
     ]
-    let requireSingleWord := YulStmt.if_ (YulExpr.call "iszero" [
-      YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit 32]
+    let requireExpectedWords := YulStmt.if_ (YulExpr.call "iszero" [
+      YulExpr.call "eq" [YulExpr.call "returndatasize" [], YulExpr.lit returndataSize]
     ]) [
       YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
     ]
-    let bindResult := YulStmt.let_ resultVar (YulExpr.lit 0)
-    let assignResult := YulStmt.assign resultVar (YulExpr.call "mload" [ptrExpr])
-    pure [bindResult, YulStmt.block (
+    let bindResults := resultVars.map fun resultVar => YulStmt.let_ resultVar (YulExpr.lit 0)
+    let assignResults := resultVars.zipIdx.map fun (resultVar, idx) =>
+      YulStmt.assign resultVar (YulExpr.call "mload" [
+        YulExpr.call "add" [ptrExpr, YulExpr.lit (idx * 32)]])
+    pure (bindResults ++ [YulStmt.block (
       [loadPtr, storeSelector] ++ storeArgs ++ [advancePtr] ++
-      [YulStmt.let_ "__oracle_success" callExpr, revertOnFailure, requireSingleWord, assignResult]
-    )]
+      [YulStmt.let_ "__oracle_success" callExpr, revertOnFailure, requireExpectedWords] ++ assignResults
+    )])
 
 /-- Read-only oracle module that ABI-encodes `selector(staticArgs...)`, performs
     a `staticcall`, forwards revert returndata on failure, requires exactly one
@@ -89,7 +92,7 @@ def oracleReadUint256Module (resultVar : String) (selector : Nat) (numStaticArgs
   summarySelector := some selector
   summaryMutability := .staticcall
   compile := fun _ctx args =>
-    compileStaticSingleWordRead "oracleReadUint256" selector numStaticArgs resultVar args
+    compileStaticWordRead "oracleReadUint256" selector numStaticArgs [resultVar] args
 
 /-- Typed-interface oracle summary for a view method with one static ABI-word
     return. The summary name is source-shaped, e.g. `IOracle.price`, while the
@@ -108,7 +111,25 @@ def typedReadWordSummaryModule
   summarySelector := some selector
   summaryMutability := .staticcall
   compile := fun _ctx args =>
-    compileStaticSingleWordRead "oracleSummary" selector numStaticArgs resultVar args
+    compileStaticWordRead "oracleSummary" selector numStaticArgs [resultVar] args
+
+/-- Typed-interface oracle summary for a view method with multiple static ABI-word
+    returns. Arguments are `[target] ++ staticArgs`, and each result variable is
+    bound to the corresponding return word. -/
+def typedReadWordsSummaryModule
+    (resultVars : List String) (summaryName : String) (selector : Nat) (numStaticArgs : Nat) :
+    ExternalCallModule where
+  name := "oracleSummary"
+  numArgs := 1 + numStaticArgs
+  resultVars := resultVars
+  writesState := false
+  readsState := true
+  axioms := [s!"oracle_summary:{summaryName}"]
+  summaryName := summaryName
+  summarySelector := some selector
+  summaryMutability := .staticcall
+  compile := fun _ctx args =>
+    compileStaticWordRead "oracleSummary" selector numStaticArgs resultVars args
 
 /-- Convenience: create a `Stmt.ecm` for a read-only `uint256` oracle call. -/
 def oracleReadUint256 (resultVar : String) (target : Expr) (selector : Nat) (staticArgs : List Expr) :

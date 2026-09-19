@@ -900,34 +900,11 @@ def externalStaticCallContractWordsTo {α : Type} [ExternalResult α]
   | .success (.success returndata) post =>
       if arity ≤ returndata.length then
         .success (ExternalResult.fromWords
-          ((returndata.take arity).map Core.Uint256.ofNat)) state
+          ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
   | .success (.failure _) _ | .success (.revert _) _ =>
       .revert "external call failed" state
   | .revert message _ => .revert message state
-
-@[simp] theorem externalStaticCallContractWordsTo_snd {α : Type} [ExternalResult α]
-    (name : String) (target : Address) (args : List Uint256)
-    (adv : AdversaryModel := .stub) (arity : Nat := 1) (siteId : Nat := 0)
-    (s : ContractState) :
-    (externalStaticCallContractWordsTo (α := α) name target args adv arity siteId s).snd = s := by
-  unfold externalStaticCallContractWordsTo
-  split <;> (try split) <;> rfl
-
-@[simp] theorem externalStaticCallContractWordsTo_run_snd {α : Type} [ExternalResult α]
-    (name : String) (target : Address) (args : List Uint256)
-    (adv : AdversaryModel := .stub) (arity : Nat := 1) (siteId : Nat := 0)
-    (s : ContractState) :
-    ((externalStaticCallContractWordsTo (α := α) name target args adv arity siteId).run s).snd = s := by
-  let c := externalStaticCallContractWordsTo (α := α) name target args adv arity siteId
-  have hs : (c s).snd = s := externalStaticCallContractWordsTo_snd name target args adv arity siteId s
-  dsimp [c] at hs
-  unfold Contract.run
-  split
-  · rename_i value post h
-    rw [h] at hs
-    exact hs
-  · rfl
 
 def externalCallEffectWords
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub)

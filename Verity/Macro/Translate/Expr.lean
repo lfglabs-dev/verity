@@ -4878,7 +4878,42 @@ def tupleExternalCallBindStmt?
       some <$> lower extName ext args
   | _ =>
       match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
-      | some (ext, _target, args, some _, _) => some <$> lower ext.name ext args
+      | some (ext, target, args, some _, selector) =>
+          unless ext.isView do
+            throwErrorAt rhs s!"typed interface tuple call '{ext.name}' must be view"
+          unless names.size == ext.returnTys.size do
+            throwErrorAt rhs s!"tuple destructuring binds {names.size} names, but typed interface call '{ext.name}' returns {ext.returnTys.size} values"
+          for ty in ext.returnTys do
+            unless isSingleWordStaticValueType ty do
+              throwErrorAt rhs s!"typed interface call '{ext.name}' tuple binding requires static single-word returns"
+          validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+            ext.name ext.params args
+          let targetExpr ← translateDeclaredPureExpr
+            fields constDecls immutableDecls externalDecls params locals target
+          let argExprs ← translateLinkedExternalCallArgs
+            fields constDecls immutableDecls externalDecls params locals args
+            (some ext.params) (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
+          let initialUsedNames := (params.toList.map (fun p => p.name)) ++
+            (typedLocalNames locals).toList ++ (names.filterMap id).toList
+          let (_, resultNamesRev) := names.toList.zipIdx.foldl
+            (fun (acc : List String × List String) (name?, idx) =>
+              let (used, resultNames) := acc
+              let resultName := name?.getD (freshDiscardName used idx)
+              (resultName :: used, resultName :: resultNames))
+            (initialUsedNames, [])
+          let resultNames := resultNamesRev.reverse
+          let resultNameTerms := resultNames.toArray.map strTerm
+          let typedLocals := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
+            name?.map (fun localName => mkTypedLocal localName ty)
+          let stmt ← `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.Modules.Oracle.typedReadWordsSummaryModule
+              [ $[$resultNameTerms],* ]
+              $(strTerm ext.name)
+              $(natTerm selector)
+              $(natTerm argExprs.size))
+            [ $targetExpr, $[$argExprs],* ])
+          pure (some (stmt, typedLocals))
       | _ => pure none
 
 /-- Try to translate a tuple‐destructured `tryExternalCall "name" [args]` RHS.

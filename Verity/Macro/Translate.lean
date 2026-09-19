@@ -2220,10 +2220,6 @@ private partial def rewriteForEachExecutableDoElem
         | some iface => locals.push (mkTypedLocal varName .address (some iface))
         | none => locals
       pure (#[elem], locals)
-  | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
-      pure (#[elem], locals)
-  | `(doElem| let mut $name:ident ← $rhs:term) =>
-      pure (#[elem], locals)
   | `(doElem| let $name:ident ← $rhs:term) =>
       match stripParens rhs with
       | `(term| getStorageArrayElement $field:ident $index:term) =>
