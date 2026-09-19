@@ -85,9 +85,15 @@ theorem execIRStmt_lockRelease (fuel : Nat) (state : IRState) (slot : Nat)
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
   simp [lockReleaseStmt, execIRStmt, evalIRExpr, hmod]
 
-/-- The emitted Yul and source model use the same nonzero lock decision. -/
-theorem guard_decision_agrees (v : Nat) : (v ≠ 0) ↔ v ≠ 0 := by
-  rfl
+/-- Yul `if tload(slot)` sees the slot's transient value, so its nonzero
+decision is the source model's lock-held predicate `lock ≠ 0` for every
+stored value, not only the binary `{0,1}` acquire/release cycle. -/
+theorem guard_decision_agrees (state : IRState) (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus) :
+    evalIRExpr state (.call "tload" [.lit slot]) =
+      some (state.transientStorage slot) := by
+  have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
+  simp [evalIRExpr, evalIRCall_tload_singleton, hmod]
 
 /-- Acquire-then-release round-trips the lock slot: the transient storage
 function is extensionally the initial one when the slot started free. -/

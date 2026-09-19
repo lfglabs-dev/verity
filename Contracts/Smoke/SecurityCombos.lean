@@ -255,6 +255,10 @@ verity_contract NonreentrantQualifiedHelperResolution where
     let y ← trustedEntry(externalCall "echo" [x])
     return y
 
+  function reentrancy_trusted overloadedNestedExternal (x : Uint256) : Uint256 := do
+    let y ← overloadedAdversarial(externalCall "echo" [x])
+    return y
+
   function overloadedTrustedCaller (x : Uint256) : Unit := do
     let y ← overloadedTrusted x
     require (y == x) "wrong trusted overload"

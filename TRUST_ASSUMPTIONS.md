@@ -518,8 +518,8 @@ reentry window is closed at the model level. On the compiled side,
 prologue/release statements under the IR interpreter: locked entry reverts
 untouched, free entry acquires the lock and changes nothing else, the spliced
 release resets it (acquire/release round-trips the transient store), and the
-Yul decision `if tload(slot)` (nonzero is true) agrees with the model's `lock ≠ 0` on reachable
-binary lock values. `Compiler.Proofs.IRGeneration.SpliceSimulation` now proves the full guarded
+Yul decision `if tload(slot)` (nonzero is true) agrees with the model's `lock ≠ 0` for every
+stored lock value, not only the binary `{0,1}` acquire/release cycle. `Compiler.Proofs.IRGeneration.SpliceSimulation` now proves the full guarded
 unit end to end for the loop/switch-free fragment with compiler-emitted
 exits: the general splice simulation (`execIRStmts_spliced`), both
 `applyLockReleaseOnExits` branches, and

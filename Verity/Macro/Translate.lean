@@ -3172,7 +3172,8 @@ private partial def threadAdversaryThroughExecutableSyntax
               binds := binds ++ inner
               hoisted := hoisted.push rewritten
             match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-                helpers adversarialHelpers registryOnlyHelpers params locals name hoisted adv with
+                helpers adversarialHelpers registryOnlyHelpers params locals name hoisted adv
+                (originalArgsForOverload := original) with
             | some app => pure (binds, app)
             | none =>
                 let mut app : Term := ⟨name.raw⟩
@@ -3336,7 +3337,8 @@ private partial def threadAdversaryThroughExecutableSyntax
             binds := binds ++ inner
             hoisted := hoisted.push h
           match ← threadHelperApp? fields constDecls immutableDecls externalDecls
-              helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv with
+              helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+              (originalArgsForOverload := original) with
           | some app => wrapBinds binds (← `(doElem| let $name ← $app:term))
           | none => recurseChildren
       | none => recurseChildren

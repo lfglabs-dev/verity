@@ -129,6 +129,53 @@ example : entryRegistrySeesAdversary = true := by decide
 
 end RegistryWindowHelperRouting
 
+/-! Regression: parenthesized overloaded helper + nested `externalCall`.
+Second-pass `threadHelperApp?` must resolve the overload from the original
+source arguments (`originalArgsForOverload`), not the hoisted temps. Otherwise
+the registry body falls through to the public helper and observes stub
+returndata. The parenthesized `let observed ← overloadedHop(externalCall ...)`
+form is the let-bind second-pass site; `hoistNested` rewrites the nested
+`externalCall` argument of that same application. -/
+verity_contract RegistryOverloadedNestedExternal where
+  storage
+    last : Uint256 := slot 0
+  linked_externals
+    external ping(Uint256) -> (Uint256)
+
+  function overloadedHop (_who : Address) : Uint256 := do
+    return 0
+
+  function reentrancy_trusted overloadedHop (x : Uint256) : Uint256 := do
+    let observed := externalCall "ping" [x]
+    return observed
+
+  function allow_post_interaction_writes reentrancy_trusted entryLet (x : Uint256) : Uint256 := do
+    let observed ← overloadedHop(externalCall "ping" [x])
+    setStorage last observed
+    return observed
+
+namespace RegistryOverloadedNestedExternal
+
+def distinctivePingAdv : AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site world =>
+    if site.name = "ping" then .success [42]
+    else AdversaryModel.stub.result site world
+  gasUsed := fun _ _ => 0
+
+def distinctivePingCtx : Contracts.ExecutableCallContext :=
+  Contracts.ExecutableCallContext.ofAdversary distinctivePingAdv
+
+/-- `entryLet_registry` must call `overloadedHop_registry`, not public `overloadedHop`. -/
+def entryLetRegistrySeesAdversary : Bool :=
+  match (entryLet_registry distinctivePingCtx 0).run Verity.defaultState with
+  | .success value _ => value == 42
+  | _ => false
+
+example : entryLetRegistrySeesAdversary = true := by decide
+
+end RegistryOverloadedNestedExternal
+
 /-- `ReentrancyRelyGuarantee` consumes the emitted registry at the restricted
 callback boundary.  Contract-specific preservation obligations remain with
 authors; this PR establishes only the generated registry/guard connection. -/
