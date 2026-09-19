@@ -4,6 +4,7 @@ import Compiler.CompilationModel.DynamicData
 import Compiler.IR
 import Compiler.Yul.PrettyPrint
 import Compiler.Yul.PatchFramework
+import Compiler.Yul.StatementRegions
 import Verity.Core.Intrinsics
 
 namespace Compiler.CodegenCommon
@@ -153,8 +154,8 @@ private def yulExprSame (a b : YulExpr) : Bool :=
 private def yulStmtListSame (a b : List YulStmt) : Bool :=
   toString (repr a) == toString (repr b)
 
-private def isRevertMessageBody (message : String) (body : List YulStmt) : Bool :=
-  yulStmtListSame body (revertWithMessage message)
+private def isTypedPanicBody (code : Verity.Core.PanicCode) (body : List YulStmt) : Bool :=
+  yulStmtListSame body (solidityPanicPayload code.toNat)
 
 private def checkedAddFailCond (a b : YulExpr) : YulExpr :=
   YulExpr.call "lt" [YulExpr.call "add" [a, b], a]
@@ -178,37 +179,77 @@ private def checkedMulFailCond (a b : YulExpr) : YulExpr :=
   ]
 
 private def checkedDivFailCond (b : YulExpr) : YulExpr :=
-  YulExpr.call "iszero" [YulExpr.call "iszero" [
-    YulExpr.call "eq" [b, YulExpr.lit 0]
-  ]]
+  YulExpr.call "eq" [b, YulExpr.lit 0]
+
+private def isUnsafeYulBeginMarker : YulStmt → Bool
+  | YulStmt.comment text => text == UnsafeYulFragment.beginMarker
+  | _ => false
+
+private def isUnsafeYulEndMarker : YulStmt → Bool
+  | YulStmt.comment text => text == UnsafeYulFragment.endMarker
+  | _ => false
+
+-- Replacing repeated operand evaluations must not remove effects or change
+-- reads. Conservatively admit only literal values and local variable reads.
+private def isReusableArithmeticOperand : YulExpr → Bool
+  | .lit _ | .hex _ | .ident _ => true
+  | _ => false
 
 private def checkedArithmeticReplacement? (prev cur : YulStmt) : Option YulStmt :=
   match prev, cur with
   | YulStmt.if_ cond body, YulStmt.let_ name (YulExpr.call "add" [a, b]) =>
-      if yulExprSame cond (checkedAddFailCond a b) &&
-          isRevertMessageBody "Panic(0x11): arithmetic overflow" body then
+      if isReusableArithmeticOperand a && isReusableArithmeticOperand b &&
+          yulExprSame cond (checkedAddFailCond a b) &&
+          isTypedPanicBody .arithmeticOverflow body then
         some (YulStmt.let_ name (YulExpr.call checkedAddUint256HelperName [a, b]))
       else
         none
   | YulStmt.if_ cond body, YulStmt.let_ name (YulExpr.call "sub" [a, b]) =>
-      if yulExprSame cond (checkedSubFailCond a b) &&
-          isRevertMessageBody "Panic(0x11): arithmetic underflow" body then
+      if isReusableArithmeticOperand a && isReusableArithmeticOperand b &&
+          yulExprSame cond (checkedSubFailCond a b) &&
+          isTypedPanicBody .arithmeticOverflow body then
         some (YulStmt.let_ name (YulExpr.call checkedSubUint256HelperName [a, b]))
       else
         none
   | YulStmt.if_ cond body, YulStmt.let_ name (YulExpr.call "mul" [a, b]) =>
-      if yulExprSame cond (checkedMulFailCond a b) &&
-          isRevertMessageBody "Panic(0x11): arithmetic overflow" body then
+      if isReusableArithmeticOperand a && isReusableArithmeticOperand b &&
+          yulExprSame cond (checkedMulFailCond a b) &&
+          isTypedPanicBody .arithmeticOverflow body then
         some (YulStmt.let_ name (YulExpr.call checkedMulUint256HelperName [a, b]))
       else
         none
   | YulStmt.if_ cond body, YulStmt.let_ name (YulExpr.call "div" [a, b]) =>
-      if yulExprSame cond (checkedDivFailCond b) &&
-          isRevertMessageBody "Panic(0x12): division by zero" body then
+      if isReusableArithmeticOperand a && isReusableArithmeticOperand b &&
+          yulExprSame cond (checkedDivFailCond b) &&
+          isTypedPanicBody .divisionByZero body then
         some (YulStmt.let_ name (YulExpr.call checkedDivUint256HelperName [a, b]))
       else
         none
   | _, _ => none
+
+/-! Copy an unsafe-Yul region without recursively optimizing it.
+
+    The lowering boundary is represented by comment markers because the Yul
+    AST is shared with handwritten fragments and intentionally has no
+    provenance field.  A fuel argument keeps this traversal total and also
+    makes malformed/unclosed marker pairs fail closed by copying the remainder
+    unchanged. -/
+private def takeOpaqueUnsafeYulRegion : Nat → Nat → List YulStmt → List YulStmt × List YulStmt
+  | 0, _, stmts => (stmts, [])
+  | _fuel + 1, _, [] => ([], [])
+  | fuel + 1, depth, stmt :: rest =>
+      if isUnsafeYulBeginMarker stmt then
+        let (inside, tail) := takeOpaqueUnsafeYulRegion fuel (depth + 1) rest
+        (stmt :: inside, tail)
+      else if isUnsafeYulEndMarker stmt then
+        if depth == 1 then
+          ([], stmt :: rest)
+        else
+          let (inside, tail) := takeOpaqueUnsafeYulRegion fuel (depth - 1) rest
+          (stmt :: inside, tail)
+      else
+        let (inside, tail) := takeOpaqueUnsafeYulRegion fuel depth rest
+        (stmt :: inside, tail)
 
 mutual
 
@@ -235,13 +276,26 @@ private def optimizeCheckedArithmeticStmtFuel : Nat → YulStmt → YulStmt
 private def optimizeCheckedArithmeticStmtsFuel : Nat → List YulStmt → List YulStmt
   | 0, stmts => stmts
   | _fuel + 1, [] => []
-  | fuel + 1, [stmt] => [optimizeCheckedArithmeticStmtFuel fuel stmt]
-  | fuel + 1, prev :: cur :: rest =>
-      let prev' := optimizeCheckedArithmeticStmtFuel fuel prev
-      let cur' := optimizeCheckedArithmeticStmtFuel fuel cur
-      match checkedArithmeticReplacement? prev' cur' with
-      | some replacement => replacement :: optimizeCheckedArithmeticStmtsFuel fuel rest
-      | none => prev' :: optimizeCheckedArithmeticStmtsFuel fuel (cur :: rest)
+  | fuel + 1, beginMarker :: rest =>
+      if isUnsafeYulBeginMarker beginMarker then
+        let (opaqueStmts, tail) := takeOpaqueUnsafeYulRegion fuel 1 rest
+        match tail with
+        | endMarker :: after =>
+            if isUnsafeYulEndMarker endMarker then
+              beginMarker :: opaqueStmts ++ endMarker :: optimizeCheckedArithmeticStmtsFuel fuel after
+            else
+              beginMarker :: opaqueStmts
+        | [] =>
+            beginMarker :: opaqueStmts
+      else
+        match rest with
+        | [] => [optimizeCheckedArithmeticStmtFuel fuel beginMarker]
+        | cur :: tail =>
+            let prev' := optimizeCheckedArithmeticStmtFuel fuel beginMarker
+            let cur' := optimizeCheckedArithmeticStmtFuel fuel cur
+            match checkedArithmeticReplacement? prev' cur' with
+            | some replacement => replacement :: optimizeCheckedArithmeticStmtsFuel fuel tail
+            | none => prev' :: optimizeCheckedArithmeticStmtsFuel fuel (cur :: tail)
 
 end
 
@@ -251,28 +305,41 @@ private def yulStmtListFuel (stmts : List YulStmt) : Nat :=
 private def optimizeCheckedArithmeticStmts (stmts : List YulStmt) : List YulStmt :=
   optimizeCheckedArithmeticStmtsFuel (yulStmtListFuel stmts) stmts
 
-private def internalHelperNamed (name : String) : YulStmt → Bool
-  | YulStmt.funcDef fnName _ _ _ => fnName == name
+private def canonicalArithmeticHelpers : List YulStmt :=
+  [checkedAddUint256Helper, checkedSubUint256Helper, checkedMulUint256Helper,
+    checkedDivUint256Helper, panicError0x11Helper, panicError0x12Helper]
+
+private def isArithmeticHelperName (name : String) : Bool :=
+  (canonicalArithmeticHelpers.filterMap yulFuncDefName?).contains name
+
+private def bindsArithmeticHelperName : YulStmt → Bool
+  | .let_ name _ => isArithmeticHelperName name
+  | .letMany names _ => names.any isArithmeticHelperName
+  | .funcDef name params rets _ =>
+      isArithmeticHelperName name || params.any isArithmeticHelperName ||
+        rets.any isArithmeticHelperName
   | _ => false
 
-private def hasCheckedArithmeticHelpers (contract : IRContract) : Bool :=
-  contract.internalFunctions.any (internalHelperNamed checkedAddUint256HelperName) &&
-    contract.internalFunctions.any (internalHelperNamed checkedSubUint256HelperName) &&
-    contract.internalFunctions.any (internalHelperNamed checkedMulUint256HelperName) &&
-    contract.internalFunctions.any (internalHelperNamed checkedDivUint256HelperName)
+-- Validate the actual emitted section, including both panic dependencies.
+-- A binding anywhere else (even inside an opaque region) disables this pass.
+private def hasCanonicalArithmeticHelpers (stmts : List YulStmt) : Bool :=
+  canonicalArithmeticHelpers.all (fun helper => stmts.countP (· == helper) == 1) &&
+    StatementRegions.allStatementLists
+      (fun body => body.all (fun stmt => !bindsArithmeticHelperName stmt))
+      (stmts.filter (fun stmt => !canonicalArithmeticHelpers.contains stmt))
 
-private def optimizeCheckedArithmeticIfAvailable (contract : IRContract) (stmts : List YulStmt) :
+private def optimizeCheckedArithmeticIfAvailable (stmts : List YulStmt) :
     List YulStmt :=
-  if hasCheckedArithmeticHelpers contract then
+  if hasCanonicalArithmeticHelpers stmts && StatementRegions.wellFormed stmts then
     optimizeCheckedArithmeticStmts stmts
   else
     stmts
 
-def optimizeCheckedArithmeticObjectIfAvailable (contract : IRContract) (object : YulObject) :
+def optimizeCheckedArithmeticObjectIfAvailable (_contract : IRContract) (object : YulObject) :
     YulObject :=
   { object with
-    deployCode := optimizeCheckedArithmeticIfAvailable contract object.deployCode
-    runtimeCode := optimizeCheckedArithmeticIfAvailable contract object.runtimeCode }
+    deployCode := optimizeCheckedArithmeticIfAvailable object.deployCode
+    runtimeCode := optimizeCheckedArithmeticIfAvailable object.runtimeCode }
 
 def runtimeCode (contract : IRContract) : List YulStmt :=
   let mapping := if contract.usesMapping then [mappingSlotFuncAt 0] else []

@@ -63,16 +63,34 @@ termination_by bs => sizeOf bs
 decreasing_by all_goals simp_wf; all_goals omega
 end
 
-private def isCheckedArithmeticPanicMessage (message : String) : Bool :=
-  message == "Panic(0x11): arithmetic overflow" ||
-    message == "Panic(0x11): arithmetic underflow" ||
-    message == "Panic(0x12): division by zero"
+private def exprSame (a b : Expr) : Bool :=
+  toString (repr a) == toString (repr b)
+
+private def isCheckedArithmeticPanicPair (stmt next : Stmt) : Bool :=
+  match stmt, next with
+  | Stmt.ite (Expr.lt (Expr.add a b) a') [Stmt.panic .arithmeticOverflow] [],
+      Stmt.letVar _ (Expr.add x y) =>
+      exprSame a a' && exprSame a x && exprSame b y
+  | Stmt.ite (Expr.lt a b) [Stmt.panic .arithmeticOverflow] [],
+      Stmt.letVar _ (Expr.sub x y) =>
+      exprSame a x && exprSame b y
+  | Stmt.ite
+      (Expr.logicalNot
+        (Expr.logicalOr
+          (Expr.eq b (Expr.literal 0))
+          (Expr.eq (Expr.div (Expr.mul a b') b'') a')))
+      [Stmt.panic .arithmeticOverflow] [],
+      Stmt.letVar _ (Expr.mul x y) =>
+      exprSame a a' && exprSame a x && exprSame b b' && exprSame b b'' &&
+        exprSame b y
+  | Stmt.ite (Expr.eq b (Expr.literal 0)) [Stmt.panic .divisionByZero] [],
+      Stmt.letVar _ (Expr.div _ y) =>
+      exprSame b y
+  | _, _ => false
 
 mutual
 
 def stmtMayUseCheckedArithmetic : Stmt → Bool
-  | Stmt.require _ message =>
-      isCheckedArithmeticPanicMessage message
   | Stmt.ite _ thenBranch elseBranch =>
       stmtListMayUseCheckedArithmetic thenBranch ||
         stmtListMayUseCheckedArithmetic elseBranch
@@ -88,9 +106,11 @@ decreasing_by all_goals simp_wf; all_goals omega
 
 def stmtListMayUseCheckedArithmetic : List Stmt → Bool
   | [] => false
-  | stmt :: rest =>
-      stmtMayUseCheckedArithmetic stmt ||
-        stmtListMayUseCheckedArithmetic rest
+  | [stmt] => stmtMayUseCheckedArithmetic stmt
+  | stmt :: next :: rest =>
+      isCheckedArithmeticPanicPair stmt next ||
+        stmtMayUseCheckedArithmetic stmt ||
+        stmtListMayUseCheckedArithmetic (next :: rest)
 termination_by stmts => sizeOf stmts
 decreasing_by all_goals simp_wf; all_goals omega
 
@@ -249,6 +269,7 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprListUsesArrayElementKind includePlain includeWord args
   | .panicCode code =>
       exprUsesArrayElementKind includePlain includeWord code
+  | .panic _ => false
   | Stmt.mstore offset value =>
       exprUsesArrayElementKind includePlain includeWord offset ||
         exprUsesArrayElementKind includePlain includeWord value
@@ -428,6 +449,7 @@ def stmtUsesArrayElement : Stmt → Bool
       exprListUsesArrayElement args
   | .panicCode code =>
       exprUsesArrayElement code
+  | .panic _ => false
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprUsesArrayElement offset || exprUsesArrayElement value
   | Stmt.calldatacopy destOffset sourceOffset size
@@ -634,6 +656,7 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
       exprListUsesParamDynamicHeadWord args
   | .panicCode code =>
       exprUsesParamDynamicHeadWord code
+  | .panic _ => false
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprUsesParamDynamicHeadWord offset || exprUsesParamDynamicHeadWord value
   | Stmt.calldatacopy a b c | Stmt.returndataCopy a b c =>
@@ -786,6 +809,7 @@ def stmtUsesMulDiv512 : Stmt → Bool
       exprListUsesMulDiv512 args
   | .panicCode code =>
       exprUsesMulDiv512 code
+  | .panic _ => false
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprUsesMulDiv512 offset || exprUsesMulDiv512 value
   | Stmt.calldatacopy a b c | Stmt.returndataCopy a b c =>
@@ -962,6 +986,7 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprListUsesStorageArrayElement args
   | .panicCode code =>
       exprUsesStorageArrayElement code
+  | .panic _ => false
   | Stmt.mstore offset value =>
       exprUsesStorageArrayElement offset || exprUsesStorageArrayElement value
   | Stmt.tstore offset value =>
@@ -1123,6 +1148,7 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
       exprListUsesDynamicBytesEq args
   | .panicCode code =>
       exprUsesDynamicBytesEq code
+  | .panic _ => false
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprUsesDynamicBytesEq offset || exprUsesDynamicBytesEq value
   | Stmt.calldatacopy destOffset sourceOffset size

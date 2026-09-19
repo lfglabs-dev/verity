@@ -114,13 +114,47 @@ function checked (a : Uint256, b : Uint256) : Uint256 := do
   return product
 ```
 
-For Solidity-0.8-style source models, prefer the panic wrappers
-`addPanic`/`subPanic`/`mulPanic`/`divPanic`. They are thin `Contract` wrappers
-around the safe operations with canonical panic messages, and the
-`verity_contract` macro lowers binds such as `let total ← addPanic total amount`
-to the same checked guard/result shape as the explicit `requireSomeUint`
-spelling. The generated-Yul feature tests assert the guard lowering for all four
-safe arithmetic operations.
+For Solidity-0.8-style unsigned source models, prefer the panic wrappers
+`addPanic`/`subPanic`/`mulPanic`/`divPanic`. For binds such as
+`let total ← addPanic total amount`, the `verity_contract` macro emits the
+operation's failure predicate in a guarded `Stmt.panic`, followed by the
+arithmetic result binding. The exact pair of adjacent statements together form
+the guard/panic/arithmetic sequence. Overflow and underflow use typed
+`.arithmeticOverflow` (`0x11`); division by zero uses typed
+`.divisionByZero` (`0x12`). This is intentionally different from
+`requireSomeUint ... "Panic(...)"`: it produces Solidity's canonical
+`Panic(uint256)` payload rather than `Error(string)`.
+
+`Stmt.panic PanicCode` compiles directly to 36 bytes of revert data: selector
+`0x4e487b71` followed by one ABI word containing the typed code. The separate
+raw `Stmt.panicCode Expr` path remains for runtime codes and generated enum
+guards such as `0x21`, and retains expression caching during lowering. When the
+full checked-helper set is available, `CodegenCommon` recognizes only the exact
+typed adjacent pair and replaces it with the corresponding checked helper call.
+Both operands must be numeric literals or variable references; calls and other
+compound expressions remain unchanged so the rewrite cannot remove operand
+effects or change their evaluation order relative to the guard.
+ECM output is inspected automatically under the same rules, without an opt-in.
+Deployment and runtime are validated independently against the actual emitted
+Yul: all four arithmetic helpers and both panic helpers must occur exactly once
+at top level with canonical signatures/bodies, and no other binding may reuse
+their names. ECM alone does not insert helpers. Region comments prevent matches
+across boundaries; malformed markers disable the pass. Reserved ECM marker text
+inside module output falls back to opacity. Explicit unsafe-Yul remains opaque.
+Usage analysis likewise requires matching operands, guard, operation, and typed
+panic constructor; a standalone or raw panic cannot enable the helpers.
+Generated-model and Yul tests cover all four operations and negative matcher
+cases. `Compiler.Proofs.IRGeneration.PanicPayloadIR` proves the abstract memory
+writes and revert result, which do not observe returned bytes.
+`Compiler.Proofs.YulGeneration.PanicPayloadBytes` separately proves the emitted
+panic AST returns the exact canonical 36-byte payload for any initial memory,
+using EVMYulLean's byte-addressed memory and revert operations. It includes both
+typed constructors and a general theorem interpreting numeric codes as EVM words.
+
+The direct Lean definitions of the four wrappers retain their historical
+diagnostic strings. Those messages are executable-model compatibility behavior,
+not compiled revert bytes; the macro-generated path bypasses them and emits the
+canonical payload above.
 
 The same `addPanic`/`subPanic`/`mulPanic`/`divPanic` bind sources accept
 `Int256` operands. Those lower to signed overflow guards (`slt` same-sign /
@@ -209,15 +243,29 @@ The arithmetic model is invariant across profiles. See [`docs/SOLIDITY_PARITY_PR
 ## What Is NOT Proved
 
 - **Gas semantics**: proofs establish result correctness, not gas cost or bounded liveness.
-- **Compiler-layer overflow detection**: the compiler does not insert overflow or division-by-zero checks. Use EDSL `safeAdd`/`safeSub`/`safeMul`/`safeDiv` for checked behavior.
+- **Implicit compiler-layer overflow detection**: the compiler does not insert
+  checks for bare arithmetic. Use the EDSL's explicit safe operations or panic
+  wrappers for checked behavior.
+- **Whole-contract structured-panic preservation**: the exact panic payload is
+  proved for the local emitted AST using EVM memory operations, not full native
+  Yul execution or solc bytecode. Typed and raw panic statements remain
+  outside the current generic `SupportedSpec` effect fragment. Independently,
+  the post-codegen rewrite from the exact adjacent typed pair (together forming
+  the guard/panic/arithmetic sequence) to a checked helper call is protected by
+  structural matching and regression tests, not an end-to-end preservation
+  theorem.
 - **Cryptographic primitives**: keccak256 is axiomatized (see [`AXIOMS.md`](../AXIOMS.md)).
 - **Universal bridge equivalence**: 25/25 pure EVMYulLean-backed builtins have universal bridge lemmas. All 25 also have context-lifted native bridge theorems. All 8 higher-level expression operators also have proven compilation correctness.
 
 ## Auditor Checklist
 
 1. Confirm that the contract's arithmetic assumptions match wrapping semantics.
-2. If overflow or division-by-zero protection is required, verify the contract uses `safeAdd`/`safeSub`/`safeMul`/`safeDiv`.
-3. Check that `requireSomeUint` or `requireSomeUintError` is used to revert on overflow/underflow or zero divisors.
+2. If overflow or division-by-zero protection is required, verify the contract
+   uses `safeAdd`/`safeSub`/`safeMul`/`safeDiv` or the corresponding
+   `addPanic`/`subPanic`/`mulPanic`/`divPanic` wrapper.
+3. Check that safe operations are consumed through `requireSomeUint` or
+   `requireSomeUintError`; for Solidity-parity panic behavior, check that the
+   explicit panic wrappers are used instead of a Panic-looking string message.
 4. Review `Compiler/Proofs/ArithmeticProfile.lean` for the formal wrapping proofs.
 5. Confirm the backend profile does not affect arithmetic behavior (it doesn't).
 
