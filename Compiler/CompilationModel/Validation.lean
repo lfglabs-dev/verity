@@ -430,6 +430,7 @@ def stmtWritesStateNode : Stmt → Bool
       exprListWritesState args
   | .panicCode code =>
       exprWritesState code
+  | .panic _ => false
   | Stmt.return value =>
       exprWritesState value
   | Stmt.returnValues values =>
@@ -528,6 +529,7 @@ def stmtHasUntrackableWritesNode : Stmt → Bool
       args.any exprHasUntrackableWrites
   | .panicCode code =>
       exprHasUntrackableWrites code
+  | .panic _ => false
   | Stmt.return value | Stmt.storageArrayPush _ value =>
       exprHasUntrackableWrites value
   | Stmt.setStorageArrayElement _ index value =>
@@ -621,6 +623,7 @@ def stmtContainsExternalCallNode : Stmt → Bool
       args.any exprContainsExternalCall
   | .panicCode code =>
       exprContainsExternalCall code
+  | .panic _ => false
   | Stmt.return value =>
       exprContainsExternalCall value
   | Stmt.returnValues values =>
@@ -724,6 +727,7 @@ def stmtMayContainExternalCallNode : Stmt → Bool
       args.any exprMayContainExternalCall
   | .panicCode code =>
       exprMayContainExternalCall code
+  | .panic _ => false
   | Stmt.return value =>
       exprMayContainExternalCall value
   | Stmt.returnValues values =>
@@ -784,6 +788,7 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
       args.any exprReadsStateOrEnv
   | .panicCode code =>
       exprReadsStateOrEnv code
+  | .panic _ => false
   | Stmt.returnArray _ | Stmt.returnBytes _ =>
       false
   | Stmt.returnStorageWords _ =>
@@ -878,6 +883,7 @@ def stmtWritesStateWithFunctionEffectsNode
       exprListWritesStateWithFunctionEffects effects args
   | .panicCode code =>
       exprWritesStateWithFunctionEffects effects code
+  | .panic _ => false
   | Stmt.return value =>
       exprWritesStateWithFunctionEffects effects value
   | Stmt.returnValues values =>
@@ -959,6 +965,7 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
       exprListReadsStateOrEnvWithFunctionEffects effects args
   | .panicCode code =>
       exprReadsStateOrEnvWithFunctionEffects effects code
+  | .panic _ => false
   | Stmt.returnArray _ | Stmt.returnBytes _ =>
       false
   | Stmt.returnStorageWords _ =>
@@ -1256,6 +1263,8 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
         throw "Compilation error: ADT construction is only supported as the direct value of setStorage for ADT storage fields; expression-position ADT values are not scalar Yul expressions."
       else
         pure ()
+  | .panic _ =>
+      pure ()
   | Stmt.rawLog topics dataOffset dataSize =>
       if exprListContainsAdtConstruct topics || exprContainsAdtConstruct dataOffset ||
           exprContainsAdtConstruct dataSize then

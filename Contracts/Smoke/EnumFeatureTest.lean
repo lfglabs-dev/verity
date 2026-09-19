@@ -116,6 +116,17 @@ def enumParamRejectsOutOfRange : Bool :=
 
 example : enumParamRejectsOutOfRange = true := by native_decide
 
+/-- ABI enum validation keeps its historical raw panic code (`0x21`), rather
+than being classified as a checked-arithmetic panic.  Assert the generated
+model shape so this compatibility boundary is visible independently of the
+runtime revert smoke test above. -/
+def enumParamGuardPreservesRawPanicCode : Bool :=
+  match MacroEnumUsage.identity_modelBody with
+  | Stmt.ite _ _ [Stmt.panicCode (Expr.literal code)] :: _ => code == 0x21
+  | _ => false
+
+example : enumParamGuardPreservesRawPanicCode = true := by native_decide
+
 /--
 error: ite requires matching branch types, got Verity.Macro.ValueType.enum "Status" 3 and Verity.Macro.ValueType.uint256
 -/

@@ -630,7 +630,14 @@ theorem compileStmt_ecm_bridged
         simp [hExprs] at hOk
         have hArgsBridged : ∀ y ∈ argExprs, BridgedExpr y :=
           compileExprList_bridgedSource fields dynamicSource hArgs hExprs
-        exact hBridgeable _ argExprs out hArgsBridged hOk
+        cases hModule : mod.compile
+            { isDynamicFromCalldata := dynamicSource == .calldata } argExprs with
+        | error _ => simp [hModule] at hOk
+        | ok generated =>
+          simp [hModule] at hOk
+          subst out
+          exact ecmYulRegion_preserves BridgedStmt bridgedStmt_comment
+            (hBridgeable _ argExprs generated hArgsBridged hModule)
 
 /-- A list of `Stmt.ecm` source statements, all in `BridgedSourceEcmStmt`. -/
 def BridgedSourceEcmStmts (stmts : List Stmt) : Prop :=

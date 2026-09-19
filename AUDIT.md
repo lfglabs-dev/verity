@@ -354,6 +354,65 @@ sibling entrypoint.
   boundary is enforced at the theorem support witness instead.
 - `Verity/Core/Uint256.lean`: `checkedSub`/`checkedMul` + `subNoWrap`/`mulNoWrap`
   complete the checked-arithmetic lane (#1993) alongside `checkedAdd`.
+- Solidity-0.8-style unsigned arithmetic binds now lower to structured panic control
+  flow. `Verity/Macro/Translate/Expr.lean` emits an exact failure predicate,
+  `Stmt.panic .arithmeticOverflow` for overflow/underflow or
+  `Stmt.panic .divisionByZero` for division by zero, and then the arithmetic
+  result binding. Direct Lean helpers retain compatibility diagnostic strings;
+  macro-generated compilation bypasses them and emits canonical
+  `Panic(uint256)` ABI data rather than `Error(string)`.
+- `Verity.Core.PanicCode` is closed over those two arithmetic codes. General
+  runtime `panic(code)` and generated enum guards such as `panic(0x21)` retain
+  the raw `Stmt.panicCode Expr` compatibility path.
+- Helper discovery and the post-codegen Yul rewrite are fail-closed over the
+  generated shape: `Compiler/CompilationModel/UsageAnalysis.lean` requires an
+  exact pair of adjacent statements—a guarded typed panic followed by the
+  arithmetic result binding—which together form the guard/panic/arithmetic
+  sequence. `Compiler/CodegenCommon.lean` requires the typed direct-literal
+  compiled panic body and corresponding guard before replacing that pair with
+  a checked helper call. All four rewrites additionally require both operands
+  to be numeric literals or variable references; calls and compound operands
+  remain unchanged. `Stmt.unsafeYul` lowering surrounds raw fragments
+  with comment-only provenance markers; the same optimizer copies marked
+  regions verbatim and never matches across or descends into them, so
+  side-effecting handwritten operands cannot be evaluated a different number
+  of times by this peephole.
+  ECM uses distinct boundaries and is inspected automatically under the same
+  literal/variable operand checks, without author opt-in. Deployment and runtime
+  each require the actual six canonical helper definitions (four arithmetic,
+  two panic), exactly once at top level, with no conflicting bindings anywhere
+  in that section. ECM alone does not insert helpers. Region boundaries prevent
+  cross-region matches; malformed markers disable the pass. Reserved ECM marker
+  text in module output makes that module opaque. The ECM bridge wrapper proof
+  preserves syntactic support only, not optimizer semantic correctness.
+  Regression cases reject standalone panics, wrong panic codes, reversed
+  guards, mismatched operands, and raw lookalikes; generated-Yul checks cover
+  all four helper calls, selector `0x4e487b71`, codes `0x11`/`0x12`, and
+  `revert(0, 36)`.
+  The `compiler-regressions` CI job explicitly builds
+  `Compiler.PanicCodeRegressionTest`; the workflow sync specification requires
+  that step so it cannot be silently removed.
+- `Compiler.Proofs.IRGeneration.execIRStmts_solidityPanicPayload` in `PanicPayloadIR`
+  proves the abstract IR-interpreter memory/revert result for every in-range
+  panic code, with typed specializations for both arithmetic constructors.
+  This result does not retain the revert offset, length, or bytes.
+  `Compiler.Proofs.YulGeneration.observePanicPayloadBytes_solidityPanicPayload`
+  in `PanicPayloadBytes` separately proves that the emitted AST returns exactly
+  the four selector bytes and the 32-byte code word, independently of initial
+  memory. Its size theorem proves 36 returned bytes. The byte observer uses
+  EVMYulLean's `mstore` and `evmRevert`; regressions distinguish empty,
+  truncated, and wrong-offset reverts. This local instruction-sequence proof
+  does not establish full native Yul execution or solc bytecode correctness.
+  The generic whole-contract `SupportedSpec` still excludes typed and raw panic
+  statements through the typed-revert effect surface, and the
+  `CodegenCommon` peephole rewrite is guarded by structural matching and tests
+  rather than an end-to-end preservation theorem. Those remaining boundaries
+  are recorded in `TRUST_ASSUMPTIONS.md` and `docs/ARITHMETIC_PROFILE.md`.
+- **Axiom set unchanged**: this slice adds no `axiom` or `sorry` and leaves
+  `solidityMappingSlot_injective` as the single active project-level axiom.
+  The net increase in `native_decide` feature tests is tracked in
+  `artifacts/trust_surface_report.json`; `native_decide` is a documented
+  trusted reduction mechanism, not a project-level arithmetic axiom.
 
 ## Returndata Surface (2026-08)
 

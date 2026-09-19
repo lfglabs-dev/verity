@@ -167,6 +167,8 @@ def validateInteropStmt (context : String) : Stmt → Except String Unit
       validateInteropExprList context args
   | .panicCode code =>
       validateInteropExpr context code
+  | .panic _ =>
+      pure ()
   | Stmt.mstore offset value => do
       validateInteropExpr context offset
       validateInteropExpr context value

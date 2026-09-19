@@ -70,6 +70,7 @@ inductive TStmt where
   | rawLog (topics : List (TExpr .uint256)) (dataOffset dataSize : TExpr .uint256)
   | revert (reason : String)
   | panicCode (code : TExpr .uint256)
+  | panic (code : Verity.Core.PanicCode)
   deriving Repr
 
 /-- Typed IR block: declared parameters, local variables, and body statements. -/
@@ -259,6 +260,7 @@ def evalTStmtFuel : Nat → TExecState → TStmt → TExecResult
         events := s.world.events ++
           [{ name := s!"log{topics.length}", args := [offsetVal, sizeVal], indexedArgs := topicVals }] } }
   | Nat.succ _, s, .panicCode code => .revert s!"Panic({(evalTExpr s code : Verity.Core.Uint256).val})"
+  | Nat.succ _, _, .panic code => .revert s!"Panic({code.toNat})"
   | Nat.succ _, _, .revert reason => .revert reason
 
 /-- Fuel-bounded evaluator for a sequence of typed IR statements. -/
@@ -336,6 +338,10 @@ def evalTBlock (s : TExecState) (block : TBlock) : TExecResult :=
 @[simp, ir_step] theorem evalTStmt_panicCode (s : TExecState) (code : TExpr .uint256) :
     evalTStmt s (.panicCode code) =
       .revert s!"Panic({(evalTExpr s code : Verity.Core.Uint256).val})" := by
+  simp [evalTStmt, defaultEvalFuel, evalTStmtFuel]
+
+@[simp, ir_step] theorem evalTStmt_panic (s : TExecState) (code : Verity.Core.PanicCode) :
+    evalTStmt s (.panic code) = .revert s!"Panic({code.toNat})" := by
   simp [evalTStmt, defaultEvalFuel, evalTStmtFuel]
 
 @[simp, ir_step] theorem evalTStmts_nil (s : TExecState) :

@@ -154,6 +154,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeLowering
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativePrimOps
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeSignedArithLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeState
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPanic
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSignedArithSpec
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
@@ -161,6 +162,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanStateBridge
 import Compiler.Proofs.YulGeneration.Calldata
 import Compiler.Proofs.YulGeneration.ExecutionSummary
 import Compiler.Proofs.YulGeneration.IRFuel
+import Compiler.Proofs.YulGeneration.PanicPayloadBytes
 import Compiler.Proofs.YulGeneration.RuntimeTypes
 
 import Lean
@@ -4424,6 +4426,8 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/IRGeneration/PanicPayloadIR.lean
   Compiler.Proofs.IRGeneration.execIRStmts_solidityPanicPayload
+  Compiler.Proofs.IRGeneration.execIRStmts_arithmeticOverflowPanicPayload
+  Compiler.Proofs.IRGeneration.execIRStmts_divisionByZeroPanicPayload
 
   -- Compiler/Proofs/IRGeneration/ParamLoading.lean
   Compiler.Proofs.IRGeneration.ParamLoading.uint256_modulus_eq_evm
@@ -7420,6 +7424,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldata
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_calldataSize
 
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanPanic.lean
+  Compiler.Proofs.YulGeneration.Backends.Panic.expectedPanicBytes_size
+  -- Compiler.Proofs.YulGeneration.Backends.Panic.byteArray_append_zeroes_zero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Panic.byteArray_write_full  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Panic.byteArray_readWithPadding_prefix  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Panic.selectorWord_prefix  -- private
+  Compiler.Proofs.YulGeneration.Backends.Panic.machineState_panicPayload_bytes
+  Compiler.Proofs.YulGeneration.Backends.Panic.machineState_panicPayload_size
+
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanPureBuiltinLemmas.lean
   -- Compiler.Proofs.YulGeneration.Backends.uint256_size_eq_evmModulus  -- private
   -- Compiler.Proofs.YulGeneration.Backends.word_lt_uint256_size  -- private
@@ -7584,9 +7597,16 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.execIRStmtsFuel_cons
   Compiler.Proofs.YulGeneration.execIRFunctionFuel_adequate
 
+  -- Compiler/Proofs/YulGeneration/PanicPayloadBytes.lean
+  Compiler.Proofs.YulGeneration.observePanicPayloadBytes_eq_machineState
+  Compiler.Proofs.YulGeneration.observePanicPayloadBytes_solidityPanicPayload
+  Compiler.Proofs.YulGeneration.observePanicPayloadBytes_solidityPanicPayload_size
+  Compiler.Proofs.YulGeneration.observePanicPayloadBytes_arithmeticOverflow
+  Compiler.Proofs.YulGeneration.observePanicPayloadBytes_divisionByZero
+
   -- Compiler/Proofs/YulGeneration/RuntimeTypes.lean
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_sender
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7015 theorems/lemmas (5006 public, 2009 private, 0 sorry'd)
+-- Total: 7029 theorems/lemmas (5016 public, 2013 private, 0 sorry'd)
