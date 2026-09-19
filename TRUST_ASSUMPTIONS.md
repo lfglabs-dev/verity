@@ -423,10 +423,13 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
   about call *outcomes* are therefore claims about the stub, not about a real
   callee; adversarial reasoning lives in the model plane (`DenoteExternalCalls`).
 - **`ExecutableCallContext.ofAdversary` pins `target = 0` and `value = 0`.**
-  The registry predicate applies generated `*_registry` executables through
-  this helper so the adversary is explicit while link-time callee address and
-  ETH value stay at the zero boundary. A nonzero target or value requires
-  `ofCallEnv` or a custom `resolve`; ofAdversary is not a general linker.
+  It is a convenience context, not a general linker: a nonzero target or value
+  requires `ofCallEnv` or a custom `resolve`. The generated registry predicate
+  does not depend on it: each `*_entrypoint` existentially quantifies the
+  executable resolver, so a transition produced by any `ExecutableCallContext`
+  carrying the registry adversary (including `ofCallEnv`) is a registered
+  transition. `CallbackBounded` therefore covers executable linked calls that
+  resolve a nonzero target/value, not only the zero boundary.
 - **`externalCallWords` (pure expression form) does not journal.** It is not
   monadic, so `externalCall name [args]` used as a pure expression remains
   observationally silent; only the monadic forms journal. Specs that need

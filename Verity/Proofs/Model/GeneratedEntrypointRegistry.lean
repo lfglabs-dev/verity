@@ -28,14 +28,24 @@ verity_contract GeneratedRegistry where
 namespace GeneratedRegistry
 
 /-- The generated registry uses its explicit adversary at the external-call
-entrypoint; there is no `.stub` compatibility path in this theorem surface. -/
-theorem guardedPing_registered (adv : AdversaryModel) (ctx : CallbackContext)
+entrypoint; there is no `.stub` compatibility path in this theorem surface.
+The registry quantifies over the executable resolver, so any
+`ExecutableCallContext` carrying the adversary is covered, not only
+`ofAdversary` (whose resolver fixes target/value to 0). -/
+theorem guardedPing_registered (ectx : Contracts.ExecutableCallContext) (ctx : CallbackContext)
+    (value : Uint256) (hvalue : ctx.msgValue = 0) :
+    entrypointRegistry ectx.adversary
+      (callbackContractTransition ctx (guardedPing_registry ectx value)) := by
+  left
+  exact ⟨ctx, ectx.resolve, value, hvalue, rfl⟩
+
+/-- The `ofAdversary` instance of the general registration theorem. -/
+theorem guardedPing_registered_ofAdversary (adv : AdversaryModel) (ctx : CallbackContext)
     (value : Uint256) (hvalue : ctx.msgValue = 0) :
     entrypointRegistry adv
       (callbackContractTransition ctx
-        (guardedPing_registry (Contracts.ExecutableCallContext.ofAdversary adv) value)) := by
-  left
-  exact ⟨ctx, value, hvalue, rfl⟩
+        (guardedPing_registry (Contracts.ExecutableCallContext.ofAdversary adv) value)) :=
+  guardedPing_registered (Contracts.ExecutableCallContext.ofAdversary adv) ctx value hvalue
 
 /-- The executable generated entrypoint is definitionally protected by the
 canonical source guard at the same slot used by the compiled dispatch guard. -/

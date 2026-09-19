@@ -6339,8 +6339,16 @@ def mkFunctionCommandsPublic
   let registryAdv : Ident := ⟨registryAdvIdent.raw⟩
   let transition : Ident := ⟨transitionIdent.raw⟩
   let context : Ident := ⟨contextIdent.raw⟩
+  -- The executable resolver is existentially quantified: a registered
+  -- transition may come from any `ExecutableCallContext` carrying the
+  -- registry adversary (e.g. `ofCallEnv`), not only from `ofAdversary`,
+  -- whose resolver fixes target/value to 0 (Codex P1 on #2406).
+  let resolveIdent ← Lean.Elab.Term.mkFreshIdent
+    (mkIdentFrom fn.ident `_registryResolve).raw
+  let resolve : Ident := ⟨resolveIdent.raw⟩
   let mut applied : Term := registryId
-  applied ← `($applied (Contracts.ExecutableCallContext.ofAdversary $registryAdv:ident))
+  applied ← `($applied ({ adversary := $registryAdv:ident, resolve := $resolve:ident } :
+    Contracts.ExecutableCallContext))
   let mut registryParams : Array (Ident × Term) := #[]
   for param in fn.params do
     let paramTy ← contractValueTypeTerm param.ty
@@ -6357,6 +6365,10 @@ def mkFunctionCommandsPublic
     registryBody ← `(($context:ident).msgValue = 0 ∧ $registryBody)
   for (paramIdent, paramTy) in registryParams.reverse do
     registryBody ← `(∃ $paramIdent:ident : $paramTy, $registryBody)
+  registryBody ←
+    `(∃ $resolve:ident :
+        String → Nat → Option Compiler.CompilationModel.DenoteFunctionCalls.LinkedExternal,
+      $registryBody)
   registryBody ←
     `(∃ $context:ident :
         Compiler.CompilationModel.DenoteExternalCalls.CallbackContext,
