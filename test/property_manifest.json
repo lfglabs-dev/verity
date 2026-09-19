@@ -347,6 +347,17 @@
     "transfer_then_balanceOf_recipient_correct",
     "transfer_then_balanceOf_sender_correct"
   ],
+  "SolidityImportSmoke": [
+    "bump_meets_spec",
+    "bump_success_spec",
+    "dispatch_is_child",
+    "go_meets_spec",
+    "go_success_spec",
+    "pause_meets_spec",
+    "pause_success_spec",
+    "paused_invariant",
+    "super_runs_parent"
+  ],
   "Vault": [
     "balanceOf_meets_spec",
     "balanceOf_preserves_state",

@@ -16,6 +16,7 @@ import Compiler.CompilationModel.EventAbiHelpers
 import Compiler.CompilationModel.InternalArgs
 import Compiler.CompilationModel.InternalNaming
 import Compiler.CompilationModel.IssueRefs
+import Compiler.CompilationModel.KernelTraversalTests
 import Compiler.CompilationModel.LayoutReport
 import Compiler.CompilationModel.LayoutValidation
 import Compiler.CompilationModel.LogicalPurity

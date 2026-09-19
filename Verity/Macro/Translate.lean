@@ -325,6 +325,19 @@ private partial def validateDoElemExprTypes
           | `(term| selfCall $fn:ident) =>
               unless functions.any (fun f => f.name == toString fn.getId) do
                 throwErrorAt fn s!"selfCall '{fn.getId}' does not name a function of this contract"
+              if let some target := functions.find? (fun f => f.name == toString fn.getId) then
+                unless target.params.isEmpty do
+                  throwErrorAt fn s!"selfCall '{fn.getId}' expects {target.params.size} argument(s), got 0; use `selfCall {fn.getId}(...)`"
+          | `(term| selfCall $fn:ident($[$args:term],*)) =>
+              let some target := functions.find? (fun f => f.name == toString fn.getId)
+                | throwErrorAt fn s!"selfCall '{fn.getId}' does not name a function of this contract"
+              unless target.params.size == args.size do
+                throwErrorAt fn s!"selfCall '{fn.getId}' expects {target.params.size} argument(s), got {args.size}"
+              for (arg, param) in args.zip target.params do
+                let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg
+                unless actualTy == param.ty || (isNatLiteralTerm arg && numericLiteralCompatibleValueType param.ty) do
+                  throwErrorAt arg
+                    s!"selfCall '{fn.getId}' argument '{param.name}' expects {renderValueType param.ty}, got {renderValueType actualTy}"
           | _ =>
               requireWordLikeType attempt "try attempt"
                 (← inferPureExprType fields constDecls immutableDecls externalDecls params locals attempt)
@@ -1690,9 +1703,9 @@ private partial def translateDoElem
             freshSyntheticLocalName "verity_try_success" params locals mutableLocals
           let attemptExpr ←
             match stripParens attempt with
-            | `(term| selfCall $_fn:ident) =>
-                -- CALL-with-status to this (empty calldata). Selector encoding of
-                -- the named function is a documented compilation-model gap.
+            | `(term| selfCall $_fn:ident) | `(term| selfCall $_fn:ident($[$_args:term],*)) =>
+                -- CALL-with-status to this (empty calldata). Selector/argument
+                -- encoding of the named function is a documented compilation-model gap.
                 `(Compiler.CompilationModel.Expr.call
                     (Compiler.CompilationModel.Expr.literal 0)
                     Compiler.CompilationModel.Expr.contractAddress
@@ -2232,7 +2245,11 @@ private partial def rewriteForEachExecutableDoElem
       let attemptLean ←
         match stripParens attempt with
         | `(term| selfCall $fn:ident) =>
-            `(term| _root_.Verity.Contract.selfCall $fn)
+            -- Paren-call form so the executable adversary pass threads the
+            -- call context into hops that make external calls.
+            `(term| _root_.Verity.Contract.selfCall ($fn:ident()))
+        | `(term| selfCall $fn:ident($[$args:term],*)) =>
+            `(term| _root_.Verity.Contract.selfCall ($fn:ident($[$args:term],*)))
         | _ =>
             `(term| (pure $attempt : _root_.Verity.Contract Uint256))
       pure (#[← `(doElem|
@@ -2335,6 +2352,8 @@ def translatedBodyOpensReentrancyWindow
 private partial def syntaxCallsAnyHelper
     (helperNames : Array String) (stx : Syntax) : CommandElabM Bool := do
   match stx with
+  | `(term| selfCall $name:ident) | `(term| selfCall $name:ident($[$_args:term],*)) =>
+      pure (helperNames.contains name.getId.toString)
   | `(term| $name:ident($[$args:term],*)) =>
       if helperNames.contains name.getId.toString then pure true
       else args.anyM (syntaxCallsAnyHelper helperNames ∘ (fun term => term.raw))

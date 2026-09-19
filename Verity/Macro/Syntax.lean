@@ -135,6 +135,8 @@ syntax "tryCatch " term:max ppSpace term:max : doElem
 syntax (name := verityTryWith)
   "tryCall " term:max " then " term:max " catch " term:max : doElem
 syntax "selfCall " ident : term
+/-- Argument-carrying self-call hop: `selfCall f(a, b)` models `this.f(a, b)`. -/
+syntax "selfCall " ident "(" sepBy(term, ",") ")" : term
 
 -- Explicit function-body spellings for the P0 low-level interaction surface.
 -- `callExternal` is declaration-driven; `evmCall`/`evmStaticCall` expose the

@@ -4,6 +4,7 @@
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Compiler.CompilationModel.ReservedScratchNames
+import Contracts.SolidityImportSmoke.Inheritance.Proofs
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -290,6 +291,17 @@ end Verity.AxiomAudit
   -- Compiler/CompilationModel/ReservedScratchNames.lean
   Compiler.CompilationModel.compatScratch_startsWith_reserved
   Compiler.CompilationModel.compatScratch_not_internalImmutable
+
+  -- Contracts/SolidityImportSmoke/Inheritance/Proofs.lean
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.pause_success_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.go_success_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.bump_success_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.dispatch_is_child
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.super_runs_parent
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.pause_meets_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.go_meets_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.bump_meets_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.paused_invariant
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -7575,4 +7587,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7004 theorems/lemmas (4995 public, 2009 private, 0 sorry'd)
+-- Total: 7013 theorems/lemmas (5004 public, 2009 private, 0 sorry'd)

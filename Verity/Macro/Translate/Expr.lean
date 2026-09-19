@@ -2159,6 +2159,10 @@ partial def inferPureExprType
   | `(term| keccakString $_s:str) => pure .uint256
   | `(term| selfCall $_fn:ident) =>
       pure .uint256
+  | `(term| selfCall $_fn:ident($[$args:term],*)) => do
+      for arg in args do
+        let _ ← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants
+      pure .uint256
   | `(term| call $gas $target $value $inOffset $inSize $outOffset $outSize) => do
       for arg in [gas, target, value, inOffset, inSize, outOffset, outSize] do
         requireWordLikeType arg "low-level call" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
@@ -3601,7 +3605,10 @@ partial def translatePureExprWithTypes
   | `(term| keccakString $s:str) =>
       let digest := KeccakEngine.keccak256_str_nat s.getString
       `(Compiler.CompilationModel.Expr.literal $(natTerm digest))
-  | `(term| selfCall $_fn:ident) =>
+  | `(term| selfCall $_fn:ident) | `(term| selfCall $_fn:ident($[$_args:term],*)) =>
+      -- CALL-with-status to this (empty calldata). Selector/argument encoding of
+      -- the named function is a documented compilation-model gap; the
+      -- executable plane runs the named body with the given arguments.
       `(Compiler.CompilationModel.Expr.call
           (Compiler.CompilationModel.Expr.literal 0)
           Compiler.CompilationModel.Expr.contractAddress

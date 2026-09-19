@@ -39,18 +39,31 @@ use of that elaborator; kernel-checked, rolled back on failure), then
 registers `view : ContractState → Storage` built from the imported
 `<var>Slot` handles, tags slot handles, getters, functions, and `view` into
 the `solidity_import` simp set, and registers a deterministic entry-point
-relation `step` (functions in source order, then public getters in field
-order). `Storage`, `view`, and `step` are reserved Solidity names. The
+relation `step` (the target's public/external functions in source order, then
+each base in linearization order, then public getters in field order).
+`Storage`, `view`, and `step` are reserved Solidity names. Opaque fields are
+listed in `opaqueFields`. The importer source manifest is `registeredSources`. The
 frontend emits no generated Lean source and keeps
 no serialized AST/model cache; the parsed term is a kernel-checked Lean value,
 never serialized. `Semantics.lean` tags its definitions into the
 `solidity_import` simp set, so `solidity_simp` unfolds `Fn.meaning` down to the
 Verity primitives exactly as it did before the split.
 
-The accepted fragment covers the existing Vault: full-width scalars,
-address-to-uint256 mappings and public getters, straight-line reads/writes,
-locals, checked addition/subtraction, and comparison/custom-error guards.
-Unknown executable constructs are rejected; this is not general Solidity support.
+The accepted fragment covers the existing Vault plus the S1 inheritance slice:
+full-width `uint256` scalars, `address` scalars, address-to-uint256 mappings and
+public getters, straight-line reads/writes, locals, checked addition/subtraction,
+comparison/custom-error guards, same-file `is` bases with solc's C3
+linearization (including diamonds), virtual dispatch and `super` specialized at
+import time from the target's `linearizedBaseContracts` (matching 0.8.x runtime;
+the AST `referencedDeclaration` on `super` follows the defining contract and is
+not the dispatch key on diamonds), internal function calls (`Expr.call` is
+`view`/`pure` only; effectful internals are `Stmt.callStmt`, because legacy
+codegen evaluates those calls before the other operand / `+=` old-read),
+abstract bases with body-less `virtual`s,
+and opaque storage fields (slot reserved, not in `Storage`; a body that reads or
+writes one is rejected). Unknown executable constructs are rejected; this is not
+general Solidity support. Multi-file units, modifiers, packed fields, and
+external calls remain out of the fragment.
 Arguments/context are already typed and decoded. `Contract.run` rolls back
 failed executions; errors are model strings, not verified ABI revert bytes.
 The storage model uses logical keys, not a proof of physical keccak layout.

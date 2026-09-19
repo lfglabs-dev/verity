@@ -287,12 +287,16 @@ def extract_manifest_from_proofs() -> dict[str, list[str]]:
             continue
         contract = _require_contract_identifier(contract_dir.name, contract_dir)
         proofs_subdir = contract_dir / "Proofs"
+        theorems: list[str] = []
         if proofs_subdir.is_dir():
-            theorems: list[str] = []
             for lean in sorted(proofs_subdir.rglob("*.lean")):
                 theorems.extend(collect_theorems(lean))
-            if theorems:
-                manifest[contract] = sorted(dict.fromkeys(theorems))
+        for lean in sorted(contract_dir.rglob("Proofs.lean")):
+            if proofs_subdir.is_dir() and proofs_subdir in lean.parents:
+                continue
+            theorems.extend(collect_theorems(lean))
+        if theorems:
+            manifest[contract] = sorted(dict.fromkeys(theorems))
 
     # Also scan Contracts/<Contract>/<Contract>.lean for contracts with inline theorems (no separate Proofs dir)
     if EXAMPLES_DIR.exists():
