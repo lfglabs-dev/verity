@@ -66,6 +66,39 @@ in the arms below (raw calls, ABI re-encoding returns, ECM, unsafe Yul,
 `matchAdt`, internal calls — internal-call semantics live in the separate
 `*WithHelpers` interpreters and are not part of this fragment).
 -/
+
+namespace Compiler.ECM.ExternalCallModule
+
+/-- Caller world committed by a successful ECM step.
+
+    A state-writing module (`writesState = true`) commits the receipt's
+    post-call world wholesale, matching the `call` clause of
+    `StatefulExternal.Summary.interprets`.
+
+    A read-only module (`writesState = false`) compiles to `staticcall`, which
+    cannot change the external world — but it still writes its output into
+    caller-local memory (e.g. `Precompiles.sha256MemoryModule` writes the
+    32-byte digest at the caller-supplied output offset, so a following
+    `.mload outputOffset` observes it in compiled code) and appends a journal
+    entry to `calls` via `externalCall` / `denoteCallJournaled`.
+    `writesState = false` therefore restores the caller world *except* for the
+    modeled memory effects and the append-only call journal, both of which are
+    taken from the receipt's post-call world when the receipt supplies one.
+
+    This helper lives here rather than in `Verity.Core.Model.ECM` because that
+    leaf module deliberately stays free of `Verity.Core` (it sits under
+    `Compiler.CompilationModel.Types`, whose transitive closure must not
+    change for `Verity.Macro.Types` dotted-notation resolution). -/
+def committedWorld (mod : ExternalCallModule)
+    (postCallWorld : Option Verity.ContractState) (callerWorld : Verity.ContractState) :
+    Verity.ContractState :=
+  if mod.writesState then postCallWorld.getD callerWorld
+  else
+    let pcw := postCallWorld.getD callerWorld
+    { callerWorld with memory := pcw.memory, calls := pcw.calls }
+
+end Compiler.ECM.ExternalCallModule
+
 namespace Compiler.CompilationModel.Denote
 
 open Compiler.CompilationModel
@@ -122,6 +155,37 @@ def calldatacopyWritesAt (dst size offset : Nat) : Prop :=
 
 instance (dst size offset : Nat) : Decidable (calldatacopyWritesAt dst size offset) := by
   unfold calldatacopyWritesAt; infer_instance
+
+/-- Mirrors `Compiler.Proofs.IRGeneration.returndataloadWord` (pure arithmetic):
+byte-addressed word read from the EIP-211 returndata buffer, zero-extended past
+the end. Unlike calldata there is no 4-byte selector prefix. -/
+def returndataloadWord (returndata : List Nat) (offset : Nat) : Nat :=
+  let q := offset / 32
+  let r := offset % 32
+  if r = 0 then
+    returndata.getD q 0 % Compiler.Constants.evmModulus
+  else
+    let hi := returndata.getD q 0 % Compiler.Constants.evmModulus
+    let lo := returndata.getD (q + 1) 0 % Compiler.Constants.evmModulus
+    ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) %
+      Compiler.Constants.evmModulus
+
+/-- Mirrors `Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256`:
+complete destination words are replaced and a final partial word preserves its
+untouched low bytes. -/
+def returndatacopyMemoryPaddedUint256 (returndata : List Nat)
+    (dst src size : Nat) (memory : Nat → Verity.Core.Uint256) :
+    Nat → Verity.Core.Uint256 :=
+  fun offset => Verity.Core.Uint256.ofNat
+    (if size % 32 ≠ 0 ∧ offset = dst + (size / 32) * 32 then
+      let shift := 8 * (32 - size % 32)
+      ((returndataloadWord returndata (src + (size / 32) * 32) /
+        2 ^ shift) * 2 ^ shift + (memory offset).val % 2 ^ shift) %
+          Compiler.Constants.evmModulus
+    else if calldatacopyWritesAt dst size offset then
+      returndataloadWord returndata (src + (offset - dst))
+    else
+      (memory offset).val)
 
 /-! ## Slot alias expansion (mirroring `Compiler.CompilationModel.LayoutValidation`) -/
 
@@ -180,6 +244,11 @@ abbrev Env := List (String × Nat)
 def bindValue (bindings : Env) (name : String) (value : Nat) : Env :=
   (name, value) :: bindings.filter (fun entry => entry.1 != name)
 
+def bindValues (bindings : Env) : List String → List Nat → Env
+  | [], _ => bindings
+  | _ :: _, [] => bindings
+  | name :: names, value :: values => bindValues (bindValue bindings name value) names values
+
 def lookupValue (bindings : Env) (name : String) : Nat :=
   bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd |>.getD 0
 
@@ -192,6 +261,10 @@ structure DenoteState where
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : Env
   selector : Nat := 0
+  externalCallSucceeded : Nat → Bool := fun _ => false
+  externalCallReturnValues : Nat → List Nat := fun _ => []
+  externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none
+  externalCallIndex : Nat := 0
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
 inductive StmtOutcome where
@@ -719,9 +792,8 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
-  -- Mirrors `SourceSemantics.evalExpr`: the modeled fragment performs no
-  -- call-family instruction, so the EIP-211 returndata buffer stays empty.
-  | .returndataSize => some 0
+  -- Mirrors `SourceSemantics.evalExpr`: `returndatasize()` in bytes.
+  | .returndataSize => some state.world.returndataSize
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields state a
@@ -988,6 +1060,19 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .extcodesize addr => do
       let resolvedAddr ← evalExpr oracle fields state addr
       some (state.world.codeSize (resolvedAddr % Compiler.Constants.addressModulus)).val
+  | .returndataOptionalBoolAt offset => do
+      let resolvedOffset ← evalExpr oracle fields state offset
+      some (state.world.returndataOptionalBool resolvedOffset)
+  -- The reserved `exp` builtin lane: pure arithmetic wearing an `externalCall`
+  -- node, so it needs no oracle. Genuine foreign calls stay undenoted.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then do
+        let baseVal ← evalExpr oracle fields state base
+        let exponentVal ← evalExpr oracle fields state exponent
+        pure (Verity.Core.Uint256.powEff
+          (Verity.Core.Uint256.ofNat baseVal)
+          (Verity.Core.Uint256.ofNat exponentVal)).val
+      else none
   | .keccak256 offExpr sizeExpr => do
       let off ← evalExpr oracle fields state offExpr
       let size ← evalExpr oracle fields state sizeExpr
@@ -1289,8 +1374,20 @@ mutual
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr oracle fields state destOffset, evalExpr oracle fields state sourceOffset,
             evalExpr oracle fields state size with
-        | some _, some src, some sz =>
-            if src + sz = 0 then .continue state else .revert
+        | some dst, some src, some sz =>
+            -- Same bounded-copy semantics as `SourceSemantics.execStmt` and the
+            -- IR interpreter: in-bounds extents copy complete words and merge
+            -- a final partial word; out-of-bounds extents revert identically.
+            if src + sz ≤ 32 * state.world.returndata.length then
+              .continue {
+                state with
+                world := {
+                  state.world with
+                  memory := returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
+                }
+              }
+            else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr oracle fields state cond with
@@ -1357,6 +1454,64 @@ mutual
             execForEachSetBitLoop varName
               (fun loopState => execStmtList oracle fields loopState body)
               256 state bits
+        | none => .revert
+    | state, .externalCallBind resultVars _externalName args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            if state.externalCallSucceeded state.externalCallIndex then
+              let retVals := state.externalCallReturnValues state.externalCallIndex
+              if retVals.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := { (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world with returndata := retVals.map wordNormalize }
+                      bindings := bindValues state.bindings resultVars
+                        (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | state, .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            let retVals := state.externalCallReturnValues state.externalCallIndex
+            if state.externalCallSucceeded state.externalCallIndex then
+              if retVals.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := { (state.externalCallPostWorld state.externalCallIndex).getD
+                        state.world with returndata := retVals.map wordNormalize }
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    world := { state.world with
+                      returndata := retVals.map wordNormalize }
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (retVals.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
+    | state, .ecm mod args =>
+        match evalExprList oracle fields state args with
+        | some _ =>
+            if state.externalCallSucceeded state.externalCallIndex then
+              let retVals := state.externalCallReturnValues state.externalCallIndex
+              if retVals.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := { mod.committedWorld
+                        (state.externalCallPostWorld state.externalCallIndex) state.world with
+                        returndata := retVals.map wordNormalize }
+                      bindings := bindValues state.bindings mod.resultVars
+                        (retVals.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
         | none => .revert
     | _, .revertReturndata => .revert
     | _, _ => .revert
@@ -1466,20 +1621,35 @@ def withTransactionContext (world : Verity.ContractState) (tx : DenoteTransactio
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
+
+/-- EIP-211 makes the returndata buffer frame-local: the transaction frame
+    starts empty, so a buffer left over from an earlier execution cannot be
+    observed by this frame's `returndatasize()` reads. -/
+theorem returndata_withTransactionContext (world : Verity.ContractState)
+    (tx : DenoteTransaction) :
+    (withTransactionContext world tx).returndata = [] :=
+  rfl
 
 /-- Canonical denotation of an external function of the deep model.
 Mirrors `SourceSemantics.interpretFunction` with the event-less statement
 semantics (see header note 2). -/
 def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : FunctionSpec)
-    (tx : DenoteTransaction) (initialWorld : Verity.ContractState) : DenoteResult :=
+    (tx : DenoteTransaction) (initialWorld : Verity.ContractState)
+    (externalCallSucceeded : Nat → Bool := fun _ => false)
+    (externalCallReturnValues : Nat → List Nat := fun _ => [])
+    (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult oracle spec worldWithTx
   | some bindings =>
       match execStmtList oracle fields
-          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector }
+          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            externalCallSucceeded := externalCallSucceeded,
+            externalCallReturnValues := externalCallReturnValues,
+            externalCallPostWorld := externalCallPostWorld }
           fn.body with
       | .continue state => successResult oracle spec state.world none
       | .stop state => successResult oracle spec state.world none

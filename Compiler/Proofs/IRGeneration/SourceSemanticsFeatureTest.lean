@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Verity.Core.Model.Denote
 
 namespace Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
 
@@ -354,6 +355,615 @@ example :
 example :
     evalIRCall (IRState.initial 0) "extcodesize" [Compiler.Yul.YulExpr.lit (2 ^ 160 + 1)] =
     some ((IRState.initial 0).codeSize 1) := by
+  native_decide
+
+/-- Regression (#2397): the reserved `exp` builtin lane must reduce modulo
+    2^256 at every step. A full-domain uint256 exponent (here 2^256 - 1) may
+    not materialise `Nat.pow` before reducing, or the evaluator hangs. -/
+example :
+    SourceSemantics.evalExpr [] { world := Verity.defaultState, bindings := [] }
+      (.externalCall builtinExpName [.literal 3, .literal (2 ^ 256 - 1)]) =
+    some 77194726158210796949047323339125271902179989777093709359638389338608753093291 := by
+  native_decide
+
+/-- Regression (#2397): the modular exponentiation stays faithful to
+    `Uint256.pow` on exponents past the 256-bit reduction boundary
+    (3 ^ 300 already wraps mod 2^256). -/
+example :
+    SourceSemantics.evalExpr [] { world := Verity.defaultState, bindings := [] }
+      (.externalCall builtinExpName [.literal 3, .literal 300]) =
+    some 87572657677406793603303376128395605907379627424338442757698266976936051615345 := by
+  native_decide
+
+/-- Regression (#2397): the helper-aware evaluator shares the incremental
+    modular exponentiation, so the lane stays executable over its full input
+    domain there too. -/
+example :
+    SourceSemantics.evalExprWithHelpers storageArraySourceSpec [] 1
+      { world := Verity.defaultState, bindings := [] }
+      (.externalCall builtinExpName [.literal 3, .literal (2 ^ 256 - 1)]) =
+    some 77194726158210796949047323339125271902179989777093709359638389338608753093291 := by
+  native_decide
+
+/-- Regression (#2397): the denotation evaluates the same lane without an
+    oracle round-trip and with the same incremental modular reduction. -/
+private def expLaneDenoteOracle : Compiler.CompilationModel.Denote.DenoteOracle :=
+  { mappingSlot := fun _ _ => 0
+    keccakMemorySlice := fun _ _ _ => 0 }
+
+example :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      { world := Verity.defaultState, bindings := [] }
+      (.externalCall builtinExpName [.literal 3, .literal (2 ^ 256 - 1)]) =
+    some 77194726158210796949047323339125271902179989777093709359638389338608753093291 := by
+  native_decide
+
+private def oracleSuccess42 : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], none⟩
+
+private def oracleFail : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨false, [], none⟩
+
+private def oracleSuccess99 : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [99], none⟩
+
+private def oracleFail0 : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨false, [0], none⟩
+
+private def oracleIndexed : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun n => if n == 0 then ⟨true, [7], none⟩ else ⟨false, [], none⟩
+
+private def mkState (bindings : List (String × Nat))
+    (oracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (callIdx : Nat := 0) : SourceSemantics.RuntimeState :=
+  { world := Verity.defaultState, bindings, externalCallOracle := oracle,
+    externalCallIndex := callIdx }
+
+private def resultBindings (r : SourceSemantics.StmtResult) : Option (List (String × Nat)) :=
+  match r with | .continue s => some s.bindings | _ => none
+
+private def resultCallIndex (r : SourceSemantics.StmtResult) : Option Nat :=
+  match r with | .continue s => some s.externalCallIndex | _ => none
+
+private def isRevert (r : SourceSemantics.StmtResult) : Bool :=
+  match r with | .revert => true | _ => false
+
+private def isContinue (r : SourceSemantics.StmtResult) : Bool :=
+  match r with | .continue _ => true | _ => false
+
+/-- externalCallBind: oracle returns success → bindings updated, call index incremented -/
+example :
+    resultBindings (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccess42)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some [("x", 42)] := by
+  native_decide
+
+example :
+    resultCallIndex (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccess42)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some 1 := by
+  native_decide
+
+/-- externalCallBind: oracle returns failure → revert -/
+example :
+    isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleFail)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = true := by
+  native_decide
+
+/-- tryExternalCallBind: oracle returns success → successVar=1, bindings updated -/
+example :
+    resultBindings (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleSuccess99)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) =
+    some [("result", 99), ("ok", 1)] := by
+  native_decide
+
+example :
+    resultCallIndex (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleSuccess99)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = some 1 := by
+  native_decide
+
+/-- tryExternalCallBind: oracle returns failure → successVar=0, no revert -/
+example :
+    resultBindings (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleFail0)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) =
+    some [("result", 0), ("ok", 0)] := by
+  native_decide
+
+example :
+    isContinue (SourceSemantics.execStmt [] (mkState [("ok", 0), ("result", 0)] oracleFail0)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = true := by
+  native_decide
+
+/-- externalCallBind with no args and oracle keyed on call index -/
+example :
+    resultBindings (SourceSemantics.execStmtWithEvents [] [] (mkState [("v", 0)] oracleIndexed)
+      (.externalCallBind ["v"] "ping" [])) = some [("v", 7)] := by
+  native_decide
+
+example :
+    resultCallIndex (SourceSemantics.execStmtWithEvents [] [] (mkState [("v", 0)] oracleIndexed)
+      (.externalCallBind ["v"] "ping" [])) = some 1 := by
+  native_decide
+
+/-- P1-1: externalCallBind arity mismatch (too few return values) → revert -/
+private def oracleSuccessEmpty : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [], none⟩
+
+example :
+    isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessEmpty)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = true := by
+  native_decide
+
+/-- P1-1: tryExternalCallBind arity mismatch on success → revert -/
+example :
+    isRevert (SourceSemantics.execStmt []
+      (mkState [("ok", 0), ("result", 0)] oracleSuccessEmpty)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = true := by
+  native_decide
+
+/-- P1-1: a receipt carrying more return values than result variables is an arity
+mismatch as well, so it reverts instead of silently dropping the extras. -/
+private def oracleSuccessExtra : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [10, 20, 30], none⟩
+
+private theorem externalCallBind_extraReturnValues_reverts :
+    isRevert (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessExtra)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = true := by
+  native_decide
+
+/-- P1-2: return values >= evmModulus are normalized (mod 2^256) -/
+private def oracleSuccessOverflow : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [Compiler.Constants.evmModulus], none⟩
+
+example :
+    resultBindings (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccessOverflow)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some [("x", 0)] := by
+  native_decide
+
+/-- P1-2: tryExternalCallBind failure path also normalizes -/
+private def oracleFailOverflow : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨false, [Compiler.Constants.evmModulus], none⟩
+
+example :
+    resultBindings (SourceSemantics.execStmt []
+      (mkState [("ok", 0), ("result", 0)] oracleFailOverflow)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) =
+    some [("result", 0), ("ok", 0)] := by
+  native_decide
+
+/-- Surface gates: externalCallBind with literal args is now admitted by call/foreign/lowLevel. -/
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = false := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedForeignSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = false := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedLowLevelSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = false := by
+  native_decide
+
+/-- Surface gates: tryExternalCallBind with literal args is similarly admitted. -/
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.tryExternalCallBind "ok" ["x"] "safecall" [.literal 50]) = false := by
+  native_decide
+
+example :
+    stmtTouchesUnsupportedForeignSurface
+      (.tryExternalCallBind "ok" ["x"] "safecall" [.literal 50]) = false := by
+  native_decide
+
+/-- Surface gates: call-surface args still trigger when sub-exprs touch surfaces. -/
+example :
+    stmtTouchesUnsupportedCallSurface
+      (.externalCallBind ["x"] "transfer" [.externalCall "oracle" []]) = true := by
+  native_decide
+
+/-- Helper surface: externalCallBind with helper-free args is helper-surface-closed. -/
+example :
+    stmtTouchesUnsupportedHelperSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = false := by
+  native_decide
+
+/-- Effect surface: externalCallBind remains blocked by the effect surface. -/
+example :
+    stmtTouchesUnsupportedEffectSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = true := by
+  native_decide
+
+private def probeEcmStatic : Compiler.ECM.ExternalCallModule :=
+  { name := "probeStatic"
+    numArgs := 1
+    resultVars := ["h"]
+    writesState := false
+    readsState := false
+    compile := fun _ _ => .ok [] }
+
+private def probeEcmWriting : Compiler.ECM.ExternalCallModule :=
+  { name := "probeWriting"
+    numArgs := 1
+    resultVars := ["h"]
+    writesState := true
+    readsState := false
+    compile := fun _ _ => .ok [] }
+
+private def oracleCommittedWorld : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], some { Verity.defaultState with blockNumber := 5 }⟩
+
+private def resultBlockNumber (r : SourceSemantics.StmtResult) : Option Nat :=
+  match r with | .continue s => some s.world.blockNumber.val | _ => none
+
+/-- `.ecm`: a successful receipt binds the module's declared result variables. -/
+private theorem ecm_success_binds_resultVars :
+    resultBindings (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleSuccess42)
+      (.ecm probeEcmStatic [.literal 7])) = some [("h", 42)] := by
+  native_decide
+
+/-- `.ecm`: a successful step consumes exactly one call receipt. -/
+private theorem ecm_success_advances_callIndex :
+    resultCallIndex (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleSuccess42)
+      (.ecm probeEcmStatic [.literal 7])) = some 1 := by
+  native_decide
+
+/-- `.ecm`: a failing receipt reverts. -/
+private theorem ecm_failed_receipt_reverts :
+    isRevert (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleFail)
+      (.ecm probeEcmStatic [.literal 7])) = true := by
+  native_decide
+
+/-- `.ecm`: a receipt whose arity disagrees with `resultVars` reverts. -/
+private theorem ecm_arity_mismatch_reverts :
+    isRevert (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleSuccessEmpty)
+      (.ecm probeEcmStatic [.literal 7])) = true := by
+  native_decide
+
+/-- `.ecm`: a module that does not write state preserves the receipt's
+non-memory world fields. -/
+private theorem ecm_static_module_does_not_commit_world :
+    resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedWorld)
+      (.ecm probeEcmStatic [.literal 7])) = some 0 := by
+  native_decide
+
+private def oracleCommittedMemory : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], some { Verity.defaultState with memory := fun _ => 7 }⟩
+
+private def resultMemoryAt (r : SourceSemantics.StmtResult) (slot : Nat) : Option Nat :=
+  match r with | .continue s => some (s.world.memory slot).val | _ => none
+
+/-- `.ecm`: a successful read-only module commits the receipt's modeled
+caller-local memory. A compiled `staticcall` (e.g.
+`Compiler.Modules.Precompiles.sha256MemoryModule`) writes its output into
+caller memory at the caller-supplied output offset, so `writesState = false`
+must not discard that effect together with the external-world transition. -/
+private theorem ecm_static_module_commits_receipt_memory :
+    resultMemoryAt (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedMemory)
+      (.ecm probeEcmStatic [.literal 7])) 0 = some 7 := by
+  native_decide
+
+/-- `.ecm`: the same read-only step still preserves every non-memory caller
+world field (here `blockNumber`). -/
+private theorem ecm_static_module_preserves_nonmemory_world_fields :
+    resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedMemory)
+      (.ecm probeEcmStatic [.literal 7])) = some 0 := by
+  native_decide
+
+private def journalEntry : Verity.ExternalCall :=
+  { siteId := 0, kind := .staticcall, target := 0, control := .success }
+
+private def oracleCommittedCalls : Nat → SourceSemantics.ExternalCallOutcome :=
+  fun _ => ⟨true, [42], some { Verity.defaultState with calls := [journalEntry] }⟩
+
+private def resultCallsLength (r : SourceSemantics.StmtResult) : Option Nat :=
+  match r with | .continue s => some s.world.calls.length | _ => none
+
+/-- `.ecm`: a successful read-only module preserves the receipt's call journal.
+Regression: would fail if `committedWorld` dropped the `calls` field for
+`writesState = false` modules (the caller starts with `calls = []` but the
+receipt records one journal entry; the result must reflect it). -/
+private theorem ecm_static_module_preserves_receipt_calls :
+    resultCallsLength (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedCalls)
+      (.ecm probeEcmStatic [.literal 7])) = some 1 := by
+  native_decide
+
+/-- `.ecm`: a state-writing module does commit the receipt's world. -/
+private theorem ecm_writing_module_commits_world :
+    resultBlockNumber (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedWorld)
+      (.ecm probeEcmWriting [.literal 7])) = some 5 := by
+  native_decide
+
+/-- `.ecm`: the receipt is keyed on the call index, via the event-aware semantics. -/
+private theorem ecm_receipt_keyed_on_callIndex :
+    resultBindings (SourceSemantics.execStmtWithEvents [] [] (mkState [("h", 0)] oracleIndexed)
+      (.ecm probeEcmStatic [.literal 7])) = some [("h", 7)] := by
+  native_decide
+
+/-- `.ecm` stays outside the call and foreign surfaces: this slice models the
+statement without admitting it to the proved fragment. -/
+private theorem ecm_callSurface_blocked :
+    stmtTouchesUnsupportedCallSurface (.ecm probeEcmStatic [.literal 7]) = true := by
+  native_decide
+
+private theorem ecm_foreignSurface_blocked :
+    stmtTouchesUnsupportedForeignSurface (.ecm probeEcmStatic [.literal 7]) = true := by
+  native_decide
+
+/-- Helper surface: `.ecm` now screens its argument expressions, so a helper call
+in an argument is no longer silently treated as helper-free. -/
+private theorem ecm_helperSurface_closed_for_helper_free_args :
+    stmtTouchesUnsupportedHelperSurface (.ecm probeEcmStatic [.literal 7]) = false := by
+  native_decide
+
+private theorem ecm_helperSurface_open_for_helper_call_arg :
+    stmtTouchesUnsupportedHelperSurface
+      (.ecm probeEcmStatic [.internalCall "h" []]) = true := by
+  native_decide
+
+/-- Effect surface: structurally pure modules stay admitted, state-writing ones
+remain blocked. -/
+private theorem ecm_pure_module_effectSurface_closed :
+    stmtTouchesUnsupportedEffectSurface (.ecm probeEcmStatic [.literal 7]) = false := by
+  native_decide
+
+private theorem ecm_writing_module_effectSurface_blocked :
+    stmtTouchesUnsupportedEffectSurface (.ecm probeEcmWriting [.literal 7]) = true := by
+  native_decide
+
+/-! ### First-class EIP-211 returndata buffer
+
+`returndatasize()` used to be modeled as the constant `0`, which was sound only
+while the admitted fragment issued no call-family instruction. The oracle lanes
+broke that premise, so the buffer is now a real field. -/
+
+private def stateWithReturndata (ws : List Nat) : SourceSemantics.RuntimeState :=
+  { world := { Verity.defaultState with returndata := ws }
+    bindings := []
+    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallIndex := 0 }
+
+private def worldWithReturndataAndMemory (ws : List Nat) (m : Nat) : Verity.ContractState :=
+  { Verity.defaultState with
+    returndata := ws
+    memory := fun _ => (m : Verity.Core.Uint256) }
+
+private def stateWithReturndataAndMemory (ws : List Nat) (m : Nat) :
+    SourceSemantics.RuntimeState :=
+  { world := worldWithReturndataAndMemory ws m
+    bindings := []
+    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallIndex := 0 }
+
+private def denoteStateWithReturndataAndMemory (ws : List Nat) (m : Nat) :
+    Compiler.CompilationModel.Denote.DenoteState :=
+  { world := worldWithReturndataAndMemory ws m, bindings := [] }
+
+private def resultReturndata (r : SourceSemantics.StmtResult) : Option (List Nat) :=
+  match r with | .continue s => some s.world.returndata | _ => none
+
+/-- An untouched frame still reports an empty buffer, so every previously proved
+statement about this fragment keeps its old meaning. -/
+private theorem returndataSize_empty_buffer_is_zero :
+    SourceSemantics.evalExpr [] (stateWithReturndata []) .returndataSize = some 0 := by
+  native_decide
+
+/-- `returndatasize()` is a *byte* count: three returned words are 96 bytes. -/
+private theorem returndataSize_counts_bytes_not_words :
+    SourceSemantics.evalExpr [] (stateWithReturndata [1, 2, 3]) .returndataSize = some 96 := by
+  native_decide
+
+/-- The compiler-free denotation agrees on the nose. -/
+private theorem returndataSize_denote_agrees :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      (denoteStateWithReturndataAndMemory [1, 2, 3] 0) .returndataSize = some 96 := by
+  native_decide
+
+/-- A successful external call installs the callee's words as the buffer. -/
+private theorem externalCallBind_success_installs_returndata :
+    resultReturndata (SourceSemantics.execStmt [] (mkState [("x", 0)] oracleSuccess42)
+      (.externalCallBind ["x"] "transfer" [.literal 100])) = some [42] := by
+  native_decide
+
+/-- EIP-211 refills the buffer on failure too, which is what lets the compiled
+`returndatacopy(0, 0, returndatasize())` idiom bubble a callee's revert reason.
+Regression: would fail if only the success lane installed the buffer. -/
+private theorem tryExternalCallBind_failure_installs_returndata :
+    resultReturndata (SourceSemantics.execStmt []
+      (mkState [("ok", 0), ("result", 0)] oracleFail0)
+      (.tryExternalCallBind "ok" ["result"] "safecall" [.literal 50])) = some [0] := by
+  native_decide
+
+/-- A read-only module refills the buffer as well: a `staticcall` still returns data. -/
+private theorem ecm_static_module_installs_returndata :
+    resultReturndata (SourceSemantics.execStmt [] (mkState [("h", 0)] oracleCommittedCalls)
+      (.ecm probeEcmStatic [.literal 7])) = some [42] := by
+  native_decide
+
+/-- The optional-bool check the compiler emits for ERC-20 style callees: a callee
+that returns nothing counts as success. -/
+private theorem returndataOptionalBool_empty_buffer_is_true :
+    SourceSemantics.evalExpr [] (stateWithReturndata []) (.returndataOptionalBoolAt (.literal 0))
+      = some 1 := by
+  native_decide
+
+/-- One returned word equal to `true` counts as success. -/
+private theorem returndataOptionalBool_single_true_word_is_true :
+    SourceSemantics.evalExpr [] (stateWithReturndataAndMemory [1] 1)
+      (.returndataOptionalBoolAt (.literal 0)) = some 1 := by
+  native_decide
+
+/-- One returned word equal to `false` counts as failure. Under the old constant-`0`
+model this evaluated to `1`, which was an unsound read of the frame. -/
+private theorem returndataOptionalBool_single_false_word_is_false :
+    SourceSemantics.evalExpr [] (stateWithReturndataAndMemory [0] 0)
+      (.returndataOptionalBoolAt (.literal 0)) = some 0 := by
+  native_decide
+
+/-- A callee returning more than one word fails the check whatever memory holds. -/
+private theorem returndataOptionalBool_two_words_is_false :
+    SourceSemantics.evalExpr [] (stateWithReturndataAndMemory [1, 1] 1)
+      (.returndataOptionalBoolAt (.literal 0)) = some 0 := by
+  native_decide
+
+private theorem returndataOptionalBool_denote_agrees :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      (denoteStateWithReturndataAndMemory [0] 0)
+      (.returndataOptionalBoolAt (.literal 0)) = some 0 := by
+  native_decide
+
+/-- The zero-extent copy still fits a populated buffer and writes nothing, so
+the previously admitted fragment keeps its exact behaviour. -/
+private theorem returndataCopy_zero_extent_continues_on_nonempty_buffer :
+    isContinue (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 0))) = true := by
+  native_decide
+
+/-- An in-bounds copy from a populated buffer reads the buffer's first word
+into memory — the readback that the conservative zero-extent model could not
+express. -/
+private theorem returndataCopy_in_bounds_reads_first_word :
+    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [7, 9] 42)
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 64))) 0 = some 7 := by
+  native_decide
+
+/-- An in-bounds two-word copy writes both destination words from the buffer. -/
+private theorem returndataCopy_in_bounds_reads_second_word :
+    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [7, 9] 42)
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 64))) 32 = some 9 := by
+  native_decide
+
+/-- A nonzero source offset reads from that byte of the buffer onward. -/
+private theorem returndataCopy_source_offset_reads_second_word :
+    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [7, 9] 42)
+      (.returndataCopy (.literal 0) (.literal 32) (.literal 32))) 0 = some 9 := by
+  native_decide
+
+/-- A one-byte copy writes the high byte of the destination ceiling word and
+preserves its remaining 31 bytes. -/
+private theorem returndataCopy_one_byte_merges_ceiling_word :
+    resultMemoryAt
+      (SourceSemantics.execStmt []
+        (stateWithReturndataAndMemory [2 ^ 248] 42)
+        (.returndataCopy (.literal 0) (.literal 0) (.literal 1))) 0 =
+      some (2 ^ 248 + 42) := by
+  decide
+
+/-- The same merge applies after complete words: byte 33 comes from the high
+byte of returndata word one while the low 31 destination bytes survive. -/
+private theorem returndataCopy_unaligned_extent_merges_ceiling_word :
+    resultMemoryAt
+      (SourceSemantics.execStmt []
+        (stateWithReturndataAndMemory [5, 2 ^ 248] 42)
+        (.returndataCopy (.literal 0) (.literal 0) (.literal 33))) 32 =
+      some (2 ^ 248 + 42) := by
+  native_decide
+
+/-- The copy reads *inside* the copied region when the extent fits. -/
+private theorem returndataCopy_unaligned_extent_still_copies_whole_words :
+    resultMemoryAt (SourceSemantics.execStmt [] (stateWithReturndataAndMemory [5, 9] 42)
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 33))) 0 = some 5 := by
+  native_decide
+
+/-- EVM `RETURNDATACOPY` exceptionally halts when `src + size` exceeds the
+buffer; the frame is observed as reverting on every layer. -/
+private theorem returndataCopy_out_of_bounds_extent_reverts :
+    isRevert (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 96))) = true := by
+  native_decide
+
+/-- Out-of-bounds is about the far end of the read window, not the size alone:
+a 32-byte read starting at byte 32 of a two-word buffer still fits. -/
+private theorem returndataCopy_last_window_fits :
+    isContinue (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
+      (.returndataCopy (.literal 0) (.literal 32) (.literal 32))) = true := by
+  native_decide
+
+/-- The compiler-free denotation lane executes the same in-bounds readback. -/
+private theorem returndataCopy_in_bounds_denote_agrees :
+    (match Compiler.CompilationModel.Denote.execStmt expLaneDenoteOracle []
+        (denoteStateWithReturndataAndMemory [7, 9] 42)
+        (.returndataCopy (.literal 0) (.literal 0) (.literal 64)) with
+    | .continue s => some (s.world.memory 0).val
+    | _ => none) = some 7 := by
+  native_decide
+
+/-- The IR interpreter answers the same copy with the same words. -/
+private def irStateWithReturndata (ws : List Nat) : IRState :=
+  { IRState.initial 1 with returndata := ws }
+
+private theorem returndataCopy_in_bounds_ir_agrees :
+    (match execIRStmt 4 (irStateWithReturndata [7, 9])
+        (Compiler.Yul.YulStmt.exprStmt
+          (Compiler.Yul.YulExpr.call "returndatacopy" [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 64])) with
+    | .continue s => some (s.memory 0, s.memory 32)
+    | _ => none) = some (7, 9) := by
+  native_decide
+
+/-- The IR interpreter answers the same out-of-bounds extent with a reverting
+frame, matching the source lane's exceptional-halt observation. -/
+private def isIRRevert (r : IRExecResult) : Bool :=
+  match r with | .revert _ => true | _ => false
+
+private theorem returndataCopy_out_of_bounds_ir_agrees :
+    isRevert (SourceSemantics.execStmt [] (stateWithReturndata [1, 2])
+      (.returndataCopy (.literal 0) (.literal 0) (.literal 96))) = true ∧
+    isIRRevert (execIRStmt 4 (irStateWithReturndata [1, 2])
+        (Compiler.Yul.YulStmt.exprStmt
+          (Compiler.Yul.YulExpr.call "returndatacopy"
+            [Compiler.Yul.YulExpr.lit 0, Compiler.Yul.YulExpr.lit 0,
+              Compiler.Yul.YulExpr.lit 96]))) = true := by
+  native_decide
+
+/-- This slice does not widen the proved fragment: the call-family constructors
+that can now refill the buffer stay gated exactly as before. -/
+private theorem returndata_slice_does_not_widen_effect_surface :
+    stmtTouchesUnsupportedEffectSurface
+      (.externalCallBind ["x"] "transfer" [.literal 100]) = true := by
+  native_decide
+
+/-! #### Frame-entry reset (EIP-211): the buffer is frame-local
+
+Regression for the entry-helper family: a world carrying a stale buffer (for
+example the post-state of an earlier transaction) must not leak into the next
+transaction's frame. Every entry lane reads `returndatasize() == 0`. -/
+
+private def runtimeStateIn (world : Verity.ContractState) : SourceSemantics.RuntimeState :=
+  { world := world
+    bindings := []
+    externalCallOracle := fun _ => ⟨false, [], none⟩
+    externalCallIndex := 0 }
+
+private def irTxProbe : IRTransaction :=
+  { sender := 1, functionSelector := 0x70a08231, args := [] }
+
+/-- Regression: `SourceSemantics.withTransactionContext` drops the stale
+buffer at frame entry. Under the pre-fix initializer this read `96`
+(three stale words × 32 bytes). -/
+private theorem transaction_frame_entry_reads_zero_returndatasize :
+    SourceSemantics.evalExpr []
+      (runtimeStateIn (SourceSemantics.withTransactionContext
+        (worldWithReturndataAndMemory [9, 9, 9] 0) irTxProbe))
+      .returndataSize = some 0 := by
+  native_decide
+
+/-- The constructor frame enters empty as well. -/
+private theorem constructor_frame_entry_reads_zero_returndatasize :
+    SourceSemantics.evalExpr []
+      (runtimeStateIn (SourceSemantics.withConstructorTransactionContext
+        (worldWithReturndataAndMemory [9, 9, 9] 0) irTxProbe))
+      .returndataSize = some 0 := by
+  native_decide
+
+/-- Compiler-free denotation lane agrees: `Denote.withTransactionContext`
+resets the buffer at entry too. -/
+private theorem denote_transaction_frame_entry_reads_zero_returndatasize :
+    Compiler.CompilationModel.Denote.evalExpr expLaneDenoteOracle []
+      { world := Compiler.CompilationModel.Denote.withTransactionContext
+          (worldWithReturndataAndMemory [9, 9, 9] 0)
+          { sender := 1, functionSelector := 0x70a08231, args := [] }
+        bindings := [] }
+      .returndataSize = some 0 := by
   native_decide
 
 end Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest

@@ -9,6 +9,7 @@ import Contracts.Smoke.HelperCalls
 import Contracts.Smoke.StructMappings
 import Contracts.Smoke.ExternalCalls
 import Contracts.Smoke.ExternalCallObservability
+import Verity.Proofs.Model.CommonExternalCallEquivalence
 import Contracts.Smoke.ExternalCallInBodySmoke
 import Contracts.Smoke.ExternalCallValue
 import Contracts.Smoke.SpecGenAndChecks
@@ -16,6 +17,9 @@ import Contracts.Smoke.Effects
 import Contracts.Smoke.Namespaces
 import Contracts.Smoke.SecurityCombos
 import Contracts.Smoke.InternalInterfaceSmoke
+import Contracts.Smoke.ModeledCall
+import Contracts.Smoke.TryCatch
+import Contracts.Smoke.MultiParent
 import Contracts.Smoke.KeccakStringSmoke
 import Contracts.Smoke.MultiArgIntrinsicSmoke
 import Contracts.Smoke.EIP712StaticSmoke

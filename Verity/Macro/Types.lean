@@ -266,6 +266,16 @@ structure InterfaceDecl where
   name : String
   functions : Array InterfaceFunctionDecl
 
+/-- Model-plane binding of an interface-typed name to a modeled `verity_contract`.
+    Compilation-model lowering is unchanged (ABI/ECM). -/
+structure LinkedContractDecl where
+  ident : Ident
+  name : String
+  interfaceName : String
+  interfaceIdent : Ident
+  calleeName : String
+  calleeIdent : Ident
+
 structure ModifierDecl where
   ident : Ident
   name : String
@@ -280,8 +290,10 @@ structure ConstructorDecl where
   boundParentParamNames : Array String := #[]
   parentName? : Option Ident := none
   parentArgs : Array Term := #[]
-  /-- Mixin constructor inits from `constructor (...) M1(args) M2(args)`.
-      For `is Parent`, the first init is also recorded in `parentName?`/`parentArgs`. -/
+  /-- Named constructor inits from `constructor (...) A(args) B(args)`.
+      For `is Parent`, the first init is also recorded in `parentName?`/`parentArgs`.
+      Multi-parent `is A, B, C` consumes one init per parent that has a constructor,
+      in `is` order. Mixin `include` uses the same list. -/
   mixinInits : Array (Ident × Array Term) := #[]
   body : Term
 

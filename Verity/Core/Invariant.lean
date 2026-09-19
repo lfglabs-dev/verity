@@ -42,6 +42,10 @@ theorem and {σ : Type} {InvA InvB : σ → Prop} {f : σ → σ}
 
 end Preserves
 
+/-- An invariant `Inv` is preserved by a binary step relation `R`. -/
+def PreservedBy {σ : Type} (Inv : σ → Prop) (R : σ → σ → Prop) : Prop :=
+  ∀ s s', Inv s → R s s' → Inv s'
+
 /-- A reentrant adversary as a finite *schedule* of picked entrypoints, applied
     left to right. A bounded call depth is exactly a finite list; unbounded
     mutual recursion is out of scope (it is not expressible as a `List`). -/

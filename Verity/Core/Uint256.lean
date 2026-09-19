@@ -126,6 +126,67 @@ def mul (a b : Uint256) : Uint256 := ofNat (a.val * b.val)
 /-- EVM EXP semantics: exponentiation modulo `2^256`. -/
 def pow (base exponent : Uint256) : Uint256 := ofNat (base.val ^ exponent.val)
 
+/-- Binary exponentiation over `Uint256`; accumulates `acc * base ^ exp` modulo
+    `2^256` without materializing `Nat.pow`. -/
+def powBySquaring (acc base : Uint256) (exp : Nat) : Uint256 :=
+  match exp with
+  | 0 => acc
+  | n + 1 =>
+    if (n + 1) % 2 = 1 then
+      powBySquaring (mul acc base) (mul base base) ((n + 1) / 2)
+    else
+      powBySquaring acc (mul base base) ((n + 1) / 2)
+termination_by exp
+
+private theorem mul_val (a b : Uint256) : (mul a b).val = (a.val * b.val) % modulus := by
+  simp [mul, ofNat]
+
+private theorem mod_mul_pow_mod (a b k m : Nat) :
+    (a % m * (b % m) ^ k) % m = (a * b ^ k) % m := by
+  rw [Nat.mul_mod (a % m) ((b % m) ^ k) m, Nat.mod_mod, ← Nat.pow_mod, ← Nat.mul_mod]
+
+private theorem mul_pow_mod (a b k m : Nat) :
+    (a * (b % m) ^ k) % m = (a * b ^ k) % m := by
+  rw [Nat.mul_mod, ← Nat.pow_mod, ← Nat.mul_mod]
+
+theorem powBySquaring_val (acc base : Uint256) (n : Nat) :
+    (powBySquaring acc base n).val = (acc.val * base.val ^ n) % modulus := by
+  induction n using Nat.strongRecOn generalizing acc base with
+  | _ n ih =>
+    match n with
+    | 0 =>
+      simp only [powBySquaring, Nat.pow_zero, Nat.mul_one]
+      exact (Nat.mod_eq_of_lt acc.isLt).symm
+    | (k + 1) =>
+      have hlt : (k + 1) / 2 < k + 1 := Nat.div_lt_self (Nat.succ_pos k) (by omega)
+      unfold powBySquaring
+      split
+      · rename_i hodd
+        rw [ih _ hlt, mul_val, mul_val, mod_mul_pow_mod]
+        congr 1
+        rw [Nat.mul_assoc, Nat.mul_comm base.val ((base.val * base.val) ^ _)]
+        congr 1
+        rw [show base.val * base.val = base.val ^ 2 from by rw [Nat.pow_succ, Nat.pow_one],
+            ← Nat.pow_mul, ← Nat.pow_succ]
+        congr 1; omega
+      · rename_i heven
+        rw [ih _ hlt, mul_val, mul_pow_mod]
+        congr 1; congr 1
+        rw [show base.val * base.val = base.val ^ 2 from by rw [Nat.pow_succ, Nat.pow_one],
+            ← Nat.pow_mul]
+        congr 1; omega
+
+/-- `powEff` computes the same result as `pow` using binary exponentiation. -/
+def powEff (base exponent : Uint256) : Uint256 :=
+  powBySquaring (ofNat 1) base exponent.val
+
+private theorem val_injective {a b : Uint256} (h : a.val = b.val) : a = b := by
+  cases a with | mk av ah => cases b with | mk bv bh => simp_all
+
+theorem powEff_eq_pow (base exponent : Uint256) :
+    powEff base exponent = pow base exponent :=
+  val_injective (by simp [powEff, powBySquaring_val, pow, ofNat])
+
 -- Division (returns 0 on division by zero, matching EVM)
 def div (a b : Uint256) : Uint256 :=
   if b.val = 0 then ofNat 0 else ofNat (a.val / b.val)

@@ -67,8 +67,10 @@ Some Solidity features are not 1:1 in the current EDSL/compiler pipeline.
   Host `with onlyOwner` calls the mixin's Lean `onlyOwner`; mixin proofs
   import into the host. Mixin slots stay as written (put ERC-7201 on the
   mixin itself).
-- Verity, source flatten only: `verity_contract Child is Parent where`
-  re-elaborates a copied tree. Parent proofs do not apply. One parent, no C3.
+- Verity, source flatten only: `verity_contract Child is Parent where` or
+  `verity_contract Child is A, B, C where` re-elaborates a copied tree.
+  Parent proofs do not apply. Multi-parent is left-to-right flatten; diamonds
+  are rejected. There is no C3 linearization.
 - Do not copy Ownable storage and re-prove `onlyOwner` by hand for new ports.
 
 ### Modifiers -> Guard Helpers

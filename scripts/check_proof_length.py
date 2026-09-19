@@ -89,6 +89,10 @@ ALLOWLIST: set[str] = {
     "execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals",
     "directInternalHelperStatementContextBridge_sourceAssignEvidence",
     # --- Denote/SourceSemantics agreement (P4 seed) ---
+    # Mutual recursion with execStmtList_eq: each new Stmt constructor
+    # (externalCallBind, tryExternalCallBind, ecm) adds an arm; extracting per-case
+    # lemmas would break the shared structural induction across the mutual block.
+    "execStmt_eq",
     # Structural recursion over the fuelless forEach loop; the succ case must
     # spell out the loop-state literal inside a `show`-match to align the two
     # interpreters' unfoldings, which cannot be factored without changing the
@@ -305,6 +309,11 @@ ALLOWLIST: set[str] = {
     # compiled Yul list four times for the fuel accounting to stay defeq.
     "compiledStmtStep_returndatacopy_empty_single_preserves",
     "compiledStmtStep_revertReturndata_empty_single_preserves",
+    # Bounded returndata->memory copy: the same spelled-out preserves signature,
+    # doubled by the two fit branches (in-bounds continue with the memory
+    # bridge, out-of-bounds revert) that the bounded semantics requires.
+    # Splitting would duplicate the eval-agreement spine and fuel accounting.
+    "compiledStmtStep_returndatacopy_bounded_single_preserves",
     # --- IR execution proofs (terminal ite, core append/tail) ---
     "execIRStmt_compiled_terminal_ite_then_branch_entry",
     "execIRStmt_compiled_terminal_ite_else_branch_entry",
@@ -1039,6 +1048,11 @@ ALLOWLIST: set[str] = {
     # `decodeLengthPrefixedDynamicParam?_array_eq_some_inv` at the `?`.)
     "decodeLengthPrefixedDynamicParam",
     "bindExternalParam_array_eq_some_inv",
+    # Pareto int256 wrapping: two's-complement uniqueness for `ofInt` needs
+    # both sign cases plus modulus bookkeeping; `tdiv` in-range needs the
+    # `minValue / -1` boundary. Splitting would duplicate the residue lemmas.
+    "toInt_ofInt",
+    "tdiv_inRange_of_not_divFails",
 }
 
 # PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover

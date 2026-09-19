@@ -3,6 +3,8 @@ import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.MappingSlot
 import Compiler.CompilationModel.LayoutValidation
 import Compiler.Keccak.Sponge
+import Compiler.Proofs.IRGeneration.Returndata
+import Verity.Core.Model.Denote
 import Verity.Core.Model.DynamicAbi
 
 set_option linter.unnecessarySimpa false
@@ -728,6 +730,11 @@ def bindValue (bindings : List (String × Nat)) (name : String) (value : Nat) :
     List (String × Nat) :=
   (name, value) :: bindings.filter (fun entry => entry.1 != name)
 
+def bindValues (bindings : List (String × Nat)) : List String → List Nat → List (String × Nat)
+  | [], _ => bindings
+  | _ :: _, [] => bindings
+  | name :: names, value :: values => bindValues (bindValue bindings name value) names values
+
 def lookupValue (bindings : List (String × Nat)) (name : String) : Nat :=
   bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd |>.getD 0
 
@@ -816,11 +823,33 @@ private def findUniqueInternalFunction? (spec : CompilationModel) (calleeName : 
   | [fn] => some fn
   | _ => none
 
+structure ExternalCallOutcome where
+  succeeded : Bool
+  returnValues : List Nat := []
+  postCallWorld : Option Verity.ContractState := none
+
+instance : Inhabited ExternalCallOutcome := ⟨⟨false, [], none⟩⟩
+
+/-- Install the EIP-211 returndata buffer left by a call receipt. The callee's
+    return data replaces the buffer wholesale on both the success and the
+    failure path, which is what lets the compiled `returndatacopy(0, 0,
+    returndatasize())` idiom bubble a callee revert reason. -/
+def returndataAfterCall (outcome : ExternalCallOutcome)
+    (world : Verity.ContractState) : Verity.ContractState :=
+  { world with returndata := outcome.returnValues.map wordNormalize }
+
+@[simp] theorem returndataAfterCall_returndata
+    (outcome : ExternalCallOutcome) (world : Verity.ContractState) :
+    (returndataAfterCall outcome world).returndata
+      = outcome.returnValues.map wordNormalize := rfl
+
 structure RuntimeState where
   world : Verity.ContractState
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : List (String × Nat)
   selector : Nat := 0
+  externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩
+  externalCallIndex : Nat := 0
 
 inductive StmtResult where
   | continue (state : RuntimeState)
@@ -1206,9 +1235,7 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
-  -- The admitted fragment contains no call-family instruction, so by EIP-211
-  -- the EVM returndata buffer is still the empty buffer the frame started with.
-  | .returndataSize => some 0
+  | .returndataSize => some state.world.returndataSize
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr fields state a
@@ -1476,6 +1503,20 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .extcodesize addr => do
       let resolvedAddr ← evalExpr fields state addr
       some (state.world.codeSize (resolvedAddr % addressModulus)).val
+  | .returndataOptionalBoolAt offset => do
+      let resolvedOffset ← evalExpr fields state offset
+      some (state.world.returndataOptionalBool resolvedOffset)
+  -- The reserved `exp` builtin lane. `pow`/`^` in the EDSL surfaces as
+  -- `externalCall builtinExpName [base, exponent]`, but it carries no foreign
+  -- behaviour: the compiler lowers it to the pure Yul `exp` builtin.
+  | .externalCall name [base, exponent] =>
+      if name == builtinExpName then do
+        let baseVal ← evalExpr fields state base
+        let exponentVal ← evalExpr fields state exponent
+        pure (Verity.Core.Uint256.powEff
+          (Verity.Core.Uint256.ofNat baseVal)
+          (Verity.Core.Uint256.ofNat exponentVal)).val
+      else none
   | .keccak256 offExpr sizeExpr => do
       let off ← evalExpr fields state offExpr
       let size ← evalExpr fields state sizeExpr
@@ -1615,15 +1656,14 @@ private theorem evalExpr_calldatasize
     (state : RuntimeState) :
     evalExpr fields state .calldatasize = some state.world.calldataSize.val := rfl
 
-/-- `returndatasize()` in the admitted fragment.
-
-The supported fragment admits no `call`/`staticcall`/`delegatecall`/`create`
-instruction, so the EVM returndata buffer keeps the empty value EIP-211 gives it
-at frame entry. This matches the EDSL model (`Contracts.returndataSize = 0`). -/
+/-- `returndatasize()` reads the EIP-211 returndata buffer, measured in bytes.
+The buffer is empty at frame entry and is replaced wholesale by each call-family
+instruction with the callee's return data. -/
 private theorem evalExpr_returndataSize
     (fields : List Field)
     (state : RuntimeState) :
-    evalExpr fields state .returndataSize = some 0 := rfl
+    evalExpr fields state .returndataSize
+      = some state.world.returndataSize := rfl
 
 private theorem evalExpr_arrayLength
     (fields : List Field)
@@ -1649,12 +1689,41 @@ private theorem evalExpr_dynamicBytesEq
       some (boolWord (DynamicAbi.dynamicBytesEqCalldata state.selector state.world.calldata
         lhsOffset lhsLength rhsOffset rhsLength))) := rfl
 
-private theorem evalExpr_externalCall
+/-- The reserved `exp` builtin lane is the only `externalCall` shape the source
+semantics evaluates; it denotes `Uint256.pow` on the two operand values. -/
+theorem evalExpr_externalCall_builtinExp
+    (fields : List Field)
+    (state : RuntimeState)
+    (base exponent : Expr) :
+    evalExpr fields state (.externalCall builtinExpName [base, exponent]) = (do
+      let baseVal ← evalExpr fields state base
+      let exponentVal ← evalExpr fields state exponent
+      pure (Verity.Core.Uint256.pow
+        (Verity.Core.Uint256.ofNat baseVal)
+        (Verity.Core.Uint256.ofNat exponentVal)).val) := by
+  simp [evalExpr, Verity.Core.Uint256.powEff_eq_pow]
+
+private theorem evalExpr_externalCall_of_ne
     (fields : List Field)
     (state : RuntimeState)
     (name : String)
-    (args : List Expr) :
-    evalExpr fields state (.externalCall name args) = none := rfl
+    (args : List Expr)
+    (hname : name ≠ builtinExpName) :
+    evalExpr fields state (.externalCall name args) = none := by
+  match args with
+  | [] | [_] | _ :: _ :: _ :: _ => rfl
+  | [_, _] => simp [evalExpr, hname]
+
+private theorem evalExpr_externalCall_of_arity
+    (fields : List Field)
+    (state : RuntimeState)
+    (name : String)
+    (args : List Expr)
+    (harity : args.length ≠ 2) :
+    evalExpr fields state (.externalCall name args) = none := by
+  match args with
+  | [] | [_] | _ :: _ :: _ :: _ => rfl
+  | [_, _] => simp at harity
 
 private theorem evalExpr_mload
     (fields : List Field)
@@ -1692,7 +1761,9 @@ private theorem evalExpr_returndataOptionalBoolAt
     (fields : List Field)
     (state : RuntimeState)
     (a : Expr) :
-    evalExpr fields state (.returndataOptionalBoolAt a) = none := rfl
+    evalExpr fields state (.returndataOptionalBoolAt a) =
+      (evalExpr fields state a).bind
+        (fun resolvedOffset => some (state.world.returndataOptionalBool resolvedOffset)) := rfl
 
 private theorem evalExpr_keccak256
     (fields : List Field)
@@ -2620,12 +2691,22 @@ mutual
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
-        | some _, some src, some sz =>
-            -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
-            -- returndata buffer; in this fragment that buffer is empty, so the
-            -- only in-range copy is the zero-extent one, which leaves memory
-            -- untouched. Out-of-range copies are observed as a failed frame.
-            if src + sz = 0 then .continue state else .revert
+        | some dst, some src, some sz =>
+            -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
+            -- buffer into memory when the extent fits, and exceptionally halts
+            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- words are replaced and a final partial word is merged with its
+            -- untouched low bytes, as in EVM memory.
+            if src + sz ≤ 32 * state.world.returndata.length then
+              .continue {
+                state with
+                world := {
+                  state.world with
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
+                }
+              }
+            else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr fields state cond with
@@ -2685,6 +2766,62 @@ mutual
               256 state bits
         | none => .revert
     | _, .revertReturndata => .revert
+    | state, .externalCallBind resultVars _externalName args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
+                      bindings := bindValues state.bindings resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | state, .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    world := returndataAfterCall outcome state.world
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (outcome.returnValues.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
+    | state, .ecm mod args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
+                      bindings := bindValues state.bindings mod.resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -2932,12 +3069,22 @@ mutual
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
-        | some _, some src, some sz =>
-            -- RETURNDATACOPY exceptionally halts when `src + size` exceeds the
-            -- returndata buffer; in this fragment that buffer is empty, so the
-            -- only in-range copy is the zero-extent one, which leaves memory
-            -- untouched. Out-of-range copies are observed as a failed frame.
-            if src + sz = 0 then .continue state else .revert
+        | some dst, some src, some sz =>
+            -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
+            -- buffer into memory when the extent fits, and exceptionally halts
+            -- otherwise; the halt is observed as a reverting frame. Complete
+            -- words are replaced and a final partial word is merged with its
+            -- untouched low bytes, as in EVM memory.
+            if src + sz ≤ 32 * state.world.returndata.length then
+              .continue {
+                state with
+                world := {
+                  state.world with
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
+                }
+              }
+            else .revert
         | _, _, _ => .revert
     | state, .require cond _ =>
         match evalExpr fields state cond with
@@ -2997,6 +3144,62 @@ mutual
               256 state bits
         | none => .revert
     | _, .revertReturndata => .revert
+    | state, .externalCallBind resultVars _externalName args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
+                      bindings := bindValues state.bindings resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | state, .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    world := returndataAfterCall outcome state.world
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (outcome.returnValues.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
+    | state, .ecm mod args =>
+        match evalExprList fields state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
+                      bindings := bindValues state.bindings mod.resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
     | _, _ => .revert
 
   def execStmtList (fields : List Field) : RuntimeState → List Stmt → StmtResult
@@ -3026,6 +3229,114 @@ mutual
         simp [execStmtListWithEvents, execStmtList, execStmtWithEvents_nil_eq_execStmt,
           execStmtListWithEvents_nil_eq_execStmtList]
 end
+
+/-! ### `Stmt.ecm` as an opaque external-world transition
+
+An External Call Module packages a reusable external call pattern, so its source
+meaning is the same oracle-driven step the `externalCallBind` lane uses: the
+per-call receipt at `externalCallIndex` decides success, supplies the words bound
+to `mod.resultVars`, and — only for modules the ECM framework classifies as
+state-writing — supplies the committed external world. For read-only modules the
+caller world is preserved except for caller-local memory and the append-only
+call journal, which follow the receipt's post-call world
+(`ExternalCallModule.committedWorld`). -/
+
+/-- A module that does not write state commits no external world, matching the
+`staticcall` clause of `Compiler.ECM.StatefulExternal.Summary.interprets`, but
+it does commit the receipt's modeled caller-local memory effects and the
+append-only call journal: a compiled `staticcall` writes its output into caller
+memory (e.g. a precompile digest at the caller-supplied output offset) and
+`externalCall` / `denoteCallJournaled` appends a journal entry to `calls`, so
+`writesState = false` preserves every caller-world field except `memory`,
+`calls` and the EIP-211 `returndata` buffer. The first two follow the receipt's
+post-call world; the buffer is replaced by the receipt's return words, since a
+`staticcall` still leaves its callee's return data in the caller's frame. -/
+theorem execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata
+    {fields : List Field} {state next : RuntimeState}
+    {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
+    (hstatic : mod.writesState = false)
+    (hrun : execStmt fields state (.ecm mod args) = .continue next) :
+    next.world = { state.world with
+      memory := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
+        state.world).memory
+      calls := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
+        state.world).calls
+      returndata := (state.externalCallOracle state.externalCallIndex).returnValues.map
+        wordNormalize } := by
+  simp only [execStmt] at hrun
+  split at hrun
+  · split at hrun
+    · split at hrun
+      · cases hrun
+      · injection hrun with h
+        subst h
+        simp [Compiler.ECM.ExternalCallModule.committedWorld, hstatic, returndataAfterCall]
+    · cases hrun
+  · cases hrun
+
+/-- Regression: a successful read-only ECM step preserves the receipt's call
+journal, not the caller's. This would fail if `committedWorld` dropped
+the `calls` field for `writesState = false` modules. -/
+theorem execStmt_ecm_static_preserves_calls
+    {fields : List Field} {state next : RuntimeState}
+    {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
+    (hstatic : mod.writesState = false)
+    (hrun : execStmt fields state (.ecm mod args) = .continue next) :
+    next.world.calls =
+      ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
+        state.world).calls := by
+  have h := execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata hstatic hrun
+  rw [h]
+
+/-- Every committed `.ecm` step consumes exactly one call receipt, so distinct
+module invocations never observe the same oracle entry. -/
+theorem execStmt_ecm_advances_call_index
+    {fields : List Field} {state next : RuntimeState}
+    {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
+    (hrun : execStmt fields state (.ecm mod args) = .continue next) :
+    next.externalCallIndex = state.externalCallIndex + 1 := by
+  simp only [execStmt] at hrun
+  split at hrun
+  · split at hrun
+    · split at hrun
+      · cases hrun
+      · injection hrun with h
+        subst h
+        rfl
+    · cases hrun
+  · cases hrun
+
+/-- A committed `.ecm` step binds exactly the module's declared result variables
+to the normalized receipt words. -/
+theorem execStmt_ecm_binds_resultVars
+    {fields : List Field} {state next : RuntimeState}
+    {mod : Compiler.ECM.ExternalCallModule} {args : List Expr}
+    (hrun : execStmt fields state (.ecm mod args) = .continue next) :
+    next.bindings =
+      bindValues state.bindings mod.resultVars
+        ((state.externalCallOracle state.externalCallIndex).returnValues.map wordNormalize) := by
+  simp only [execStmt] at hrun
+  split at hrun
+  · split at hrun
+    · split at hrun
+      · cases hrun
+      · injection hrun with h
+        subst h
+        rfl
+    · cases hrun
+  · cases hrun
+
+/-- A failing call receipt reverts the `.ecm` step; the module never observes a
+partially applied external transition. -/
+theorem execStmt_ecm_reverts_of_receipt_failure
+    (fields : List Field) (state : RuntimeState)
+    (mod : Compiler.ECM.ExternalCallModule) (args : List Expr)
+    (hfail : (state.externalCallOracle state.externalCallIndex).succeeded = false) :
+    execStmt fields state (.ecm mod args) = .revert := by
+  simp only [execStmt]
+  split
+  · simp [hfail]
+  · rfl
 
 mutual
   /-- Source execution of a contract-surface-closed statement is agnostic to
@@ -3225,7 +3536,8 @@ def withTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (4 + tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
 
 def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTransaction) :
     Verity.ContractState :=
@@ -3239,7 +3551,20 @@ def withConstructorTransactionContext (world : Verity.ContractState) (tx : IRTra
     blobBaseFee := tx.blobBaseFee
     txOrigin := Verity.wordToAddress tx.txOrigin
     calldataSize := Verity.Core.Uint256.ofNat (tx.args.length * 32)
-    calldata := tx.args }
+    calldata := tx.args
+    returndata := [] }
+
+/-- EIP-211 makes the returndata buffer frame-local: every transaction frame
+    starts empty, so a buffer left over from an earlier execution (e.g. a
+    post-state world) cannot be observed by this frame's `returndatasize()`. -/
+@[simp] theorem returndata_withTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withTransactionContext world tx).returndata = [] := rfl
+
+/-- The constructor frame enters with an empty EIP-211 buffer as well. -/
+@[simp] theorem returndata_withConstructorTransactionContext
+    (world : Verity.ContractState) (tx : IRTransaction) :
+    (withConstructorTransactionContext world tx).returndata = [] := rfl
 
 /-- Call-frame updates keep `storageWords`, so the storage views are unchanged. -/
 @[simp] theorem storage_withTransactionContext
@@ -3302,7 +3627,7 @@ theorem findDynamicArrayElementAtSlot_withTransactionContext
       rfl
   | cons field rest ih =>
       cases hty : field.ty with
-      | uint256 =>
+      | uint256 | int256 =>
           simpa [findDynamicArrayElementAtSlot.go, withTransactionContext, hty] using ih (idx + 1)
       | address =>
           simpa [findDynamicArrayElementAtSlot.go, withTransactionContext, hty] using ih (idx + 1)
@@ -3348,7 +3673,7 @@ theorem findDynamicArrayElementAtSlot_congr_storageArray
       rfl
   | cons field rest ih =>
       cases hty : field.ty with
-      | uint256 =>
+      | uint256 | int256 =>
           simpa [findDynamicArrayElementAtSlot.go, hty] using ih (idx + 1)
       | address =>
           simpa [findDynamicArrayElementAtSlot.go, hty] using ih (idx + 1)
@@ -3632,21 +3957,26 @@ def constructorTouchesUnsupportedRawCalldataSurface
       (constructorAsFunctionSpec ctor)
 
 def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
-    (tx : IRTransaction) (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
       match execStmtListWithEvents fields spec.events
-          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector } fn.body with
+          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            externalCallOracle := externalCallOracle } fn.body with
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
       | .revert => revertedResult spec worldWithTx
 
 def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
-    (tx : IRTransaction) (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   let constructorWorldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   if constructorTouchesUnsupportedRawCalldataSurface spec ctor then
@@ -3656,7 +3986,9 @@ def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
     | none => revertedResult spec constructorWorldWithTx
     | some bindings =>
         match execStmtListWithEvents fields spec.events
-            { world := constructorWorldWithTx, bindings := bindings, selector := tx.functionSelector }
+            { world := constructorWorldWithTx, bindings := bindings,
+              selector := tx.functionSelector,
+              externalCallOracle := externalCallOracle }
             ctor.body with
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
@@ -3664,13 +3996,15 @@ def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
         | .revert => revertedResult spec constructorWorldWithTx
 
 def interpretContract (spec : CompilationModel) (selectors : List Nat)
-    (tx : IRTransaction) (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   match findFunctionBySelector spec selectors tx.functionSelector with
   | some fn =>
       if !fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
         revertedResult spec (withTransactionContext initialWorld tx)
       else
-        interpretFunction spec fn tx initialWorld
+        interpretFunction spec fn tx initialWorld externalCallOracle
   | none => revertedResult spec (withTransactionContext initialWorld tx)
 
 -- The ceilDiv case pushes the equation-compiler's `simp` past 200 000 heartbeats.
@@ -3732,7 +4066,7 @@ mutual
     | .blockNumber => some state.world.blockNumber.val
     | .blobbasefee => some state.world.blobBaseFee.val
     | .calldatasize => some state.world.calldataSize.val
-    | .returndataSize => some 0
+    | .returndataSize => some state.world.returndataSize
     | .localVar name => some (lookupValue state.bindings name)
     | .add a b => do
         let lhs : Verity.Core.Uint256 := ← evalExprWithHelpers spec fields fuel state a
@@ -4049,12 +4383,26 @@ mutual
     -- `_mutual.eq_def` deriver does not enumerate the complement and trip
     -- the 200 000-heartbeat ceiling whenever a new `Expr` constructor
     -- lands (verity#1842).
+    | .returndataOptionalBoolAt offset => do
+        let resolvedOffset ← evalExprWithHelpers spec fields fuel state offset
+        some (state.world.returndataOptionalBool resolvedOffset)
+    -- The reserved `exp` builtin lane: pure arithmetic wearing an
+    -- `externalCall` node, so it needs no helper environment. Like the plain
+    -- evaluator it reduces modulo 2^256 at every step so full-domain uint256
+    -- exponents stay executable.
+    | .externalCall name [base, exponent] =>
+        if name == builtinExpName then do
+          let baseVal ← evalExprWithHelpers spec fields fuel state base
+          let exponentVal ← evalExprWithHelpers spec fields fuel state exponent
+          pure (Verity.Core.Uint256.powEff
+            (Verity.Core.Uint256.ofNat baseVal)
+            (Verity.Core.Uint256.ofNat exponentVal)).val
+        else none
     | .mulDiv512Down _ _ _ | .mulDiv512Up _ _ _
     | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
     | .paramDynamicMemberLength _ _
     | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
     | .arrayElementWord _ _ _ _
-    | .returndataOptionalBoolAt _
     | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _
     | .externalCall _ _ | .mappingChain _ _ | .intrinsic _ _ _ _
     | .forkIfAtLeast _ _ _
@@ -4317,8 +4665,20 @@ mutual
         match evalExprWithHelpers spec fields fuel state destOffset,
             evalExprWithHelpers spec fields fuel state sourceOffset,
             evalExprWithHelpers spec fields fuel state size with
-        | some _, some src, some sz =>
-            if src + sz = 0 then .continue state else .revert
+        | some dst, some src, some sz =>
+            -- Same bounded-copy semantics as `execStmt`: in-bounds extents copy
+            -- complete words and merge the final partial word; out-of-bounds
+            -- extents revert identically on the IR layer.
+            if src + sz ≤ 32 * state.world.returndata.length then
+              .continue {
+                state with
+                world := {
+                  state.world with
+                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
+                    state.world.returndata dst src sz state.world.memory
+                }
+              }
+            else .revert
         | _, _, _ => .revert
     | .require cond _ =>
         match evalExprWithHelpers spec fields fuel state cond with
@@ -4410,6 +4770,62 @@ mutual
               256 state bits
         | none => .revert
     | .revertReturndata => .revert
+    | .externalCallBind resultVars _externalName args =>
+        match evalExprListWithHelpers spec fields fuel state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
+                      bindings := bindValues state.bindings resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
+    | .tryExternalCallBind successVar resultVars _externalName args =>
+        match evalExprListWithHelpers spec fields fuel state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (outcome.postCallWorld.getD state.world)
+                      bindings := bindValues
+                        (bindValue state.bindings successVar 1)
+                        resultVars (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else
+              .continue
+                { state with
+                    world := returndataAfterCall outcome state.world
+                    bindings := bindValues
+                      (bindValue state.bindings successVar 0)
+                      resultVars (outcome.returnValues.map wordNormalize)
+                    externalCallIndex := state.externalCallIndex + 1 }
+        | none => .revert
+    | .ecm mod args =>
+        match evalExprListWithHelpers spec fields fuel state args with
+        | some _ =>
+            let outcome := state.externalCallOracle state.externalCallIndex
+            if outcome.succeeded then
+              if outcome.returnValues.length != mod.resultVars.length then .revert
+              else
+                .continue
+                  { state with
+                      world := returndataAfterCall outcome
+                        (mod.committedWorld outcome.postCallWorld state.world)
+                      bindings := bindValues state.bindings mod.resultVars
+                        (outcome.returnValues.map wordNormalize)
+                      externalCallIndex := state.externalCallIndex + 1 }
+            else .revert
+        | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
   decreasing_by all_goals (simp_wf; omega)
@@ -4432,12 +4848,17 @@ mutual
       (fuel : Nat)
       (fn : FunctionSpec)
       (initialWorld : Verity.ContractState)
-      (args : List Nat) : InternalFunctionResult :=
+      (args : List Nat)
+      (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+      (externalCallIndex : Nat := 0) : InternalFunctionResult :=
     let fields := effectiveFields spec
     match bindInternalArgs fn.params args with
     | none => revertedInternalResult initialWorld
     | some bindings =>
-        match execStmtListWithHelpers spec fields fuel { world := initialWorld, bindings := bindings } fn.body with
+        match execStmtListWithHelpers spec fields fuel
+            { world := initialWorld, bindings := bindings,
+              externalCallOracle := externalCallOracle,
+              externalCallIndex := externalCallIndex } fn.body with
         | .continue state => successInternalResult state.world none
         | .stop state => successInternalResult state.world none
         | .return value state => successInternalResult state.world (some value)
@@ -4561,13 +4982,17 @@ def interpretFunctionWithHelpers
     (fuel : Nat)
     (fn : FunctionSpec)
     (tx : IRTransaction)
-    (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
-      match execStmtListWithHelpers spec fields fuel { world := worldWithTx, bindings := bindings, selector := tx.functionSelector } fn.body with
+      match execStmtListWithHelpers spec fields fuel
+          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            externalCallOracle := externalCallOracle } fn.body with
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
@@ -4578,7 +5003,9 @@ def interpretConstructorWithHelpers
     (fuel : Nat)
     (ctor : ConstructorSpec)
     (tx : IRTransaction)
-    (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   let constructorWorldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   if constructorTouchesUnsupportedRawCalldataSurface spec ctor then
@@ -4588,7 +5015,9 @@ def interpretConstructorWithHelpers
     | none => revertedResult spec constructorWorldWithTx
     | some bindings =>
         match execStmtListWithHelpers spec fields fuel
-            { world := constructorWorldWithTx, bindings := bindings, selector := tx.functionSelector }
+            { world := constructorWorldWithTx, bindings := bindings,
+              selector := tx.functionSelector,
+              externalCallOracle := externalCallOracle }
             ctor.body with
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
@@ -4600,13 +5029,15 @@ def interpretContractWithHelpers
     (selectors : List Nat)
     (fuel : Nat)
     (tx : IRTransaction)
-    (initialWorld : Verity.ContractState) : SourceContractResult :=
+    (initialWorld : Verity.ContractState)
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    SourceContractResult :=
   match findFunctionBySelector spec selectors tx.functionSelector with
   | some fn =>
       if !fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
         revertedResult spec (withTransactionContext initialWorld tx)
       else
-        interpretFunctionWithHelpers spec fuel fn tx initialWorld
+        interpretFunctionWithHelpers spec fuel fn tx initialWorld externalCallOracle
   | none => revertedResult spec (withTransactionContext initialWorld tx)
 
 theorem helperSummarySound
@@ -5340,8 +5771,27 @@ mutual
         simpa [evalExprWithHelpers, evalExpr_memoryArrayLength]
     | dynamicBytesEq _ _ =>
         simpa [evalExprWithHelpers, evalExpr_dynamicBytesEq]
-    | externalCall _ _ =>
-        simpa [evalExprWithHelpers, evalExpr_externalCall]
+    | externalCall name args =>
+        cases args with
+        | nil => simp [evalExprWithHelpers, evalExpr_externalCall_of_arity]
+        | cons base tl =>
+          cases tl with
+          | nil => simp [evalExprWithHelpers, evalExpr_externalCall_of_arity]
+          | cons exponent tl' =>
+            cases tl' with
+            | cons _ _ => simp [evalExprWithHelpers, evalExpr_externalCall_of_arity]
+            | nil =>
+              by_cases hname : name = builtinExpName
+              · subst hname
+                simp only [exprTouchesUnsupportedHelperSurface, beq_self_eq_true, if_true,
+                  Bool.or_eq_false_iff] at hsurface
+                have hbase := evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+                  spec fields fuel state base hsurface.1
+                have hexp := evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
+                  spec fields fuel state exponent hsurface.2
+                simp [evalExprWithHelpers, evalExpr_externalCall_builtinExp, hbase, hexp,
+                  Verity.Core.Uint256.powEff_eq_pow]
+              · simp [evalExprWithHelpers, evalExpr_externalCall_of_ne _ _ _ _ hname, hname]
     | mload a =>
         simp only [exprTouchesUnsupportedHelperSurface] at hsurface
         have ha :=
@@ -5363,8 +5813,10 @@ mutual
           evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state a hsurface
         simp [evalExprWithHelpers, evalExpr_extcodesize, ha]
     | returndataOptionalBoolAt a =>
-        simp [evalExprWithHelpers,
-          evalExpr_returndataOptionalBoolAt]
+        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
+        have ha :=
+          evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state a hsurface
+        simp [evalExprWithHelpers, evalExpr_returndataOptionalBoolAt, ha]
     | keccak256 a b =>
         simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
         have ha :=
@@ -6032,9 +6484,42 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
         evalExprList_eq_mapM]
   | .rawLog _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .unsafeYul _ => cases hsurface
-  | .externalCallBind _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .tryExternalCallBind _ _ _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .ecm _ _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .externalCallBind _ _ args =>
+      simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+      have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
+        induction args with
+        | nil => simp
+        | cons expr rest ih =>
+          simp only [exprListTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+          simp only [List.all_cons, Bool.and_eq_true, beq_iff_eq]
+          exact ⟨hsurface.1, ih hsurface.2⟩
+      simp [execStmtWithHelpers, execStmtWithEvents,
+        evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
+        evalExprList_eq_mapM]
+  | .tryExternalCallBind _ _ _ args =>
+      simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+      have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
+        induction args with
+        | nil => simp
+        | cons expr rest ih =>
+          simp only [exprListTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+          simp only [List.all_cons, Bool.and_eq_true, beq_iff_eq]
+          exact ⟨hsurface.1, ih hsurface.2⟩
+      simp [execStmtWithHelpers, execStmtWithEvents,
+        evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
+        evalExprList_eq_mapM]
+  | .ecm _ args =>
+      simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
+      have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by
+        induction args with
+        | nil => simp
+        | cons expr rest ih =>
+          simp only [exprListTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
+          simp only [List.all_cons, Bool.and_eq_true, beq_iff_eq]
+          exact ⟨hsurface.1, ih hsurface.2⟩
+      simp [execStmtWithHelpers, execStmtWithEvents,
+        evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed spec fields fuel state args hall,
+        evalExprList_eq_mapM]
   | .forEach _ _ _ =>
       simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
       rename_i varName count body

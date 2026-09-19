@@ -24,6 +24,7 @@ class TestRuleRegistry(unittest.TestCase):
                 "split_compiler_test_artifacts",
                 "rewrite_proof_metadata",
                 "proof_length",
+                "spec_named_storage",
             },
         )
 

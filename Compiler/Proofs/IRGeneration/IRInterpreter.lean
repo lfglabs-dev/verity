@@ -19,6 +19,7 @@ import Compiler.Proofs.IRGeneration.IRRuntimeTypes
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.YulGeneration.LogNames
+import Compiler.Proofs.IRGeneration.Returndata
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBuiltinSemantics
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
 import Compiler.Keccak.Sponge
@@ -290,6 +291,10 @@ def evalIRCall (state : IRState) (func : String) : List YulExpr → Option Nat
       match argVals with
       | [addr] => some (state.codeSize (addr % Compiler.Constants.addressModulus))
       | _ => none
+    else if func = "returndatasize" then
+      match argVals with
+      | [] => some (32 * state.returndata.length % Compiler.Constants.evmModulus)
+      | _ => none
     else if func = "keccak256" then
       match argVals with
       | [offset, size] => some (abstractKeccakMemorySlice state.memory offset size)
@@ -347,6 +352,18 @@ end -- mutual
   cases evalIRExpr state argExpr with
   | none => simp
   | some val => simp
+
+@[simp] theorem evalIRCall_returndatasize_nil
+    (state : IRState) :
+    evalIRCall state "returndatasize" [] =
+      some (32 * state.returndata.length % Compiler.Constants.evmModulus) := by
+  simp [evalIRCall, evalIRExprs]
+
+@[simp] theorem evalIRExpr_returndatasize_nil
+    (state : IRState) :
+    evalIRExpr state (YulExpr.call "returndatasize" []) =
+      some (32 * state.returndata.length % Compiler.Constants.evmModulus) := by
+  simp [evalIRExpr]
 
 @[simp] theorem evalIRCall_calldataload_singleton
     (state : IRState) (argExpr : YulExpr) :
@@ -524,6 +541,10 @@ def evalIRCallWithInternals
             match argVals with
             | [offset] => .values [state'.memory offset] state'
             | _ => .revert state'
+          else if func = "returndatasize" then
+            match argVals with
+            | [] => .values [32 * state'.returndata.length % Compiler.Constants.evmModulus] state'
+            | _ => .revert state'
           else if func = "keccak256" then
             match argVals with
             | [offset, size] => .values [abstractKeccakMemorySlice state'.memory offset size] state'
@@ -670,8 +691,14 @@ def execIRStmtWithInternals
               | .revert state' => .revert state'
           | .call "returndatacopy" [dstExpr, srcExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [dstExpr, srcExpr, sizeExpr] with
-              | .values [_, src, size] state' =>
-                  if src + size = 0 then .continue state' else .revert state'
+              | .values [dst, src, size] state' =>
+                  if src + size ≤ 32 * state'.returndata.length then
+                    .continue {
+                      state' with
+                      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
+                        state'.returndata dst src size state'.memory
+                    }
+                  else .revert state'
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
@@ -988,8 +1015,14 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
           | .call "returndatacopy" [dstExpr, srcExpr, sizeExpr] =>
               match evalIRExpr state dstExpr, evalIRExpr state srcExpr,
                   evalIRExpr state sizeExpr with
-              | some _, some src, some size =>
-                if src + size = 0 then .continue state else .revert state
+              | some dst, some src, some size =>
+                if src + size ≤ 32 * state.returndata.length then
+                  .continue {
+                    state with
+                    memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
+                      state.returndata dst src size state.memory
+                  }
+                else .revert state
               | _, _, _ => .revert state
           | .call "stop" [] => .stop state
           | .call "revert" [_, _] => .revert state
@@ -1680,21 +1713,24 @@ theorem IRStmtPreservesObsAt_of_calldatacopy
 
 /-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`.
 
-The IR model gives the frame-entry returndata buffer of EIP-211: empty. A
-`returndatacopy` is therefore in range only for the zero-extent copy, which
-leaves memory untouched; every other `(src, size)` is the EVM's exceptional
-halt and is modelled as `.revert`. So the preservation cross-cast is available
-exactly on the in-range shape. -/
+The in-bounds copy continues with the word-granular memory update — the source
+semantics writes the same words (see
+`FunctionBody.runtimeStateMatchesIR_returndatacopyBothMemory`). Every
+out-of-bounds extent is conservatively modelled as the EVM's exceptional halt,
+`.revert`, matching the source semantics, so the preservation cross-cast is
+available exactly on the in-bounds shape. -/
 theorem IRStmtPreservesObsAt_of_returndatacopy
-    (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr)
-    (hDst : ∃ v, evalIRExpr state dstExpr = some v)
-    (hSrc : evalIRExpr state srcExpr = some 0)
-    (hSize : evalIRExpr state sizeExpr = some 0) :
+    (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr) (dst src size : Nat)
+    (hDst : evalIRExpr state dstExpr = some dst)
+    (hSrc : evalIRExpr state srcExpr = some src)
+    (hSize : evalIRExpr state sizeExpr = some size)
+    (hFit : src + size ≤ 32 * state.returndata.length) :
     IRStmtPreservesObsAt state
       (.exprStmt (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr])) := by
-  obtain ⟨dst, hdst⟩ := hDst
-  refine ⟨state, fun _ => ?_⟩
-  simp [execIRStmt, hdst, hSrc, hSize]
+  refine ⟨{ state with
+      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
+        state.returndata dst src size state.memory }, fun _ => ?_⟩
+  simp [execIRStmt, hDst, hSrc, hSize, hFit]
 
 /-- Cross-cast for `.exprStmt (.call "log0" [offset, size])`. Updates events by
 appending a Yul log entry. -/
@@ -2515,13 +2551,18 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
                       | nil => simp
                       | cons size rest =>
                           cases rest <;> simp
-                · simp only [htload, hmload, hextcodesize, hkeccak, ↓reduceIte]
-                  cases hbuiltin :
-                      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                        state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                        state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-                  | none => simp [hbuiltin]
-                  | some value => simp [hbuiltin]
+                · by_cases hreturndatasize : func = "returndatasize"
+                  · simp [hreturndatasize]
+                    cases argVals with
+                    | nil => simp
+                    | cons _ _ => simp
+                  · simp only [htload, hmload, hextcodesize, hreturndatasize, hkeccak, ↓reduceIte]
+                    cases hbuiltin :
+                        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+                          state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
+                          state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
+                    | none => simp [hbuiltin]
+                    | some value => simp [hbuiltin]
 
 theorem evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
     (contract : IRContract)
@@ -2686,13 +2727,18 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
                       | nil => simp
                       | cons size rest =>
                           cases rest <;> simp
-                · simp only [htload, hmload, hextcodesize, hkeccak, ↓reduceIte]
-                  cases hbuiltin :
-                      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                        state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                        state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-                  | none => simp [hbuiltin]
-                  | some value => simp [hbuiltin]
+                · by_cases hreturndatasize : func = "returndatasize"
+                  · simp [hreturndatasize]
+                    cases argVals with
+                    | nil => simp
+                    | cons _ _ => simp
+                  · simp only [htload, hmload, hextcodesize, hreturndatasize, hkeccak, ↓reduceIte]
+                    cases hbuiltin :
+                        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+                          state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
+                          state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
+                    | none => simp [hbuiltin]
+                    | some value => simp [hbuiltin]
 
 /-- Expression-list conservative extension under per-expression disjointness.
 Generalizes `evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal`. -/
@@ -2862,13 +2908,18 @@ theorem evalIRCallWithInternals_stmt_eq_of_callsDisjoint
                   | nil => simp
                   | cons size rest =>
                       cases rest <;> simp
-            · simp only [htload, hmload, hextcodesize, hkeccak, ↓reduceIte]
-              cases hbuiltin :
-                  Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                    state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                    state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-              | none => simp [hbuiltin]
-              | some value => simp [hbuiltin]
+            · by_cases hreturndatasize : func = "returndatasize"
+              · simp [hreturndatasize]
+                cases argVals with
+                | nil => simp
+                | cons _ _ => simp
+              · simp only [htload, hmload, hextcodesize, hreturndatasize, hkeccak, ↓reduceIte]
+                cases hbuiltin :
+                    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+                      state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
+                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
+                | none => simp [hbuiltin]
+                | some value => simp [hbuiltin]
 
 /-- Statement-level collapse for call expressions when `internalFunctions = []`. -/
 theorem evalIRCallWithInternals_stmt_eq_of_no_internal
@@ -2922,13 +2973,18 @@ theorem evalIRCallWithInternals_stmt_eq_of_no_internal
                   | nil => simp
                   | cons size rest =>
                       cases rest <;> simp
-            · simp only [htload, hmload, hextcodesize, hkeccak, ↓reduceIte]
-              cases hbuiltin :
-                  Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                    state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                    state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-              | none => simp [hbuiltin]
-              | some value => simp [hbuiltin]
+            · by_cases hreturndatasize : func = "returndatasize"
+              · simp [hreturndatasize]
+                cases argVals with
+                | nil => simp
+                | cons _ _ => simp
+              · simp only [htload, hmload, hextcodesize, hreturndatasize, hkeccak, ↓reduceIte]
+                cases hbuiltin :
+                    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
+                      state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
+                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
+                | none => simp [hbuiltin]
+                | some value => simp [hbuiltin]
 
 /-- Shared compatibility lemma for statement-position Yul logs: once the
 argument-list evaluators agree, helper-aware and helper-free log execution agree
@@ -4975,6 +5031,7 @@ theorem evalIRCallWithInternals_of_builtin
     (hnotTload : func ≠ "tload")
     (hnotMload : func ≠ "mload")
     (hnotExtcodesize : func ≠ "extcodesize")
+    (hnotReturndatasize : func ≠ "returndatasize")
     (hnotKeccak : func ≠ "keccak256") :
     evalIRCallWithInternals contract fuel state func args =
       match Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
@@ -4984,7 +5041,7 @@ theorem evalIRCallWithInternals_of_builtin
       | some value => .values [value] state'
       | none => .revert state' := by
   simp only [evalIRCallWithInternals, hargs, hfind, hnotTload, hnotMload, hnotExtcodesize,
-    hnotKeccak, ↓reduceIte]
+    hnotReturndatasize, hnotKeccak, ↓reduceIte]
 
 /-- When argument evaluation propagates a control-flow effect (stop/return/revert),
 `evalIRCallWithInternals` propagates it unchanged. -/

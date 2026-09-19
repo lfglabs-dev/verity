@@ -350,6 +350,10 @@ structure ContractState where
       raising a monadic revert. -/
   calls : List ExternalCall := []
   codeSize : Nat → Uint256 := fun _ => 0
+  /-- EIP-211 returndata buffer, as 32-byte words. Empty at frame entry and
+      overwritten by each call-family instruction with the callee's return
+      data; `returndatasize()` is `32 * returndata.length`. -/
+  returndata : List Nat := []
 
 namespace ContractState
 
@@ -499,6 +503,8 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (s.writeSlot slot value).calls = s.calls := rfl
 @[simp] theorem codeSize_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).returndata = s.returndata := rfl
 
 @[simp] theorem storageWords_writeSlot (s : ContractState) (slot : Nat) (value : Uint256)
     (key : StorageKey) :
@@ -726,6 +732,9 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
 @[simp] theorem codeSize_writeMap (s : ContractState) (slot : Nat) (key : Address)
     (value : Uint256) :
     (s.writeMap slot key value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).returndata = s.returndata := rfl
 
 @[simp] theorem storageWords_writeMap (s : ContractState) (slot : Nat) (key : Address)
     (value : Uint256) (storageKey : StorageKey) :
@@ -775,6 +784,8 @@ def writeMapUint (s : ContractState) (slot : Nat) (key : Uint256) (value : Uint2
     (s.writeMapUint slot key value).events = s.events := rfl
 @[simp] theorem codeSize_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
     (s.writeMapUint slot key value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
+    (s.writeMapUint slot key value).returndata = s.returndata := rfl
 
 def readMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) : Uint256 :=
   s.storageMap2 slot key1 key2
@@ -825,6 +836,8 @@ def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Ui
     (s.writeMap2 slot key1 key2 value).events = s.events := rfl
 @[simp] theorem codeSize_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
+    (s.writeMap2 slot key1 key2 value).returndata = s.returndata := rfl
 
 def readArray (s : ContractState) (slot : Nat) : List Uint256 :=
   s.storageArray slot
@@ -967,6 +980,9 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
 @[simp] theorem codeSize_modifySlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :
     (s.modifySlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifySlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifySlots targets f).returndata = s.returndata := rfl
 
 @[simp] theorem storageArray_writeSlots (s : ContractState) (targets : List Nat)
     (value : Uint256) :
@@ -1181,6 +1197,9 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
 @[simp] theorem codeSize_modifyTransientSlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :
     (s.modifyTransientSlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifyTransientSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyTransientSlots targets f).returndata = s.returndata := rfl
 
 @[simp] theorem storage_withStorageChannel (s : ContractState)
     (f : (Nat → Uint256) → Nat → Uint256) :
@@ -1337,6 +1356,20 @@ nonzero bits above the 160-bit address payload. -/
 -- need the current raw representation unfold a specific lens by name
 -- (`simp [ContractState.writeSlot]`); those sites are the step-3 burn-down.
 
+/-- `returndatasize()` as a machine word. The EIP-211 buffer is modelled as a
+    list of 32-byte words, so its byte size is `32 * length` wrapped to a word. -/
+def returndataSize (s : ContractState) : Nat :=
+  ((32 * s.returndata.length : Nat) : Uint256).val
+
+/-- Word produced by the optional-bool return check the compiler emits for
+    ERC-20 style callees, `or(eq(returndatasize(), 0), and(eq(returndatasize(),
+    32), eq(mload(out), 1)))`: a callee that returns nothing is treated as
+    success, one that returns a single word must return `true`. -/
+def returndataOptionalBool (s : ContractState) (outOffset : Nat) : Nat :=
+  if s.returndataSize = 0 then 1
+  else if s.returndataSize = 32 ∧ (s.memory outOffset).val = 1 then 1
+  else 0
+
 end ContractState
 
 -- Default zero state — all storage zero, empty addresses, no events.
@@ -1424,6 +1457,36 @@ def Contract.tryCatch {α : Type} (attempt : Contract α) (handler : String → 
     | ContractResult.success _ s' => ContractResult.success () s'
     | ContractResult.revert msg rollback => handler msg rollback
 
+/-- Modeled try/catch over a hop (`selfCall` or a callee body). The attempt
+    runs with `Contract.run` snapshot rollback. On revert the handler starts
+    at that snapshot. A revert inside `onSuccess` is **not** caught and
+    propagates with that continuation's state. Failed-call returndata is not
+    bound into the handler; read `ContractState.returndata` if needed. -/
+def Contract.tryWith {α : Type} (attempt : Contract α)
+    (onSuccess : α → Contract Unit) (onFailure : String → Contract Unit) :
+    Contract Unit :=
+  fun s =>
+    match Contract.run attempt s with
+    | ContractResult.success v s' => onSuccess v s'
+    | ContractResult.revert msg rollback => onFailure msg rollback
+
+/-- CALL-shaped same-contract hop (`this.f(...)`). Installs a new frame with
+    `sender := thisAddress`, `msgValue := 0`, and empty returndata. Success
+    commits callee storage and pops the frame (caller `sender`/`this`/`msgValue`
+    restored). Revert restores the pre-call snapshot so an enclosing try/catch
+    can handle it. Distinct from DELEGATECALL (`selfDelegateEntry`). -/
+def Contract.selfCall {α : Type} (body : Contract α) : Contract α := fun s =>
+  let snapSender := s.sender
+  let snapThis := s.thisAddress
+  let snapValue := s.msgValue
+  let entry : ContractState :=
+    { s with sender := snapThis, msgValue := 0, returndata := [] }
+  match body entry with
+  | ContractResult.success v s' =>
+      ContractResult.success v
+        { s' with sender := snapSender, thisAddress := snapThis, msgValue := snapValue }
+  | ContractResult.revert msg _ => ContractResult.revert msg s
+
 set_option warning.simp.varHead false in
 @[simp] theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractState}
     {a : α} {s' : ContractState} (h : c.run s = ContractResult.success a s') :
@@ -1485,6 +1548,40 @@ theorem bind_run_success {α β : Type} (ma : Contract α) (f : α → Contract 
     (Contract.tryCatch attempt handler).run state = (handler msg).run state := by
   unfold Contract.tryCatch Contract.run at *
   simp [h]
+
+/-- Caught failure runs the handler from the pre-call snapshot. -/
+theorem caught_failure_starts_at_snapshot {α : Type}
+    (attempt : Contract α) (onSuccess : α → Contract Unit)
+    (onFailure : String → Contract Unit) (s : ContractState) (msg : String)
+    (h : attempt.run s = ContractResult.revert msg s) :
+    Contract.tryWith attempt onSuccess onFailure s = onFailure msg s := by
+  unfold Contract.tryWith
+  rw [h]
+
+/-- A revert inside the success continuation is not caught. -/
+theorem success_body_failure_not_caught {α : Type}
+    (attempt : Contract α) (onSuccess : α → Contract Unit)
+    (onFailure : String → Contract Unit) (s s' s'' : ContractState)
+    (v : α) (msg : String)
+    (h : attempt.run s = ContractResult.success v s')
+    (hfail : onSuccess v s' = ContractResult.revert msg s'') :
+    Contract.tryWith attempt onSuccess onFailure s =
+      ContractResult.revert msg s'' := by
+  unfold Contract.tryWith
+  rw [h]
+  exact hfail
+
+/-- Successful hop plus successful continuation commit the continuation state. -/
+theorem try_success_commits {α : Type}
+    (attempt : Contract α) (onSuccess : α → Contract Unit)
+    (onFailure : String → Contract Unit) (s s' s'' : ContractState) (v : α)
+    (h : attempt.run s = ContractResult.success v s')
+    (hok : onSuccess v s' = ContractResult.success () s'') :
+    Contract.tryWith attempt onSuccess onFailure s =
+      ContractResult.success () s'' := by
+  unfold Contract.tryWith
+  rw [h]
+  exact hok
 
 -- Helper: check if result is success
 def ContractResult.isSuccess {α : Type} : ContractResult α → Bool

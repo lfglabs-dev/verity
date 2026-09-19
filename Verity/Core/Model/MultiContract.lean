@@ -42,14 +42,17 @@ def upsert (w : MultiWorld) (addr : Address) (s : ContractState) : MultiWorld :=
     { accounts := w.accounts ++ [{ address := addr, state := s }] }
 
 /-- Call-frame context installed on the callee: sender, this, msg.value,
-    and `selfBalance` after receiving `value`. -/
+    and `selfBalance` after receiving `value`. The EIP-211 returndata buffer
+    is frame-local, so the callee enters with an empty buffer rather than the
+    caller's. -/
 def withCallContext (callee : ContractState) (caller this : Address)
     (value : Core.Uint256) : ContractState :=
   { callee with
     sender := caller
     thisAddress := this
     msgValue := value
-    selfBalance := callee.selfBalance + value }
+    selfBalance := callee.selfBalance + value
+    returndata := [] }
 
 def totalSelfBalance (w : MultiWorld) : Nat :=
   w.accounts.foldl (fun acc a => acc + a.state.selfBalance.val) 0
@@ -67,6 +70,7 @@ def callValue (w : MultiWorld) (caller callee : Address) (value : Core.Uint256)
     let toAfter := calleeStep (withCallContext toS caller callee value)
     let fromJournaled : ContractState :=
       { fromPaid with
+        returndata := []
         calls := fromPaid.calls ++
           [{ siteId := callee.toNat
              kind := .call
@@ -133,13 +137,18 @@ def framedJournalEntry (frame : CallFrame) (result : ExternalCallResult) :
 /-- Execute one source-shaped external call.  Success commits the debit and
 callee post-state.  Failure/revert restore both account snapshots.  Every
 outcome appends the control and returndata produced by the execution itself
-to the caller journal. -/
+to the caller journal, and installs that returndata as the caller's EIP-211
+buffer: the frame resuming after the call observes the callee's payload
+(empty for hard failures), never a stale pre-call buffer. -/
 def executeCall (w : MultiWorld) (frame : CallFrame)
     (runCallee : CallFrame → CalleeExecution) : FramedCallObservation :=
   let execution := runCallee frame
   let entry := framedJournalEntry frame execution.result
   let callerJournaled : ContractState :=
-    { frame.callerBefore with calls := frame.callerBefore.calls ++ [entry] }
+    { frame.callerBefore with
+      returndata := execution.result.returndata.map
+        Compiler.CompilationModel.Denote.wordNormalize
+      calls := frame.callerBefore.calls ++ [entry] }
   let nextWorld :=
     match execution.result with
     | .success _ =>
@@ -185,11 +194,15 @@ def selfDelegateEntry (w : MultiWorld) (addr : Address) (site : CallSite) :
         -- DELEGATECALL runs the callee code in the caller's frame: `msg.sender`
         -- and `msg.value` are inherited from the executing frame, not reset.
         -- `site.value = 0` above only records that DELEGATECALL carries no
-        -- value argument; it does not zero the inherited `msg.value`.
-        calleeEntry := { st with thisAddress := addr } }
+        -- value argument; it does not zero the inherited `msg.value`. The
+        -- EIP-211 buffer is still frame-local: the delegate body enters with
+        -- an empty buffer rather than the outer frame's.
+        calleeEntry := { st with thisAddress := addr, returndata := [] } }
 
 /-- Same-account commit: success replaces `addr` with `post` (plus journal);
-    failure/revert restore the pre-call snapshot and still journal. -/
+    failure/revert restore the pre-call snapshot and still journal. Every
+    outcome installs the delegate body's result as the resumed frame's
+    EIP-211 returndata buffer. -/
 def executeSelfDelegate (w : MultiWorld) (addr : Address) (frame : CallFrame)
     (runBody : CallFrame → CalleeExecution) : FramedCallObservation :=
   let execution := runBody frame
@@ -198,6 +211,8 @@ def executeSelfDelegate (w : MultiWorld) (addr : Address) (frame : CallFrame)
     { (match execution.result with
         | .success _ => execution.post
         | .failure _ | .revert _ => frame.callerBefore) with
+      returndata := execution.result.returndata.map
+        Compiler.CompilationModel.Denote.wordNormalize
       calls := frame.callerBefore.calls ++ [entry] }
   { frame := frame, result := execution.result, world := upsert w addr journaled }
 
@@ -343,6 +358,14 @@ theorem withCallContext_sender (callee : ContractState)
     (withCallContext callee caller this value).sender = caller :=
   rfl
 
+/-- EIP-211: the callee enters its call frame with an empty returndata
+    buffer; the caller's buffer is frame-local and cannot leak across the
+    call boundary. -/
+theorem withCallContext_returndata (callee : ContractState)
+    (caller this : Address) (value : Core.Uint256) :
+    (withCallContext callee caller this value).returndata = [] :=
+  rfl
+
 theorem callValue_none_of_cannot_pay (w : MultiWorld)
     (caller callee : Address) (value : Core.Uint256)
     (h : (lookup w caller).selfBalance < value) :
@@ -368,10 +391,12 @@ theorem executeCall_revert_world (w : MultiWorld) (frame : CallFrame)
       upsert
         (upsert w frame.caller
           { frame.callerBefore with
+            returndata := data.map
+              Compiler.CompilationModel.Denote.wordNormalize
             calls := frame.callerBefore.calls ++
               [framedJournalEntry frame (.revert data)] })
         frame.callee frame.calleeBefore := by
-  simp [executeCall, h]
+  simp [executeCall, h, ExternalCallResult.returndata]
 
 theorem executeCall_failure_world (w : MultiWorld) (frame : CallFrame)
     (runCallee : CallFrame → CalleeExecution) (data : List Nat)
@@ -380,10 +405,12 @@ theorem executeCall_failure_world (w : MultiWorld) (frame : CallFrame)
       upsert
         (upsert w frame.caller
           { frame.callerBefore with
+            returndata := data.map
+              Compiler.CompilationModel.Denote.wordNormalize
             calls := frame.callerBefore.calls ++
               [framedJournalEntry frame (.failure data)] })
         frame.callee frame.calleeBefore := by
-  simp [executeCall, h]
+  simp [executeCall, h, ExternalCallResult.returndata]
 
 theorem executeCall_success_world (w : MultiWorld) (frame : CallFrame)
     (runCallee : CallFrame → CalleeExecution) (data : List Nat)
@@ -394,10 +421,12 @@ theorem executeCall_success_world (w : MultiWorld) (frame : CallFrame)
           { frame.callerBefore with
             selfBalance := frame.callerBefore.selfBalance -
               (frame.site.value : Core.Uint256)
+            returndata := data.map
+              Compiler.CompilationModel.Denote.wordNormalize
             calls := frame.callerBefore.calls ++
               [framedJournalEntry frame (.success data)] })
         frame.callee (runCallee frame).post := by
-  simp [executeCall, h]
+  simp [executeCall, h, ExternalCallResult.returndata]
 
 theorem callEntry_calleeEntry (w : MultiWorld) (caller callee : Address)
     (site : CallSite) (frame : CallFrame)

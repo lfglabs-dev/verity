@@ -29,6 +29,9 @@ EXCLUDED_CONTRACTS = {
     "FixedArrayStructSmoke",
     "LinkedExternalProjectedArrayArgSmoke",
     "NestedStructArrayProjectionSmoke",
+    # Nested fixed-array return decoding is covered by its executable Lean
+    # regression; Solidity signature synthesis does not yet map FixedArray.
+    "TypedInterfaceNestedFixedReturnSmoke",
     # The generated no-revert stub cannot currently fund the contract before
     # exercising `callWithValue`; Lean/Yul/trust-report tests cover this ECM.
     "CallWithValueSmoke",
@@ -61,6 +64,19 @@ EXCLUDED_CONTRACTS = {
     "ModifierParameterCollisionBase",
     "ModifierLoopCollisionBase",
     "InheritedOverloadBase",
+    # Multi-parent / Pareto flatten fixtures. Parents and negative-test
+    # contracts are exercised through ParetoChild or #guard_msgs; standalone
+    # Foundry stubs would not cover flattening or diamond rejection.
+    "ParetoStorageParent",
+    "ParetoPausableParent",
+    "ParetoOwnableParent",
+    "SlotParentA",
+    "SlotParentB",
+    "SigParentA",
+    "SigParentB",
+    "DiamondBase",
+    "DiamondLeft",
+    "DiamondRight",
 }
 
 

@@ -23,6 +23,7 @@ declare_syntax_cat verityExternalLinkMode
 declare_syntax_cat verityInterface
 declare_syntax_cat verityInterfaceFunction
 declare_syntax_cat verityInterfaceParam
+declare_syntax_cat verityLinkedContract
 declare_syntax_cat verityLocalObligation
 declare_syntax_cat verityLocalObligations
 declare_syntax_cat verityConstructor
@@ -91,6 +92,7 @@ syntax "function " ident " (" sepBy(term, ",") ")" verityMutability* : verityInt
 syntax "function " ident "(" sepBy(verityInterfaceParam, ",") ")" verityMutability* : verityInterfaceFunction
 syntax "function " ident " (" sepBy(verityInterfaceParam, ",") ")" verityMutability* : verityInterfaceFunction
 syntax "interface " ident " where " verityInterfaceFunction* "end" : verityInterface
+syntax ident " : " ident " := " ident : verityLinkedContract
 syntax ident " := " ident ppSpace str : verityLocalObligation
 syntax "local_obligations " "[" sepBy(verityLocalObligation, ",") "]" : verityLocalObligations
 syntax "payable" : verityMutability
@@ -129,6 +131,12 @@ syntax "fork_if_at_least " ident ppSpace "then " term:max ppSpace "else " term:m
 syntax "adt " str : term
 syntax "adt " str " [" sepBy(term, ",") "]" : term
 syntax "tryCatch " term:max ppSpace term:max : doElem
+/-- Modeled hop try/catch. `tryCatch` remains the word-level stub. -/
+syntax (name := verityTryWith)
+  "tryCall " term:max " then " term:max " catch " term:max : doElem
+syntax "selfCall " ident : term
+/-- Argument-carrying self-call hop: `selfCall f(a, b)` models `this.f(a, b)`. -/
+syntax "selfCall " ident "(" sepBy(term, ",") ")" : term
 
 -- Explicit function-body spellings for the P0 low-level interaction surface.
 -- `callExternal` is declaration-driven; `evmCall`/`evmStaticCall` expose the
@@ -158,9 +166,6 @@ macro_rules
       `(doElem| let _ ← (fun s => .success 0 s))
   | `(doElem| let $name:ident ← returnDataSize()) =>
       `(doElem| let $name ← (fun s => .success 0 s))
-  | `(callExternal $_name:ident ($[$_args:term],*)) => `(by exact default)
-  | `(evmCall($[$_args:term],*)) => `(by exact default)
-  | `(evmStaticCall($[$_args:term],*)) => `(by exact default)
   | `(memoryLoad($_offset)) => `(by exact default)
   | `(returnDataSize()) => `(0)
   | `(memoryStore($_offset, $_value)) => `(by exact default)
@@ -229,7 +234,7 @@ syntax (name := verityIntrinsicCmd)
   ident " := " term ";" ident "[" sepBy(verityIntrinsicObligation, ",") "]" : command
 
 syntax (name := verityContractCmd)
-  "verity_contract " ident (" is " ident)? (" include " sepBy1(ident, ","))? " where "
+  "verity_contract " ident (" is " sepBy1(ident, ","))? (" include " sepBy1(ident, ","))? " where "
   ("types " verityNewtype+)?
   ("enums " verityEnumDecl+)?
   ("inductive " verityAdtDecl+)?
@@ -242,6 +247,7 @@ syntax (name := verityContractCmd)
   ("constants " verityConstant+)?
   ("immutables " verityImmutable+)?
   ("interfaces " verityInterface+)?
+  ("linked_contracts " verityLinkedContract+)?
   ("linked_externals " verityExternal+)?
   (verityConstructor)?
   (veritySpecialEntrypoint)*
@@ -262,6 +268,7 @@ syntax (name := verityMixinCmd)
   ("constants " verityConstant+)?
   ("immutables " verityImmutable+)?
   ("interfaces " verityInterface+)?
+  ("linked_contracts " verityLinkedContract+)?
   ("linked_externals " verityExternal+)?
   (verityConstructor)?
   (verityModifier)*

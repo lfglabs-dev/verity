@@ -5,6 +5,57 @@ reviewable. Keep it synchronized with `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`
 whenever semantics, trusted components, generated audit artifacts, or CI
 boundary checks change.
 
+## Proof-only Solidity Vault POC
+
+The focused suite probes unknown, wrong-typed, and missing AST fields (including
+documentation metadata), invalid source spans, and malformed storage layout
+through synthetic compiler-output mutations, plus unsupported source constructs,
+contract `layout at`,
+registered-source symlink escape, and Lean importer digest sensitivity. It also
+checks safe transparent declarations, duplicate aliases, a deliberately
+malformed late declaration and complete registration rollback (including the
+named storage view), plus the pinned compiler's checksum. Named-storage checks
+cover `v.totalAssets` dot notation and `#print view`, a
+declaration-reorder mutation that moves solc slots while every proof still
+builds, a state-variable rename that makes `Spec.lean` fail to elaborate, and
+Solidity variables named `Storage` or `step` rejected with a source position.
+Behaviour mutations must break both the `*_success_spec` theorem and the
+`*_meets_spec` theorem of the affected entry point, three `Spec.lean` mutations
+that weaken a promise must fail inside both corresponding theorems, and a new
+`mint` entry point must break `solvent_invariant`. The `spec_named_storage`
+lean_lint rule (in `make check`) rejects every raw `ContractState` accessor
+(the list is read from `Verity/Core.lean`), raw storage fields, direct
+`ContractState` mentions, positional projections, and `knownAddresses` in
+opted-in spec files. The digest scope is documented in `TRUST_ASSUMPTIONS.md`; it is not a transitive build identity.
+
+Evidence command:
+`python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py`
+(after `lake build VaultFromSolidity` and installation of the pinned compiler).
+The focused runner builds and audits the imported execution proofs, changes
+accepted deposit/getter behavior while preserving source mtime and requires old
+proofs to fail at both the success and spec layer, weakens the named spec
+and requires both corresponding theorems to fail, rejects unsupported source,
+checks unchanged artifacts, and
+exercises Lean-importer and compiler content invalidation. Mutations occur only
+in disposable copies. This is local acceptance evidence, not a new CI job,
+bytecode/runtime test, or proof of translation correctness.
+
+The complete example surface lives under `Contracts/VaultFromSolidity`: Solidity
+source, Lean importer, specification, execution proofs and focused acceptance
+tests. It is independent of the handwritten `Contracts/Vault` example. The S1
+inheritance slice adds `Contracts/SolidityImportSmoke/Inheritance` with the same
+shape (source, import command, named-storage spec, proofs, focused Python
+suite). No
+Python frontend, custom serialized IR, generated Lean source, or bytecode is in
+the translation path: the accepted Solidity subset is the kernel-checked
+inductive in `Importer/Syntax.lean` and `Importer/Semantics.lean` is its single
+meaning. Trust and axiom scope are recorded in
+`TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
+
+Evidence command for the inheritance slice:
+`python3 Contracts/SolidityImportSmoke/Inheritance/scripts/inheritance_test.py`
+(after `lake build SolidityImportSmokeInheritance`).
+
 ## Current Audit State
 
 - Lean proof placeholders: 0 `sorry` in compiler/proof modules.
@@ -298,6 +349,12 @@ sibling entrypoint.
 
 ## Returndata Surface (2026-08)
 
+> **Superseded in part by *First-Class Returndata Buffer (2026-08)* below.** The
+> constant-zero model recorded here was sound only while the admitted fragment
+> issued no call-family instruction. PRs #2398/#2399 added external-call oracle
+> lanes, so `returndatasize()` is now read from a real buffer. The
+> `returndataCopy` posture and the surface-gating notes below still hold.
+
 - `Expr.returndataSize` and `Stmt.returndataCopy` are now executed by the
   source interpreters, the compiler-free denotation, and the IR interpreter
   instead of falling through to an unmodeled revert. The model rests on
@@ -332,6 +389,142 @@ sibling entrypoint.
   surface rather than assuming one. `Expr.returndataOptionalBoolAt`,
   `Stmt.revertReturndata`, `extcodesize`, and `externalCallBind` remain
   unmodeled.
+
+## First-Class Returndata Buffer (2026-08)
+
+- Supersedes the "no-call invariant" justification recorded under *Returndata
+  Surface* above. That section rested on the admitted fragment issuing no
+  call-family instruction, so a frame's EIP-211 buffer stayed empty and
+  `returndatasize()` could be modeled as the constant `0`. Issue #2084
+  (PRs #2398, #2399) added the external-call oracle lanes
+  `Stmt.externalCallBind`, `Stmt.tryExternalCallBind` and `Stmt.ecm` to the
+  source semantics and the compiler-free denotation, which invalidated that
+  premise: a modeled call can now return words, and the constant `0` would have
+  been an unsound read of the resulting frame.
+- `Verity.ContractState` and `IRState` each gained a `returndata : List Nat`
+  field holding the callee's returned words. All three oracle lanes install the
+  receipt's `returnValues` through `SourceSemantics.returndataAfterCall`, on the
+  failure path as well as the success path, matching EIP-211: the buffer is
+  replaced by every call-family instruction regardless of outcome.
+- `ContractState.returndataSize` is `32 * returndata.length` normalized to a
+  word, and `ContractState.returndataOptionalBool` reproduces the
+  `or(eq(returndatasize(), 0), and(eq(returndatasize(), 32), eq(mload(out), 1)))`
+  shape the compiler emits for ERC-20 style callees. `Expr.returndataSize` and
+  `Expr.returndataOptionalBoolAt` now denote those functions at all three planes
+  (`SourceSemantics.evalExpr` / `evalExprWithHelpers`, `Denote.evalExpr`, and
+  `evalIRExpr` via the new `returndatasize` builtin branch), and the value-bound
+  induction discharges both from `Uint256.isLt` rather than from a constant.
+- `runtimeStateMatchesIR` and `constructorRuntimeStateMatchesIR` gained an
+  eighteenth conjunct, `state.returndata = runtime.world.returndata`, exposed as
+  `runtimeStateMatchesIR_returndata`. `initialIRStateForTx` seeds it from the
+  initial world. `evalIRExpr_returndataSize_of_runtimeStateMatchesIR` and
+  `eval_compileExpr_returndataOptionalBoolAt_of_compiled` are reproved against
+  the real buffer instead of against `some 0`.
+- `execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata` is
+  the renamed static-ECM preservation lemma; the buffer now joins memory and the
+  call log in the modulo set, since a static call still refills it.
+- No unsupported-surface predicate changed. `stmtTouchesUnsupported*Surface`
+  keeps gating the call-family constructors exactly as before, so no headline
+  theorem gains coverage and behaviour is identical at the default empty buffer.
+  This is a soundness repair of the model, not a fragment widening.
+- `Stmt.returndataCopy` stays conservative on both layers: `src + size = 0`
+  continues (it writes nothing whatever the buffer holds) and every other extent
+  is the EVM's exceptional halt, `.revert`. `SourceSemantics` and
+  `IRInterpreter` branch identically, so the two layers still agree on the nose.
+  Only the justifying comments needed correcting — "the buffer is empty in this
+  fragment" is now false, while "we conservatively under-approximate" is true.
+  **Superseded by *Bounded Returndatacopy (2026-09)* below: in-bounds extents
+  now perform the copy.**
+- No new axiom and no new trust assumption. `Contracts.returndataSize` in the
+  executable EDSL surface remains the constant-zero stub, alongside its
+  `calldatasize` / `mload` / `extcodesize` placeholder siblings.
+
+## Bounded Returndatacopy (2026-09)
+
+- Supersedes the conservative `returndataCopy` posture recorded above. Once the
+  EIP-211 buffer is first-class (#2400), a `returndataCopy dst src size` whose
+  extent fits (`src + size ≤ 32 * buffer.length`) copies the buffer's bytes
+  into memory instead of reverting — complete words are replaced and, when
+  `size % 32 ≠ 0`, the final partial destination word is merged with its
+  untouched low bytes; only out-of-bounds extents
+  are observed as the EVM's exceptional halt, `.revert`. The semantics is
+  identical on all four lanes — `SourceSemantics.execStmt` and
+  `execStmtWithHelpers`, the compiler-free `Denote.execStmt`, and the IR
+  interpreter's `evalIRCall` / `evalIRCallWithInternals` — so the layers still
+  agree on the nose.
+- The word model mirrors the `calldatacopy` lane
+  (`Compiler.Proofs.YulGeneration.Calldata`): `returndataloadWord` is the
+  byte-addressed, zero-extended read of the word list (no selector prefix), the
+  destination region is the shared `calldatacopyWritesAt dst size` word range,
+  and `returndatacopyMemoryPadded` is the IR-side memory update: the
+  complete-word kernel `returndatacopyMemory` plus, for `size % 32 ≠ 0`, the
+  ceiling-word merge that writes the high `size % 32` copied bytes while the
+  low bytes survive from memory — the returndata analogue of the
+  calldata lane's `calldatacopyMemoryPadded`. Every copied word is
+  below the EVM modulus (`returndataloadWord_lt_evmModulus`), so
+  `Uint256.ofNat` wrapping is the identity on the copied region.
+- `runtimeStateMatchesIR_returndatacopyBothMemory` is the new reusable bridge:
+  when source and IR memories matched before the step, they match after the
+  copy, using the eighteenth `runtimeStateMatchesIR` conjunct to pin the
+  buffers equal. `IRStmtPreservesObsAt_of_returndatacopy` is generalized from
+  the zero-extent shape to every in-bounds extent.
+- `compiledStmtStep_returndatacopy_empty_single` is reproved: the zero-extent
+  copy fits every buffer and still writes nothing, so the admitted fragment
+  behaves exactly as before (`returndatacopyMemory_zero`). New:
+  `compiledStmtStep_returndatacopy_bounded_single` proves the compiled single
+  `returndatacopy(destIR, srcIR, sizeIR)` step corresponds to
+  `Stmt.returndataCopy destOffset sourceOffset size` for *every* extent — both
+  layers branch on the same fit guard, so no side condition is needed.
+- Partial-extent repair (review round on #2401): the bounded update first
+  shipped as the complete-word kernel alone, so an in-bounds copy with
+  `size % 32 ≠ 0` — a one-byte copy being the smallest case — left the final
+  destination word unchanged, i.e. the copy was modelled as a no-op there. All
+  four lanes now apply the padded update above, and
+  `returndataCopy_one_byte_merges_ceiling_word` kernel-checks the regression:
+  the copied high byte lands and the 31-byte destination suffix survives.
+  `compiledStmtStep_returndatacopy_bounded_single` stays exposed for every
+  extent — no word-alignment restriction was added and no previously supported
+  behaviour was reclassified.
+- No unsupported-surface predicate changed: the generic proof fragment still
+  admits only `returndataCopyEmptySingle`, so no headline theorem gains
+  coverage. `Contracts.returndataCopy` in the executable EDSL remains a no-op
+  stub, next to the constant-zero `Contracts.returndataSize`.
+- No new axiom and no new trust assumption.
+
+## Pure `exp` Builtin Lane (2026-08)
+
+- `pow a b` / `a ^ b` in the EDSL lowers to
+  `Expr.externalCall builtinExpName [base, exponent]`, a reserved sentinel that
+  the compiler already lowered to the pure Yul `exp` builtin rather than to a
+  foreign call. The node shape made it look like an external call to every
+  proof-side surface predicate, so the whole arm was gated as Tier-4 foreign
+  behaviour. That gate is now keyed on the sentinel: the eight
+  `exprTouchesUnsupported*Surface` / `exprTouchesInternalHelperSurface`
+  predicates recurse into `base`/`exponent` for `builtinExpName` at arity two
+  and keep their previous fail-closed constant for every other
+  `Expr.externalCall`.
+- The lane is executed, not assumed, at all four planes: `SourceSemantics`
+  (`evalExpr`, `evalExprWithHelpers`), the compiler-free denotation
+  (`Denote.evalExpr`, with `DenoteAgreement` extended), the IR interpreter
+  (which routes `"exp"` to the EVMYulLean backend), and EVMYulLean itself.
+  All four denote `Uint256.pow`, i.e. `(a % 2^256) ^ (b % 2^256) % 2^256`.
+- `evalPureBuiltinViaEvmYulLean_exp_native` closes the backend leg by proving
+  `EvmYul.UInt256.exp` equals that value, via `uint256_powAux_toNat` /
+  `uint256_pow_toNat` on the square-and-multiply loop. No `native_decide`.
+- `ExprCompileCore.builtinExp` admits the lane to the generic compile core, so
+  `pow` may appear in generic-fragment expressions, `require` conditions, and
+  `emit` arguments. `compileExpr_builtinExp_ok` and
+  `eval_compileExpr_builtinExp_of_compiled` prove compilation and evaluation
+  agreement against `YulExpr.call "exp"`.
+- `collectExprNames` no longer reports `builtinExpName` as a callee identifier.
+  The sentinel never reaches generated Yul (it becomes `exp`) and is already a
+  reserved name, so it cannot collide with a compiler-generated temp. This
+  matches `TrustSurface.collectExternalExprNames`, which has always skipped it,
+  and it restores `collectExprNames ⊆ exprBoundNames` on the compile core.
+- No new axiom and no new trust assumption: this eliminates an unsupported
+  surface rather than assuming one, and it removes `pow` from the assumed
+  external-call bucket. Genuine `Expr.externalCall` targets, `Expr.call` /
+  `staticcall` / `delegatecall`, and `Stmt.externalCallBind` remain gated.
 
 ## Audit Artifacts
 

@@ -191,9 +191,17 @@ inductive ExprCompileCore : Expr → Prop where
       ExprCompileCore offset → ExprCompileCore (.mload offset)
   | extcodesize {addr : Expr} :
       ExprCompileCore addr → ExprCompileCore (.extcodesize addr)
+  | returndataOptionalBoolAt {offset : Expr} :
+      ExprCompileCore offset → ExprCompileCore (.returndataOptionalBoolAt offset)
   | keccak256 {offset size : Expr} :
       ExprCompileCore offset → ExprCompileCore size →
         ExprCompileCore (.keccak256 offset size)
+  /-- The reserved `exp` builtin lane. `pow`/`^` in the EDSL surfaces as an
+  `externalCall` node, but it lowers to the pure Yul `exp` builtin and carries
+  no foreign behaviour, so it belongs to the compile core. -/
+  | builtinExp {base exponent : Expr} :
+      ExprCompileCore base → ExprCompileCore exponent →
+        ExprCompileCore (.externalCall builtinExpName [base, exponent])
 
 /-! ## Scope analysis -/
 

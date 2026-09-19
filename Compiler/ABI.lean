@@ -157,6 +157,7 @@ def emitContractStorageLayoutJson (spec : CompilationModel) : String :=
 where
   renderFieldType : FieldType → String
     | .uint256 => "uint256"
+    | .int256 => "int256"
     | .address => "address"
     | .fixedArrayUint128 size => s!"uint128[{size}]"
     | .adt name maxFields => s!"adt({name},{maxFields})"

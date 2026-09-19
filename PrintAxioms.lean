@@ -4,6 +4,7 @@
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Compiler.CompilationModel.ReservedScratchNames
+import Contracts.SolidityImportSmoke.Inheritance.Proofs
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -35,12 +36,16 @@ import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
+import Contracts.VaultFromSolidity.Proofs.ExecutionProof
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
+import Verity.Proofs.Model.CommonExternalCallEquivalence
 import Verity.Proofs.Stdlib.Automation
+import Verity.Proofs.Stdlib.Int256
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
+import Verity.Proofs.Stdlib.SolidityImport
 import Compiler.Proofs.AbiDynamicEventObservable
 import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.AbiEventObservable
@@ -110,7 +115,9 @@ import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 import Compiler.Proofs.IRGeneration.PanicPayloadIR
 import Compiler.Proofs.IRGeneration.ParamLoading
+import Compiler.Proofs.IRGeneration.Returndata
 import Compiler.Proofs.IRGeneration.SourceSemantics
+import Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
 import Compiler.Proofs.IRGeneration.SpliceSimulation
 import Compiler.Proofs.IRGeneration.SupportedFragment
 import Compiler.Proofs.IRGeneration.SupportedSpec
@@ -284,6 +291,17 @@ end Verity.AxiomAudit
   -- Compiler/CompilationModel/ReservedScratchNames.lean
   Compiler.CompilationModel.compatScratch_startsWith_reserved
   Compiler.CompilationModel.compatScratch_not_internalImmutable
+
+  -- Contracts/SolidityImportSmoke/Inheritance/Proofs.lean
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.pause_success_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.go_success_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.bump_success_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.dispatch_is_child
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.super_runs_parent
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.pause_meets_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.go_meets_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.bump_meets_spec
+  Contracts.SolidityImportSmoke.Inheritance.Proofs.paused_invariant
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -684,6 +702,15 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
 
+  -- Contracts/VaultFromSolidity/Proofs/ExecutionProof.lean
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_success_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_success_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_success_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_meets_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_meets_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_meets_spec
+  Contracts.VaultFromSolidity.Proofs.ExecutionProof.solvent_invariant
+
   -- Verity/Proofs/CheckedExternalCallConsumer.lean
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_success_world
@@ -697,6 +724,23 @@ end Verity.AxiomAudit
   Verity.Proofs.LoopSimulationResultAware.forEach_rel_execForEachLoop_result_aware
   Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_success_bridge
   Verity.Proofs.LoopSimulationResultAware.execResultAwareForEach_earlyExit_bridge
+
+  -- Verity/Proofs/Model/CommonExternalCallEquivalence.lean
+  Contracts.commonExternalCall_eq_model
+  Contracts.externalCallWords_eq_stub_result
+  Contracts.callResultWords_eq_stub
+  Contracts.tryExternalCallWords_eq_stub
+  Contracts.externalCallBind_eq_stub
+  Contracts.externalCallBindTo_eq_stub
+  Contracts.balanceOf_eq_stub
+  Contracts.allowance_eq_stub
+  Contracts.totalSupply_eq_stub
+  Contracts.erc20Write_eq_stub
+  Contracts.safeTransfer_eq_stub
+  Contracts.safeTransferFrom_eq_stub
+  Contracts.safeApprove_eq_stub
+  Contracts.legacyStringSafeTransfer_eq_stub
+  Contracts.legacyStringSafeTransferFrom_eq_stub
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -807,6 +851,50 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Automation.require_beq_isSuccess_true_iff_eq
   Verity.Proofs.Stdlib.Automation.require_beq_isSuccess_false_iff_ne
   Verity.Proofs.Stdlib.Automation.owner_guard_success_implies_storageAddr_eq_sender
+
+  -- Verity/Proofs/Stdlib/Int256.lean
+  -- Verity.Proofs.Stdlib.Int256.modulus_def  -- private
+  -- Verity.Proofs.Stdlib.Int256.natCast_emod_of_lt  -- private
+  -- Verity.Proofs.Stdlib.Int256.max_sub_min  -- private
+  -- Verity.Proofs.Stdlib.Int256.maxValue_nat  -- private
+  -- Verity.Proofs.Stdlib.Int256.natAbs_natCast  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_emod
+  -- Verity.Proofs.Stdlib.Int256.emod_neg_congr  -- private
+  Verity.Proofs.Stdlib.Int256.inRange_eq_of_emod_eq
+  Verity.Proofs.Stdlib.Int256.toInt_add_of_inRange
+  Verity.Proofs.Stdlib.Int256.toInt_mul_of_inRange
+  -- Verity.Proofs.Stdlib.Int256.sub_word  -- private
+  -- Verity.Proofs.Stdlib.Int256.sub_word_emod  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_sub_of_inRange
+  -- Verity.Proofs.Stdlib.Int256.neg_word  -- private
+  -- Verity.Proofs.Stdlib.Int256.neg_maxValue  -- private
+  -- Verity.Proofs.Stdlib.Int256.neg_minValue  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_neg_of_not_min
+  -- Verity.Proofs.Stdlib.Int256.toNat_lt_signBit_of_nonneg  -- private
+  -- Verity.Proofs.Stdlib.Int256.natAbs_le_signBit_of_inRange  -- private
+  -- Verity.Proofs.Stdlib.Int256.inRange_of_natAbs_lt_signBit  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_ofInt
+  -- Verity.Proofs.Stdlib.Int256.decide_natCast_lt_zero  -- private
+  -- Verity.Proofs.Stdlib.Int256.tdiv_eq_sign_natAbs  -- private
+  -- Verity.Proofs.Stdlib.Int256.tmod_eq_sign_natAbs  -- private
+  Verity.Proofs.Stdlib.Int256.div_eq_ofInt_tdiv
+  -- Verity.Proofs.Stdlib.Int256.tdiv_inRange_of_not_divFails  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_div_of_not_divFails
+  Verity.Proofs.Stdlib.Int256.mod_eq_ofInt_tmod
+  -- Verity.Proofs.Stdlib.Int256.tmod_inRange  -- private
+  Verity.Proofs.Stdlib.Int256.toInt_mod_of_ne_zero
+  Verity.Proofs.Stdlib.Int256.addPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.subPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.mulPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.negPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.divPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.modPanic_success_toInt
+  Verity.Proofs.Stdlib.Int256.addPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.subPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.mulPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.negPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.divPanic_failure_iff
+  Verity.Proofs.Stdlib.Int256.modPanic_failure_iff
 
   -- Verity/Proofs/Stdlib/ListSum.lean
   Verity.Proofs.Stdlib.ListSum.countOcc_cons_eq
@@ -1082,6 +1170,10 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.safeDiv_self
   Verity.Proofs.Stdlib.Math.safeMul_result_bounded
   Verity.Proofs.Stdlib.Math.safeDiv_result_le_numerator
+
+  -- Verity/Proofs/Stdlib/SolidityImport.lean
+  Verity.Proofs.Stdlib.SolidityImport.run_snd_cases
+  Verity.Proofs.Stdlib.SolidityImport.uint256_eq_zero_iff
 
   -- Compiler/Proofs/AbiDynamicEventObservable.lean
   Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_append
@@ -2464,6 +2556,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_immutable
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_bindings
   Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_selector
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_externalCallOracle
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toRuntimeState_externalCallIndex
   Compiler.Proofs.IRGeneration.DenoteAgreement.sourceOracle_mappingSlot
   Compiler.Proofs.IRGeneration.DenoteAgreement.sourceOracle_keccakMemorySlice
   Compiler.Proofs.IRGeneration.DenoteAgreement.bindAgree
@@ -2485,6 +2579,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2FieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.wordNormalize_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.bindValue_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.bindValues_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.valuesAsEventArgs_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeUintSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeFixedUint128ArrayElementSlots_eq
@@ -2845,6 +2940,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onScope
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnExpr_of_subset
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_returndata
+  Compiler.Proofs.IRGeneration.FunctionBody.initialIRStateForTx_returndata
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_ident_of_exact_bindings
@@ -2876,6 +2973,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_add_of_eval
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_sub_of_eval
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_mul_of_eval
+  Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_exp_of_eval
+  -- Compiler.Proofs.IRGeneration.FunctionBody.uint256_pow_val  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_div_of_eval
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_mod_of_eval
   Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_eq_of_eval
@@ -2967,13 +3066,19 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_mod_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_mload_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_keccak256_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_builtinExp_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_builtinExp_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_keccak256_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_mload_of_compiled  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_extcodesize_ok
+  Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_returndataOptionalBoolAt_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_extcodesize_of_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.optionalReturnBoolWord_eq  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_returndataOptionalBoolAt_of_compiled  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_tload_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.calldataloadWord_lt_evmModulus  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_calldatacopyBothMemory
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_returndatacopyBothMemory
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_calldataload_ok
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_calldataload_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_tload_of_compiled  -- private
@@ -3689,6 +3794,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateFunctionIdentifierReferences_prefix
   -- Compiler.Proofs.IRGeneration.scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers  -- private
   Compiler.Proofs.IRGeneration.exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
+  -- Compiler.Proofs.IRGeneration.collectExprNames_builtinExp_split  -- private
   Compiler.Proofs.IRGeneration.collectExprNames_mem_exprBoundNames_of_core
   -- Compiler.Proofs.IRGeneration.mem_foldl_stmtNextScope_of_mem_scope  -- private
   Compiler.Proofs.IRGeneration.stmtListBindNames_subset_foldl_stmtNextScope
@@ -3790,6 +3896,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_calldatacopy_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single
+  -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single_preserves  -- private
+  Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
@@ -4004,6 +4112,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.evalIRCall_tload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_mload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_extcodesize_singleton
+  Compiler.Proofs.IRGeneration.evalIRCall_returndatasize_nil
+  Compiler.Proofs.IRGeneration.evalIRExpr_returndatasize_nil
   Compiler.Proofs.IRGeneration.evalIRCall_calldataload_singleton
   Compiler.Proofs.IRGeneration.evalIRCall_sload_singleton
   Compiler.Proofs.IRGeneration.prepareInternalCalleeState_vars
@@ -4344,6 +4454,21 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then_extraFuel
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then
 
+  -- Compiler/Proofs/IRGeneration/Returndata.lean
+  Compiler.Proofs.IRGeneration.returndatacopyWritesAt_of_index
+  Compiler.Proofs.IRGeneration.returndatacopyMemory_at_index
+  Compiler.Proofs.IRGeneration.returndatacopyMemory_outside
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_at_index
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_at_ceil
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_outside
+  Compiler.Proofs.IRGeneration.returndatacopyMemory_zero
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded_zero
+  Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256_zero
+  Compiler.Proofs.IRGeneration.returndataloadWord_aligned
+  Compiler.Proofs.IRGeneration.returndataloadWord_aligned_of_lt
+  Compiler.Proofs.IRGeneration.returndataloadWord_nil
+  Compiler.Proofs.IRGeneration.returndataloadWord_lt_evmModulus
+
   -- Compiler/Proofs/IRGeneration/SourceSemantics.lean
   Compiler.Proofs.IRGeneration.SourceSemantics.wordNormalize_eq_mod
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_splitEventArgsByParams_of_length
@@ -4355,6 +4480,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.findEntry_filter_ne_eq_findEntry  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_ne
   Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_exists
+  Compiler.Proofs.IRGeneration.SourceSemantics.returndataAfterCall_returndata
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_zero
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachSetBitLoop_succ
   Compiler.Proofs.IRGeneration.SourceSemantics.execForEachLoop_zero
@@ -4393,7 +4519,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_arrayLength  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_memoryArrayLength  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_dynamicBytesEq  -- private
-  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_externalCall  -- private
+  Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_externalCall_builtinExp
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_externalCall_of_ne  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_externalCall_of_arity  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_mload  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_tload  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_calldataload  -- private
@@ -4466,6 +4594,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_forkIfAtLeast  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_nil_eq_execStmt
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_static_preserves_calls
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_advances_call_index
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_binds_resultVars
+  Compiler.Proofs.IRGeneration.SourceSemantics.execStmt_ecm_reverts_of_receipt_failure
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithEvents_eq_execStmt_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithEvents_eq_execStmtList_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.decodeSupportedParamWord_eq_dynamicAbi
@@ -4474,6 +4607,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams
   Compiler.Proofs.IRGeneration.SourceSemantics.bindExternalParams_eq_none_of_not_length_le
   Compiler.Proofs.IRGeneration.SourceSemantics.bindSupportedParams_take_param_length
+  Compiler.Proofs.IRGeneration.SourceSemantics.returndata_withTransactionContext
+  Compiler.Proofs.IRGeneration.SourceSemantics.returndata_withConstructorTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.storage_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.storageAddr_withTransactionContext
   Compiler.Proofs.IRGeneration.SourceSemantics.storageArray_withTransactionContext
@@ -4570,6 +4705,52 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supportedSourceContractSemantics_eq_sourceContractSemantics
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsWithScalarEvents_eq_sourceContractSemantics
   Compiler.Proofs.IRGeneration.supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
+
+  -- Compiler/Proofs/IRGeneration/SourceSemanticsFeatureTest.lean
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.externalCallBind_extraReturnValues_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_success_binds_resultVars  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_success_advances_callIndex  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_failed_receipt_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_arity_mismatch_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_does_not_commit_world  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_commits_receipt_memory  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_preserves_nonmemory_world_fields  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_preserves_receipt_calls  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_writing_module_commits_world  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_receipt_keyed_on_callIndex  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_callSurface_blocked  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_foreignSurface_blocked  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_helperSurface_closed_for_helper_free_args  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_helperSurface_open_for_helper_call_arg  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_pure_module_effectSurface_closed  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_writing_module_effectSurface_blocked  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataSize_empty_buffer_is_zero  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataSize_counts_bytes_not_words  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataSize_denote_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.externalCallBind_success_installs_returndata  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.tryExternalCallBind_failure_installs_returndata  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.ecm_static_module_installs_returndata  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_empty_buffer_is_true  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_single_true_word_is_true  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_single_false_word_is_false  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_two_words_is_false  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataOptionalBool_denote_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_zero_extent_continues_on_nonempty_buffer  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_reads_first_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_reads_second_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_source_offset_reads_second_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_one_byte_merges_ceiling_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_extent_merges_ceiling_word  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_unaligned_extent_still_copies_whole_words  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_out_of_bounds_extent_reverts  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_last_window_fits  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_denote_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_in_bounds_ir_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndataCopy_out_of_bounds_ir_agrees  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.returndata_slice_does_not_widen_effect_surface  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.transaction_frame_entry_reads_zero_returndatasize  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.constructor_frame_entry_reads_zero_returndatasize  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest.denote_transaction_frame_entry_reads_zero_returndatasize  -- private
 
   -- Compiler/Proofs/IRGeneration/SpliceSimulation.lean
   Compiler.Proofs.IRGeneration.SpliceSim.loopFree
@@ -5681,6 +5862,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_mload
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_tload
   Compiler.Proofs.YulGeneration.Backends.bridgedExpr_extcodesize
+  Compiler.Proofs.YulGeneration.Backends.bridgedExpr_returndataOptionalBoolAt
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_mload
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_tload
   Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_let_keccak256
@@ -7244,6 +7426,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_mul_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_div_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_mod_native
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_mul_toNat  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.nat_pow_two_mul_succ  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.nat_pow_two_mul  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_powAux_toNat  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_pow_toNat  -- private
+  Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_exp_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_eq_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_iszero_native
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_lt_native
@@ -7308,6 +7496,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_yulNegatedBinOp_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_yulBoolBinOp_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_unopBuiltin_ok  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_returndataOptionalBoolAtShape_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad  -- private
@@ -7398,4 +7587,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 6845 theorems/lemmas (4912 public, 1933 private, 0 sorry'd)
+-- Total: 7013 theorems/lemmas (5004 public, 2009 private, 0 sorry'd)

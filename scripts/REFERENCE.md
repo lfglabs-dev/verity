@@ -33,7 +33,7 @@ This document is the long-form reference for script responsibilities.
 
 Primary guards:
 - `property_pipeline.py`: consolidated property manifest/coverage pipeline (P7 Cluster C). Subcommands: `check [--only manifest|coverage|lean-sync]` (single manifest parse for all three checks), `extract` (regenerate `test/property_manifest.json`), `report` (coverage statistics; `--format`, `--fail-below`). The five legacy scripts (`check_property_manifest.py`, `check_property_coverage.py`, `check_property_manifest_sync.py`, `extract_property_manifest.py`, `report_property_coverage.py`) remain as thin shims.
-- `lean_lint.py`: consolidated Lean structure/hygiene lint runner (P7 Cluster E). Dispatcher over rule modules with `--only/--skip/--list`; rules: `contract_structure`, `paths`, `compilationmodel_split`, `axioms`, `trust_surface_registry`, `storage_layout`, `lean_hygiene`, `split_compiler_test_artifacts`, `rewrite_proof_metadata`, `proof_length`. Each rule module (the legacy `check_*.py` file) keeps its logic and stays directly runnable for arg-bearing CI invocations.
+- `lean_lint.py`: consolidated Lean structure/hygiene lint runner (P7 Cluster E). Dispatcher over rule modules with `--only/--skip/--list`; rules: `contract_structure`, `paths`, `compilationmodel_split`, `axioms`, `trust_surface_registry`, `storage_layout`, `lean_hygiene`, `split_compiler_test_artifacts`, `rewrite_proof_metadata`, `proof_length`, `spec_named_storage`. Each rule module (the legacy `check_*.py` file) keeps its logic and stays directly runnable for arg-bearing CI invocations.
 - `check_axioms.py`: validate AXIOMS.md registry locations and parse `PrintAxioms.lean` dependency output (lean_lint rule `axioms`).
 - `check_paths.py`: detect case-insensitive checkout hazards and enforce universal Layer-2 bridge quantification (lean_lint rule `paths`).
 - `check_property_manifest.py`: shim for `property_pipeline.py check --only manifest`.
@@ -50,6 +50,7 @@ Primary guards:
 - `generate_storage_layout_report.py`: emit the per-contract storage layout JSON artifact (`artifacts/storage_layout_report.json`) and human-readable summary (`artifacts/STORAGE_LAYOUT_SUMMARY.md`) for migration/audit review (#1897). The Lean executable `verity-storage-layout-report` is the JSON source of truth; `--check --no-lean` is the drift gate run by `make check`.
 - `check_lean_hygiene.py` (lean_lint rule `lean_hygiene`; the sorry/native_decide gate)
 - `check_proof_length.py` (lean_lint rule `proof_length`)
+- `check_spec_named_storage.py` (lean_lint rule `spec_named_storage`): opted-in human-facing specs (starting with `Contracts/VaultFromSolidity/Spec.lean`) must use named storage views: no raw `ContractState` accessor (list read from `Verity/Core.lean`), storage field, direct `ContractState` mention, positional projection, or `knownAddresses`.
 - `check_macro_health.py`
 - `check_compiler_boundaries.py`
 - `test_check_struct_mapping_surface_sync.py`: unit coverage for the struct-mapping doc sync guard.

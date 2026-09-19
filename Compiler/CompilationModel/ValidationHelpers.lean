@@ -77,7 +77,12 @@ def collectExprNames : Expr → List String
   | Expr.returndataSize => []
   | Expr.returndataOptionalBoolAt outOffset => collectExprNames outOffset
   | Expr.localVar name => [name]
-  | Expr.externalCall name args => name :: collectExprListNames args
+  | Expr.externalCall name args =>
+      -- `builtinExpName` is a reserved sentinel for the pure `exp` builtin, not a
+      -- callee identifier: it lowers to `YulExpr.call "exp"` and never reaches the
+      -- generated Yul, so it cannot collide with a compiler-generated temp name.
+      if name == builtinExpName then collectExprListNames args
+      else name :: collectExprListNames args
   | Expr.internalCall name args => name :: collectExprListNames args
   | Expr.arrayLength name | Expr.memoryArrayLength name => [name]
   | Expr.paramDynamicHeadWord name _ => [name]

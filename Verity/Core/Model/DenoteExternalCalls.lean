@@ -36,6 +36,12 @@ structure CallSite where
   target : Nat
   value : Nat := 0
   calldata : List Nat := []
+  /-- Source-level linked name. Opcode-level sites leave this empty. -/
+  name : String := ""
+  /-- Number of returndata words expected by the deterministic source stub. -/
+  returnArity : Nat := 0
+  /-- Words used by source stubs but omitted from the observable calldata. -/
+  stubPrefix : List Nat := []
   gas : Nat
   deriving Repr
 
@@ -125,6 +131,45 @@ structure AdversaryModel where
   stateTransition : CallSite → Verity.ContractState → Verity.ContractState
   result : CallSite → Verity.ContractState → ExternalCallResult
   gasUsed : CallSite → Verity.ContractState → Nat
+
+namespace AdversaryModel
+
+/-- The deterministic word used by the legacy executable linked-call plane. -/
+def stubWord (name : String) (args : List Nat) : Nat :=
+  Denote.wordNormalize <|
+    if name = "echo" then
+      match args with
+      | [value] => value
+      | _ => args.foldl (fun acc arg => Denote.wordNormalize (acc + arg)) name.length
+    else
+      args.foldl (fun acc arg => Denote.wordNormalize (acc + arg)) name.length
+
+@[simp] theorem wordNormalize_stubWord (name : String) (args : List Nat) :
+    Denote.wordNormalize (stubWord name args) = stubWord name args := by
+  simp [stubWord, Denote.wordNormalize]
+
+@[simp] theorem stubWord_modulus (name : String) (args : List Nat) :
+    stubWord name args % Verity.Core.Uint256.modulus = stubWord name args := by
+  simpa [Denote.wordNormalize] using wordNormalize_stubWord name args
+
+/-- The no-reentry adversary matching the current executable linked-call stub.
+It preserves caller state, fails only for the reserved name `"fail"`, returns
+the deterministic stub word at the site's declared arity, and consumes no gas. -/
+def stub : AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site _ =>
+    if site.name = "fail" then .failure []
+    else .success
+      (List.replicate site.returnArity (stubWord site.name (site.stubPrefix ++ site.calldata)))
+  gasUsed := fun _ _ => 0
+
+@[simp] theorem stub_stateTransition (site : CallSite) (state : Verity.ContractState) :
+    stub.stateTransition site state = state := rfl
+
+@[simp] theorem stub_gasUsed (site : CallSite) (state : Verity.ContractState) :
+    stub.gasUsed site state = 0 := rfl
+
+end AdversaryModel
 
 /-- Observable produced at one call boundary. -/
 structure CallObservation where
@@ -288,7 +333,8 @@ def journalEntry (site : CallSite) (result : ExternalCallResult) :
     value := site.value
     calldata := site.calldata
     control := result.control.toJournal
-    returndata := result.returndata }
+    returndata := result.returndata
+    name := site.name }
 
 /-- Denote one external call and record it in the caller world's journal. -/
 def denoteCallJournaled (adversary : AdversaryModel) (site : CallSite)

@@ -1059,8 +1059,8 @@ theorem initialIRStateForTx_matches_runtime
       rfl
     rw [this]
     rfl
-  · -- codeSize
-    funext addr
+  · -- codeSize and returndata
+    refine ⟨funext fun addr => ?_, rfl⟩
     simp [FunctionBody.initialIRStateForTx, SourceSemantics.withTransactionContext]
 
 /-- An address-ranged transaction-context word survives the word/address
@@ -4466,9 +4466,30 @@ private theorem compileExpr_constructor_mode_eq
       simp only [exprTouchesUnsupportedCallSurface] at hcall
       simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
       simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hcall hraw]
-  | .returndataOptionalBoolAt _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .returndataOptionalBoolAt _, hcore, hcall, hraw => by
+      simp only [exprTouchesUnsupportedCoreSurface] at hcore
+      simp only [exprTouchesUnsupportedCallSurface] at hcall
+      simp only [exprTouchesUnsupportedConstructorRawCalldataSurface] at hraw
+      simp [compileExprWithInternals, compileExpr_constructor_mode_eq hcore hcall hraw]
   | .localVar _, _, _, _ => by simp [compileExprWithInternals]
-  | .externalCall _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .externalCall name [base, exponent], hcore, hcall, hraw => by
+      by_cases hname : name = builtinExpName
+      · subst hname
+        simp only [exprTouchesUnsupportedCoreSurface, beq_self_eq_true, if_true,
+          Bool.or_eq_false_iff] at hcore
+        simp only [exprTouchesUnsupportedCallSurface, beq_self_eq_true, if_true,
+          Bool.or_eq_false_iff] at hcall
+        simp only [exprTouchesUnsupportedConstructorRawCalldataSurface,
+          exprListTouchesUnsupportedConstructorRawCalldataSurface, Bool.or_false,
+          Bool.or_eq_false_iff] at hraw
+        simp [compileExprWithInternals, compileExprListWithInternals,
+          compileExpr_constructor_mode_eq hcore.1 hcall.1 hraw.1,
+          compileExpr_constructor_mode_eq hcore.2 hcall.2 hraw.2]
+      · simp [exprTouchesUnsupportedCoreSurface, hname] at hcore
+  | .externalCall _ [], hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .externalCall _ [_], hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
+  | .externalCall _ (_ :: _ :: _ :: _), hcore, _, _ => by
+      simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .internalCall _ _, hcore, _, _ => by simp [exprTouchesUnsupportedCoreSurface] at hcore
   | .arrayLength _, _, hcall, _ => by simp [exprTouchesUnsupportedCallSurface] at hcall
   | .arrayElement _ _, _, hcall, _ => by simp [exprTouchesUnsupportedCallSurface] at hcall

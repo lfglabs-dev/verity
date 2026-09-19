@@ -159,7 +159,8 @@ def namedStructExecutableReadsField : Bool :=
 
 example : namedStructExecutableReadsField = true := by decide
 example : Uint8Smoke.acceptSig = (Uint8Smoke.acceptSig : (Uint256 × Uint256 × Uint256) → Verity.Contract Unit) := rfl
-example : ExternalCallSmoke.storeEcho = (ExternalCallSmoke.storeEcho : Uint256 → Verity.Contract Unit) := rfl
+example : ExternalCallSmoke.storeEcho .stub =
+    (ExternalCallSmoke.storeEcho .stub : Uint256 → Verity.Contract Unit) := rfl
 
 example :
     (Compiler.CompilationModel.FunctionSpec.body
@@ -479,15 +480,21 @@ example :
       ] := rfl
 
 example :
-    (LowLevelTryCatchSmoke.catchFailure.run Verity.defaultState).getValue? = some 0 := by
+    ((LowLevelTryCatchSmoke.catchFailure .stub).run Verity.defaultState).getValue? = some 7 := by
   decide
 
 example :
-    (LowLevelTryCatchSmoke.skipCatchOnSuccess.run Verity.defaultState).getValue? = some 0 := by
+    ((LowLevelTryCatchSmoke.skipCatchOnSuccess .stub).run Verity.defaultState).getValue? = some 0 := by
   decide
 
 example :
-    ((LowLevelTryCatchSmoke.catchFailureWithShadowedParam 5).run Verity.defaultState).getValue? = some 0 := by
+    let result := (LowLevelTryCatchSmoke.skipExternalCatchOnSuccess .stub).run Verity.defaultState
+    result.getValue? = some 0 ∧ result.getState.calls.length = 1 := by
+  decide
+
+example :
+    ((LowLevelTryCatchSmoke.catchFailureWithShadowedParam .stub 5).run
+      Verity.defaultState).getValue? = some 11 := by
   decide
 
 example :

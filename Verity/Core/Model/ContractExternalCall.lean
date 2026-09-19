@@ -40,7 +40,9 @@ def externalCall (adversary : AdversaryModel) (site : CallSite) :
   fun s =>
     let observation := denoteCallJournaled adversary site
       { world := s, gasRemaining := site.gas }
-    ContractResult.success observation.result observation.state.world
+    ContractResult.success observation.result
+      { observation.state.world with
+        returndata := observation.result.returndata.map Denote.wordNormalize }
 
 /-- Unfolding law: `externalCall` succeeds monadically with the adversary's
 response and the journaled post-world. -/
@@ -48,8 +50,9 @@ theorem externalCall_run (adversary : AdversaryModel) (site : CallSite)
     (s : ContractState) :
     (externalCall adversary site).run s =
       ContractResult.success (adversary.result site s)
-        (denoteCallJournaled adversary site
-          { world := s, gasRemaining := site.gas }).state.world := rfl
+        { (denoteCallJournaled adversary site
+            { world := s, gasRemaining := site.gas }).state.world with
+          returndata := (adversary.result site s).returndata.map Denote.wordNormalize } := rfl
 
 /-- The returned result is exactly the adversary's response on the pre-call
 world. -/
@@ -71,9 +74,10 @@ theorem externalCall_rollback (adversary : AdversaryModel) (site : CallSite)
     (hresult : adversary.result site s = .failure data ∨
       adversary.result site s = .revert data) :
     ((externalCall adversary site).run s).snd =
-      { s with calls := s.calls ++ [journalEntry site (adversary.result site s)] } := by
-  show (denoteCallJournaled adversary site
-      { world := s, gasRemaining := site.gas }).state.world = _
+      { s with
+        calls := s.calls ++ [journalEntry site (adversary.result site s)]
+        returndata := (adversary.result site s).returndata.map Denote.wordNormalize } := by
+  rw [externalCall_run]
   rw [denoteCallJournaled_rollback_world adversary site
     { world := s, gasRemaining := site.gas } data hkind hresult]
   simp [denoteCall]
@@ -82,9 +86,10 @@ theorem externalCall_rollback (adversary : AdversaryModel) (site : CallSite)
 theorem externalCall_staticcall (adversary : AdversaryModel) (site : CallSite)
     (s : ContractState) (hkind : site.kind = .staticcall) :
     ((externalCall adversary site).run s).snd =
-      { s with calls := s.calls ++ [journalEntry site (adversary.result site s)] } := by
-  show (denoteCallJournaled adversary site
-      { world := s, gasRemaining := site.gas }).state.world = _
+      { s with
+        calls := s.calls ++ [journalEntry site (adversary.result site s)]
+        returndata := (adversary.result site s).returndata.map Denote.wordNormalize } := by
+  rw [externalCall_run]
   rw [denoteCallJournaled_staticcall_world adversary site
     { world := s, gasRemaining := site.gas } hkind]
   simp [denoteCall]

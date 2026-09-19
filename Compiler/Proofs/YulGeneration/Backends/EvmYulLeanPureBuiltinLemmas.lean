@@ -80,6 +80,65 @@ private theorem word_lt_uint256_size (x : Nat) :
     simp [hb, EvmYul.UInt256.toNat]
     rfl
 
+private theorem uint256_mul_toNat (a c : EvmYul.UInt256) :
+    (a * c).toNat = (a.toNat * c.toNat) % EvmYul.UInt256.size := by
+  show (EvmYul.UInt256.mul a c).toNat = _
+  simp [EvmYul.UInt256.mul, EvmYul.UInt256.toNat, Fin.mul_def]
+
+private theorem nat_pow_two_mul_succ (base acc m : Nat) :
+    base * acc ^ (2 * m + 1) = base * acc * (acc * acc) ^ m := by
+  rw [pow_succ, pow_mul]; ring
+
+private theorem nat_pow_two_mul (base acc m : Nat) :
+    base * acc ^ (2 * m) = base * (acc * acc) ^ m := by
+  rw [pow_mul]; ring
+
+/-- EVMYulLean computes `EXP` by binary exponentiation over `Fin 2^256`; this
+identifies the accumulator with the closed form `a * c ^ n` reduced mod `2^256`. -/
+private theorem uint256_powAux_toNat (n : Nat) : ∀ (a c : EvmYul.UInt256),
+    (EvmYul.UInt256.powAux a c n).toNat
+      = (a.toNat * c.toNat ^ n) % EvmYul.UInt256.size := by
+  induction n using Nat.strong_induction_on with
+  | _ n ih =>
+    intro a c
+    match n with
+    | 0 =>
+      have ha : a.toNat < EvmYul.UInt256.size := a.val.isLt
+      simp [EvmYul.UInt256.powAux, Nat.mod_eq_of_lt ha]
+    | (k + 1) =>
+      have hlt : (k + 1) / 2 < k + 1 := Nat.div_lt_self (Nat.succ_pos k) (by omega)
+      rw [EvmYul.UInt256.powAux]
+      by_cases hodd : (k + 1) % 2 = 1
+      · rw [if_pos (by simp [hodd])]
+        rw [ih _ hlt, uint256_mul_toNat, uint256_mul_toNat]
+        have hk : 2 * ((k + 1) / 2) + 1 = k + 1 := by omega
+        have harith := nat_pow_two_mul_succ a.toNat c.toNat ((k + 1) / 2)
+        rw [hk] at harith
+        rw [harith]
+        exact Nat.ModEq.mul (Nat.mod_modEq _ _) (Nat.ModEq.pow _ (Nat.mod_modEq _ _))
+      · rw [if_neg (by simp [hodd])]
+        rw [ih _ hlt, uint256_mul_toNat]
+        have hk : 2 * ((k + 1) / 2) = k + 1 := by omega
+        have harith := nat_pow_two_mul a.toNat c.toNat ((k + 1) / 2)
+        rw [hk] at harith
+        rw [harith]
+        exact Nat.ModEq.mul_left _ (Nat.ModEq.pow _ (Nat.mod_modEq _ _))
+
+private theorem uint256_pow_toNat (b n : EvmYul.UInt256) :
+    (EvmYul.UInt256.pow b n).toNat = (b.toNat ^ n.toNat) % EvmYul.UInt256.size := by
+  rw [EvmYul.UInt256.pow, uint256_powAux_toNat]
+  simp [EvmYul.UInt256.toNat]
+
+@[simp] theorem evalPureBuiltinViaEvmYulLean_exp_native (a b : Nat) :
+    evalPureBuiltinViaEvmYulLean "exp" [a, b] =
+      some ((a % Compiler.Constants.evmModulus) ^ (b % Compiler.Constants.evmModulus)
+        % Compiler.Constants.evmModulus) := by
+  rw [← uint256_size_eq_evmModulus]
+  change some (EvmYul.UInt256.toNat
+      (EvmYul.UInt256.exp (EvmYul.UInt256.ofNat a) (EvmYul.UInt256.ofNat b))) = _
+  rw [EvmYul.UInt256.exp, uint256_pow_toNat]
+  rfl
+
 @[simp] theorem evalPureBuiltinViaEvmYulLean_eq_native (a b : Nat) :
     evalPureBuiltinViaEvmYulLean "eq" [a, b] =
       some (if a % Compiler.Constants.evmModulus = b % Compiler.Constants.evmModulus then 1 else 0) := by
