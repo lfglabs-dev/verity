@@ -77,8 +77,6 @@ def parseInterfaceFunction
           let parsed ← returnTys.mapM (valueTypeFromSyntax newtypes structDecls adtDecls)
           if parsed.isEmpty then
             throwErrorAt stx "interface function returns clause must contain at least one return type"
-          if parsed.size > 1 then
-            throwErrorAt stx "typed interface calls currently support exactly one return value"
           pure parsed
     pure {
       ident := name

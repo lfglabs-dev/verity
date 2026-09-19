@@ -2708,6 +2708,56 @@ partial def inferBindSourceType
               throwErrorAt rhs
                 "unsupported bind source; expected getStorage/getStorageAddr/getStorageArrayLength/getStorageArrayElement/getMapping/getMappingAddr/getMappingUint/getMappingUintAddr/getMappingWord/getMapping2/getMappingN/structMember/structMember2/msgSender/msgValue/selfBalance/tload/ecrecover/ecmCall, a direct internal helper call, or a qualified library helper call"
 
+partial def flattenTypedInterfaceAppSyntaxEarly (stx : Term) : Term × Array Term :=
+  let stx := stripParens stx
+  match stx.raw with
+  | .node _ `Lean.Parser.Term.app appArgs =>
+      let head : Term := ⟨appArgs.getD 0 Syntax.missing⟩
+      let argTerms := (appArgs.getD 1 Syntax.missing).getArgs.map (fun syn => ⟨syn⟩)
+      let (head, priorArgs) := flattenTypedInterfaceAppSyntaxEarly head
+      (head, priorArgs ++ argTerms)
+  | _ => (stx, #[])
+
+partial def resolveTypedInterfaceCallEarly?
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (stx : Term) : CommandElabM (Option (ExternalDecl × Term × Array Term × Option ValueType × Nat)) := do
+  let (head, argTerms) := flattenTypedInterfaceAppSyntaxEarly stx
+  let some (target, methodName) :=
+    (match head.raw with
+    | .ident _ _ raw _ =>
+        match nameComponents raw with
+        | [targetName, method] => some (mkIdent (Name.mkSimple targetName), method)
+        | _ => none
+    | _ => none)
+    | pure none
+  let targetName ←
+    match stripParens target with
+    | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
+    | _ => pure ""
+  let some interfaceName := lookupInterfaceName? params locals targetName
+    | pure none
+  let externalName := interfaceExternalName interfaceName methodName
+  let some ext := externalDecls.find? (fun ext => ext.name == externalName)
+    | throwErrorAt stx s!"interface '{interfaceName}' has no method '{methodName}'"
+  if argTerms.size != ext.params.size then
+    throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' expects {ext.params.size} argument(s), got {argTerms.size}"
+  for (argTerm, expectedTy) in argTerms.zip ext.params do
+    let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals argTerm
+    unless actualTy == expectedTy || (isNatLiteralTerm argTerm && numericLiteralCompatibleValueType expectedTy) do
+      throwErrorAt argTerm
+        s!"interface call '{interfaceName}.{methodName}' argument expects {renderValueType expectedTy}, got {renderValueType actualTy}"
+  requireTypedInterfaceStaticParams stx externalName ext.params
+  let selector := Compiler.keccak256_first_4_bytes (interfaceFunctionSignature methodName ext.params)
+  match ext.returnTys.toList with
+  | [retTy] => pure (some (ext, target, argTerms, some retTy, selector))
+  | [] => pure (some (ext, target, argTerms, none, selector))
+  | _ => pure (some (ext, target, argTerms, none, selector))
+
 partial def inferTupleSourceTypes?
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
@@ -2818,7 +2868,7 @@ partial def inferTupleSourceTypes?
                 pure (some ext.returnTys)
             | none => pure none
         | other =>
-            match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals other with
+            match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals other with
             | some (ext, _, _, some _, _) => pure (some ext.returnTys)
             | _ =>
                 match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
@@ -4824,7 +4874,7 @@ def tupleExternalCallBindStmt?
         | throwErrorAt name s!"unknown linked external '{extName}'"
       some <$> lower extName ext args
   | _ =>
-      match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
+      match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
       | some (ext, _target, args, some _, _) => some <$> lower ext.name ext args
       | _ => pure none
 
@@ -5774,7 +5824,7 @@ partial def resolveTypedInterfaceCall?
   match ext.returnTys.toList with
   | [retTy] => pure (some (ext, target, argTerms, some retTy, selector))
   | [] => pure (some (ext, target, argTerms, none, selector))  -- void interface method
-  | _ => throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' returns multiple values; typed dot calls currently support one return value"
+  | _ => pure (some (ext, target, argTerms, none, selector))
 
 
 end Verity.Macro
