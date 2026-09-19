@@ -173,6 +173,7 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
         translationErrorDecls translationConstDecls translationImmutableDecls
         translationExternalDecls translationFunctions fn resolvedIncludes
         (boundImmutableDecls := immutableDecls) (hostModifiers := modifiers)
+        (linkedContracts := parsed.linkedContracts)
       for cmd in fnCmds do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
@@ -186,7 +187,7 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       | some ctorDecl =>
           elabCommand (← mkConstructorDefCommandPublic translationFields translationErrorDecls
             translationConstDecls translationImmutableDecls translationExternalDecls
-            translationFunctions ctorDecl)
+            translationFunctions ctorDecl (linkedContracts := parsed.linkedContracts))
       | none => pure ()
 
     if !resolvedIncludes.isEmpty then
@@ -194,7 +195,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       | some ctorDecl =>
           elabCommand (← mkHostConstructorDefCommandPublic translationFields
             translationErrorDecls translationConstDecls translationImmutableDecls
-            translationExternalDecls translationFunctions resolvedIncludes ctorDecl)
+            translationExternalDecls translationFunctions resolvedIncludes ctorDecl
+            (linkedContracts := parsed.linkedContracts))
       | none => pure ()
 
     let specName : Ident :=

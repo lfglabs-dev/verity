@@ -430,6 +430,82 @@ def writeContractSlot (s : ContractState) (contract : Nat) (slot : Nat)
     { s with storageWords := fun key =>
         if key == .contractSlot contract slot then value else s.storageWords key }
 
+/-- Replace the whole word map. Canonical bulk surface for hop namespacing
+    (`switchSlotWorld`) and the denotational channel rebuilds. -/
+def withStorageWords (s : ContractState) (f : StorageKey → Uint256) : ContractState :=
+  { s with storageWords := f }
+
+@[simp] theorem storageWords_withStorageWords (s : ContractState) (f : StorageKey → Uint256) :
+    (s.withStorageWords f).storageWords = f := rfl
+
+/-- Park the current unqualified `.slot` world under `parkId` and load
+    `loadId`'s `contractSlot` world into `.slot`. Mapping/addr/transient
+    channels stay global (see G2). Involutive when the ids are swapped. -/
+def switchSlotWorld (s : ContractState) (parkId loadId : Nat) : ContractState :=
+  s.withStorageWords fun key =>
+    match key with
+    | .slot n => s.storageWords (.contractSlot loadId n)
+    | .contractSlot id n =>
+        if id == parkId then s.storageWords (.slot n) else s.storageWords key
+    | k => s.storageWords k
+
+/-- CALL-shaped hop entry: callee sees `sender := caller`, `thisAddress := callee`,
+    `msgValue := 0`, empty returndata, and its namespaced scalar slots. -/
+def enterHop (s : ContractState) (caller callee : Address) : ContractState :=
+  { s.switchSlotWorld caller.toNat callee.toNat with
+    sender := caller
+    thisAddress := callee
+    msgValue := 0
+    returndata := [] }
+
+/-- Pop a successful hop: callee `.slot` is parked back under `callee`,
+    caller slots are restored, and caller context fields return. -/
+def exitHop (snap s' : ContractState) (caller callee : Address) : ContractState :=
+  { s'.switchSlotWorld callee.toNat caller.toNat with
+    sender := snap.sender
+    thisAddress := snap.thisAddress
+    msgValue := snap.msgValue }
+
+theorem switchSlotWorld_readSlot (s : ContractState) (parkId loadId slot : Nat) :
+    (s.switchSlotWorld parkId loadId).readSlot slot =
+      s.storageWords (.contractSlot loadId slot) :=
+  rfl
+
+theorem enterHop_sender (s : ContractState) (caller callee : Address) :
+    (s.enterHop caller callee).sender = caller :=
+  rfl
+
+theorem enterHop_this (s : ContractState) (caller callee : Address) :
+    (s.enterHop caller callee).thisAddress = callee :=
+  rfl
+
+theorem enterHop_msgValue (s : ContractState) (caller callee : Address) :
+    (s.enterHop caller callee).msgValue = 0 :=
+  rfl
+
+theorem enterHop_readSlot (s : ContractState) (caller callee : Address) (slot : Nat) :
+    (s.enterHop caller callee).readSlot slot =
+      s.storageWords (.contractSlot callee.toNat slot) :=
+  rfl
+
+theorem writeContractSlot_thisAddress (s : ContractState) (c n : Nat) (v : Uint256) :
+    (s.writeContractSlot c n v).thisAddress = s.thisAddress := by
+  unfold writeContractSlot writeSlot
+  split <;> rfl
+
+/-- Non-zero contract ids write the namespaced `contractSlot` channel. -/
+theorem writeContractSlot_contract (s : ContractState) (c n : Nat) (v : Uint256)
+    (h : c ≠ 0) :
+    (s.writeContractSlot c n v).storageWords (.contractSlot c n) = v := by
+  unfold writeContractSlot writeSlot
+  split
+  · rename_i h0
+    have : c = 0 := by
+      simp at h0
+      exact h0
+    exact (h this).elim
+  · simp
+
 def readAddrSlot (s : ContractState) (slot : Nat) : Address :=
   s.storageAddr slot
 
@@ -915,9 +991,9 @@ storage view) are channel-wide, not slot-guarded; this is their sanctioned
 surface. The C5 flip reimplements it as a `.slot`-key-restricted update. -/
 def withStorageChannel (s : ContractState)
     (f : (Nat → Uint256) → Nat → Uint256) : ContractState :=
-  { s with storageWords := fun key => match key with
-      | .slot slot => f s.storage slot
-      | _ => s.storageWords key }
+  s.withStorageWords fun key => match key with
+    | .slot slot => f s.storage slot
+    | _ => s.storageWords key
 
 private theorem mem_of_contains_true {α : Type} [BEq α] [LawfulBEq α]
     {xs : List α} {x : α} (h : xs.contains x = true) : x ∈ xs :=
@@ -1486,6 +1562,65 @@ def Contract.selfCall {α : Type} (body : Contract α) : Contract α := fun s =>
       ContractResult.success v
         { s' with sender := snapSender, thisAddress := snapThis, msgValue := snapValue }
   | ContractResult.revert msg _ => ContractResult.revert msg s
+
+/-- Distinct-address CALL-shaped hop in the single-`ContractState` executable
+    plane. Scalar slots are namespaced via `StorageKey.contractSlot`; success
+    commits the callee world and restores caller context; revert restores the
+    pre-call snapshot. Same-address hops reuse `selfCall`. -/
+def Contract.hopCall {α : Type} (callee : Address) (body : Contract α) : Contract α :=
+  fun s =>
+    if s.thisAddress = callee then Contract.selfCall body s
+    else
+      match body (s.enterHop s.thisAddress callee) with
+      | ContractResult.success v s' =>
+          ContractResult.success v (s.exitHop s' s.thisAddress callee)
+      | ContractResult.revert msg _ => ContractResult.revert msg s
+
+/-- View hop: run the callee body, then discard its storage writes.
+    Journal, events, and returndata still record the attempt. -/
+def Contract.hopCallView {α : Type} (callee : Address) (body : Contract α) : Contract α :=
+  fun s =>
+    if s.thisAddress = callee then
+      match body { s with sender := s.thisAddress, msgValue := 0, returndata := [] } with
+      | ContractResult.success v s' =>
+          ContractResult.success v
+            { s with returndata := s'.returndata, calls := s'.calls, events := s'.events }
+      | ContractResult.revert msg _ => ContractResult.revert msg s
+    else
+      match body (s.enterHop s.thisAddress callee) with
+      | ContractResult.success v s' =>
+          ContractResult.success v
+            { s with returndata := s'.returndata, calls := s'.calls, events := s'.events }
+      | ContractResult.revert msg _ => ContractResult.revert msg s
+
+/-- Distinct-address hop: run the callee body at `enterHop` and commit via `exitHop`. -/
+theorem Contract.hopCall_of_ne {α : Type} (callee : Address) (body : Contract α)
+    (s : ContractState) (h : s.thisAddress ≠ callee) :
+    Contract.hopCall callee body s =
+      match body (s.enterHop s.thisAddress callee) with
+      | ContractResult.success v s' =>
+          ContractResult.success v (s.exitHop s' s.thisAddress callee)
+      | ContractResult.revert msg _ => ContractResult.revert msg s := by
+  unfold Contract.hopCall
+  split
+  · rename_i heq
+    exact (h heq).elim
+  · rfl
+
+/-- Distinct-address view hop: run the body, keep caller storage. -/
+theorem Contract.hopCallView_of_ne {α : Type} (callee : Address) (body : Contract α)
+    (s : ContractState) (h : s.thisAddress ≠ callee) :
+    Contract.hopCallView callee body s =
+      match body (s.enterHop s.thisAddress callee) with
+      | ContractResult.success v s' =>
+          ContractResult.success v
+            { s with returndata := s'.returndata, calls := s'.calls, events := s'.events }
+      | ContractResult.revert msg _ => ContractResult.revert msg s := by
+  unfold Contract.hopCallView
+  split
+  · rename_i heq
+    exact (h heq).elim
+  · rfl
 
 set_option warning.simp.varHead false in
 @[simp] theorem Contract.eq_of_run_success {α : Type} {c : Contract α} {s : ContractState}
