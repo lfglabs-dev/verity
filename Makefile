@@ -3,7 +3,7 @@
 # Prerequisites: curl, git, python3, bash
 # Run `make setup` to install all tooling, then `make verify` to check all proofs.
 
-.PHONY: help setup setup-elan setup-solc setup-foundry \
+.PHONY: help setup setup-elan setup-solc setup-solc-importer check-solc-published setup-foundry \
         verify verify-packages verify-targeted profile-lean test test-foundry test-python axiom-report \
         compile generate-yul check checks test-evmyullean-fork \
         refresh-status all clean
@@ -23,7 +23,7 @@ help: ## Show this help
 # Setup
 # ---------------------------------------------------------------------------
 
-setup: setup-elan setup-solc setup-foundry ## Install all tooling (elan, solc, foundry)
+setup: setup-elan setup-solc setup-solc-importer setup-foundry ## Install all tooling (elan, solc, foundry)
 	@echo ""
 	@echo "Setup complete. Run 'make verify' to check all proofs."
 
@@ -48,6 +48,12 @@ setup-solc: ## Install solc (SHA256-verified)
 		sudo chmod +x /usr/local/bin/solc; \
 		echo "solc $(SOLC_VERSION) installed"; \
 	fi
+
+setup-solc-importer: ## Install official solc for the Lean Solidity importer
+	python3 scripts/setup_solc_importer.py
+
+check-solc-published: ## Fetch official list.json and verify committed SHA-256 pins
+	python3 scripts/check_solc_pin.py --verify-published-checksums
 
 setup-foundry: ## Install Foundry (forge, cast, anvil)
 	@if command -v forge >/dev/null 2>&1; then \

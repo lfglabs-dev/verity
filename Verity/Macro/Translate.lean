@@ -2067,6 +2067,45 @@ private def annotateExecutableLinkedCall?
       | none => pure term
   | _ => pure term
 
+/-- Executable lowering of `structMembers` / `structMembers2`: one generated
+`structMember` / `structMember2` read per selected member, so the executable
+plane observes the hashed struct-mapping slots instead of the pure `default`
+stub (`Contracts.structMembers`). Returns the binds and the bound identifiers
+in member order; `none` when `rhs` is not a struct-members source. -/
+private def structMembersExecutableReads?
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (names : Array (Option String))
+    (rhs : Term) : CommandElabM (Option (Array (TSyntax `doElem) × Array Ident)) := do
+  let mkReads (mkRead : Term → CommandElabM Term) (members : Term) :
+      CommandElabM (Option (Array (TSyntax `doElem) × Array Ident)) := do
+    let memberNames ← expectStringList members
+    if memberNames.isEmpty || names.size != memberNames.size then
+      return none
+    let mut elems : Array (TSyntax `doElem) := #[]
+    let mut idents : Array Ident := #[]
+    let mut used : Array String := #[]
+    for (name?, memberName) in names.zip memberNames do
+      let binderName :=
+        match name? with
+        | some n => n
+        | none => freshSyntheticLocalName "__structMember" params locals used
+      used := used.push binderName
+      let binder := mkIdent (Name.mkSimple binderName)
+      let read ← mkRead (strTerm memberName)
+      elems := elems.push (← `(doElem| let $binder:ident ← $read:term))
+      idents := idents.push binder
+    return some (elems, idents)
+  -- Unscoped identifiers resolve to the contract-generated helpers.
+  let structMemberFn := mkIdent (Name.mkSimple "structMember")
+  let structMember2Fn := mkIdent (Name.mkSimple "structMember2")
+  match stripParens rhs with
+  | `(term| structMembers $field:term $key:term $members:term) =>
+      mkReads (fun member => `($structMemberFn:ident $field $key $member)) members
+  | `(term| structMembers2 $field:term $key1:term $key2:term $members:term) =>
+      mkReads (fun member => `($structMember2Fn:ident $field $key1 $key2 $member)) members
+  | _ => return none
+
 mutual
 
 private partial def rewriteForEachExecutableDoSeq
@@ -2158,6 +2197,14 @@ private partial def rewriteForEachExecutableDoElem
               let read ←
                 `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
               pure (#[← `(doElem| let $name:ident ← $read:term)], locals)
+          | _ => pure (#[elem], locals)
+      | `(term| getMappingN $field:ident $keys:term) =>
+          -- Transient mapping chains read the EIP-1153 channel in the
+          -- executable plane, matching `readFieldWord` in the model plane.
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { isTransient := true, .. } =>
+              pure (#[← `(doElem| let $name:ident ←
+                _root_.Contracts.getTransientMappingN $field:ident $keys:term)], locals)
           | _ => pure (#[elem], locals)
       | _ =>
           match ← typedInterfaceCallReturnType? externalDecls params locals rhs with
@@ -2297,6 +2344,12 @@ private partial def rewriteForEachExecutableDoElem
               pure (#[← `(doElem| _root_.Verity.setPackedStorage
                 $field:ident $(natTerm offset) $(natTerm width) $value:term)], locals)
           | _ => pure (#[elem], locals)
+      | `(term| setMappingN $field:ident $keys:term $value:term) =>
+          match fields.find? (fun candidate => candidate.name == toString field.getId) with
+          | some { isTransient := true, .. } =>
+              pure (#[← `(doElem| _root_.Contracts.setTransientMappingN
+                $field:ident $keys:term $value:term)], locals)
+          | _ => pure (#[elem], locals)
       | _ =>
           if (← isVoidTypedInterfaceCall? externalDecls params locals stmt) then
             match typedDotCallSyntax? stmt with
@@ -2314,6 +2367,32 @@ private partial def rewriteForEachExecutableDoElem
             | none => pure (#[elem], locals)
           else
             pure (#[elem], locals)
+  | `(doElem| let $pat:term := $rhs:term) =>
+      match tupleBinderNames? pat with
+      | some names =>
+          match ← structMembersExecutableReads? params locals names rhs with
+          | some (reads, _) => pure (reads, locals)
+          | none => pure (#[elem], locals)
+      | none => pure (#[elem], locals)
+  | `(doElem| return $value:term) =>
+      let members? : Option Term :=
+        match stripParens value with
+        | `(term| structMembers $_field:term $_key:term $members:term) => some members
+        | `(term| structMembers2 $_field:term $_key1:term $_key2:term $members:term) => some members
+        | _ => none
+      match members? with
+      | some members =>
+          let memberNames ← expectStringList members
+          let names : Array (Option String) := memberNames.map (fun _ => none)
+          match ← structMembersExecutableReads? params locals names value with
+          | some (reads, idents) =>
+              -- `(a, b, c)` is right-nested `(a, (b, c))`, matching `Tuple`.
+              let mut result : Term ← `(term| $(idents.back!):ident)
+              for ident in idents.pop.reverse do
+                result ← `(term| ($ident:ident, $result:term))
+              pure (reads.push (← `(doElem| return $result:term)), locals)
+          | none => pure (#[elem], locals)
+      | none => pure (#[elem], locals)
   | other =>
       pure (#[other], locals)
 end

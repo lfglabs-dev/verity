@@ -46,7 +46,9 @@ drift mode unless noted.
 | check_linear_memory_boundary_sync.py | linear-memory boundary note ↔ feature matrix status | artifact + doc-grep | exit | interpreter_feature_matrix |
 | check_axiomatized_primitive_boundary_sync.py | keccak256 axiomatized-primitive note ↔ feature matrix status | artifact + doc-grep | exit | interpreter_feature_matrix |
 | check_struct_mapping_surface_sync.py | struct-mapping docs ↔ `Compiler/CompilationModel/Types.lean` surface | lean-grep + doc-grep | exit | — |
-| check_solc_pin.py | solc pin across verify.yml / foundry.toml / TRUST_ASSUMPTIONS.md | repo + doc-grep | exit | — |
+| check_solc_pin.py | solc pin across verify.yml / foundry.toml / TRUST_ASSUMPTIONS.md / official list.json hashes | repo + doc-grep; `--verify-published-checksums` fetches list.json | exit | official_solc |
+| official_solc.py | committed binaries.soliditylang.org SHA-256 pins and list.json parsing | imported | — | — |
+| setup_solc_importer.py | install official solc after list.json pin check | network + dest file | exit | official_solc |
 | check_issue_templates.py | `.github/ISSUE_TEMPLATE/*.yaml` structure + log contamination | repo (yaml) | exit | property_utils |
 | check_docs_workflow_sync.py | docs.yml push paths ↔ pull_request paths | repo (yaml) | exit | — |
 | check_macro_health.py | dispatcher → check_macro_property_test_generation.py | sub-script | exit | — (dispatch) |

@@ -23,3 +23,4 @@ import Contracts.Smoke.MultiParent
 import Contracts.Smoke.KeccakStringSmoke
 import Contracts.Smoke.MultiArgIntrinsicSmoke
 import Contracts.Smoke.EIP712StaticSmoke
+import Contracts.Smoke.HashedMappings

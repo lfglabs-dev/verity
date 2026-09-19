@@ -167,6 +167,66 @@ name both parents.
 list of mixins plus a storage parent, not a diamond, and C3 would need a
 new linearization proof story.
 
+## Feature 5: executable hashed nested and struct mappings (G2, #2416)
+
+**Problem.** `IdleCreditVault` keeps its receipts in
+`mapping(address => mapping(uint256 => uint256))` and its APR-0 bucket in a
+struct-valued mapping. The compilation model of those fields was right, but
+the executable plane read `0` from every `getMappingN` and dropped every
+`setMappingN`, so no executable-plane theorem about claims could be trusted.
+A mixed key list (`[user, epoch]` with an `Address` and a `Uint256`) did not
+even typecheck.
+
+**Slot model.** `Contracts.getMappingN` / `setMappingN` /
+`getMappingWord` / `setMappingWord` now read and write
+`ContractState.storage` at the Solidity slot, sharing the proof model's
+`Compiler.Proofs.abstractMappingSlot` (`keccak256(key ‖ slot)`):
+
+| Solidity | Executable slot |
+|----------|-----------------|
+| `m[k]` at `p` | `keccak256(k ‖ p)` (`mappingChainSlot p [k]`) |
+| `m[k₁][k₂]` at `p` | `keccak256(k₂ ‖ keccak256(k₁ ‖ p))` (`mappingChainSlot p [k₁, k₂]`) |
+| `m[k].member` at `p`, word `w` | `(keccak256(k ‖ p) + w) mod 2²⁵⁶` (`structSlot p k w`) |
+| `m[k₁][k₂].member` | `(keccak256(k₂ ‖ keccak256(k₁ ‖ p)) + w) mod 2²⁵⁶` (`structSlot2`) |
+
+`mappingChainSlot_single` / `_pair`, `structSlot_eq_mappingSlotLocation` and
+`structSlot2_eq_nestedMappingSlotLocation` are `rfl` against the compiler's
+`MappingSlot` definitions, so the executable plane, the model plane
+(`DenoteOracle.mappingSlot`) and the Yul lowering derive the same slot.
+
+**Keys.** `getMappingN` / `setMappingN` take a `List MappingKeyWord`;
+`Address`, `Uint256` and `Bytes32` coerce through `StorageKey.toWord`, so
+`getMappingN withdrawsRequestsByEpoch [user, epoch]` typechecks.
+
+**Transient chains.** A `transient` mapping chain routes to
+`getTransientMappingN` / `setTransientMappingN` (EIP-1153 channel); the
+macro inserts the rewrite, matching `readFieldWord` in the model plane.
+
+**`structMembers`.** `let (a, b) := structMembers f k [m₁, m₂]` and
+`return structMembers f k [..]` lower to one generated `structMember` read
+per member in the executable plane. The pure expression form elsewhere is
+still the `default` stub.
+
+**Channels.** This hashed channel is disjoint from the constructor-keyed
+`storageMap` / `storageMapUint` / `storageMap2` channels behind
+`getMapping` / `getMappingUint` / `getMapping2`. A field is accessed through
+exactly one family, chosen by its declared storage type, so no contract
+observes both channels for one slot.
+
+**Proofs.** `Contracts/Smoke/HashedMappings.lean` proves, through the
+generated functions, that a nested-mapping write is read back at the same
+keys, that a struct receipt destructures to the written words, that a
+transient lock is read back and leaves persistent storage untouched, and
+that the slots are the Solidity slots. Adjacent struct words are distinct
+without keccak reasoning (`structSlot_ne_succ`); distinct keys rely on the
+existing `solidityMappingSlot_injective` axiom. No new axioms.
+
+**Alternative considered.** A new `StorageKey.hashed` constructor would keep
+keys symbolic but breaks every exhaustive match on `StorageKey` (EVMYulLean
+bridges, lens laws) and still needs a keccak-parity story for the compiler.
+Reusing the `.slot` channel is what the generated struct-mapping accessors
+already did; this feature extends it to chains and words.
+
 ## How to translate an OpenZeppelin-style contract chain
 
 1. Declare each parent as its own `verity_contract` (storage-only parents

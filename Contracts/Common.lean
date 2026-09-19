@@ -1360,14 +1360,8 @@ macro_rules
   | `(term| tryExternalCall $name:ident [ $[$args:term],* ]) =>
       `(tryExternalCallWords $(Lean.quote (toString name.getId))
           (List.flatten [ $[ExternalArg.toWords $args],* ]))
-def getMappingWord (_slot : StorageSlot (Uint256 → Uint256)) (_key _wordOffset : Uint256) :
-    Contract Uint256 := pure 0
-def setMappingWord (_slot : StorageSlot (Uint256 → Uint256)) (_key _wordOffset _value : Uint256) :
-    Contract Unit := pure ()
-def getMappingN {κ α : Type} (_slot : StorageSlot α) (_keys : List κ) :
-    Contract Uint256 := pure 0
-def setMappingN {κ α : Type} (_slot : StorageSlot α) (_keys : List κ) (_value : Uint256) :
-    Contract Unit := pure ()
+-- `getMappingWord` / `setMappingWord` / `getMappingN` / `setMappingN` are the
+-- hashed-slot executable accessors defined after `StorageKey` below.
 
 def structMember {κ α : Type} [Inhabited α] (_field : String) (_key : κ) (_member : String) :
     Contract α := pure (Inhabited.default : α)
@@ -1711,5 +1705,205 @@ def setStructMember2At {κ₁ κ₂ α : Type} [StorageKey κ₁] [StorageKey κ
       | some (offset, width) => encodePackedWord (state.storage targetSlot) word offset width
     ContractResult.success () (state.writeSlot targetSlot stored)
 
+/-! ### Hashed mapping channel (Solidity keccak slot layout)
+
+Nested mappings (`getMappingN` / `setMappingN`), word-offset mapping words
+(`getMappingWord` / `setMappingWord`) and struct mappings (`structMemberAt`,
+`structMember2At`) share one executable slot derivation with the compiler's
+proof model (`Compiler.Proofs.MappingSlot`):
+
+* `mapping(k => v)` at base slot `p` stores `v` at `keccak256(k ‖ p)`
+  (`Compiler.Proofs.abstractMappingSlot`, i.e. `solidityMappingSlot`);
+* nesting folds left, so `mapping(k₁ => mapping(k₂ => v))` lands at
+  `keccak256(k₂ ‖ keccak256(k₁ ‖ p))` (`abstractNestedMappingSlot`);
+* struct members and `getMappingWord` add their word offset modulo `2^256`
+  (`mappingSlotLocation` / `nestedMappingSlotLocation`).
+
+Values live in the `.slot` channel of `ContractState` (`ContractState.storage`),
+which is the channel the model plane reads through `readFieldWord` with
+`DenoteOracle.mappingSlot := abstractMappingSlot`. Transient mapping chains use
+the `.transient` channel (`getTransientMappingN` / `setTransientMappingN`; the
+macro routes `getMappingN` / `setMappingN` on a `transient` field there).
+
+This channel is deliberately disjoint from the constructor-keyed
+`storageMap` / `storageMapUint` / `storageMap2` channels behind `getMapping`,
+`getMappingUint` and `getMapping2`: those keep keys symbolic so lens laws use
+constructor injectivity instead of keccak collision-resistance. A field must
+be accessed through one family consistently; the macro already fixes the
+family per storage type. -/
+
+@[simp] theorem StorageKey.toWord_address (key : Address) :
+    StorageKey.toWord key = key.toNat := rfl
+@[simp] theorem StorageKey.toWord_uint256 (key : Uint256) :
+    StorageKey.toWord key = key.val := rfl
+@[simp] theorem StorageWord.fromWord_uint256 (word : Uint256) :
+    StorageWord.fromWord (α := Uint256) word = word := rfl
+@[simp] theorem StorageWord.toWord_uint256 (word : Uint256) :
+    StorageWord.toWord word = word := rfl
+
+/-- One word of a hashed-mapping key path. `getMappingN` / `setMappingN` take
+a `List MappingKeyWord`, so `[owner, epoch]` may mix `Address`, `Uint256` and
+`Bytes32` keys (Solidity `mapping(address => mapping(uint256 => uint256))`);
+each element is coerced through `StorageKey.toWord`. -/
+structure MappingKeyWord where
+  word : Nat
+  deriving Repr, DecidableEq
+
+instance : Coe Address MappingKeyWord where
+  coe key := ⟨StorageKey.toWord key⟩
+
+/-- Also covers `Bytes32` (an abbreviation of `Uint256`). -/
+instance : Coe Uint256 MappingKeyWord where
+  coe key := ⟨StorageKey.toWord key⟩
+
+/-- Solidity slot of a nested-mapping value: fold `keccak256(key ‖ slot)`
+left-to-right over the key path. The empty path is the base slot itself. -/
+def mappingChainSlot (baseSlot : Nat) (keys : List MappingKeyWord) : Nat :=
+  keys.foldl (fun acc key => Compiler.Proofs.abstractMappingSlot acc key.word) baseSlot
+
+@[simp] theorem mappingChainSlot_nil (baseSlot : Nat) :
+    mappingChainSlot baseSlot [] = baseSlot := rfl
+
+@[simp] theorem mappingChainSlot_cons (baseSlot : Nat) (key : MappingKeyWord)
+    (keys : List MappingKeyWord) :
+    mappingChainSlot baseSlot (key :: keys) =
+      mappingChainSlot (Compiler.Proofs.abstractMappingSlot baseSlot key.word) keys := rfl
+
+/-- One key is the plain Solidity mapping slot. -/
+theorem mappingChainSlot_single (baseSlot : Nat) (key : MappingKeyWord) :
+    mappingChainSlot baseSlot [key] = Compiler.Proofs.abstractMappingSlot baseSlot key.word := rfl
+
+/-- Two keys agree with the proof model's nested-mapping slot. -/
+theorem mappingChainSlot_pair (baseSlot : Nat) (key1 key2 : MappingKeyWord) :
+    mappingChainSlot baseSlot [key1, key2] =
+      Compiler.Proofs.abstractNestedMappingSlot baseSlot key1.word key2.word := rfl
+
+/-- Struct-member slots are the compiler's `mappingSlotLocation`. -/
+theorem structSlot_eq_mappingSlotLocation (baseSlot key wordOffset : Nat) :
+    structSlot baseSlot key wordOffset =
+      Compiler.Proofs.mappingSlotLocation baseSlot key wordOffset := rfl
+
+/-- Nested struct-member slots are the compiler's `nestedMappingSlotLocation`. -/
+theorem structSlot2_eq_nestedMappingSlotLocation (baseSlot key1 key2 wordOffset : Nat) :
+    structSlot2 baseSlot key1 key2 wordOffset =
+      Compiler.Proofs.nestedMappingSlotLocation baseSlot key1 key2 wordOffset := rfl
+
+/-- Adjacent struct words never alias (`n % 2^256 ≠ (n + 1) % 2^256`); no keccak
+reasoning involved. -/
+theorem mod_ne_succ_mod (n M : Nat) (hM : 1 < M) : n % M ≠ (n + 1) % M := by
+  intro h
+  rw [Nat.add_mod, Nat.mod_eq_of_lt hM] at h
+  have hlt : n % M < M := Nat.mod_lt _ (by omega)
+  generalize n % M = r at h hlt
+  rcases Nat.lt_or_ge (r + 1) M with hc | hc
+  · rw [Nat.mod_eq_of_lt hc] at h
+    omega
+  · have hr : r + 1 = M := by omega
+    rw [hr, Nat.mod_self] at h
+    omega
+
+theorem structSlot_ne_succ (baseSlot key wordOffset : Nat) :
+    structSlot baseSlot key wordOffset ≠ structSlot baseSlot key (wordOffset + 1) := by
+  unfold structSlot
+  rw [← Nat.add_assoc]
+  exact mod_ne_succ_mod _ _ (by decide)
+
+/-- Read a nested-mapping word at the Solidity slot of `keys` under `slot`. -/
+def getMappingN {α : Type} (field : StorageSlot α) (keys : List MappingKeyWord) :
+    Contract Uint256 :=
+  fun state => ContractResult.success (state.storage (mappingChainSlot field.slot keys)) state
+
+/-- Write a nested-mapping word at the Solidity slot of `keys` under `slot`. -/
+def setMappingN {α : Type} (field : StorageSlot α) (keys : List MappingKeyWord) (value : Uint256) :
+    Contract Unit :=
+  fun state => ContractResult.success () (state.writeSlot (mappingChainSlot field.slot keys) value)
+
+/-- `getMappingN` for a `transient` mapping chain (EIP-1153 channel). -/
+def getTransientMappingN {α : Type} (field : StorageSlot α) (keys : List MappingKeyWord) :
+    Contract Uint256 :=
+  fun state =>
+    ContractResult.success (state.transientStorage (mappingChainSlot field.slot keys)) state
+
+/-- `setMappingN` for a `transient` mapping chain (EIP-1153 channel). -/
+def setTransientMappingN {α : Type} (field : StorageSlot α) (keys : List MappingKeyWord)
+    (value : Uint256) : Contract Unit :=
+  fun state =>
+    ContractResult.success () (state.writeTransient (mappingChainSlot field.slot keys) value)
+
+/-- Read word `wordOffset` of the value stored under `key` (`keccak256(key ‖ slot) + wordOffset`). -/
+def getMappingWord (field : StorageSlot (Uint256 → Uint256)) (key wordOffset : Uint256) :
+    Contract Uint256 :=
+  fun state => ContractResult.success (state.storage (structSlot field.slot key.val wordOffset.val)) state
+
+/-- Write word `wordOffset` of the value stored under `key`. -/
+def setMappingWord (field : StorageSlot (Uint256 → Uint256)) (key wordOffset value : Uint256) :
+    Contract Unit :=
+  fun state =>
+    ContractResult.success () (state.writeSlot (structSlot field.slot key.val wordOffset.val) value)
+
+@[simp] theorem getMappingN_run {α : Type} (field : StorageSlot α) (keys : List MappingKeyWord)
+    (state : ContractState) :
+    (getMappingN field keys).run state =
+      ContractResult.success (state.storage (mappingChainSlot field.slot keys)) state := rfl
+
+@[simp] theorem setMappingN_run {α : Type} (field : StorageSlot α) (keys : List MappingKeyWord)
+    (value : Uint256) (state : ContractState) :
+    (setMappingN field keys value).run state =
+      ContractResult.success () (state.writeSlot (mappingChainSlot field.slot keys) value) := rfl
+
+@[simp] theorem getTransientMappingN_run {α : Type} (field : StorageSlot α)
+    (keys : List MappingKeyWord) (state : ContractState) :
+    (getTransientMappingN field keys).run state =
+      ContractResult.success (state.transientStorage (mappingChainSlot field.slot keys)) state := rfl
+
+@[simp] theorem setTransientMappingN_run {α : Type} (field : StorageSlot α)
+    (keys : List MappingKeyWord) (value : Uint256) (state : ContractState) :
+    (setTransientMappingN field keys value).run state =
+      ContractResult.success () (state.writeTransient (mappingChainSlot field.slot keys) value) := rfl
+
+@[simp] theorem getMappingWord_run (field : StorageSlot (Uint256 → Uint256))
+    (key wordOffset : Uint256) (state : ContractState) :
+    (getMappingWord field key wordOffset).run state =
+      ContractResult.success (state.storage (structSlot field.slot key.val wordOffset.val)) state := rfl
+
+@[simp] theorem setMappingWord_run (field : StorageSlot (Uint256 → Uint256))
+    (key wordOffset value : Uint256) (state : ContractState) :
+    (setMappingWord field key wordOffset value).run state =
+      ContractResult.success () (state.writeSlot (structSlot field.slot key.val wordOffset.val) value) :=
+  rfl
+
+@[simp] theorem structMemberAt_run {κ α : Type} [StorageKey κ] [StorageWord α]
+    (baseSlot wordOffset : Nat) (key : κ) (state : ContractState) :
+    (structMemberAt (α := α) baseSlot wordOffset none key).run state =
+      ContractResult.success
+        (StorageWord.fromWord (state.storage (structSlot baseSlot (StorageKey.toWord key) wordOffset)))
+        state := rfl
+
+@[simp] theorem setStructMemberAt_run {κ α : Type} [StorageKey κ] [StorageWord α]
+    (baseSlot wordOffset : Nat) (key : κ) (value : α) (state : ContractState) :
+    (setStructMemberAt baseSlot wordOffset none key value).run state =
+      ContractResult.success ()
+        (state.writeSlot (structSlot baseSlot (StorageKey.toWord key) wordOffset)
+          (StorageWord.toWord value)) := rfl
+
+/-- Writing then reading the same key path returns the written word. -/
+theorem getMappingN_setMappingN_same {α : Type} (field : StorageSlot α)
+    (keys : List MappingKeyWord) (value : Uint256) (state : ContractState) :
+    (Verity.bind (setMappingN field keys value) fun _ => getMappingN field keys).run state =
+      ContractResult.success value (state.writeSlot (mappingChainSlot field.slot keys) value) := by
+  simp [Contract.run, Verity.bind, setMappingN, getMappingN]
+
+/-- Transient chains do not touch persistent storage, and vice versa (constructor
+injectivity of `StorageKey`, no hash reasoning). -/
+theorem storage_setTransientMappingN {α : Type} (field : StorageSlot α)
+    (keys : List MappingKeyWord) (value : Uint256) (state : ContractState) (n : Nat) :
+    (state.writeTransient (mappingChainSlot field.slot keys) value).storage n = state.storage n := by
+  simp [ContractState.storage, ContractState.writeTransient]
+
+theorem transientStorage_setMappingN {α : Type} (field : StorageSlot α)
+    (keys : List MappingKeyWord) (value : Uint256) (state : ContractState) (n : Nat) :
+    (state.writeSlot (mappingChainSlot field.slot keys) value).transientStorage n =
+      state.transientStorage n := by
+  simp [ContractState.transientStorage, ContractState.writeSlot]
 
 end Contracts

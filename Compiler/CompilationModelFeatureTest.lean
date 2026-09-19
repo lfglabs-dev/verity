@@ -1967,21 +1967,23 @@ def loadApprovalModelReturnsStructMembers2 : Bool :=
 
 example : loadApprovalModelReturnsStructMembers2 = true := by native_decide
 
-def loadPositionExecutableKeepsTupleShape : Bool :=
-  match MacroStructDestructuring.loadPosition Verity.defaultState.sender Verity.defaultState with
-  | .success (supply, (borrow, delegate_)) state =>
-      supply == 0 && borrow == 0 && delegate_ == zeroAddress && state.sender == Verity.defaultState.sender
-  | .revert _ _ => false
+/-- The executable plane keeps the tuple shape and only reads: it succeeds with
+the destructured members in the unchanged state. Stated over a symbolic state
+because `structMembers` now lowers to hashed struct-slot reads (keccak), which
+`native_decide` cannot evaluate in the interpreter. -/
+theorem loadPositionExecutableKeepsTupleShape (user : Address) (state : ContractState) :
+    ∃ supply borrow delegate_,
+      MacroStructDestructuring.loadPosition user state =
+        .success (supply, (borrow, delegate_)) state := by
+  simp [MacroStructDestructuring.loadPosition, MacroStructDestructuring.structMember,
+    Bind.bind, Pure.pure, Verity.bind, Verity.pure, Contracts.structMemberAt]
 
-example : loadPositionExecutableKeepsTupleShape = true := by native_decide
-
-def loadApprovalExecutableKeepsTupleShape : Bool :=
-  match MacroStructDestructuring.loadApproval Verity.defaultState.sender Verity.defaultState.sender Verity.defaultState with
-  | .success (allowance, nonce) state =>
-      allowance == 0 && nonce == 0 && state.sender == Verity.defaultState.sender
-  | .revert _ _ => false
-
-example : loadApprovalExecutableKeepsTupleShape = true := by native_decide
+theorem loadApprovalExecutableKeepsTupleShape (owner spender : Address) (state : ContractState) :
+    ∃ allowance nonce,
+      MacroStructDestructuring.loadApproval owner spender state =
+        .success (allowance, nonce) state := by
+  simp [MacroStructDestructuring.loadApproval, MacroStructDestructuring.structMember2,
+    Bind.bind, Pure.pure, Verity.bind, Verity.pure, Contracts.structMember2At]
 
 end MacroStructDestructuringSmoke
 

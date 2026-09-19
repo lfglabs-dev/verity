@@ -21,6 +21,7 @@ class CheckSolcPinTests(unittest.TestCase):
         *,
         extra_verify_env: str = "",
         action_body: str | None = None,
+        argv: list[str] | None = None,
     ) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -84,7 +85,7 @@ class CheckSolcPinTests(unittest.TestCase):
                 stdout = io.StringIO()
                 stderr = io.StringIO()
                 with redirect_stdout(stdout), redirect_stderr(stderr):
-                    rc = check_solc_pin.main()
+                    rc = check_solc_pin.main([] if argv is None else argv)
                 return rc, stdout.getvalue(), stderr.getvalue()
             finally:
                 check_solc_pin.ROOT = old_root
@@ -143,6 +144,25 @@ class CheckSolcPinTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("workspace-local", stderr)
         self.assertIn("must not require sudo", stderr)
+
+    def test_rejects_live_list_mismatch(self) -> None:
+        original = check_solc_pin._verify_published_checksums
+
+        def fake(errors: list[str]) -> None:
+            errors.append("published checksum mismatch")
+
+        check_solc_pin._verify_published_checksums = fake
+        try:
+            rc, _stdout, stderr = self._run()
+            self.assertEqual(rc, 0)
+            self.assertEqual(stderr, "")
+            rc_live, _stdout_live, stderr_live = self._run(
+                argv=["--verify-published-checksums"]
+            )
+            self.assertEqual(rc_live, 1)
+            self.assertIn("published checksum mismatch", stderr_live)
+        finally:
+            check_solc_pin._verify_published_checksums = original
 
 
 if __name__ == "__main__":

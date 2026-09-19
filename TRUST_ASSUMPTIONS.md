@@ -9,10 +9,20 @@ pinned solc's typed AST/storage layout and the Lean translation in
 `Contracts/VaultFromSolidity/Importer/Importer.lean` to preserve Solidity
 meaning. Kernel checking establishes well-typed definitions and theorems about
 their execution, not a Solidity-to-Verity equivalence theorem. `sourceDigest`
-is provenance, not proof of correspondence. It hashes the compiler
-input/output, Lean importer implementation, and verified solc checksum/version.
-The Linux host's fixed `/usr/bin/sha256sum` is trusted for compiler-pin checks;
-the digest is checked before version inspection, immediately before compilation,
+is provenance, not proof of correspondence. It hashes the compiler input,
+standard-json output, Lean importer implementation, and the release identity
+`0.8.33+commit.64118f21` (not the host binary hash or Darwin/Linux banner), so
+Linux and macOS share one translation identity when they produce the same AST.
+The host's fixed checksum utility is trusted for compiler-pin checks:
+`/usr/bin/sha256sum` on Linux and `/usr/bin/shasum` on macOS. The on-disk
+compiler must match a committed allowlist of official
+`binaries.soliditylang.org` SHA-256 digests for linux-amd64 and macosx-amd64
+(the latter is a universal Mach-O). `make setup-solc-importer` fetches the
+platform `list.json`, requires the published digest to equal that pin, then
+downloads the listed build. `make check-solc-published` repeats the live
+list.json check without installing. Lake elaboration never fetches. Linux CI
+still installs and runs the linux-amd64 artifact.
+The digest is checked before version inspection, immediately before compilation,
 and again after compilation, so `PATH` substitution and persistent compiler
 replacement fail closed. As with all local builds, a concurrently malicious
 process with the builder's own filesystem privileges is outside the threat model.
@@ -434,9 +444,23 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
   monadic, so `externalCall name [args]` used as a pure expression remains
   observationally silent; only the monadic forms journal. Specs that need
   call observability must use the monadic primitives.
-- **`callExternal name(args)` surface and the mapping stubs**
-  (`getMappingWord`/`setMappingWord`/`getMappingN`/`setMappingN`) remain
-  unmodeled no-ops at this plane.
+- **`callExternal name(args)` surface** remains an unmodeled no-op at this
+  plane.
+- **Hashed mapping accessors are executable, on the `.slot` channel.**
+  `getMappingN`/`setMappingN`, `getMappingWord`/`setMappingWord` and the
+  generated `structMember`/`setStructMember` family read and write
+  `ContractState.storage` at the Solidity keccak slot
+  (`Compiler.Proofs.abstractMappingSlot`, folded left over the key path, plus
+  the member word offset modulo `2^256`); `transient` mapping chains use the
+  `.transient` channel. `structMembers`/`structMembers2` destructuring lowers
+  to those reads. This channel is disjoint from the constructor-keyed
+  `storageMap`/`storageMapUint`/`storageMap2` channels behind
+  `getMapping`/`getMappingUint`/`getMapping2`; a field is accessed through
+  exactly one family, fixed by its declared storage type. Distinctness of two
+  hashed slots with different keys rests on the existing
+  `solidityMappingSlot_injective` axiom; adjacent struct words are distinct
+  without it (`Contracts.structSlot_ne_succ`). The pure expression form
+  `structMembers` outside `let (..) :=` / `return` still yields `default`.
 - **`externalCallBindTo` journals target and value and debits ETH
   on success.** It is still a stub for the callee return word
   (`externalCallStubWord`). Real callee state is the model-plane
