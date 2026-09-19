@@ -2809,14 +2809,25 @@ partial def inferTupleSourceTypes?
                 -- to let the tryExternalCallBindStmt? helper handle translation.
                 -- The validation path (with real externalDecls) catches actual errors.
                 pure none
-        | other =>
-            match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
-            | some (fn, _argTerms) =>
-                ensureCallableAsInternalHelper rhs fn
-                match fn.returnTy with
-                | .tuple elemTys => pure (some elemTys.toArray)
-                | _ => pure none
+        | `(term| callExternal $name:ident ($[$args:term],*)) =>
+            let extName := toString name.getId
+            match externalDecls.find? (fun ext => ext.name == extName) with
+            | some ext =>
+                validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+                  extName ext.params args
+                pure (some ext.returnTys)
             | none => pure none
+        | other =>
+            match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals other with
+            | some (ext, _, _, some _, _) => pure (some ext.returnTys)
+            | _ =>
+                match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
+                | some (fn, _argTerms) =>
+                    ensureCallableAsInternalHelper rhs fn
+                    match fn.returnTy with
+                    | .tuple elemTys => pure (some elemTys.toArray)
+                    | _ => pure none
+                | none => pure none
 
 partial def resolveLocalFunctionApp?
     (fields : Array StorageFieldDecl)
@@ -4769,6 +4780,53 @@ def tupleInternalCallAssignStmt?
             [ $[$argExprs],* ])))
       | none =>
           pure none
+
+/-- Translate a tuple bind from `callExternal`. Each source binder names one
+    declared static return value, so the compilation model can retain the ABI
+    result slots while the executable lowering decodes the same return frame. -/
+def tupleExternalCallBindStmt?
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (rhs : Term)
+    (names : Array (Option String)) : CommandElabM (Option (Term × Array TypedLocal)) := do
+  let lower (extName : String) (ext : ExternalDecl) (args : Array Term) : CommandElabM (Term × Array TypedLocal) := do
+      unless names.size == ext.returnTys.size do
+        throwErrorAt rhs s!"tuple destructuring binds {names.size} names, but callExternal '{extName}' returns {ext.returnTys.size} values"
+      for ty in ext.returnTys do
+        unless isSingleWordStaticValueType ty do
+          throwErrorAt rhs s!"callExternal '{extName}' tuple binding requires static single-word returns"
+      validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+        extName ext.params args
+      let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
+        (some ext.params) (some (translateDeclaredPureExpr
+          fields constDecls immutableDecls externalDecls params locals))
+      let initialUsedNames := (params.toList.map (fun p => p.name)) ++ (typedLocalNames locals).toList ++ (names.filterMap id).toList
+      let (_, resultNamesRev) := names.toList.zipIdx.foldl
+        (fun (acc : List String × List String) (name?, idx) =>
+          let (used, resultNames) := acc
+          let resultName := name?.getD (freshDiscardName used idx)
+          (resultName :: used, resultName :: resultNames))
+        (initialUsedNames, [])
+      let resultNameTerms := resultNamesRev.reverse.toArray.map strTerm
+      let typedLocals := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
+        name?.map (fun localName => mkTypedLocal localName ty)
+      let stmt ← `(Compiler.CompilationModel.Stmt.externalCallBind
+        [ $[$resultNameTerms],* ] $(strTerm extName) [ $[$argExprs],* ])
+      pure (stmt, typedLocals)
+  match stripParens rhs with
+  | `(term| callExternal $name:ident ($[$args:term],*)) =>
+      let extName := toString name.getId
+      let some ext := externalDecls.find? (fun candidate => candidate.name == extName)
+        | throwErrorAt name s!"unknown linked external '{extName}'"
+      some <$> lower extName ext args
+  | _ =>
+      match ← resolveTypedInterfaceCall? fields constDecls immutableDecls externalDecls params locals rhs with
+      | some (ext, _target, args, some _, _) => some <$> lower ext.name ext args
+      | _ => pure none
 
 /-- Try to translate a tuple‐destructured `tryExternalCall "name" [args]` RHS.
     Returns `none` when the RHS is not a `tryExternalCall` application.  Returns
