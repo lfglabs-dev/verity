@@ -3059,17 +3059,12 @@ private partial def threadAdversaryThroughExecutableSyntax
     (adversarialHelpers : Array FunctionDecl)
     (registryOnlyHelpers : Array FunctionDecl)
     (params : Array ParamDecl)
-<<<<<<< HEAD
     (locals : Array TypedLocal)
-    (adv : Term) (stx : Syntax) : CommandElabM Syntax := do
-  let go := threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls helpers adversarialHelpers registryOnlyHelpers params locals adv
-=======
     (adv : Term) (stx : Syntax)
     (linkedContracts : Array LinkedContractDecl := #[]) : CommandElabM Syntax := do
-  let go := threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers params adv
+  let go := threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+    externalDecls helpers adversarialHelpers registryOnlyHelpers params locals adv
     (linkedContracts := linkedContracts)
->>>>>>> origin/main
   let recurseChildren : CommandElabM Syntax := do
     match stx with
     | .node info kind args =>
@@ -3275,6 +3270,7 @@ private partial def threadAdversaryThroughExecutableSyntax
       for elem in elems do
         let raw ← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
           externalDecls helpers adversarialHelpers registryOnlyHelpers params scope adv elem.raw
+          (linkedContracts := linkedContracts)
         rewritten := rewritten.push ⟨raw⟩
         scope ← extendLocals scope elem
       `(doSeq| $[$rewritten:doElem]*)
@@ -6200,13 +6196,9 @@ def mkConstructorDefCommandPublic
       pure ⟨advIdent.raw⟩
     else
       `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
-<<<<<<< HEAD
   let executableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls functions adversarialHelpers #[] ctor.params #[] advTerm executableBody.raw⟩
-=======
-  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers
-    ctor.params advTerm executableBody.raw (linkedContracts := linkedContracts)⟩
->>>>>>> origin/main
+    externalDecls functions adversarialHelpers #[] ctor.params #[] advTerm executableBody.raw
+    (linkedContracts := linkedContracts)⟩
   let fnType ← if opensReentrancyWindow then
       mkContractFnTypeWithAdversary ctor.params .unit
     else
@@ -6276,13 +6268,9 @@ def mkHostConstructorDefCommandPublic
             preludes := preludes.push (← `(doElem| $tgt:ident $args*))
       let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
       let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params body
-<<<<<<< HEAD
       let executableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-        externalDecls functions ownAdversarialHelpers #[] ctor.params #[] advTerm executableBody.raw⟩
-=======
-      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls ownAdversarialHelpers
-        ctor.params advTerm executableBody.raw (linkedContracts := linkedContracts)⟩
->>>>>>> origin/main
+        externalDecls functions ownAdversarialHelpers #[] ctor.params #[] advTerm executableBody.raw
+        (linkedContracts := linkedContracts)⟩
       let fnValue ← if containsExternalCall then
           mkContractFnValueWithAdversary advIdent ctor.params executableBody
         else
@@ -6457,9 +6445,9 @@ def mkFunctionCommandsPublic
       mkContractFnTypeWithAdversary fn.params fn.returnTy
     else
       mkContractFnType fn.params fn.returnTy
-<<<<<<< HEAD
   let publicExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls functions windowHelpers #[] fn.params #[] advTerm fnExecutableBody.raw⟩
+    externalDecls functions windowHelpers #[] fn.params #[] advTerm fnExecutableBody.raw
+    (linkedContracts := linkedContracts)⟩
   -- Registry executables must route every adversarial helper, including
   -- window-opening helpers, to `_registry` / `_registry_unguarded`. Restricting
   -- the suffix to non-window helpers let `entry_registry` call public `hop`,
@@ -6467,7 +6455,7 @@ def mkFunctionCommandsPublic
   -- compiled callee-controlled ECM.
   let registryExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
     externalDecls functions adversarialHelpers adversarialHelpers fn.params #[]
-      (⟨advIdent.raw⟩ : Term) fnExecutableBody.raw⟩
+      (⟨advIdent.raw⟩ : Term) fnExecutableBody.raw (linkedContracts := linkedContracts)⟩
   let mut extraExecutableCmds : Array Cmd := #[]
   if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
     let unguardedId ← mkSuffixedIdent fn.ident "_unguarded"
@@ -6484,11 +6472,6 @@ def mkFunctionCommandsPublic
           | throwErrorAt lockIdent s!"unknown nonreentrant lock field '{lockName}'"
         `(Verity.Core.NonReentrantGuard.guarded $(natTerm lockField.slotNum) $publicExecutableBody)
     | none => pure publicExecutableBody
-=======
-  let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
-    adversarialHelpers fn.params advTerm fnExecutableBody.raw
-    (linkedContracts := linkedContracts)⟩
->>>>>>> origin/main
   let fnValue ← if opensReentrancyWindow then
       mkContractFnValueWithAdversary advIdent fn.params publicExecutableBody
     else
