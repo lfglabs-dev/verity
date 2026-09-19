@@ -176,6 +176,68 @@ example : entryLetRegistrySeesAdversary = true := by decide
 
 end RegistryOverloadedNestedExternal
 
+/-! Regression: `linked_contracts` hop to a view/static-only bound callee.
+Public `helper.get` uses `.stub`; `entry_registry` must hop through
+`BoundViewCallee.get_registry` so a distinctive staticcall adversary is
+observed (Codex P1 on #2406). -/
+verity_contract BoundViewCallee where
+  storage
+    unused : Uint256 := slot 0
+  interfaces
+    interface IToken where
+      function balanceOf(Address) view returns (Uint256)
+    end
+
+  function view get (token : IToken, who : Address) : Uint256 := do
+    let observed ← token.balanceOf who
+    return observed
+
+verity_contract BoundViewCaller where
+  storage
+    last : Uint256 := slot 0
+  interfaces
+    interface IViewCallee where
+      function get(Address, Address) view returns (Uint256)
+    end
+  linked_contracts
+    helper : IViewCallee := BoundViewCallee
+
+  function allow_post_interaction_writes reentrancy_trusted entry
+      (helper : IViewCallee, token : Address, who : Address) : Uint256 := do
+    let observed ← helper.get token who
+    setStorage last observed
+    return observed
+
+namespace BoundViewCaller
+
+def distinctiveViewAdv : AdversaryModel where
+  stateTransition := fun _ state => state
+  result := fun site world =>
+    if site.kind = .staticcall then .success [42]
+    else AdversaryModel.stub.result site world
+  gasUsed := fun _ _ => 0
+
+def distinctiveCtx : Contracts.ExecutableCallContext :=
+  Contracts.ExecutableCallContext.ofAdversary distinctiveViewAdv
+
+/-- Public `entry` is ctx-free and hops to stub-backed `BoundViewCallee.get`. -/
+def entryPublicSeesStub : Bool :=
+  match (entry 0 0 0).run Verity.defaultState with
+  | .success value _ => !(value == 42)
+  | _ => false
+
+example : entryPublicSeesStub = true := by decide
+
+/-- `entry_registry` hops through `BoundViewCallee.get_registry`. -/
+def entryRegistrySeesAdversary : Bool :=
+  match (entry_registry distinctiveCtx 0 0 0).run Verity.defaultState with
+  | .success value _ => value == 42
+  | _ => false
+
+example : entryRegistrySeesAdversary = true := by decide
+
+end BoundViewCaller
+
 /-- `ReentrancyRelyGuarantee` consumes the emitted registry at the restricted
 callback boundary.  Contract-specific preservation obligations remain with
 authors; this PR establishes only the generated registry/guard connection. -/
