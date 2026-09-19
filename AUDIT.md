@@ -42,10 +42,19 @@ bytecode/runtime test, or proof of translation correctness.
 
 The complete example surface lives under `Contracts/VaultFromSolidity`: Solidity
 source, Lean importer, specification, execution proofs and focused acceptance
-tests. It is independent of the handwritten `Contracts/Vault` example. No
+tests. It is independent of the handwritten `Contracts/Vault` example. The S1
+inheritance slice adds `Contracts/SolidityImportSmoke/Inheritance` with the same
+shape (source, import command, named-storage spec, proofs, focused Python
+suite). No
 Python frontend, custom serialized IR, generated Lean source, or bytecode is in
-the translation path. Trust and axiom scope are recorded in
+the translation path: the accepted Solidity subset is the kernel-checked
+inductive in `Importer/Syntax.lean` and `Importer/Semantics.lean` is its single
+meaning. Trust and axiom scope are recorded in
 `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
+
+Evidence command for the inheritance slice:
+`python3 Contracts/SolidityImportSmoke/Inheritance/scripts/inheritance_test.py`
+(after `lake build SolidityImportSmokeInheritance`).
 
 ## Current Audit State
 

@@ -2,11 +2,15 @@ import Lean
 import Verity.Stdlib.Math
 import Verity.Core.SolidityImportAttr
 import Compiler.Sha256.Engine
+import Contracts.VaultFromSolidity.Importer.Semantics
 
 /-!
 A proof-only Solidity frontend. This module invokes pinned `solc --standard-json`,
-validates a closed typed-AST/storage-layout subset, and directly registers safe,
-transparent Verity definitions. It emits neither an intermediate IR nor Lean source.
+validates a closed typed-AST/storage-layout subset, parses it into the closed,
+intrinsically typed inductive in `Syntax.lean`, and registers each entry point as
+`Semantics.lean`'s `Fn.meaning` applied to that parsed term. The accepted subset is
+a kernel-checked Lean value, so nothing is serialized, no intermediate IR is
+materialised, and no Lean source is generated or written to disk.
 
 Besides the executable model it elaborates a kernel-checked `Storage` structure
 (the one use of the standard command elaborator in this frontend), registers
@@ -23,7 +27,13 @@ namespace SolidityImporter
 private def solcVersionOutput :=
   "solc, the solidity compiler commandline interface\nVersion: 0.8.33+commit.64118f21.Linux.g++"
 private def solcSha256 := "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468"
-private def registeredSource := "Contracts/VaultFromSolidity/Vault.sol"
+/-- Logical path × package-relative path. The digest covers this file, so adding
+a source moves every imported `sourceDigest`. -/
+private def registeredSources : List (String × String) := [
+  ("Contracts/VaultFromSolidity/Vault.sol", "Contracts/VaultFromSolidity/Vault.sol"),
+  ("Contracts/SolidityImportSmoke/Inheritance/Inheritance.sol",
+    "Contracts/SolidityImportSmoke/Inheritance/Inheritance.sol")
+]
 
 private def field (j : Json) (key : String) : MetaM Json :=
   match j.getObjVal? key with
@@ -145,14 +155,18 @@ private def allowedNodeFields : String → Option (List String)
   | "ErrorDefinition" => some ["errorSelector", "name", "nameLocation", "parameters"]
   | "FunctionDefinition" => some ["body", "functionSelector", "implemented", "kind", "modifiers", "name",
       "nameLocation", "parameters", "returnParameters", "scope", "stateMutability", "virtual", "visibility",
-      "documentation"]
+      "documentation", "overrides", "baseFunctions"]
+  | "InheritanceSpecifier" => some ["baseName", "arguments"]
+  | "IdentifierPath" => some ["name", "nameLocations", "referencedDeclaration"]
+  | "OverrideSpecifier" => some ["overrides"]
   | "ParameterList" => some ["parameters"]
   | "Block" => some ["statements"]
   | "ExpressionStatement" => some ["expression"]
   | "Assignment" => some (expressionFields ++ ["leftHandSide", "operator", "rightHandSide"])
   | "BinaryOperation" => some (expressionFields ++ ["commonType", "leftExpression", "operator", "rightExpression", "function"])
   | "Identifier" => some ["argumentTypes", "name", "overloadedDeclarations", "referencedDeclaration", "typeDescriptions"]
-  | "MemberAccess" => some (expressionFields ++ ["expression", "memberLocation", "memberName"])
+  | "MemberAccess" => some (expressionFields ++ ["expression", "memberLocation", "memberName",
+      "referencedDeclaration", "argumentTypes"])
   | "IndexAccess" => some (expressionFields ++ ["baseExpression", "indexExpression"])
   | "Literal" => some (expressionFields ++ ["hexValue", "kind", "subdenomination", "value"])
   | "FunctionCall" => some (expressionFields ++ ["arguments", "expression", "kind", "nameLocations", "names", "tryCall"])
@@ -175,8 +189,11 @@ private def requiredNodeFields : String → List String
   | "Mapping" => ["keyName", "keyNameLocation", "keyType", "typeDescriptions", "valueName",
       "valueNameLocation", "valueType"]
   | "ErrorDefinition" => ["errorSelector", "name", "nameLocation", "parameters"]
-  | "FunctionDefinition" => ["body", "functionSelector", "implemented", "kind", "modifiers", "name",
+  | "FunctionDefinition" => ["implemented", "kind", "modifiers", "name",
       "nameLocation", "parameters", "returnParameters", "scope", "stateMutability", "virtual", "visibility"]
+  | "InheritanceSpecifier" => ["baseName"]
+  | "IdentifierPath" => ["name", "nameLocations", "referencedDeclaration"]
+  | "OverrideSpecifier" => ["overrides"]
   | "ParameterList" => ["parameters"]
   | "Block" => ["statements"]
   | "ExpressionStatement" => ["expression"]
@@ -197,7 +214,7 @@ private def requiredNodeFields : String → List String
 private def childFields : List String := ["nodes", "baseContracts", "parameters", "returnParameters", "body",
   "statements", "typeName", "keyType", "valueType", "modifiers", "overrides", "storageLayout", "leftHandSide",
   "rightHandSide", "leftExpression", "rightExpression", "expression", "baseExpression", "indexExpression",
-  "arguments", "declarations", "initialValue", "condition", "trueBody", "falseBody", "errorCall"]
+  "arguments", "declarations", "initialValue", "condition", "trueBody", "falseBody", "errorCall", "baseName"]
 
 private def validateTypeDescription (j : Json) : MetaM Unit := do
   requireKeys j ["typeIdentifier", "typeString"] "type description"
@@ -229,7 +246,7 @@ private def validateMetadataField (ctx : SourceContext) (node : Json) (kind key 
       "virtual", "isConstant", "isLValue", "isPure", "lValueRequested", "tryCall"].contains key then
     let _ ← bool value
   else if key == "referencedDeclaration" then
-    let _ ← int value
+    unless value.isNull do let _ ← int value
   else if key == "functionReturnParameters" then
     let _ ← nat value
   else if ["contractDependencies", "linearizedBaseContracts", "usedErrors", "usedEvents",
@@ -303,8 +320,22 @@ private partial def validateNode (ctx : SourceContext) (j : Json) : MetaM Unit :
       let _ ← arr (← field j "nodes")
   | "ContractDefinition" =>
       let _ ← arr (← field j "nodes"); let _ ← arr (← field j "baseContracts")
+  | "InheritanceSpecifier" =>
+      requireKind "baseName" ["IdentifierPath"]
+      if let some arguments := field? j "arguments" then
+        needAt ctx j ((← arr arguments).isEmpty) "constructor arguments unsupported"
+  | "OverrideSpecifier" =>
+      let _ ← arr (← field j "overrides")
   | "FunctionDefinition" =>
-      requireKind "body" ["Block"]
+      match field? j "body" with
+      | none =>
+          needAt ctx j (!(← bool (← field j "implemented")) && (← bool (← field j "virtual")))
+            "unimplemented function must be virtual"
+      | some body =>
+          if body.isNull then
+            needAt ctx j (!(← bool (← field j "implemented")) && (← bool (← field j "virtual")))
+              "unimplemented function must be virtual"
+          else requireKind "body" ["Block"]
       requireKind "parameters" ["ParameterList"]
       requireKind "returnParameters" ["ParameterList"]
       let _ ← arr (← field j "modifiers")
@@ -336,21 +367,65 @@ private structure FieldInfo where
   name : String
   getter : Option String
   slot : Nat
-  mapping : Bool
+  sty : Sol.StorageTy
+
+private structure OpaqueField where
+  id : Nat
+  label : String
+  slot : Nat
+  typeLabel : String
+
+private structure FnInfo where
+  id : Nat
+  contractId : Nat
+  contractName : String
+  name : String
+  visibility : String
+  mutability : String
+  virtual : Bool
+  implemented : Bool
+  isTarget : Bool
+  paramTys : List Sol.Ty
+  paramIds : List (Nat × Sol.Ty × String)
+  rets : List Sol.Ty
+  namedReturn : Option (Nat × String)
+  node : Json
+
+private def FnInfo.sig (f : FnInfo) : Sol.Sig := ⟨f.paramTys.reverse, f.rets⟩
+
+private def FnInfo.leanIdent (f : FnInfo) : String :=
+  if f.isTarget && (f.visibility == "public" || f.visibility == "external") then f.name
+  else f.contractName ++ "_" ++ f.name
+
+private def FnInfo.isEntry (f : FnInfo) : Bool :=
+  f.implemented && (f.visibility == "public" || f.visibility == "external")
+
+/-- `view`/`pure` may appear in expression position. Nonpayable internals are
+statement-only (`Stmt.callStmt`): pinned solc 0.8.x legacy codegen evaluates
+an effectful call before the other operand / `+=` old-read. -/
+private def FnInfo.viewOrPure (f : FnInfo) : Bool :=
+  f.mutability == "view" || f.mutability == "pure"
 
 private structure Frontend where
   source : SourceContext
   ast : Json
+  targetName : String
+  targetId : Nat
+  linearization : List Nat
+  contractById : List (Nat × String × Json)
   fields : List FieldInfo
+  opaqueEntries : List OpaqueField
   errors : List (Nat × String)
-  functions : List Json
+  allFns : List FnInfo
+  functions : List FnInfo
   digest : String
 
 private def validName (name : String) : Bool :=
   match name.toList with
   | [] => false
-  | c :: cs => c.isAlpha && cs.all (fun c => c.isAlphanum || c == '_') &&
-      !["sourceDigest", "Storage", "view", "step"].contains name
+  | c :: cs => (c.isAlpha || c == '_') && (c.isAlpha || cs.any (·.isAlpha)) &&
+      cs.all (fun c => c.isAlphanum || c == '_') &&
+      !["sourceDigest", "Storage", "view", "step", "opaqueFields", "registeredSources"].contains name
 
 private def identifier (ctx : SourceContext) (j : Json) : MetaM String := do
   let name ← str (← field j "name")
@@ -360,17 +435,79 @@ private def identifier (ctx : SourceContext) (j : Json) : MetaM String := do
 private def typeString (j : Json) : MetaM String :=
   field j "typeDescriptions" >>= (field · "typeString") >>= str
 
+private def parseValueTy (ctx : SourceContext) (j : Json) : MetaM Sol.Ty := do
+  let typ ← typeString j
+  match typ with
+  | "uint256" => pure .uint
+  | "address" => pure .addr
+  | _ => failAt ctx j "unsupported value type"
+
+private def parseFnInfo (ctx : SourceContext) (contractId : Nat) (contractName : String)
+    (isTarget : Bool) (node : Json) : MetaM FnInfo := do
+  let name ← identifier ctx node
+  let mutability ← str (← field node "stateMutability")
+  needAt ctx node ((← str (← field node "kind")) == "function" &&
+    (← arr (← field node "modifiers")).isEmpty &&
+    ["internal", "public", "external", "private"].contains (← str (← field node "visibility")) &&
+    ["nonpayable", "view", "pure"].contains mutability)
+    "unsupported function surface"
+  let implemented ← bool (← field node "implemented")
+  let virt ← bool (← field node "virtual")
+  if implemented then
+    needAt ctx node ((field? node "body").any fun b => !b.isNull) "implemented function missing body"
+  else
+    needAt ctx node virt "unimplemented function must be virtual"
+  let mut paramTys : List Sol.Ty := []
+  let mut paramIds : List (Nat × Sol.Ty × String) := []
+  for p in (← arr (← field (← field node "parameters") "parameters")) do
+    needAt ctx node (!(← bool (← field p "stateVariable")) &&
+      !(← bool (← field p "constant")) &&
+      (← str (← field p "mutability")) == "mutable" &&
+      (← str (← field p "storageLocation")) == "default" &&
+      (← str (← field p "visibility")) == "internal" &&
+      (field? p "value").all Json.isNull) "unsupported parameter declaration"
+    let ty ← parseValueTy ctx p
+    let pname ← identifier ctx p
+    paramTys := paramTys ++ [ty]
+    paramIds := paramIds ++ [(← nodeId p, ty, pname)]
+  let rs ← arr (← field (← field node "returnParameters") "parameters")
+  needAt ctx node (rs.size <= 1) "unsupported signature"
+  let mut rets : List Sol.Ty := []
+  let mut namedReturn : Option (Nat × String) := none
+  for r in rs do
+    needAt ctx node (!(← bool (← field r "stateVariable")) &&
+      !(← bool (← field r "constant")) &&
+      (← str (← field r "mutability")) == "mutable" &&
+      (← str (← field r "storageLocation")) == "default" &&
+      (← str (← field r "visibility")) == "internal" &&
+      (field? r "value").all Json.isNull) "unsupported parameter declaration"
+    needAt ctx node ((← typeString r) == "uint256") "unsupported return type"
+    rets := [.uint]
+    let rname ← str (← field r "name")
+    if !rname.isEmpty then
+      needAt ctx node (validName rname) "unsupported/reserved name"
+      namedReturn := some (← nodeId r, rname)
+  pure {
+    id := ← nodeId node, contractId, contractName, name,
+    visibility := ← str (← field node "visibility"),
+    mutability, virtual := virt, implemented, isTarget, paramTys, paramIds, rets, namedReturn, node
+  }
+
 set_option maxRecDepth 2048 in
 private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : String)
-    (raw : ByteArray) (outputText version importerText : String) : MetaM Frontend := do
+    (raw : ByteArray) (outputText version importerText : String) (targetName? : Option String) :
+    MetaM Frontend := do
   let output ← match Json.parse outputText with
     | .ok j => pure j
     | .error e => throwError "invalid solc standard JSON: {e}"
   requireKeys output ["contracts", "sources", "errors"] "solc output"
   if let some errors := field? output "errors" then
     for e in (← arr errors) do
-      requireKeys e ["component", "errorCode", "formattedMessage", "message", "severity",
-        "sourceLocation", "type"] "compiler diagnostic"
+      -- Compiler diagnostics may grow extra locator fields; only the fields we
+      -- read are required. Unknown *AST* fields still fail closed.
+      let keys ← objKeys e
+      for need in ["formattedMessage", "message", "severity"] do
+        unless keys.contains need do throwError "missing compiler diagnostic field {need}"
       if (← str (← field e "severity")) == "error" then
         throwError "{← str (← field e "formattedMessage")}"
   let sources ← field output "sources"
@@ -395,130 +532,171 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
       needAt ctx node (literals.size == 4 && (← str literals[0]!) == "solidity" &&
         (← str literals[1]!) == "^" && (← str literals[2]!) == "0.8" &&
         (← str literals[3]!) == ".33") "unsupported pragma"
-    | "ContractDefinition" => contracts := node :: contracts
+    | "ContractDefinition" => contracts := contracts ++ [node]
     | _ => failAt ctx node "unsupported source declaration"
-  needAt ctx ast (contracts.length == 1) "exactly one concrete contract required"
-  let contract := contracts.head!
-  let contractId ← nodeId contract
-  needAt ctx contract ((← str (← field contract "contractKind")) == "contract" &&
-    !(← bool (← field contract "abstract")) && (← bool (← field contract "fullyImplemented")) &&
-    (← arr (← field contract "baseContracts")).isEmpty &&
-    (← arr (← field contract "contractDependencies")).isEmpty &&
-    (← arr (← field contract "usedEvents")).isEmpty)
+  needAt ctx ast (!contracts.isEmpty) "exactly one concrete contract required"
+  let mut concrete : List Json := []
+  for c in contracts do
+    unless (← bool (← field c "abstract")) do concrete := concrete ++ [c]
+  let target ← match targetName? with
+    | none =>
+      needAt ctx ast (concrete.length == 1) "exactly one concrete contract required"
+      pure concrete.head!
+    | some name =>
+      let some c := contracts.find? fun n => (field? n "name").bind (·.getStr?.toOption) == some name
+        | throwError "unknown contract {name}"
+      needAt ctx c (!(← bool (← field c "abstract")) && (← bool (← field c "fullyImplemented")))
+        "target contract must be fully implemented"
+      pure c
+  let targetId ← nodeId target
+  let targetName ← str (← field target "name")
+  needAt ctx target ((← str (← field target "contractKind")) == "contract" &&
+    !(← bool (← field target "abstract")) && (← bool (← field target "fullyImplemented")) &&
+    (← arr (← field target "usedEvents")).isEmpty)
     "inheritance/abstract contract unsupported"
-  let linearized ← arr (← field contract "linearizedBaseContracts")
-  needAt ctx contract (linearized.size == 1 && (← nat linearized[0]!) == contractId)
+  let mut contractById : List (Nat × String × Json) := []
+  let mut contractIds : List Nat := []
+  for c in contracts do
+    needAt ctx c ((← str (← field c "contractKind")) == "contract") "unsupported contract kind"
+    needAt ctx c ((← str (← field c "canonicalName")) == (← str (← field c "name")) &&
+      (← nat (← field c "scope")) == (← nodeId ast)) "contract identity mismatch"
+    let cid ← nodeId c
+    contractById := contractById ++ [(cid, ← str (← field c "name"), c)]
+    contractIds := contractIds ++ [cid]
+  for c in contracts do
+    for dep in (← arr (← field c "contractDependencies")) do
+      needAt ctx c (contractIds.contains (← nat dep)) "is referencing a contract from another file"
+    for b in (← arr (← field c "baseContracts")) do
+      let baseName ← field b "baseName"
+      let rid ← int (← field baseName "referencedDeclaration")
+      needAt ctx b (rid >= 0 && contractIds.contains rid.toNat)
+        "is referencing a contract from another file"
+  let linearized ← arr (← field target "linearizedBaseContracts")
+  needAt ctx target (linearized.size >= 1 && (← nat linearized[0]!) == targetId)
     "invalid contract linearization"
-  let contractName ← str (← field contract "name")
-  needAt ctx contract ((← str (← field contract "canonicalName")) == contractName &&
-    (← nat (← field contract "scope")) == (← nodeId ast)) "contract identity mismatch"
+  let mut linearization : List Nat := []
+  for idj in linearized do
+    let id ← nat idj
+    needAt ctx target (contractIds.contains id) "invalid contract linearization"
+    linearization := linearization ++ [id]
   let exports ← field ast "exportedSymbols"
-  needAt ctx ast ((← objKeys exports) == [contractName]) "exported symbol mismatch"
-  let exportedIds ← arr (← field exports contractName)
-  needAt ctx ast (exportedIds.size == 1 && (← nat exportedIds[0]!) == contractId)
+  needAt ctx ast ((← objKeys exports).contains targetName) "exported symbol mismatch"
+  let exportedIds ← arr (← field exports targetName)
+  needAt ctx ast (exportedIds.any fun id => (id.getNat?.toOption == some targetId))
     "exported symbol mismatch"
   let compilerContracts ← field output "contracts"
   expect ((← objKeys compilerContracts) == [logicalPath]) "unexpected compiler contract sources"
   let sourceContracts ← field compilerContracts logicalPath
-  expect ((← objKeys sourceContracts) == [contractName]) "unexpected compiler contracts"
-  let contractOut ← field sourceContracts contractName
+  expect ((← objKeys sourceContracts).contains targetName) "unexpected compiler contracts"
+  let contractOut ← field sourceContracts targetName
   requireKeys contractOut ["storageLayout"] "contract output"
   let layout ← field contractOut "storageLayout"
   requireKeys layout ["storage", "types"] "storage layout"
   let storage ← arr (← field layout "storage")
   let layoutTypes ← field layout "types"
-  let layoutTypeKeys ← objKeys layoutTypes
-  expect (layoutTypeKeys.length == 3 && layoutTypeKeys.all fun key =>
-    ["t_address", "t_uint256", "t_mapping(t_address,t_uint256)"].contains key)
-    "unexpected storage type table"
   let mut fields : List FieldInfo := []
+  let mut opaqueEntries : List OpaqueField := []
   let mut errors : List (Nat × String) := []
-  let mut functions : List Json := []
-  for node in (← arr (← field contract "nodes")) do
-    match ← nodeKind node with
-    | "VariableDeclaration" =>
-        let name ← identifier ctx node
-        needAt ctx node ((← bool (← field node "stateVariable")) && !(← bool (← field node "constant")) &&
-          (← str (← field node "mutability")) == "mutable" && (field? node "value").all Json.isNull &&
-          (← str (← field node "storageLocation")) == "default" &&
-          (← nat (← field node "scope")) == contractId) "initializer/constant/transient field unsupported"
-        let typ ← typeString node
-        needAt ctx node (typ == "uint256" || typ == "mapping(address => uint256)") "unsupported storage type"
-        let id ← nodeId node
-        let some entry := storage.find? fun e => (field? e "astId").bind (·.getNat?.toOption) == some id
-          | failAt ctx node "missing storage layout"
-        requireKeys entry ["astId", "contract", "label", "offset", "slot", "type"] "storage entry"
-        needAt ctx node ((← str (← field entry "contract")) == s!"{logicalPath}:{contractName}" &&
-          (← str (← field entry "label")) == name) "storage declaration mismatch"
-        needAt ctx node ((← nat (← field entry "offset")) == 0) "missing/packed layout"
-        let typeId ← str (← field entry "type")
-        let layoutType ← field layoutTypes typeId
-        let expectedTypeKeys := if typ == "uint256" then
-          ["encoding", "label", "numberOfBytes"]
-        else ["encoding", "key", "label", "numberOfBytes", "value"]
-        requireKeys layoutType expectedTypeKeys "storage type"
-        needAt ctx node ((← str (← field layoutType "numberOfBytes")) == "32") "nonword layout"
-        if typ == "uint256" then
-          needAt ctx node ((← str (← field layoutType "encoding")) == "inplace" &&
-            (← str (← field layoutType "label")) == typ) "bad scalar layout"
-        else
-          let keyType ← field layoutTypes (← str (← field layoutType "key"))
-          let valueType ← field layoutTypes (← str (← field layoutType "value"))
-          requireKeys keyType ["encoding", "label", "numberOfBytes"] "mapping key type"
-          requireKeys valueType ["encoding", "label", "numberOfBytes"] "mapping value type"
-          let layoutEncoding ← str (← field layoutType "encoding")
-          let keyEncoding ← str (← field keyType "encoding")
-          let keyLabel ← str (← field keyType "label")
-          let keyBytes ← str (← field keyType "numberOfBytes")
-          let valueEncoding ← str (← field valueType "encoding")
-          let valueLabel ← str (← field valueType "label")
-          let valueBytes ← str (← field valueType "numberOfBytes")
-          needAt ctx node (layoutEncoding == "mapping" && keyEncoding == "inplace" &&
-            keyLabel == "address" && keyBytes == "20" && valueEncoding == "inplace" &&
-            valueLabel == "uint256" && valueBytes == "32") "bad mapping layout"
-        let getter := if (← str (← field node "visibility")) == "public" then some name else none
-        let slotText ← str (← field entry "slot")
-        let some slot := slotText.toNat? | failAt ctx node "invalid storage slot"
-        fields := FieldInfo.mk id name (name ++ "Slot") getter slot (typ.startsWith "mapping") :: fields
-    | "ErrorDefinition" =>
-        let ps ← arr (← field (← field node "parameters") "parameters")
-        needAt ctx node ps.isEmpty "only zero-argument custom errors"
-        errors := ((← nodeId node), (← identifier ctx node)) :: errors
-    | "FunctionDefinition" =>
-        needAt ctx node ((← nat (← field node "scope")) == contractId) "function scope mismatch"
-        functions := node :: functions
-    | _ => failAt ctx node "unsupported contract declaration"
-  needAt ctx contract (storage.size == fields.length && storage.all fun e =>
-    (field? e "astId").bind (·.getNat?.toOption) |>.any fun id => fields.any (·.id == id)) "unaccounted layout field"
+  let mut allFns : List FnInfo := []
+  for cid in linearization do
+    let some (_, cname, cnode) := contractById.find? (·.1 == cid)
+      | failAt ctx target "invalid contract linearization"
+    for node in (← arr (← field cnode "nodes")) do
+      match ← nodeKind node with
+      | "VariableDeclaration" =>
+          needAt ctx node ((← bool (← field node "stateVariable")) &&
+            !(← bool (← field node "constant")) &&
+            (← str (← field node "mutability")) == "mutable" &&
+            (field? node "value").all Json.isNull &&
+            (← str (← field node "storageLocation")) == "default" &&
+            (← nat (← field node "scope")) == cid) "initializer/constant/transient field unsupported"
+          let id ← nodeId node
+          let some entry := storage.find? fun e => (field? e "astId").bind (·.getNat?.toOption) == some id
+            | failAt ctx node "missing storage layout"
+          requireKeys entry ["astId", "contract", "label", "offset", "slot", "type"] "storage entry"
+          let label ← str (← field entry "label")
+          needAt ctx node ((← str (← field entry "contract")) == s!"{logicalPath}:{targetName}" &&
+            (← str (← field node "name")) == label) "storage declaration mismatch"
+          needAt ctx node ((← nat (← field entry "offset")) == 0) "missing/packed layout"
+          let typ ← typeString node
+          let typeId ← str (← field entry "type")
+          let layoutType ← field layoutTypes typeId
+          let slotText ← str (← field entry "slot")
+          let some slot := slotText.toNat? | failAt ctx node "invalid storage slot"
+          if typ == "uint256" || typ == "mapping(address => uint256)" || typ == "address" then
+            let name ← identifier ctx node
+            let sty : Sol.StorageTy :=
+              if typ == "mapping(address => uint256)" then .mapping
+              else if typ == "address" then .addr else .scalar
+            let expectedTypeKeys :=
+              if sty == .mapping then ["encoding", "key", "label", "numberOfBytes", "value"]
+              else ["encoding", "label", "numberOfBytes"]
+            requireKeys layoutType expectedTypeKeys "storage type"
+            match sty with
+            | .scalar =>
+                needAt ctx node ((← str (← field layoutType "numberOfBytes")) == "32" &&
+                  (← str (← field layoutType "encoding")) == "inplace" &&
+                  (← str (← field layoutType "label")) == "uint256") "bad scalar layout"
+            | .addr =>
+                needAt ctx node ((← str (← field layoutType "numberOfBytes")) == "20" &&
+                  (← str (← field layoutType "encoding")) == "inplace" &&
+                  (← str (← field layoutType "label")) == "address") "bad scalar layout"
+            | .mapping =>
+                needAt ctx node ((← str (← field layoutType "numberOfBytes")) == "32") "nonword layout"
+                let keyType ← field layoutTypes (← str (← field layoutType "key"))
+                let valueType ← field layoutTypes (← str (← field layoutType "value"))
+                requireKeys keyType ["encoding", "label", "numberOfBytes"] "mapping key type"
+                requireKeys valueType ["encoding", "label", "numberOfBytes"] "mapping value type"
+                needAt ctx node ((← str (← field layoutType "encoding")) == "mapping" &&
+                  (← str (← field keyType "encoding")) == "inplace" &&
+                  (← str (← field keyType "label")) == "address" &&
+                  (← str (← field keyType "numberOfBytes")) == "20" &&
+                  (← str (← field valueType "encoding")) == "inplace" &&
+                  (← str (← field valueType "label")) == "uint256" &&
+                  (← str (← field valueType "numberOfBytes")) == "32") "bad mapping layout"
+            let vis ← str (← field node "visibility")
+            let getter := if vis == "public" then some name else none
+            fields := fields ++ [FieldInfo.mk id name (name ++ "Slot") getter slot sty]
+          else
+            let vis ← str (← field node "visibility")
+            needAt ctx node (vis != "public") "opaque public getter unsupported"
+            let typeLabel ← str (← field layoutType "label")
+            opaqueEntries := opaqueEntries ++ [OpaqueField.mk id label slot typeLabel]
+      | "ErrorDefinition" =>
+          let ps ← arr (← field (← field node "parameters") "parameters")
+          needAt ctx node ps.isEmpty "only zero-argument custom errors"
+          errors := errors ++ [((← nodeId node), (← identifier ctx node))]
+      | "FunctionDefinition" =>
+          needAt ctx node ((← nat (← field node "scope")) == cid) "function scope mismatch"
+          allFns := allFns ++ [← parseFnInfo ctx cid cname (cid == targetId) node]
+      | _ => failAt ctx node "unsupported contract declaration"
+  needAt ctx target (storage.size == fields.length + opaqueEntries.length &&
+    storage.all fun e => (field? e "astId").bind (·.getNat?.toOption) |>.any fun id =>
+      fields.any (·.id == id) || opaqueEntries.any (·.id == id)) "unaccounted layout field"
   let names := fields.flatMap fun f => f.name :: f.getter.toList
-  needAt ctx contract (names.length == names.eraseDups.length) "storage/generated name collision"
-  let slots := fields.map (·.slot)
-  needAt ctx contract (slots.length == slots.eraseDups.length) "storage slot collision"
-  let usedErrors ← arr (← field contract "usedErrors")
+  needAt ctx target (names.length == names.eraseDups.length) "storage/generated name collision"
+  let slots := (fields.map (·.slot)) ++ (opaqueEntries.map (·.slot))
+  needAt ctx target (slots.length == slots.eraseDups.length) "storage slot collision"
   let mut usedErrorIds : List Nat := []
-  for errorId in usedErrors do usedErrorIds := (← nat errorId) :: usedErrorIds
-  let errorIds := errors.map (·.1)
-  needAt ctx contract (usedErrorIds.length == errorIds.length &&
-    usedErrorIds.all fun id => errorIds.contains id) "custom error reference mismatch"
+  for cid in linearization do
+    let some (_, _, cnode) := contractById.find? (·.1 == cid) | failAt ctx target "invalid contract linearization"
+    for errorId in (← arr (← field cnode "usedErrors")) do
+      usedErrorIds := usedErrorIds ++ [← nat errorId]
+  needAt ctx target (usedErrorIds.all fun id => errors.any (·.1 == id)) "custom error reference mismatch"
+  for f in allFns do
+    for g in allFns do
+      needAt ctx f.node (!(f.name == g.name && f.paramTys != g.paramTys))
+        "function overloading by parameter type unsupported"
+  let functions := allFns.filter (·.implemented)
   let sourceText := String.fromUTF8? raw |>.getD ""
   let digest := sha256Hex (sourceText ++ outputText ++ importerText ++ solcSha256 ++ version).toUTF8
-  pure <| Frontend.mk ctx ast fields.reverse errors functions.reverse digest
+  pure {
+    source := ctx, ast, targetName, targetId, linearization, contractById,
+    fields, opaqueEntries, errors, allFns, functions, digest
+  }
 
 private def uint := mkConst ``Verity.Core.Uint256
 private def address := mkConst ``Verity.Core.Address
-private def unit := mkConst ``Unit
-private def valueType (s : String) : MetaM Expr :=
-  match s with
-  | "uint256" => pure uint
-  | "address" => pure address
-  | "unit" => pure unit
-  | _ => throwError "unsupported type {s}"
-
-private def ret (x : Expr) : MetaM Expr := mkAppM ``Verity.pure #[x]
-private def seq (m t : Expr) (k : Expr → MetaM Expr) : MetaM Expr :=
-  withLocalDeclD `value t fun x => do
-    let next ← k x
-    mkAppM ``Verity.bind #[m, ← mkLambdaFVars #[x] next]
 
 private def register (name : Name) (value : Expr) (type? : Option Expr := none)
     (simp : Bool := true) : MetaM Unit := do
@@ -535,24 +713,6 @@ private def register (name : Name) (value : Expr) (type? : Option Expr := none)
       | throwError "solidity_import simp set is not registered"
     ext.add (SimpEntry.toUnfold name) AttributeKind.global
 
-private abbrev Locals := List (Nat × String × Expr)
-private abbrev Slots := List (Nat × Expr)
-
-private def lookupLocal (locals : Locals) (id : Nat) : Option (String × Expr) :=
-  (locals.find? fun x => x.1 == id).map fun x => (x.2.1, x.2.2)
-
-private def lookupSlot (slots : Slots) (id : Nat) : MetaM Expr :=
-  match slots.lookup id with
-  | some e => pure e
-  | none => throwError "unresolved declaration id {id}"
-
-private def checked (op : String) (a b : Expr) : MetaM Expr := do
-  let fn ← match op with
-    | "+" | "+=" => pure ``Verity.Stdlib.Math.safeAdd
-    | "-" | "-=" => pure ``Verity.Stdlib.Math.safeSub
-    | _ => throwError "unsupported arithmetic {op}"
-  mkAppM ``Verity.Stdlib.Math.requireSomeUint #[← mkAppM fn #[a, b], mkStrLit "Panic(0x11)"]
-
 private def requireType (frontend : Frontend) (j : Json) (expected : String) : MetaM Unit := do
   let actual ← typeString j
   let identifier ← str (← field (← field j "typeDescriptions") "typeIdentifier")
@@ -562,319 +722,619 @@ private def requireType (frontend : Frontend) (j : Json) (expected : String) : M
     | "mapping(address => uint256)" => "t_mapping$_t_address_$_t_uint256_$"
     | "msg" => "t_magic_message"
     | "bool" => "t_bool"
+    | "tuple()" => "t_tuple$__$"
     | _ => ""
   needAt frontend.source j (actual == expected && identifier == expectedIdentifier) ("expected " ++ expected)
 
-private partial def translateExpr (frontend : Frontend) (slots : Slots) (locals : Locals) (j : Json)
-    (k : Expr → MetaM Expr) : MetaM Expr := do
+private def valueType : Sol.Ty → Expr
+  | .uint => uint
+  | .addr => address
+
+private def typeName : Sol.Ty → String
+  | .uint => "uint256"
+  | .addr => "address"
+
+private def resultType : List Sol.Ty → Expr
+  | [] => mkConst ``Unit
+  | [t] => valueType t
+  | _ => mkConst ``Unit
+
+private def layoutOf (fields : List FieldInfo) : Sol.Layout := fields.map (·.sty)
+
+private def fieldIndex (fields : List FieldInfo) (id : Nat) : Option Nat :=
+  go fields 0
+where
+  go : List FieldInfo → Nat → Option Nat
+    | [], _ => none
+    | f :: fs, i => if f.id == id then some i else go fs (i + 1)
+
+private def svar (frontend : Frontend) (L : Sol.Layout) (id : Nat) (s : Sol.StorageTy)
+    (j : Json) : MetaM (Sol.SVar L s) := do
+  let some i := fieldIndex frontend.fields id | failAt frontend.source j "unresolved declaration id"
+  let some entry := Sol.SVar.ofIndex L i | failAt frontend.source j "unresolved declaration id"
+  if h : entry.1 = s then pure (h ▸ entry.2) else failAt frontend.source j "storage type mismatch"
+
+private structure Scope (Γ : Sol.Ctx) where
+  vars : List (Nat × Σ t, Sol.Var Γ t)
+
+private def Scope.push (sc : Scope Γ) (id : Nat) (t : Sol.Ty) : Scope (t :: Γ) :=
+  ⟨(id, ⟨t, .here⟩) :: sc.vars.map fun v => (v.1, ⟨v.2.1, .there v.2.2⟩)⟩
+
+private def Scope.find? (sc : Scope Γ) (id : Nat) : Option (Σ t, Sol.Var Γ t) :=
+  (sc.vars.find? fun v => v.1 == id).map (·.2)
+
+private def varHandles : (Γ : Sol.Ctx) → List (Σ t, Sol.Var Γ t)
+  | [] => []
+  | t :: ts => ⟨t, .here⟩ :: (varHandles ts).map fun v => ⟨v.1, .there v.2⟩
+
+private def scopeOf (params : List (Nat × Sol.Ty × String)) (Γ : Sol.Ctx) : Scope Γ :=
+  ⟨(varHandles Γ).zip params.reverse |>.map fun entry => (entry.2.1, entry.1)⟩
+
+private def slotsTerm : (handles : List (Sol.StorageTy × Expr)) → MetaM Expr
+  | [] => pure (mkConst ``Sol.Slots.nil)
+  | (st, h) :: rest => do
+      let restE ← slotsTerm rest
+      let tail : Sol.Layout := rest.map (·.1)
+      mkAppOptM ``Sol.Slots.cons #[some (toExpr tail), some (toExpr st), some h, some restE]
+
+private def envTerm : (xs : List (Expr × Sol.Ty)) → MetaM Expr
+  | [] => pure (mkConst ``Sol.Env.nil)
+  | (x, t) :: rest => do
+      let restE ← envTerm rest
+      let tail : Sol.Ctx := rest.map (·.2)
+      mkAppOptM ``Sol.Env.cons #[some (toExpr tail), some (toExpr t), some x, some restE]
+
+private partial def withParams (ps : List (Nat × Sol.Ty × String)) (acc : List (Expr × Sol.Ty))
+    (k : List (Expr × Sol.Ty) → MetaM Expr) : MetaM Expr := do
+  match ps with
+  | [] => k acc
+  | p :: rest =>
+      withLocalDeclD (Name.mkSimple p.2.2) (valueType p.2.1) fun x => do
+        mkLambdaFVars #[x] (← withParams rest ((x, p.2.1) :: acc) k)
+
+private def familyOf (frontend : Frontend) (name : String) (paramTys : List Sol.Ty) : List FnInfo :=
+  frontend.allFns.filter fun f => f.name == name && f.paramTys == paramTys
+
+private def mostDerived (frontend : Frontend) (name : String) (paramTys : List Sol.Ty) : Option FnInfo :=
+  Id.run do
+    for cid in frontend.linearization do
+      if let some f := (familyOf frontend name paramTys).find? (fun g => g.contractId == cid && g.implemented) then
+        return some f
+    none
+
+private def superTarget (frontend : Frontend) (definingId : Nat) (name : String)
+    (paramTys : List Sol.Ty) : Option FnInfo :=
+  Id.run do
+    let mut seen := false
+    for cid in frontend.linearization do
+      if cid == definingId then seen := true
+      else if seen then
+        if let some f := (familyOf frontend name paramTys).find? (fun g => g.contractId == cid && g.implemented) then
+          return some f
+    none
+
+private def lookupFn (frontend : Frontend) (id : Nat) : Option FnInfo :=
+  frontend.allFns.find? (·.id == id)
+
+private def isErrorRef (frontend : Frontend) (id : Nat) : Bool :=
+  frontend.errors.any (·.1 == id)
+
+private def resolveCall (frontend : Frontend) (current : FnInfo) (call : Json) : MetaM FnInfo := do
+  let callee ← field call "expression"
+  match ← nodeKind callee with
+  | "Identifier" =>
+      let rid ← int (← field callee "referencedDeclaration")
+      needAt frontend.source callee (rid >= 0) "unresolved builtin identifier"
+      let id := rid.toNat
+      if isErrorRef frontend id then failAt frontend.source call "unsupported revert"
+      let some static := lookupFn frontend id | failAt frontend.source call "unresolved function reference"
+      needAt frontend.source call ((familyOf frontend static.name static.paramTys).any (·.id == id))
+        "virtual dispatch disagrees with AST"
+      let some resolved := mostDerived frontend static.name static.paramTys
+        | failAt frontend.source call "unimplemented virtual"
+      pure resolved
+  | "MemberAccess" =>
+      let base ← field callee "expression"
+      needAt frontend.source callee ((← nodeKind base) == "Identifier" &&
+        (← str (← field base "name")) == "super" &&
+        (← int (← field base "referencedDeclaration")) == -25)
+        "only super.f() member calls supported"
+      let rid ← int (← field callee "referencedDeclaration")
+      needAt frontend.source callee (rid >= 0) "unresolved super target"
+      let some static := lookupFn frontend rid.toNat
+        | failAt frontend.source call "unresolved function reference"
+      -- solc's AST `referencedDeclaration` on `super.f` is the next override in
+      -- the *defining* contract's linearization. Runtime (and this importer)
+      -- use the *target* contract's C3 (`linearizedBaseContracts`), which
+      -- disagrees on diamonds. Follow `superTarget`; only require the AST id
+      -- to name a member of the same virtual family.
+      needAt frontend.source callee
+        ((familyOf frontend static.name static.paramTys).any (·.id == rid.toNat))
+        "super dispatch family mismatch"
+      let some resolved := superTarget frontend current.contractId static.name static.paramTys
+        | failAt frontend.source call "unresolved super target"
+      pure resolved
+  | _ => failAt frontend.source call "unsupported call surface"
+
+private partial def collectCallIds (frontend : Frontend) (current : FnInfo) (j : Json) :
+    MetaM (List Nat) := do
+  match j with
+  | .obj o =>
+      let walkChildren : MetaM (List Nat) := do
+        let rest ← o.toList.mapM fun (_, v) => collectCallIds frontend current v
+        pure rest.flatten
+      match field? j "nodeType" with
+      | some nt =>
+          if (← str nt) == "FunctionCall" then
+            let callee ← field j "expression"
+            let skip ← match ← nodeKind callee with
+              | "Identifier" =>
+                  let rid ← int (← field callee "referencedDeclaration")
+                  pure (rid >= 0 && isErrorRef frontend rid.toNat)
+              | _ => pure false
+            let restIds ← walkChildren
+            if skip then pure restIds
+            else
+              let resolved ← resolveCall frontend current j
+              pure (resolved.id :: restIds)
+          else walkChildren
+      | none => walkChildren
+  | .arr xs =>
+      let rest ← xs.toList.mapM (collectCallIds frontend current)
+      pure rest.flatten
+  | _ => pure []
+
+private def topoSort (frontend : Frontend) : MetaM (List FnInfo) := do
+  let mut deps : List (Nat × List Nat) := []
+  for f in frontend.functions do
+    let body := field? f.node "body" |>.getD Json.null
+    let callees := (← collectCallIds frontend f body).eraseDups
+    deps := deps ++ [(f.id, callees)]
+  let mut remaining := frontend.functions
+  let mut order : List FnInfo := []
+  for _ in List.range (frontend.functions.length + 1) do
+    if remaining.isEmpty then return order
+    match remaining.find? fun f =>
+        ((deps.find? (·.1 == f.id)).map (·.2) |>.getD []).all fun c =>
+          order.any (·.id == c) with
+    | some next =>
+        order := order ++ [next]
+        remaining := remaining.filter (fun g => g.id != next.id)
+    | none =>
+        failAt frontend.source frontend.ast
+          s!"direct and mutual recursion unsupported ({String.intercalate ", " (remaining.map (·.leanIdent))})"
+  failAt frontend.source frontend.ast "direct and mutual recursion unsupported"
+
+private structure ParseCtx where
+  frontend : Frontend
+  L : Sol.Layout
+  F : Sol.Fns
+  registered : List FnInfo
+  current : FnInfo
+
+private def indexOfFn : List FnInfo → Nat → Nat → Option Nat
+  | [], _, _ => none
+  | x :: xs, id, i => if x.id == id then some i else indexOfFn xs id (i + 1)
+
+private def fvarOf (ctx : ParseCtx) (resolved : FnInfo) (j : Json) : MetaM (Σ σ, Sol.FVar ctx.F σ) := do
+  let some idx := indexOfFn ctx.registered resolved.id 0
+    | failAt ctx.frontend.source j "direct and mutual recursion unsupported"
+  let some entry := Sol.FVar.ofIndex ctx.F idx
+    | failAt ctx.frontend.source j "unresolved function reference"
+  unless entry.1 == resolved.sig do failAt ctx.frontend.source j "function signature mismatch"
+  pure entry
+
+mutual
+private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t : Sol.Ty)
+    (j : Json) : MetaM (Sol.Expr ctx.L ctx.F Γ t) := do
   match ← nodeKind j with
   | "Identifier" =>
       let rid ← int (← field j "referencedDeclaration")
-      if rid < 0 then failAt frontend.source j "unresolved builtin identifier"
+      if rid < 0 then failAt ctx.frontend.source j "unresolved builtin identifier"
       let id := rid.toNat
-      if let some (typ, value) := lookupLocal locals id then
-        requireType frontend j typ
-        k value
-      else
-        let some info := frontend.fields.find? (·.id == id)
-          | failAt frontend.source j "unresolved declaration reference"
-        needAt frontend.source j (!info.mapping) "mapping requires index access"
-        requireType frontend j "uint256"
-        seq (← mkAppM ``Verity.getStorage #[← lookupSlot slots id]) uint k
+      if let some v := sc.find? id then
+        requireType ctx.frontend j (typeName v.1)
+        if h : v.1 = t then pure (.var (h ▸ v.2)) else failAt ctx.frontend.source j "local type mismatch"
+      else if let some info := ctx.frontend.fields.find? (·.id == id) then
+        match info.sty, t with
+        | .scalar, .uint =>
+            requireType ctx.frontend j "uint256"
+            pure (.load (← svar ctx.frontend ctx.L id .scalar j))
+        | .addr, .addr =>
+            requireType ctx.frontend j "address"
+            pure (.loadAddr (← svar ctx.frontend ctx.L id .addr j))
+        | .mapping, _ => failAt ctx.frontend.source j "mapping requires index access"
+        | _, _ => failAt ctx.frontend.source j "storage type mismatch"
+      else if ctx.frontend.opaqueEntries.any (·.id == id) then
+        failAt ctx.frontend.source j "opaque field"
+      else failAt ctx.frontend.source j "unresolved declaration reference"
   | "MemberAccess" =>
       let base ← field j "expression"
-      needAt frontend.source j ((← str (← field j "memberName")) == "sender" &&
+      needAt ctx.frontend.source j ((← str (← field j "memberName")) == "sender" &&
         (← nodeKind base) == "Identifier" && (← str (← field base "name")) == "msg" &&
         (← int (← field base "referencedDeclaration")) == -15 &&
-        (field? j "referencedDeclaration").all Json.isNull) "only builtin msg.sender supported"
-      requireType frontend base "msg"
-      requireType frontend j "address"
-      seq (mkConst ``Verity.msgSender) address k
+        (field? j "referencedDeclaration").all fun v => v.isNull) "only builtin msg.sender supported"
+      requireType ctx.frontend base "msg"
+      requireType ctx.frontend j "address"
+      match t with
+      | .addr => pure .sender
+      | .uint => failAt ctx.frontend.source j "address expression in uint256 position"
   | "IndexAccess" =>
       let base ← field j "baseExpression"
-      needAt frontend.source j ((← nodeKind base) == "Identifier") "unsupported index base"
+      needAt ctx.frontend.source j ((← nodeKind base) == "Identifier") "unsupported index base"
       let rid ← int (← field base "referencedDeclaration")
-      let some info := if rid < 0 then none else frontend.fields.find? (·.id == rid.toNat)
-        | failAt frontend.source j "unsupported index base"
-      needAt frontend.source j info.mapping "unsupported index base"
-      requireType frontend base "mapping(address => uint256)"
+      if rid < 0 then failAt ctx.frontend.source j "unsupported index base"
+      if ctx.frontend.opaqueEntries.any (·.id == rid.toNat) then failAt ctx.frontend.source j "opaque field"
+      let some info := ctx.frontend.fields.find? (·.id == rid.toNat)
+        | failAt ctx.frontend.source j "unsupported index base"
+      needAt ctx.frontend.source j (info.sty == .mapping) "unsupported index base"
+      requireType ctx.frontend base "mapping(address => uint256)"
       let index ← field j "indexExpression"
-      requireType frontend index "address"
-      requireType frontend j "uint256"
-      translateExpr frontend slots locals index fun key => do
-        let slot ← lookupSlot slots info.id
-        seq (← mkAppM ``Verity.getMapping #[slot, key]) uint k
+      requireType ctx.frontend index "address"
+      requireType ctx.frontend j "uint256"
+      let key ← parseExpr ctx sc .addr index
+      match t with
+      | .uint => pure (.index (← svar ctx.frontend ctx.L info.id .mapping j) key)
+      | .addr => failAt ctx.frontend.source j "uint256 expression in address position"
   | "Literal" =>
       let value ← str (← field j "value")
-      let some n := value.toNat? | failAt frontend.source j "unsupported literal"
-      needAt frontend.source j ((← str (← field j "kind")) == "number" &&
+      let some n := value.toNat? | failAt ctx.frontend.source j "unsupported literal"
+      needAt ctx.frontend.source j ((← str (← field j "kind")) == "number" &&
         (field? j "subdenomination").all Json.isNull && n < 2^256) "unsupported literal"
-      needAt frontend.source j ((← typeString j).startsWith "int_const ") "unsupported literal type"
-      k (← mkAppM ``Verity.Core.Uint256.ofNat #[mkNatLit n])
+      needAt ctx.frontend.source j ((← typeString j).startsWith "int_const ") "unsupported literal type"
+      match t with
+      | .uint => pure (.lit n)
+      | .addr => failAt ctx.frontend.source j "uint256 expression in address position"
   | "BinaryOperation" =>
       let op ← str (← field j "operator")
-      needAt frontend.source j (op == "+" || op == "-") "unsupported binary operation/types"
-      requireType frontend j "uint256"
+      needAt ctx.frontend.source j (op == "+" || op == "-") "unsupported binary operation/types"
+      requireType ctx.frontend j "uint256"
       let left ← field j "leftExpression"
       let right ← field j "rightExpression"
-      requireType frontend left "uint256"; requireType frontend right "uint256"
-      translateExpr frontend slots locals left fun a => do
-        translateExpr frontend slots locals right fun b => do
-          seq (← checked op a b) uint k
-  | _ => failAt frontend.source j "unsupported expression"
+      requireType ctx.frontend left "uint256"; requireType ctx.frontend right "uint256"
+      let a ← parseExpr ctx sc .uint left
+      let b ← parseExpr ctx sc .uint right
+      let aop : Sol.ArithOp := if op == "+" then .add else .sub
+      match t with
+      | .uint => pure (.arith aop a b)
+      | .addr => failAt ctx.frontend.source j "uint256 expression in address position"
+  | "FunctionCall" =>
+      requireType ctx.frontend j (typeName t)
+      let resolved ← resolveCall ctx.frontend ctx.current j
+      needAt ctx.frontend.source j resolved.viewOrPure
+        "effectful internal call in expression position"
+      needAt ctx.frontend.source j (resolved.rets == [t]) "function does not return the expected type"
+      let ⟨σ, fv⟩ ← fvarOf ctx resolved j
+      let argsJ := (← arr (← field j "arguments")).toList
+      let args ← parseArgs ctx sc resolved.paramTys argsJ j
+      if h : σ = ⟨resolved.paramTys.reverse, [t]⟩ then
+        pure (.call (h ▸ fv) args)
+      else failAt ctx.frontend.source j "function signature mismatch"
+  | _ => failAt ctx.frontend.source j "unsupported expression"
 
-private def translateLValue (frontend : Frontend) (slots : Slots) (locals : Locals) (j : Json)
-    (k : Expr → Option Expr → MetaM Expr) : MetaM Expr := do
+private partial def parseArgs (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (ts : List Sol.Ty)
+    (js : List Json) (origin : Json) : MetaM (Sol.Args ctx.L ctx.F Γ ts) := do
+  match ts, js with
+  | [], [] => pure .nil
+  | t :: ts, j :: js =>
+      let e ← parseExpr ctx sc t j
+      let rest ← parseArgs ctx sc ts js origin
+      pure (.cons e rest)
+  | _, _ => failAt ctx.frontend.source origin "argument count mismatch"
+
+private partial def parseLValue (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (j : Json) :
+    MetaM (Sol.LVal ctx.L ctx.F Γ) := do
   match ← nodeKind j with
   | "Identifier" =>
       let rid ← int (← field j "referencedDeclaration")
-      let some info := if rid < 0 then none else frontend.fields.find? (·.id == rid.toNat)
-        | failAt frontend.source j "unsupported storage lvalue"
-      needAt frontend.source j (!info.mapping) "mapping requires index access"
-      requireType frontend j "uint256"
-      k (← lookupSlot slots info.id) none
+      if rid < 0 then failAt ctx.frontend.source j "unsupported storage lvalue"
+      if ctx.frontend.opaqueEntries.any (·.id == rid.toNat) then failAt ctx.frontend.source j "opaque field"
+      let some info := ctx.frontend.fields.find? (·.id == rid.toNat)
+        | failAt ctx.frontend.source j "unsupported storage lvalue"
+      needAt ctx.frontend.source j (info.sty == .scalar) "mapping requires index access"
+      requireType ctx.frontend j "uint256"
+      pure (.scalar (← svar ctx.frontend ctx.L info.id .scalar j))
   | "IndexAccess" =>
       let base ← field j "baseExpression"
-      needAt frontend.source j ((← nodeKind base) == "Identifier") "unsupported index base"
+      needAt ctx.frontend.source j ((← nodeKind base) == "Identifier") "unsupported index base"
       let rid ← int (← field base "referencedDeclaration")
-      let some info := if rid < 0 then none else frontend.fields.find? (·.id == rid.toNat)
-        | failAt frontend.source j "unsupported index base"
-      needAt frontend.source j info.mapping "unsupported index base"
-      requireType frontend base "mapping(address => uint256)"
+      if rid < 0 then failAt ctx.frontend.source j "unsupported index base"
+      if ctx.frontend.opaqueEntries.any (·.id == rid.toNat) then failAt ctx.frontend.source j "opaque field"
+      let some info := ctx.frontend.fields.find? (·.id == rid.toNat)
+        | failAt ctx.frontend.source j "unsupported index base"
+      needAt ctx.frontend.source j (info.sty == .mapping) "unsupported index base"
+      requireType ctx.frontend base "mapping(address => uint256)"
       let index ← field j "indexExpression"
-      requireType frontend index "address"
-      requireType frontend j "uint256"
-      translateExpr frontend slots locals index fun key => do
-        k (← lookupSlot slots info.id) (some key)
-  | _ => failAt frontend.source j "only storage assignment supported"
+      requireType ctx.frontend index "address"
+      requireType ctx.frontend j "uint256"
+      let key ← parseExpr ctx sc .addr index
+      pure (.mapping (← svar ctx.frontend ctx.L info.id .mapping j) key)
+  | _ => failAt ctx.frontend.source j "only storage assignment supported"
 
-private partial def translateStmts (frontend : Frontend) (slots : Slots) (locals : Locals)
-    (returns : String) (nodes : List Json) : MetaM Expr := do
+private partial def parseStmts (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (r : Sol.Ret)
+    (namedReturn : Option Nat) (nodes : List Json) : MetaM (Sol.Stmt ctx.L ctx.F Γ r) := do
   match nodes with
   | [] =>
-      if returns == "unit" then ret (mkConst ``Unit.unit)
-      else throwError "missing terminal return"
+      match r with
+      | [] => pure .done
+      | [t] =>
+          match namedReturn with
+          | some id =>
+              let some v := sc.find? id | throwError "missing named return"
+              if h : v.1 = t then pure (.ret (.var (h ▸ v.2)))
+              else throwError "named return type mismatch"
+          | none => throwError "missing terminal return"
+      | _ => throwError "missing terminal return"
   | node :: rest =>
       match ← nodeKind node with
       | "ExpressionStatement" =>
-          let assignment ← field node "expression"
-          needAt frontend.source node ((← nodeKind assignment) == "Assignment") "unsupported expression statement"
-          requireType frontend assignment "uint256"
-          let op ← str (← field assignment "operator")
-          needAt frontend.source assignment (op == "=" || op == "+=" || op == "-=") "unsupported assignment"
-          translateLValue frontend slots locals (← field assignment "leftHandSide") fun slot key => do
-            let write (value : Expr) : MetaM Expr := do
-              let action ← match key with
-                | none => mkAppM ``Verity.setStorage #[slot, value]
-                | some index => mkAppM ``Verity.setMapping #[slot, index, value]
-              seq action unit fun _ => translateStmts frontend slots locals returns rest
-            let rhsNode ← field assignment "rightHandSide"
-            if op == "=" then translateExpr frontend slots locals rhsNode write
-            else
-              let read ← match key with
-                | none => mkAppM ``Verity.getStorage #[slot]
-                | some index => mkAppM ``Verity.getMapping #[slot, index]
-              seq read uint fun old => do
-                translateExpr frontend slots locals rhsNode fun rhs => do
-                  seq (← checked op old rhs) uint write
+          let expr ← field node "expression"
+          match ← nodeKind expr with
+          | "Assignment" =>
+              let op ← str (← field expr "operator")
+              let lhs ← field expr "leftHandSide"
+              if (← nodeKind lhs) == "Identifier" then
+                let rid ← int (← field lhs "referencedDeclaration")
+                if rid >= 0 && ctx.frontend.opaqueEntries.any (·.id == rid.toNat) then
+                  failAt ctx.frontend.source node "opaque field"
+                if rid >= 0 then
+                  if let some info := ctx.frontend.fields.find? (·.id == rid.toNat) then
+                    if info.sty == .addr then
+                      needAt ctx.frontend.source expr (op == "=") "unsupported assignment"
+                      requireType ctx.frontend expr "address"
+                      let rhs ← parseExpr ctx sc .addr (← field expr "rightHandSide")
+                      let sv ← svar ctx.frontend ctx.L info.id .addr lhs
+                      return .assignAddr sv rhs (← parseStmts ctx sc r namedReturn rest)
+              requireType ctx.frontend expr "uint256"
+              needAt ctx.frontend.source expr (op == "=" || op == "+=" || op == "-=") "unsupported assignment"
+              let lv ← parseLValue ctx sc lhs
+              let rhs ← parseExpr ctx sc .uint (← field expr "rightHandSide")
+              let aop : Sol.AssignOp := if op == "=" then .set else if op == "+=" then .add else .sub
+              pure (.assign lv aop rhs (← parseStmts ctx sc r namedReturn rest))
+          | "FunctionCall" =>
+              requireType ctx.frontend expr "tuple()"
+              let resolved ← resolveCall ctx.frontend ctx.current expr
+              needAt ctx.frontend.source expr resolved.rets.isEmpty "function does not return the expected type"
+              let ⟨σ, fv⟩ ← fvarOf ctx resolved expr
+              let argsJ := (← arr (← field expr "arguments")).toList
+              let args ← parseArgs ctx sc resolved.paramTys argsJ expr
+              let restS ← parseStmts ctx sc r namedReturn rest
+              if h : σ = ⟨resolved.paramTys.reverse, []⟩ then
+                pure (.callStmt (h ▸ fv) args restS)
+              else failAt ctx.frontend.source expr "function signature mismatch"
+          | _ => failAt ctx.frontend.source node "unsupported expression statement"
       | "VariableDeclarationStatement" =>
           let declarations ← arr (← field node "declarations")
-          needAt frontend.source node (declarations.size == 1) "unsupported locals"
+          needAt ctx.frontend.source node (declarations.size == 1) "unsupported locals"
           let declaration := declarations[0]!
-          needAt frontend.source declaration (!(← bool (← field declaration "stateVariable")) &&
+          needAt ctx.frontend.source declaration (!(← bool (← field declaration "stateVariable")) &&
             !(← bool (← field declaration "constant")) &&
             (← str (← field declaration "mutability")) == "mutable" &&
             (← str (← field declaration "storageLocation")) == "default" &&
             (← str (← field declaration "visibility")) == "internal") "unsupported local declaration"
-          requireType frontend declaration "uint256"
+          requireType ctx.frontend declaration "uint256"
           let id ← nodeId declaration
-          let _ ← identifier frontend.source declaration
-          let initialValue ← field node "initialValue"
-          translateExpr frontend slots locals initialValue fun value =>
-            translateStmts frontend slots ((id, "uint256", value) :: locals) returns rest
+          let _ ← identifier ctx.frontend.source declaration
+          let value ← parseExpr ctx sc .uint (← field node "initialValue")
+          pure (.local_ value (← parseStmts ctx (sc.push id .uint) r namedReturn rest))
       | "IfStatement" =>
           let falseBody := field? node "falseBody"
           let trueBody ← field node "trueBody"
           let statements ← arr (← field trueBody "statements")
-          needAt frontend.source node (falseBody.all Json.isNull && statements.size == 1 &&
+          needAt ctx.frontend.source node (falseBody.all Json.isNull && statements.size == 1 &&
             (← nodeKind statements[0]!) == "RevertStatement") "only if/revert guard supported"
           let call ← field statements[0]! "errorCall"
           let callee ← field call "expression"
           let rid ← int (← field callee "referencedDeclaration")
-          let some errorName := if rid < 0 then none else frontend.errors.lookup rid.toNat
-            | failAt frontend.source node "unsupported revert"
-          needAt frontend.source node ((← nodeKind callee) == "Identifier" &&
+          let some errorName := if rid < 0 then none else ctx.frontend.errors.lookup rid.toNat
+            | failAt ctx.frontend.source node "unsupported revert"
+          needAt ctx.frontend.source node ((← nodeKind callee) == "Identifier" &&
             (← arr (← field call "arguments")).isEmpty) "unsupported revert"
           let condition ← field node "condition"
-          needAt frontend.source condition ((← nodeKind condition) == "BinaryOperation" &&
+          needAt ctx.frontend.source condition ((← nodeKind condition) == "BinaryOperation" &&
             (← str (← field condition "operator")) == "<") "only uint256 comparison guard supported"
-          requireType frontend condition "bool"
+          requireType ctx.frontend condition "bool"
           let commonType ← field condition "commonType"
-          needAt frontend.source condition ((← str (← field commonType "typeString")) == "uint256" &&
+          needAt ctx.frontend.source condition ((← str (← field commonType "typeString")) == "uint256" &&
             (← str (← field commonType "typeIdentifier")) == "t_uint256") "unsupported comparison type"
           let left ← field condition "leftExpression"
           let right ← field condition "rightExpression"
-          requireType frontend left "uint256"; requireType frontend right "uint256"
-          translateExpr frontend slots locals left fun a =>
-            translateExpr frontend slots locals right fun b => do
-              let av ← mkAppM ``Verity.Core.Uint256.val #[a]
-              let bv ← mkAppM ``Verity.Core.Uint256.val #[b]
-              let allowed ← mkAppM ``Nat.ble #[bv, av]
-              let guard ← mkAppM ``Verity.require #[allowed, mkStrLit (errorName ++ "()")]
-              seq guard unit fun _ => translateStmts frontend slots locals returns rest
+          requireType ctx.frontend left "uint256"; requireType ctx.frontend right "uint256"
+          let a ← parseExpr ctx sc .uint left
+          let b ← parseExpr ctx sc .uint right
+          pure (.guard a b (errorName ++ "()") (← parseStmts ctx sc r namedReturn rest))
       | "Return" =>
-          needAt frontend.source node (rest.isEmpty && returns == "uint256") "only terminal scalar return"
-          translateExpr frontend slots locals (← field node "expression") ret
-      | _ => failAt frontend.source node "unsupported statement"
+          match r with
+          | [t] =>
+              needAt ctx.frontend.source node rest.isEmpty "only terminal scalar return"
+              let e ← parseExpr ctx sc t (← field node "expression")
+              pure (.ret e)
+          | _ => failAt ctx.frontend.source node "only terminal scalar return"
+      | _ => failAt ctx.frontend.source node "unsupported statement"
+end
 
-private def nonpayable (m : Expr) : MetaM Expr :=
-  seq (mkConst ``Verity.msgValue) uint fun value => do
-    let n ← mkAppM ``Verity.Core.Uint256.val #[value]
-    let zero ← mkAppM ``Nat.beq #[n, mkNatLit 0]
-    let guard ← mkAppM ``Verity.require #[zero, mkStrLit "Nonpayable"]
-    seq guard unit fun _ => pure m
-
-private def validateValueDecl (frontend : Frontend) (p : Json) : MetaM Unit := do
-  needAt frontend.source p (!(← bool (← field p "stateVariable")) &&
-    !(← bool (← field p "constant")) &&
-    (← str (← field p "mutability")) == "mutable" &&
-    (← str (← field p "storageLocation")) == "default" &&
-    (← str (← field p "visibility")) == "internal" &&
-    (field? p "value").all Json.isNull) "unsupported parameter declaration"
-
-private partial def translateParams (frontend : Frontend) (params : List Json) (locals : Locals)
-    (k : Locals → MetaM Expr) : MetaM Expr := do
-  match params with
-  | [] => k locals
-  | p :: ps =>
-      validateValueDecl frontend p
-      let typ ← typeString p
-      needAt frontend.source p (typ == "uint256" || typ == "address") "unsupported value type"
-      let name ← identifier frontend.source p
-      let id ← nodeId p
-      withLocalDeclD (Name.mkSimple name) (← valueType typ) fun x => do
-        mkLambdaFVars #[x] (← translateParams frontend ps ((id, typ, x) :: locals) k)
-
-private def checkCollisions (ns : Name) (frontend : Frontend) : MetaM Unit := do
+private def checkCollisions (ns : Name) (frontend : Frontend) (order : List FnInfo) : MetaM Unit := do
   let mut names := #[
     ns ++ `sourceDigest, ns ++ `Storage, ns ++ `view, ns ++ `step,
-    ns ++ `Storage ++ `mk]
+    ns ++ `Storage ++ `mk, ns ++ `opaqueFields, ns ++ `registeredSources]
   for f in frontend.fields do
     names := names.push (ns ++ Name.mkSimple f.name)
     names := names.push (ns ++ `Storage ++ Name.mkSimple f.var)
     if let some getter := f.getter then names := names.push (ns ++ Name.mkSimple getter)
-  for fn in frontend.functions do
-    let name ← identifier frontend.source fn
-    names := names.push (ns ++ Name.mkSimple name)
+  for fn in order do
+    names := names.push (ns ++ Name.mkSimple fn.leanIdent)
   for i in [:names.size] do
     if (← getEnv).contains names[i]! || (names.extract 0 i).contains names[i]! then
       throwError "declaration collision: {names[i]!}"
 
-/-- One use of the standard elaborator: kernel-check `Storage` as a real structure. -/
 private def storageStructure (alias : Name) (frontend : Frontend) : CommandElabM Syntax := do
   let declId := mkIdent (alias ++ `Storage)
   let binders : TSyntaxArray ``Parser.Command.structExplicitBinder ←
     frontend.fields.toArray.mapM fun f => do
       let fieldId := mkIdent (Name.mkSimple f.var)
-      let ty : Term ← if f.mapping then
-        `(Verity.Address → Verity.Uint256)
-      else
-        `(Verity.Uint256)
+      let ty : Term ← match f.sty with
+        | .mapping => `(Verity.Address → Verity.Uint256)
+        | .addr => `(Verity.Address)
+        | .scalar => `(Verity.Uint256)
       `(Parser.Command.structExplicitBinder| ($fieldId:ident : $ty))
   `(command| structure $declId where $binders:structExplicitBinder*)
 
-private def mkEntryDisjunct (s s' : Expr) (name : Name) (binder? : Option (Name × Expr)) : MetaM Expr := do
-  match binder? with
-  | some (n, dom) =>
-    withLocalDeclD n dom fun x => do
-      let run ← mkAppM ``Verity.Contract.run #[mkApp (mkConst name) x, s]
-      let snd ← mkAppM ``Verity.ContractResult.snd #[run]
-      let eq ← mkEq s' snd
-      mkAppOptM ``Exists #[some dom, some (← mkLambdaFVars #[x] eq)]
+private def mkEntryDisjunct (s s' : Expr) (name : Name) (binders : List (Name × Expr)) : MetaM Expr :=
+  go binders #[]
+where
+  go : List (Name × Expr) → Array Expr → MetaM Expr
+    | [], xs => do
+        let run ← mkAppM ``Verity.Contract.run #[mkAppN (mkConst name) xs, s]
+        let snd ← mkAppM ``Verity.ContractResult.snd #[run]
+        mkEq s' snd
+    | (n, dom) :: rest, xs =>
+        withLocalDeclD n dom fun x => do
+          let inner ← go rest (xs.push x)
+          mkAppOptM ``Exists #[some dom, some (← mkLambdaFVars #[x] inner)]
+
+private def envApply (σ : Sol.Sig) (fn : Expr) : MetaM Expr := do
+  let envTy ← mkAppM ``Sol.Env #[toExpr σ.params]
+  withLocalDeclD `env envTy fun env => do
+    let mut app := fn
+    let n := σ.params.length
+    for i in [:n] do
+      let dbIndex := n - 1 - i
+      let some v := Sol.Var.ofIndex σ.params dbIndex | throwError "envApply: missing binder"
+      let getter ← mkAppOptM ``Sol.Env.get
+        #[some (toExpr σ.params), some (toExpr v.1), some env, some (toExpr v.2)]
+      app := mkApp app getter
+    mkLambdaFVars #[env] app
+
+private def fnsTerm : (handles : List (Sol.Sig × Expr)) → MetaM Expr
+  | [] => pure (mkConst ``Sol.FnEnv.nil)
+  | (σ, h) :: rest => do
+      let restE ← fnsTerm rest
+      let apply ← envApply σ h
+      let envTy ← mkAppM ``Sol.Env #[toExpr σ.params]
+      let retTy ← mkAppM ``Sol.Ret.denote #[toExpr σ.rets]
+      let contractTy ← mkAppM ``Verity.Contract #[retTy]
+      let applyTy ← mkArrow envTy contractTy
+      let apply ← mkExpectedTypeHint apply applyTy
+      let tail : Sol.Fns := rest.map (·.1)
+      -- `FnEnv.cons` implicits are `{F : Fns}` then `{σ : Sig}`.
+      pure (mkAppN (mkConst ``Sol.FnEnv.cons) #[toExpr tail, toExpr σ, apply, restE])
+
+private def parseBody (ctx : ParseCtx) (fn : FnInfo) : MetaM Expr := do
+  let Γ : Sol.Ctx := fn.paramIds.reverse.map fun p => p.2.1
+  let sc0 := scopeOf fn.paramIds Γ
+  let statements :=
+    match field? fn.node "body" with
+    | some body => (field? body "statements").bind (·.getArr?.toOption) |>.getD #[]
+    | none => #[]
+  match fn.namedReturn with
+  | some (id, _) =>
+      let sc := sc0.push id .uint
+      let inner ← parseStmts ctx sc fn.rets (some id) statements.toList
+      let wrapped : Sol.Stmt ctx.L ctx.F Γ fn.rets := .local_ (.lit 0) inner
+      pure (toExpr wrapped)
   | none =>
-    let run ← mkAppM ``Verity.Contract.run #[mkConst name, s]
-    let snd ← mkAppM ``Verity.ContractResult.snd #[run]
-    mkEq s' snd
+      let body ← parseStmts ctx sc0 fn.rets none statements.toList
+      pure (toExpr body)
 
 private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
-  let mut slots : Slots := []
+  let L := layoutOf frontend.fields
+  let order ← topoSort frontend
+  let mut registered : List (FieldInfo × Expr) := []
   for f in frontend.fields do
-    let ty ← if f.mapping then mkArrow address uint else pure uint
+    let ty ← match f.sty with
+      | .mapping => mkArrow address uint
+      | .addr => pure address
+      | .scalar => pure uint
     let slot ← mkAppOptM ``Verity.StorageSlot.mk #[some ty, some (mkNatLit f.slot)]
     let name := ns ++ Name.mkSimple f.name
     register name slot
-    slots := (f.id, mkConst name) :: slots
-  -- Read-only named storage view. `Storage` is the kernel-checked structure
-  -- elaborated before this transaction; `view` builds it from `<var>Slot` handles.
+    registered := registered ++ [(f, mkConst name)]
+  let slotsE ← slotsTerm (registered.map fun h => (h.1.sty, h.2))
   let state := mkConst ``Verity.ContractState
   let storageView := mkConst (ns ++ `Storage)
   let view ← withLocalDeclD `s state fun s => do
     let mut args : Array Expr := #[]
-    for f in frontend.fields do
-      let slot ← mkAppM ``Verity.StorageSlot.slot #[← lookupSlot slots f.id]
-      if f.mapping then
-        let reader ← withLocalDeclD `k address fun k =>
-          mkLambdaFVars #[k] (mkAppN (mkConst ``Verity.ContractState.readMap) #[s, slot, k])
-        args := args.push reader
-      else
-        args := args.push (mkAppN (mkConst ``Verity.ContractState.readSlot) #[s, slot])
+    for h in registered do
+      let slot ← mkAppM ``Verity.StorageSlot.slot #[h.2]
+      match h.1.sty with
+      | .mapping =>
+          let reader ← withLocalDeclD `k address fun k =>
+            mkLambdaFVars #[k] (mkAppN (mkConst ``Verity.ContractState.readMap) #[s, slot, k])
+          args := args.push reader
+      | .addr =>
+          args := args.push (mkAppN (mkConst ``Verity.ContractState.readAddrSlot) #[s, slot])
+      | .scalar =>
+          args := args.push (mkAppN (mkConst ``Verity.ContractState.readSlot) #[s, slot])
     mkLambdaFVars #[s] (← mkAppM (ns ++ `Storage ++ `mk) args)
   register (ns ++ `view) view (some (← mkArrow state storageView))
-  let mut functionEntries : Array (Name × Option (Name × Expr)) := #[]
-  let mut getterEntries : Array (Name × Option (Name × Expr)) := #[]
-  for f in frontend.fields do
-    if let some getter := f.getter then
-      let slot ← lookupSlot slots f.id
+  let opaqueVal : List (String × Nat × String) :=
+    frontend.opaqueEntries.map fun o => (o.label, o.slot, o.typeLabel)
+  register (ns ++ `opaqueFields) (toExpr opaqueVal) (simp := false)
+  register (ns ++ `registeredSources) (toExpr registeredSources) (simp := false)
+  let mut getterEntries : Array (Name × List (Name × Expr)) := #[]
+  for h in registered do
+    if let some getter := h.1.getter then
       let gname := ns ++ Name.mkSimple getter
-      if f.mapping then
-        let value ← withLocalDeclD `account address fun account => do
-          let getterFn ← mkAppM ``Verity.getMapping #[slot, account]
-          mkLambdaFVars #[account] (← nonpayable getterFn)
-        register gname value
-        getterEntries := getterEntries.push (gname, some (`account, address))
-      else
-        let value ← nonpayable (← mkAppM ``Verity.getStorage #[slot])
-        register gname value
-        getterEntries := getterEntries.push (gname, none)
-  for fn in frontend.functions do
-    let name ← identifier frontend.source fn
-    needAt frontend.source fn ((← str (← field fn "kind")) == "function" &&
-      (← bool (← field fn "implemented")) && (← arr (← field fn "modifiers")).isEmpty &&
-      !(← bool (← field fn "virtual")) && (field? fn "overrides").all Json.isNull &&
-      ["external", "public"].contains (← str (← field fn "visibility")) &&
-      ["nonpayable", "view"].contains (← str (← field fn "stateMutability"))) "unsupported function surface"
-    let ps ← arr (← field (← field fn "parameters") "parameters")
-    let rs ← arr (← field (← field fn "returnParameters") "parameters")
-    needAt frontend.source fn (ps.size <= 1 && rs.size <= 1) "unsupported signature"
-    for r in rs do
-      validateValueDecl frontend r
-      needAt frontend.source r ((← str (← field r "name")).isEmpty && (← typeString r) == "uint256")
-        "unsupported return type"
-    let returns := if rs.isEmpty then "unit" else "uint256"
-    let value ← translateParams frontend ps.toList [] fun locals => do
-      let code ← translateStmts frontend slots locals returns
-        (← arr (← field (← field fn "body") "statements")).toList
-      let expected ← mkAppM ``Verity.Contract #[← valueType returns]
-      unless ← isDefEq (← inferType code) expected do
-        throwError "imported body does not match typed AST return signature"
-      nonpayable code
-    let fname := ns ++ Name.mkSimple name
-    let binder? ← if ps.size == 1 then
-      let p := ps[0]!
-      let ptyp ← typeString p
-      let pname ← identifier frontend.source p
-      let dom ← valueType ptyp
-      pure (some (Name.mkSimple pname, dom))
-    else
-      pure none
-    register fname value
-    functionEntries := functionEntries.push (fname, binder?)
-  let entries := functionEntries ++ getterEntries
+      match h.1.sty with
+      | .mapping =>
+          let value ← withLocalDeclD `account address fun account => do
+            let getterFn ← mkAppM ``Verity.getMapping #[h.2, account]
+            mkLambdaFVars #[account] (← mkAppM ``Sol.nonpayable #[getterFn])
+          register gname value
+          getterEntries := getterEntries.push (gname, [(`account, address)])
+      | .addr =>
+          let value ← mkAppM ``Sol.nonpayable #[← mkAppM ``Verity.getStorageAddr #[h.2]]
+          register gname value
+          getterEntries := getterEntries.push (gname, [])
+      | .scalar =>
+          let value ← mkAppM ``Sol.nonpayable #[← mkAppM ``Verity.getStorage #[h.2]]
+          register gname value
+          getterEntries := getterEntries.push (gname, [])
+  let mut fnHandles : List (Sol.Sig × Expr) := []
+  let mut fnInfos : List FnInfo := []
+  let mut functionEntries : Array (Name × List (Name × Expr)) := #[]
+  for fn in order do
+    let F : Sol.Fns := fnHandles.map (·.1)
+    let fnsE ← fnsTerm fnHandles
+    let ctx : ParseCtx := { frontend, L, F, registered := fnInfos, current := fn }
+    let Γ : Sol.Ctx := fn.paramIds.reverse.map fun p => p.2.1
+    let bodyE ← parseBody ctx fn
+    let meaningHead :=
+      if fn.isEntry then mkConst ``Sol.Fn.meaning else mkConst ``Sol.Fn.bodyMeaning
+    let value ← withParams fn.paramIds [] fun xs => do
+      let envE ← envTerm xs
+      pure (mkAppN meaningHead
+        #[toExpr L, toExpr F, toExpr Γ, toExpr fn.rets, bodyE, slotsE, fnsE, envE])
+    let mut type := ← mkAppM ``Verity.Contract #[resultType fn.rets]
+    for p in fn.paramIds.reverse do
+      type ← mkArrow (valueType p.2.1) type
+    let fname := ns ++ Name.mkSimple fn.leanIdent
+    register fname value (some type)
+    let binders := fn.paramIds.map fun p => (Name.mkSimple p.2.2, valueType p.2.1)
+    if fn.isEntry then
+      if let some top := mostDerived frontend fn.name fn.paramTys then
+        if top.id == fn.id then
+          functionEntries := functionEntries.push (fname, binders)
+    fnHandles := fnHandles ++ [(fn.sig, mkConst fname)]
+    fnInfos := fnInfos ++ [fn]
+  -- Entry-point order: target public/external in source order, then each base
+  -- in linearization order, then getters in layout order.
+  let mut orderedEntries : Array (Name × List (Name × Expr)) := #[]
+  for cid in frontend.linearization do
+    for fn in frontend.functions do
+      if fn.contractId == cid && fn.isEntry then
+        if let some top := mostDerived frontend fn.name fn.paramTys then
+          if top.id == fn.id then
+            let fname := ns ++ Name.mkSimple fn.leanIdent
+            if let some entry := functionEntries.find? (·.1 == fname) then
+              unless orderedEntries.any (fun e => e.1 == fname) do
+                orderedEntries := orderedEntries.push entry
+  let entries := orderedEntries ++ getterEntries
   let step ← withLocalDeclD `s state fun s =>
     withLocalDeclD `s' state fun s' => do
       let mut disjuncts : Array Expr := #[]
-      for (ename, binder?) in entries do
-        disjuncts := disjuncts.push (← mkEntryDisjunct s s' ename binder?)
+      for (ename, binders) in entries do
+        disjuncts := disjuncts.push (← mkEntryDisjunct s s' ename binders)
       if disjuncts.isEmpty then throwError "imported contract has no entry points"
       let mut body := disjuncts.back!
       for i in (List.range (disjuncts.size - 1)).reverse do
@@ -884,13 +1344,16 @@ private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
   register (ns ++ `step) step (some stepType) (simp := false)
   register (ns ++ `sourceDigest) (mkStrLit frontend.digest) (simp := false)
 
-private def compileFrontend (root source : System.FilePath) : MetaM Frontend := do
+private def compileFrontend (root source : System.FilePath) (targetName? : Option String) : MetaM Frontend := do
   let canonicalRoot ← IO.FS.realPath root
   let canonicalSource ← IO.FS.realPath source
   unless canonicalSource.toString.startsWith (canonicalRoot.toString ++ "/") do
     throwError "source outside package"
-  let expected ← IO.FS.realPath (canonicalRoot / registeredSource)
-  unless canonicalSource == expected do throwError "unregistered source or source outside package"
+  let mut matched : Option (String × String) := none
+  for pair in registeredSources do
+    let expected ← IO.FS.realPath (canonicalRoot / pair.2)
+    if canonicalSource == expected then matched := some pair
+  let some (logicalPath, _) := matched | throwError "unregistered source or source outside package"
   let compiler := canonicalRoot / ".lake/solidity-import/solc"
   verifyCompiler compiler
   let versionOut ← IO.Process.output { cmd := compiler.toString, args := #["--version"] }
@@ -907,35 +1370,39 @@ private def compileFrontend (root source : System.FilePath) : MetaM Frontend := 
     ("outputSelection", Json.mkObj [("*", Json.mkObj [
       ("", Json.arr #["ast"]), ("*", Json.arr #["storageLayout"])])])]
   let input := Json.mkObj [("language", "Solidity"),
-    ("sources", Json.mkObj [(registeredSource, Json.mkObj [("content", sourceText)])]),
+    ("sources", Json.mkObj [(logicalPath, Json.mkObj [("content", sourceText)])]),
     ("settings", settings)]
   let output ← IO.Process.output
     { cmd := compiler.toString, args := #["--standard-json", "--no-import-callback"] }
     (some input.compress)
   unless output.exitCode == 0 do throwError "solc failed: {output.stderr}"
   verifyCompiler compiler
-  let importerText ← IO.FS.readFile
-    (canonicalRoot / "Contracts/VaultFromSolidity/Importer/Importer.lean")
-  parseCompilerOutput canonicalSource registeredSource sourceBytes output.stdout versionOut.stdout importerText
+  let importerDir := canonicalRoot / "Contracts/VaultFromSolidity/Importer"
+  let importerText ← IO.FS.readFile (importerDir / "Importer.lean")
+  let syntaxText ← IO.FS.readFile (importerDir / "Syntax.lean")
+  let semanticsText ← IO.FS.readFile (importerDir / "Semantics.lean")
+  parseCompilerOutput canonicalSource logicalPath sourceBytes output.stdout versionOut.stdout
+    (importerText ++ syntaxText ++ semanticsText) targetName?
 
 syntax (name := solidityContract) "solidity_contract " ident " from " str : command
+syntax (name := solidityContractNamed) "solidity_contract " ident " from " str " contract " str : command
 
-@[command_elab solidityContract] def elabSolidityContract : CommandElab := fun stx => do
+private def elabSolidityContractCore (alias : Name) (rel : String) (targetName? : Option String)
+    (_stx : Syntax) : CommandElabM Unit := do
   let saved ← getEnv
   try
     if debug.skipKernelTC.get (← getOptions) then throwError "kernel checking must be enabled"
     let authored ← IO.FS.realPath (← getFileName)
-    let source := authored.parent.getD "." / stx[3].isStrLit?.get!
+    let source := authored.parent.getD "." / rel
     let mut root := authored.parent.getD "."
     while !(← (root / "lakefile.lean").pathExists) do
       let some parent := root.parent | throwError "package root not found"
       if parent == root then throwError "package root not found"
       root := parent
-    let frontend ← liftTermElabM <| compileFrontend root source
-    let alias := stx[1].getId
+    let frontend ← liftTermElabM <| compileFrontend root source targetName?
     let ns := (← getCurrNamespace) ++ alias
-    liftTermElabM <| checkCollisions ns frontend
-    -- The one use of the standard elaborator: kernel-check `Storage` as a real structure.
+    let order ← liftTermElabM <| topoSort frontend
+    liftTermElabM <| checkCollisions ns frontend order
     let storageStx ← storageStructure alias frontend
     withScope (fun scope => { scope with opts := Elab.async.set scope.opts false }) do
       elabCommand storageStx
@@ -945,5 +1412,11 @@ syntax (name := solidityContract) "solidity_contract " ident " from " str : comm
   catch e =>
     setEnv saved
     throw e
+
+@[command_elab solidityContract] def elabSolidityContract : CommandElab := fun stx => do
+  elabSolidityContractCore stx[1].getId stx[3].isStrLit?.get! none stx
+
+@[command_elab solidityContractNamed] def elabSolidityContractNamed : CommandElab := fun stx => do
+  elabSolidityContractCore stx[1].getId stx[3].isStrLit?.get! stx[5].isStrLit? stx
 
 end SolidityImporter

@@ -56,9 +56,10 @@ class SpecNamedStorageTests(unittest.TestCase):
     def run_gate(self, spec: str) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            target = root / check_spec_named_storage.SPEC_FILES[0]
-            target.parent.mkdir(parents=True)
-            target.write_text(spec, encoding="utf-8")
+            for rel in check_spec_named_storage.SPEC_FILES:
+                target = root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(spec, encoding="utf-8")
             old_root = check_spec_named_storage.ROOT
             output = io.StringIO()
             try:

@@ -1275,16 +1275,6 @@ def directMetadata : Stmt → StmtMetadata
         controlFlow := .unknown
         scopeEffects := { bindNames := branches.flatMap (fun (_, names, _) => names) } }
 
-partial def fold (f : α → Stmt → StmtMetadata → α) (init : α) (stmt : Stmt) : α :=
-  let md := stmt.directMetadata
-  let acc := f init stmt md
-  stmt.childLists.foldl
-    (fun acc childList => childList.foldl (fun inner child => child.fold f inner) acc)
-    acc
-
-partial def foldList (f : α → Stmt → StmtMetadata → α) (init : α) (stmts : List Stmt) : α :=
-  stmts.foldl (fun acc stmt => stmt.fold f acc) init
-
 /-- Every statement in a child list is structurally smaller than its parent,
     so well-founded deep traversals over `childLists` terminate. -/
 theorem childLists_sizeOf_lt (s : Stmt) :
@@ -1306,6 +1296,22 @@ theorem childLists_sizeOf_lt (s : Stmt) :
          obtain ⟨name, vars, body⟩ := branch
          simp at h1 ⊢
          omega)
+
+/-- Ordered metadata fold, with kernel-visible equations for validation proofs. -/
+def fold (f : α → Stmt → StmtMetadata → α) (init : α) (stmt : Stmt) : α :=
+  let md := stmt.directMetadata
+  let acc := f init stmt md
+  stmt.childLists.attach.foldl
+    (fun acc ⟨children, hchildren⟩ => children.attach.foldl
+      (fun inner ⟨child, hchild⟩ =>
+        have := childLists_sizeOf_lt stmt children hchildren child hchild
+        child.fold f inner) acc)
+    acc
+termination_by sizeOf stmt
+decreasing_by exact Nat.lt_trans this.1 this.2
+
+def foldList (f : α → Stmt → StmtMetadata → α) (init : α) (stmts : List Stmt) : α :=
+  stmts.foldl (fun acc stmt => stmt.fold f acc) init
 
 /-- Deep statement predicate: does `p` hold for this statement or any
     statement nested inside it (if/loop/unsafe-block/match bodies)? Total via
@@ -1367,7 +1373,7 @@ def checkRecBranches (check : Stmt → Except String Unit)
   branches.forM fun (_, _, body) => Stmt.checkRecList check body
 
 mutual
-partial def controlFlow : Stmt → ControlFlowSummary
+def controlFlow : Stmt → ControlFlowSummary
   | .require _ _ | .requireError _ _ _ =>
       .mayReverting
   | .revertError _ _ | .panicCode _ | .revertReturndata =>
@@ -1393,15 +1399,23 @@ partial def controlFlow : Stmt → ControlFlowSummary
   | _ =>
       .fallsThrough
 
-partial def controlFlowList : List Stmt → ControlFlowSummary
+termination_by stmt => sizeOf stmt
+decreasing_by all_goals simp_wf; all_goals omega
+
+def controlFlowList : List Stmt → ControlFlowSummary
   | [] => .fallsThrough
   | stmt :: rest =>
       ControlFlowSummary.seq (controlFlow stmt) (controlFlowList rest)
 
-partial def controlFlowBranches : List (String × List String × List Stmt) → ControlFlowSummary
+termination_by stmts => sizeOf stmts
+decreasing_by all_goals simp_wf; all_goals omega
+
+def controlFlowBranches : List (String × List String × List Stmt) → ControlFlowSummary
   | [] => .noPaths
   | (_, _, body) :: rest =>
       ControlFlowSummary.union (controlFlowList body) (controlFlowBranches rest)
+termination_by branches => sizeOf branches
+decreasing_by all_goals simp_wf; all_goals omega
 end
 
 example : (controlFlowList [Stmt.return (Expr.literal 1), Stmt.stop]).mayStop = false := by
@@ -1410,7 +1424,7 @@ example : (controlFlowList [Stmt.return (Expr.literal 1), Stmt.stop]).mayStop = 
 example : (controlFlow (Stmt.require (Expr.literal 1) "ok")).mayRevert = true := by
   native_decide
 
-partial def metadataDeep (stmt : Stmt) : StmtMetadata :=
+def metadataDeep (stmt : Stmt) : StmtMetadata :=
   stmt.fold
     (fun acc _ md =>
       { subexpressions := acc.subexpressions ++ md.subexpressions

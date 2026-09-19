@@ -55,6 +55,10 @@ def run(root: Path, args: list[str], success: bool = True, contains: str | None 
 def main() -> None:
     importer_path = ROOT / "Contracts/VaultFromSolidity/Importer/Importer.lean"
     importer_text = importer_path.read_text()
+    syntax_path = ROOT / "Contracts/VaultFromSolidity/Importer/Syntax.lean"
+    semantics_path = ROOT / "Contracts/VaultFromSolidity/Importer/Semantics.lean"
+    syntax_text = syntax_path.read_text()
+    semantics_text = semantics_path.read_text()
     python_frontend = ROOT / "Contracts/VaultFromSolidity/Importer/scripts/solidity_importer.py"
     check(not python_frontend.exists(), "no Python importer/frontend exists")
     check("--standard-json" in importer_text and "--no-import-callback" in importer_text,
@@ -63,8 +67,12 @@ def main() -> None:
           "Lean importer enforces compiler checksum and version pin")
     check('cmd := "/usr/bin/sha256sum"' in importer_text and 'cmd := "sha256sum"' not in importer_text,
           "compiler checksum utility uses a fixed path, not PATH lookup")
-    check("translateExpr" in importer_text and "translateStmts" in importer_text,
-          "Solidity constructs have explicit Lean translation functions")
+    check("parseExpr" in importer_text and "parseStmts" in importer_text and
+          "Expr.meaning" in semantics_text and "Stmt.meaning" in semantics_text,
+          "Solidity constructs have explicit Lean parser and semantics functions")
+    check("inductive Expr" in syntax_text and "inductive Stmt" in syntax_text and
+          "inductive LVal" in syntax_text,
+          "accepted Solidity subset is the closed inductive in Syntax.lean")
     check(all(tag not in importer_text for tag in ('[\"read\"', '[\"write\"', '[\"guard\"')),
           "no custom serialized JSON IR tags")
 
@@ -132,8 +140,9 @@ solidity_contract Vault from "Vault.sol"
 #print Vault.deposit
 ''')
             ux_output = run(root, [LAKE, "env", "lean", str(ux_probe)])
-            check("def Vault.deposit" in ux_output and "Verity.setStorage" in ux_output,
-                  "documented solidity_contract Vault UX exposes #print Vault.deposit")
+            check("def Vault.deposit" in ux_output and "Sol.Fn.meaning" in ux_output and
+                  "Sol.Stmt.assign" in ux_output,
+                  "documented solidity_contract Vault UX exposes #print Vault.deposit as its parsed AST")
         finally:
             ux_probe.unlink(missing_ok=True)
 
@@ -165,11 +174,34 @@ solidity_contract Vault from "Vault.sol"
         probe = root / ".lake/solidity-import/RegistrationProbe.lean"
         try:
             probe.write_text('''import Contracts.VaultFromSolidity.VaultFromSolidity
+import Contracts.VaultFromSolidity.Importer.Semantics
 open Lean Elab Command
 #print Contracts.VaultFromSolidity.deposit
+#print SolidityImporter.Sol.Fn.meaning
+#print SolidityImporter.Sol.assignWith
+#print SolidityImporter.Sol.checked
 #check fun (v : Contracts.VaultFromSolidity.Storage) => v.totalAssets
 #print Contracts.VaultFromSolidity.view
 #print Contracts.VaultFromSolidity.step
+/-- Transitive used-constant closure. A pattern-matching definition over an indexed
+family is compiled through a `.brecOn` recursor plus a `._f` companion, so the
+Verity primitives a construct unfolds to live in those companions rather than in
+the top-level constant's own body. -/
+partial def semanticsClosure (env : Environment) (roots : Array Name) : Array Name :=
+  let rec go (seen todo : Array Name) : Array Name :=
+    if todo.isEmpty then seen
+    else
+      let cur := todo.back!
+      let todo := todo.pop
+      if seen.contains cur then go seen todo
+      else
+        let seen := seen.push cur
+        let deps := match env.find? cur with
+          | some (.defnInfo i) => i.value.getUsedConstants
+          | some (.thmInfo i) => i.value.getUsedConstants
+          | _ => #[]
+        go seen (todo ++ deps)
+  go #[] roots
 run_cmd do
   for suffix in ["totalAssetsSlot", "totalSupplySlot", "shareBalancesSlot",
                  "deposit", "withdraw", "balanceOf", "totalAssets", "totalSupply",
@@ -190,9 +222,20 @@ run_cmd do
     | throwError "Storage.mk is not a constructor"
   let some (.defnInfo deposit) := (← getEnv).find? `Contracts.VaultFromSolidity.deposit
     | throwError "missing imported deposit"
-  for dep in [``Verity.setMapping, ``Verity.setStorage, ``Verity.Stdlib.Math.safeAdd] do
+  -- The imported body is the parsed Solidity AST under `Sol.Fn.meaning`, so the
+  -- constructors it uses are the source's constructs.
+  for dep in [``SolidityImporter.Sol.Fn.meaning, ``SolidityImporter.Sol.LVal.mapping,
+              ``SolidityImporter.Sol.LVal.scalar, ``SolidityImporter.Sol.AssignOp.add] do
     unless deposit.value.getUsedConstants.contains dep do
-      throwError "missing source-derived deposit operation: {dep}"
+      throwError "imported deposit does not go through the parsed AST: {dep}"
+  -- ... and that meaning still bottoms out in the Verity primitives, reached
+  -- through the semantics definitions (including their generated companions).
+  let semantics := semanticsClosure (← getEnv) #[``SolidityImporter.Sol.Fn.meaning,
+    ``SolidityImporter.Sol.Stmt.meaning, ``SolidityImporter.Sol.assignWith,
+    ``SolidityImporter.Sol.checked, ``SolidityImporter.Sol.Expr.meaning]
+  for dep in [``Verity.setMapping, ``Verity.setStorage, ``Verity.Stdlib.Math.safeAdd] do
+    unless semantics.contains dep do
+      throwError "semantics does not bottom out in Verity primitive: {dep}"
   logInfo "CHECKED_TRANSPARENT_DECLARATIONS"
 solidity_contract Existing from "../../Contracts/VaultFromSolidity/Vault.sol"
 run_cmd do
@@ -215,9 +258,13 @@ run_cmd do
             check("CHECKED_TRANSPARENT_DECLARATIONS" in output and
                   "DUPLICATE_ALIAS_REJECTED" in output,
                   "safe transparent readable definitions and collision rollback")
-            check("Verity.setMapping" in output and "Verity.setStorage" in output and
+            check("SolidityImporter.Sol.Fn.meaning" in output and
+                  "SolidityImporter.Sol.Stmt.assign" in output and
+                  "SolidityImporter.Sol.LVal.mapping" in output,
+                  "#print deposit exposes the parsed Solidity AST under its meaning")
+            check("Verity.bind" in output and "SolidityImporter.Sol.checked" in output and
                   "safeAdd" in output,
-                  "#print deposit exposes readable source-derived behavior")
+                  "#print of the semantics exposes the Verity primitives it bottoms out in")
             check("fun v => v.totalAssets : Contracts.VaultFromSolidity.Storage → Verity.Uint256" in output,
                   "named storage view supports v.totalAssets dot notation")
             check("def Contracts.VaultFromSolidity.view" in output and
@@ -386,6 +433,21 @@ solidity_contract Escaped from "../../Contracts/VaultFromSolidity/Vault.sol"
         check(before != artifacts(), "Lean importer content change invalidates Vault artifacts")
         check(digest_before != source_digest(), "Lean importer content changes sourceDigest")
         importer.write_bytes(importer_original)
+        build()
+
+        # The semantics is part of the trusted path, so its content must move the
+        # digest exactly like the parser does.
+        semantics = root / "Contracts/VaultFromSolidity/Importer/Semantics.lean"
+        semantics_original = semantics.read_bytes()
+        semantics_stamp = semantics.stat()
+        before = artifacts()
+        digest_before = source_digest()
+        semantics.write_bytes(semantics_original + b"\n-- acceptance semantics identity probe\n")
+        os.utime(semantics, ns=(semantics_stamp.st_atime_ns, semantics_stamp.st_mtime_ns))
+        build()
+        check(before != artifacts(), "Lean semantics content change invalidates Vault artifacts")
+        check(digest_before != source_digest(), "Lean semantics content changes sourceDigest")
+        semantics.write_bytes(semantics_original)
         build()
 
         policy = root / "lakefile.lean"

@@ -66,7 +66,7 @@ def eventHeadWordSize := paramHeadSize
 mutual
   /-- Number of 32-byte words an ABI value contributes to its parent's head.
   Dynamic children occupy one offset word in the parent head. -/
-  partial def paramParentHeadWords : ParamType → Nat
+  def paramParentHeadWords : ParamType → Nat
     | ParamType.string | ParamType.bytes | ParamType.array _ => 1
     | ParamType.tuple elemTys =>
         if isDynamicParamTypeList elemTys then 1 else paramLocalHeadWords (ParamType.tuple elemTys)
@@ -78,18 +78,38 @@ mutual
     | ParamType.bool | ParamType.bytes32 => 1
     | ParamType.adt _ maxFields => 1 + maxFields
 
+  termination_by ty => 2 * sizeOf ty + 1
+  decreasing_by all_goals simp_wf; all_goals omega
+
   /-- Number of 32-byte words in the local head of an ABI value once its dynamic
   tail has been entered. Dynamic children occupy one offset word in that head. -/
-  partial def paramLocalHeadWords : ParamType → Nat
+  def paramLocalHeadWords : ParamType → Nat
     | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
     | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _ | ParamType.address
     | ParamType.bool | ParamType.bytes32 | ParamType.string | ParamType.bytes
     | ParamType.array _ => 1
     | ParamType.fixedArray elemTy n => n * paramParentHeadWords elemTy
-    | ParamType.tuple elemTys => elemTys.foldl (fun acc ty => acc + paramParentHeadWords ty) 0
+    | ParamType.tuple elemTys => paramTupleHeadWords elemTys
     | ParamType.adt _ maxFields => 1 + maxFields
     | ParamType.newtypeOf _ baseType => paramLocalHeadWords baseType
+  termination_by ty => 2 * sizeOf ty
+  decreasing_by all_goals simp_wf; all_goals omega
+
+  def paramTupleHeadWords : List ParamType → Nat
+    | [] => 0
+    | ty :: rest => paramParentHeadWords ty + paramTupleHeadWords rest
+  termination_by tys => 2 * sizeOf tys
+  decreasing_by all_goals simp_wf; all_goals omega
+
 end
+
+/-- Total tuple traversal preserves the previous left-to-right head-size sum. -/
+theorem paramTupleHeadWords_foldl (tys : List ParamType) (acc : Nat) :
+    tys.foldl (fun total ty => total + paramParentHeadWords ty) acc =
+      acc + paramTupleHeadWords tys := by
+  induction tys generalizing acc with
+  | nil => simp [paramTupleHeadWords]
+  | cons ty rest ih => simp [paramTupleHeadWords, ih, Nat.add_assoc]
 
 /-- Whether a parameter type is ABI-encoded as exactly one 32-byte word without
 needing offset-based dynamic handling. -/
