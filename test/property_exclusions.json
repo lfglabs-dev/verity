@@ -24,6 +24,17 @@
   "withdraw_meets_spec",
   "withdraw_success_spec"
  ],
+ "SolidityImportSmoke": [
+  "bump_meets_spec",
+  "bump_success_spec",
+  "dispatch_is_child",
+  "go_meets_spec",
+  "go_success_spec",
+  "pause_meets_spec",
+  "pause_success_spec",
+  "paused_invariant",
+  "super_runs_parent"
+ ],
  "Counter": [
   "getStorage_reads_count",
   "previewAddTwice_correct",

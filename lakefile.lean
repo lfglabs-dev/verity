@@ -58,6 +58,17 @@ lean_lib «VaultFromSolidity» where
   needs := #[vaultSolidity, vaultLeanImporter, vaultLeanSyntax, vaultLeanSemantics, vaultSolc,
     vaultBuildPolicy]
 
+input_file inheritanceSolidity where
+  path := "Contracts/SolidityImportSmoke/Inheritance/Inheritance.sol"
+  text := false
+
+lean_lib «SolidityImportSmokeInheritance» where
+  globs := #[.one `Contracts.SolidityImportSmoke.Inheritance.Inheritance,
+    .one `Contracts.SolidityImportSmoke.Inheritance.Spec,
+    .one `Contracts.SolidityImportSmoke.Inheritance.Proofs]
+  needs := #[inheritanceSolidity, vaultLeanImporter, vaultLeanSyntax, vaultLeanSemantics, vaultSolc,
+    vaultBuildPolicy]
+
 lean_lib «Contracts» where
   globs := #[
     .one `Contracts,

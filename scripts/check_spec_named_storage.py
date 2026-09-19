@@ -34,6 +34,7 @@ from property_utils import ROOT, scrub_lean_code
 
 SPEC_FILES = (
     "Contracts/VaultFromSolidity/Spec.lean",
+    "Contracts/SolidityImportSmoke/Inheritance/Spec.lean",
 )
 
 CORE_LEAN = "Verity/Core.lean"

@@ -117,6 +117,11 @@ catch
   (do setStorage last 2)
 ```
 
+`selfCall f(a, b)` passes arguments to the hop (Solidity `this.f(a, b)`);
+`selfCall f` is the zero-argument form. A hop may make external calls: the
+executable plane threads the call context into it. Argument count and types
+are checked against `f`'s declaration.
+
 `tryCatch attempt handler` remains the word-level stub (`tryCatchWord`
 branches on `attempt == 0`) so existing low-level `call(...)` tests keep
 working. Prefer `try`/`selfCall` for modeled hops.
@@ -128,12 +133,12 @@ post-state; a revert there is **not** caught. Failed-call returndata is
 not bound into the handler (same compilation-model gap as `tryCatch`
 payload names); read `ContractState.returndata` if needed.
 
-**Compilation model.** `selfCall f` lowers to `Expr.call` targeting
-`contractAddress` (CALL-with-status to this, empty calldata). The `try`
-form is `let successBit := call(...); ite (successBit == 0) failure success`.
-Selector/ABI encoding of `f` is a documented gap; the status-bearing CALL
-plus conditional matches `docs/REVERT_STATE_MODEL.md` bubbling (failure
-does not revert the outer frame).
+**Compilation model.** `selfCall f` / `selfCall f(args)` lower to `Expr.call`
+targeting `contractAddress` (CALL-with-status to this, empty calldata). The
+`try` form is `let successBit := call(...); ite (successBit == 0) failure success`.
+Selector/ABI encoding of `f` and of its arguments is a documented gap; the
+status-bearing CALL plus conditional matches `docs/REVERT_STATE_MODEL.md`
+bubbling (failure does not revert the outer frame).
 
 **Alternative considered.** Replacing `tryCatch` in place would break
 `LowLevelTryCatchSmoke`. Keeping the stub as an alias is simpler.
