@@ -35,48 +35,30 @@ contract PropertyParetoSmallFidelityGapsSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 3: TODO decode and assert `g11_view_require` result
-    function testTODO_G11_view_require_DecodeAndAssert() public {
+    // Property 3: TODO decode and assert `viewer` result
+    function testTODO_Viewer_DecodeAndAssert() public {
         vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("g11_view_require(bool)", true));
-        require(ok, "g11_view_require reverted unexpectedly");
-        assertEq(ret.length, 32, "g11_view_require ABI return length mismatch (expected 32 bytes)");
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("viewer()"));
+        require(ok, "viewer reverted unexpectedly");
+        assertEq(ret.length, 32, "viewer ABI return length mismatch (expected 32 bytes)");
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 4: TODO decode and assert `g11_view_revert` result
-    function testTODO_G11_view_revert_DecodeAndAssert() public {
-        vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("g11_view_revert()"));
-        require(ok, "g11_view_revert reverted unexpectedly");
-        assertEq(ret.length, 32, "g11_view_revert ABI return length mismatch (expected 32 bytes)");
-        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
-        ret;
-    }
-    // Property 5: TODO decode and assert `g11_typed_static_view` result
-    function testTODO_G11_typed_static_view_DecodeAndAssert() public {
-        vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("g11_typed_static_view(address,uint256)", alice, uint256(1)));
-        require(ok, "g11_typed_static_view reverted unexpectedly");
-        assertEq(ret.length, 32, "g11_typed_static_view ABI return length mismatch (expected 32 bytes)");
-        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
-        ret;
-    }
-    // Property 6: TODO decode and assert `g14_tuple_typed_interface` result
-    function testTODO_G14_tuple_typed_interface_DecodeAndAssert() public {
-        vm.prank(alice);
-        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("g14_tuple_typed_interface(address,uint256)", alice, uint256(1)));
-        require(ok, "g14_tuple_typed_interface reverted unexpectedly");
-        require(ret.length >= 64, "g14_tuple_typed_interface ABI tuple return payload unexpectedly short");
-        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
-        ret;
-    }
-    // Property 7: TODO decode and assert `g14_tuple_call_external` result
+    // Property 4: TODO decode and assert `g14_tuple_call_external` result
     function testTODO_G14_tuple_call_external_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("g14_tuple_call_external(uint256)", uint256(1)));
         require(ok, "g14_tuple_call_external reverted unexpectedly");
         require(ret.length >= 64, "g14_tuple_call_external ABI tuple return payload unexpectedly short");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 5: TODO decode and assert `g14_typed` result
+    function testTODO_G14_typed_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("g14_typed(address,uint256)", alice, uint256(1)));
+        require(ok, "g14_typed reverted unexpectedly");
+        require(ret.length >= 64, "g14_typed ABI tuple return payload unexpectedly short");
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }

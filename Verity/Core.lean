@@ -1656,6 +1656,9 @@ def setPackedTransientStorage (s : StorageSlot Uint256) (offset width : Nat)
 @[simp] theorem getStorage_run (s : StorageSlot Uint256) (state : ContractState) :
   (getStorage s).run state = ContractResult.success (state.storage s.slot) state := rfl
 
+@[simp] theorem getStorage_run_snd (s : StorageSlot Uint256) (state : ContractState) :
+  ((getStorage s).run state).snd = state := rfl
+
 @[simp] theorem setStorage_run (s : StorageSlot Uint256) (value : Uint256) (state : ContractState) :
   (setStorage s value).run state = ContractResult.success () (state.writeSlot s.slot value) := rfl
 
@@ -1668,6 +1671,9 @@ def setStorageAddr (s : StorageSlot Address) (value : Address) : Contract Unit :
 
 @[simp] theorem getStorageAddr_run (s : StorageSlot Address) (state : ContractState) :
   (getStorageAddr s).run state = ContractResult.success (state.storageAddr s.slot) state := rfl
+
+@[simp] theorem getStorageAddr_run_snd (s : StorageSlot Address) (state : ContractState) :
+  ((getStorageAddr s).run state).snd = state := rfl
 
 @[simp] theorem setStorageAddr_run (s : StorageSlot Address) (value : Address) (state : ContractState) :
   (setStorageAddr s value).run state = ContractResult.success () (state.writeAddrSlot s.slot value) := rfl
@@ -1986,6 +1992,17 @@ def require (condition : Bool) (message : String) : Contract Unit :=
   fun s => if condition
            then ContractResult.success () s
            else ContractResult.revert message s
+
+@[simp] theorem require_run (condition : Bool) (message : String) (s : ContractState) :
+    (require condition message).run s =
+      if condition then .success () s else .revert message s := by
+  cases condition <;> rfl
+
+@[simp] theorem getStorage_bind_require_run_snd (slot : StorageSlot Uint256)
+    (condition : Uint256 → Bool) (message : String) (s : ContractState) :
+    ((Verity.bind (getStorage slot) (fun value => require (condition value) message)).run s).snd = s := by
+  by_cases h : condition (s.readSlot slot.slot) = true <;>
+    simp [Verity.bind, getStorage, require, Contract.run, h]
 
 /-- Reentrancy guard primitive.
 Uses `lockSlot` as a mutex (`0` = unlocked, nonzero = locked), sets it before

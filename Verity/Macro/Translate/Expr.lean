@@ -2756,7 +2756,10 @@ partial def resolveTypedInterfaceCallEarly?
   match ext.returnTys.toList with
   | [retTy] => pure (some (ext, target, argTerms, some retTy, selector))
   | [] => pure (some (ext, target, argTerms, none, selector))
-  | _ => pure (some (ext, target, argTerms, none, selector))
+  -- A tuple destructuring bind needs to recognize multi-return interface
+  -- calls too.  The caller validates the individual static return words and
+  -- lowers them through the regular executable typed-call path.
+  | _ => pure (some (ext, target, argTerms, some (.tuple ext.returnTys.toList), selector))
 
 partial def inferTupleSourceTypes?
     (fields : Array StorageFieldDecl)

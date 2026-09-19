@@ -9,7 +9,8 @@ open Verity.EVM.Uint256
 -- Pareto fidelity gaps G8/G10/G11/G14.
 verity_contract ParetoSmallFidelityGapsSmoke where
   storage
-    ignored : Array Uint256 := slot 0
+    p : Uint256 := slot 0
+    t : Address := slot 1
 
   errors
     error Stopped(Uint256)
@@ -18,6 +19,9 @@ verity_contract ParetoSmallFidelityGapsSmoke where
     interface IPrices where
       function quote(Uint256) view returns (Uint256)
       function bounds(Uint256) view returns (Uint256, Uint256)
+    end
+    interface IT where
+      function totalSupply() view returns (Uint256)
     end
 
   linked_externals
@@ -30,16 +34,29 @@ verity_contract ParetoSmallFidelityGapsSmoke where
     return result
 
   function g10_mutable_monadic_bind () : Uint256 := do
-    let mut result ← getStorageArrayLength ignored
-    result ← getStorageArrayLength ignored
+    let mut result ← getStorage p
+    result ← getStorage p
     return result
 
-  function view g11_view_require (flag : Bool) : Uint256 := do
-    require flag "flag"
-    return 1
+  function internal view r0 () : Unit := do
+    let v ← getStorage p
+    require (v == 0) "paused"
+
+  function internal view sup (x : IT) : Uint256 := do
+    let value ← x.totalSupply
+    return value
+
+  function view viewer () : Uint256 := do
+    let a ← getStorageAddr t
+    let value ← sup a
+    return value
 
   function g14_tuple_call_external (seed : Uint256) : Tuple [Uint256, Uint256] := do
     let (first, second) ← callExternal pair(seed)
     return (first, second)
+
+  function g14_typed (oracle : IPrices, seed : Uint256) : Tuple [Uint256, Uint256] := do
+    let (lo, hi) ← oracle.bounds seed
+    return (lo, hi)
 
 end Contracts.Smoke

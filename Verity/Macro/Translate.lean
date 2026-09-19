@@ -121,7 +121,12 @@ private partial def validateDoElemExprTypes
       match tupleBinderNames? patDecl[0] with
       | some names =>
           let rhs : Term := ⟨patDecl[4]⟩
-          match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
+          match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
+          | some (ext, _, _, some _, _) =>
+              let typedNames := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
+                name?.map (fun name => mkTypedLocal name ty)
+              pure (some (locals ++ typedNames))
+          | _ => match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, _) =>
               let typedNames ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
               pure (some (locals ++ typedNames))
@@ -146,7 +151,12 @@ private partial def validateDoElemExprTypes
       match tupleBinderNames? patDecl[0] with
       | some names =>
           let rhs : Term := ⟨patDecl[3][0]⟩
-          match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
+          match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
+          | some (ext, _, _, some _, _) =>
+              let typedNames := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
+                name?.map (fun name => mkTypedLocal name ty)
+              pure (some (locals ++ typedNames))
+          | _ => match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, _) =>
               let typedNames ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
               pure (some (locals ++ typedNames))
@@ -1360,23 +1370,26 @@ private partial def translateDoElem
       | some names =>
           ensureFreshLocalNames localNames names stx
           let rhs : Term := ⟨patDecl[3][0]⟩
-          match (← tupleInternalCallAssignStmt? fields constDecls immutableDecls externalDecls functions params locals rhs names) with
+          -- Typed interface calls have qualified syntax (`oracle.bounds`), so
+          -- recognize their external ABI bind before the generic qualified
+          -- helper path below.
+          match (← tupleExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
           | some stmt =>
-              let valueTys ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals rhs
-              match valueTys with
-              | some tys =>
-                  let typedPairs := (names.zip tys).filterMap fun (name?, ty) => name?.map (fun name => mkTypedLocal name ty)
-                  pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
-              | none =>
-                  match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
-                  | some (qualifiedName, _) =>
-                      let typedPairs ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
-                      pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
-                  | none => throwErrorAt rhs "unable to infer tuple local types"
+              pure (some (#[(stmt.1)], locals ++ stmt.2, mutableLocals))
           | none =>
-              match (← tupleExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
-              | some (stmt, typedPairs) =>
-                  pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
+              match (← tupleInternalCallAssignStmt? fields constDecls immutableDecls externalDecls functions params locals rhs names) with
+              | some stmt =>
+                  let valueTys ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals rhs
+                  match valueTys with
+                  | some tys =>
+                      let typedPairs := (names.zip tys).filterMap fun (name?, ty) => name?.map (fun name => mkTypedLocal name ty)
+                      pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
+                  | none =>
+                      match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
+                      | some (qualifiedName, _) =>
+                          let typedPairs ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
+                          pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
+                      | none => throwErrorAt rhs "unable to infer tuple local types"
               | none =>
                   match (← tryExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
                   | some (stmts, typedPairs) =>
@@ -2293,18 +2306,24 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| let $pat:term ← $rhs:term) =>
       match tupleBinderNames? pat with
       | some _ =>
-          match stripParens rhs with
-          | `(term| tryExternalCall $name:term $_args:term) =>
-              let extName := ← expectStringOrIdent name
-              match externalDecls.find? (fun ext => ext.name == extName) with
-              | some ext =>
-                  match ext.returnTys.toList with
-                  | [retTy] =>
-                      let retTyTerm ← contractValueTypeTerm retTy
-                      pure (#[← `(doElem| let $pat:term ← ($rhs : _root_.Verity.Contract (Bool × $retTyTerm)))], locals)
-                  | _ => pure (#[elem], locals)
-              | none => pure (#[elem], locals)
-          | _ => pure (#[elem], locals)
+          match ← resolveTypedInterfaceCallEarly? fields #[] #[] externalDecls params locals rhs with
+          | some (ext, target, args, some _, _) =>
+              let linked ← `(term| __verityTypedCall $target $(strTerm ext.name)
+                [ $[$args],* ])
+              pure (#[← `(doElem| let $pat:term ← $linked:term)], locals)
+          | _ =>
+              match stripParens rhs with
+              | `(term| tryExternalCall $name:term $_args:term) =>
+                  let extName := ← expectStringOrIdent name
+                  match externalDecls.find? (fun ext => ext.name == extName) with
+                  | some ext =>
+                      match ext.returnTys.toList with
+                      | [retTy] =>
+                          let retTyTerm ← contractValueTypeTerm retTy
+                          pure (#[← `(doElem| let $pat:term ← ($rhs : _root_.Verity.Contract (Bool × $retTyTerm)))], locals)
+                      | _ => pure (#[elem], locals)
+                  | none => pure (#[elem], locals)
+              | _ => pure (#[elem], locals)
       | none => pure (#[elem], locals)
   | `(doElem| forEach $name:term $_count:term $body:term) =>
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))

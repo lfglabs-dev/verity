@@ -77,18 +77,20 @@ private def mkFunctionStateForall (fnDecl : FunctionDecl) (body : Term) : Comman
 /-- Auto-generated execution-level frame theorem for `view` functions.
     Validation guarantees that view bodies do not write contract state; this
     theorem exposes that guarantee as a reusable preservation fact. -/
-def mkViewFrameTheoremCommand (fnDecl : FunctionDecl) : CommandElabM Cmd := do
+def mkViewFrameTheoremCommand (fnDecl : FunctionDecl) (functions : Array FunctionDecl)
+    : CommandElabM Cmd := do
   let viewFrameName ← mkSuffixedIdent fnDecl.ident "_view_frame"
-  let fnIdent := fnDecl.ident
   let fnApp ← mkFunctionApplication fnDecl
+  let functionIdents := functions.map (fun fn => fn.ident)
   let prop ← mkFunctionStateForall fnDecl
     (← `(Verity.Specs.viewPreservesState s (($fnApp).run s).snd))
   `(command|
     /-- Auto-generated execution frame: this `view` function preserves state. -/
     theorem $viewFrameName : $prop := by
       intros
-      unfold $fnIdent
-      simp [msgSender, getStorageAddr, getStorage, setStorage, setStorageAddr,
+      simp only [$[$functionIdents:ident],*]
+      simp [Verity.require, Verity.bind, Pure.pure, Bind.bind,
+        getStorage, getStorageAddr, msgSender, setStorage, setStorageAddr,
         getMapping, setMapping, setMapping2, getMappingUint, setMappingUint,
         getMapping2, ContractState.readSlot, ContractState.writeSlot,
         ContractState.readAddrSlot, ContractState.writeAddrSlot,
@@ -96,8 +98,7 @@ def mkViewFrameTheoremCommand (fnDecl : FunctionDecl) : CommandElabM Cmd := do
         ContractState.writeMapUint, ContractState.readMap2, ContractState.writeMap2,
         ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
         ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage,
-        Verity.require, Verity.pure, Verity.bind, Bind.bind, Pure.pure,
-        Contract.run, ContractResult.snd, ContractResult.fst,
+        Verity.pure,
         Contracts.externalStaticCallContractWords,
         Contracts.externalStaticCallContractWordsResolved,
         Contracts.externalStaticCallContractWordsTo,
@@ -105,6 +106,7 @@ def mkViewFrameTheoremCommand (fnDecl : FunctionDecl) : CommandElabM Cmd := do
         Contracts.externalStaticCallEffectWordsResolved,
         Contracts.externalStaticCallEffectWordsTo,
         Contracts.commonExternalCall,
+        Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCall,
         Verity.Specs.viewPreservesState, Verity.Specs.sameAllStorage,
@@ -112,7 +114,9 @@ def mkViewFrameTheoremCommand (fnDecl : FunctionDecl) : CommandElabM Cmd := do
         Verity.Specs.sameKnownAddresses, Verity.Specs.sameStorage,
         Verity.Specs.sameStorageAddr, Verity.Specs.sameStorageMap,
         Verity.Specs.sameStorageMapUint, Verity.Specs.sameStorageMap2,
-        Verity.Specs.sameStorageArray])
+        Verity.Specs.sameStorageArray]
+      try exact Verity.Specs.viewPreservesState_rfl _
+      all_goals (try split) <;> try exact Verity.Specs.viewPreservesState_rfl _)
 
 /-- Auto-generated `_is_pure` theorem for pure functions.
     Emits a `@[simp]` lemma stating the model's `isPure` flag is `true`, making this
