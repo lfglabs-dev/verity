@@ -745,6 +745,7 @@ end Verity.AxiomAudit
 
   -- Verity/Proofs/Model/GeneratedEntrypointRegistry.lean
   Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_registered
+  Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_registered_ofAdversary
   Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_reentry_blocked
   Contracts.ReentrancyRelyGuarantee.generated_registry_callback_preserves
 
@@ -7593,4 +7594,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7016 theorems/lemmas (5007 public, 2009 private, 0 sorry'd)
+-- Total: 7017 theorems/lemmas (5008 public, 2009 private, 0 sorry'd)
