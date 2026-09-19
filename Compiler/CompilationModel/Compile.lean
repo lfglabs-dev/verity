@@ -38,21 +38,82 @@ import Compiler.CompilationModel.StorageWrites
 import Compiler.CompilationModel.Validation
 import Compiler.CompilationModel.AdtStorageLayout
 import Verity.Core.Intrinsics
+import Compiler.Yul.StatementRegions
 
 namespace Compiler.CompilationModel
 
 open Compiler
 open Compiler.Yul
 
-/-- Single bridge from typed unsafe/raw Yul fragments into the EVMYul AST.
-    Proof obligations and trust metadata live on `UnsafeYulFragment`; this
-    function is intentionally the only compiler lowering point for that escape
-    hatch. -/
+/-! Opaque-Yul provenance markers and bridge.
+
+    `YulStmt` is deliberately a small, shared AST and does not carry source
+    provenance.  These comments preserve the `Stmt.unsafeYul` boundary after
+    lowering without changing the generated EVM semantics. ECM has distinct
+    markers: its arithmetic may be optimized after operand/helper validation.
+    Explicit unsafe-Yul regions remain opaque to that peephole.
+
+    Proof obligations and trust metadata remain attached to
+    `UnsafeYulFragment`; the comment markers are provenance only and are
+    ignored by Yul. -/
+private def escapeOpaqueYulMarkerComment : YulStmt → YulStmt
+  | YulStmt.comment text =>
+      if text == UnsafeYulFragment.beginMarker || text == UnsafeYulFragment.endMarker then
+        YulStmt.comment (text ++ "_raw")
+      else
+        YulStmt.comment text
+  | stmt => stmt
+
+private def opaqueYulRegion (stmts : List YulStmt) : List YulStmt :=
+  YulStmt.comment UnsafeYulFragment.beginMarker ::
+    stmts.map escapeOpaqueYulMarkerComment ++
+    [YulStmt.comment UnsafeYulFragment.endMarker]
+
+/-- Opaque-region markers and comment escaping preserve any statement
+    predicate that admits arbitrary comments. -/
+theorem opaqueYulRegion_preserves (P : YulStmt → Prop)
+    (hComment : ∀ text, P (.comment text))
+    {stmts : List YulStmt} (hStmts : ∀ stmt ∈ stmts, P stmt) :
+    ∀ stmt ∈ opaqueYulRegion stmts, P stmt := by
+  intro stmt hMem
+  simp only [opaqueYulRegion, List.mem_cons, List.mem_append, List.mem_map,
+    List.not_mem_nil, or_false] at hMem
+  rcases hMem with (rfl | ⟨original, hOriginal, rfl⟩) | rfl
+  · exact hComment _
+  · cases original <;> simp only [escapeOpaqueYulMarkerComment]
+      <;> try exact hStmts _ hOriginal
+    split <;> exact hComment _
+  · exact hComment _
+
+private def ecmYulRegion (stmts : List YulStmt) : List YulStmt :=
+  if StatementRegions.containsEcmMarker stmts then opaqueYulRegion stmts
+  else
+    YulStmt.comment StatementRegions.ecmBeginMarker ::
+      stmts ++ [YulStmt.comment StatementRegions.ecmEndMarker]
+
+/-- ECM wrapping adds only comments; reserved marker text falls back to opacity. -/
+theorem ecmYulRegion_preserves (P : YulStmt → Prop)
+    (hComment : ∀ text, P (.comment text))
+    {stmts : List YulStmt} (hStmts : ∀ stmt ∈ stmts, P stmt) :
+    ∀ stmt ∈ ecmYulRegion stmts, P stmt := by
+  unfold ecmYulRegion
+  split
+  · exact opaqueYulRegion_preserves P hComment hStmts
+  · intro stmt hMem
+    simp only [List.mem_cons, List.mem_append, List.not_mem_nil, or_false] at hMem
+    rcases hMem with (rfl | hOriginal) | rfl
+    · exact hComment _
+    · exact hStmts _ hOriginal
+    · exact hComment _
+
 def unsafeYulToEVMYul (fragment : UnsafeYulFragment) : List YulStmt :=
-  fragment.stmts
+  opaqueYulRegion fragment.stmts
 
 theorem unsafeYulToEVMYul_eq (fragment : UnsafeYulFragment) :
-    unsafeYulToEVMYul fragment = fragment.stmts := rfl
+    unsafeYulToEVMYul fragment =
+      YulStmt.comment UnsafeYulFragment.beginMarker ::
+        fragment.stmts.map escapeOpaqueYulMarkerComment ++
+        [YulStmt.comment UnsafeYulFragment.endMarker] := rfl
 
 private def compileAdtStorageWrite (fields : List Field)
     (dynamicSource : DynamicDataSource) (adtTypes : List AdtTypeDef)
@@ -278,6 +339,8 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       let codeExpr ← compileExprWithInternals fields dynamicSource internalFunctions code
       let codeName := "__panic_code"
       pure [YulStmt.block (YulStmt.let_ codeName codeExpr :: solidityPanicPayloadExpr (YulExpr.ident codeName))]
+  | .panic code =>
+      pure (solidityPanicPayload code.toNat)
   | Stmt.return value =>
     do
       let valueExpr ← compileExprWithInternals fields dynamicSource internalFunctions value
@@ -411,7 +474,8 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       let ctx : ECM.CompilationContext := {
         isDynamicFromCalldata := dynamicSource == .calldata
       }
-      mod.compile ctx compiledArgs
+      let generated ← mod.compile ctx compiledArgs
+      pure (ecmYulRegion generated)
   | Stmt.returnValues values => do
       if isInternal then
         if values.length != internalRetNames.length then
@@ -651,7 +715,7 @@ theorem compileStmt_unsafeYul
     (adtTypes : List AdtTypeDef := [])
     (fragment : UnsafeYulFragment) :
     compileStmt fields events errors dynamicSource internalRetNames isInternal inScopeNames adtTypes
-      (Stmt.unsafeYul fragment) = pure fragment.stmts := by
+      (Stmt.unsafeYul fragment) = pure (unsafeYulToEVMYul fragment) := by
   simp [compileStmt, compileStmtWithFork, unsafeYulToEVMYul]
 
 end Compiler.CompilationModel

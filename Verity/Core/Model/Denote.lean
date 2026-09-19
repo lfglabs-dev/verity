@@ -1410,6 +1410,7 @@ mutual
         match evalExpr oracle fields state code with
         | some _ => .revert
         | none => .revert
+    | _, .panic _ => .revert
     | state, .return value =>
         match evalExpr oracle fields state value with
         | some resolved => .return resolved

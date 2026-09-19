@@ -14,6 +14,11 @@ termination metadata at the same boundary. This keeps ad-hoc assembly visible
 in trust reports without making every Yul instruction look like a modeled
 Verity statement.
 
+When lowered, each fragment is surrounded by comment-only provenance markers.
+The checked-arithmetic peephole treats that marked region as opaque, so raw Yul
+cannot be mistaken for compiler-generated checked arithmetic or have repeated
+operand evaluation changed by the rewrite.
+
 For example, raw memory reverts now use the fragment helper:
 
 ```lean

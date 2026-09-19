@@ -1449,65 +1449,125 @@ def safeDivRequireLowersToZeroGuard : Bool :=
 
 example : safeDivRequireLowersToZeroGuard = true := by native_decide
 
-def addPanicLowersToSolidity08Guard : Bool :=
+def addPanicLowersToSolidity08Panic : Bool :=
   match Contracts.Smoke.ArithmeticPanicSmoke.deposit_modelBody with
   | [ Stmt.letVar "current" (Expr.storage "balance"),
-      Stmt.require
-        (Expr.ge
+      Stmt.ite
+        (Expr.lt
           (Expr.add (Expr.localVar "current") (Expr.param "amount"))
           (Expr.localVar "current"))
-        "Panic(0x11): arithmetic overflow",
+        [Stmt.panic .arithmeticOverflow] [],
       Stmt.letVar "next" (Expr.add (Expr.localVar "current") (Expr.param "amount")),
       Stmt.setStorage "balance" (Expr.localVar "next"),
       Stmt.return (Expr.localVar "next") ] => true
   | _ => false
 
-example : addPanicLowersToSolidity08Guard = true := by native_decide
+example : addPanicLowersToSolidity08Panic = true := by native_decide
 
-def subPanicLowersToSolidity08Guard : Bool :=
+def subPanicLowersToSolidity08Panic : Bool :=
   match Contracts.Smoke.ArithmeticPanicSmoke.withdraw_modelBody with
   | [ Stmt.letVar "current" (Expr.storage "balance"),
-      Stmt.require
-        (Expr.ge (Expr.localVar "current") (Expr.param "amount"))
-        "Panic(0x11): arithmetic underflow",
+      Stmt.ite
+        (Expr.lt (Expr.localVar "current") (Expr.param "amount"))
+        [Stmt.panic .arithmeticOverflow] [],
       Stmt.letVar "next" (Expr.sub (Expr.localVar "current") (Expr.param "amount")),
       Stmt.setStorage "balance" (Expr.localVar "next"),
       Stmt.return (Expr.localVar "next") ] => true
   | _ => false
 
-example : subPanicLowersToSolidity08Guard = true := by native_decide
+example : subPanicLowersToSolidity08Panic = true := by native_decide
 
-def mulPanicLowersToSolidity08Guard : Bool :=
+def mulPanicLowersToSolidity08Panic : Bool :=
   match Contracts.Smoke.ArithmeticPanicSmoke.scaleStored_modelBody with
   | [ Stmt.letVar "current" (Expr.storage "balance"),
-      Stmt.require
-        (Expr.logicalOr
-          (Expr.eq (Expr.param "factor") (Expr.literal 0))
-          (Expr.eq
-            (Expr.div
-              (Expr.mul (Expr.localVar "current") (Expr.param "factor"))
-              (Expr.param "factor"))
-            (Expr.localVar "current")))
-        "Panic(0x11): arithmetic overflow",
+      Stmt.ite
+        (Expr.logicalNot
+          (Expr.logicalOr
+            (Expr.eq (Expr.param "factor") (Expr.literal 0))
+            (Expr.eq
+              (Expr.div
+                (Expr.mul (Expr.localVar "current") (Expr.param "factor"))
+                (Expr.param "factor"))
+              (Expr.localVar "current"))))
+        [Stmt.panic .arithmeticOverflow] [],
       Stmt.letVar "next" (Expr.mul (Expr.localVar "current") (Expr.param "factor")),
       Stmt.setStorage "balance" (Expr.localVar "next"),
       Stmt.return (Expr.localVar "next") ] => true
   | _ => false
 
-example : mulPanicLowersToSolidity08Guard = true := by native_decide
+example : mulPanicLowersToSolidity08Panic = true := by native_decide
 
-def divPanicLowersToSolidity08Guard : Bool :=
+def divPanicLowersToSolidity08Panic : Bool :=
   match Contracts.Smoke.ArithmeticPanicSmoke.shareStored_modelBody with
   | [ Stmt.letVar "current" (Expr.storage "balance"),
-      Stmt.require
-        (Expr.logicalNot (Expr.eq (Expr.param "divisor") (Expr.literal 0)))
-        "Panic(0x12): division by zero",
+      Stmt.ite
+        (Expr.eq (Expr.param "divisor") (Expr.literal 0))
+        [Stmt.panic .divisionByZero] [],
       Stmt.letVar "next" (Expr.div (Expr.localVar "current") (Expr.param "divisor")),
       Stmt.setStorage "balance" (Expr.localVar "next"),
       Stmt.return (Expr.localVar "next") ] => true
   | _ => false
 
-example : divPanicLowersToSolidity08Guard = true := by native_decide
+example : divPanicLowersToSolidity08Panic = true := by native_decide
+
+def checkedArithmeticPanicPairEnablesHelpers : Bool :=
+  stmtListMayUseCheckedArithmetic [
+    Stmt.ite
+      (Expr.lt
+        (Expr.add (Expr.localVar "lhs") (Expr.localVar "rhs"))
+        (Expr.localVar "lhs"))
+      [Stmt.panic .arithmeticOverflow] [],
+    Stmt.letVar "result" (Expr.add (Expr.localVar "lhs") (Expr.localVar "rhs"))
+  ]
+
+example : checkedArithmeticPanicPairEnablesHelpers = true := by native_decide
+
+def standalonePanicDoesNotEnableHelpers : Bool :=
+  !stmtListMayUseCheckedArithmetic [Stmt.panic .arithmeticOverflow]
+
+example : standalonePanicDoesNotEnableHelpers = true := by native_decide
+
+def reversedSubtractionGuardDoesNotEnableHelpers : Bool :=
+  !stmtListMayUseCheckedArithmetic [
+    Stmt.ite
+      (Expr.lt (Expr.localVar "rhs") (Expr.localVar "lhs"))
+      [Stmt.panic .arithmeticOverflow] [],
+    Stmt.letVar "result" (Expr.sub (Expr.localVar "lhs") (Expr.localVar "rhs"))
+  ]
+
+example : reversedSubtractionGuardDoesNotEnableHelpers = true := by native_decide
+
+def wrongSubtractionPanicCodeDoesNotEnableHelpers : Bool :=
+  !stmtListMayUseCheckedArithmetic [
+    Stmt.ite
+      (Expr.lt (Expr.localVar "lhs") (Expr.localVar "rhs"))
+      [Stmt.panic .divisionByZero] [],
+    Stmt.letVar "result" (Expr.sub (Expr.localVar "lhs") (Expr.localVar "rhs"))
+  ]
+
+example : wrongSubtractionPanicCodeDoesNotEnableHelpers = true := by native_decide
+
+def mismatchedSubtractionOperandsDoNotEnableHelpers : Bool :=
+  !stmtListMayUseCheckedArithmetic [
+    Stmt.ite
+      (Expr.lt (Expr.localVar "lhs") (Expr.localVar "rhs"))
+      [Stmt.panic .arithmeticOverflow] [],
+    Stmt.letVar "result" (Expr.sub (Expr.localVar "lhs") (Expr.localVar "other"))
+  ]
+
+example : mismatchedSubtractionOperandsDoNotEnableHelpers = true := by native_decide
+
+def rawArithmeticLookalikeDoesNotEnableHelpers : Bool :=
+  !stmtListMayUseCheckedArithmetic [
+    Stmt.ite
+      (Expr.lt
+        (Expr.add (Expr.localVar "lhs") (Expr.localVar "rhs"))
+        (Expr.localVar "lhs"))
+      [Stmt.panicCode (Expr.literal 0x11)] [],
+    Stmt.letVar "result" (Expr.add (Expr.localVar "lhs") (Expr.localVar "rhs"))
+  ]
+
+example : rawArithmeticLookalikeDoesNotEnableHelpers = true := by native_decide
 
 end MacroSafeMulRequireSmoke
 

@@ -432,6 +432,11 @@ private def compileStmt (fields : List Field) : Stmt → CompileM Unit
       let offsetExpr ← liftExcept <| asUInt256 (← compileExpr fields dataOffset)
       let sizeExpr ← liftExcept <| asUInt256 (← compileExpr fields dataSize)
       emit (.rawLog topicExprs offsetExpr sizeExpr)
+  | .panicCode code => do
+      let codeExpr ← liftExcept <| asUInt256 (← compileExpr fields code)
+      emit (.panicCode codeExpr)
+  | .panic code =>
+      emit (.panic code)
   | stmt =>
       throw s!"Typed IR compile error: unsupported statement form in phase 2.1: {repr stmt}"
 

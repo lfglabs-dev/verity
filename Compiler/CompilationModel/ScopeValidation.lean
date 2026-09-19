@@ -509,6 +509,8 @@ def validateScopedStmtIdentifiers
   | .panicCode code => do
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount code
       pure localScope
+  | .panic _ =>
+      pure localScope
   | Stmt.ite cond thenBranch elseBranch => do
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount cond
       let _ ← validateScopedStmtListIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount thenBranch

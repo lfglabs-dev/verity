@@ -6457,7 +6457,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
         evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state cond hsurface.1]
   | .revertError _ args =>
       simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult]
-  | .panicCode _ => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .panicCode _ | .panic _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnValues _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnArray _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnBytes _ => simp [execStmtWithHelpers, execStmtWithEvents]

@@ -107,6 +107,8 @@ where
         let codeName := "__panic_code"
         [.block (.let_ codeName (lowerTExpr code) ::
           Compiler.CompilationModel.solidityPanicPayloadExpr (.ident codeName))]
+    | .panic code =>
+        Compiler.CompilationModel.solidityPanicPayload code.toNat
 
 /-- Lower a typed IR block into Yul statements for the existing IR/Yul backend. -/
 def lowerTBlock (block : TBlock) : List YulStmt :=

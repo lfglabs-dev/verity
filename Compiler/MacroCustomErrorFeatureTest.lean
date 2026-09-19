@@ -136,8 +136,9 @@ def failRuntimeModelUsesRuntimeCustomErrorArgs : Bool :=
       Stmt.revertError "ExecutionResult"
         [Expr.localVar "total",
           Expr.add (Expr.param "paid") (Expr.literal 1),
-          Expr.param "target",
-          Expr.param "success"],
+          Expr.bitAnd (Expr.param "target")
+            (Expr.literal 0xffffffffffffffffffffffffffffffffffffffff),
+          Expr.logicalNot (Expr.eq (Expr.param "success") (Expr.literal 0))],
       Stmt.stop] =>
       true
   | _ => false
