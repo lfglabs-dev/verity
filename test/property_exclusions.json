@@ -38,9 +38,11 @@
   "pause_meets_spec",
   "pause_success_spec",
   "paused_invariant",
-  "set_then_get",
-  "status_restored",
-  "super_runs_parent"
+    "set_then_get",
+    "snapshot_restores_status",
+    "status_restored",
+    "super_runs_parent",
+    "tagged_uses_base_helper"
  ],
  "Counter": [
   "getStorage_reads_count",
