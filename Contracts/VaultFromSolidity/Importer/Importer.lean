@@ -811,17 +811,17 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
             let some info := lookupStruct structs rid.toNat | failAt ctx node "using an undeclared struct"
             requireKeys layoutType ["encoding", "label", "members", "numberOfBytes"] "storage type"
             needAt ctx node ((← str (← field layoutType "encoding")) == "inplace") "bad scalar layout"
-              let vis ← str (← field node "visibility")
-              let mut i : Nat := 0
-              for mem in info.members do
-                let sty : Sol.StorageTy := match mem.ty with
-                  | .uint => .scalar
-                  | .addr => .addr
-                  | .pair _ => .scalar
-                let mname := name ++ "_" ++ mem.name
-                let getter := if vis == "public" && i == 0 then some name else none
-                fields := fields ++ [FieldInfo.mk id mname (mname ++ "Slot") getter (slot + i) sty (some info.id) (some i)]
-                i := i + 1
+            let vis ← str (← field node "visibility")
+            let mut i : Nat := 0
+            for mem in info.members do
+              let sty : Sol.StorageTy := match mem.ty with
+                | .uint => .scalar
+                | .addr => .addr
+                | .pair _ => .scalar
+              let mname := name ++ "_" ++ mem.name
+              let getter := if vis == "public" && i == 0 then some name else none
+              fields := fields ++ [FieldInfo.mk id mname (mname ++ "Slot") getter (slot + i) sty (some info.id) (some i)]
+              i := i + 1
           else
             let vis ← str (← field node "visibility")
             needAt ctx node (vis != "public") "opaque public getter unsupported"
@@ -1717,8 +1717,8 @@ private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
           let amount ← mkAppM ``Verity.getStorage #[amountH.2]
           let who ← mkAppM ``Verity.getStorageAddr #[whoH.2]
           let value ← mkAppM ``Sol.nonpayable
-            #[← mkAppM ``Verity.bind #[amount, ← withLocalDeclD `x uint fun x =>
-              mkLambdaFVars #[x] (← mkAppM ``Verity.bind #[who, ← withLocalDeclD `y address fun y =>
+            #[← mkAppM ``Verity.bind #[amount, ← withLocalDeclD `x uint fun x => do
+              mkLambdaFVars #[x] (← mkAppM ``Verity.bind #[who, ← withLocalDeclD `y address fun y => do
                 mkLambdaFVars #[y] (← mkAppM ``Verity.pure #[← mkAppM ``Prod.mk #[x, y]])])]]
           register gname value
           getterEntries := getterEntries.push (gname, [])

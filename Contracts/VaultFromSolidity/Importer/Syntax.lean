@@ -131,11 +131,11 @@ inductive Expr (L : Layout) (F : Fns) (Γ : Ctx) : Ty → Type where
   /-- Checked `+`/`-` on `uint256`, reverting with `Panic(0x11)`. -/
   | arith : ArithOp → Expr L F Γ .uint → Expr L F Γ .uint → Expr L F Γ .uint
   /-- Memory struct `{amount, who}` of solc struct `id`. -/
-  | pair : Expr L F Γ .uint → Expr L F Γ .addr → Expr L F Γ (.pair id)
+  | pair : {id : Nat} → Expr L F Γ .uint → Expr L F Γ .addr → Expr L F Γ (.pair id)
   /-- First struct member (`amount`). -/
-  | fst : Expr L F Γ (.pair id) → Expr L F Γ .uint
+  | fst : {id : Nat} → Expr L F Γ (.pair id) → Expr L F Γ .uint
   /-- Second struct member (`who`). -/
-  | snd : Expr L F Γ (.pair id) → Expr L F Γ .addr
+  | snd : {id : Nat} → Expr L F Γ (.pair id) → Expr L F Γ .addr
   /-- Internal call of an already-registered `view`/`pure` function that
   returns one value. Arguments are in declaration order and evaluate left
   to right. Effectful internals are `Stmt.callStmt` only: pinned solc 0.8.x
