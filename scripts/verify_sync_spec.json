@@ -7,6 +7,7 @@
     "docs-site/**",
     "Makefile",
     "AXIOMS.md",
+    "PrintAxioms.lean",
     "README.md",
     "TRUST_ASSUMPTIONS.md"
   ],
@@ -817,6 +818,7 @@
     "python3 scripts/generate_evmyullean_capability_report.py --check",
     "python3 scripts/generate_evmyullean_native_lowering_report.py --check",
     "python3 scripts/generate_print_axioms.py --check",
+    "python3 scripts/generate_trust_surface_report.py --check",
     "python3 scripts/lean_lint.py --only proof_length",
     "python3 scripts/lean_lint.py --only spec_named_storage",
     "python3 scripts/check_issue_1060_integrity.py",
