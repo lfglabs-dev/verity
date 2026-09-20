@@ -642,7 +642,11 @@ global invariant `I : ContractState → Prop`.
       executable (and thread the current `ExecutableCallContext`) when that
       definition takes the context, including view/static callees whose public
       bodies do not open a reentrancy window. Public hopCall bodies keep the
-      ctx-free public definition.
+      ctx-free public definition. Generated `*_entrypoint` predicates require
+      Lean arguments to ABI-decode from the same `CallbackContext.calldata`
+      (`dispatchCalldataMatches`); `receive` is registered only for empty
+      calldata. Same-contract `selfCall` hops keep the guarded public /
+      `*_registry` path so they still observe the nonReentrant tload prologue.
      Author-supplied lists remain only for hand-written `ReentrancySpec`
      consumers.
   2. **Adversary-model fidelity** — reentry is modeled as an arbitrary

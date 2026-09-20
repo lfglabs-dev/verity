@@ -23,9 +23,9 @@ open Verity.Core.Invariant (Preserves runSeq)
 open Verity.Core.Reentrancy (ReentrancySpec)
 
 /-- The macro-emitted registry is a predicate rather than a list of already
-applied functions.  This keeps entrypoint arguments existential and, crucially,
-indexes every executable transition by the same explicit adversary used at the
-call boundary. -/
+applied functions.  Entrypoint arguments stay existential, but they are
+tied to the same calldata the compiled dispatcher ABI-decodes, and every
+transition is indexed by the explicit adversary used at the call boundary. -/
 abbrev EntrypointRegistry :=
   AdversaryModel → (Verity.ContractState → Verity.ContractState) → Prop
 
@@ -51,6 +51,28 @@ structure CallbackContext where
   msgValue : Verity.Uint256
   calldataSize : Verity.Uint256
   calldata : List Nat
+
+/-- Compiled dispatch ABI-decodes arguments from the same calldata that
+selected the function (`calldataload` at 4 + 32*i, `calldatasize` at
+least 4 + 32 * n). Extra trailing words are allowed, matching Yul
+`calldatasizeGuard`. -/
+def dispatchCalldataMatches (ctx : CallbackContext) (argWords : List Nat) : Prop :=
+  ctx.calldata.take argWords.length = argWords ∧
+    Verity.Core.Uint256.ofNat (4 + 32 * argWords.length) ≤ ctx.calldataSize
+
+instance (ctx : CallbackContext) (argWords : List Nat) :
+    Decidable (dispatchCalldataMatches ctx argWords) := by
+  dsimp [dispatchCalldataMatches]
+  infer_instance
+
+/-- Compiled `receive()` runs only when `calldatasize == 0`. -/
+def receiveCalldataMatches (ctx : CallbackContext) : Prop :=
+  ctx.calldata = [] ∧ ctx.calldataSize = 0
+
+instance (ctx : CallbackContext) :
+    Decidable (receiveCalldataMatches ctx) := by
+  dsimp [receiveCalldataMatches]
+  infer_instance
 
 /-- Execute a registered callback in its own call frame, then restore the
 outer frame's ambient context while retaining the callback's contract-state

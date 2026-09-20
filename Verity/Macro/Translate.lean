@@ -2578,6 +2578,56 @@ private def helperCall (name : Ident) (args : Array Term) : CommandElabM Term :=
     app ← `(term| $app $arg)
   pure app
 
+private def identEndsWithSuffix (name : Name) (suffix : String) : Bool :=
+  let s := toString name
+  s == suffix || s.endsWith ("." ++ suffix)
+
+private partial def syntaxEndsWithSuffix (stx : Syntax) (suffix : String) : Bool :=
+  match stx with
+  | .ident _ _ name _ => identEndsWithSuffix name suffix
+  | .node _ kind args =>
+      if kind == ``Lean.Parser.Term.proj && args.size >= 3 then
+        syntaxEndsWithSuffix args[2]! suffix
+      else if args.isEmpty then
+        false
+      else
+        syntaxEndsWithSuffix args.back! suffix
+  | _ => false
+
+private def selfCallCallee? (t : Term) : CommandElabM (Option (Ident × Array Term)) := do
+  let calleeFrom (inner : Term) : CommandElabM (Option (Ident × Array Term)) := do
+    match stripParens inner with
+    | `(term| $fn:ident) => pure (some (fn, #[]))
+    | `(term| $fn:ident()) => pure (some (fn, #[]))
+    | `(term| $fn:ident($[$args:term],*)) => pure (some (fn, args))
+    | `(term| $fn:ident $args:term*) => pure (some (fn, args))
+    | _ => pure none
+  match t with
+  | `(term| selfCall $fn:ident) => pure (some (fn, #[]))
+  | `(term| selfCall $fn:ident($[$args:term],*)) => pure (some (fn, args))
+  | `(term| _root_.Verity.Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| Verity.Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| $name:ident $inner:term) =>
+      if identEndsWithSuffix name.getId "selfCall" then
+        calleeFrom inner
+      else
+        pure none
+  | `(term| $name:ident($[$args:term],*)) =>
+      if identEndsWithSuffix name.getId "selfCall" && args.size == 1 then
+        calleeFrom ⟨args[0]!.raw⟩
+      else
+        pure none
+  | _ =>
+      match t.raw with
+      | .node _ kind args =>
+          if kind == ``Lean.Parser.Term.app && args.size >= 2 &&
+              syntaxEndsWithSuffix args[0]! "selfCall" then
+            calleeFrom ⟨args[1]!⟩
+          else
+            pure none
+      | _ => pure none
+
 private def threadHelperApp?
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
@@ -2587,7 +2637,8 @@ private def threadHelperApp?
     (params : Array ParamDecl) (locals : Array TypedLocal)
     (name : Ident) (args : Array Term)
     (adv : Term)
-    (originalArgsForOverload : Option (Array Term) := none) : CommandElabM (Option Term) := do
+    (originalArgsForOverload : Option (Array Term) := none)
+    (keepPublicGuard : Bool := false) : CommandElabM (Option Term) := do
   let matchesHelper := fun (fn : FunctionDecl) =>
     (fn.name == toString name.getId || fn.ident.getId == name.getId ||
       (toString name.getId).endsWith ("." ++ fn.name)) &&
@@ -2621,10 +2672,18 @@ private def threadHelperApp?
       -- / `_registry_unguarded`. Public bodies pass `#[]`; registry bodies pass
       -- every adversarial helper, including window-opening ones, so a nested
       -- `hop` cannot drop into the stub-only public helper.
+      -- Same-contract `selfCall` is a public CALL: compiled dispatch still
+      -- runs the nonReentrant tload prologue, so hops keep the guarded
+      -- `*_registry` / public path rather than `*_unguarded`.
       let registryOnly := registryOnlyHelpers.any (fun candidate =>
         functionSignatureKey candidate == functionSignatureKey helper)
       let target ←
-        if registryOnly && helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
+        if keepPublicGuard then
+          if registryOnly then
+            mkSuffixedIdent helper.ident "_registry"
+          else
+            pure helper.ident
+        else if registryOnly && helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
           mkSuffixedIdent helper.ident "_registry_unguarded"
         else if registryOnly then
           mkSuffixedIdent helper.ident "_registry"
@@ -3165,6 +3224,26 @@ private partial def threadAdversaryThroughExecutableSyntax
       for (tmp, call) in binds.reverse do
         body ← `(term| _root_.Verity.bind $call (fun $tmp => $body))
       pure body
+    if let some (fn, args) := (← selfCallCallee? t) then
+      let original := args
+      let mut binds : Array (Ident × Term) := #[]
+      let mut hoisted : Array Term := #[]
+      for arg in args do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        hoisted := hoisted.push rewritten
+      match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+          helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+          (originalArgsForOverload := original) (keepPublicGuard := true) with
+      | some app =>
+          return (binds, ← `(term| _root_.Verity.Contract.selfCall $app))
+      | none =>
+          let inner ←
+            if hoisted.isEmpty then
+              `(term| $fn:ident())
+            else
+              helperCall fn hoisted
+          return (binds, ← `(term| _root_.Verity.Contract.selfCall $inner))
     match t with
     | `(term| fun $name:ident => $body:term) =>
         let bodyRaw : Syntax ← go body.raw
@@ -3284,6 +3363,26 @@ private partial def threadAdversaryThroughExecutableSyntax
       | stripped => stripped
     let rest ← if outerWasBound then pureBinding pureValue else monadic rewritten
     wrapBinds binds rest
+  if let some (fn, args) := (← selfCallCallee? ⟨stx⟩) then
+    let original := args
+    let mut binds : Array (Ident × Term) := #[]
+    let mut hoisted : Array Term := #[]
+    for arg in args do
+      let (inner, rewritten) ← hoistNested true arg
+      binds := binds ++ inner
+      hoisted := hoisted.push rewritten
+    match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+        helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+        (originalArgsForOverload := original) (keepPublicGuard := true) with
+    | some app =>
+        return (← wrapBinds binds (← `(doElem| _root_.Verity.Contract.selfCall $app))).raw
+    | none =>
+        let inner ←
+          if hoisted.isEmpty then
+            `(term| $fn:ident())
+          else
+            helperCall fn hoisted
+        return (← wrapBinds binds (← `(doElem| _root_.Verity.Contract.selfCall $inner))).raw
   match stx with
   | `(doSeq| $[$elems:doElem]*) =>
       let mut scope := locals
@@ -6576,6 +6675,26 @@ def mkFunctionCommandsPublic
         $context:ident $applied)
   if !fn.isPayable then
     registryBody ← `(($context:ident).msgValue = 0 ∧ $registryBody)
+  -- Tie Lean arguments to the same calldata the compiled dispatcher
+  -- ABI-decodes (`calldatasizeGuard` + `calldataload`). `receive` is
+  -- compiled only when `calldatasize == 0`.
+  if fn.name == "receive" then
+    registryBody ←
+      `(Compiler.CompilationModel.DenoteExternalCalls.receiveCalldataMatches
+          $context:ident ∧ $registryBody)
+  else if fn.name != "fallback" then
+    let mut argWordTerms : Array Term := #[]
+    for (paramIdent, _) in registryParams do
+      let words ← `(List.map (fun w => (w : Nat)) (Contracts.ExternalArg.toWords $paramIdent:ident))
+      argWordTerms := argWordTerms.push words
+    let argWordsTerm ←
+      if argWordTerms.isEmpty then
+        `( ([] : List Nat) )
+      else
+        `(List.flatten ([ $[$argWordTerms],* ] : List (List Nat)))
+    registryBody ←
+      `(Compiler.CompilationModel.DenoteExternalCalls.dispatchCalldataMatches
+          $context:ident $argWordsTerm ∧ $registryBody)
   for (paramIdent, paramTy) in registryParams.reverse do
     registryBody ← `(∃ $paramIdent:ident : $paramTy, $registryBody)
   registryBody ←
@@ -6621,8 +6740,9 @@ def mkFunctionCommandsPublic
   pure (extraExecutableCmds ++ #[fnCmd, entrypointCmd, bodyCmd, modelCmd])
 
 /-- Emit the contract-wide union of all externally callable entrypoint
-predicates.  Each per-function predicate keeps arguments existential and uses
-the registry's explicit adversary when the function opens a reentrancy window. -/
+predicates.  Each per-function predicate keeps arguments existential, ties
+them to the same calldata compiled dispatch ABI-decodes, and uses the
+registry's explicit adversary when the function opens a reentrancy window. -/
 def mkEntrypointRegistryCommandPublic (functions : Array FunctionDecl) : CommandElabM Cmd := do
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_registryAdv).raw
   let transitionIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_transition).raw

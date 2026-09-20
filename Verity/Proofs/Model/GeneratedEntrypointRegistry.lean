@@ -6,6 +6,7 @@ namespace Contracts.ReentrancyRelyGuarantee
 
 open Contracts
 open Verity hiding pure bind
+open Verity.EVM.Uint256
 open Compiler.CompilationModel.DenoteExternalCalls
 
 /-! Focused generated consumer for the registry/guard boundary.  It contains
@@ -33,19 +34,24 @@ The registry quantifies over the executable resolver, so any
 `ExecutableCallContext` carrying the adversary is covered, not only
 `ofAdversary` (whose resolver fixes target/value to 0). -/
 theorem guardedPing_registered (ectx : Contracts.ExecutableCallContext) (ctx : CallbackContext)
-    (value : Uint256) (hvalue : ctx.msgValue = 0) :
+    (value : Uint256) (hvalue : ctx.msgValue = 0)
+    (hcalldata : dispatchCalldataMatches ctx
+      (List.map (fun w => (w : Nat)) (Contracts.ExternalArg.toWords value))) :
     entrypointRegistry ectx.adversary
       (callbackContractTransition ctx (guardedPing_registry ectx value)) := by
   left
-  exact ⟨ctx, ectx.resolve, value, hvalue, rfl⟩
+  exact ⟨ctx, ectx.resolve, value, hcalldata, hvalue, rfl⟩
 
 /-- The `ofAdversary` instance of the general registration theorem. -/
 theorem guardedPing_registered_ofAdversary (adv : AdversaryModel) (ctx : CallbackContext)
-    (value : Uint256) (hvalue : ctx.msgValue = 0) :
+    (value : Uint256) (hvalue : ctx.msgValue = 0)
+    (hcalldata : dispatchCalldataMatches ctx
+      (List.map (fun w => (w : Nat)) (Contracts.ExternalArg.toWords value))) :
     entrypointRegistry adv
       (callbackContractTransition ctx
         (guardedPing_registry (Contracts.ExecutableCallContext.ofAdversary adv) value)) :=
   guardedPing_registered (Contracts.ExecutableCallContext.ofAdversary adv) ctx value hvalue
+    hcalldata
 
 /-- The executable generated entrypoint is definitionally protected by the
 canonical source guard at the same slot used by the compiled dispatch guard. -/
@@ -237,6 +243,148 @@ def entryRegistrySeesAdversary : Bool :=
 example : entryRegistrySeesAdversary = true := by decide
 
 end BoundViewCaller
+
+/-! Regression: registered transitions cannot pair Lean arguments with
+unrelated calldata, and `receive` is only registered for empty calldata. -/
+verity_contract RegistryDispatchCalldata where
+  storage
+    last : Uint256 := slot 0
+
+  receive := do
+    setStorage last 7
+
+  function setLast (value : Uint256) : Unit := do
+    setStorage last value
+    return ()
+
+namespace RegistryDispatchCalldata
+
+def matchingCtx (value : Uint256) : CallbackContext where
+  sender := 0
+  msgValue := 0
+  calldataSize := Verity.Core.Uint256.ofNat 36
+  calldata := [value.val]
+
+def mismatchedCtx : CallbackContext where
+  sender := 0
+  msgValue := 0
+  calldataSize := Verity.Core.Uint256.ofNat 36
+  calldata := [99]
+
+def emptyReceiveCtx : CallbackContext where
+  sender := 0
+  msgValue := 0
+  calldataSize := 0
+  calldata := []
+
+def nonemptyReceiveCtx : CallbackContext where
+  sender := 0
+  msgValue := 0
+  calldataSize := Verity.Core.Uint256.ofNat 4
+  calldata := [1]
+
+def argWords (value : Uint256) : List Nat :=
+  List.map (fun w => (w : Nat)) (Contracts.ExternalArg.toWords value)
+
+example : dispatchCalldataMatches (matchingCtx 7) (argWords 7) := by decide
+
+example : ¬ dispatchCalldataMatches mismatchedCtx (argWords 7) := by decide
+
+example : receiveCalldataMatches emptyReceiveCtx := by decide
+
+example : ¬ receiveCalldataMatches nonemptyReceiveCtx := by decide
+
+theorem setLast_registered_matching (value : Uint256)
+    (h : dispatchCalldataMatches (matchingCtx value) (argWords value)) :
+    setLast_entrypoint AdversaryModel.stub
+      (callbackContractTransition (matchingCtx value)
+        (setLast_registry (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub) value)) :=
+  ⟨matchingCtx value, (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub).resolve,
+    value, h, rfl, rfl⟩
+
+theorem setLast_entrypoint_requires_dispatch
+    {adv : AdversaryModel} {transition : ContractState → ContractState}
+    (h : setLast_entrypoint adv transition) :
+    ∃ ctx resolve value,
+      dispatchCalldataMatches ctx (argWords value) ∧
+        ctx.msgValue = 0 ∧
+        transition =
+          callbackContractTransition ctx
+            (setLast_registry { adversary := adv, resolve := resolve } value) :=
+  h
+
+theorem receive_registered_empty :
+    __verity_receive_entrypoint AdversaryModel.stub
+      (callbackContractTransition emptyReceiveCtx
+        (__verity_receive_registry
+          (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub))) :=
+  ⟨emptyReceiveCtx, (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub).resolve,
+    by decide, rfl⟩
+
+theorem receive_entrypoint_requires_empty
+    {adv : AdversaryModel} {transition : ContractState → ContractState}
+    (h : __verity_receive_entrypoint adv transition) :
+    ∃ ctx resolve,
+      receiveCalldataMatches ctx ∧
+        transition =
+          callbackContractTransition ctx
+            (__verity_receive_registry { adversary := adv, resolve := resolve }) :=
+  h
+
+end RegistryDispatchCalldata
+
+/-! Regression: public Solidity self-calls still hit the nonReentrant tload
+prologue. Bound hops must keep the guarded registry path, not `*_unguarded`. -/
+verity_contract RegistrySelfCallGuard where
+  storage
+    lock : Uint256 := slot 0
+    last : Uint256 := slot 1
+  linked_externals
+    external ping(Uint256) -> (Uint256)
+
+  function nonreentrant(lock) reentrancy_trusted hop (value : Uint256) : Unit := do
+    let _ack := externalCall "ping" [value]
+    setStorage last value
+    return ()
+
+  function reentrancy_trusted allow_post_interaction_writes entry
+      (value : Uint256)
+      local_obligations [manual_low_level_refinement := assumed
+        "tryCall/selfCall compilation model is CALL-with-status to this; selector and argument encoding are a documented gap."]
+      : Unit := do
+    tryCall (selfCall hop(value)) then
+      (do setStorage last value)
+    catch
+      (do setStorage last 99)
+    return ()
+
+namespace RegistrySelfCallGuard
+
+def lockedState : ContractState :=
+  Verity.defaultState.writeTransient 0 1
+
+def hopBlockedWhenLocked : Bool :=
+  match (hop (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub) (7 : Uint256)).run lockedState with
+  | .revert _ s => s.storage 1 == 0
+  | _ => false
+
+example : hopBlockedWhenLocked = true := by decide
+
+def selfCallHopBlockedWhenLocked : Bool :=
+  match (entry (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub) (7 : Uint256)).run lockedState with
+  | .success _ s => s.storage 1 == 99
+  | _ => false
+
+example : selfCallHopBlockedWhenLocked = true := by decide
+
+def selfCallHopRegistryBlockedWhenLocked : Bool :=
+  match (entry_registry (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub) (7 : Uint256)).run lockedState with
+  | .success _ s => s.storage 1 == 99
+  | _ => false
+
+example : selfCallHopRegistryBlockedWhenLocked = true := by decide
+
+end RegistrySelfCallGuard
 
 /-- `ReentrancyRelyGuarantee` consumes the emitted registry at the restricted
 callback boundary.  Contract-specific preservation obligations remain with
