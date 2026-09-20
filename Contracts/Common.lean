@@ -900,34 +900,42 @@ def externalStaticCallContractWordsTo {α : Type} [ExternalResult α]
   | .success (.success returndata) post =>
       if arity ≤ returndata.length then
         .success (ExternalResult.fromWords
-          ((returndata.take arity).map Core.Uint256.ofNat)) state
+          ((returndata.take arity).map Core.Uint256.ofNat)) post
       else .revert "external call returned malformed data" state
   | .success (.failure _) _ | .success (.revert _) _ =>
       .revert "external call failed" state
   | .revert message _ => .revert message state
 
-@[simp] theorem externalStaticCallContractWordsTo_snd {α : Type} [ExternalResult α]
+/-- On a successful, well-formed typed static call, the wrapper returns the
+post-call static frame (including its journal entry and returndata). -/
+theorem externalStaticCallContractWordsTo_success_static_frame {α : Type} [ExternalResult α]
     (name : String) (target : Address) (args : List Uint256)
     (adv : AdversaryModel := .stub) (arity : Nat := 1) (siteId : Nat := 0)
-    (s : ContractState) :
-    (externalStaticCallContractWordsTo (α := α) name target args adv arity siteId s).snd = s := by
-  unfold externalStaticCallContractWordsTo
-  split <;> (try split) <;> rfl
-
-@[simp] theorem externalStaticCallContractWordsTo_run_snd {α : Type} [ExternalResult α]
-    (name : String) (target : Address) (args : List Uint256)
-    (adv : AdversaryModel := .stub) (arity : Nat := 1) (siteId : Nat := 0)
-    (s : ContractState) :
-    ((externalStaticCallContractWordsTo (α := α) name target args adv arity siteId).run s).snd = s := by
-  let c := externalStaticCallContractWordsTo (α := α) name target args adv arity siteId
-  have hs : (c s).snd = s := externalStaticCallContractWordsTo_snd name target args adv arity siteId s
-  dsimp [c] at hs
-  unfold Contract.run
-  split
-  · rename_i value post h
-    rw [h] at hs
-    exact hs
-  · rfl
+    (s post : ContractState) (returndata : List Nat)
+    (hcall : (commonExternalCall adv
+      (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId)).run s =
+        .success (.success returndata) post)
+    (harity : arity ≤ returndata.length) :
+    ((externalStaticCallContractWordsTo (α := α) name target args adv arity siteId) s).snd =
+      { s with
+        calls := s.calls ++ [Compiler.CompilationModel.DenoteExternalCalls.journalEntry
+          (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId)
+          (adv.result (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s)]
+        returndata := (adv.result (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s).returndata.map
+          Compiler.CompilationModel.Denote.wordNormalize } := by
+  have hframe := Compiler.CompilationModel.DenoteExternalCalls.externalCall_staticcall adv
+    (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s rfl
+  change (match (commonExternalCall adv
+    (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId)).run s with
+    | .success (.success returndata) post =>
+        if arity ≤ returndata.length then
+          .success (ExternalResult.fromWords ((returndata.take arity).map Core.Uint256.ofNat)) post
+        else .revert "external call returned malformed data" s
+    | .success (.failure _) _ | .success (.revert _) _ => .revert "external call failed" s
+    | .revert message _ => .revert message s).snd = _
+  rw [hcall, if_pos harity]
+  rw [hcall] at hframe
+  simpa using hframe
 
 def externalCallEffectWords
     (name : String) (args : List Uint256) (adv : AdversaryModel := .stub)

@@ -4845,8 +4845,8 @@ def tupleExternalCallBindStmt?
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (rhs : Term)
-    (names : Array (Option String)) : CommandElabM (Option (Term × Array TypedLocal)) := do
-  let lower (extName : String) (ext : ExternalDecl) (args : Array Term) : CommandElabM (Term × Array TypedLocal) := do
+    (names : Array (Option String)) : CommandElabM (Option (Array Term × Array TypedLocal)) := do
+  let lower (extName : String) (ext : ExternalDecl) (args : Array Term) : CommandElabM (Array Term × Array TypedLocal) := do
       unless names.size == ext.returnTys.size do
         throwErrorAt rhs s!"tuple destructuring binds {names.size} names, but callExternal '{extName}' returns {ext.returnTys.size} values"
       for ty in ext.returnTys do
@@ -4869,7 +4869,7 @@ def tupleExternalCallBindStmt?
         name?.map (fun localName => mkTypedLocal localName ty)
       let stmt ← `(Compiler.CompilationModel.Stmt.externalCallBind
         [ $[$resultNameTerms],* ] $(strTerm extName) [ $[$argExprs],* ])
-      pure (stmt, typedLocals)
+      pure (#[stmt], typedLocals)
   match stripParens rhs with
   | `(term| callExternal $name:ident ($[$args:term],*)) =>
       let extName := toString name.getId
@@ -4913,7 +4913,9 @@ def tupleExternalCallBindStmt?
               $(natTerm selector)
               $(natTerm argExprs.size))
             [ $targetExpr, $[$argExprs],* ])
-           pure (some (stmt, typedLocals))
+           let normalizations ← (resultNames.zip ext.returnTys).filterMapM fun (resultName, ty) =>
+             normalizeBoundValueStmt? ty rhs resultName
+           pure (some (#[stmt] ++ normalizations, typedLocals))
       | _ => pure none
 
 /-- Try to translate a tuple‐destructured `tryExternalCall "name" [args]` RHS.
@@ -5857,7 +5859,7 @@ partial def resolveTypedInterfaceCall?
   match ext.returnTys.toList with
   | [retTy] => pure (some (ext, target, argTerms, some retTy, selector))
   | [] => pure (some (ext, target, argTerms, none, selector))  -- void interface method
-  | _ => pure (some (ext, target, argTerms, none, selector))
+  | _ => pure (some (ext, target, argTerms, some (.tuple ext.returnTys.toList), selector))
 
 
 end Verity.Macro
