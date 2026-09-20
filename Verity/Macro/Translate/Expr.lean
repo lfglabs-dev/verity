@@ -2708,6 +2708,59 @@ partial def inferBindSourceType
               throwErrorAt rhs
                 "unsupported bind source; expected getStorage/getStorageAddr/getStorageArrayLength/getStorageArrayElement/getMapping/getMappingAddr/getMappingUint/getMappingUintAddr/getMappingWord/getMapping2/getMappingN/structMember/structMember2/msgSender/msgValue/selfBalance/tload/ecrecover/ecmCall, a direct internal helper call, or a qualified library helper call"
 
+partial def flattenTypedInterfaceAppSyntaxEarly (stx : Term) : Term × Array Term :=
+  let stx := stripParens stx
+  match stx.raw with
+  | .node _ `Lean.Parser.Term.app appArgs =>
+      let head : Term := ⟨appArgs.getD 0 Syntax.missing⟩
+      let argTerms := (appArgs.getD 1 Syntax.missing).getArgs.map (fun syn => ⟨syn⟩)
+      let (head, priorArgs) := flattenTypedInterfaceAppSyntaxEarly head
+      (head, priorArgs ++ argTerms)
+  | _ => (stx, #[])
+
+partial def resolveTypedInterfaceCallEarly?
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (stx : Term) : CommandElabM (Option (ExternalDecl × Term × Array Term × Option ValueType × Nat)) := do
+  let (head, argTerms) := flattenTypedInterfaceAppSyntaxEarly stx
+  let some (target, methodName) :=
+    (match head.raw with
+    | .ident _ _ raw _ =>
+        match nameComponents raw with
+        | [targetName, method] => some (mkIdent (Name.mkSimple targetName), method)
+        | _ => none
+    | _ => none)
+    | pure none
+  let targetName ←
+    match stripParens target with
+    | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
+    | _ => pure ""
+  let some interfaceName := lookupInterfaceName? params locals targetName
+    | pure none
+  let externalName := interfaceExternalName interfaceName methodName
+  let some ext := externalDecls.find? (fun ext => ext.name == externalName)
+    | throwErrorAt stx s!"interface '{interfaceName}' has no method '{methodName}'"
+  if argTerms.size != ext.params.size then
+    throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' expects {ext.params.size} argument(s), got {argTerms.size}"
+  for (argTerm, expectedTy) in argTerms.zip ext.params do
+    let actualTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals argTerm
+    unless actualTy == expectedTy || (isNatLiteralTerm argTerm && numericLiteralCompatibleValueType expectedTy) do
+      throwErrorAt argTerm
+        s!"interface call '{interfaceName}.{methodName}' argument expects {renderValueType expectedTy}, got {renderValueType actualTy}"
+  requireTypedInterfaceStaticParams stx externalName ext.params
+  let selector := Compiler.keccak256_first_4_bytes (interfaceFunctionSignature methodName ext.params)
+  match ext.returnTys.toList with
+  | [retTy] => pure (some (ext, target, argTerms, some retTy, selector))
+  | [] => pure (some (ext, target, argTerms, none, selector))
+  -- A tuple destructuring bind needs to recognize multi-return interface
+  -- calls too.  The caller validates the individual static return words and
+  -- lowers them through the regular executable typed-call path.
+  | _ => pure (some (ext, target, argTerms, some (.tuple ext.returnTys.toList), selector))
+
 partial def inferTupleSourceTypes?
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
@@ -2809,14 +2862,25 @@ partial def inferTupleSourceTypes?
                 -- to let the tryExternalCallBindStmt? helper handle translation.
                 -- The validation path (with real externalDecls) catches actual errors.
                 pure none
-        | other =>
-            match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
-            | some (fn, _argTerms) =>
-                ensureCallableAsInternalHelper rhs fn
-                match fn.returnTy with
-                | .tuple elemTys => pure (some elemTys.toArray)
-                | _ => pure none
+        | `(term| callExternal $name:ident ($[$args:term],*)) =>
+            let extName := toString name.getId
+            match externalDecls.find? (fun ext => ext.name == extName) with
+            | some ext =>
+                validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+                  extName ext.params args
+                pure (some ext.returnTys)
             | none => pure none
+        | other =>
+            match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals other with
+            | some (ext, _, _, some _, _) => pure (some ext.returnTys)
+            | _ =>
+                match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls functions params locals other with
+                | some (fn, _argTerms) =>
+                    ensureCallableAsInternalHelper rhs fn
+                    match fn.returnTy with
+                    | .tuple elemTys => pure (some elemTys.toArray)
+                    | _ => pure none
+                | none => pure none
 
 partial def resolveLocalFunctionApp?
     (fields : Array StorageFieldDecl)
@@ -4770,6 +4834,88 @@ def tupleInternalCallAssignStmt?
       | none =>
           pure none
 
+/-- Translate a tuple bind from `callExternal`. Each source binder names one
+    declared static return value, so the compilation model can retain the ABI
+    result slots while the executable lowering decodes the same return frame. -/
+def tupleExternalCallBindStmt?
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (params : Array ParamDecl)
+    (locals : Array TypedLocal)
+    (rhs : Term)
+    (names : Array (Option String)) : CommandElabM (Option (Term × Array TypedLocal)) := do
+  let lower (extName : String) (ext : ExternalDecl) (args : Array Term) : CommandElabM (Term × Array TypedLocal) := do
+      unless names.size == ext.returnTys.size do
+        throwErrorAt rhs s!"tuple destructuring binds {names.size} names, but callExternal '{extName}' returns {ext.returnTys.size} values"
+      for ty in ext.returnTys do
+        unless isSingleWordStaticValueType ty do
+          throwErrorAt rhs s!"callExternal '{extName}' tuple binding requires static single-word returns"
+      validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+        extName ext.params args
+      let argExprs ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
+        (some ext.params) (some (translateDeclaredPureExpr
+          fields constDecls immutableDecls externalDecls params locals))
+      let initialUsedNames := (params.toList.map (fun p => p.name)) ++ (typedLocalNames locals).toList ++ (names.filterMap id).toList
+      let (_, resultNamesRev) := names.toList.zipIdx.foldl
+        (fun (acc : List String × List String) (name?, idx) =>
+          let (used, resultNames) := acc
+          let resultName := name?.getD (freshDiscardName used idx)
+          (resultName :: used, resultName :: resultNames))
+        (initialUsedNames, [])
+      let resultNameTerms := resultNamesRev.reverse.toArray.map strTerm
+      let typedLocals := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
+        name?.map (fun localName => mkTypedLocal localName ty)
+      let stmt ← `(Compiler.CompilationModel.Stmt.externalCallBind
+        [ $[$resultNameTerms],* ] $(strTerm extName) [ $[$argExprs],* ])
+      pure (stmt, typedLocals)
+  match stripParens rhs with
+  | `(term| callExternal $name:ident ($[$args:term],*)) =>
+      let extName := toString name.getId
+      let some ext := externalDecls.find? (fun candidate => candidate.name == extName)
+        | throwErrorAt name s!"unknown linked external '{extName}'"
+      some <$> lower extName ext args
+  | _ =>
+      match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
+      | some (ext, target, args, some _, selector) =>
+          unless ext.isView do
+            throwErrorAt rhs s!"typed interface tuple call '{ext.name}' must be view"
+          unless names.size == ext.returnTys.size do
+            throwErrorAt rhs s!"tuple destructuring binds {names.size} names, but typed interface call '{ext.name}' returns {ext.returnTys.size} values"
+          for ty in ext.returnTys do
+            unless isSingleWordStaticValueType ty do
+              throwErrorAt rhs s!"typed interface call '{ext.name}' tuple binding requires static single-word returns"
+          validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
+            ext.name ext.params args
+          let targetExpr ← translateDeclaredPureExpr
+            fields constDecls immutableDecls externalDecls params locals target
+          let argExprs ← translateLinkedExternalCallArgs
+            fields constDecls immutableDecls params locals args
+            (some ext.params) (some (translateDeclaredPureExpr
+              fields constDecls immutableDecls externalDecls params locals))
+          let initialUsedNames := (params.toList.map (fun p => p.name)) ++
+            (typedLocalNames locals).toList ++ (names.filterMap id).toList
+          let (_, resultNamesRev) := names.toList.zipIdx.foldl
+            (fun (acc : List String × List String) (name?, idx) =>
+              let (used, resultNames) := acc
+              let resultName := name?.getD (freshDiscardName used idx)
+              (resultName :: used, resultName :: resultNames))
+            (initialUsedNames, [])
+          let resultNames := resultNamesRev.reverse
+          let resultNameTerms := resultNames.toArray.map strTerm
+          let typedLocals := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
+            name?.map (fun localName => mkTypedLocal localName ty)
+          let stmt ← `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.Modules.Oracle.typedReadWordsSummaryModule
+              [ $[$resultNameTerms],* ]
+              $(strTerm ext.name)
+              $(natTerm selector)
+              $(natTerm argExprs.size))
+            [ $targetExpr, $[$argExprs],* ])
+          pure (some (stmt, typedLocals))
+      | _ => pure none
+
 /-- Try to translate a tuple‐destructured `tryExternalCall "name" [args]` RHS.
     Returns `none` when the RHS is not a `tryExternalCall` application.  Returns
     the generated statements and inferred types for each bound name.  Narrow result
@@ -5711,7 +5857,7 @@ partial def resolveTypedInterfaceCall?
   match ext.returnTys.toList with
   | [retTy] => pure (some (ext, target, argTerms, some retTy, selector))
   | [] => pure (some (ext, target, argTerms, none, selector))  -- void interface method
-  | _ => throwErrorAt stx s!"interface call '{interfaceName}.{methodName}' returns multiple values; typed dot calls currently support one return value"
+  | _ => pure (some (ext, target, argTerms, none, selector))
 
 
 end Verity.Macro

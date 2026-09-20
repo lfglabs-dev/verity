@@ -233,7 +233,7 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       if fn.isView then
         elabCommand (← mkViewTheoremCommand fn)
         if fn.params.isEmpty && fn.requiresRole.isNone && fn.nonReentrantLock.isNone then
-          elabCommand (← mkViewFrameTheoremCommand fn)
+          elabCommand (← mkViewFrameTheoremCommand fn functions)
 
     -- Emit per-function _is_pure theorems for pure functions.
     for fn in functions do

@@ -121,7 +121,12 @@ private partial def validateDoElemExprTypes
       match tupleBinderNames? patDecl[0] with
       | some names =>
           let rhs : Term := ⟨patDecl[4]⟩
-          match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
+          match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
+          | some (ext, _, _, some _, _) =>
+              let typedNames := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
+                name?.map (fun name => mkTypedLocal name ty)
+              pure (some (locals ++ typedNames))
+          | _ => match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, _) =>
               let typedNames ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
               pure (some (locals ++ typedNames))
@@ -146,7 +151,12 @@ private partial def validateDoElemExprTypes
       match tupleBinderNames? patDecl[0] with
       | some names =>
           let rhs : Term := ⟨patDecl[3][0]⟩
-          match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
+          match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
+          | some (ext, _, _, some _, _) =>
+              let typedNames := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
+                name?.map (fun name => mkTypedLocal name ty)
+              pure (some (locals ++ typedNames))
+          | _ => match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (qualifiedName, _) =>
               let typedNames ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
               pure (some (locals ++ typedNames))
@@ -189,6 +199,12 @@ private partial def validateDoElemExprTypes
           requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
           let interfaceName? ← interfaceNameOfTerm? params locals rhs
           pure <| locals.push (mkTypedLocal (toString name.getId) ty interfaceName?)
+      | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
+          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
+            errorDecls eventDecls functions params locals (← `(doElem| let mut $name:ident := $rhs:term))
+      | `(doElem| let mut $name:ident ← $rhs:term) =>
+          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
+            errorDecls eventDecls functions params locals (← `(doElem| let $name:ident ← $rhs:term))
       | `(doElem| let $name:ident := $rhs:term) =>
           match arrayElementAliasSource? params rhs with
           | some (paramName, index, elemTy) =>
@@ -255,6 +271,12 @@ private partial def validateDoElemExprTypes
             | throwErrorAt name s!"cannot resolve type of variable '{toString name.getId}'"
           requireDeclaredValueType rhs s!"assignment to '{localInfo.name}'" localInfo.ty actualTy
           pure locals
+      | `(doElem| $name:ident ← $rhs:term) =>
+          let actualTy ← inferBindSourceType fields constDecls immutableDecls externalDecls functions params locals rhs
+          let some localInfo := locals.find? (fun entry => entry.name == toString name.getId)
+            | throwErrorAt name s!"cannot resolve type of variable '{toString name.getId}'"
+          requireDeclaredValueType rhs s!"assignment to '{localInfo.name}'" localInfo.ty actualTy
+          pure locals
       | `(doElem| return $value:term) =>
           let actualTy ←
             match (← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals value) with
@@ -270,6 +292,10 @@ private partial def validateDoElemExprTypes
           validateDoSeqExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls eventDecls functions params locals thenBranch
           validateDoSeqExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls errorDecls eventDecls functions params locals elseBranch
           pure locals
+      | `(doElem| if $cond:term then $thenBranch:doSeq) =>
+          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
+            errorDecls eventDecls functions params locals
+            (← `(doElem| if $cond:term then $thenBranch:doSeq else pure ()))
       | `(doElem| forEach $name:term $count:term $body:term) =>
           requireWordLikeType count "forEach count" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals count)
           match stripParens body with
@@ -1344,24 +1370,31 @@ private partial def translateDoElem
       | some names =>
           ensureFreshLocalNames localNames names stx
           let rhs : Term := ⟨patDecl[3][0]⟩
-          match (← tupleInternalCallAssignStmt? fields constDecls immutableDecls externalDecls functions params locals rhs names) with
+          -- Typed interface calls have qualified syntax (`oracle.bounds`), so
+          -- recognize their external ABI bind before the generic qualified
+          -- helper path below.
+          match (← tupleExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
           | some stmt =>
-              let valueTys ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals rhs
-              match valueTys with
-              | some tys =>
-                  let typedPairs := (names.zip tys).filterMap fun (name?, ty) => name?.map (fun name => mkTypedLocal name ty)
-                  pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
-              | none =>
-                  match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
-                  | some (qualifiedName, _) =>
-                      let typedPairs ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
-                      pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
-                  | none => throwErrorAt rhs "unable to infer tuple local types"
+              pure (some (#[(stmt.1)], locals ++ stmt.2, mutableLocals))
           | none =>
-              match (← tryExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
-              | some (stmts, typedPairs) =>
-                  pure (some (stmts, locals ++ typedPairs, mutableLocals))
-              | none => throwErrorAt rhs "tuple bind sources must be internal helper calls or tryExternalCall"
+              match (← tupleInternalCallAssignStmt? fields constDecls immutableDecls externalDecls functions params locals rhs names) with
+              | some stmt =>
+                  let valueTys ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls functions params locals rhs
+                  match valueTys with
+                  | some tys =>
+                      let typedPairs := (names.zip tys).filterMap fun (name?, ty) => name?.map (fun name => mkTypedLocal name ty)
+                      pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
+                  | none =>
+                      match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls params locals rhs with
+                      | some (qualifiedName, _) =>
+                          let typedPairs ← unsafe qualifiedTupleBindTypedLocals patDecl qualifiedName names
+                          pure (some (#[(stmt)], locals ++ typedPairs, mutableLocals))
+                      | none => throwErrorAt rhs "unable to infer tuple local types"
+              | none =>
+                  match (← tryExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
+                  | some (stmts, typedPairs) =>
+                      pure (some (stmts, locals ++ typedPairs, mutableLocals))
+                  | none => throwErrorAt rhs "tuple bind sources must be internal helper calls, callExternal, or tryExternalCall"
       | none => pure none
     else
       pure none
@@ -1395,6 +1428,17 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $rhsExpr))],
               locals.push (mkTypedLocal varName ty interfaceName?),
               mutableLocals.push varName)
+      | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
+          translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals
+            (← `(doElem| let mut $name:ident := $rhs:term))
+      | `(doElem| let mut $name:ident ← $rhs:term) =>
+          let varName := toString name.getId
+          if localNames.contains varName then
+            throwErrorAt name s!"duplicate local variable '{varName}'"
+          let (stmts, newLocals, _) ←
+            translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals
+              (← `(doElem| let $name:ident ← $rhs:term))
+          pure (stmts, newLocals, mutableLocals.push varName)
       | `(doElem| let $name:ident := $rhs:term) =>
           let varName := toString name.getId
           if localNames.contains varName then
@@ -1640,6 +1684,20 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr))],
               locals,
               mutableLocals)
+      | `(doElem| $name:ident ← $rhs:term) =>
+          let varName := toString name.getId
+          if !localNames.contains varName then
+            throwErrorAt name s!"cannot assign unknown variable '{varName}'"
+          if !mutableLocals.contains varName then
+            throwErrorAt name s!"cannot assign immutable variable '{varName}'; declare it with 'let mut'"
+          let some localInfo := locals.find? (fun entry => entry.name == varName)
+            | throwErrorAt name s!"cannot resolve type of mutable variable '{varName}'"
+          let rawRhsExpr ← translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
+          let rhsExpr ← normalizeTranslatedExprForType localInfo.ty rhs rawRhsExpr
+          pure
+            (#[(← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr))],
+              locals,
+              mutableLocals)
       | `(doElem| return $value:term) =>
           match (← arrayElementTupleReturnStmts? fields constDecls immutableDecls params locals mutableLocals value
             (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
@@ -1677,6 +1735,9 @@ private partial def translateDoElem
               [ $[$elseStmts],* ]))],
               locals,
               mutableLocals)
+      | `(doElem| if $cond:term then $thenBranch:doSeq) =>
+          translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals
+            (← `(doElem| if $cond:term then $thenBranch:doSeq else pure ()))
       | `(doElem| tryCatch $attempt:term $handler:term) => do
           let trySuccessName :=
             freshSyntheticLocalName "verity_try_success" params locals mutableLocals
@@ -2241,18 +2302,24 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| let $pat:term ← $rhs:term) =>
       match tupleBinderNames? pat with
       | some _ =>
-          match stripParens rhs with
-          | `(term| tryExternalCall $name:term $_args:term) =>
-              let extName := ← expectStringOrIdent name
-              match externalDecls.find? (fun ext => ext.name == extName) with
-              | some ext =>
-                  match ext.returnTys.toList with
-                  | [retTy] =>
-                      let retTyTerm ← contractValueTypeTerm retTy
-                      pure (#[← `(doElem| let $pat:term ← ($rhs : _root_.Verity.Contract (Bool × $retTyTerm)))], locals)
-                  | _ => pure (#[elem], locals)
-              | none => pure (#[elem], locals)
-          | _ => pure (#[elem], locals)
+          match ← resolveTypedInterfaceCallEarly? fields #[] #[] externalDecls params locals rhs with
+          | some (ext, target, args, some _, _) =>
+              let linked ← `(term| __verityTypedCall $target $(strTerm ext.name)
+                [ $[$args],* ])
+              pure (#[← `(doElem| let $pat:term ← $linked:term)], locals)
+          | _ =>
+              match stripParens rhs with
+              | `(term| tryExternalCall $name:term $_args:term) =>
+                  let extName := ← expectStringOrIdent name
+                  match externalDecls.find? (fun ext => ext.name == extName) with
+                  | some ext =>
+                      match ext.returnTys.toList with
+                      | [retTy] =>
+                          let retTyTerm ← contractValueTypeTerm retTy
+                          pure (#[← `(doElem| let $pat:term ← ($rhs : _root_.Verity.Contract (Bool × $retTyTerm)))], locals)
+                      | _ => pure (#[elem], locals)
+                  | none => pure (#[elem], locals)
+              | _ => pure (#[elem], locals)
       | none => pure (#[elem], locals)
   | `(doElem| forEach $name:term $_count:term $body:term) =>
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
@@ -2272,6 +2339,9 @@ private partial def rewriteForEachExecutableDoElem
       let thenBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals thenBranch
       let elseBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals elseBranch
       pure (#[← `(doElem| if $cond then $thenBranch else $elseBranch)], locals)
+  | `(doElem| if $cond:term then $thenBranch:doSeq) =>
+      rewriteForEachExecutableDoElem fields externalDecls params locals
+        (← `(doElem| if $cond:term then $thenBranch:doSeq else pure ()))
   | `(doElem| tryCatch $attempt:term $handler:term) =>
       let tryCatchFn := Lean.mkIdentFrom attempt `_root_.Contracts.tryCatchWord
       match stripParens handler with
@@ -3518,6 +3588,13 @@ private partial def threadAdversaryThroughExecutableSyntax
   | `(doElem| let mut $name:ident := $rhs:term) =>
       hoistLive true rhs fun rewritten =>
         `(doElem| let mut $name := $rewritten:term)
+  | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
+      hoistLive true rhs fun rewritten =>
+        `(doElem| let mut $name := $rewritten:term)
+  | `(doElem| let mut $name:ident ← $rhs:term) =>
+      hoistBound rhs
+        (fun rewritten => `(doElem| let mut $name ← $rewritten:term))
+        (fun rewritten => `(doElem| let mut $name := $rewritten:term))
   | `(doElem| let $name:ident := $rhs:term) =>
       hoistLive true rhs fun rewritten =>
         `(doElem| let $name := $rewritten:term)
@@ -3527,11 +3604,19 @@ private partial def threadAdversaryThroughExecutableSyntax
   | `(doElem| $name:ident := $rhs:term) =>
       hoistLive true rhs fun rewritten =>
         `(doElem| $name:ident := $rewritten:term)
+  | `(doElem| $name:ident ← $rhs:term) =>
+      hoistBound rhs
+        (fun rewritten => `(doElem| $name:ident ← $rewritten:term))
+        (fun rewritten => `(doElem| $name:ident := $rewritten:term))
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
       let rewrittenThen := ⟨← go thenBranch.raw⟩
       let rewrittenElse := ⟨← go elseBranch.raw⟩
       hoistLive true cond fun rewritten =>
         `(doElem| if $rewritten:term then $rewrittenThen:doSeq else $rewrittenElse:doSeq)
+  | `(doElem| if $cond:term then $thenBranch:doSeq) =>
+      let rewrittenThen := ⟨← go thenBranch.raw⟩
+      hoistLive true cond fun rewritten =>
+        `(doElem| if $rewritten:term then $rewrittenThen:doSeq else pure ())
   | `(doElem| requireError $cond:term $errorName:ident($args,*)) =>
       let (condBinds, rewrittenCond) ← hoistNested true cond
       let mut argBinds : Array (Ident × Term) := #[]
