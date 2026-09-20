@@ -1238,7 +1238,7 @@ private theorem compileStmt_ok_any_scope_aux
       | storageArrayPop | setStorageArrayElement | setMapping | setMappingWord
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
       | setMappingChain | setStructMember | setStructMember2 | require
-      | requireError | revertError | panicCode | «return» | returnValues | returnArray
+      | requireError | revertError | panicCode | panic | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog
@@ -1381,7 +1381,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | storageArrayPop | setStorageArrayElement | setMapping | setMappingWord
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
       | setMappingChain | setStructMember | setStructMember2 | require
-      | requireError | revertError | panicCode | «return» | returnValues | returnArray
+      | requireError | revertError | panicCode | panic | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind

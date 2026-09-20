@@ -28,6 +28,7 @@ import Verity.Core.Model.ProofStatus
 import Verity.Core.Model.Yul.Ast
 import Verity.Core.Model.Identifier
 import Verity.Core.Intrinsics
+import Verity.Core.Panic
 
 namespace Compiler.CompilationModel
 
@@ -656,6 +657,12 @@ abbrev RawYul := UnsafeYulFragment
 
 namespace UnsafeYulFragment
 
+/-! Comments used to preserve the unsafe-Yul provenance boundary after the
+    fragment is lowered into the shared Yul AST. -/
+def beginMarker : String := "__verity_unsafe_yul_begin"
+
+def endMarker : String := "__verity_unsafe_yul_end"
+
 /-- Helper constructor for the single Yul `revert(offset, size)` instruction.
 
     Prefer this through `Stmt.unsafeYul` for one-off raw instruction escapes.
@@ -1098,6 +1105,8 @@ inductive Stmt
   | revertError (errorName : String) (args : List Expr)
   /-- Revert with Solidity's built-in `Panic(uint256)` ABI payload. -/
   | panicCode (code : Expr)
+  /-- Revert with a typed checked-arithmetic `Panic(uint256)` code. -/
+  | panic (code : Verity.Core.PanicCode)
   | return (value : Expr)
   | returnValues (values : List Expr)  -- ABI-encode multiple static return words
   | returnArray (name : String)        -- ABI-encode dynamic uint256[] parameter loaded from calldata
@@ -1219,6 +1228,8 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := args, termination := .alwaysTerminates, controlFlow := .reverts }
   | .panicCode code =>
       { subexpressions := [code], termination := .alwaysTerminates, controlFlow := .reverts }
+  | .panic _ =>
+      { termination := .alwaysTerminates, controlFlow := .reverts }
   | .return value =>
       { subexpressions := [value], termination := .alwaysTerminates, controlFlow := .returns }
   | .returnValues values =>
@@ -1376,7 +1387,7 @@ mutual
 def controlFlow : Stmt → ControlFlowSummary
   | .require _ _ | .requireError _ _ _ =>
       .mayReverting
-  | .revertError _ _ | .panicCode _ | .revertReturndata =>
+  | .revertError _ _ | .panicCode _ | .panic _ | .revertReturndata =>
       .reverts
   | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ =>
       .returns

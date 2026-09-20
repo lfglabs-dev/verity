@@ -117,9 +117,12 @@ private def literalMappingWrite_supported_spec :
         noExternals := rfl
         noAdtTypes := rfl
         noCheckedArithmetic := by
-          simp [contractUsesCheckedArithmetic, literalMappingWriteSpec,
-            literalMappingWriteFunction, stmtListMayUseCheckedArithmetic,
+          simp only [contractUsesCheckedArithmetic, literalMappingWriteSpec,
+            literalMappingWriteFunction,
+            Option.map_none, Option.getD_none, List.any_cons, List.any_nil,
+            Bool.false_or, Bool.or_false, stmtListMayUseCheckedArithmetic,
             stmtMayUseCheckedArithmetic]
+          rfl
         noTemplateIntrinsics := by
           rw [templateIntrinsicItems, literalMappingWriteSpec, literalMappingWriteFunction]
           unfold collectTemplateIntrinsicsFromStmts

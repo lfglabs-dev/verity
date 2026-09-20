@@ -110,6 +110,8 @@ private partial def stmtSummary : Stmt → TransitionSummary
       { reads := dedup (args.flatMap exprReads), guards := [label] }
   | .panicCode code =>
       { reads := dedup (exprReads code), guards := ["panic"] }
+  | .panic _ =>
+      { reads := [], guards := ["panic"] }
   | .emit eventName args =>
       { reads := dedup (args.flatMap exprReads), events := [eventName] }
   | .rawLog topics dataOffset dataSize =>

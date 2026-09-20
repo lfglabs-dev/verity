@@ -526,7 +526,9 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                                       {'name': 'Build CompilationModel feature '
                                                                'regression module',
                                                                'run': 'stdbuf -oL -eL lake build '
-                                                               'Compiler.CompilationModelFeatureTest'}],
+                                                               'Compiler.CompilationModelFeatureTest'},
+                                                      {'name': 'Build panic-code regression module',
+                                                       'run': 'stdbuf -oL -eL lake build Compiler.PanicCodeRegressionTest'}],
                              'lean-profile': [{'uses': 'actions/checkout@v6'},
                                              {'name': 'Setup Lean',
                                               'uses': './.github/actions/setup-lean',

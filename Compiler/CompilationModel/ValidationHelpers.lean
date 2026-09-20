@@ -185,6 +185,7 @@ def collectStmtNames : Stmt → List String
   | Stmt.requireError cond errorName args => errorName :: collectExprNames cond ++ collectExprListNames args
   | Stmt.revertError errorName args => errorName :: collectExprListNames args
   | .panicCode code => collectExprNames code
+  | .panic _ => []
   | Stmt.return value => collectExprNames value
   | Stmt.returnValues values => collectExprListNames values
   | Stmt.returnArray name => [name]
