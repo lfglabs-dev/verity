@@ -22,6 +22,8 @@ PROOF_DIRS = [ROOT / "Verity" / "Proofs", ROOT / "Compiler" / "Proofs"]
 TRUST_BOUNDARY_FILES = [
     ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "Inheritance" / "Proofs.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "Modifiers" / "Proofs.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "Structs" / "Proofs.lean",
 ]
 
 def _collect_contract_proof_dirs() -> list[Path]:

@@ -59,21 +59,27 @@ never serialized. `Semantics.lean` tags its definitions into the
 `solidity_import` simp set, so `solidity_simp` unfolds `Fn.meaning` down to the
 Verity primitives exactly as it did before the split.
 
-The accepted fragment covers the existing Vault plus the S1 inheritance slice:
-full-width `uint256` scalars, `address` scalars, address-to-uint256 mappings and
-public getters, straight-line reads/writes, locals, checked addition/subtraction,
-comparison/custom-error guards, same-file `is` bases with solc's C3
+The accepted fragment covers the existing Vault, the S1 inheritance slice, and
+the S2 modifiers/structs slice: full-width `uint256` scalars, `address` scalars,
+address-to-uint256 mappings and public getters, straight-line reads/writes,
+locals, checked addition/subtraction, comparison/custom-error guards (including
+`address !=` for `onlyOwner`), same-file `is` bases with solc's C3
 linearization (including diamonds), virtual dispatch and `super` specialized at
 import time from the target's `linearizedBaseContracts` (matching 0.8.x runtime;
 the AST `referencedDeclaration` on `super` follows the defining contract and is
 not the dispatch key on diamonds), internal function calls (`Expr.call` is
 `view`/`pure` only; effectful internals are `Stmt.callStmt`, because legacy
 codegen evaluates those calls before the other operand / `+=` old-read),
-abstract bases with body-less `virtual`s,
-and opaque storage fields (slot reserved, not in `Storage`; a body that reads or
-writes one is rejected). Unknown executable constructs are rejected; this is not
-general Solidity support. Multi-file units, modifiers, packed fields, and
-external calls remain out of the fragment.
+abstract bases with body-less `virtual`s, opaque storage fields (slot reserved,
+not in `Storage`; a body that reads or writes one is rejected), argument-free
+modifiers inlined at parse time in declaration order (`Stmt.seq` prelude plus
+`Stmt.block` so a function `return` still runs the postlude; a modifier with
+two `_` or with arguments is rejected; `Semantics.lean` never sees `_`), and
+user structs used as parameters, storage, and returns when they are the closed
+`uint256` then `address` pair (members occupy consecutive solc slots; encode is
+`Expr.pair`, decode is `fst`/`snd`). Unknown executable constructs are
+rejected; this is not general Solidity support. Multi-file units, packed
+fields, events, and external calls remain out of the fragment.
 Arguments/context are already typed and decoded. `Contract.run` rolls back
 failed executions; errors are model strings, not verified ABI revert bytes.
 The storage model uses logical keys, not a proof of physical keccak layout.

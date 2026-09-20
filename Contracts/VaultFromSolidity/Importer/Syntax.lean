@@ -21,10 +21,12 @@ open Lean
 
 namespace SolidityImporter.Sol
 
-/-- Types of the accepted subset: `uint256` and `address`. -/
+/-- Types of the accepted subset: `uint256`, `address`, and a two-member
+user struct as `uint256 × address`. -/
 inductive Ty where
   | uint : Ty
   | addr : Ty
+  | pair : Ty
   deriving DecidableEq, Repr, Inhabited, ToExpr
 
 /-- What an imported function returns. Empty is `void`; a singleton is the
@@ -125,6 +127,12 @@ inductive Expr (L : Layout) (F : Fns) (Γ : Ctx) : Ty → Type where
   | index : SVar L .mapping → Expr L F Γ .addr → Expr L F Γ .uint
   /-- Checked `+`/`-` on `uint256`, reverting with `Panic(0x11)`. -/
   | arith : ArithOp → Expr L F Γ .uint → Expr L F Γ .uint → Expr L F Γ .uint
+  /-- Memory struct `{amount, who}`. -/
+  | pair : Expr L F Γ .uint → Expr L F Γ .addr → Expr L F Γ .pair
+  /-- First struct member (`amount`). -/
+  | fst : Expr L F Γ .pair → Expr L F Γ .uint
+  /-- Second struct member (`who`). -/
+  | snd : Expr L F Γ .pair → Expr L F Γ .addr
   /-- Internal call of an already-registered `view`/`pure` function that
   returns one value. Arguments are in declaration order and evaluate left
   to right. Effectful internals are `Stmt.callStmt` only: pinned solc 0.8.x
@@ -159,13 +167,21 @@ inductive Stmt (L : Layout) (F : Fns) : Ctx → Ret → Type where
   /-- `addr = rhs;` followed by the rest of the body. -/
   | assignAddr : SVar L .addr → Expr L F Γ .addr → Stmt L F Γ r → Stmt L F Γ r
   /-- `uint256 x = e;` (or a parameter), followed by the rest of the body. -/
-  | local_ : Expr L F Γ .uint → Stmt L F (.uint :: Γ) r → Stmt L F Γ r
+  | local_ : Expr L F Γ t → Stmt L F (t :: Γ) r → Stmt L F Γ r
   /-- `if (a < b) revert E();` with `E()` stored verbatim, followed by the rest
   of the body. -/
   | guard : Expr L F Γ .uint → Expr L F Γ .uint → String → Stmt L F Γ r → Stmt L F Γ r
+  /-- `if (a != b) revert E();` on addresses. -/
+  | guardAddrNe : Expr L F Γ .addr → Expr L F Γ .addr → String → Stmt L F Γ r → Stmt L F Γ r
   /-- Internal call of an already-registered void function, then the rest. -/
   | callStmt : {ts : List Ty} →
       FVar F ⟨ts.reverse, []⟩ → Args L F Γ ts → Stmt L F Γ r → Stmt L F Γ r
+  /-- Run a void prefix, then the rest. Used for modifier preludes. -/
+  | seq : Stmt L F Γ [] → Stmt L F Γ r → Stmt L F Γ r
+  /-- Run `inner`; its `ret`/`done` exits this block only. Then run void `post`
+  and yield `inner`'s value. Modifier postludes use this so they run after
+  an early return. -/
+  | block : Stmt L F Γ r → Stmt L F Γ [] → Stmt L F Γ r
   deriving ToExpr
 
 end SolidityImporter.Sol

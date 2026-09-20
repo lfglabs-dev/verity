@@ -22,7 +22,7 @@ EXCLUDED_CONTRACTS = {
     "Ownable",                  # Mixin facet: named-slot proofs + footprint, no Foundry/Yul twin
     "OwnedCounterComposed",     # Include-host acceptance example; OwnedCounter keeps Yul/difftest
     "VaultFromSolidity",       # Proof-only imported model with its own focused structure
-    "SolidityImportSmoke",     # Nested proof-only importer smokes (Inheritance, …)
+    "SolidityImportSmoke",     # Nested proof-only importer smokes (Inheritance, Modifiers, Structs)
 }
 
 # Contracts excluded from property test check
@@ -33,7 +33,7 @@ EXCLUDED_FROM_PROPERTY_TESTS = {
     "Ownable",                  # Mixin proofs are reused by hosts; no compiled property harness
     "OwnedCounterComposed",     # Proof-composition host; OwnedCounter remains the Foundry target
     "VaultFromSolidity",       # Imported-model theorems are covered by the focused mutation suite
-    "SolidityImportSmoke",     # Importer smoke theorems are covered by inheritance_test.py
+    "SolidityImportSmoke",     # Importer smoke theorems are covered by focused Python suites
 }
 
 # Contracts excluded from differential test check

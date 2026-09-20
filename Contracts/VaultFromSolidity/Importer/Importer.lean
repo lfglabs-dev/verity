@@ -38,7 +38,11 @@ a source moves every imported `sourceDigest`. -/
 private def registeredSources : List (String × String) := [
   ("Contracts/VaultFromSolidity/Vault.sol", "Contracts/VaultFromSolidity/Vault.sol"),
   ("Contracts/SolidityImportSmoke/Inheritance/Inheritance.sol",
-    "Contracts/SolidityImportSmoke/Inheritance/Inheritance.sol")
+    "Contracts/SolidityImportSmoke/Inheritance/Inheritance.sol"),
+  ("Contracts/SolidityImportSmoke/Modifiers/Modifiers.sol",
+    "Contracts/SolidityImportSmoke/Modifiers/Modifiers.sol"),
+  ("Contracts/SolidityImportSmoke/Structs/Structs.sol",
+    "Contracts/SolidityImportSmoke/Structs/Structs.sol")
 ]
 
 private def field (j : Json) (key : String) : MetaM Json :=
@@ -184,6 +188,12 @@ private def allowedNodeFields : String → Option (List String)
   | "IfStatement" => some ["condition", "trueBody", "falseBody"]
   | "RevertStatement" => some ["errorCall"]
   | "Return" => some ["expression", "functionReturnParameters"]
+  | "ModifierDefinition" => some ["body", "name", "nameLocation", "parameters", "virtual", "visibility",
+      "documentation"]
+  | "ModifierInvocation" => some ["arguments", "kind", "modifierName"]
+  | "PlaceholderStatement" => some ([] : List String)
+  | "StructDefinition" => some ["canonicalName", "members", "name", "nameLocation", "scope", "visibility"]
+  | "UserDefinedTypeName" => some ["pathNode", "referencedDeclaration", "typeDescriptions"]
   | _ => none
 
 private def requiredNodeFields : String → List String
@@ -219,12 +229,18 @@ private def requiredNodeFields : String → List String
   | "IfStatement" => ["condition", "trueBody"]
   | "RevertStatement" => ["errorCall"]
   | "Return" => ["expression", "functionReturnParameters"]
+  | "ModifierDefinition" => ["name", "nameLocation", "parameters", "virtual", "visibility"]
+  | "ModifierInvocation" => ["kind", "modifierName"]
+  | "PlaceholderStatement" => []
+  | "StructDefinition" => ["canonicalName", "members", "name", "nameLocation", "scope", "visibility"]
+  | "UserDefinedTypeName" => ["pathNode", "referencedDeclaration", "typeDescriptions"]
   | _ => []
 
 private def childFields : List String := ["nodes", "baseContracts", "parameters", "returnParameters", "body",
   "statements", "typeName", "keyType", "valueType", "modifiers", "overrides", "storageLayout", "leftHandSide",
   "rightHandSide", "leftExpression", "rightExpression", "expression", "baseExpression", "indexExpression",
-  "arguments", "declarations", "initialValue", "condition", "trueBody", "falseBody", "errorCall", "baseName"]
+  "arguments", "declarations", "initialValue", "condition", "trueBody", "falseBody", "errorCall", "baseName",
+  "members", "modifierName", "pathNode"]
 
 private def validateTypeDescription (j : Json) : MetaM Unit := do
   requireKeys j ["typeIdentifier", "typeString"] "type description"
@@ -312,8 +328,11 @@ private partial def validateNode (ctx : SourceContext) (j : Json) : MetaM Unit :
   if kind == "BinaryOperation" then
     needAt ctx j ((field? j "function").all Json.isNull) "user-defined operator unsupported"
   if kind == "FunctionCall" then
-    needAt ctx j ((← str (← field j "kind")) == "functionCall" && !(← bool (← field j "tryCall")) &&
-      (← arr (← field j "names")).isEmpty) "unsupported call surface"
+    let k ← str (← field j "kind")
+    needAt ctx j ((k == "functionCall" || k == "structConstructorCall") &&
+      !(← bool (← field j "tryCall"))) "unsupported call surface"
+    if k == "functionCall" then
+      needAt ctx j ((← arr (← field j "names")).isEmpty) "unsupported call surface"
   for key in childFields do
     if let some value := field? j key then
       if key == "storageLayout" && kind == "ContractDefinition" then pure ()
@@ -353,8 +372,13 @@ private partial def validateNode (ctx : SourceContext) (j : Json) : MetaM Unit :
       for p in (← arr (← field j "parameters")) do
         needAt ctx j ((← nodeKind p) == "VariableDeclaration") "invalid parameter declaration"
   | "Block" => let _ ← arr (← field j "statements")
-  | "VariableDeclaration" => requireKind "typeName" ["ElementaryTypeName", "Mapping"]
-  | "Mapping" => requireKind "keyType" ["ElementaryTypeName"]; requireKind "valueType" ["ElementaryTypeName"]
+  | "VariableDeclaration" => requireKind "typeName" ["ElementaryTypeName", "Mapping", "UserDefinedTypeName"]
+  | "Mapping" =>
+      let keyType ← field j "keyType"
+      if (← nodeKind keyType) == "UserDefinedTypeName" then
+        failAt ctx j "mapping with struct key"
+      requireKind "keyType" ["ElementaryTypeName"]
+      requireKind "valueType" ["ElementaryTypeName", "UserDefinedTypeName"]
   | "ExpressionStatement" => let _ ← field j "expression"
   | "Assignment" => let _ ← field j "leftHandSide"; let _ ← field j "rightHandSide"
   | "BinaryOperation" => let _ ← field j "leftExpression"; let _ ← field j "rightExpression"
@@ -365,11 +389,46 @@ private partial def validateNode (ctx : SourceContext) (j : Json) : MetaM Unit :
       for d in (← arr (← field j "declarations")) do
         needAt ctx j ((← nodeKind d) == "VariableDeclaration") "invalid local declaration"
       let _ ← field j "initialValue"
-  | "IfStatement" => requireKind "trueBody" ["Block"]
+  | "IfStatement" =>
+      let trueBody ← field j "trueBody"
+      let tk ← nodeKind trueBody
+      needAt ctx j (tk == "Block" || tk == "RevertStatement") "unexpected child kind: trueBody"
   | "RevertStatement" => requireKind "errorCall" ["FunctionCall"]
-  | "Return" => let _ ← field j "expression"
+  | "Return" =>
+      if let some expr := field? j "expression" then
+        unless expr.isNull do let _ ← field j "expression"
   | "ErrorDefinition" => requireKind "parameters" ["ParameterList"]
+  | "ModifierDefinition" =>
+      requireKind "parameters" ["ParameterList"]
+      match field? j "body" with
+      | none => failAt ctx j "modifier missing body"
+      | some body =>
+          if body.isNull then failAt ctx j "modifier missing body"
+          else requireKind "body" ["Block"]
+  | "ModifierInvocation" =>
+      requireKind "modifierName" ["IdentifierPath"]
+      if let some arguments := field? j "arguments" then
+        unless arguments.isNull do let _ ← arr arguments
+  | "PlaceholderStatement" => pure ()
+  | "StructDefinition" =>
+      let members ← arr (← field j "members")
+      needAt ctx j (members.size == 2) "unsupported struct shape"
+      for m in members do
+        needAt ctx j ((← nodeKind m) == "VariableDeclaration") "invalid struct member"
+        let typ ← str (← field (← field m "typeDescriptions") "typeString")
+        unless typ == "uint256" || typ == "address" do
+          failAt ctx m "struct with a dynamic member"
+  | "UserDefinedTypeName" => requireKind "pathNode" ["IdentifierPath"]
   | _ => pure ()
+
+private structure StructMemberInfo where
+  name : String
+  ty : Sol.Ty
+
+private structure StructInfo where
+  id : Nat
+  name : String
+  members : List StructMemberInfo
 
 private structure FieldInfo where
   id : Nat
@@ -378,12 +437,19 @@ private structure FieldInfo where
   getter : Option String
   slot : Nat
   sty : Sol.StorageTy
+  structId : Option Nat
+  memberIndex : Option Nat
 
 private structure OpaqueField where
   id : Nat
   label : String
   slot : Nat
   typeLabel : String
+
+private structure ModInfo where
+  id : Nat
+  name : String
+  node : Json
 
 private structure FnInfo where
   id : Nat
@@ -398,7 +464,7 @@ private structure FnInfo where
   paramTys : List Sol.Ty
   paramIds : List (Nat × Sol.Ty × String)
   rets : List Sol.Ty
-  namedReturn : Option (Nat × String)
+  namedReturn : Option (Nat × Sol.Ty × String)
   node : Json
 
 private def FnInfo.sig (f : FnInfo) : Sol.Sig := ⟨f.paramTys.reverse, f.rets⟩
@@ -426,6 +492,8 @@ private structure Frontend where
   fields : List FieldInfo
   opaqueEntries : List OpaqueField
   errors : List (Nat × String)
+  structs : List StructInfo
+  modifiers : List ModInfo
   allFns : List FnInfo
   functions : List FnInfo
   digest : String
@@ -445,19 +513,49 @@ private def identifier (ctx : SourceContext) (j : Json) : MetaM String := do
 private def typeString (j : Json) : MetaM String :=
   field j "typeDescriptions" >>= (field · "typeString") >>= str
 
-private def parseValueTy (ctx : SourceContext) (j : Json) : MetaM Sol.Ty := do
+private def parseStructMembers (ctx : SourceContext) (node : Json) : MetaM (List StructMemberInfo) := do
+  let mut members : List StructMemberInfo := []
+  for m in (← arr (← field node "members")) do
+    needAt ctx m (!(← bool (← field m "stateVariable")) &&
+      !(← bool (← field m "constant")) &&
+      (← str (← field m "mutability")) == "mutable" &&
+      (← str (← field m "storageLocation")) == "default") "unsupported struct member"
+    let typ ← typeString m
+    let ty ← match typ with
+      | "uint256" => pure Sol.Ty.uint
+      | "address" => pure Sol.Ty.addr
+      | _ => failAt ctx m "struct with a dynamic member"
+    let name ← identifier ctx m
+    members := members ++ [StructMemberInfo.mk name ty]
+  needAt ctx node (!members.isEmpty) "empty struct unsupported"
+  needAt ctx node (members.map (·.ty) == [.uint, .addr]) "unsupported struct shape"
+  pure members
+
+private def lookupStruct (structs : List StructInfo) (id : Nat) : Option StructInfo :=
+  structs.find? (·.id == id)
+
+private def parseValueTy (ctx : SourceContext) (structs : List StructInfo) (j : Json) : MetaM Sol.Ty := do
   let typ ← typeString j
   match typ with
   | "uint256" => pure .uint
   | "address" => pure .addr
-  | _ => failAt ctx j "unsupported value type"
+  | _ =>
+      if typ.startsWith "struct " then
+        let some typeName := field? j "typeName" | failAt ctx j "unsupported value type"
+        needAt ctx j ((← nodeKind typeName) == "UserDefinedTypeName") "unsupported value type"
+        let rid ← int (← field typeName "referencedDeclaration")
+        needAt ctx j (rid >= 0) "unresolved struct"
+        let some info := lookupStruct structs rid.toNat | failAt ctx j "using an undeclared struct"
+        needAt ctx j (info.members.map (·.ty) == [.uint, .addr]) "unsupported struct shape"
+        pure .pair
+      else failAt ctx j "unsupported value type"
 
-private def parseFnInfo (ctx : SourceContext) (contractId : Nat) (contractName : String)
+private def parseFnInfo (ctx : SourceContext) (structs : List StructInfo)
+    (contractId : Nat) (contractName : String)
     (isTarget : Bool) (node : Json) : MetaM FnInfo := do
   let name ← identifier ctx node
   let mutability ← str (← field node "stateMutability")
   needAt ctx node ((← str (← field node "kind")) == "function" &&
-    (← arr (← field node "modifiers")).isEmpty &&
     ["internal", "public", "external", "private"].contains (← str (← field node "visibility")) &&
     ["nonpayable", "view", "pure"].contains mutability)
     "unsupported function surface"
@@ -470,33 +568,42 @@ private def parseFnInfo (ctx : SourceContext) (contractId : Nat) (contractName :
   let mut paramTys : List Sol.Ty := []
   let mut paramIds : List (Nat × Sol.Ty × String) := []
   for p in (← arr (← field (← field node "parameters") "parameters")) do
+    let loc ← str (← field p "storageLocation")
     needAt ctx node (!(← bool (← field p "stateVariable")) &&
       !(← bool (← field p "constant")) &&
       (← str (← field p "mutability")) == "mutable" &&
-      (← str (← field p "storageLocation")) == "default" &&
+      (loc == "default" || loc == "memory") &&
       (← str (← field p "visibility")) == "internal" &&
       (field? p "value").all Json.isNull) "unsupported parameter declaration"
-    let ty ← parseValueTy ctx p
+    let ty ← parseValueTy ctx structs p
+    match ty with
+    | .pair => needAt ctx p (loc == "memory") "unsupported parameter declaration"
+    | _ => needAt ctx p (loc == "default") "unsupported parameter declaration"
     let pname ← identifier ctx p
     paramTys := paramTys ++ [ty]
     paramIds := paramIds ++ [(← nodeId p, ty, pname)]
   let rs ← arr (← field (← field node "returnParameters") "parameters")
   needAt ctx node (rs.size <= 1) "unsupported signature"
   let mut rets : List Sol.Ty := []
-  let mut namedReturn : Option (Nat × String) := none
+  let mut namedReturn : Option (Nat × Sol.Ty × String) := none
   for r in rs do
+    let loc ← str (← field r "storageLocation")
     needAt ctx node (!(← bool (← field r "stateVariable")) &&
       !(← bool (← field r "constant")) &&
       (← str (← field r "mutability")) == "mutable" &&
-      (← str (← field r "storageLocation")) == "default" &&
+      (loc == "default" || loc == "memory") &&
       (← str (← field r "visibility")) == "internal" &&
       (field? r "value").all Json.isNull) "unsupported parameter declaration"
-    needAt ctx node ((← typeString r) == "uint256") "unsupported return type"
-    rets := [.uint]
+    let ty ← parseValueTy ctx structs r
+    match ty with
+    | .pair => needAt ctx r (loc == "memory") "unsupported return type"
+    | .uint => needAt ctx r (loc == "default") "unsupported return type"
+    | .addr => needAt ctx r (loc == "default") "unsupported return type"
+    rets := [ty]
     let rname ← str (← field r "name")
     if !rname.isEmpty then
       needAt ctx node (validName rname) "unsupported/reserved name"
-      namedReturn := some (← nodeId r, rname)
+      namedReturn := some (← nodeId r, ty, rname)
   pure {
     id := ← nodeId node, contractId, contractName, name,
     visibility := ← str (← field node "visibility"),
@@ -543,6 +650,8 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
         (← str literals[1]!) == "^" && (← str literals[2]!) == "0.8" &&
         (← str literals[3]!) == ".33") "unsupported pragma"
     | "ContractDefinition" => contracts := contracts ++ [node]
+    | "StructDefinition" => pure ()
+    | "ErrorDefinition" => pure ()
     | _ => failAt ctx node "unsupported source declaration"
   needAt ctx ast (!contracts.isEmpty) "exactly one concrete contract required"
   let mut concrete : List Json := []
@@ -607,7 +716,24 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
   let mut fields : List FieldInfo := []
   let mut opaqueEntries : List OpaqueField := []
   let mut errors : List (Nat × String) := []
+  let mut structs : List StructInfo := []
+  let mut modifiers : List ModInfo := []
   let mut allFns : List FnInfo := []
+  for node in (← arr (← field ast "nodes")) do
+    if (← nodeKind node) == "StructDefinition" then
+      let members ← parseStructMembers ctx node
+      structs := structs ++ [{ id := ← nodeId node, name := ← identifier ctx node, members }]
+    else if (← nodeKind node) == "ErrorDefinition" then
+      let ps ← arr (← field (← field node "parameters") "parameters")
+      needAt ctx node ps.isEmpty "only zero-argument custom errors"
+      errors := errors ++ [((← nodeId node), (← identifier ctx node))]
+  for cid in linearization do
+    let some (_, _, cnode) := contractById.find? (·.1 == cid)
+      | failAt ctx target "invalid contract linearization"
+    for node in (← arr (← field cnode "nodes")) do
+      if (← nodeKind node) == "StructDefinition" then
+        let members ← parseStructMembers ctx node
+        structs := structs ++ [{ id := ← nodeId node, name := ← identifier ctx node, members }]
   for cid in linearization do
     let some (_, cname, cnode) := contractById.find? (·.1 == cid)
       | failAt ctx target "invalid contract linearization"
@@ -633,8 +759,8 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
           let layoutType ← field layoutTypes typeId
           let slotText ← str (← field entry "slot")
           let some slot := slotText.toNat? | failAt ctx node "invalid storage slot"
+          let name ← identifier ctx node
           if typ == "uint256" || typ == "mapping(address => uint256)" || typ == "address" then
-            let name ← identifier ctx node
             let sty : Sol.StorageTy :=
               if typ == "mapping(address => uint256)" then .mapping
               else if typ == "address" then .addr else .scalar
@@ -666,7 +792,26 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
                   (← str (← field valueType "numberOfBytes")) == "32") "bad mapping layout"
             let vis ← str (← field node "visibility")
             let getter := if vis == "public" then some name else none
-            fields := fields ++ [FieldInfo.mk id name (name ++ "Slot") getter slot sty]
+            fields := fields ++ [FieldInfo.mk id name (name ++ "Slot") getter slot sty none none]
+          else if typ.startsWith "struct " then
+            let some typeName := field? node "typeName" | failAt ctx node "unsupported value type"
+            needAt ctx node ((← nodeKind typeName) == "UserDefinedTypeName") "unsupported value type"
+            let rid ← int (← field typeName "referencedDeclaration")
+            needAt ctx node (rid >= 0) "unresolved struct"
+            let some info := lookupStruct structs rid.toNat | failAt ctx node "using an undeclared struct"
+            requireKeys layoutType ["encoding", "label", "members", "numberOfBytes"] "storage type"
+            needAt ctx node ((← str (← field layoutType "encoding")) == "inplace") "bad scalar layout"
+            let vis ← str (← field node "visibility")
+            let _ := vis
+            let mut i : Nat := 0
+            for mem in info.members do
+              let sty : Sol.StorageTy := match mem.ty with
+                | .uint => .scalar
+                | .addr => .addr
+                | .pair => .scalar
+              let mname := name ++ "_" ++ mem.name
+              fields := fields ++ [FieldInfo.mk id mname (mname ++ "Slot") none (slot + i) sty (some info.id) (some i)]
+              i := i + 1
           else
             let vis ← str (← field node "visibility")
             needAt ctx node (vis != "public") "opaque public getter unsupported"
@@ -678,11 +823,20 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
           errors := errors ++ [((← nodeId node), (← identifier ctx node))]
       | "FunctionDefinition" =>
           needAt ctx node ((← nat (← field node "scope")) == cid) "function scope mismatch"
-          allFns := allFns ++ [← parseFnInfo ctx cid cname (cid == targetId) node]
+          allFns := allFns ++ [← parseFnInfo ctx structs cid cname (cid == targetId) node]
+      | "ModifierDefinition" =>
+          needAt ctx node (!(← bool (← field node "virtual"))) "unsupported modifier"
+          let ps ← arr (← field (← field node "parameters") "parameters")
+          needAt ctx node ps.isEmpty "modifier arguments"
+          let mname ← identifier ctx node
+          if modifiers.any (·.name == mname) then failAt ctx node "unsupported/reserved name"
+          modifiers := modifiers ++ [{ id := ← nodeId node, name := mname, node }]
+      | "StructDefinition" => pure ()
       | _ => failAt ctx node "unsupported contract declaration"
-  needAt ctx target (storage.size == fields.length + opaqueEntries.length &&
-    storage.all fun e => (field? e "astId").bind (·.getNat?.toOption) |>.any fun id =>
-      fields.any (·.id == id) || opaqueEntries.any (·.id == id)) "unaccounted layout field"
+  let accounted := storage.all fun e =>
+    (field? e "astId").bind (·.getNat?.toOption) |>.any fun id =>
+      fields.any (·.id == id) || opaqueEntries.any (·.id == id)
+  needAt ctx target accounted "unaccounted layout field"
   let names := fields.flatMap fun f => f.name :: f.getter.toList
   needAt ctx target (names.length == names.eraseDups.length) "storage/generated name collision"
   let slots := (fields.map (·.slot)) ++ (opaqueEntries.map (·.slot))
@@ -702,7 +856,7 @@ private def parseCompilerOutput (sourcePath : System.FilePath) (logicalPath : St
   let digest := sha256Hex (sourceText ++ outputText ++ importerText ++ solcVersionPin).toUTF8
   pure {
     source := ctx, ast, targetName, targetId, linearization, contractById,
-    fields, opaqueEntries, errors, allFns, functions, digest
+    fields, opaqueEntries, errors, structs, modifiers, allFns, functions, digest
   }
 
 private def uint := mkConst ``Verity.Core.Uint256
@@ -725,24 +879,45 @@ private def register (name : Name) (value : Expr) (type? : Option Expr := none)
 
 private def requireType (frontend : Frontend) (j : Json) (expected : String) : MetaM Unit := do
   let actual ← typeString j
-  let identifier ← str (← field (← field j "typeDescriptions") "typeIdentifier")
-  let expectedIdentifier := match expected with
-    | "uint256" => "t_uint256"
-    | "address" => "t_address"
-    | "mapping(address => uint256)" => "t_mapping$_t_address_$_t_uint256_$"
-    | "msg" => "t_magic_message"
-    | "bool" => "t_bool"
-    | "tuple()" => "t_tuple$__$"
-    | _ => ""
-  needAt frontend.source j (actual == expected && identifier == expectedIdentifier) ("expected " ++ expected)
+  if expected.startsWith "struct " then
+    needAt frontend.source j (actual == expected || actual == expected ++ " memory" ||
+      actual == expected ++ " storage ref") ("expected " ++ expected)
+  else
+    let identifier ← str (← field (← field j "typeDescriptions") "typeIdentifier")
+    let expectedIdentifier := match expected with
+      | "uint256" => "t_uint256"
+      | "address" => "t_address"
+      | "mapping(address => uint256)" => "t_mapping$_t_address_$_t_uint256_$"
+      | "msg" => "t_magic_message"
+      | "bool" => "t_bool"
+      | "tuple()" => "t_tuple$__$"
+      | _ => ""
+    needAt frontend.source j (actual == expected && identifier == expectedIdentifier) ("expected " ++ expected)
+
+private def requireUintish (frontend : Frontend) (j : Json) : MetaM Unit := do
+  let actual ← typeString j
+  if actual.startsWith "int_const " then pure ()
+  else requireType frontend j "uint256"
 
 private def valueType : Sol.Ty → Expr
   | .uint => uint
   | .addr => address
+  | .pair => mkConst ``Sol.Pair
 
 private def typeName : Sol.Ty → String
   | .uint => "uint256"
   | .addr => "address"
+  | .pair => "struct"
+
+private def pairTypeName (frontend : Frontend) : Option String :=
+  (frontend.structs.find? (fun s => s.members.map (·.ty) == [.uint, .addr])).map
+    (fun s => "struct " ++ s.name)
+
+private def isPairTypeString (frontend : Frontend) (typ : String) : Bool :=
+  frontend.structs.any (fun s =>
+      s.members.map (·.ty) == [.uint, .addr] &&
+      (typ == "struct " ++ s.name || typ == "struct " ++ s.name ++ " memory" ||
+       typ == "struct " ++ s.name ++ " storage ref"))
 
 private def resultType : List Sol.Ty → Expr
   | [] => mkConst ``Unit
@@ -758,11 +933,18 @@ where
     | [], _ => none
     | f :: fs, i => if f.id == id then some i else go fs (i + 1)
 
+private def fieldIndexAt (fields : List FieldInfo) (pos : Nat) : Option Nat :=
+  if pos < fields.length then some pos else none
+
+private def svarAt (frontend : Frontend) (L : Sol.Layout) (pos : Nat) (s : Sol.StorageTy)
+    (j : Json) : MetaM (Sol.SVar L s) := do
+  let some entry := Sol.SVar.ofIndex L pos | failAt frontend.source j "unresolved declaration id"
+  if h : entry.1 = s then pure (h ▸ entry.2) else failAt frontend.source j "storage type mismatch"
+
 private def svar (frontend : Frontend) (L : Sol.Layout) (id : Nat) (s : Sol.StorageTy)
     (j : Json) : MetaM (Sol.SVar L s) := do
   let some i := fieldIndex frontend.fields id | failAt frontend.source j "unresolved declaration id"
-  let some entry := Sol.SVar.ofIndex L i | failAt frontend.source j "unresolved declaration id"
-  if h : entry.1 = s then pure (h ▸ entry.2) else failAt frontend.source j "storage type mismatch"
+  svarAt frontend L i s j
 
 private structure Scope (Γ : Sol.Ctx) where
   vars : List (Nat × Σ t, Sol.Var Γ t)
@@ -876,17 +1058,20 @@ private partial def collectCallIds (frontend : Frontend) (current : FnInfo) (j :
       match field? j "nodeType" with
       | some nt =>
           if (← str nt) == "FunctionCall" then
-            let callee ← field j "expression"
-            let skip ← match ← nodeKind callee with
-              | "Identifier" =>
-                  let rid ← int (← field callee "referencedDeclaration")
-                  pure (rid >= 0 && isErrorRef frontend rid.toNat)
-              | _ => pure false
-            let restIds ← walkChildren
-            if skip then pure restIds
-            else
-              let resolved ← resolveCall frontend current j
-              pure (resolved.id :: restIds)
+            if (field? j "kind").bind (·.getStr?.toOption) == some "structConstructorCall" then
+              walkChildren
+            else do
+              let callee ← field j "expression"
+              let skip ← match ← nodeKind callee with
+                | "Identifier" =>
+                    let rid ← int (← field callee "referencedDeclaration")
+                    pure (rid >= 0 && isErrorRef frontend rid.toNat)
+                | _ => pure false
+              let restIds ← walkChildren
+              if skip then pure restIds
+              else
+                let resolved ← resolveCall frontend current j
+                pure (resolved.id :: restIds)
           else walkChildren
       | none => walkChildren
   | .arr xs =>
@@ -894,11 +1079,45 @@ private partial def collectCallIds (frontend : Frontend) (current : FnInfo) (j :
       pure rest.flatten
   | _ => pure []
 
+private def lookupMod (frontend : Frontend) (id : Nat) : Option ModInfo :=
+  frontend.modifiers.find? (·.id == id)
+
+private partial def countPlaceholders (j : Json) : Nat :=
+  match j with
+  | .obj o =>
+      let here := if (j.getObjVal? "nodeType").toOption == some (Json.str "PlaceholderStatement") then 1 else 0
+      o.foldl (fun acc _ v => acc + countPlaceholders v) here
+  | .arr xs => xs.foldl (fun acc v => acc + countPlaceholders v) 0
+  | _ => 0
+
+private def splitModifierBody (stmts : List Json) : MetaM (List Json × List Json) := do
+  let mut pre : List Json := []
+  let mut post : List Json := []
+  let mut seen := false
+  for s in stmts do
+    if (← nodeKind s) == "PlaceholderStatement" then
+      if seen then throwError "modifier with two placeholders"
+      seen := true
+    else if seen then post := post ++ [s]
+    else pre := pre ++ [s]
+  unless seen do throwError "modifier missing placeholder"
+  pure (pre, post)
+
+private def fnModifierInvocations (fn : FnInfo) : MetaM (Array Json) := do
+  arr (← field fn.node "modifiers")
+
 private def topoSort (frontend : Frontend) : MetaM (List FnInfo) := do
   let mut deps : List (Nat × List Nat) := []
   for f in frontend.functions do
     let body := field? f.node "body" |>.getD Json.null
-    let callees := (← collectCallIds frontend f body).eraseDups
+    let mut callees := (← collectCallIds frontend f body).eraseDups
+    for inv in (← fnModifierInvocations f) do
+      let nameNode ← field inv "modifierName"
+      let rid ← int (← field nameNode "referencedDeclaration")
+      needAt frontend.source inv (rid >= 0) "unresolved modifier"
+      let some m := lookupMod frontend rid.toNat | failAt frontend.source inv "unresolved modifier"
+      let mbody := field? m.node "body" |>.getD Json.null
+      callees := (callees ++ (← collectCallIds frontend f mbody)).eraseDups
     deps := deps ++ [(f.id, callees)]
   let mut remaining := frontend.functions
   let mut order : List FnInfo := []
@@ -935,6 +1154,17 @@ private def fvarOf (ctx : ParseCtx) (resolved : FnInfo) (j : Json) : MetaM (Σ �
   pure entry
 
 mutual
+private partial def loadPair (ctx : ParseCtx) {Γ : Sol.Ctx} (id : Nat) (j : Json) :
+    MetaM (Sol.Expr ctx.L ctx.F Γ .pair) := do
+  let members := (List.range ctx.frontend.fields.length).zip ctx.frontend.fields |>.filter (fun p => p.2.id == id)
+  match members with
+  | (p0, m0) :: (p1, m1) :: [] =>
+      needAt ctx.frontend.source j (m0.sty == .scalar && m1.sty == .addr) "storage type mismatch"
+      let a ← svarAt ctx.frontend ctx.L p0 .scalar j
+      let b ← svarAt ctx.frontend ctx.L p1 .addr j
+      pure (.pair (.load a) (.loadAddr b))
+  | _ => failAt ctx.frontend.source j "storage type mismatch"
+
 private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t : Sol.Ty)
     (j : Json) : MetaM (Sol.Expr ctx.L ctx.F Γ t) := do
   match ← nodeKind j with
@@ -943,8 +1173,19 @@ private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t
       if rid < 0 then failAt ctx.frontend.source j "unresolved builtin identifier"
       let id := rid.toNat
       if let some v := sc.find? id then
-        requireType ctx.frontend j (typeName v.1)
+        match v.1 with
+        | .pair =>
+            let some expected := pairTypeName ctx.frontend | failAt ctx.frontend.source j "unsupported value type"
+            requireType ctx.frontend j expected
+        | _ => requireType ctx.frontend j (typeName v.1)
         if h : v.1 = t then pure (.var (h ▸ v.2)) else failAt ctx.frontend.source j "local type mismatch"
+      else if ctx.frontend.fields.any (fun f => f.id == id && f.structId.isSome) then
+        match t with
+        | .pair =>
+            let some expected := pairTypeName ctx.frontend | failAt ctx.frontend.source j "unsupported value type"
+            requireType ctx.frontend j expected
+            loadPair ctx id j
+        | _ => failAt ctx.frontend.source j "storage type mismatch"
       else if let some info := ctx.frontend.fields.find? (·.id == id) then
         match info.sty, t with
         | .scalar, .uint =>
@@ -960,15 +1201,33 @@ private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t
       else failAt ctx.frontend.source j "unresolved declaration reference"
   | "MemberAccess" =>
       let base ← field j "expression"
-      needAt ctx.frontend.source j ((← str (← field j "memberName")) == "sender" &&
-        (← nodeKind base) == "Identifier" && (← str (← field base "name")) == "msg" &&
-        (← int (← field base "referencedDeclaration")) == -15 &&
-        (field? j "referencedDeclaration").all fun v => v.isNull) "only builtin msg.sender supported"
-      requireType ctx.frontend base "msg"
-      requireType ctx.frontend j "address"
-      match t with
-      | .addr => pure .sender
-      | .uint => failAt ctx.frontend.source j "address expression in uint256 position"
+      let member ← str (← field j "memberName")
+      if member == "sender" && (← nodeKind base) == "Identifier" &&
+          (← str (← field base "name")) == "msg" &&
+          (← int (← field base "referencedDeclaration")) == -15 &&
+          (field? j "referencedDeclaration").all fun v => v.isNull then
+        requireType ctx.frontend base "msg"
+        requireType ctx.frontend j "address"
+        match t with
+        | .addr => pure .sender
+        | .uint => failAt ctx.frontend.source j "address expression in uint256 position"
+        | .pair => failAt ctx.frontend.source j "address expression in uint256 position"
+      else
+        unless isPairTypeString ctx.frontend (← typeString base) do
+          failAt ctx.frontend.source j "only builtin msg.sender supported"
+        let some info := ctx.frontend.structs.find? (fun s => s.members.map (·.ty) == [.uint, .addr])
+          | failAt ctx.frontend.source j "using an undeclared struct"
+        let some idx := info.members.findIdx? (·.name == member)
+          | failAt ctx.frontend.source j "unresolved declaration reference"
+        let baseE ← parseExpr ctx sc .pair base
+        match idx, t with
+        | 0, .uint =>
+            requireType ctx.frontend j "uint256"
+            pure (.fst baseE)
+        | 1, .addr =>
+            requireType ctx.frontend j "address"
+            pure (.snd baseE)
+        | _, _ => failAt ctx.frontend.source j "local type mismatch"
   | "IndexAccess" =>
       let base ← field j "baseExpression"
       needAt ctx.frontend.source j ((← nodeKind base) == "Identifier") "unsupported index base"
@@ -986,6 +1245,7 @@ private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t
       match t with
       | .uint => pure (.index (← svar ctx.frontend ctx.L info.id .mapping j) key)
       | .addr => failAt ctx.frontend.source j "uint256 expression in address position"
+      | .pair => failAt ctx.frontend.source j "uint256 expression in address position"
   | "Literal" =>
       let value ← str (← field j "value")
       let some n := value.toNat? | failAt ctx.frontend.source j "unsupported literal"
@@ -995,6 +1255,7 @@ private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t
       match t with
       | .uint => pure (.lit n)
       | .addr => failAt ctx.frontend.source j "uint256 expression in address position"
+      | .pair => failAt ctx.frontend.source j "uint256 expression in address position"
   | "BinaryOperation" =>
       let op ← str (← field j "operator")
       needAt ctx.frontend.source j (op == "+" || op == "-") "unsupported binary operation/types"
@@ -1008,18 +1269,69 @@ private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t
       match t with
       | .uint => pure (.arith aop a b)
       | .addr => failAt ctx.frontend.source j "uint256 expression in address position"
+      | .pair => failAt ctx.frontend.source j "uint256 expression in address position"
   | "FunctionCall" =>
-      requireType ctx.frontend j (typeName t)
-      let resolved ← resolveCall ctx.frontend ctx.current j
-      needAt ctx.frontend.source j resolved.viewOrPure
-        "effectful internal call in expression position"
-      needAt ctx.frontend.source j (resolved.rets == [t]) "function does not return the expected type"
-      let ⟨σ, fv⟩ ← fvarOf ctx resolved j
-      let argsJ := (← arr (← field j "arguments")).toList
-      let args ← parseArgs ctx sc resolved.paramTys argsJ j
-      if h : σ = ⟨resolved.paramTys.reverse, [t]⟩ then
-        pure (.call (h ▸ fv) args)
-      else failAt ctx.frontend.source j "function signature mismatch"
+      if (← str (← field j "kind")) == "structConstructorCall" then
+        needAt ctx.frontend.source j (t == .pair) "unsupported value type"
+        let some expected := pairTypeName ctx.frontend | failAt ctx.frontend.source j "unsupported value type"
+        requireType ctx.frontend j expected
+        let argsJ ← arr (← field j "arguments")
+        let names ← arr (← field j "names")
+        needAt ctx.frontend.source j (argsJ.size == 2) "argument count mismatch"
+        let some info := ctx.frontend.structs.find? (fun s => s.members.map (·.ty) == [.uint, .addr])
+          | failAt ctx.frontend.source j "using an undeclared struct"
+        let amountName :=
+          match info.members with
+          | m0 :: _ => m0.name
+          | [] => ""
+        let whoName :=
+          match info.members with
+          | _ :: m1 :: _ => m1.name
+          | _ => ""
+        let amountJ ←
+          if names.isEmpty then pure argsJ[0]!
+          else
+            let some i := names.findIdx? (fun n => n.getStr?.toOption == some amountName)
+              | failAt ctx.frontend.source j "unresolved declaration reference"
+            pure argsJ[i]!
+        let whoJ ←
+          if names.isEmpty then pure argsJ[1]!
+          else
+            let some i := names.findIdx? (fun n => n.getStr?.toOption == some whoName)
+              | failAt ctx.frontend.source j "unresolved declaration reference"
+            pure argsJ[i]!
+        let a ← parseExpr ctx sc .uint amountJ
+        let b ← parseExpr ctx sc .addr whoJ
+        let e : Sol.Expr ctx.L ctx.F Γ .pair := .pair a b
+        if h : t = .pair then pure (h ▸ e) else failAt ctx.frontend.source j "local type mismatch"
+      else do
+        let resolved ← resolveCall ctx.frontend ctx.current j
+        needAt ctx.frontend.source j resolved.viewOrPure
+          "effectful internal call in expression position"
+        needAt ctx.frontend.source j (resolved.rets == [t]) "function does not return the expected type"
+        let ⟨σ, fv⟩ ← fvarOf ctx resolved j
+        let argsJ := (← arr (← field j "arguments")).toList
+        let args ← parseArgs ctx sc resolved.paramTys argsJ j
+        if h : t = .uint then
+          requireType ctx.frontend j "uint256"
+          if hσ : σ = ⟨resolved.paramTys.reverse, [.uint]⟩ then
+            let e : Sol.Expr ctx.L ctx.F Γ .uint := .call (hσ ▸ fv) args
+            pure (h ▸ e)
+          else failAt ctx.frontend.source j "function signature mismatch"
+        else if h : t = .addr then
+          requireType ctx.frontend j "address"
+          if hσ : σ = ⟨resolved.paramTys.reverse, [.addr]⟩ then
+            let e : Sol.Expr ctx.L ctx.F Γ .addr := .call (hσ ▸ fv) args
+            pure (h ▸ e)
+          else failAt ctx.frontend.source j "function signature mismatch"
+        else if h : t = .pair then
+          let some expected := pairTypeName ctx.frontend | failAt ctx.frontend.source j "unsupported value type"
+          requireType ctx.frontend j expected
+          if hσ : σ = ⟨resolved.paramTys.reverse, [.pair]⟩ then
+            let e : Sol.Expr ctx.L ctx.F Γ .pair := .call (hσ ▸ fv) args
+            pure (h ▸ e)
+          else failAt ctx.frontend.source j "function signature mismatch"
+        else failAt ctx.frontend.source j "function signature mismatch"
   | _ => failAt ctx.frontend.source j "unsupported expression"
 
 private partial def parseArgs (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (ts : List Sol.Ty)
@@ -1061,6 +1373,18 @@ private partial def parseLValue (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) 
       pure (.mapping (← svar ctx.frontend ctx.L info.id .mapping j) key)
   | _ => failAt ctx.frontend.source j "only storage assignment supported"
 
+private partial def assignStructMembers (ctx : ParseCtx) {Γ : Sol.Ctx}
+    (id : Nat) (rhs : Sol.Expr ctx.L ctx.F Γ .pair) (rest : Sol.Stmt ctx.L ctx.F Γ r)
+    (j : Json) : MetaM (Sol.Stmt ctx.L ctx.F Γ r) := do
+  let members := (List.range ctx.frontend.fields.length).zip ctx.frontend.fields |>.filter (fun p => p.2.id == id)
+  match members with
+  | [(p0, m0), (p1, m1)] =>
+      needAt ctx.frontend.source j (m0.sty == .scalar && m1.sty == .addr) "storage type mismatch"
+      let a ← svarAt ctx.frontend ctx.L p0 .scalar j
+      let b ← svarAt ctx.frontend ctx.L p1 .addr j
+      pure (.assign (.scalar a) .set (.fst rhs) (.assignAddr b (.snd rhs) rest))
+  | _ => failAt ctx.frontend.source j "storage type mismatch"
+
 private partial def parseStmts (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (r : Sol.Ret)
     (namedReturn : Option Nat) (nodes : List Json) : MetaM (Sol.Stmt ctx.L ctx.F Γ r) := do
   match nodes with
@@ -1077,6 +1401,7 @@ private partial def parseStmts (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (
       | _ => throwError "missing terminal return"
   | node :: rest =>
       match ← nodeKind node with
+      | "PlaceholderStatement" => failAt ctx.frontend.source node "modifier with two placeholders"
       | "ExpressionStatement" =>
           let expr ← field node "expression"
           match ← nodeKind expr with
@@ -1088,6 +1413,13 @@ private partial def parseStmts (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (
                 if rid >= 0 && ctx.frontend.opaqueEntries.any (·.id == rid.toNat) then
                   failAt ctx.frontend.source node "opaque field"
                 if rid >= 0 then
+                  if ctx.frontend.fields.any (fun f => f.id == rid.toNat && f.structId.isSome) then
+                    needAt ctx.frontend.source expr (op == "=") "unsupported assignment"
+                    unless isPairTypeString ctx.frontend (← typeString lhs) do
+                      failAt ctx.frontend.source expr "using an undeclared struct"
+                    let rhs ← parseExpr ctx sc .pair (← field expr "rightHandSide")
+                    let restS ← parseStmts ctx sc r namedReturn rest
+                    return (← assignStructMembers ctx rid.toNat rhs restS lhs)
                   if let some info := ctx.frontend.fields.find? (·.id == rid.toNat) then
                     if info.sty == .addr then
                       needAt ctx.frontend.source expr (op == "=") "unsupported assignment"
@@ -1130,10 +1462,16 @@ private partial def parseStmts (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (
       | "IfStatement" =>
           let falseBody := field? node "falseBody"
           let trueBody ← field node "trueBody"
-          let statements ← arr (← field trueBody "statements")
-          needAt ctx.frontend.source node (falseBody.all Json.isNull && statements.size == 1 &&
-            (← nodeKind statements[0]!) == "RevertStatement") "only if/revert guard supported"
-          let call ← field statements[0]! "errorCall"
+          let revertNode ← match ← nodeKind trueBody with
+            | "Block" =>
+                let statements ← arr (← field trueBody "statements")
+                needAt ctx.frontend.source node (statements.size == 1 &&
+                  (← nodeKind statements[0]!) == "RevertStatement") "only if/revert guard supported"
+                pure statements[0]!
+            | "RevertStatement" => pure trueBody
+            | _ => failAt ctx.frontend.source node "only if/revert guard supported"
+          needAt ctx.frontend.source node (falseBody.all Json.isNull) "only if/revert guard supported"
+          let call ← field revertNode "errorCall"
           let callee ← field call "expression"
           let rid ← int (← field callee "referencedDeclaration")
           let some errorName := if rid < 0 then none else ctx.frontend.errors.lookup rid.toNat
@@ -1141,24 +1479,43 @@ private partial def parseStmts (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (
           needAt ctx.frontend.source node ((← nodeKind callee) == "Identifier" &&
             (← arr (← field call "arguments")).isEmpty) "unsupported revert"
           let condition ← field node "condition"
-          needAt ctx.frontend.source condition ((← nodeKind condition) == "BinaryOperation" &&
-            (← str (← field condition "operator")) == "<") "only uint256 comparison guard supported"
+          needAt ctx.frontend.source condition ((← nodeKind condition) == "BinaryOperation")
+            "only uint256 comparison guard supported"
           requireType ctx.frontend condition "bool"
-          let commonType ← field condition "commonType"
-          needAt ctx.frontend.source condition ((← str (← field commonType "typeString")) == "uint256" &&
-            (← str (← field commonType "typeIdentifier")) == "t_uint256") "unsupported comparison type"
+          let op ← str (← field condition "operator")
           let left ← field condition "leftExpression"
           let right ← field condition "rightExpression"
-          requireType ctx.frontend left "uint256"; requireType ctx.frontend right "uint256"
-          let a ← parseExpr ctx sc .uint left
-          let b ← parseExpr ctx sc .uint right
-          pure (.guard a b (errorName ++ "()") (← parseStmts ctx sc r namedReturn rest))
+          if op == "<" then
+            let commonType ← field condition "commonType"
+            needAt ctx.frontend.source condition ((← str (← field commonType "typeString")) == "uint256" &&
+              (← str (← field commonType "typeIdentifier")) == "t_uint256") "unsupported comparison type"
+            requireUintish ctx.frontend left; requireUintish ctx.frontend right
+            let a ← parseExpr ctx sc .uint left
+            let b ← parseExpr ctx sc .uint right
+            pure (.guard a b (errorName ++ "()") (← parseStmts ctx sc r namedReturn rest))
+          else if op == "!=" then
+            let commonType ← field condition "commonType"
+            needAt ctx.frontend.source condition ((← str (← field commonType "typeString")) == "address")
+              "unsupported comparison type"
+            requireType ctx.frontend left "address"; requireType ctx.frontend right "address"
+            let a ← parseExpr ctx sc .addr left
+            let b ← parseExpr ctx sc .addr right
+            pure (.guardAddrNe a b (errorName ++ "()") (← parseStmts ctx sc r namedReturn rest))
+          else failAt ctx.frontend.source condition "only uint256 comparison guard supported"
       | "Return" =>
+          needAt ctx.frontend.source node rest.isEmpty "only terminal scalar return"
           match r with
           | [t] =>
-              needAt ctx.frontend.source node rest.isEmpty "only terminal scalar return"
-              let e ← parseExpr ctx sc t (← field node "expression")
-              pure (.ret e)
+              match field? node "expression" with
+              | some expr =>
+                  needAt ctx.frontend.source node (!expr.isNull) "only terminal scalar return"
+                  let e ← parseExpr ctx sc t expr
+                  pure (.ret e)
+              | none => failAt ctx.frontend.source node "only terminal scalar return"
+          | [] =>
+              needAt ctx.frontend.source node ((field? node "expression").all fun e => e.isNull)
+                "only terminal scalar return"
+              pure .done
           | _ => failAt ctx.frontend.source node "only terminal scalar return"
       | _ => failAt ctx.frontend.source node "unsupported statement"
 end
@@ -1229,6 +1586,32 @@ private def fnsTerm : (handles : List (Sol.Sig × Expr)) → MetaM Expr
       -- `FnEnv.cons` implicits are `{F : Fns}` then `{σ : Sig}`.
       pure (mkAppN (mkConst ``Sol.FnEnv.cons) #[toExpr tail, toExpr σ, apply, restE])
 
+private def wrapModifiers (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ)
+    (invs : List Json) (body : Sol.Stmt ctx.L ctx.F Γ r) :
+    MetaM (Sol.Stmt ctx.L ctx.F Γ r) := do
+  match invs with
+  | [] => pure body
+  | inv :: rest =>
+      needAt ctx.frontend.source inv ((← str (← field inv "kind")) == "modifierInvocation")
+        "unsupported modifier"
+      if let some args := field? inv "arguments" then
+        unless args.isNull do
+          needAt ctx.frontend.source inv ((← arr args).isEmpty) "modifier arguments"
+      let nameNode ← field inv "modifierName"
+      let rid ← int (← field nameNode "referencedDeclaration")
+      needAt ctx.frontend.source inv (rid >= 0) "unresolved modifier"
+      let some m := lookupMod ctx.frontend rid.toNat | failAt ctx.frontend.source inv "unresolved modifier"
+      let mbody := field? m.node "body" |>.getD Json.null
+      let nph := countPlaceholders mbody
+      if nph > 1 then failAt ctx.frontend.source m.node "modifier with two placeholders"
+      if nph == 0 then failAt ctx.frontend.source m.node "modifier missing placeholder"
+      let stmts := (field? mbody "statements").bind (·.getArr?.toOption) |>.getD #[]
+      let (pre, post) ← splitModifierBody stmts.toList
+      let inner ← wrapModifiers ctx sc rest body
+      let preS ← parseStmts ctx sc [] none pre
+      let postS ← parseStmts ctx sc [] none post
+      pure (.seq preS (.block inner postS))
+
 private def parseBody (ctx : ParseCtx) (fn : FnInfo) : MetaM Expr := do
   let Γ : Sol.Ctx := fn.paramIds.reverse.map fun p => p.2.1
   let sc0 := scopeOf fn.paramIds Γ
@@ -1236,15 +1619,23 @@ private def parseBody (ctx : ParseCtx) (fn : FnInfo) : MetaM Expr := do
     match field? fn.node "body" with
     | some body => (field? body "statements").bind (·.getArr?.toOption) |>.getD #[]
     | none => #[]
+  let invs := (← fnModifierInvocations fn).toList
   match fn.namedReturn with
-  | some (id, _) =>
-      let sc := sc0.push id .uint
+  | some (id, ty, _) =>
+      let sc := sc0.push id ty
+      let defaultE : Sol.Expr ctx.L ctx.F Γ ty :=
+        match ty with
+        | .uint => .lit 0
+        | .addr => .sender
+        | .pair => .pair (.lit 0) .sender
       let inner ← parseStmts ctx sc fn.rets (some id) statements.toList
-      let wrapped : Sol.Stmt ctx.L ctx.F Γ fn.rets := .local_ (.lit 0) inner
-      pure (toExpr wrapped)
+      let wrapped : Sol.Stmt ctx.L ctx.F Γ fn.rets := .local_ defaultE inner
+      let withMods ← wrapModifiers ctx sc0 invs wrapped
+      pure (toExpr withMods)
   | none =>
       let body ← parseStmts ctx sc0 fn.rets none statements.toList
-      pure (toExpr body)
+      let withMods ← wrapModifiers ctx sc0 invs body
+      pure (toExpr withMods)
 
 private def importFrontend (ns : Name) (frontend : Frontend) : MetaM Unit := do
   let L := layoutOf frontend.fields

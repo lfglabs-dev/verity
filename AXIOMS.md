@@ -15,7 +15,10 @@ and `Quot.sound`; they do not depend on `solidityMappingSlot_injective`.
 `solvent_invariant` is included in that audit. The inheritance-slice suite
 `inheritance_test.py` runs the same `#print axioms` gate on every theorem in
 `Contracts/SolidityImportSmoke/Inheritance/Proofs.lean` and likewise requires
-only `propext` and `Quot.sound`. This does not remove the trusted Solidity frontend/translation boundary described
+only `propext` and `Quot.sound`. The modifiers and structs suites
+`modifiers_test.py` and `structs_test.py` run the same gate on
+`Contracts/SolidityImportSmoke/Modifiers/Proofs.lean` and
+`Contracts/SolidityImportSmoke/Structs/Proofs.lean`. This does not remove the trusted Solidity frontend/translation boundary described
 in `TRUST_ASSUMPTIONS.md`, or change the compiler axiom registry below.
 
 ## Policy

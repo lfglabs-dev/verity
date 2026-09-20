@@ -53,7 +53,9 @@ source, Lean importer, specification, execution proofs and focused acceptance
 tests. It is independent of the handwritten `Contracts/Vault` example. The S1
 inheritance slice adds `Contracts/SolidityImportSmoke/Inheritance` with the same
 shape (source, import command, named-storage spec, proofs, focused Python
-suite). No
+suite). The S2 modifiers/structs slice adds
+`Contracts/SolidityImportSmoke/Modifiers` and
+`Contracts/SolidityImportSmoke/Structs` with the same shape. No
 Python frontend, custom serialized IR, generated Lean source, or bytecode is in
 the translation path: the accepted Solidity subset is the kernel-checked
 inductive in `Importer/Syntax.lean` and `Importer/Semantics.lean` is its single
@@ -63,6 +65,11 @@ meaning. Trust and axiom scope are recorded in
 Evidence command for the inheritance slice:
 `python3 Contracts/SolidityImportSmoke/Inheritance/scripts/inheritance_test.py`
 (after `lake build SolidityImportSmokeInheritance`).
+Evidence commands for the modifiers/structs slice:
+`python3 Contracts/SolidityImportSmoke/Modifiers/scripts/modifiers_test.py`
+(after `lake build SolidityImportSmokeModifiers`) and
+`python3 Contracts/SolidityImportSmoke/Structs/scripts/structs_test.py`
+(after `lake build SolidityImportSmokeStructs`).
 
 ## Current Audit State
 

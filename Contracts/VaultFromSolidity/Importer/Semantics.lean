@@ -13,6 +13,11 @@
   `Stmt.callStmt`. Pinned solc 0.8.x legacy codegen (`viaIR=false`) evaluates
   an effectful call before the other operand / `+=` old-read, so modelling
   those calls as left-to-right `Expr.call` would disagree with bytecode.
+
+  Function modifiers are inlined at parse time; this file never sees `_`.
+  `Stmt.block inner post` runs `inner` and then `post`, so a function `return`
+  exits the block only and postludes still run. A revert anywhere aborts the
+  whole call.
 -/
 
 import Contracts.VaultFromSolidity.Importer.Syntax
@@ -23,10 +28,16 @@ namespace SolidityImporter.Sol
 
 open Lean
 
-/-- `uint256` denotes Verity's `Uint256`, `address` its `Address`. -/
+/-- Two-member user struct as a product. Shared with the importer's Lean binder
+type so `Env.cons` sees the same type as `Ty.pair.denote`. -/
+abbrev Pair := Verity.Core.Uint256 × Verity.Core.Address
+
+/-- `uint256` denotes Verity's `Uint256`, `address` its `Address`, two-member
+user structs their product. -/
 @[reducible] def Ty.denote : Ty → Type
   | .uint => Verity.Core.Uint256
   | .addr => Verity.Core.Address
+  | .pair => Pair
 
 /-- A function body returns nothing, one value, or (later) a tuple. -/
 @[reducible] def Ret.denote : Ret → Type
@@ -116,6 +127,13 @@ def Expr.meaning {L : Layout} {F : Fns} {Γ : Ctx} {t : Ty}
   | .arith op a b =>
       Verity.bind (Expr.meaning a slots fns env) (fun x =>
         Verity.bind (Expr.meaning b slots fns env) (fun y => checked op x y))
+  | .pair a b =>
+      Verity.bind (Expr.meaning a slots fns env) (fun x =>
+        Verity.bind (Expr.meaning b slots fns env) (fun y => Verity.pure (x, y)))
+  | .fst e =>
+      Verity.bind (Expr.meaning e slots fns env) (fun vs => Verity.pure vs.1)
+  | .snd e =>
+      Verity.bind (Expr.meaning e slots fns env) (fun vs => Verity.pure vs.2)
   | .call fvar args =>
       Verity.bind (Args.eval args slots fns env) (fun vals =>
         FnEnv.get fns fvar (envOfVals vals))
@@ -177,10 +195,21 @@ def Stmt.meaning {L : Layout} {F : Fns} {Γ : Ctx} {r : Ret}
         Verity.bind (Expr.meaning b slots fns env) (fun y =>
           Verity.bind (Verity.require (Nat.ble y.val x.val) msg)
             (fun _ => Stmt.meaning rest slots fns env)))
+  | .guardAddrNe a b msg rest =>
+      Verity.bind (Expr.meaning a slots fns env) (fun x =>
+        Verity.bind (Expr.meaning b slots fns env) (fun y =>
+          Verity.bind (Verity.require (decide (x = y)) msg)
+            (fun _ => Stmt.meaning rest slots fns env)))
   | .callStmt fvar args rest =>
       Verity.bind (Args.eval args slots fns env) (fun vals =>
         Verity.bind (FnEnv.get fns fvar (envOfVals vals)) (fun _ =>
           Stmt.meaning rest slots fns env))
+  | .seq pre rest =>
+      Verity.bind (Stmt.meaning pre slots fns env) (fun _ =>
+        Stmt.meaning rest slots fns env)
+  | .block inner post =>
+      Verity.bind (Stmt.meaning inner slots fns env) (fun v =>
+        Verity.bind (Stmt.meaning post slots fns env) (fun _ => Verity.pure v))
 end
 
 /-- Every imported entry point is non-payable. Internal calls do not re-apply

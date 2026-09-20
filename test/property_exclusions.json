@@ -28,11 +28,18 @@
   "bump_meets_spec",
   "bump_success_spec",
   "dispatch_is_child",
+  "early_meets_spec",
+  "get_meets_spec",
   "go_meets_spec",
   "go_success_spec",
+  "guarded_success_spec",
+  "make_encodes",
+  "other_member_unchanged_thm",
   "pause_meets_spec",
   "pause_success_spec",
   "paused_invariant",
+  "set_then_get",
+  "status_restored",
   "super_runs_parent"
  ],
  "Counter": [

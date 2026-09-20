@@ -69,6 +69,28 @@ lean_lib «SolidityImportSmokeInheritance» where
   needs := #[inheritanceSolidity, vaultLeanImporter, vaultLeanSyntax, vaultLeanSemantics, vaultSolc,
     vaultBuildPolicy]
 
+input_file modifiersSolidity where
+  path := "Contracts/SolidityImportSmoke/Modifiers/Modifiers.sol"
+  text := false
+
+lean_lib «SolidityImportSmokeModifiers» where
+  globs := #[.one `Contracts.SolidityImportSmoke.Modifiers.Modifiers,
+    .one `Contracts.SolidityImportSmoke.Modifiers.Spec,
+    .one `Contracts.SolidityImportSmoke.Modifiers.Proofs]
+  needs := #[modifiersSolidity, vaultLeanImporter, vaultLeanSyntax, vaultLeanSemantics, vaultSolc,
+    vaultBuildPolicy]
+
+input_file structsSolidity where
+  path := "Contracts/SolidityImportSmoke/Structs/Structs.sol"
+  text := false
+
+lean_lib «SolidityImportSmokeStructs» where
+  globs := #[.one `Contracts.SolidityImportSmoke.Structs.Structs,
+    .one `Contracts.SolidityImportSmoke.Structs.Spec,
+    .one `Contracts.SolidityImportSmoke.Structs.Proofs]
+  needs := #[structsSolidity, vaultLeanImporter, vaultLeanSyntax, vaultLeanSemantics, vaultSolc,
+    vaultBuildPolicy]
+
 lean_lib «Contracts» where
   globs := #[
     .one `Contracts,
