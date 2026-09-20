@@ -483,10 +483,12 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
 - **Return values are deterministic stubs, not adversary models.** In-band
   words come from `externalCallStubWord`; the success bit is
   `externalCallStubSuccess` (`false` only for the reserved callee name
-  `"fail"`). Supported single-word results decode that same word; aggregate
-  and no-result stubs use their inhabited default. Executable-plane theorems
-  about call *outcomes* are therefore claims about the stub, not about a real
-  callee; adversarial reasoning lives in the model plane (`DenoteExternalCalls`).
+  `"fail"`). These are closed Lean definitions, not feature-flag, env-var, or
+  backend overrides. Supported single-word results decode that same word;
+  aggregate and no-result stubs use their inhabited default. Executable-plane
+  theorems about call *outcomes* are therefore claims about the stub, not about
+  a real callee; adversarial reasoning lives in the model plane
+  (`DenoteExternalCalls`).
 - **`ExecutableCallContext.ofAdversary` pins `target = 0` and `value = 0`.**
   It is a convenience context, not a general linker: a nonzero target or value
   requires `ofCallEnv` or a custom `resolve`. The generated registry predicate
@@ -495,6 +497,15 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
   carrying the registry adversary (including `ofCallEnv`) is a registered
   transition. `CallbackBounded` therefore covers executable linked calls that
   resolve a nonzero target/value, not only the zero boundary.
+- **Registry callback calldata is compiled-dispatch ABI, not the journal
+  encoder.** Generated `*_entrypoint` predicates constrain
+  `CallbackContext.calldata` with `abiEncodeDispatchArgs` /
+  `ToDispatchVal` (offset/length/packed-bytes layout matching
+  `genParamLoads`). `ExternalArg.toWords` remains the executable journal
+  encoding and is not an ABI decoder. Public `calldatasize`/`calldataload`
+  stay deterministic stubs (`0` and the offset); generated `*_registry`
+  bodies rewrite those intrinsics to `calldatasizeLive`/`calldataloadLive`,
+  which read `ContractState.calldata` installed by `withCallbackContext`.
 - **`externalCallWords` (pure expression form) does not journal.** It is not
   monadic, so `externalCall name [args]` used as a pure expression remains
   observationally silent; only the monadic forms journal. Specs that need
@@ -643,10 +654,19 @@ global invariant `I : ContractState → Prop`.
       definition takes the context, including view/static callees whose public
       bodies do not open a reentrancy window. Public hopCall bodies keep the
       ctx-free public definition. Generated `*_entrypoint` predicates require
-      Lean arguments to ABI-decode from the same `CallbackContext.calldata`
-      (`dispatchCalldataMatches`); `receive` is registered only for empty
-      calldata. Same-contract `selfCall` hops keep the guarded public /
-      `*_registry` path so they still observe the nonReentrant tload prologue.
+      Lean arguments to match compiled-dispatch ABI words of
+      `CallbackContext.calldata` (`abiEncodeDispatchArgs` into
+      `dispatchCalldataMatches`); `receive` is registered only for empty
+      calldata. Registry-mode executables observe that same calldata through
+      `calldatasizeLive`/`calldataloadLive`. Completeness of the generated
+      list is still an author obligation: the kernel checks consumers of
+      `entrypointRegistry`, it does not independently re-enumerate compiled
+      dispatcher cases. Same-contract `selfCall` hops keep the guarded public
+      / `*_registry` path so they still observe the nonReentrant tload
+      prologue. The Lean toolchain is pinned by `lean-toolchain`;
+      `threadAdversaryThroughExecutableSyntax` consults no IO or env vars.
+      Existing `unsafe qualifiedTupleBindTypedLocals` is elaborator-only
+      typed-local inference, not a kernel skip.
      Author-supplied lists remain only for hand-written `ReentrancySpec`
      consumers.
   2. **Adversary-model fidelity** — reentry is modeled as an arbitrary

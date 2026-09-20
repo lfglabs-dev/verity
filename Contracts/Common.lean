@@ -393,6 +393,17 @@ def tryCatchWord (attempt : Uint256) (handler : String → Contract Unit) : Cont
 def calldatasize : Uint256 := 0
 def returndataSize : Uint256 := 0
 def calldataload (offset : Uint256) : Uint256 := offset
+/-- Registry-mode executable calldata. Public `calldatasize`/`calldataload`
+remain deterministic stubs; generated `*_registry` bodies use these so a
+callback that branches on live calldata is registered. Byte offset 0 of the
+word-list data region is `calldataload 4`, matching compiled dispatch. -/
+def calldatasizeLive : Contract Uint256 := fun state =>
+  ContractResult.success state.calldataSize state
+def calldataloadLive (offset : Uint256) : Contract Uint256 := fun state =>
+  ContractResult.success
+    (Verity.Core.Uint256.ofNat
+      (Compiler.CompilationModel.Denote.calldataloadWord 0 state.calldata offset.val))
+    state
 def mload (offset : Uint256) : Uint256 := offset
 def tload (offset : Uint256) : Contract Uint256 := fun state =>
   ContractResult.success (state.transientStorage (offset : Nat)) state

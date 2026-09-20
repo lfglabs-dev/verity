@@ -52,10 +52,171 @@ structure CallbackContext where
   calldataSize : Verity.Uint256
   calldata : List Nat
 
+/-- Packed ABI bytes/string data: 32-byte big-endian words, right-zero-padded.
+Not `ExternalArg.toWords`, which journals one word per byte. Fuel is
+`bytes.length`, so this is structurally recursive on `Nat` and reduces
+under `decide`. -/
+def packAbiBytes (bytes : List Nat) : List Nat :=
+  packAbiBytesFuel bytes.length bytes
+where
+  packAbiBytesFuel : Nat → List Nat → List Nat
+    | 0, _ => []
+    | _n+1, [] => []
+    | n+1, x :: xs =>
+        let rest := x :: xs
+        let chunk := rest.take 32
+        let padded := chunk ++ List.replicate (32 - chunk.length) 0
+        let word := padded.foldl (fun acc b => acc * 256 + b % 256) 0
+        word :: packAbiBytesFuel n (rest.drop 32)
+
+/-- One ABI argument as consumed by `genParamLoads` / compiled dispatch. -/
+inductive DispatchVal where
+  | word : Nat → DispatchVal
+  | bytes : List Nat → DispatchVal
+  | array : List DispatchVal → DispatchVal
+  | tuple : List DispatchVal → DispatchVal
+
+mutual
+  def DispatchVal.isDynamic : DispatchVal → Bool
+    | .word _ => false
+    | .bytes _ => true
+    | .array _ => true
+    | .tuple vs => dispatchValAnyDynamic vs
+
+  def dispatchValAnyDynamic : List DispatchVal → Bool
+    | [] => false
+    | v :: vs => v.isDynamic || dispatchValAnyDynamic vs
+
+  def DispatchVal.headBytes : DispatchVal → Nat
+    | .word _ => 32
+    | .bytes _ => 32
+    | .array _ => 32
+    | .tuple vs =>
+        if dispatchValAnyDynamic vs then 32
+        else dispatchValHeadBytesList vs
+
+  def dispatchValHeadBytesList : List DispatchVal → Nat
+    | [] => 0
+    | v :: vs => v.headBytes + dispatchValHeadBytesList vs
+
+  /-- Payload words of a value (no parent offset). Dynamic arrays of dynamic
+  elements use offsets relative to the start of the post-length head. -/
+  def DispatchVal.payloadWords : DispatchVal → List Nat
+    | .word w => [w]
+    | .bytes bs => bs.length :: packAbiBytes bs
+    | .array vs =>
+        if dispatchValAnyDynamic vs then
+          let (offs, tails) := encodeDynamicList vs (32 * vs.length)
+          vs.length :: offs ++ tails
+        else
+          vs.length :: dispatchValFlatPayload vs
+    | .tuple vs =>
+        if dispatchValAnyDynamic vs then
+          let (heads, tails) := encodeArgBlock vs (dispatchValHeadBytesList vs)
+          heads ++ tails
+        else
+          dispatchValFlatPayload vs
+
+  def dispatchValFlatPayload : List DispatchVal → List Nat
+    | [] => []
+    | v :: vs => v.payloadWords ++ dispatchValFlatPayload vs
+
+  def encodeDynamicList : List DispatchVal → Nat → List Nat × List Nat
+    | [], _ => ([], [])
+    | v :: vs, tailOff =>
+        let pay := v.payloadWords
+        let (offs, tails) := encodeDynamicList vs (tailOff + pay.length * 32)
+        (tailOff :: offs, pay ++ tails)
+
+  def encodeArgBlock : List DispatchVal → Nat → List Nat × List Nat
+    | [], _ => ([], [])
+    | v :: vs, tailOff =>
+        if v.isDynamic then
+          let pay := v.payloadWords
+          let (heads, tails) := encodeArgBlock vs (tailOff + pay.length * 32)
+          (tailOff :: heads, pay ++ tails)
+        else
+          let (heads, tails) := encodeArgBlock vs tailOff
+          (v.payloadWords ++ heads, tails)
+end
+
+/-- True when every argument is a static ABI word. Kept outside the mutual
+block so `decide` unfolds it. -/
+def dispatchArgsAllWords : List DispatchVal → Bool
+  | [] => true
+  | .word _ :: rest => dispatchArgsAllWords rest
+  | _ => false
+
+def dispatchArgWordVals : List DispatchVal → List Nat
+  | [] => []
+  | .word w :: rest => w :: dispatchArgWordVals rest
+  | _ :: rest => 0 :: dispatchArgWordVals rest
+
+/-- ABI argument-block encoding matching `genParamLoads`: static values occupy
+head words; dynamic values contribute a head offset then a tail of
+`[length, packed data…]` (bytes/string) or `[length, elements…]` (arrays).
+All-static-word argument lists skip the mutual encoder so kernel `decide`
+reduces generated scalar `*_entrypoint` tests. -/
+def abiEncodeDispatchArgs (args : List DispatchVal) : List Nat :=
+  if dispatchArgsAllWords args then
+    dispatchArgWordVals args
+  else
+    let (heads, tails) := encodeArgBlock args (dispatchValHeadBytesList args)
+    heads ++ tails
+
+@[simp] theorem abiEncodeDispatchArgs_nil :
+    abiEncodeDispatchArgs [] = [] := rfl
+
+@[simp] theorem abiEncodeDispatchArgs_singleton_word (w : Nat) :
+    abiEncodeDispatchArgs [.word w] = [w] := rfl
+
+class ToDispatchVal (α : Type) where
+  toDispatchVal : α → DispatchVal
+
+instance : ToDispatchVal Verity.Uint256 where
+  toDispatchVal v := .word v.val
+
+instance : ToDispatchVal Verity.Uint16 where
+  toDispatchVal v := .word v.toUint256.val
+
+instance : ToDispatchVal (Verity.UIntN bits) where
+  toDispatchVal v := .word v.toUint256.val
+
+instance : ToDispatchVal (Verity.IntN bits) where
+  toDispatchVal v := .word v.toUint256.val
+
+instance : ToDispatchVal (Verity.BytesN bytes) where
+  toDispatchVal v := .word v.toUint256.val
+
+instance : ToDispatchVal Verity.Int256 where
+  toDispatchVal v := .word v.word.val
+
+instance : ToDispatchVal Verity.Address where
+  toDispatchVal v := .word v.val
+
+instance : ToDispatchVal Bool where
+  toDispatchVal v := .word (if v then 1 else 0)
+
+instance : ToDispatchVal Nat where
+  toDispatchVal v := .word v
+
+instance : ToDispatchVal ByteArray where
+  toDispatchVal b := .bytes (b.data.toList.map (fun x => x.toNat))
+
+instance : ToDispatchVal String where
+  toDispatchVal s := ToDispatchVal.toDispatchVal s.toUTF8
+
+instance [ToDispatchVal α] : ToDispatchVal (Array α) where
+  toDispatchVal vs := .array (vs.toList.map ToDispatchVal.toDispatchVal)
+
+instance [ToDispatchVal α] [ToDispatchVal β] : ToDispatchVal (α × β) where
+  toDispatchVal p := .tuple [ToDispatchVal.toDispatchVal p.1, ToDispatchVal.toDispatchVal p.2]
+
 /-- Compiled dispatch ABI-decodes arguments from the same calldata that
 selected the function (`calldataload` at 4 + 32*i, `calldatasize` at
 least 4 + 32 * n). Extra trailing words are allowed, matching Yul
-`calldatasizeGuard`. -/
+`calldatasizeGuard`. `argWords` is the ABI data region (no 4-byte selector),
+from `abiEncodeDispatchArgs`, not `ExternalArg.toWords`. -/
 def dispatchCalldataMatches (ctx : CallbackContext) (argWords : List Nat) : Prop :=
   ctx.calldata.take argWords.length = argWords ∧
     Verity.Core.Uint256.ofNat (4 + 32 * argWords.length) ≤ ctx.calldataSize

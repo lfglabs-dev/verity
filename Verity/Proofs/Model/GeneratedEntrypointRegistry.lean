@@ -36,7 +36,7 @@ The registry quantifies over the executable resolver, so any
 theorem guardedPing_registered (ectx : Contracts.ExecutableCallContext) (ctx : CallbackContext)
     (value : Uint256) (hvalue : ctx.msgValue = 0)
     (hcalldata : dispatchCalldataMatches ctx
-      (List.map (fun w => (w : Nat)) (Contracts.ExternalArg.toWords value))) :
+      (abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal value])) :
     entrypointRegistry ectx.adversary
       (callbackContractTransition ctx (guardedPing_registry ectx value)) := by
   left
@@ -46,7 +46,7 @@ theorem guardedPing_registered (ectx : Contracts.ExecutableCallContext) (ctx : C
 theorem guardedPing_registered_ofAdversary (adv : AdversaryModel) (ctx : CallbackContext)
     (value : Uint256) (hvalue : ctx.msgValue = 0)
     (hcalldata : dispatchCalldataMatches ctx
-      (List.map (fun w => (w : Nat)) (Contracts.ExternalArg.toWords value))) :
+      (abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal value])) :
     entrypointRegistry adv
       (callbackContractTransition ctx
         (guardedPing_registry (Contracts.ExecutableCallContext.ofAdversary adv) value)) :=
@@ -284,7 +284,7 @@ def nonemptyReceiveCtx : CallbackContext where
   calldata := [1]
 
 def argWords (value : Uint256) : List Nat :=
-  List.map (fun w => (w : Nat)) (Contracts.ExternalArg.toWords value)
+  abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal value]
 
 example : dispatchCalldataMatches (matchingCtx 7) (argWords 7) := by decide
 
@@ -331,7 +331,76 @@ theorem receive_entrypoint_requires_empty
             (__verity_receive_registry { adversary := adv, resolve := resolve }) :=
   h
 
+/-- Journal encoding of `Bytes` is one word per byte (`[len, b0, b1, …]`).
+Compiled dispatch marks bytes as dynamic (`DispatchVal.bytes`) and packs
+them as `[length, packed data…]` via `abiEncodeDispatchArgs`. -/
+example : dispatchArgsAllWords
+    [ToDispatchVal.toDispatchVal (ByteArray.mk #[0x61, 0x62])] = false :=
+  rfl
+
+example :
+    List.map (fun w => (w : Nat))
+        (Contracts.ExternalArg.toWords (ByteArray.mk #[0x61, 0x62])) =
+      [2, 0x61, 0x62] := by
+  decide
+
 end RegistryDispatchCalldata
+
+/-! Regression: registry executables observe live callback calldata, not the
+public `calldatasize = 0` / `calldataload offset = offset` stubs. -/
+verity_contract RegistryLiveCalldata where
+  storage
+    last : Uint256 := slot 0
+
+  function setFromCalldata (_value : Uint256)
+      local_obligations [manual_low_level_refinement := assumed
+        "Fixture reads compiled-dispatch calldata via calldataload 4."]
+      : Unit := do
+    let cds := calldatasize
+    let loaded := calldataload 4
+    if cds == 36 then
+      setStorage last loaded
+    else
+      setStorage last 0
+    return ()
+
+namespace RegistryLiveCalldata
+
+def liveCtx (value : Uint256) : CallbackContext where
+  sender := 0
+  msgValue := 0
+  calldataSize := Verity.Core.Uint256.ofNat 36
+  calldata := [value.val]
+
+def publicWritesStub : Bool :=
+  match (setFromCalldata (7 : Uint256)).run Verity.defaultState with
+  | .success _ s => s.storage 0 == 0
+  | _ => false
+
+example : publicWritesStub = true := by decide
+
+def liveWritesLoaded : Bool :=
+  let s := callbackContractTransition (liveCtx 7)
+    (setFromCalldata_registry
+      (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub) 7)
+    Verity.defaultState
+  s.storage 0 == 7
+
+example : liveWritesLoaded = true := by decide
+
+def liveArgWords (value : Uint256) : List Nat :=
+  abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal value]
+
+theorem setFromCalldata_registered_live
+    (h : dispatchCalldataMatches (liveCtx 7) (liveArgWords 7)) :
+    setFromCalldata_entrypoint AdversaryModel.stub
+      (callbackContractTransition (liveCtx 7)
+        (setFromCalldata_registry
+          (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub) 7)) :=
+  ⟨liveCtx 7, (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub).resolve,
+    7, h, rfl, rfl⟩
+
+end RegistryLiveCalldata
 
 /-! Regression: public Solidity self-calls still hit the nonReentrant tload
 prologue. Bound hops must keep the guarded registry path, not `*_unguarded`. -/

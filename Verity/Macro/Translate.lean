@@ -3072,6 +3072,16 @@ private def rewriteLinkedCallTerm
       `(term| evmDelegateCallWords $adv $gas $target $inOffset $inSize $outOffset $outSize)
   | `(term| returnDataSize()) | `(term| returndataSize) =>
       `(term| returndataSizeLive)
+  | `(term| calldatasize) =>
+      if registryMode then
+        `(term| calldatasizeLive)
+      else
+        pure stx
+  | `(term| calldataload $offset:term) =>
+      if registryMode then
+        `(term| calldataloadLive $offset)
+      else
+        pure stx
   | `(term| returnDataCopy($destOffset, $sourceOffset, $size))
     | `(term| returndataCopy $destOffset $sourceOffset $size) =>
       `(term| returndataCopyLive $destOffset $sourceOffset $size)
@@ -3138,7 +3148,7 @@ private def rewriteLinkedCallTerm
       | some rewritten => pure rewritten
       | none => pure other
 
-private def isLiveStateExternalCall (stx : Term) : Bool :=
+private def isLiveStateExternalCall (stx : Term) (registryMode : Bool := false) : Bool :=
   match stx with
   | `(term| __verityTypedCall $_ $_ [ $[$_],* ])
   | `(term| __verityTypedEffect $_ $_ [ $[$_],* ])
@@ -3168,6 +3178,7 @@ private def isLiveStateExternalCall (stx : Term) : Bool :=
   | `(term| safeApprove $_ $_ $_)
   | `(term| legacyStringSafeTransfer $_ $_ $_)
   | `(term| legacyStringSafeTransferFrom $_ $_ $_ $_) => true
+  | `(term| calldatasize) | `(term| calldataload $_) => registryMode
   | _ => false
 
 /-- Restore the source language's word-like coercions after a live external
@@ -3379,7 +3390,7 @@ private partial def threadAdversaryThroughExecutableSyntax
           binds := binds ++ inner
           newArgs := newArgs.set! i nt.raw
         let rebuilt ← adaptHoistedWordContext ⟨Syntax.node info kind newArgs⟩
-        if isLiveStateExternalCall rebuilt then
+        if isLiveStateExternalCall rebuilt registryMode then
           bindCall binds rebuilt
         else
           match ← rewriteTypedInterfaceCall? externalDecls params adv
@@ -3392,7 +3403,7 @@ private partial def threadAdversaryThroughExecutableSyntax
                 pure (binds, rewritten)
           | none => pure (binds, rebuilt)
       | _ =>
-        if isLiveStateExternalCall t then
+        if isLiveStateExternalCall t registryMode then
           bindCall #[] t
         else
           match ← rewriteTypedInterfaceCall? externalDecls params adv
@@ -3714,13 +3725,13 @@ private partial def threadAdversaryThroughExecutableSyntax
           helpers adversarialHelpers registryOnlyHelpers params locals name original adv with
       | some app => pure app.raw
       | none =>
-          if isLiveStateExternalCall ⟨stx⟩ then
+          if isLiveStateExternalCall ⟨stx⟩ registryMode then
             (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) ⟨stx⟩
           else
             recurseChildren
   | _ =>
       let asTerm : Term := ⟨stx⟩
-      if isLiveStateExternalCall asTerm then
+      if isLiveStateExternalCall asTerm registryMode then
         (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) asTerm
       else
         recurseChildren
@@ -6760,23 +6771,26 @@ def mkFunctionCommandsPublic
         $context:ident $applied)
   if !fn.isPayable then
     registryBody ← `(($context:ident).msgValue = 0 ∧ $registryBody)
-  -- Tie Lean arguments to the same calldata the compiled dispatcher
+  -- Tie Lean arguments to the same ABI calldata the compiled dispatcher
   -- ABI-decodes (`calldatasizeGuard` + `calldataload`). `receive` is
-  -- compiled only when `calldatasize == 0`.
+  -- compiled only when `calldatasize == 0`. Dynamic types use
+  -- `abiEncodeDispatchArgs`, not `ExternalArg.toWords`.
   if fn.name == "receive" then
     registryBody ←
       `(Compiler.CompilationModel.DenoteExternalCalls.receiveCalldataMatches
           $context:ident ∧ $registryBody)
   else if fn.name != "fallback" then
-    let mut argWordTerms : Array Term := #[]
+    let mut dispatchValTerms : Array Term := #[]
     for (paramIdent, _) in registryParams do
-      let words ← `(List.map (fun w => (w : Nat)) (Contracts.ExternalArg.toWords $paramIdent:ident))
-      argWordTerms := argWordTerms.push words
+      dispatchValTerms := dispatchValTerms.push
+        (← `(Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal.toDispatchVal
+          $paramIdent:ident))
     let argWordsTerm ←
-      if argWordTerms.isEmpty then
+      if dispatchValTerms.isEmpty then
         `( ([] : List Nat) )
       else
-        `(List.flatten ([ $[$argWordTerms],* ] : List (List Nat)))
+        `(Compiler.CompilationModel.DenoteExternalCalls.abiEncodeDispatchArgs
+            ([ $[$dispatchValTerms],* ] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
     registryBody ←
       `(Compiler.CompilationModel.DenoteExternalCalls.dispatchCalldataMatches
           $context:ident $argWordsTerm ∧ $registryBody)
@@ -6826,7 +6840,7 @@ def mkFunctionCommandsPublic
 
 /-- Emit the contract-wide union of all externally callable entrypoint
 predicates.  Each per-function predicate keeps arguments existential, ties
-them to the same calldata compiled dispatch ABI-decodes, and uses the
+them to compiled-dispatch ABI calldata (`abiEncodeDispatchArgs`), and uses the
 registry's explicit adversary when the function opens a reentrancy window. -/
 def mkEntrypointRegistryCommandPublic (functions : Array FunctionDecl) : CommandElabM Cmd := do
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_registryAdv).raw

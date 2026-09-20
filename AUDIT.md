@@ -769,6 +769,22 @@ sibling entrypoint.
   `min_fork` exceeds the contract target fail unless the caller passes
   `--allow-future-fork-intrinsics`.
 
+## Generated registry ABI calldata (PR #2406)
+
+- Generated `*_entrypoint` predicates encode Lean arguments with
+  `abiEncodeDispatchArgs` / `ToDispatchVal` (compiled-dispatch ABI words:
+  offset + length + packed bytes), not `ExternalArg.toWords` (journal
+  encoding, one word per byte).
+- Generated `*_registry` executables rewrite `calldatasize`/`calldataload`
+  to `calldatasizeLive`/`calldataloadLive`, which read
+  `ContractState.calldata` installed by `withCallbackContext`. Public
+  stubs remain `0` / the offset.
+- Evidence: `Verity/Proofs/Model/GeneratedEntrypointRegistry.lean`
+  (`RegistryDispatchCalldata`, `RegistryLiveCalldata`).
+- Trust docs: `TRUST_ASSUMPTIONS.md` (executable-plane stubs are closed
+  definitions; registry completeness remains an author obligation).
+- Axiom-free; no `sorry`/`admit`/`native_decide`.
+
 ## Update Checklist
 
 1. Update `TRUST_ASSUMPTIONS.md` for the human-readable trust boundary.
