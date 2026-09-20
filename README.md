@@ -88,8 +88,11 @@ linearization including a diamond, virtual dispatch, `super` (target C3, not
 the defining-contract AST id), opaque fields, and internal calls (`Expr.call`
 is view/pure only); `inheritance_test.py` is the matching focused suite. The
 modifiers smoke inlines argument-free modifiers in declaration order, including
-`nonReentrant` postludes after an early `return`. The structs smoke encodes and
-decodes a two-member user struct used as a parameter, storage field, and return.
+`nonReentrant` postludes after an early `return` (`super` in a modifier uses
+the modifier's defining contract; a prelude `return` before `_` is rejected).
+The structs smoke encodes and decodes a two-member user struct used as a
+parameter, storage field, and return (canonical names, one-shot RHS, zero
+defaults, public product getter, struct ids in signatures).
 Save Solidity, rebuild this dedicated target, then reload the Lean editor:
 an already-open editor snapshot does not automatically watch `.sol` changes.
 See [the trust boundary](TRUST_ASSUMPTIONS.md#proof-only-solidity-vault-import).

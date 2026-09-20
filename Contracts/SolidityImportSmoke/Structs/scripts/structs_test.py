@@ -13,9 +13,6 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def lake_binary() -> str:
-    found = shutil.which("lake")
-    if found:
-        return found
     version = (ROOT / "lean-toolchain").read_text().strip().split(":")[-1]
     candidates = [
         Path.home() / ".elan/toolchains" / f"leanprover--lean4---{version}" / "bin/lake",
@@ -24,6 +21,9 @@ def lake_binary() -> str:
     for candidate in candidates:
         if candidate.is_file():
             return str(candidate)
+    found = shutil.which("lake")
+    if found:
+        return found
     raise RuntimeError("lake executable not found")
 
 

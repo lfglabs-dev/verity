@@ -65,19 +65,25 @@ address-to-uint256 mappings and public getters, straight-line reads/writes,
 locals, checked addition/subtraction, comparison/custom-error guards (including
 `address !=` for `onlyOwner`), same-file `is` bases with solc's C3
 linearization (including diamonds), virtual dispatch and `super` specialized at
-import time from the target's `linearizedBaseContracts` (matching 0.8.x runtime;
-the AST `referencedDeclaration` on `super` follows the defining contract and is
-not the dispatch key on diamonds), internal function calls (`Expr.call` is
-`view`/`pure` only; effectful internals are `Stmt.callStmt`, because legacy
-codegen evaluates those calls before the other operand / `+=` old-read),
-abstract bases with body-less `virtual`s, opaque storage fields (slot reserved,
-not in `Storage`; a body that reads or writes one is rejected), argument-free
-modifiers inlined at parse time in declaration order (`Stmt.seq` prelude plus
-`Stmt.block` so a function `return` still runs the postlude; a modifier with
-two `_` or with arguments is rejected; `Semantics.lean` never sees `_`), and
-user structs used as parameters, storage, and returns when they are the closed
-`uint256` then `address` pair (members occupy consecutive solc slots; encode is
-`Expr.pair`, decode is `fst`/`snd`). Unknown executable constructs are
+  import time from the target's `linearizedBaseContracts` (matching 0.8.x runtime;
+  the AST `referencedDeclaration` on `super` follows the defining contract and is
+  not the dispatch key on diamonds; `super` inside an inlined modifier starts
+  after that modifier's defining contract, not the function's), internal function
+  calls (`Expr.call` is
+  `view`/`pure` only; effectful internals are `Stmt.callStmt`, because legacy
+  codegen evaluates those calls before the other operand / `+=` old-read),
+  abstract bases with body-less `virtual`s, opaque storage fields (slot reserved,
+  not in `Storage`; a body that reads or writes one is rejected), argument-free
+  modifiers inlined at parse time in declaration order (`Stmt.seq` prelude plus
+  `Stmt.block` so a function `return` still runs the postlude; a modifier with
+  two `_`, with arguments, or with a prelude `return` before `_` is rejected;
+  `Semantics.lean` never sees `_`), named `address`/struct returns defaulting to
+  the zero address rather than `msg.sender`, and
+  user structs used as parameters, storage, and returns when they are the closed
+  `uint256` then `address` pair (members occupy consecutive solc slots; encode is
+  `Expr.pair` indexed by the solc struct id so same-shape structs stay distinct
+  in signatures; a public struct field registers one product getter; a storage
+  struct assignment binds the RHS pair once). Unknown executable constructs are
 rejected; this is not general Solidity support. Multi-file units, packed
 fields, events, and external calls remain out of the fragment.
 Arguments/context are already typed and decoded. `Contract.run` rolls back

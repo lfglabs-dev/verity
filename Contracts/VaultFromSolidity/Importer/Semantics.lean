@@ -33,11 +33,11 @@ type so `Env.cons` sees the same type as `Ty.pair.denote`. -/
 abbrev Pair := Verity.Core.Uint256 × Verity.Core.Address
 
 /-- `uint256` denotes Verity's `Uint256`, `address` its `Address`, two-member
-user structs their product. -/
+user structs their product (the solc id is erased at denote). -/
 @[reducible] def Ty.denote : Ty → Type
   | .uint => Verity.Core.Uint256
   | .addr => Verity.Core.Address
-  | .pair => Pair
+  | .pair _ => Pair
 
 /-- A function body returns nothing, one value, or (later) a tuple. -/
 @[reducible] def Ret.denote : Ret → Type
@@ -118,6 +118,7 @@ def Expr.meaning {L : Layout} {F : Fns} {Γ : Ctx} {t : Ty}
   match e with
   | .var v => Verity.pure (Env.get env v)
   | .sender => Verity.msgSender
+  | .zero => Verity.pure Verity.zeroAddress
   | .lit n => Verity.pure (Verity.Core.Uint256.ofNat n)
   | .load s => Verity.getStorage (Slots.get slots s)
   | .loadAddr s => Verity.getStorageAddr (Slots.get slots s)
