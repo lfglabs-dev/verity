@@ -753,6 +753,7 @@ end Verity.AxiomAudit
   Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.setLast_entrypoint_requires_dispatch
   Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.receive_registered_empty
   Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.receive_entrypoint_requires_empty
+  Contracts.ReentrancyRelyGuarantee.RegistryLiveCalldata.setFromCalldata_registered_live
   Contracts.ReentrancyRelyGuarantee.generated_registry_callback_preserves
 
   -- Verity/Proofs/Stdlib/Automation.lean
@@ -7620,4 +7621,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7037 theorems/lemmas (5024 public, 2013 private, 0 sorry'd)
+-- Total: 7038 theorems/lemmas (5025 public, 2013 private, 0 sorry'd)
