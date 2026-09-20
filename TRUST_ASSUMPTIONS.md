@@ -75,7 +75,11 @@ linearization (including diamonds), virtual dispatch and `super` specialized at
   abstract bases with body-less `virtual`s, opaque storage fields (slot reserved,
   not in `Storage`; a body that reads or writes one is rejected), argument-free
   modifiers inlined at parse time in declaration order (`Stmt.seq` prelude plus
-  `Stmt.block` so a function `return` still runs the postlude; a modifier with
+  `Stmt.block` so a function `return` still runs the postlude; prelude `uint256`
+  locals scope over the inlined body and postlude; identifier calls in a
+  modifier body that resolve to a private or non-virtual helper stay bound to
+  the declaring contract even if a derived contract declares a same-name private
+  function; a modifier with
   two `_`, with arguments, or with a prelude `return` before `_` is rejected;
   `Semantics.lean` never sees `_`), named `address`/struct returns defaulting to
   the zero address rather than `msg.sender`, and

@@ -32,9 +32,28 @@ abstract contract ReentrancyGuardLike {
         _;
         status = 1;
     }
+
+    modifier restore() {
+        uint256 old = status;
+        _;
+        status = old;
+    }
 }
 
-contract Child is OwnableLike, PausableLike, ReentrancyGuardLike {
+abstract contract HelperLike {
+    uint256 public helperValue;
+
+    modifier bumpHelper() {
+        bump();
+        _;
+    }
+
+    function bump() private {
+        helperValue = 1;
+    }
+}
+
+contract Child is OwnableLike, PausableLike, ReentrancyGuardLike, HelperLike {
     uint256 public value;
 
     function setOwner(address next) external {
@@ -56,6 +75,19 @@ contract Child is OwnableLike, PausableLike, ReentrancyGuardLike {
 
     function early(uint256 amount) external nonReentrant returns (uint256) {
         value = amount;
+        return amount;
+    }
+
+    function poison() private {
+        helperValue = 2;
+    }
+
+    function tagged() external bumpHelper {
+        value = 0;
+    }
+
+    function snapshot(uint256 amount) external restore returns (uint256) {
+        status = amount;
         return amount;
     }
 }

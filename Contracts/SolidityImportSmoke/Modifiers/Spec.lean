@@ -19,4 +19,18 @@ def guarded_spec (amount : Uint256) (pre post : Storage) : Prop :=
   post.owner = pre.owner ∧
   post.paused = pre.paused
 
+def tagged_spec (pre post : Storage) : Prop :=
+  post.helperValue = 1 ∧
+  post.value = 0 ∧
+  post.status = pre.status ∧
+  post.owner = pre.owner ∧
+  post.paused = pre.paused
+
+def snapshot_spec (_amount : Uint256) (pre post : Storage) : Prop :=
+  post.status = pre.status ∧
+  post.value = pre.value ∧
+  post.owner = pre.owner ∧
+  post.paused = pre.paused ∧
+  post.helperValue = pre.helperValue
+
 end Contracts.SolidityImportSmoke.Modifiers.Spec

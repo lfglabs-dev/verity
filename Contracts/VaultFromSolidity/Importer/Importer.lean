@@ -1041,9 +1041,12 @@ private def resolveCall (frontend : Frontend) (_current : FnInfo) (definingId : 
       let some static := lookupFn frontend id | failAt frontend.source call "unresolved function reference"
       needAt frontend.source call ((familyOf frontend static.name static.paramTys).any (·.id == id))
         "virtual dispatch disagrees with AST"
-      let some resolved := mostDerived frontend static.name static.paramTys
-        | failAt frontend.source call "unimplemented virtual"
-      pure resolved
+      if static.visibility == "private" || !static.virtual then
+        pure static
+      else
+        let some resolved := mostDerived frontend static.name static.paramTys
+          | failAt frontend.source call "unimplemented virtual"
+        pure resolved
   | "MemberAccess" =>
       let base ← field callee "expression"
       needAt frontend.source callee ((← nodeKind base) == "Identifier" &&
@@ -1613,6 +1616,36 @@ private def fnsTerm : (handles : List (Sol.Sig × Expr)) → MetaM Expr
       -- `FnEnv.cons` implicits are `{F : Fns}` then `{σ : Sig}`.
       pure (mkAppN (mkConst ``Sol.FnEnv.cons) #[toExpr tail, toExpr σ, apply, restE])
 
+private partial def wrapModifierParts (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ)
+    (pre post : List Json) (inner : Sol.Stmt ctx.L ctx.F Γ r) :
+    MetaM (Sol.Stmt ctx.L ctx.F Γ r) := do
+  match pre with
+  | [] =>
+      let postS ← parseStmts ctx sc [] none post
+      pure (.block inner postS)
+  | node :: restPre =>
+      if (← nodeKind node) == "Return" then
+        failAt ctx.frontend.source node "modifier prelude return skips function body"
+      if (← nodeKind node) == "VariableDeclarationStatement" then
+        let declarations ← arr (← field node "declarations")
+        needAt ctx.frontend.source node (declarations.size == 1) "unsupported locals"
+        let declaration := declarations[0]!
+        needAt ctx.frontend.source declaration (!(← bool (← field declaration "stateVariable")) &&
+          !(← bool (← field declaration "constant")) &&
+          (← str (← field declaration "mutability")) == "mutable" &&
+          (← str (← field declaration "storageLocation")) == "default" &&
+          (← str (← field declaration "visibility")) == "internal") "unsupported local declaration"
+        requireType ctx.frontend declaration "uint256"
+        let id ← nodeId declaration
+        let _ ← identifier ctx.frontend.source declaration
+        let value ← parseExpr ctx sc .uint (← field node "initialValue")
+        let rest ← wrapModifierParts ctx (sc.push id .uint) restPre post (inner.shift .uint 0)
+        pure (.local_ value rest)
+      else
+        let head ← parseStmts ctx sc [] none [node]
+        let rest ← wrapModifierParts ctx sc restPre post inner
+        pure (.seq head rest)
+
 private def wrapModifiers (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ)
     (invs : List Json) (body : Sol.Stmt ctx.L ctx.F Γ r) :
     MetaM (Sol.Stmt ctx.L ctx.F Γ r) := do
@@ -1638,9 +1671,13 @@ private def wrapModifiers (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ)
       for s in pre do
         if (← nodeKind s) == "Return" then
           failAt ctx.frontend.source s "modifier prelude return skips function body"
-      let preS ← parseStmts { ctx with superFrom := m.contractId } sc [] none pre
-      let postS ← parseStmts { ctx with superFrom := m.contractId } sc [] none post
-      pure (.seq preS (.block inner postS))
+      let mctx := { ctx with superFrom := m.contractId }
+      if ← pre.anyM fun s => (· == "VariableDeclarationStatement") <$> nodeKind s then
+        wrapModifierParts mctx sc pre post inner
+      else
+        let preS ← parseStmts mctx sc [] none pre
+        let postS ← parseStmts mctx sc [] none post
+        pure (.seq preS (.block inner postS))
 
 private def parseBody (ctx : ParseCtx) (fn : FnInfo) : MetaM Expr := do
   let Γ : Sol.Ctx := fn.paramIds.reverse.map fun p => p.2.1

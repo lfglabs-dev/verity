@@ -67,6 +67,10 @@ def main() -> None:
           "importer inlines modifiers and rejects two placeholders")
     check("modifier arguments" in importer_text,
           "importer rejects parameterized modifiers")
+    check("static.visibility == \"private\"" in importer_text and "!static.virtual" in importer_text,
+          "identifier calls keep private/non-virtual static binding")
+    check("wrapModifierParts" in importer_text and "inner.shift .uint 0" in importer_text,
+          "prelude locals are bound over the inlined body and postlude")
 
     with tempfile.TemporaryDirectory(prefix="verity-mod-check-", dir=ROOT.parent) as directory:
         root = Path(directory)
@@ -149,6 +153,12 @@ def main() -> None:
         printed_guarded = print_names("guarded")
         check(printed_guarded.find("NotOwner") < printed_guarded.find("EnforcedPause"),
               "onlyOwner then whenNotPaused is declaration order")
+        printed_tagged = print_names("tagged")
+        check("HelperLike_bump" in printed_tagged and "Child_bump" not in printed_tagged,
+              "inherited modifier keeps the declaring contract's private helper")
+        printed_snapshot = print_names("snapshot")
+        check(".local_" in printed_snapshot and ".block" in printed_snapshot,
+              "#print Child.snapshot carries restore prelude local into the postlude")
 
         def broken_theorems(output: str) -> set[str]:
             error_lines = [int(value) for value in re.findall(rf"{PROOF}:(\d+):", output)]
@@ -216,6 +226,36 @@ def main() -> None:
         check(re.search(r"Contracts/SolidityImportSmoke/Modifiers/Modifiers.sol:\d+:\d+:", output)
               is not None,
               "modifier arguments rejected with source position")
+        edit_source(original)
+        build()
+
+        restore_post = b"        uint256 old = status;\n        _;\n        status = old;"
+        restore_dropped = b"        uint256 old = status;\n        _;"
+        check(original.count(restore_post) == 1, "restore postlude has one source target")
+        edit_source(original.replace(restore_post, restore_dropped))
+        output = build(False, "Contracts.SolidityImportSmoke.Modifiers.Proofs")
+        check(bool({"snapshot_restores_status"} & broken_theorems(output)),
+              "dropping the restore postlude breaks snapshot_restores_status")
+        edit_source(original)
+        build()
+
+        base_helper = b"    function bump() private {\n        helperValue = 1;\n    }"
+        base_helper_mut = b"    function bump() private {\n        helperValue = 9;\n    }"
+        check(original.count(base_helper) == 1, "base private helper has one source target")
+        edit_source(original.replace(base_helper, base_helper_mut))
+        output = build(False, "Contracts.SolidityImportSmoke.Modifiers.Proofs")
+        check(bool({"tagged_uses_base_helper"} & broken_theorems(output)),
+              "mutating the declaring contract's private helper breaks tagged_uses_base_helper")
+        edit_source(original)
+        build()
+        poison = b"    function poison() private {\n        helperValue = 2;\n    }"
+        poison_mut = b"    function poison() private {\n        helperValue = 9;\n    }"
+        check(original.count(poison) == 1, "unrelated derived private helper has one source target")
+        edit_source(original.replace(poison, poison_mut))
+        build()
+        mutated_tagged = print_names("tagged")
+        check("HelperLike_bump" in mutated_tagged and "Child_bump" not in mutated_tagged,
+              "mutating an unrelated derived private helper does not rebind the inherited modifier")
         edit_source(original)
         build()
 

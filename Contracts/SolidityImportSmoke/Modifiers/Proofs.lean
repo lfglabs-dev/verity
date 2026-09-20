@@ -42,4 +42,24 @@ theorem guarded_success_spec (s post : ContractState) (amount : Uint256)
       · solidity_simp
   · solidity_simp
 
+theorem tagged_uses_base_helper (s post : ContractState)
+    (h : tagged.run s = .success () post) :
+    tagged_spec (view s) (view post) := by
+  unfold tagged_spec
+  by_cases h0 : s.msgValue = 0
+  · solidity_simp
+    subst h
+    solidity_simp
+  · solidity_simp
+
+theorem snapshot_restores_status (s post : ContractState) (amount : Uint256)
+    (h : (snapshot amount).run s = .success amount post) :
+    snapshot_spec amount (view s) (view post) := by
+  unfold snapshot_spec
+  by_cases h0 : s.msgValue = 0
+  · solidity_simp
+    subst h
+    solidity_simp
+  · solidity_simp
+
 end Contracts.SolidityImportSmoke.Modifiers.Proofs
