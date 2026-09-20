@@ -749,6 +749,10 @@ end Verity.AxiomAudit
   Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_registered
   Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_registered_ofAdversary
   Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_reentry_blocked
+  Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.setLast_registered_matching
+  Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.setLast_entrypoint_requires_dispatch
+  Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.receive_registered_empty
+  Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.receive_entrypoint_requires_empty
   Contracts.ReentrancyRelyGuarantee.generated_registry_callback_preserves
 
   -- Verity/Proofs/Stdlib/Automation.lean
@@ -7616,4 +7620,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7033 theorems/lemmas (5020 public, 2013 private, 0 sorry'd)
+-- Total: 7037 theorems/lemmas (5024 public, 2013 private, 0 sorry'd)
