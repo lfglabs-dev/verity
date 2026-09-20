@@ -199,9 +199,21 @@ private partial def validateDoElemExprTypes
           requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
           let interfaceName? ← interfaceNameOfTerm? params locals rhs
           pure <| locals.push (mkTypedLocal (toString name.getId) ty interfaceName?)
-      | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
-          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
-            errorDecls eventDecls functions params locals (← `(doElem| let mut $name:ident := $rhs:term))
+      | `(doElem| let mut $name:ident : $declaredTySyntax:term := $rhs:term) =>
+          let inferredTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+          let interfaceName? ← interfaceNameOfTerm? params locals rhs
+          let declaredTy ←
+            try valueTypeFromSyntax #[] #[] #[] declaredTySyntax
+            catch _ =>
+              match interfaceName? with
+              | some _ => pure .address
+              | none => throwErrorAt declaredTySyntax "unsupported declared mutable-local type"
+          unless inferredTy == declaredTy ||
+              (declaredTy == .address && interfaceName?.isSome) ||
+              (isNatLiteralTerm rhs && numericLiteralCompatibleValueType declaredTy) do
+            throwErrorAt rhs s!"mutable local '{toString name.getId}' is declared {renderValueType declaredTy}, but its initializer has type {renderValueType inferredTy}"
+          requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" declaredTy
+          pure <| locals.push (mkTypedLocal (toString name.getId) declaredTy interfaceName?)
       | `(doElem| let mut $name:ident ← $rhs:term) =>
           validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
             errorDecls eventDecls functions params locals (← `(doElem| let $name:ident ← $rhs:term))
@@ -1375,7 +1387,7 @@ private partial def translateDoElem
           -- helper path below.
           match (← tupleExternalCallBindStmt? fields constDecls immutableDecls externalDecls params locals rhs names) with
           | some stmt =>
-              pure (some (#[(stmt.1)], locals ++ stmt.2, mutableLocals))
+              pure (some (stmt.1, locals ++ stmt.2, mutableLocals))
           | none =>
               match (← tupleInternalCallAssignStmt? fields constDecls immutableDecls externalDecls functions params locals rhs names) with
               | some stmt =>
@@ -1428,9 +1440,31 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $rhsExpr))],
               locals.push (mkTypedLocal varName ty interfaceName?),
               mutableLocals.push varName)
-      | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
-          translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals
-            (← `(doElem| let mut $name:ident := $rhs:term))
+      | `(doElem| let mut $name:ident : $declaredTySyntax:term := $rhs:term) =>
+          let varName := toString name.getId
+          if localNames.contains varName then
+            throwErrorAt name s!"duplicate local variable '{varName}'"
+          let inferredTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
+          let interfaceName? ← interfaceNameOfTerm? params locals rhs
+          let declaredTy ←
+            try valueTypeFromSyntax #[] #[] #[] declaredTySyntax
+            catch _ =>
+              match interfaceName? with
+              | some _ => pure .address
+              | none => throwErrorAt declaredTySyntax "unsupported declared mutable-local type"
+          unless inferredTy == declaredTy ||
+              (declaredTy == .address && interfaceName?.isSome) ||
+              (isNatLiteralTerm rhs && numericLiteralCompatibleValueType declaredTy) do
+            throwErrorAt rhs s!"mutable local '{varName}' is declared {renderValueType declaredTy}, but its initializer has type {renderValueType inferredTy}"
+          let rawRhsExpr ← match stripParens rhs with
+            | `(term| callExternal $_ ($[$_],*)) =>
+                translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
+            | _ => translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals rhs
+          let rhsExpr ← normalizeTranslatedExprForType declaredTy rhs rawRhsExpr
+          pure
+            (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $rhsExpr))],
+              locals.push (mkTypedLocal varName declaredTy interfaceName?),
+              mutableLocals.push varName)
       | `(doElem| let mut $name:ident ← $rhs:term) =>
           let varName := toString name.getId
           if localNames.contains varName then
@@ -1692,12 +1726,31 @@ private partial def translateDoElem
             throwErrorAt name s!"cannot assign immutable variable '{varName}'; declare it with 'let mut'"
           let some localInfo := locals.find? (fun entry => entry.name == varName)
             | throwErrorAt name s!"cannot resolve type of mutable variable '{varName}'"
-          let rawRhsExpr ← translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
-          let rhsExpr ← normalizeTranslatedExprForType localInfo.ty rhs rawRhsExpr
-          pure
-            (#[(← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr))],
-              locals,
-              mutableLocals)
+          let tempName := freshSyntheticLocalName s!"__{varName}_bind" params locals mutableLocals
+          match ← callResultBindStmt? fields constDecls immutableDecls externalDecls params locals rhs tempName with
+          | some (bindStmts, resultLocal) =>
+              let tempExpr ← `(Compiler.CompilationModel.Expr.localVar $(strTerm resultLocal.name))
+              let rhsExpr ← normalizeTranslatedExprForType localInfo.ty rhs tempExpr
+              pure
+                (bindStmts.push (← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr)),
+                  locals,
+                  mutableLocals)
+          | none =>
+              match ← translateSafeRequireBind fields constDecls immutableDecls externalDecls params locals tempName rhs with
+              | some safeStmts =>
+                  let tempExpr ← `(Compiler.CompilationModel.Expr.localVar $(strTerm tempName))
+                  let rhsExpr ← normalizeTranslatedExprForType localInfo.ty rhs tempExpr
+                  pure
+                    (safeStmts.push (← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr)),
+                      locals,
+                      mutableLocals)
+              | none =>
+                  let rawRhsExpr ← translateBindSource fields constDecls immutableDecls externalDecls functions params locals rhs
+                  let rhsExpr ← normalizeTranslatedExprForType localInfo.ty rhs rawRhsExpr
+                  pure
+                    (#[(← `(Compiler.CompilationModel.Stmt.assignVar $(strTerm varName) $rhsExpr))],
+                      locals,
+                      mutableLocals)
       | `(doElem| return $value:term) =>
           match (← arrayElementTupleReturnStmts? fields constDecls immutableDecls params locals mutableLocals value
             (some (translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals))) with
@@ -2171,18 +2224,22 @@ mutual
 
 private partial def rewriteForEachExecutableDoSeq
     (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (doSeq : DoSeq) : CommandElabM DoSeq := do
   match doSeq with
   | `(doSeq| $[$elems:doElem]*) =>
-      let (elems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals elems
+      let (elems, _) ← rewriteForEachExecutableDoElems fields constDecls immutableDecls externalDecls params locals elems
       `(doSeq| $[$elems:doElem]*)
   | _ => throwErrorAt doSeq "unsupported branch body; expected do-sequence"
 
 private partial def rewriteForEachExecutableDoElems
     (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
@@ -2190,13 +2247,15 @@ private partial def rewriteForEachExecutableDoElems
   let mut rewritten : Array (TSyntax `doElem) := #[]
   let mut currentLocals := locals
   for elem in elems do
-    let (newElems, newLocals) ← rewriteForEachExecutableDoElem fields externalDecls params currentLocals elem
+    let (newElems, newLocals) ← rewriteForEachExecutableDoElem fields constDecls immutableDecls externalDecls params currentLocals elem
     rewritten := rewritten ++ newElems
     currentLocals := newLocals
   pure (rewritten, currentLocals)
 
 private partial def rewriteForEachExecutableDoElem
     (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl)
+    (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
@@ -2205,12 +2264,12 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| let _ := $rhs:term) =>
       let discardName := freshSyntheticLocalName "__discard" params locals #[]
       let discardIdent := mkIdent (Name.mkSimple discardName)
-      rewriteForEachExecutableDoElem fields externalDecls params locals
+      rewriteForEachExecutableDoElem fields constDecls immutableDecls externalDecls params locals
         (← `(doElem| let $discardIdent:ident := $rhs:term))
   | `(doElem| let _ ← $rhs:term) =>
       let discardName := freshSyntheticLocalName "__discard" params locals #[]
       let discardIdent := mkIdent (Name.mkSimple discardName)
-      rewriteForEachExecutableDoElem fields externalDecls params locals
+      rewriteForEachExecutableDoElem fields constDecls immutableDecls externalDecls params locals
         (← `(doElem| let $discardIdent:ident ← $rhs:term))
   | `(doElem| let $name:ident := $rhs:term) =>
       let varName := toString name.getId
@@ -2220,6 +2279,27 @@ private partial def rewriteForEachExecutableDoElem
         | some iface => locals.push (mkTypedLocal varName .address (some iface))
         | none => locals
       pure (#[elem], locals)
+  | `(doElem| let mut $name:ident : $ty:term := $rhs:term) =>
+      let varName := toString name.getId
+      let interfaceName? ← interfaceNameOfTerm? params locals rhs
+      let localTy ←
+        try valueTypeFromSyntax #[] #[] #[] ty
+        catch _ => pure (if interfaceName?.isSome then .address else .uint256)
+      pure (#[elem], locals.push (mkTypedLocal varName localTy interfaceName?))
+  | `(doElem| let mut $name:ident ← $rhs:term) =>
+      let (rewritten, newLocals) ←
+        rewriteForEachExecutableDoElem fields constDecls immutableDecls externalDecls params locals
+          (← `(doElem| let $name:ident ← $rhs:term))
+      let mut mutElems : Array (TSyntax `doElem) := #[]
+      for rewrittenElem in rewritten do
+        match rewrittenElem with
+        | `(doElem| let $n:ident ← $r:term) =>
+            mutElems := mutElems.push (← `(doElem| let mut $n:ident ← $r:term))
+        | `(doElem| let $n:ident := $r:term) =>
+            mutElems := mutElems.push (← `(doElem| let mut $n:ident := $r:term))
+        | _ =>
+            mutElems := mutElems.push rewrittenElem
+      pure (mutElems, newLocals)
   | `(doElem| let $name:ident ← $rhs:term) =>
       match stripParens rhs with
       | `(term| getStorageArrayElement $field:ident $index:term) =>
@@ -2302,7 +2382,7 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| let $pat:term ← $rhs:term) =>
       match tupleBinderNames? pat with
       | some _ =>
-          match ← resolveTypedInterfaceCallEarly? fields #[] #[] externalDecls params locals rhs with
+          match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
           | some (ext, target, args, some _, _) =>
               let linked ← `(term| __verityTypedCall $target $(strTerm ext.name)
                 [ $[$args],* ])
@@ -2325,31 +2405,31 @@ private partial def rewriteForEachExecutableDoElem
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
-          let (inner, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals inner
+          let (inner, _) ← rewriteForEachExecutableDoElems fields constDecls immutableDecls externalDecls params locals inner
           pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEach body must be a do block"
   | `(doElem| forEachSetBit $name:term $_bitmap:term $body:term) =>
       let loopIdent := mkIdent (Name.mkSimple (← expectStringOrIdent name))
       match stripParens body with
       | `(term| do $[$inner:doElem]*) =>
-          let (inner, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals inner
+          let (inner, _) ← rewriteForEachExecutableDoElems fields constDecls immutableDecls externalDecls params locals inner
           pure (#[← `(doElem| let $loopIdent : Uint256 := 0)] ++ inner, locals)
       | _ => throwErrorAt body "forEachSetBit body must be a do block"
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
-      let thenBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals thenBranch
-      let elseBranch ← rewriteForEachExecutableDoSeq fields externalDecls params locals elseBranch
+      let thenBranch ← rewriteForEachExecutableDoSeq fields constDecls immutableDecls externalDecls params locals thenBranch
+      let elseBranch ← rewriteForEachExecutableDoSeq fields constDecls immutableDecls externalDecls params locals elseBranch
       pure (#[← `(doElem| if $cond then $thenBranch else $elseBranch)], locals)
   | `(doElem| if $cond:term then $thenBranch:doSeq) =>
-      rewriteForEachExecutableDoElem fields externalDecls params locals
+      rewriteForEachExecutableDoElem fields constDecls immutableDecls externalDecls params locals
         (← `(doElem| if $cond:term then $thenBranch:doSeq else pure ()))
   | `(doElem| tryCatch $attempt:term $handler:term) =>
       let tryCatchFn := Lean.mkIdentFrom attempt `_root_.Contracts.tryCatchWord
       match stripParens handler with
       | `(term| fun $name:ident => do $[$catchElems:doElem]*) =>
-          let (catchElems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals catchElems
+          let (catchElems, _) ← rewriteForEachExecutableDoElems fields constDecls immutableDecls externalDecls params locals catchElems
           pure (#[← `(doElem| $tryCatchFn:ident $attempt (fun $name => do $[$catchElems:doElem]*))], locals)
       | `(term| do $[$catchElems:doElem]*) =>
-          let (catchElems, _) ← rewriteForEachExecutableDoElems fields externalDecls params locals catchElems
+          let (catchElems, _) ← rewriteForEachExecutableDoElems fields constDecls immutableDecls externalDecls params locals catchElems
           pure (#[← `(doElem| $tryCatchFn:ident $attempt (fun _ => do $[$catchElems:doElem]*))], locals)
       | _ =>
           throwErrorAt handler
@@ -2357,8 +2437,8 @@ private partial def rewriteForEachExecutableDoElem
   | `(doElem| tryCall $attempt:term then $succ:term catch $fail:term) => do
       let succSeq ← expectDoBlock succ
       let failSeq ← expectDoBlock fail
-      let succ ← rewriteForEachExecutableDoSeq fields externalDecls params locals succSeq
-      let fail ← rewriteForEachExecutableDoSeq fields externalDecls params locals failSeq
+      let succ ← rewriteForEachExecutableDoSeq fields constDecls immutableDecls externalDecls params locals succSeq
+      let fail ← rewriteForEachExecutableDoSeq fields constDecls immutableDecls externalDecls params locals failSeq
       let attemptLean ←
         match stripParens attempt with
         | `(term| selfCall $fn:ident) =>
@@ -2374,7 +2454,7 @@ private partial def rewriteForEachExecutableDoElem
           (fun _ => do $succ)
           (fun _ => do $fail))], locals)
   | `(doElem| unsafe $_reason:str do $body:doSeq) =>
-      let body ← rewriteForEachExecutableDoSeq fields externalDecls params locals body
+      let body ← rewriteForEachExecutableDoSeq fields constDecls immutableDecls externalDecls params locals body
       pure (#[← `(doElem| do $body)], locals)
   | `(doElem| emit $eventName:term [ $[$args:term],* ]) =>
       let args ← args.mapM (annotateExecutableLinkedCall? externalDecls)
@@ -2467,10 +2547,10 @@ private partial def rewriteForEachExecutableDoElem
       pure (#[other], locals)
 end
 
-private def rewriteForEachExecutableBody (fields : Array StorageFieldDecl) (externalDecls : Array ExternalDecl) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
+private def rewriteForEachExecutableBody (fields : Array StorageFieldDecl) (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl) (externalDecls : Array ExternalDecl) (params : Array ParamDecl) (body : Term) : CommandElabM Term := do
   match body with
   | `(term| do $[$elems:doElem]*) =>
-      let (elems, _) ← rewriteForEachExecutableDoElems fields externalDecls params #[] elems
+      let (elems, _) ← rewriteForEachExecutableDoElems fields constDecls immutableDecls externalDecls params #[] elems
       `(do $[$elems:doElem]*)
   | _ => pure body
 
@@ -6074,7 +6154,7 @@ def mkConstructorDefCommandPublic
     syntaxCallsAnyHelper (adversarialHelpers.map (·.name)) ctor.body.raw
   let opensReentrancyWindow := directlyOpensReentrancyWindow ||
     callsAdversarial
-  let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
+  let executableBody ← rewriteForEachExecutableBody fields constDecls immutableDecls externalDecls ctor.params ctor.body
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom (mkIdent `constructor) `_adv).raw
   let advTerm : Term ← if opensReentrancyWindow then
       pure ⟨advIdent.raw⟩
@@ -6150,7 +6230,7 @@ def mkHostConstructorDefCommandPublic
           else
             preludes := preludes.push (← `(doElem| $tgt:ident $args*))
       let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
-      let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params body
+      let executableBody ← rewriteForEachExecutableBody fields constDecls immutableDecls externalDecls ctor.params body
       let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls ownAdversarialHelpers
         ctor.params advTerm executableBody.raw (linkedContracts := linkedContracts)⟩
       let fnValue ← if containsExternalCall then
@@ -6226,7 +6306,7 @@ def mkFunctionCommandsPublic
   -- slots computed in the mixin namespace; recomputing them against host
   -- fields would shift those slots.
   let fnBody ← mkImmutableBoundBody fields boundImmutableDecls fn fnGuardedBody
-  let fnExecutableBody ← rewriteForEachExecutableBody fields externalDecls fn.params fnBody
+  let fnExecutableBody ← rewriteForEachExecutableBody fields constDecls immutableDecls externalDecls fn.params fnBody
   -- The parsed body already contains guards for the model path. Re-applying
   -- them outside all executable wrappers makes ABI validation happen before
   -- initializer, role, and modifier effects (the inner copy is harmless).
