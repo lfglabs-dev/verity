@@ -136,6 +136,7 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       elabCommand (← mkStructDefCommandPublic structDecl)
       elabCommand (← mkStructEventArgInstanceCommandPublic structDecl)
       elabCommand (← mkStructExternalArgInstanceCommandPublic structDecl)
+      elabCommand (← mkStructToDispatchValInstanceCommandPublic structDecl)
       elabCommand (← mkStructExternalResultInstanceCommandPublic structDecl)
 
     let aliasCmds ← mkIncludeAliasCommandsPublic resolvedIncludes

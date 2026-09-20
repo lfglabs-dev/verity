@@ -5986,6 +5986,21 @@ def mkStructExternalArgInstanceCommandPublic (decl : StructDecl) : CommandElabM 
         ([ $[$encodedFields],* ] :
           List (List _root_.Verity.Uint256)))
 
+/-- Compiled-dispatch ABI encoding of a named struct: the tuple of its
+fields, matching `genParamLoads` / `abiEncodeDispatchArgs`. -/
+def mkStructToDispatchValInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
+  let structId := decl.ident
+  let valueId := mkIdent (Name.mkSimple "value")
+  let fieldIds := decl.fields.map (·.ident)
+  let encodedFields ← fieldIds.mapM fun fieldId =>
+    `(term| Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal.toDispatchVal
+      $valueId.$fieldId)
+  `(command| instance : Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal $structId where
+      toDispatchVal := fun $valueId =>
+        Compiler.CompilationModel.DenoteExternalCalls.DispatchVal.tuple
+          ([ $[$encodedFields],* ] :
+            List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
+
 def mkStructExternalResultInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
   let structId := decl.ident
   let fieldIds := decl.fields.map (·.ident)
