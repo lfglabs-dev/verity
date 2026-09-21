@@ -62,6 +62,8 @@ def main() -> None:
           "importer accepts struct AST nodes")
     check("structConstructorCall" in importer_text,
           "importer encodes struct constructors")
+    check("named struct constructor arguments must appear in member order" in importer_text,
+          "named struct constructors fail closed on source-order reorder")
     check("struct with a dynamic member" in importer_text and "mapping with struct key" in importer_text,
           "importer rejects dynamic members and struct mapping keys")
 
@@ -187,6 +189,30 @@ def main() -> None:
         check(re.search(r"Contracts/SolidityImportSmoke/Structs/Structs.sol:\d+:\d+:", output)
               is not None,
               "reordering pair members is rejected with a source position")
+        edit_source(original)
+        build()
+
+        named_reorder = original.replace(
+            b"        return Acc({amount: amount, who: who});",
+            b"        return Acc({who: who, amount: amount});",
+        )
+        check(original != named_reorder, "named constructor reorder has a source target")
+        edit_source(named_reorder)
+        output = build(False, "named struct constructor arguments must appear in member order")
+        check(re.search(r"Contracts/SolidityImportSmoke/Structs/Structs.sol:\d+:\d+:", output)
+              is not None,
+              "named constructor reorder is rejected with a source position")
+        edit_source(original)
+        build()
+
+        positional = original.replace(
+            b"        return Acc({amount: amount, who: who});",
+            b"        return Acc(amount, who);",
+        )
+        check(original != positional, "positional constructor has a source target")
+        edit_source(positional)
+        build()
+        check(True, "positional Acc(amount, who) still imports")
         edit_source(original)
         build()
 

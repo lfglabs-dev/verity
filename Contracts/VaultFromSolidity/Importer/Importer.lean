@@ -1310,20 +1310,16 @@ private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t
           match info.members with
           | _ :: m1 :: _ => m1.name
           | _ => ""
-        let amountJ ←
-          if names.isEmpty then pure argsJ[0]!
-          else
-            let some i := names.findIdx? (fun n => n.getStr?.toOption == some amountName)
-              | failAt ctx.frontend.source j "unresolved declaration reference"
-            pure argsJ[i]!
-        let whoJ ←
-          if names.isEmpty then pure argsJ[1]!
-          else
-            let some i := names.findIdx? (fun n => n.getStr?.toOption == some whoName)
-              | failAt ctx.frontend.source j "unresolved declaration reference"
-            pure argsJ[i]!
-        let a ← parseExpr ctx sc .uint amountJ
-        let b ← parseExpr ctx sc .addr whoJ
+        unless names.isEmpty do
+          needAt ctx.frontend.source j (names.size == 2) "argument count mismatch"
+          let some iAmt := names.findIdx? (fun n => n.getStr?.toOption == some amountName)
+            | failAt ctx.frontend.source j "unresolved declaration reference"
+          let some iWho := names.findIdx? (fun n => n.getStr?.toOption == some whoName)
+            | failAt ctx.frontend.source j "unresolved declaration reference"
+          needAt ctx.frontend.source j (iAmt == 0 && iWho == 1)
+            "named struct constructor arguments must appear in member order"
+        let a ← parseExpr ctx sc .uint argsJ[0]!
+        let b ← parseExpr ctx sc .addr argsJ[1]!
         let e : Sol.Expr ctx.L ctx.F Γ (.pair info.id) := .pair a b
         if h : t = .pair info.id then pure (h ▸ e) else failAt ctx.frontend.source j "local type mismatch"
       else do

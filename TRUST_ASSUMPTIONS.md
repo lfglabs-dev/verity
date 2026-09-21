@@ -87,7 +87,10 @@ linearization (including diamonds), virtual dispatch and `super` specialized at
   `uint256` then `address` pair (members occupy consecutive solc slots; encode is
   `Expr.pair` indexed by the solc struct id so same-shape structs stay distinct
   in signatures; a public struct field registers one product getter; a storage
-  struct assignment binds the RHS pair once). Unknown executable constructs are
+  struct assignment binds the RHS pair once; named `Acc({...})` constructors
+  must list members in declaration order because `Expr.pair` evaluates amount
+  then who, while pinned 0.8.33 evaluates named args in source order — a reorder
+  is rejected rather than silently bound by member order). Unknown executable constructs are
 rejected; this is not general Solidity support. Multi-file units, packed
 fields, events, and external calls remain out of the fragment.
 Arguments/context are already typed and decoded. `Contract.run` rolls back

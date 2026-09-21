@@ -69,7 +69,9 @@ Evidence commands for the modifiers/structs slice:
 `python3 Contracts/SolidityImportSmoke/Modifiers/scripts/modifiers_test.py`
 (after `lake build SolidityImportSmokeModifiers`) and
 `python3 Contracts/SolidityImportSmoke/Structs/scripts/structs_test.py`
-(after `lake build SolidityImportSmokeStructs`).
+(after `lake build SolidityImportSmokeStructs`). The structs suite also
+rejects a named constructor that lists `{who, amount}` out of member order
+(pinned solc evaluates those names in source order; `Expr.pair` cannot).
 
 ## Current Audit State
 
