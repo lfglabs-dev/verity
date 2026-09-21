@@ -12,6 +12,7 @@ import copy
 SPEC = {'check_only_paths': ['.github/workflows/**',
                       '.github/ISSUE_TEMPLATE/**',
                       'artifacts/**',
+                      'artifacts/*',
                       'docs/**',
                       'docs-site/**',
                       'Makefile',

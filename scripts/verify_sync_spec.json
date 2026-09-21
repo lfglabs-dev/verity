@@ -3,6 +3,7 @@
     ".github/workflows/**",
     ".github/ISSUE_TEMPLATE/**",
     "artifacts/**",
+    "artifacts/*",
     "docs/**",
     "docs-site/**",
     "Makefile",
