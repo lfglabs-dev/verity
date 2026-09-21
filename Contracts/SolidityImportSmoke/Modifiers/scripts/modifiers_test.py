@@ -188,10 +188,9 @@ def main() -> None:
         swapped = original.replace(b"onlyOwner whenNotPaused", b"whenNotPaused onlyOwner")
         check(original != swapped, "modifier-order mutation has a source target")
         edit_source(swapped)
-        build()
-        swapped_print = print_names("guarded")
-        check(swapped_print.find("EnforcedPause") < swapped_print.find("NotOwner"),
-              "swapping onlyOwner/whenNotPaused changes inlined revert-reason order")
+        output = build(False, "Contracts.SolidityImportSmoke.Modifiers.Proofs")
+        check("guarded_reverts_not_owner_before_pause" in broken_theorems(output),
+              "swapping onlyOwner/whenNotPaused breaks guarded_reverts_not_owner_before_pause")
         edit_source(original)
         build()
 

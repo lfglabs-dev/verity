@@ -6,8 +6,9 @@ namespace Contracts.SolidityImportSmoke.Structs.Spec
 open Verity
 open Contracts.SolidityImportSmoke.Structs.Store
 
-def set_spec (amount : Uint256) (_who : Address) (pre post : Storage) : Prop :=
+def set_spec (amount : Uint256) (who : Address) (pre post : Storage) : Prop :=
   post.data_amount = amount ∧
+  post.data_who = who ∧
   post.other = pre.other
 
 def other_member_unchanged (_a : Uint256 × Address) (pre post : Storage) : Prop :=

@@ -311,6 +311,7 @@ end Verity.AxiomAudit
   Contracts.SolidityImportSmoke.Modifiers.Proofs.status_restored
   Contracts.SolidityImportSmoke.Modifiers.Proofs.early_meets_spec
   Contracts.SolidityImportSmoke.Modifiers.Proofs.guarded_success_spec
+  Contracts.SolidityImportSmoke.Modifiers.Proofs.guarded_reverts_not_owner_before_pause
   Contracts.SolidityImportSmoke.Modifiers.Proofs.tagged_uses_base_helper
   Contracts.SolidityImportSmoke.Modifiers.Proofs.snapshot_restores_status
 
@@ -7625,4 +7626,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7039 theorems/lemmas (5026 public, 2013 private, 0 sorry'd)
+-- Total: 7040 theorems/lemmas (5027 public, 2013 private, 0 sorry'd)

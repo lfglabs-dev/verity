@@ -42,6 +42,16 @@ theorem guarded_success_spec (s post : ContractState) (amount : Uint256)
       · solidity_simp
   · solidity_simp
 
+theorem guarded_reverts_not_owner_before_pause (s : ContractState) (amount : Uint256)
+    (h0 : s.msgValue = 0)
+    (howner : s.sender ≠ (view s).owner)
+    (hpaused : 0 < (view s).paused.val) :
+    (guarded amount).run s = ContractResult.revert "NotOwner()" s := by
+  by_cases ho : s.sender = (view s).owner
+  · exact (howner ho).elim
+  · have := hpaused
+    solidity_simp
+
 theorem tagged_uses_base_helper (s post : ContractState)
     (h : tagged.run s = .success () post) :
     tagged_spec (view s) (view post) := by

@@ -20,7 +20,7 @@ theorem set_then_get (s post : ContractState) (amount : Uint256) (who : Address)
 theorem other_member_unchanged_thm (s post : ContractState) (amount : Uint256) (who : Address)
     (h : (set (amount, who)).run s = .success () post) :
     other_member_unchanged (amount, who) (view s) (view post) :=
-  (set_then_get s post amount who h).2
+  (set_then_get s post amount who h).2.2
 
 theorem get_meets_spec (s : ContractState) (h0 : s.msgValue = 0) :
     ∃ post, get.run s = ContractResult.success ((view s).data_amount, (view s).data_who) post := by

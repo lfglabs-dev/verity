@@ -183,6 +183,18 @@ def main() -> None:
             return {name for name, (start, end) in ranges.items()
                     if any(start <= line <= end for line in error_lines)}
 
+        dropped_who = original.replace(
+            b"        data = a;\n",
+            b"        data = Acc({amount: a.amount, who: data.who});\n",
+        )
+        check(original != dropped_who, "dropped who write has a source target")
+        edit_source(dropped_who)
+        output = build(False, "Contracts.SolidityImportSmoke.Structs.Proofs")
+        check("set_then_get" in broken_theorems(output),
+              "dropping the who write breaks set_then_get")
+        edit_source(original)
+        build()
+
         reordered = original.replace(
             b"struct Acc {\n    uint256 amount;\n    address who;\n}",
             b"struct Acc {\n    address who;\n    uint256 amount;\n}",

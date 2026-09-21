@@ -355,6 +355,7 @@
     "get_meets_spec",
     "go_meets_spec",
     "go_success_spec",
+    "guarded_reverts_not_owner_before_pause",
     "guarded_success_spec",
     "makeRev_encodes",
     "make_encodes",
