@@ -31,4 +31,9 @@ theorem make_encodes (s : ContractState) (amount : Uint256) (who : Address)
     ∃ post, (make amount who).run s = ContractResult.success (amount, who) post := by
   solidity_simp
 
+theorem makeRev_encodes (s : ContractState) (amount : Uint256) (who : Address)
+    (h0 : s.msgValue = 0) :
+    ∃ post, (makeRev amount who).run s = ContractResult.success (amount, who) post := by
+  solidity_simp
+
 end Contracts.SolidityImportSmoke.Structs.Proofs

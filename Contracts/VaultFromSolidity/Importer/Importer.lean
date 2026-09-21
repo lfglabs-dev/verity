@@ -1310,17 +1310,27 @@ private partial def parseExpr (ctx : ParseCtx) {Γ : Sol.Ctx} (sc : Scope Γ) (t
           match info.members with
           | _ :: m1 :: _ => m1.name
           | _ => ""
-        unless names.isEmpty do
-          needAt ctx.frontend.source j (names.size == 2) "argument count mismatch"
-          let some iAmt := names.findIdx? (fun n => n.getStr?.toOption == some amountName)
-            | failAt ctx.frontend.source j "unresolved declaration reference"
-          let some iWho := names.findIdx? (fun n => n.getStr?.toOption == some whoName)
-            | failAt ctx.frontend.source j "unresolved declaration reference"
-          needAt ctx.frontend.source j (iAmt == 0 && iWho == 1)
-            "named struct constructor arguments must appear in member order"
-        let a ← parseExpr ctx sc .uint argsJ[0]!
-        let b ← parseExpr ctx sc .addr argsJ[1]!
-        let e : Sol.Expr ctx.L ctx.F Γ (.pair info.id) := .pair a b
+        let e : Sol.Expr ctx.L ctx.F Γ (.pair info.id) ←
+          if names.isEmpty then
+            let a ← parseExpr ctx sc .uint argsJ[0]!
+            let b ← parseExpr ctx sc .addr argsJ[1]!
+            pure (.pair a b)
+          else do
+            needAt ctx.frontend.source j (names.size == 2) "argument count mismatch"
+            let some iAmt := names.findIdx? (fun n => n.getStr?.toOption == some amountName)
+              | failAt ctx.frontend.source j "unresolved declaration reference"
+            let some iWho := names.findIdx? (fun n => n.getStr?.toOption == some whoName)
+              | failAt ctx.frontend.source j "unresolved declaration reference"
+            needAt ctx.frontend.source j (iAmt != iWho) "unresolved declaration reference"
+            if iAmt == 0 && iWho == 1 then
+              let a ← parseExpr ctx sc .uint argsJ[0]!
+              let b ← parseExpr ctx sc .addr argsJ[1]!
+              pure (.pair a b)
+            else if iAmt == 1 && iWho == 0 then
+              let b ← parseExpr ctx sc .addr argsJ[0]!
+              let a ← parseExpr ctx sc .uint argsJ[1]!
+              pure (.pairRev b a)
+            else failAt ctx.frontend.source j "unresolved declaration reference"
         if h : t = .pair info.id then pure (h ▸ e) else failAt ctx.frontend.source j "local type mismatch"
       else do
         let resolved ← resolveCall ctx.frontend ctx.current ctx.superFrom j

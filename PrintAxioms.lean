@@ -319,6 +319,7 @@ end Verity.AxiomAudit
   Contracts.SolidityImportSmoke.Structs.Proofs.other_member_unchanged_thm
   Contracts.SolidityImportSmoke.Structs.Proofs.get_meets_spec
   Contracts.SolidityImportSmoke.Structs.Proofs.make_encodes
+  Contracts.SolidityImportSmoke.Structs.Proofs.makeRev_encodes
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -7624,4 +7625,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7038 theorems/lemmas (5025 public, 2013 private, 0 sorry'd)
+-- Total: 7039 theorems/lemmas (5026 public, 2013 private, 0 sorry'd)

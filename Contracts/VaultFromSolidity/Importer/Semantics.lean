@@ -131,6 +131,9 @@ def Expr.meaning {L : Layout} {F : Fns} {Γ : Ctx} {t : Ty}
   | .pair a b =>
       Verity.bind (Expr.meaning a slots fns env) (fun x =>
         Verity.bind (Expr.meaning b slots fns env) (fun y => Verity.pure (x, y)))
+  | .pairRev a b =>
+      Verity.bind (Expr.meaning a slots fns env) (fun y =>
+        Verity.bind (Expr.meaning b slots fns env) (fun x => Verity.pure (x, y)))
   | .fst e =>
       Verity.bind (Expr.meaning e slots fns env) (fun vs => Verity.pure vs.1)
   | .snd e =>

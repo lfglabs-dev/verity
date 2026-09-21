@@ -62,8 +62,10 @@ def main() -> None:
           "importer accepts struct AST nodes")
     check("structConstructorCall" in importer_text,
           "importer encodes struct constructors")
-    check("named struct constructor arguments must appear in member order" in importer_text,
-          "named struct constructors fail closed on source-order reorder")
+    check("| pairRev " in syntax_text and ".pairRev " in importer_text,
+          "named Acc({who, amount}) uses pairRev after source-order eval")
+    check(".pairRev a b =>" in (ROOT / "Contracts/VaultFromSolidity/Importer/Semantics.lean").read_text(),
+          "pairRev evaluates who then amount and packs uint-then-addr")
     check("struct with a dynamic member" in importer_text and "mapping with struct key" in importer_text,
           "importer rejects dynamic members and struct mapping keys")
 
@@ -156,11 +158,13 @@ def main() -> None:
         check(axioms <= {"propext", "Quot.sound"},
               "no project axioms or sorryAx: " + ", ".join(sorted(axioms)))
 
-        printed = print_names("set", "get", "make")
+        printed = print_names("set", "get", "make", "makeRev")
         check(".fst" in printed and ".snd" in printed,
               "#print Store.set decodes struct members")
         check(".pair" in printed,
               "#print Store.make / Store.get encode the user struct")
+        check(".pairRev" in printed,
+              "#print Store.makeRev encodes named Acc({who, amount})")
         check(slot_numbers() == "[0, 1, 2]",
               "struct members occupy consecutive solc slots [amount, who, other]")
 
@@ -198,12 +202,16 @@ def main() -> None:
         )
         check(original != named_reorder, "named constructor reorder has a source target")
         edit_source(named_reorder)
-        output = build(False, "named struct constructor arguments must appear in member order")
-        check(re.search(r"Contracts/SolidityImportSmoke/Structs/Structs.sol:\d+:\d+:", output)
-              is not None,
-              "named constructor reorder is rejected with a source position")
+        build()
+        printed_rev = print_names("make")
+        check(".pairRev" in printed_rev,
+              "named Acc({who, amount}) imports as pairRev")
+        check(True, "named Acc({who: who, amount: amount}) still imports")
         edit_source(original)
         build()
+        printed_fwd = print_names("make")
+        check(".pair" in printed_fwd and ".pairRev" not in printed_fwd,
+              "named Acc({amount, who}) stays Expr.pair")
 
         positional = original.replace(
             b"        return Acc({amount: amount, who: who});",
@@ -212,7 +220,9 @@ def main() -> None:
         check(original != positional, "positional constructor has a source target")
         edit_source(positional)
         build()
-        check(True, "positional Acc(amount, who) still imports")
+        printed_pos = print_names("make")
+        check(".pair" in printed_pos and ".pairRev" not in printed_pos,
+              "positional Acc(amount, who) stays AST/member order as Expr.pair")
         edit_source(original)
         build()
 
@@ -230,6 +240,9 @@ def main() -> None:
         ).replace(
             b"        return Acc({amount: amount, who: who});",
             b"        return Acc({amount: amount, who: who, note: \"\"});",
+        ).replace(
+            b"        return Acc({who: who, amount: amount});",
+            b"        return Acc({who: who, amount: amount, note: \"\"});",
         )
         check(dyn_src != original, "dynamic member mutation has a source target")
         edit_source(dyn_src)

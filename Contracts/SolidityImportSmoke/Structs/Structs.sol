@@ -25,4 +25,8 @@ contract Store {
     function make(uint256 amount, address who) external pure returns (Acc memory) {
         return Acc({amount: amount, who: who});
     }
+
+    function makeRev(uint256 amount, address who) external pure returns (Acc memory) {
+        return Acc({who: who, amount: amount});
+    }
 }
