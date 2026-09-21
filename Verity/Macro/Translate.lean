@@ -2035,7 +2035,7 @@ private def adversaryModelTypeTerm : CommandElabM Term :=
   `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
 
 private def executableCallContextTypeTerm : CommandElabM Term :=
-  `(ExecutableCallContext)
+  `(Contracts.ExecutableCallContext)
 
 private def mkContractFnTypeWithAdversary
     (params : Array ParamDecl) (retTy : ValueType) : CommandElabM Term := do
@@ -2498,6 +2498,55 @@ def translatedBodyOpensReentrancyWindow
     | _ => throwErrorAt bodyTerm
         "failed to reduce the translated reentrancy-window predicate"
 
+def translatedBodyContainsExternalCall
+    (stmtTerms : Array Term) : CommandElabM Bool := do
+  let bodyTerm : Term ← `([ $[$stmtTerms],* ])
+  liftTermElabM do
+    let predicate : Term ←
+      `($(bodyTerm).any Compiler.CompilationModel.stmtContainsExternalCall)
+    let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
+    match ← Lean.Meta.withTransparency .all (Lean.Meta.whnf expr) with
+    | .const ``Bool.true _ => pure true
+    | .const ``Bool.false _ => pure false
+    | _ => throwErrorAt bodyTerm
+        "failed to reduce the translated external-call predicate"
+
+private partial def syntaxContainsCalldataRead (stx : Syntax) : Bool :=
+  match stx with
+  | `(term| calldatasize) | `(term| calldataload $_) => true
+  | _ => stx.getArgs.any syntaxContainsCalldataRead
+
+def translatedBodyContainsCalldataRead
+    (stmtTerms : Array Term) : CommandElabM Bool := do
+  if stmtTerms.any (fun t => syntaxContainsCalldataRead t.raw) then
+    return true
+  let bodyTerm : Term ← `([ $[$stmtTerms],* ])
+  liftTermElabM do
+    let predicate : Term ←
+      `($(bodyTerm).any (fun s =>
+        Compiler.CompilationModel.Stmt.anyDeep
+          (fun
+            | .letVar _ (.calldatasize) => true
+            | .letVar _ (.calldataload _) => true
+            | .assignVar _ (.calldatasize) => true
+            | .assignVar _ (.calldataload _) => true
+            | .setStorage _ (.calldatasize) => true
+            | .setStorage _ (.calldataload _) => true
+            | .ite (.calldatasize) _ _ => true
+            | .ite (.calldataload _) _ _ => true
+            | .return (.calldatasize) => true
+            | .return (.calldataload _) => true
+            | _ => false)
+          s))
+    let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
+    match ← Lean.Meta.withTransparency .all (Lean.Meta.whnf expr) with
+    | .const ``Bool.true _ => pure true
+    | .const ``Bool.false _ => pure false
+    | _ =>
+        -- Syntax walk already ran; if the model predicate does not reduce,
+        -- keep the conservative syntax result (false here).
+        pure false
+
 private partial def syntaxCallsAnyHelper
     (helperNames : Array String) (stx : Syntax) : CommandElabM Bool := do
   match stx with
@@ -2629,15 +2678,135 @@ private def helperCallWithAdv (name : Ident) (args : Array Term) (adv : Term) : 
     app ← `(term| $app $arg)
   pure app
 
+private def helperCall (name : Ident) (args : Array Term) : CommandElabM Term := do
+  let mut app : Term := ⟨name.raw⟩
+  for arg in args do
+    app ← `(term| $app $arg)
+  pure app
+
+private def identEndsWithSuffix (name : Name) (suffix : String) : Bool :=
+  let s := toString name
+  s == suffix || s.endsWith ("." ++ suffix)
+
+private partial def syntaxEndsWithSuffix (stx : Syntax) (suffix : String) : Bool :=
+  match stx with
+  | .ident _ _ name _ => identEndsWithSuffix name suffix
+  | .node _ kind args =>
+      if kind == ``Lean.Parser.Term.proj && args.size >= 3 then
+        syntaxEndsWithSuffix args[2]! suffix
+      else if args.isEmpty then
+        false
+      else
+        syntaxEndsWithSuffix args.back! suffix
+  | _ => false
+
+private def selfCallCallee? (t : Term) : CommandElabM (Option (Ident × Array Term)) := do
+  let calleeFrom (inner : Term) : CommandElabM (Option (Ident × Array Term)) := do
+    match stripParens inner with
+    | `(term| $fn:ident) => pure (some (fn, #[]))
+    | `(term| $fn:ident()) => pure (some (fn, #[]))
+    | `(term| $fn:ident($[$args:term],*)) => pure (some (fn, args))
+    | `(term| $fn:ident $args:term*) => pure (some (fn, args))
+    | _ => pure none
+  match t with
+  | `(term| selfCall $fn:ident) => pure (some (fn, #[]))
+  | `(term| selfCall $fn:ident($[$args:term],*)) => pure (some (fn, args))
+  | `(term| _root_.Verity.Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| Verity.Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| Contract.selfCall $inner:term) => calleeFrom inner
+  | `(term| $name:ident $inner:term) =>
+      if identEndsWithSuffix name.getId "selfCall" then
+        calleeFrom inner
+      else
+        pure none
+  | `(term| $name:ident($[$args:term],*)) =>
+      if identEndsWithSuffix name.getId "selfCall" && args.size == 1 then
+        calleeFrom ⟨args[0]!.raw⟩
+      else
+        pure none
+  | _ =>
+      match t.raw with
+      | .node _ kind args =>
+          if kind == ``Lean.Parser.Term.app && args.size >= 2 &&
+              syntaxEndsWithSuffix args[0]! "selfCall" then
+            calleeFrom ⟨args[1]!⟩
+          else
+            pure none
+      | _ => pure none
+
 private def threadHelperApp?
-    (adversarialHelpers : Array FunctionDecl) (name : Ident) (args : Array Term)
-    (adv : Term) : CommandElabM (Option Term) := do
-  let helper? := adversarialHelpers.find? fun fn =>
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
+    (externalDecls : Array ExternalDecl)
+    (helpers : Array FunctionDecl) (adversarialHelpers : Array FunctionDecl)
+    (registryOnlyHelpers : Array FunctionDecl)
+    (params : Array ParamDecl) (locals : Array TypedLocal)
+    (name : Ident) (args : Array Term)
+    (adv : Term)
+    (originalArgsForOverload : Option (Array Term) := none)
+    (keepPublicGuard : Bool := false) : CommandElabM (Option Term) := do
+  let matchesHelper := fun (fn : FunctionDecl) =>
     (fn.name == toString name.getId || fn.ident.getId == name.getId ||
       (toString name.getId).endsWith ("." ++ fn.name)) &&
       fn.params.size == args.size
+  let matchesExactHelper := fun (fn : FunctionDecl) =>
+    (fn.name == toString name.getId || fn.ident.getId == name.getId) &&
+      fn.params.size == args.size
+  let exactCandidates := helpers.filter matchesExactHelper
+  let helper? ←
+    if exactCandidates.size <= 1 then
+      pure (exactCandidates[0]? <|> helpers.find? matchesHelper)
+    else
+      let resolveArgs := originalArgsForOverload.getD args
+      let app ← helperCall name resolveArgs
+      try
+        pure ((← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls
+          helpers params locals app).map (·.1))
+      catch _ =>
+        -- Validation reports ill-typed or ambiguous calls. If local binders keep
+        -- the argument types unavailable here, leave the original call intact
+        -- instead of selecting an overload by declaration order.
+        pure none
   match helper? with
-  | some _ => some <$> helperCallWithAdv name args adv
+  | some helper =>
+      if !matchesExactHelper helper then
+        -- A qualified application whose suffix happens to match a local helper
+        -- is not a local helper call.  Leave it to the recursive traversal so
+        -- linked calls nested in its arguments still receive the adversary.
+        return none
+      -- `registryOnlyHelpers` is the set that must be called as `_registry`
+      -- / `_registry_unguarded`. Public bodies pass `#[]`; registry bodies pass
+      -- every adversarial helper, including window-opening ones, so a nested
+      -- `hop` cannot drop into the stub-only public helper.
+      -- Same-contract `selfCall` is a public CALL: compiled dispatch still
+      -- runs the nonReentrant tload prologue, so hops keep the guarded
+      -- `*_registry` / public path rather than `*_unguarded`.
+      let registryOnly := registryOnlyHelpers.any (fun candidate =>
+        functionSignatureKey candidate == functionSignatureKey helper)
+      let target ←
+        if keepPublicGuard then
+          if registryOnly then
+            mkSuffixedIdent helper.ident "_registry"
+          else
+            pure helper.ident
+        else if registryOnly && helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
+          mkSuffixedIdent helper.ident "_registry_unguarded"
+        else if registryOnly then
+          mkSuffixedIdent helper.ident "_registry"
+        else if helper.nonReentrantLock.isSome && helper.reentrancyTrusted &&
+            matchesExactHelper helper then
+          mkSuffixedIdent helper.ident "_unguarded"
+        else
+          pure helper.ident
+      if matchesExactHelper helper &&
+          (adversarialHelpers.any (fun candidate =>
+              functionSignatureKey candidate == functionSignatureKey helper) ||
+            registryOnly) then
+        some <$> helperCallWithAdv target args adv
+      else if helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
+        some <$> helperCall target args
+      else
+        pure none
   | none => pure none
 
 /-- Resolve a `linked_contracts` binding for an executable typed call.
@@ -2692,18 +2861,27 @@ private def constantTakesExecutableCallContext (n : Name) : CommandElabM Bool :=
   return false
 
 private def boundCalleeBodyTerm (binding : LinkedContractDecl) (extName : String)
-    (args : Array Term) (adv : Term) : CommandElabM Term := do
+    (args : Array Term) (adv : Term) (registryMode : Bool := false) : CommandElabM Term := do
   let method :=
     match extName.splitOn "." with
     | _iface :: m :: _ => m
     | _ => extName
-  let fnName := binding.calleeIdent.getId ++ Name.mkSimple method
+  let publicName := binding.calleeIdent.getId ++ Name.mkSimple method
+  let registryIdent ← mkSuffixedIdent (mkIdent publicName) "_registry"
+  let registryName := registryIdent.getId
+  -- Every generated `*_registry` executable takes `ExecutableCallContext`.
+  -- Do not gate on env lookup: the callee may live in another namespace, and
+  -- a missed lookup would silently keep the ctx-free public stub path.
+  let useRegistry := registryMode
+  let fnName := if useRegistry then registryName else publicName
   let fnIdent := mkIdent fnName
   let mut app : Term ← `(term| $fnIdent)
   -- Thread the caller's ExecutableCallContext into a bound callee that opens a
-  -- reentrancy window. Ctx-free callees (ModeledCallee.get/set) stay unchanged
-  -- so existing hopCall definitional theorems keep holding.
-  if ← constantTakesExecutableCallContext fnName then
+  -- reentrancy window, and in registry mode also into `*_registry` executables
+  -- of view/static callees (those take the context even when the public def
+  -- does not). Ctx-free public callees stay unchanged so existing hopCall
+  -- definitional theorems keep holding.
+  if useRegistry || (← constantTakesExecutableCallContext fnName) then
     app ← `(term| $app $adv)
   for arg in args do
     app ← `(term| $app $arg)
@@ -2711,10 +2889,11 @@ private def boundCalleeBodyTerm (binding : LinkedContractDecl) (extName : String
 
 private def hopBoundCallTerm?
     (linked : Array LinkedContractDecl) (target : Term) (targetName : String)
-    (extName : String) (args : Array Term) (isView : Bool) (adv : Term) :
+    (extName : String) (args : Array Term) (isView : Bool) (adv : Term)
+    (registryMode : Bool := false) :
     CommandElabM (Option Term) := do
   let some binding := lookupLinkedBinding? linked targetName extName | return none
-  let body ← boundCalleeBodyTerm binding extName args adv
+  let body ← boundCalleeBodyTerm binding extName args adv (registryMode := registryMode)
   if isView then
     some <$> `(term| _root_.Verity.Contract.hopCallView $target $body)
   else
@@ -2724,7 +2903,8 @@ private def rewriteTypedInterfaceCall?
     (externalDecls : Array ExternalDecl)
     (params : Array ParamDecl)
     (adv : Term) (stx : Term)
-    (linkedContracts : Array LinkedContractDecl := #[]) : CommandElabM (Option Term) := do
+    (linkedContracts : Array LinkedContractDecl := #[])
+    (registryMode : Bool := false) : CommandElabM (Option Term) := do
   let some (target, methodName, argTerms) := typedDotCallSyntax? stx | pure none
   let targetName ←
     match stripParens target with
@@ -2734,7 +2914,8 @@ private def rewriteTypedInterfaceCall?
   let extName := interfaceExternalName interfaceName methodName
   let some ext := externalDecls.find? (fun ext => ext.name == extName) | pure none
   let isView := externalDecls.any (fun candidate => candidate.name == extName && candidate.isView)
-  match ← hopBoundCallTerm? linkedContracts target targetName extName argTerms isView adv with
+  match ← hopBoundCallTerm? linkedContracts target targetName extName argTerms isView adv
+      (registryMode := registryMode) with
   | some hop => return some hop
   | none => pure ()
   let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2762,7 +2943,8 @@ private def rewriteTypedInterfaceCall?
 private def rewriteLinkedCallTerm
     (externalDecls : Array ExternalDecl) (params : Array ParamDecl)
     (adv : Term) (stx : Term)
-    (linkedContracts : Array LinkedContractDecl := #[]) : CommandElabM Term := do
+    (linkedContracts : Array LinkedContractDecl := #[])
+    (registryMode : Bool := false) : CommandElabM Term := do
   match stx with
   | `(term| __verityTypedCall $target:term $name:term [ $[$args:term],* ]) =>
       let extName ← expectStringOrIdent name
@@ -2773,7 +2955,8 @@ private def rewriteLinkedCallTerm
         match stripParens target with
         | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
         | _ => pure ""
-      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv with
+      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv
+          (registryMode := registryMode) with
       | some hop => return hop
       | none => pure ()
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
@@ -2798,7 +2981,8 @@ private def rewriteLinkedCallTerm
         match stripParens target with
         | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
         | _ => pure ""
-      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv with
+      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv
+          (registryMode := registryMode) with
       | some hop => return hop
       | none => pure ()
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
@@ -2926,6 +3110,16 @@ private def rewriteLinkedCallTerm
       `(term| evmDelegateCallWords $adv $gas $target $inOffset $inSize $outOffset $outSize)
   | `(term| returnDataSize()) | `(term| returndataSize) =>
       `(term| returndataSizeLive)
+  | `(term| calldatasize) =>
+      if registryMode then
+        `(term| calldatasizeLive)
+      else
+        pure stx
+  | `(term| calldataload $offset:term) =>
+      if registryMode then
+        `(term| calldataloadLive $offset)
+      else
+        pure stx
   | `(term| returnDataCopy($destOffset, $sourceOffset, $size))
     | `(term| returndataCopy $destOffset $sourceOffset $size) =>
       `(term| returndataCopyLive $destOffset $sourceOffset $size)
@@ -2987,11 +3181,12 @@ private def rewriteLinkedCallTerm
   | `(term| legacyStringSafeTransferFrom $token:term $fromAddr:term $toAddr:term $amount:term) =>
       `(term| legacyStringSafeTransferFrom $token $fromAddr $toAddr $amount $adv)
   | other =>
-      match ← rewriteTypedInterfaceCall? externalDecls params adv (linkedContracts := linkedContracts) ⟨other.raw⟩ with
+      match ← rewriteTypedInterfaceCall? externalDecls params adv
+          (linkedContracts := linkedContracts) (registryMode := registryMode) ⟨other.raw⟩ with
       | some rewritten => pure rewritten
       | none => pure other
 
-private def isLiveStateExternalCall (stx : Term) : Bool :=
+private def isLiveStateExternalCall (stx : Term) (registryMode : Bool := false) : Bool :=
   match stx with
   | `(term| __verityTypedCall $_ $_ [ $[$_],* ])
   | `(term| __verityTypedEffect $_ $_ [ $[$_],* ])
@@ -3021,6 +3216,7 @@ private def isLiveStateExternalCall (stx : Term) : Bool :=
   | `(term| safeApprove $_ $_ $_)
   | `(term| legacyStringSafeTransfer $_ $_ $_)
   | `(term| legacyStringSafeTransferFrom $_ $_ $_ $_) => true
+  | `(term| calldatasize) | `(term| calldataload $_) => registryMode
   | _ => false
 
 /-- Restore the source language's word-like coercions after a live external
@@ -3050,23 +3246,88 @@ private def adaptHoistedWordContext (stx : Term) : CommandElabM Term := do
   | _ => pure stx
 
 private partial def threadAdversaryThroughExecutableSyntax
+    (fields : Array StorageFieldDecl)
+    (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl)
+    (helpers : Array FunctionDecl)
     (adversarialHelpers : Array FunctionDecl)
+    (registryOnlyHelpers : Array FunctionDecl)
     (params : Array ParamDecl)
+    (locals : Array TypedLocal)
     (adv : Term) (stx : Syntax)
-    (linkedContracts : Array LinkedContractDecl := #[]) : CommandElabM Syntax := do
-  let go := threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers params adv
-    (linkedContracts := linkedContracts)
+    (linkedContracts : Array LinkedContractDecl := #[])
+    (registryMode : Bool := false) : CommandElabM Syntax := do
+  let go := threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+    externalDecls helpers adversarialHelpers registryOnlyHelpers params locals adv
+    (linkedContracts := linkedContracts) (registryMode := registryMode)
   let recurseChildren : CommandElabM Syntax := do
     match stx with
     | .node info kind args =>
         pure (.node info kind (← args.mapM go))
     | _ => pure stx
   let rewriteTerm (t : Term) : CommandElabM Term := do
-    rewriteLinkedCallTerm externalDecls params adv t (linkedContracts := linkedContracts)
+    rewriteLinkedCallTerm externalDecls params adv t
+      (linkedContracts := linkedContracts) (registryMode := registryMode)
   let freshExternalIdent (origin : Term) : CommandElabM Ident :=
     Lean.Elab.Term.mkFreshIdent
       (mkIdentFrom origin.raw (Name.mkSimple "__verity_ext")).raw
+  let extendLocals (scope : Array TypedLocal) (elem : TSyntax `doElem) : CommandElabM (Array TypedLocal) := do
+    let infer (name : Ident) (rhs : Term) := do
+      try
+        let ty ←
+          match ← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls
+              helpers params scope rhs with
+          | some (helper, _) => pure helper.returnTy
+          | none => inferPureExprType fields constDecls immutableDecls externalDecls params scope rhs
+        pure (scope.push (mkTypedLocal (toString name.getId) ty))
+      catch _ => pure scope
+    let inferTuple (origin : Syntax) (names : Array (Option String)) (rhs : Term) := do
+      try
+        match ← resolveQualifiedFunctionApp? fields constDecls immutableDecls externalDecls
+            params scope rhs with
+        | some (qualifiedName, _) =>
+            let typedNames ← unsafe qualifiedTupleBindTypedLocals origin qualifiedName names
+            pure (scope ++ typedNames)
+        | none =>
+            match ← inferTupleSourceTypes? fields constDecls immutableDecls externalDecls
+                helpers params scope rhs with
+            | some valueTys =>
+                if names.size != valueTys.size then
+                  pure scope
+                else
+                  let typedNames := (names.zip valueTys).filterMap fun (name?, ty) =>
+                    name?.map (fun name => mkTypedLocal name ty)
+                  pure (scope ++ typedNames)
+            | none => pure scope
+      catch _ => pure scope
+    let tupleScope? ← do
+      let stx := elem.raw
+      if stx.getKind == `Lean.Parser.Term.doLet then
+        let patDecl := stx[3][0]
+        match tupleBinderNames? patDecl[0] with
+        | some names => pure (some (← inferTuple patDecl names ⟨patDecl[4]⟩))
+        | none => pure none
+      else if stx.getKind == `Lean.Parser.Term.doLetArrow then
+        let patDecl := stx[3]
+        match tupleBinderNames? patDecl[0] with
+        | some names => pure (some (← inferTuple patDecl names ⟨patDecl[3][0]⟩))
+        | none => pure none
+      else
+        pure none
+    match tupleScope? with
+    | some tupleScope => pure tupleScope
+    | none => match elem with
+      | `(doElem| let $name:ident : Uint256 := $_rhs:term) =>
+          pure (scope.push (mkTypedLocal (toString name.getId) .uint256))
+      | `(doElem| let $name:ident := $rhs:term) => infer name rhs
+      | `(doElem| let mut $name:ident := $rhs:term) => infer name rhs
+      | `(doElem| let $name:ident ← $rhs:term) =>
+          try
+            let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls
+              helpers params scope rhs
+            pure (scope.push (mkTypedLocal (toString name.getId) ty))
+          catch _ => pure scope
+      | _ => pure scope
   let rec hoistNested (bindSelf : Bool) (t : Term) :
       CommandElabM (Array (Ident × Term) × Term) := do
     let bindCall (binds : Array (Ident × Term)) (call : Term) :
@@ -3082,6 +3343,26 @@ private partial def threadAdversaryThroughExecutableSyntax
       for (tmp, call) in binds.reverse do
         body ← `(term| _root_.Verity.bind $call (fun $tmp => $body))
       pure body
+    if let some (fn, args) := (← selfCallCallee? t) then
+      let original := args
+      let mut binds : Array (Ident × Term) := #[]
+      let mut hoisted : Array Term := #[]
+      for arg in args do
+        let (inner, rewritten) ← hoistNested true arg
+        binds := binds ++ inner
+        hoisted := hoisted.push rewritten
+      match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+          helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+          (originalArgsForOverload := original) (keepPublicGuard := true) with
+      | some app =>
+          return (binds, ← `(term| _root_.Verity.Contract.selfCall $app))
+      | none =>
+          let inner ←
+            if hoisted.isEmpty then
+              `(term| $fn:ident())
+            else
+              helperCall fn hoisted
+          return (binds, ← `(term| _root_.Verity.Contract.selfCall $inner))
     match t with
     | `(term| fun $name:ident => $body:term) =>
         let bodyRaw : Syntax ← go body.raw
@@ -3092,18 +3373,39 @@ private partial def threadAdversaryThroughExecutableSyntax
         let rewrittenBody : TSyntax ``Lean.Parser.Term.doSeq := ⟨bodyRaw⟩
         pure (#[], ← `(term| do $rewrittenBody))
     | `(term| $name:ident($[$args:term],*)) =>
-        match ← threadHelperApp? adversarialHelpers name args adv with
-        | some app => pure (#[], app)
-        | none =>
+        let original := args.map fun a => (⟨a.raw⟩ : Term)
+        -- Resolve overloads using original source arguments so mangled helper.idents
+        -- for non-guarded adversarial overloads are selected before hoisting rewrites the args.
+        match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+            helpers adversarialHelpers registryOnlyHelpers params locals name original adv with
+        | some _selectedApp =>
+            -- Now hoist nested external-call arguments (or type generated locals soundly),
+            -- then thread the selected helper using the hoisted arguments.
             let mut binds : Array (Ident × Term) := #[]
-            let mut rewrittenArgs : Array Term := #[]
+            let mut hoisted : Array Term := #[]
             for arg in args do
               let (inner, rewritten) ← hoistNested true arg
               binds := binds ++ inner
-              rewrittenArgs := rewrittenArgs.push rewritten
+              hoisted := hoisted.push rewritten
+            match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+                helpers adversarialHelpers registryOnlyHelpers params locals name hoisted adv
+                (originalArgsForOverload := original) with
+            | some app => pure (binds, app)
+            | none =>
+                let mut app : Term := ⟨name.raw⟩
+                for h in hoisted do
+                  app ← `(term| $app $h)
+                pure (binds, app)
+        | none =>
+            let mut binds : Array (Ident × Term) := #[]
+            let mut hoisted : Array Term := #[]
+            for arg in args do
+              let (inner, rewritten) ← hoistNested true arg
+              binds := binds ++ inner
+              hoisted := hoisted.push rewritten
             let mut app : Term := ⟨name.raw⟩
-            for arg in rewrittenArgs do
-              app ← `(term| $app $arg)
+            for h in hoisted do
+              app ← `(term| $app $h)
             pure (binds, app)
     | `(term| if $cond:term then $thenValue:term else $elseValue:term) =>
         let (condBinds, rewrittenCond) ← hoistNested true cond
@@ -3126,10 +3428,11 @@ private partial def threadAdversaryThroughExecutableSyntax
           binds := binds ++ inner
           newArgs := newArgs.set! i nt.raw
         let rebuilt ← adaptHoistedWordContext ⟨Syntax.node info kind newArgs⟩
-        if isLiveStateExternalCall rebuilt then
+        if isLiveStateExternalCall rebuilt registryMode then
           bindCall binds rebuilt
         else
-          match ← rewriteTypedInterfaceCall? externalDecls params adv (linkedContracts := linkedContracts) rebuilt with
+          match ← rewriteTypedInterfaceCall? externalDecls params adv
+              (linkedContracts := linkedContracts) (registryMode := registryMode) rebuilt with
           | some rewritten =>
               if bindSelf then
                 let tmp ← freshExternalIdent t
@@ -3138,10 +3441,11 @@ private partial def threadAdversaryThroughExecutableSyntax
                 pure (binds, rewritten)
           | none => pure (binds, rebuilt)
       | _ =>
-        if isLiveStateExternalCall t then
+        if isLiveStateExternalCall t registryMode then
           bindCall #[] t
         else
-          match ← rewriteTypedInterfaceCall? externalDecls params adv (linkedContracts := linkedContracts) t with
+          match ← rewriteTypedInterfaceCall? externalDecls params adv
+              (linkedContracts := linkedContracts) (registryMode := registryMode) t with
           | some rewritten =>
               if bindSelf then
                 let tmp ← freshExternalIdent t
@@ -3178,7 +3482,37 @@ private partial def threadAdversaryThroughExecutableSyntax
       | stripped => stripped
     let rest ← if outerWasBound then pureBinding pureValue else monadic rewritten
     wrapBinds binds rest
+  if let some (fn, args) := (← selfCallCallee? ⟨stx⟩) then
+    let original := args
+    let mut binds : Array (Ident × Term) := #[]
+    let mut hoisted : Array Term := #[]
+    for arg in args do
+      let (inner, rewritten) ← hoistNested true arg
+      binds := binds ++ inner
+      hoisted := hoisted.push rewritten
+    match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+        helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+        (originalArgsForOverload := original) (keepPublicGuard := true) with
+    | some app =>
+        return (← wrapBinds binds (← `(doElem| _root_.Verity.Contract.selfCall $app))).raw
+    | none =>
+        let inner ←
+          if hoisted.isEmpty then
+            `(term| $fn:ident())
+          else
+            helperCall fn hoisted
+        return (← wrapBinds binds (← `(doElem| _root_.Verity.Contract.selfCall $inner))).raw
   match stx with
+  | `(doSeq| $[$elems:doElem]*) =>
+      let mut scope := locals
+      let mut rewritten : Array (TSyntax `doElem) := #[]
+      for elem in elems do
+        let raw ← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+          externalDecls helpers adversarialHelpers registryOnlyHelpers params scope adv elem.raw
+          (linkedContracts := linkedContracts) (registryMode := registryMode)
+        rewritten := rewritten.push ⟨raw⟩
+        scope ← extendLocals scope elem
+      `(doSeq| $[$rewritten:doElem]*)
   | `(doElem| let $pat:term ← tryExternalCall $name:term [ $[$args:term],* ]) =>
       let mut binds : Array (Ident × Term) := #[]
       let mut rewrittenArgs : Array Term := #[]
@@ -3187,7 +3521,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         binds := binds ++ inner
         rewrittenArgs := rewrittenArgs.push rewritten
       let call ← `(term| tryExternalCall $name [ $[$rewrittenArgs],* ])
-      let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) call
+      let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) call
       wrapBinds binds (← `(doElem| let $pat:term ← $rewritten:term))
   | `(doElem| let $pat:term ← callResult $name:term [ $[$args:term],* ]) =>
       let mut binds : Array (Ident × Term) := #[]
@@ -3197,7 +3531,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         binds := binds ++ inner
         rewrittenArgs := rewrittenArgs.push rewritten
       let call ← `(term| callResult $name [ $[$rewrittenArgs],* ])
-      let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) call
+      let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) call
       wrapBinds binds (← `(doElem| let $pat:term ← $rewritten:term))
   | `(doElem| let $pat:term ← callExternal $name:ident ($[$args:term],*)) =>
       let mut binds : Array (Ident × Term) := #[]
@@ -3207,7 +3541,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         binds := binds ++ inner
         rewrittenArgs := rewrittenArgs.push rewritten
       let call ← `(term| callExternal $name ($[$rewrittenArgs],*))
-      let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) call
+      let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) call
       wrapBinds binds (← `(doElem| let $pat:term ← $rewritten:term))
   | `(doElem| let $pat:term ← balanceOf $token:term $owner:term) =>
       let (tokenBinds, rewrittenToken) ← hoistNested true token
@@ -3229,8 +3563,22 @@ private partial def threadAdversaryThroughExecutableSyntax
         (← `(doElem| let $pat:term ← (totalSupply
           (externalArgAddress $rewrittenToken) $adv)))
   | `(doElem| let $name:ident ← $fn:ident($[$args:term],*)) =>
-      match ← threadHelperApp? adversarialHelpers fn args adv with
-      | some app => `(doElem| let $name ← $app:term)
+      let original := args.map fun a => (⟨a.raw⟩ : Term)
+      -- Resolve overload using original source args (r3956459377), hoist after selection (r3956459383)
+      match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+          helpers adversarialHelpers registryOnlyHelpers params locals fn original adv with
+      | some _ =>
+          let mut binds : Array (Ident × Term) := #[]
+          let mut hoisted : Array Term := #[]
+          for a in args do
+            let (inner, h) ← hoistNested true a
+            binds := binds ++ inner
+            hoisted := hoisted.push h
+          match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn hoisted adv
+              (originalArgsForOverload := original) with
+          | some app => wrapBinds binds (← `(doElem| let $name ← $app:term))
+          | none => recurseChildren
       | none => recurseChildren
   | `(doElem| let $name:ident ← $fn:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
@@ -3254,14 +3602,15 @@ private partial def threadAdversaryThroughExecutableSyntax
         wrapBinds binds
           (← `(doElem| let $name ← (totalSupply (externalArgAddress $token) $adv)))
       else
-        match ← threadHelperApp? adversarialHelpers fn original adv with
+        match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+            helpers adversarialHelpers registryOnlyHelpers params locals fn original adv with
         | some app =>
             hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
         | none =>
           if fnName == "__verityTypedCall" then
             match stx with
             | `(doElem| let $_ ← $rhs:term) =>
-                let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) rhs
+                let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) rhs
                 `(doElem| let $name ← $rewritten:term)
             | _ => recurseChildren
           else if fnName == "tryExternalCall" || fnName == "callResult" || fnName == "callExternal"
@@ -3393,32 +3742,35 @@ private partial def threadAdversaryThroughExecutableSyntax
       if toString fn.getId == "__verityTypedEffect" then
         match stx with
         | `(doElem| $rhs:term) =>
-            let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) rhs
+            let rewritten ← rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) rhs
             `(doElem| $rewritten:term)
         | _ => recurseChildren
-      else match ← threadHelperApp? adversarialHelpers fn original adv with
-      | some app =>
-          hoistLive false app fun rewritten => `(doElem| $rewritten:term)
-      | none =>
-          match stx with
-          | `(doElem| $stmt:term) =>
-              hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
-          | _ => recurseChildren
+      else
+        match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+          helpers adversarialHelpers registryOnlyHelpers params locals fn original adv with
+        | some app =>
+            hoistLive false app fun rewritten => `(doElem| $rewritten:term)
+        | none =>
+            match stx with
+            | `(doElem| $stmt:term) =>
+                hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
+            | _ => recurseChildren
   | `(doElem| $stmt:term) =>
       hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
   | `(term| $name:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
-      match ← threadHelperApp? adversarialHelpers name original adv with
+      match ← threadHelperApp? fields constDecls immutableDecls externalDecls
+          helpers adversarialHelpers registryOnlyHelpers params locals name original adv with
       | some app => pure app.raw
       | none =>
-          if isLiveStateExternalCall ⟨stx⟩ then
-            (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) ⟨stx⟩
+          if isLiveStateExternalCall ⟨stx⟩ registryMode then
+            (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) ⟨stx⟩
           else
             recurseChildren
   | _ =>
       let asTerm : Term := ⟨stx⟩
-      if isLiveStateExternalCall asTerm then
-        (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) asTerm
+      if isLiveStateExternalCall asTerm registryMode then
+        (·.raw) <$> rewriteLinkedCallTerm externalDecls params adv (linkedContracts := linkedContracts) (registryMode := registryMode) asTerm
       else
         recurseChildren
 
@@ -5672,6 +6024,74 @@ def mkStructExternalArgInstanceCommandPublic (decl : StructDecl) : CommandElabM 
         ([ $[$encodedFields],* ] :
           List (List _root_.Verity.Uint256)))
 
+/-- Compile-time DispatchVal from a declared `ValueType`, so `FixedArray`
+encodes as a tuple (no `T[]` length) and `Tuple` flattens rather than
+following the right-nested Lean product instance. -/
+private def scalarLoadKindTerm : ValueType → CommandElabM Term
+  | .bool => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.bool)
+  | .uint8 => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.uint8)
+  | .uint16 => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.uint16)
+  | .uintN bits =>
+      `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.uintN $(natTerm bits))
+  | .address => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.address)
+  | .bytesN bytes =>
+      `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.bytesN $(natTerm bytes))
+  | _ => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.identity)
+
+private partial def dispatchValTermForType (ty : ValueType) (value : Term) : CommandElabM Term :=
+  match ty with
+  | .fixedArray elemTy size => do
+      let mut elems : Array Term := #[]
+      for i in [:size] do
+        let elem ← `(term| Array.getD $value $(natTerm i) default)
+        elems := elems.push (← dispatchValTermForType elemTy elem)
+      if elems.isEmpty then
+        `(term| Compiler.CompilationModel.DenoteExternalCalls.dispatchFixedArray
+            ([] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
+      else
+        `(term| Compiler.CompilationModel.DenoteExternalCalls.dispatchFixedArray
+            ([ $[$elems],* ] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
+  | .tuple elemTys => do
+      let mut elems : Array Term := #[]
+      let mut rest : Term := value
+      let mut idx : Nat := 0
+      for elemTy in elemTys do
+        let elem ←
+          if idx + 1 == elemTys.length then
+            pure rest
+          else do
+            let head ← `(term| Prod.fst $rest)
+            rest ← `(term| Prod.snd $rest)
+            pure head
+        elems := elems.push (← dispatchValTermForType elemTy elem)
+        idx := idx + 1
+      `(term| Compiler.CompilationModel.DenoteExternalCalls.dispatchFlatTuple
+          (Compiler.CompilationModel.DenoteExternalCalls.DispatchVal.tuple
+            ([ $[$elems],* ] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal)))
+  | .array elemTy => do
+      `(term| Compiler.CompilationModel.DenoteExternalCalls.DispatchVal.array
+          (($value).toList.map (fun x =>
+            Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal.toDispatchVal
+              (x : $(← contractValueTypeTerm elemTy)))))
+  | _ =>
+      `(term| Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal.toDispatchVal
+        $value)
+
+/-- Compiled-dispatch ABI encoding of a named struct: the tuple of its
+fields, matching `genParamLoads` / `abiEncodeDispatchArgs`. -/
+def mkStructToDispatchValInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
+  let structId := decl.ident
+  let valueId := mkIdent (Name.mkSimple "value")
+  let fieldIds := decl.fields.map (·.ident)
+  let encodedFields ← fieldIds.mapM fun fieldId =>
+    `(term| Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal.toDispatchVal
+      $valueId.$fieldId)
+  `(command| instance : Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal $structId where
+      toDispatchVal := fun $valueId =>
+        Compiler.CompilationModel.DenoteExternalCalls.DispatchVal.tuple
+          ([ $[$encodedFields],* ] :
+            List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
+
 def mkStructExternalResultInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
   let structId := decl.ident
   let fieldIds := decl.fields.map (·.ident)
@@ -5709,11 +6129,13 @@ def validateConstantDeclsPublic (constDecls : Array ConstantDecl) : CommandElabM
   validateConstantExprTypes constDecls
 
 def validateGeneratedDefNamesPublic
+    (structDecls : Array StructDecl)
     (fields : Array StorageFieldDecl)
     (constDecls : Array ConstantDecl)
     (immutableDecls : Array ImmutableDecl)
+    (modifiers : Array ModifierDecl)
     (functions : Array FunctionDecl) : CommandElabM Unit := do
-  let reservedGeneratedNames : Array String := #["spec", "storageNamespace"]
+  let reservedGeneratedNames : Array String := #["spec", "storageNamespace", "entrypointRegistry"]
   let mut generatedHelperNames : Array String := reservedGeneratedNames
   if hasStructMapping fields then
     generatedHelperNames := generatedHelperNames.push "structMember"
@@ -5797,6 +6219,8 @@ def validateGeneratedDefNamesPublic
 
     let helperNames :=
       #[ s!"{generatedFnName}_modelBody"
+       , s!"{generatedFnName}_entrypoint"
+       , s!"{generatedFnName}_registry"
        , s!"{generatedFnName}_model"
        , s!"{generatedFnName}_bridge"
        , s!"{generatedFnName}_semantic_preservation"
@@ -5812,6 +6236,12 @@ def validateGeneratedDefNamesPublic
        , s!"{generatedFnName}_requires_role"
        , s!"{generatedFnName}_access_control"
        ]
+    let helperNames :=
+      if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
+        (helperNames.push s!"{generatedFnName}_unguarded").push
+          s!"{generatedFnName}_registry_unguarded"
+      else
+        helperNames
     for helperName in helperNames do
       if storageNames.contains helperName then
         throwErrorAt fn.ident
@@ -5829,6 +6259,15 @@ def validateGeneratedDefNamesPublic
         throwErrorAt fn.ident
           s!"function '{fn.name}' generates duplicate helper declaration '{helperName}'"
       generatedHelperNames := generatedHelperNames.push helperName
+
+  for structDecl in structDecls do
+    if generatedHelperNames.contains structDecl.name then
+      throwErrorAt structDecl.ident
+        s!"struct '{structDecl.name}' conflicts with generated declaration '{structDecl.name}'"
+  for modifierDecl in modifiers do
+    if generatedHelperNames.contains modifierDecl.name then
+      throwErrorAt modifierDecl.ident
+        s!"modifier '{modifierDecl.name}' conflicts with generated declaration '{modifierDecl.name}'"
 
 def validateImmutableDeclsPublic
     (fields : Array StorageFieldDecl)
@@ -6053,7 +6492,8 @@ private def constructorAdversarialHelpers
     let mut grew := false
     for helper in functions do
       let callsAdversarial ← syntaxCallsAnyHelper names helper.body.raw
-      if !adversarial.any (fun candidate => candidate.name == helper.name) &&
+      if !adversarial.any (fun candidate =>
+            functionSignatureKey candidate == functionSignatureKey helper) &&
           callsAdversarial then
         adversarial := adversarial.push helper
         grew := true
@@ -6080,8 +6520,9 @@ def mkConstructorDefCommandPublic
       pure ⟨advIdent.raw⟩
     else
       `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub)
-  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls adversarialHelpers
-    ctor.params advTerm executableBody.raw (linkedContracts := linkedContracts)⟩
+  let executableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+    externalDecls functions adversarialHelpers #[] ctor.params #[] advTerm executableBody.raw
+    (linkedContracts := linkedContracts)⟩
   let fnType ← if opensReentrancyWindow then
       mkContractFnTypeWithAdversary ctor.params .unit
     else
@@ -6151,8 +6592,9 @@ def mkHostConstructorDefCommandPublic
             preludes := preludes.push (← `(doElem| $tgt:ident $args*))
       let body ← `(term| do $[$preludes:doElem]* $[$elems:doElem]*)
       let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params body
-      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls ownAdversarialHelpers
-        ctor.params advTerm executableBody.raw (linkedContracts := linkedContracts)⟩
+      let executableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+        externalDecls functions ownAdversarialHelpers #[] ctor.params #[] advTerm executableBody.raw
+        (linkedContracts := linkedContracts)⟩
       let fnValue ← if containsExternalCall then
           mkContractFnValueWithAdversary advIdent ctor.params executableBody
         else
@@ -6178,6 +6620,20 @@ def mkIncludeAliasCommandsPublic
           unless fn.isInternal do
             let tgt := mkIdent (mixinName ++ fn.ident.getId)
             cmds := cmds.push (← `(command| abbrev $(fn.ident) := $tgt))
+            let predicateId ← mkSuffixedIdent fn.ident "_entrypoint"
+            let predicateTgt ← mkSuffixedIdent tgt "_entrypoint"
+            cmds := cmds.push (← `(command| abbrev $predicateId := $predicateTgt))
+            let registryId ← mkSuffixedIdent fn.ident "_registry"
+            let registryTgt ← mkSuffixedIdent tgt "_registry"
+            cmds := cmds.push (← `(command| abbrev $registryId := $registryTgt))
+            if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
+              let unguardedId ← mkSuffixedIdent fn.ident "_unguarded"
+              let unguardedTgt ← mkSuffixedIdent tgt "_unguarded"
+              cmds := cmds.push (← `(command| abbrev $unguardedId := $unguardedTgt))
+              let registryUnguardedId ← mkSuffixedIdent fn.ident "_registry_unguarded"
+              let registryUnguardedTgt ← mkSuffixedIdent tgt "_registry_unguarded"
+              cmds := cmds.push
+                (← `(command| abbrev $registryUnguardedId := $registryUnguardedTgt))
         for modDecl in mixin.modifiers do
           unless modifierContainsExternalCallSyntaxPublic modDecl do
             let tgt := mkIdent (mixinName ++ modDecl.ident.getId)
@@ -6250,8 +6706,14 @@ def mkFunctionCommandsPublic
       | some inlined => pure inlined
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
+  -- Executable registry transitions must use the explicit adversary for every
+  -- external-call-dependent result, including static calls whose returndata
+  -- can influence a later storage write.  Reentrancy-window classification is
+  -- intentionally narrower and is therefore not sufficient for this path.
   let directlyOpensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
   let mut adversarialHelpers : Array FunctionDecl := #[]
+  let mut windowHelpers : Array FunctionDecl := #[]
+  let mut calldataHelpers : Array FunctionDecl := #[]
   let mut translatedHelpers : Array (FunctionDecl × FunctionDecl) := #[]
   for helper in functions do
     let helperModel ←
@@ -6265,8 +6727,13 @@ def mkFunctionCommandsPublic
     let helperStmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls
       immutableDecls externalDecls functions helperModel
     translatedHelpers := translatedHelpers.push (helper, helperModel)
-    if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
+    if ← translatedBodyContainsExternalCall helperStmtTerms then
       adversarialHelpers := adversarialHelpers.push helper
+    if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
+      windowHelpers := windowHelpers.push helper
+    if syntaxContainsCalldataRead helperModel.body.raw ||
+        (← translatedBodyContainsCalldataRead helperStmtTerms) then
+      calldataHelpers := calldataHelpers.push helper
   -- Reentrancy-window capability is transitive across internal helpers. Iterate to a
   -- fixed point so every caller in a multi-hop helper chain receives and forwards
   -- the same adversary instead of silently falling back to the stub.
@@ -6275,16 +6742,45 @@ def mkFunctionCommandsPublic
     let mut grew := false
     for (helper, helperModel) in translatedHelpers do
       let callsAdversarial ← syntaxCallsAnyHelper adversarialNames helperModel.body.raw
-      if !adversarialHelpers.any (fun candidate => candidate.name == helper.name) &&
+      if !adversarialHelpers.any (fun candidate =>
+            functionSignatureKey candidate == functionSignatureKey helper) &&
           callsAdversarial then
         adversarialHelpers := adversarialHelpers.push helper
         grew := true
     if !grew then
       break
-  let adversarialNames := adversarialHelpers.map (·.name)
-  let callsAdversarial ← syntaxCallsAnyHelper adversarialNames modelFn.body.raw
-  let opensReentrancyWindow := directlyOpensReentrancyWindow ||
-    callsAdversarial
+  for _ in [:functions.size] do
+    let windowNames := windowHelpers.map (·.name)
+    let mut grew := false
+    for (helper, helperModel) in translatedHelpers do
+      let callsWindow ← syntaxCallsAnyHelper windowNames helperModel.body.raw
+      if !windowHelpers.any (fun candidate =>
+            functionSignatureKey candidate == functionSignatureKey helper) &&
+          callsWindow then
+        windowHelpers := windowHelpers.push helper
+        grew := true
+    if !grew then
+      break
+  for _ in [:functions.size] do
+    let calldataNames := calldataHelpers.map (·.name)
+    let mut grew := false
+    for (helper, helperModel) in translatedHelpers do
+      let callsCalldata ← syntaxCallsAnyHelper calldataNames helperModel.body.raw
+      if !calldataHelpers.any (fun candidate =>
+            functionSignatureKey candidate == functionSignatureKey helper) &&
+          callsCalldata then
+        calldataHelpers := calldataHelpers.push helper
+        grew := true
+    if !grew then
+      break
+  let mut registryOnlyHelpers : Array FunctionDecl := adversarialHelpers
+  for helper in calldataHelpers do
+    if !registryOnlyHelpers.any (fun candidate =>
+          functionSignatureKey candidate == functionSignatureKey helper) then
+      registryOnlyHelpers := registryOnlyHelpers.push helper
+  let windowNames := windowHelpers.map (·.name)
+  let callsWindow ← syntaxCallsAnyHelper windowNames modelFn.body.raw
+  let opensReentrancyWindow := directlyOpensReentrancyWindow || callsWindow
   -- Keep the generated binder hygienic: source parameters and locals are allowed
   -- to use `_adv` without capturing the adversary threaded into rewritten calls.
   let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdentFrom fn.ident `_adv).raw
@@ -6296,13 +6792,59 @@ def mkFunctionCommandsPublic
       mkContractFnTypeWithAdversary fn.params fn.returnTy
     else
       mkContractFnType fn.params fn.returnTy
-  let fnExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax externalDecls
-    adversarialHelpers fn.params advTerm fnExecutableBody.raw
+  let publicExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+    externalDecls functions windowHelpers #[] fn.params #[] advTerm fnExecutableBody.raw
     (linkedContracts := linkedContracts)⟩
+  -- Registry executables must route every adversarial helper, including
+  -- window-opening helpers, to `_registry` / `_registry_unguarded`. Restricting
+  -- the suffix to non-window helpers let `entry_registry` call public `hop`,
+  -- which then used stub-only nested view helpers and under-approximated the
+  -- compiled callee-controlled ECM. Calldata-reading helpers are also
+  -- registry-only so they observe `calldataloadLive` rather than the stub.
+  let registryExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
+    externalDecls functions adversarialHelpers functions fn.params #[]
+      (⟨advIdent.raw⟩ : Term) fnExecutableBody.raw (linkedContracts := linkedContracts)
+      (registryMode := true)⟩
+  let mut extraExecutableCmds : Array Cmd := #[]
+  if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
+    let unguardedId ← mkSuffixedIdent fn.ident "_unguarded"
+    let unguardedValue ← if opensReentrancyWindow then
+        mkContractFnValueWithAdversary advIdent fn.params publicExecutableBody
+      else
+        mkContractFnValue fn.params publicExecutableBody
+    extraExecutableCmds := extraExecutableCmds.push
+      (← `(command| def $unguardedId : $fnType := $unguardedValue))
+  let publicExecutableBody ← match fn.nonReentrantLock with
+    | some lockIdent =>
+        let lockName := toString lockIdent.getId
+        let some lockField := fields.find? (fun field => field.name == lockName)
+          | throwErrorAt lockIdent s!"unknown nonreentrant lock field '{lockName}'"
+        `(Verity.Core.NonReentrantGuard.guarded $(natTerm lockField.slotNum) $publicExecutableBody)
+    | none => pure publicExecutableBody
   let fnValue ← if opensReentrancyWindow then
-      mkContractFnValueWithAdversary advIdent fn.params fnExecutableBody
+      mkContractFnValueWithAdversary advIdent fn.params publicExecutableBody
     else
-      mkContractFnValue fn.params fnExecutableBody
+      mkContractFnValue fn.params publicExecutableBody
+  let registryId ← mkSuffixedIdent fn.ident "_registry"
+  let registryType ← mkContractFnTypeWithAdversary fn.params fn.returnTy
+  if fn.nonReentrantLock.isSome && fn.reentrancyTrusted then
+    let registryUnguardedId ← mkSuffixedIdent fn.ident "_registry_unguarded"
+    let registryUnguardedValue ←
+      mkContractFnValueWithAdversary advIdent fn.params registryExecutableBody
+    extraExecutableCmds := extraExecutableCmds.push
+      (← `(command| def $registryUnguardedId : $registryType := $registryUnguardedValue))
+  let registryGuardedBody ← match fn.nonReentrantLock with
+    | some lockIdent =>
+        let lockName := toString lockIdent.getId
+        let some lockField := fields.find? (fun field => field.name == lockName)
+          | throwErrorAt lockIdent s!"unknown nonreentrant lock field '{lockName}'"
+        `(Verity.Core.NonReentrantGuard.guarded
+          $(natTerm lockField.slotNum) $registryExecutableBody)
+    | none => pure registryExecutableBody
+  let registryValue ←
+    mkContractFnValueWithAdversary advIdent fn.params registryGuardedBody
+  extraExecutableCmds := extraExecutableCmds.push
+    (← `(command| def $registryId : $registryType := $registryValue))
   let modelParams ← mkModelParamsTerm fn.params
   let localObligationTerms ← (functionLocalObligationsWithArithmetic fn).mapM mkModelLocalObligationTerm
   let payableTerm ← if fn.isPayable then `(true) else `(false)
@@ -6323,6 +6865,95 @@ def mkFunctionCommandsPublic
   let returnsTerm ← modelReturnsTerm fn.returnTy
 
   let fnCmd : Cmd ← `(command| def $fn.ident : $fnType := $fnValue)
+  let entrypointPredicateName ← mkSuffixedIdent fn.ident "_entrypoint"
+  let registryAdvIdent ← Lean.Elab.Term.mkFreshIdent
+    (mkIdentFrom fn.ident `_registryAdv).raw
+  let transitionIdent ← Lean.Elab.Term.mkFreshIdent
+    (mkIdentFrom fn.ident `_transition).raw
+  let contextIdent ← Lean.Elab.Term.mkFreshIdent
+    (mkIdentFrom fn.ident `_callbackContext).raw
+  let registryAdv : Ident := ⟨registryAdvIdent.raw⟩
+  let transition : Ident := ⟨transitionIdent.raw⟩
+  let context : Ident := ⟨contextIdent.raw⟩
+  -- The executable resolver is existentially quantified: a registered
+  -- transition may come from any `ExecutableCallContext` carrying the
+  -- registry adversary (e.g. `ofCallEnv`), not only from `ofAdversary`,
+  -- whose resolver fixes target/value to 0 (Codex P1 on #2406).
+  let resolveIdent ← Lean.Elab.Term.mkFreshIdent
+    (mkIdentFrom fn.ident `_registryResolve).raw
+  let resolve : Ident := ⟨resolveIdent.raw⟩
+  let mut applied : Term := registryId
+  applied ← `($applied ({ adversary := $registryAdv:ident, resolve := $resolve:ident } :
+    Contracts.ExecutableCallContext))
+  let mut registryParams : Array (Ident × Term) := #[]
+  for param in fn.params do
+    let paramTy ← contractValueTypeTerm param.ty
+    let paramIdent ← Lean.Elab.Term.mkFreshIdent
+      (mkIdentFrom param.ident `_registryArg).raw
+    let registryParam : Ident := ⟨paramIdent.raw⟩
+    registryParams := registryParams.push (registryParam, paramTy)
+    applied ← `($applied $registryParam:ident)
+  let mut registryBody : Term ←
+    `(($transition:ident : Verity.ContractState → Verity.ContractState) =
+      Compiler.CompilationModel.DenoteExternalCalls.callbackContractTransition
+        $context:ident $applied)
+  if !fn.isPayable then
+    registryBody ← `(($context:ident).msgValue = 0 ∧ $registryBody)
+  -- Tie Lean arguments to the same ABI calldata the compiled dispatcher
+  -- ABI-decodes (`calldatasizeGuard` + `calldataload`). `receive` is
+  -- compiled only when `calldatasize == 0`. Dynamic types use
+  -- `abiEncodeDispatchArgs`, not `ExternalArg.toWords`.
+  if fn.name == "receive" then
+    registryBody ←
+      `(Compiler.CompilationModel.DenoteExternalCalls.receiveCalldataMatches
+          $context:ident ∧ $registryBody)
+  else if fn.name != "fallback" then
+    let mut dispatchValTerms : Array Term := #[]
+    let mut kindTerms : Array Term := #[]
+    for (param, (paramIdent, _)) in fn.params.zip registryParams do
+      dispatchValTerms := dispatchValTerms.push
+        (← dispatchValTermForType param.ty ⟨paramIdent.raw⟩)
+      kindTerms := kindTerms.push (← scalarLoadKindTerm param.ty)
+    let argWordsTerm ←
+      if dispatchValTerms.isEmpty then
+        `( ([] : List Nat) )
+      else
+        `(Compiler.CompilationModel.DenoteExternalCalls.abiEncodeDispatchArgs
+            ([ $[$dispatchValTerms],* ] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
+    let usesScalarNorm := fn.params.any fun p =>
+      match p.ty with
+      | .bool | .uint8 | .uint16 | .uintN _ | .address | .bytesN _ => true
+      | _ => false
+    if usesScalarNorm then
+      let kindsTerm ←
+        if kindTerms.isEmpty then
+          `( ([] : List Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind) )
+        else
+          `( ([ $[$kindTerms],* ] :
+              List Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind) )
+      registryBody ←
+        `(Compiler.CompilationModel.DenoteExternalCalls.dispatchCalldataMatchesKinds
+            $context:ident $kindsTerm $argWordsTerm ∧ $registryBody)
+    else
+      registryBody ←
+        `(Compiler.CompilationModel.DenoteExternalCalls.dispatchCalldataMatches
+            $context:ident $argWordsTerm ∧ $registryBody)
+  for (paramIdent, paramTy) in registryParams.reverse do
+    registryBody ← `(∃ $paramIdent:ident : $paramTy, $registryBody)
+  registryBody ←
+    `(∃ $resolve:ident :
+        String → Nat → Option Compiler.CompilationModel.DenoteFunctionCalls.LinkedExternal,
+      $registryBody)
+  registryBody ←
+    `(∃ $context:ident :
+        Compiler.CompilationModel.DenoteExternalCalls.CallbackContext,
+      $registryBody)
+  let entrypointCmd : Cmd ← `(command|
+    def $entrypointPredicateName
+        ($registryAdv:ident :
+          Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
+        ($transition:ident : Verity.ContractState → Verity.ContractState) : Prop :=
+      $registryBody)
   let bodyCmd : Cmd ← `(command| def $modelBodyName : List Compiler.CompilationModel.Stmt := [ $[$stmtTerms],* ])
   let modelNameTerm :=
     if fn.isInternal then
@@ -6349,7 +6980,26 @@ def mkFunctionCommandsPublic
     body := $modelBodyName
     isInternal := $internalTerm
   })
-  pure #[fnCmd, bodyCmd, modelCmd]
+  pure (extraExecutableCmds ++ #[fnCmd, entrypointCmd, bodyCmd, modelCmd])
+
+/-- Emit the contract-wide union of all externally callable entrypoint
+predicates.  Each per-function predicate keeps arguments existential, ties
+them to compiled-dispatch ABI calldata (`abiEncodeDispatchArgs`), and uses the
+registry's explicit adversary when the function opens a reentrancy window. -/
+def mkEntrypointRegistryCommandPublic (functions : Array FunctionDecl) : CommandElabM Cmd := do
+  let advIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_registryAdv).raw
+  let transitionIdent ← Lean.Elab.Term.mkFreshIdent (mkIdent `_transition).raw
+  let registryAdv : Ident := ⟨advIdent.raw⟩
+  let transition : Ident := ⟨transitionIdent.raw⟩
+  let mut body : Term ← `(False)
+  for fn in functions.reverse do
+    unless fn.isInternal do
+      let predicateName ← mkSuffixedIdent fn.ident "_entrypoint"
+      body ← `($predicateName $registryAdv:ident $transition:ident ∨ $body)
+  let id := mkIdent (Name.mkSimple "entrypointRegistry")
+  `(command|
+    def $id : Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry :=
+      fun $registryAdv:ident $transition:ident => $body)
 
 def mkSpecCommandPublic
     (contractName : String)

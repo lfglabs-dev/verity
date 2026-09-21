@@ -40,6 +40,7 @@ import Contracts.VaultFromSolidity.Proofs.ExecutionProof
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Model.CommonExternalCallEquivalence
+import Verity.Proofs.Model.GeneratedEntrypointRegistry
 import Verity.Proofs.Stdlib.Automation
 import Verity.Proofs.Stdlib.Int256
 import Verity.Proofs.Stdlib.ListSum
@@ -743,6 +744,17 @@ end Verity.AxiomAudit
   Contracts.safeApprove_eq_stub
   Contracts.legacyStringSafeTransfer_eq_stub
   Contracts.legacyStringSafeTransferFrom_eq_stub
+
+  -- Verity/Proofs/Model/GeneratedEntrypointRegistry.lean
+  Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_registered
+  Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_registered_ofAdversary
+  Contracts.ReentrancyRelyGuarantee.GeneratedRegistry.guardedPing_reentry_blocked
+  Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.setLast_registered_matching
+  Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.setLast_entrypoint_requires_dispatch
+  Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.receive_registered_empty
+  Contracts.ReentrancyRelyGuarantee.RegistryDispatchCalldata.receive_entrypoint_requires_empty
+  Contracts.ReentrancyRelyGuarantee.RegistryLiveCalldata.setFromCalldata_registered_live
+  Contracts.ReentrancyRelyGuarantee.generated_registry_callback_preserves
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -7609,4 +7621,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7029 theorems/lemmas (5016 public, 2013 private, 0 sorry'd)
+-- Total: 7038 theorems/lemmas (5025 public, 2013 private, 0 sorry'd)

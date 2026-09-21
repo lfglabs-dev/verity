@@ -620,7 +620,7 @@ sibling entrypoint.
 | `artifacts/evmyullean_fork_audit.json` | Pinned fork divergence and non-semantic fork delta | `python3 scripts/generate_evmyullean_fork_audit.py --check` |
 | `artifacts/evmyullean_capability_report.json` | EVMYulLean capability surface and reference-oracle paths | `python3 scripts/generate_evmyullean_capability_report.py --check` |
 | `artifacts/storage_layout_report.json` + `artifacts/STORAGE_LAYOUT_SUMMARY.md` | Per-contract storage layout for migration/audit review: explicit slots, alias ranges, reserved ranges, packed subfields, mappings, dynamic arrays, opt-in namespaces (#1897) | `python3 scripts/generate_storage_layout_report.py --check --no-lean` (drift gate in `make check`); regenerate with `make regen-storage-layout-report` |
-| `PrintAxioms.lean` / generated axiom report | Axiom dependency visibility | `python3 scripts/generate_print_axioms.py --check` and `lake build PrintAxioms` |
+| `PrintAxioms.lean` / generated axiom report | Axiom dependency visibility | `python3 scripts/generate_print_axioms.py --check` and `lake build PrintAxioms`. `PrintAxioms.lean` is a Verify proofs path-filter so bot auto-refresh of that file still runs `checks`. The checks job regenerates `artifacts/trust_surface_report.json` with the other derived artifacts so `make check` cannot fail on a stale trust-surface report after auto-refresh. Direct files under `artifacts/` also use the `artifacts/*` trigger (GitHub `artifacts/**` does not match them), so an artifacts-only auto-refresh cannot skip the required Verify proofs check (run 35557277208). |
 | `Compiler.Proofs.IRGeneration.IntrinsicProofs` | Proven Verity-owned intrinsic plumbing: scope accounting, generic lowering shape, fork-order facts, and arity rejection | `lake build Compiler.Proofs.IRGeneration.IntrinsicProofs` |
 | Intrinsic fork gate | Fail-closed `min_fork` enforcement against `--target-fork` / `YulEmitOptions.targetFork` | `lake build Compiler.CompileDriverTest` |
 | `trust_report.intrinsics[*]` | Planned consumer-declared intrinsic trust surface: name, emission mode, opcode/builtin target, obligation, `min_fork`, and source location | Follow-up hardening; until then, grep consumer trees for `verity_intrinsic` |
@@ -768,6 +768,25 @@ sibling entrypoint.
 - Intrinsic fork enforcement is fail-closed: builds using an intrinsic whose
   `min_fork` exceeds the contract target fail unless the caller passes
   `--allow-future-fork-intrinsics`.
+
+## Generated registry ABI calldata (PR #2406)
+
+- Generated `*_entrypoint` predicates encode Lean arguments with
+  `abiEncodeDispatchArgs` / `ToDispatchVal` (compiled-dispatch ABI words:
+  offset + length + packed bytes), not `ExternalArg.toWords` (journal
+  encoding, one word per byte).
+- Generated `*_registry` executables rewrite `calldatasize`/`calldataload`
+  to `calldatasizeLive`/`calldataloadLive`, which read
+  `ContractState.calldata` and `ContractState.selector` installed by
+  `withCallbackContext`. Public stubs remain `0` / the offset.
+  `dispatchCalldataMatches` normalizes scalar words like `genScalarLoad`.
+  `FixedArray` / flat `Tuple` encodings match `genParamLoads`. Calldata-reading
+  helpers are routed through `*_registry`.
+- Evidence: `Verity/Proofs/Model/GeneratedEntrypointRegistry.lean`
+  (`RegistryDispatchCalldata`, `RegistryLiveCalldata`).
+- Trust docs: `TRUST_ASSUMPTIONS.md` (executable-plane stubs are closed
+  definitions; registry completeness remains an author obligation).
+- Axiom-free; no `sorry`/`admit`/`native_decide`.
 
 ## Update Checklist
 

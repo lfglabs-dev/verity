@@ -337,6 +337,9 @@ structure ContractState where
   blobBaseFee : Uint256 := 0
   calldataSize : Uint256 := 0
   calldata : List Nat := []                 -- Immutable calldata words used by ABI expression semantics
+  /-- 4-byte function selector for live `calldataload 0` in registry mode.
+      Compiled dispatch packs it in the high 4 bytes of the first word. -/
+  selector : Nat := 0
   memory : Nat → Uint256 := fun _ => 0     -- EVM memory (word-addressed, zero-initialized)
   knownAddresses : Nat → FiniteAddressSet  -- Tracked addresses per storage slot (for sum properties)
   events : List Event := []  -- Emitted events, append-only log (#153)
