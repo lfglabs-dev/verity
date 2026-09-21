@@ -658,7 +658,15 @@ global invariant `I : ContractState → Prop`.
       `CallbackContext.calldata` (`abiEncodeDispatchArgs` into
       `dispatchCalldataMatches`); `receive` is registered only for empty
       calldata. Registry-mode executables observe that same calldata through
-      `calldatasizeLive`/`calldataloadLive`. Completeness of the generated
+      `calldatasizeLive`/`calldataloadLive`, including the selected
+      entrypoint selector at `calldataload 0` (`CallbackContext.selector` /
+      `ContractState.selector`). `dispatchCalldataMatches` accepts
+      `genScalarLoad`-normalized noncanonical Bool / uintN / address words.
+      `FixedArray` encodes as a length-free composite (tuple of members);
+      source `Tuple` encodings are flattened before `abiEncodeDispatchArgs`.
+      Helpers whose bodies (transitively) read `calldatasize`/`calldataload`
+      are routed through `*_registry` so they observe live calldata.
+      Completeness of the generated
       list is still an author obligation: the kernel checks consumers of
       `entrypointRegistry`, it does not independently re-enumerate compiled
       dispatcher cases. Same-contract `selfCall` hops keep the guarded public

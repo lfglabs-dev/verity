@@ -51,6 +51,10 @@ structure CallbackContext where
   msgValue : Verity.Uint256
   calldataSize : Verity.Uint256
   calldata : List Nat
+  /-- 4-byte selector of the selected entrypoint. Live `calldataload 0`
+  observes this via `ContractState.selector`. Defaults to 0 so existing
+  fixtures that omit it stay well-typed. -/
+  selector : Nat := 0
 
 /-- Packed ABI bytes/string data: 32-byte big-endian words, right-zero-padded.
 Not `ExternalArg.toWords`, which journals one word per byte. Fuel is
@@ -141,7 +145,8 @@ mutual
 end
 
 /-- True when every argument is a static ABI word. Kept outside the mutual
-block so `decide` unfolds it. -/
+block so `decide` unfolds it. Static tuples/fixed arrays use `payloadWords`
+via the mutual encoder (not this fast path). -/
 def dispatchArgsAllWords : List DispatchVal → Bool
   | [] => true
   | .word _ :: rest => dispatchArgsAllWords rest
@@ -209,17 +214,83 @@ instance : ToDispatchVal String where
 instance [ToDispatchVal α] : ToDispatchVal (Array α) where
   toDispatchVal vs := .array (vs.toList.map ToDispatchVal.toDispatchVal)
 
+/-- Right-nested Lean products (`α × (β × γ)`) encode as a nested ABI tuple
+unless flattened. Compiled `Tuple [α, β, γ]` is a single flat tuple. -/
+def flattenDispatchTuple : DispatchVal → List DispatchVal
+  | .tuple vs => vs.flatMap flattenDispatchTuple
+  | v => [v]
+
+/-- Compiled `T[n]` is a static/dynamic composite with no `T[]` length word.
+Encode as a tuple of n members (inlined if static; offset-only if dynamic). -/
+def dispatchFixedArray (elems : List DispatchVal) : DispatchVal :=
+  .tuple elems
+
+/-- Flatten a right-nested product encoding into one ABI tuple. -/
+def dispatchFlatTuple (v : DispatchVal) : DispatchVal :=
+  .tuple (flattenDispatchTuple v)
+
 instance [ToDispatchVal α] [ToDispatchVal β] : ToDispatchVal (α × β) where
-  toDispatchVal p := .tuple [ToDispatchVal.toDispatchVal p.1, ToDispatchVal.toDispatchVal p.2]
+  toDispatchVal p :=
+    .tuple (flattenDispatchTuple (ToDispatchVal.toDispatchVal p.1) ++
+      flattenDispatchTuple (ToDispatchVal.toDispatchVal p.2))
+
+/-- How `genScalarLoad` normalizes a loaded word before the body sees it. -/
+inductive ScalarLoadKind where
+  | identity
+  | bool
+  | uint8
+  | uint16
+  | uintN (bits : Nat)
+  | address
+  | bytesN (bytes : Nat)
+  deriving Repr, DecidableEq
+
+def normalizeLoadedWord (kind : ScalarLoadKind) (loaded : Nat) : Nat :=
+  let w := loaded % Compiler.Constants.evmModulus
+  match kind with
+  | .identity => w
+  | .bool => if w == 0 then 0 else 1
+  | .uint8 => w % 256
+  | .uint16 => w % 65536
+  | .uintN bits => w % (2 ^ bits)
+  | .address => w &&& Compiler.Constants.addressMask
+  | .bytesN bytes =>
+      w &&& ((2 ^ (8 * bytes) - 1) * 2 ^ (8 * (32 - bytes)))
+
+def scalarWordMatches (kind : ScalarLoadKind) (canonical loaded : Nat) : Bool :=
+  normalizeLoadedWord kind loaded == canonical % Compiler.Constants.evmModulus
+
+def dispatchWordsMatch : List ScalarLoadKind → List Nat → List Nat → Bool
+  | [], _, _ => true
+  | _ :: _, [], _ => false
+  | _ :: _, _ :: _, [] => false
+  | k :: ks, c :: cs, l :: ls =>
+      scalarWordMatches k c l && dispatchWordsMatch ks cs ls
 
 /-- Compiled dispatch ABI-decodes arguments from the same calldata that
 selected the function (`calldataload` at 4 + 32*i, `calldatasize` at
 least 4 + 32 * n). Extra trailing words are allowed, matching Yul
 `calldatasizeGuard`. `argWords` is the ABI data region (no 4-byte selector),
-from `abiEncodeDispatchArgs`, not `ExternalArg.toWords`. -/
+from `abiEncodeDispatchArgs`, not `ExternalArg.toWords`. Scalar prefixes
+compare after `genScalarLoad` normalization so noncanonical Bool/uintN/
+address words still register. -/
 def dispatchCalldataMatches (ctx : CallbackContext) (argWords : List Nat) : Prop :=
-  ctx.calldata.take argWords.length = argWords ∧
+  dispatchWordsMatch
+      (List.replicate argWords.length ScalarLoadKind.identity)
+      argWords (ctx.calldata.take argWords.length) = true ∧
     Verity.Core.Uint256.ofNat (4 + 32 * argWords.length) ≤ ctx.calldataSize
+
+/-- Like `dispatchCalldataMatches`, but scalar words compare after the compiled
+`genScalarLoad` normalization for each argument. -/
+def dispatchCalldataMatchesKinds (ctx : CallbackContext)
+    (kinds : List ScalarLoadKind) (argWords : List Nat) : Prop :=
+  dispatchWordsMatch kinds argWords (ctx.calldata.take argWords.length) = true ∧
+    Verity.Core.Uint256.ofNat (4 + 32 * argWords.length) ≤ ctx.calldataSize
+
+instance (ctx : CallbackContext) (kinds : List ScalarLoadKind) (argWords : List Nat) :
+    Decidable (dispatchCalldataMatchesKinds ctx kinds argWords) := by
+  dsimp [dispatchCalldataMatchesKinds]
+  infer_instance
 
 instance (ctx : CallbackContext) (argWords : List Nat) :
     Decidable (dispatchCalldataMatches ctx argWords) := by
@@ -246,6 +317,7 @@ def withCallbackContext (ctx : CallbackContext) (world : Verity.ContractState) :
     selfBalance := world.selfBalance + ctx.msgValue
     calldataSize := ctx.calldataSize
     calldata := ctx.calldata
+    selector := ctx.selector
     memory := fun _ => 0
     returndata := [] }
 
@@ -256,6 +328,7 @@ def restoreCallbackContext (outer callbackResult : Verity.ContractState) :
     msgValue := outer.msgValue
     calldataSize := outer.calldataSize
     calldata := outer.calldata
+    selector := outer.selector
     memory := outer.memory
     returndata := outer.returndata }
 
@@ -308,6 +381,10 @@ def callbackContractTransition (ctx : CallbackContext)
     (world : Verity.ContractState) :
     (withCallbackContext ctx world).calldataSize = ctx.calldataSize := rfl
 
+@[simp] theorem withCallbackContext_selector (ctx : CallbackContext)
+    (world : Verity.ContractState) :
+    (withCallbackContext ctx world).selector = ctx.selector := rfl
+
 @[simp] theorem withCallbackContext_selfBalance (ctx : CallbackContext)
     (world : Verity.ContractState) :
     (withCallbackContext ctx world).selfBalance = world.selfBalance + ctx.msgValue := rfl
@@ -339,6 +416,11 @@ def callbackContractTransition (ctx : CallbackContext)
     (entrypoint : Verity.ContractState → Verity.ContractState)
     (outer : Verity.ContractState) :
     (callbackTransition ctx entrypoint outer).calldataSize = outer.calldataSize := rfl
+
+@[simp] theorem callbackTransition_restores_selector (ctx : CallbackContext)
+    (entrypoint : Verity.ContractState → Verity.ContractState)
+    (outer : Verity.ContractState) :
+    (callbackTransition ctx entrypoint outer).selector = outer.selector := rfl
 
 @[simp] theorem callbackTransition_restores_memory (ctx : CallbackContext)
     (entrypoint : Verity.ContractState → Verity.ContractState)

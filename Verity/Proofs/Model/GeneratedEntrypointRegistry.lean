@@ -402,6 +402,150 @@ theorem setFromCalldata_registered_live
 
 end RegistryLiveCalldata
 
+verity_contract RegistryLiveSelector where
+  storage
+    last : Uint256 := slot 0
+
+  function setFromSelector (_unused : Uint256)
+      local_obligations [manual_low_level_refinement := assumed
+        "Fixture reads compiled-dispatch selector via calldataload 0."]
+      : Unit := do
+    let loaded := calldataload 0
+    setStorage last loaded
+    return ()
+
+namespace RegistryLiveSelector
+
+def selCtx : CallbackContext where
+  sender := 0
+  msgValue := 0
+  calldataSize := Verity.Core.Uint256.ofNat 4
+  calldata := []
+  selector := 0xa9059cbb
+
+def publicWritesOffset : Bool :=
+  match (setFromSelector (0 : Uint256)).run Verity.defaultState with
+  | .success _ s => s.storage 0 == 0
+  | _ => false
+
+example : publicWritesOffset = true := by decide
+
+def liveWritesSelectorWord : Bool :=
+  let s := callbackContractTransition selCtx
+    (setFromSelector_registry
+      (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub) 0)
+    Verity.defaultState
+  s.storage 0 == Compiler.CompilationModel.Denote.selectorWord 0xa9059cbb
+
+example : liveWritesSelectorWord = true := by decide
+
+end RegistryLiveSelector
+
+/-! P1: FixedArray vs Array encoding; flattened 3-member tuples. -/
+example :
+    DispatchVal.isDynamic
+      (dispatchFixedArray
+        [ToDispatchVal.toDispatchVal (1 : Uint256),
+         ToDispatchVal.toDispatchVal (2 : Uint256)]) = false :=
+  rfl
+
+example :
+    (dispatchFixedArray
+      [ToDispatchVal.toDispatchVal (1 : Uint256),
+       ToDispatchVal.toDispatchVal (2 : Uint256)]).payloadWords = [1, 2] :=
+  rfl
+
+example :
+    dispatchArgsAllWords
+      [ToDispatchVal.toDispatchVal (#[(1 : Uint256), (2 : Uint256)] : Array Uint256)] = false :=
+  rfl
+
+example :
+    (abiEncodeDispatchArgs
+      [ToDispatchVal.toDispatchVal (#[(1 : Uint256), (2 : Uint256)] : Array Uint256)]).head? =
+      some 32 :=
+  rfl
+
+example :
+    dispatchArgsAllWords
+      [ToDispatchVal.toDispatchVal
+        ((1 : Uint256), ("ab", (3 : Uint256)))] = false :=
+  rfl
+
+example :
+    dispatchArgsAllWords
+      [dispatchFlatTuple
+        (DispatchVal.tuple
+          [ToDispatchVal.toDispatchVal (1 : Uint256),
+           ToDispatchVal.toDispatchVal ("ab" : String),
+           ToDispatchVal.toDispatchVal (3 : Uint256)])] = false :=
+  rfl
+
+/-! P1: genScalarLoad-normalized noncanonical scalar words still match. -/
+example : dispatchCalldataMatchesKinds
+    { sender := 0, msgValue := 0,
+      calldataSize := Verity.Core.Uint256.ofNat 36, calldata := [2] }
+    [.bool]
+    (abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal true]) := by decide
+
+example : dispatchCalldataMatchesKinds
+    { sender := 0, msgValue := 0,
+      calldataSize := Verity.Core.Uint256.ofNat 36, calldata := [256] }
+    [.uint8]
+    (abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal (0 : Verity.Core.UIntN 8)]) := by decide
+
+example : dispatchCalldataMatchesKinds
+    { sender := 0, msgValue := 0,
+      calldataSize := Verity.Core.Uint256.ofNat 36,
+      calldata := [Compiler.Constants.addressMask + 1 + 7] }
+    [.address]
+    (abiEncodeDispatchArgs [ToDispatchVal.toDispatchVal (7 : Address)]) := by decide
+
+/-! P1: calldata-reading helpers are routed through *_registry. -/
+verity_contract RegistryCalldataHelperRouting where
+  storage
+    last : Uint256 := slot 0
+
+  function loadArg (_unused : Uint256)
+      local_obligations [manual_low_level_refinement := assumed
+        "Helper reads compiled-dispatch calldata via calldataload 4."]
+      : Uint256 := do
+    return calldataload 4
+
+  function setFromHelper (_value : Uint256)
+      local_obligations [manual_low_level_refinement := assumed
+        "Entrypoint delegates calldata load to an internal helper."]
+      : Unit := do
+    let loaded ← loadArg 0
+    setStorage last loaded
+    return ()
+
+namespace RegistryCalldataHelperRouting
+
+def helperCtx (value : Uint256) : CallbackContext where
+  sender := 0
+  msgValue := 0
+  calldataSize := Verity.Core.Uint256.ofNat 36
+  calldata := [value.val]
+
+def publicHelperWritesStub : Bool :=
+  match (setFromHelper (7 : Uint256)).run Verity.defaultState with
+  | .success _ s => s.storage 0 == 4
+  | _ => false
+
+example : publicHelperWritesStub = true := by decide
+
+def registryHelperWritesLive : Bool :=
+  let s := callbackContractTransition (helperCtx 7)
+    (setFromHelper_registry
+      (Contracts.ExecutableCallContext.ofAdversary AdversaryModel.stub) 7)
+    Verity.defaultState
+  s.storage 0 == 7
+
+example : registryHelperWritesLive = true := by decide
+
+end RegistryCalldataHelperRouting
+
 /-! Regression: public Solidity self-calls still hit the nonReentrant tload
 prologue. Bound hops must keep the guarded registry path, not `*_unguarded`. -/
 verity_contract RegistrySelfCallGuard where

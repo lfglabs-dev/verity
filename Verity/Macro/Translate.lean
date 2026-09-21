@@ -2511,6 +2511,42 @@ def translatedBodyContainsExternalCall
     | _ => throwErrorAt bodyTerm
         "failed to reduce the translated external-call predicate"
 
+private partial def syntaxContainsCalldataRead (stx : Syntax) : Bool :=
+  match stx with
+  | `(term| calldatasize) | `(term| calldataload $_) => true
+  | _ => stx.getArgs.any syntaxContainsCalldataRead
+
+def translatedBodyContainsCalldataRead
+    (stmtTerms : Array Term) : CommandElabM Bool := do
+  if stmtTerms.any (fun t => syntaxContainsCalldataRead t.raw) then
+    return true
+  let bodyTerm : Term ← `([ $[$stmtTerms],* ])
+  liftTermElabM do
+    let predicate : Term ←
+      `($(bodyTerm).any (fun s =>
+        Compiler.CompilationModel.Stmt.anyDeep
+          (fun
+            | .letVar _ (.calldatasize) => true
+            | .letVar _ (.calldataload _) => true
+            | .assignVar _ (.calldatasize) => true
+            | .assignVar _ (.calldataload _) => true
+            | .setStorage _ (.calldatasize) => true
+            | .setStorage _ (.calldataload _) => true
+            | .ite (.calldatasize) _ _ => true
+            | .ite (.calldataload _) _ _ => true
+            | .return (.calldatasize) => true
+            | .return (.calldataload _) => true
+            | _ => false)
+          s))
+    let expr ← Lean.Elab.Term.elabTermEnsuringType predicate (mkConst ``Bool)
+    match ← Lean.Meta.withTransparency .all (Lean.Meta.whnf expr) with
+    | .const ``Bool.true _ => pure true
+    | .const ``Bool.false _ => pure false
+    | _ =>
+        -- Syntax walk already ran; if the model predicate does not reduce,
+        -- keep the conservative syntax result (false here).
+        pure false
+
 private partial def syntaxCallsAnyHelper
     (helperNames : Array String) (stx : Syntax) : CommandElabM Bool := do
   match stx with
@@ -2762,8 +2798,10 @@ private def threadHelperApp?
           mkSuffixedIdent helper.ident "_unguarded"
         else
           pure helper.ident
-      if matchesExactHelper helper && adversarialHelpers.any (fun candidate =>
-          functionSignatureKey candidate == functionSignatureKey helper) then
+      if matchesExactHelper helper &&
+          (adversarialHelpers.any (fun candidate =>
+              functionSignatureKey candidate == functionSignatureKey helper) ||
+            registryOnly) then
         some <$> helperCallWithAdv target args adv
       else if helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
         some <$> helperCall target args
@@ -5986,6 +6024,59 @@ def mkStructExternalArgInstanceCommandPublic (decl : StructDecl) : CommandElabM 
         ([ $[$encodedFields],* ] :
           List (List _root_.Verity.Uint256)))
 
+/-- Compile-time DispatchVal from a declared `ValueType`, so `FixedArray`
+encodes as a tuple (no `T[]` length) and `Tuple` flattens rather than
+following the right-nested Lean product instance. -/
+private def scalarLoadKindTerm : ValueType → CommandElabM Term
+  | .bool => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.bool)
+  | .uint8 => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.uint8)
+  | .uint16 => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.uint16)
+  | .uintN bits =>
+      `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.uintN $(natTerm bits))
+  | .address => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.address)
+  | .bytesN bytes =>
+      `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.bytesN $(natTerm bytes))
+  | _ => `(Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind.identity)
+
+private partial def dispatchValTermForType (ty : ValueType) (value : Term) : CommandElabM Term :=
+  match ty with
+  | .fixedArray elemTy size => do
+      let mut elems : Array Term := #[]
+      for i in [:size] do
+        let elem ← `(term| Array.getD $value $(natTerm i) default)
+        elems := elems.push (← dispatchValTermForType elemTy elem)
+      if elems.isEmpty then
+        `(term| Compiler.CompilationModel.DenoteExternalCalls.dispatchFixedArray
+            ([] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
+      else
+        `(term| Compiler.CompilationModel.DenoteExternalCalls.dispatchFixedArray
+            ([ $[$elems],* ] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
+  | .tuple elemTys => do
+      let mut elems : Array Term := #[]
+      let mut rest : Term := value
+      let mut idx : Nat := 0
+      for elemTy in elemTys do
+        let elem ←
+          if idx + 1 == elemTys.length then
+            pure rest
+          else do
+            let head ← `(term| Prod.fst $rest)
+            rest ← `(term| Prod.snd $rest)
+            pure head
+        elems := elems.push (← dispatchValTermForType elemTy elem)
+        idx := idx + 1
+      `(term| Compiler.CompilationModel.DenoteExternalCalls.dispatchFlatTuple
+          (Compiler.CompilationModel.DenoteExternalCalls.DispatchVal.tuple
+            ([ $[$elems],* ] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal)))
+  | .array elemTy => do
+      `(term| Compiler.CompilationModel.DenoteExternalCalls.DispatchVal.array
+          (($value).toList.map (fun x =>
+            Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal.toDispatchVal
+              (x : $(← contractValueTypeTerm elemTy)))))
+  | _ =>
+      `(term| Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal.toDispatchVal
+        $value)
+
 /-- Compiled-dispatch ABI encoding of a named struct: the tuple of its
 fields, matching `genParamLoads` / `abiEncodeDispatchArgs`. -/
 def mkStructToDispatchValInstanceCommandPublic (decl : StructDecl) : CommandElabM Cmd := do
@@ -6622,6 +6713,7 @@ def mkFunctionCommandsPublic
   let directlyOpensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
   let mut adversarialHelpers : Array FunctionDecl := #[]
   let mut windowHelpers : Array FunctionDecl := #[]
+  let mut calldataHelpers : Array FunctionDecl := #[]
   let mut translatedHelpers : Array (FunctionDecl × FunctionDecl) := #[]
   for helper in functions do
     let helperModel ←
@@ -6639,6 +6731,9 @@ def mkFunctionCommandsPublic
       adversarialHelpers := adversarialHelpers.push helper
     if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
       windowHelpers := windowHelpers.push helper
+    if syntaxContainsCalldataRead helperModel.body.raw ||
+        (← translatedBodyContainsCalldataRead helperStmtTerms) then
+      calldataHelpers := calldataHelpers.push helper
   -- Reentrancy-window capability is transitive across internal helpers. Iterate to a
   -- fixed point so every caller in a multi-hop helper chain receives and forwards
   -- the same adversary instead of silently falling back to the stub.
@@ -6666,6 +6761,23 @@ def mkFunctionCommandsPublic
         grew := true
     if !grew then
       break
+  for _ in [:functions.size] do
+    let calldataNames := calldataHelpers.map (·.name)
+    let mut grew := false
+    for (helper, helperModel) in translatedHelpers do
+      let callsCalldata ← syntaxCallsAnyHelper calldataNames helperModel.body.raw
+      if !calldataHelpers.any (fun candidate =>
+            functionSignatureKey candidate == functionSignatureKey helper) &&
+          callsCalldata then
+        calldataHelpers := calldataHelpers.push helper
+        grew := true
+    if !grew then
+      break
+  let mut registryOnlyHelpers : Array FunctionDecl := adversarialHelpers
+  for helper in calldataHelpers do
+    if !registryOnlyHelpers.any (fun candidate =>
+          functionSignatureKey candidate == functionSignatureKey helper) then
+      registryOnlyHelpers := registryOnlyHelpers.push helper
   let windowNames := windowHelpers.map (·.name)
   let callsWindow ← syntaxCallsAnyHelper windowNames modelFn.body.raw
   let opensReentrancyWindow := directlyOpensReentrancyWindow || callsWindow
@@ -6687,9 +6799,10 @@ def mkFunctionCommandsPublic
   -- window-opening helpers, to `_registry` / `_registry_unguarded`. Restricting
   -- the suffix to non-window helpers let `entry_registry` call public `hop`,
   -- which then used stub-only nested view helpers and under-approximated the
-  -- compiled callee-controlled ECM.
+  -- compiled callee-controlled ECM. Calldata-reading helpers are also
+  -- registry-only so they observe `calldataloadLive` rather than the stub.
   let registryExecutableBody := ⟨← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
-    externalDecls functions adversarialHelpers adversarialHelpers fn.params #[]
+    externalDecls functions adversarialHelpers functions fn.params #[]
       (⟨advIdent.raw⟩ : Term) fnExecutableBody.raw (linkedContracts := linkedContracts)
       (registryMode := true)⟩
   let mut extraExecutableCmds : Array Cmd := #[]
@@ -6796,19 +6909,35 @@ def mkFunctionCommandsPublic
           $context:ident ∧ $registryBody)
   else if fn.name != "fallback" then
     let mut dispatchValTerms : Array Term := #[]
-    for (paramIdent, _) in registryParams do
+    let mut kindTerms : Array Term := #[]
+    for (param, (paramIdent, _)) in fn.params.zip registryParams do
       dispatchValTerms := dispatchValTerms.push
-        (← `(Compiler.CompilationModel.DenoteExternalCalls.ToDispatchVal.toDispatchVal
-          $paramIdent:ident))
+        (← dispatchValTermForType param.ty ⟨paramIdent.raw⟩)
+      kindTerms := kindTerms.push (← scalarLoadKindTerm param.ty)
     let argWordsTerm ←
       if dispatchValTerms.isEmpty then
         `( ([] : List Nat) )
       else
         `(Compiler.CompilationModel.DenoteExternalCalls.abiEncodeDispatchArgs
             ([ $[$dispatchValTerms],* ] : List Compiler.CompilationModel.DenoteExternalCalls.DispatchVal))
-    registryBody ←
-      `(Compiler.CompilationModel.DenoteExternalCalls.dispatchCalldataMatches
-          $context:ident $argWordsTerm ∧ $registryBody)
+    let usesScalarNorm := fn.params.any fun p =>
+      match p.ty with
+      | .bool | .uint8 | .uint16 | .uintN _ | .address | .bytesN _ => true
+      | _ => false
+    if usesScalarNorm then
+      let kindsTerm ←
+        if kindTerms.isEmpty then
+          `( ([] : List Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind) )
+        else
+          `( ([ $[$kindTerms],* ] :
+              List Compiler.CompilationModel.DenoteExternalCalls.ScalarLoadKind) )
+      registryBody ←
+        `(Compiler.CompilationModel.DenoteExternalCalls.dispatchCalldataMatchesKinds
+            $context:ident $kindsTerm $argWordsTerm ∧ $registryBody)
+    else
+      registryBody ←
+        `(Compiler.CompilationModel.DenoteExternalCalls.dispatchCalldataMatches
+            $context:ident $argWordsTerm ∧ $registryBody)
   for (paramIdent, paramTy) in registryParams.reverse do
     registryBody ← `(∃ $paramIdent:ident : $paramTy, $registryBody)
   registryBody ←

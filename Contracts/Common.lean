@@ -396,13 +396,16 @@ def calldataload (offset : Uint256) : Uint256 := offset
 /-- Registry-mode executable calldata. Public `calldatasize`/`calldataload`
 remain deterministic stubs; generated `*_registry` bodies use these so a
 callback that branches on live calldata is registered. Byte offset 0 of the
-word-list data region is `calldataload 4`, matching compiled dispatch. -/
+word-list data region is `calldataload 4`, matching compiled dispatch.
+`calldataload 0` (and unaligned loads overlapping the first four bytes)
+observe `state.selector`, not a hard-coded 0. -/
 def calldatasizeLive : Contract Uint256 := fun state =>
   ContractResult.success state.calldataSize state
 def calldataloadLive (offset : Uint256) : Contract Uint256 := fun state =>
   ContractResult.success
     (Verity.Core.Uint256.ofNat
-      (Compiler.CompilationModel.Denote.calldataloadWord 0 state.calldata offset.val))
+      (Compiler.CompilationModel.Denote.calldataloadWord
+        state.selector state.calldata offset.val))
     state
 def mload (offset : Uint256) : Uint256 := offset
 def tload (offset : Uint256) : Contract Uint256 := fun state =>
