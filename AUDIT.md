@@ -777,8 +777,11 @@ sibling entrypoint.
   encoding, one word per byte).
 - Generated `*_registry` executables rewrite `calldatasize`/`calldataload`
   to `calldatasizeLive`/`calldataloadLive`, which read
-  `ContractState.calldata` installed by `withCallbackContext`. Public
-  stubs remain `0` / the offset.
+  `ContractState.calldata` and `ContractState.selector` installed by
+  `withCallbackContext`. Public stubs remain `0` / the offset.
+  `dispatchCalldataMatches` normalizes scalar words like `genScalarLoad`.
+  `FixedArray` / flat `Tuple` encodings match `genParamLoads`. Calldata-reading
+  helpers are routed through `*_registry`.
 - Evidence: `Verity/Proofs/Model/GeneratedEntrypointRegistry.lean`
   (`RegistryDispatchCalldata`, `RegistryLiveCalldata`).
 - Trust docs: `TRUST_ASSUMPTIONS.md` (executable-plane stubs are closed
