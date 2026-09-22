@@ -19,7 +19,10 @@ of the first packed `credit` read. It is not a proof of the whole body, and it
 is not a proof that the model matches solc bytecode.
 
 The slice compiler pin is solc `0.8.34+commit.80d5c536`, installed separately
-from the Vault 0.8.33 pin by `python3 scripts/setup_solc_slice.py`.
+from the Vault 0.8.33 pin by `python3 scripts/setup_solc_slice.py`. The source
+digest reads the importer modules from the Verity tree, or from
+`.lake/packages/verity` when a downstream package elaborates the command. The
+solc binary remains the elaborating package's `.lake/solidity-import/solc-0.8.34`.
 
 Evidence command: `lake build SoliditySliceSmoke` after the 0.8.34 compiler is
 installed at `.lake/solidity-import/solc-0.8.34`.

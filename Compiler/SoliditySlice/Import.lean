@@ -966,6 +966,17 @@ private def verifyCompiler (compiler : System.FilePath) : MetaM Unit := do
   unless output.exitCode == 0 && officialSolcSha256s.contains (output.stdout.take 64).toString do
     throwError "compiler checksum mismatch"
 
+/-- Verity itself stores the importer next to its lakefile. A downstream package
+stores that checkout at `.lake/packages/verity`. The digest must hash those
+sources in either layout. -/
+private def importerSourceRoot (pkgRoot : System.FilePath) : MetaM System.FilePath := do
+  if ← (pkgRoot / "Compiler/SoliditySlice/Import.lean").pathExists then
+    return pkgRoot
+  let dep := pkgRoot / ".lake/packages/verity"
+  if ← (dep / "Compiler/SoliditySlice/Import.lean").pathExists then
+    return dep
+  throwError "importer source missing: {pkgRoot / "Compiler/SoliditySlice/Import.lean"}"
+
 private def moduleText (pkgRoot : System.FilePath) (rel : String) : MetaM String := do
   let path := pkgRoot / rel
   unless ← path.pathExists do throwError "importer source missing: {path}"
@@ -1142,9 +1153,10 @@ private def importSlice
     if env.referenced.contains o.field then
       opaqueTerms := opaqueTerms.push
         s!"({ "{ " }field := {leanStr o.field}, name := {leanStr o.name}, solcType := {leanStr o.solcType}, wordOffset := {o.wordOffset}, byteOffset := {o.byteOffset}{ " }" } : Compiler.CompilationModel.SoliditySlice.OpaqueMember)"
-  let importer ← moduleText pkgRoot "Compiler/SoliditySlice/Import.lean"
-  let coverage ← moduleText pkgRoot "Compiler/SoliditySlice/Coverage.lean"
-  let reportSrc ← moduleText pkgRoot "Compiler/SoliditySlice/Report.lean"
+  let sourceRoot ← importerSourceRoot pkgRoot
+  let importer ← moduleText sourceRoot "Compiler/SoliditySlice/Import.lean"
+  let coverage ← moduleText sourceRoot "Compiler/SoliditySlice/Coverage.lean"
+  let reportSrc ← moduleText sourceRoot "Compiler/SoliditySlice/Report.lean"
   let mut digestInput := s!"{importerVersion}\n{solcLongVersion}\n{contract}\n{functionName}\n"
   for ty in paramTys do
     digestInput := digestInput ++ ty ++ "\n"
