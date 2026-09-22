@@ -24,8 +24,12 @@ digest reads the importer modules from the Verity tree, or from
 `.lake/packages/verity` when a downstream package elaborates the command. The
 solc binary remains the elaborating package's `.lake/solidity-import/solc-0.8.34`.
 
-Evidence command: `lake build SoliditySliceSmoke` after the 0.8.34 compiler is
-installed at `.lake/solidity-import/solc-0.8.34`.
+Evidence commands: `lake build SoliditySliceSmoke` after the 0.8.34 compiler is
+installed at `.lake/solidity-import/solc-0.8.34`, and
+`python3 scripts/solidity_slice_mutations.py`. The mutation script checks an
+unreached `for`, rejection of that `for` once it is reachable, and detection of
+a reached-helper change, a fee-factor change, a field change, a return-order
+change, and a layout swap. A rejected import leaves no `.olean`.
 
 ## Proof-only Solidity Vault POC
 
