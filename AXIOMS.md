@@ -2,6 +2,15 @@
 
 This file is the authoritative registry of axioms used by Verity proof code.
 
+## Solidity function-slice import
+
+`slice.sliceCovered` and `smoke_step_credit` are ordinary theorems. The slice
+path adds no project axiom, `sorry`, or `native_decide`. `sliceCovered` is
+`decide` on the whitelist. `smoke_step_credit` is `simp` plus `decide` on the
+concrete packed read. Interpreter `#eval` checks are not theorems. The frontend that
+builds the model from solc JSON remains a trust assumption; see
+`TRUST_ASSUMPTIONS.md`.
+
 ## Proof-only Solidity Vault audit
 
 `PrintAxioms.lean` includes the imported Vault execution theorems. The focused

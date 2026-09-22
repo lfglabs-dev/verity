@@ -5,6 +5,25 @@ reviewable. Keep it synchronized with `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`
 whenever semantics, trusted components, generated audit artifacts, or CI
 boundary checks change.
 
+## Solidity function-slice import
+
+`Compiler/SoliditySlice` lowers one selected function and the callees solc's
+declaration ids reach into a `CompilationModel`. `returnValues` is observable
+on `DenoteState.observedReturnWords` and is mirrored in `SourceSemantics` and
+`DenoteAgreement`. Accepted slices carry `sliceCovered`, proved by `decide`
+against `modelSliceCovered`. The smoke contract
+`Contracts/SoliditySliceSmoke` contains an unreached `for` loop; the import
+still succeeds. `#eval` checks the interpreter result of two witnesses on that
+imported body: `(95, 5, 5)` and a revert. `smoke_step_credit` is a kernel proof
+of the first packed `credit` read. It is not a proof of the whole body, and it
+is not a proof that the model matches solc bytecode.
+
+The slice compiler pin is solc `0.8.34+commit.80d5c536`, installed separately
+from the Vault 0.8.33 pin by `python3 scripts/setup_solc_slice.py`.
+
+Evidence command: `lake build SoliditySliceSmoke` after the 0.8.34 compiler is
+installed at `.lake/solidity-import/solc-0.8.34`.
+
 ## Proof-only Solidity Vault POC
 
 The focused suite probes unknown, wrong-typed, and missing AST fields (including

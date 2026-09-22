@@ -2,6 +2,34 @@
 
 This document states what Verity proves and what it still trusts.
 
+## Solidity function-slice import
+
+`Compiler/SoliditySlice/Import.lean` selects one function from a solc project,
+closes over the definitions solc's declaration ids actually reach, and elaborates
+a `CompilationModel`. Execution of an accepted slice is
+`Compiler.CompilationModel.Denote.execStmt`, restricted by
+`stmtListCovered` in `Compiler/SoliditySlice/Coverage.lean`. That predicate is
+not `SupportedFunction`: the slice uses `panic`, `returnValues`, packed
+`structMember` / `structMember2`, and checked arithmetic, which the IR raccord
+does not cover. `DenoteAgreement.execStmt_eq` still holds, including
+`Stmt.returnValues`, which records source-order words on `DenoteState` and
+finishes as `.stop`. The proof denotation observes success versus revert. It
+does not observe the `PanicCode` payload.
+
+The frontend is in the trust base. A covered model is not a proof that the
+model matches the Solidity source or solc's bytecode. `storageLayout` slots and
+packed offsets are copied from pinned solc 0.8.34
+(`0.8.34+commit.80d5c536`; linux-amd64 and macosx-amd64 SHA-256 pins in
+`Import.lean`). `mappingSlot` in the denotation oracle is not Keccak. Numeric
+claims are about the values `structMember` reads back. The Vault importer's
+solc 0.8.33 pin is unchanged.
+
+Checked `uint256` and narrower unsigned arithmetic is lowered to `Stmt.ite` plus
+`Stmt.panic`, not to a second interpreter. Explicit `uint128(x)` is truncation
+(`bitAnd` with `2^128-1`). Ternaries are `Stmt.ite`, so the untaken branch is
+not evaluated. Library helpers in an accepted acyclic slice are inlined.
+`UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
+
 ## Proof-only Solidity Vault import
 
 This POC is separate from the verified compilation pipeline below. It trusts

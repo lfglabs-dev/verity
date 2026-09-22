@@ -120,6 +120,9 @@ lean_lib «Contracts» where
     .andSubmodules `Contracts.ReentrancyRelyGuarantee
   ]
 
+lean_lib «SoliditySliceSmoke» where
+  globs := #[.one `Contracts.SoliditySliceSmoke.Smoke]
+
 lean_lib «Compiler» where
   globs := #[.andSubmodules `Compiler]
 
