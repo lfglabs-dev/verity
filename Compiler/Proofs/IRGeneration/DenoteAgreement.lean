@@ -36,7 +36,8 @@ def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
   { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector,
     externalCallOracle := fun n =>
       ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩,
-    externalCallIndex := s.externalCallIndex }
+    externalCallIndex := s.externalCallIndex,
+    observedReturnWords := s.observedReturnWords }
 
 @[simp] theorem toRuntimeState_world (s : DenoteState) :
     (toRuntimeState s).world = s.world := rfl
@@ -672,7 +673,8 @@ theorem execStmt_eq (fields : List Field) :
             · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq,
                 SourceSemantics.returndataAfterCall]
           · simp [toStmtResult, toRuntimeState, h]
-  | _, .returnValues .. | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
+  | _, .returnValues _ => by denote_stmt_arm
+  | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
   | _, .internalCallAssign .. | _, .rawLog ..
   | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl

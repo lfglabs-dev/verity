@@ -179,8 +179,9 @@ theorem findDynamicArrayElementAtSlot_go_eq
   simp [toSourceResult, Denote.revertedResult, SourceSemantics.revertedResult]
 
 @[simp] theorem toSourceResult_successResult
-    (spec : CompilationModel) (world : Verity.ContractState) (ret : Option Nat) :
-    toSourceResult (Denote.successResult sourceOracle spec world ret) =
+    (spec : CompilationModel) (world : Verity.ContractState) (ret : Option Nat)
+    (returnWords : List Nat) :
+    toSourceResult (Denote.successResult sourceOracle spec world ret returnWords) =
       SourceSemantics.successResult spec world ret := by
   simp [toSourceResult, Denote.successResult, SourceSemantics.successResult]
 
