@@ -207,10 +207,20 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   bound call is the same ABI/ECM call as an unbound interface call.
 - **Semantics**: hops in `Verity.MultiContract.MultiWorld` (`ModeledCall.lean`).
   The executable plane of a bound call is `Contract.hopCall` /
-  `Contract.hopCallView`: scalar slots move through `StorageKey.contractSlot`,
-  success commits the callee world, revert restores the pre-call snapshot,
-  and view hops discard callee writes. Unbound interfaces still use the
-  adversary-oracle stub. Mapping/addr/transient channels stay global (G2).
+  `Contract.hopCallView`: every word-valued storage channel is namespaced
+  per contract across a distinct-address hop — scalar slots move through
+  `StorageKey.contractSlot`, and address slots, transient slots and all
+  mappings (`addr` / `transient` / `map` / `mapUint` / `map2`) through
+  `StorageKey.scoped` (G24, #2440; `ContractState.switchSlotWorld`,
+  `enterHop_readAddrSlot` / `enterHop_readMap` / …,
+  `exitHop_enterHop_storageWords_plain`). A callee never sees or clobbers the
+  caller's same-numbered address slot or mapping entry. Success commits the
+  callee world, revert restores the pre-call snapshot, and view hops discard
+  callee writes. Unbound interfaces still use the adversary-oracle stub.
+  **Remaining boundary**: `storageArray` (dynamic-array storage, a separate
+  `ContractState` field) is *not* namespaced and stays global across hops,
+  so a cross-contract statement that reads a dynamic array inside a hop is
+  not sound in this plane.
   Bindings cannot be cyclic (G15). `callEntry` is unchanged (still rejects
   `caller = callee`); self-calls use the isolated CALL-shaped
   `selfCallEntry` / `Contract.selfCall`.
@@ -378,7 +388,10 @@ semantics provably collapses to the plain one). Outside the proven fragment:
 ### Canonical `StorageKey` backing (`ContractState.storageWords`)
 Word-valued source storage is one map `StorageKey → Uint256`. The key is
 an injective inductive (`slot` / `contractSlot` / `transient` / `addr` /
-`map` / `mapUint` / `map2`); public accessors keep the old channel names.
+`map` / `mapUint` / `map2` / `scoped`); public accessors keep the old channel
+names. `scoped c k` is contract `c`'s parked copy of a non-slot key `k` across
+hops; it has no flat compiler-channel counterpart (`storageKeySlot` maps it to
+`none`).
 This is a representation change, not a new trust boundary: lens laws use
 constructor injectivity. Solidity keccak slot derivation lives in
 `Compiler.Proofs.Storage.MappingCoherence.storageKeySlot`. Address-,

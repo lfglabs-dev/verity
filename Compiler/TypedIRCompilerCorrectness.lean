@@ -1800,6 +1800,7 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMapping_letStorage_setMapping_
     | addr slot => simp
     | mapUint slot mapKey => simp
     | map2 slot key1 key2 => simp
+    | «scoped» contract key => simp
   · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get]
 
 /-- Semantic-preservation for the Morpho enableIrm pattern. -/

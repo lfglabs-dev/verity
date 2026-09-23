@@ -92,7 +92,10 @@ discard callee writes.
 The `Contract` monad still carries one `ContractState`. Cross-contract
 hops are a MultiWorld state transformer (`hop` / `hopContract`) **and** an
 executable combinator (`Contract.hopCall` / `Contract.hopCallView`) that
-namespaces scalar slots through `StorageKey.contractSlot`. Generated bound
+namespaces every word-valued storage channel per contract: scalar slots
+through `StorageKey.contractSlot`, and address / transient / mapping keys
+through `StorageKey.scoped` (G24). `storageArray` (dynamic arrays) is still
+global across hops. Generated bound
 calls run the callee body; they do not go through the adversary-oracle
 stub. Unbound interfaces keep the stub. Same-contract `this.f(...)` uses
 `Contract.selfCall` (new frame, sender replaced) so try/catch can wrap it.
