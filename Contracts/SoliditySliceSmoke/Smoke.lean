@@ -63,7 +63,7 @@ theorem smoke_step_credit :
     execStmt sliceOracle slice.model.fields (witnessState 100 10 0 0 0 50 100) (peel smokeBody).1 =
       .continue
         { witnessState 100 10 0 0 0 50 100 with
-          bindings := bindValue (witnessBindings 100) "credit" 100 } := by
+          bindings := bindValue (witnessBindings 100) "slice.tmp.0" 100 } := by
   dsimp only [peel, smokeBody, slice.model]
   have hmi : ("m_maturity" == "id") = false := by decide
   have hmu : ("m_maturity" == "user") = false := by decide
@@ -86,13 +86,5 @@ theorem smoke_step_credit :
       Verity.Core.Uint256.modulus = 100 := by decide
   simp [hcredit]
 
--- Interpreter checks. Not kernel proofs. `smoke_step_credit` proves the first read.
-#eval show IO Unit from do
-  let success := denoteScalarBody sliceOracle slice.model.fields
-    (witnessWorld 100 10 0 0 0) 50 (witnessBindings 100) smokeBody
-  unless success == some [95, 5, 5] do
-    throw (IO.userError s!"witness A returned {success}")
-  let reverted := denoteScalarBody sliceOracle slice.model.fields
-    (witnessWorld 1 2 0 0 0) 1 (witnessBindings 1) smokeBody
-  unless reverted == none do
-    throw (IO.userError s!"witness B returned {reverted}")
+-- Interpreter witnesses A/B live in scripts/solidity_slice_mutations.py.
+-- Keeping test execution out of this proof module satisfies Lean hygiene.

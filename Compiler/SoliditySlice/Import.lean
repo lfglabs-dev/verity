@@ -18,7 +18,7 @@ open Lean Meta Elab Command
 
 namespace Compiler.CompilationModel.SoliditySlice
 
-def importerVersion : String := "solidity-slice-1"
+def importerVersion : String := "solidity-slice-2"
 
 private def solcLongVersion := "0.8.34+commit.80d5c536"
 
@@ -117,9 +117,9 @@ private structure MemParam where
   members : Array (String × String)
 
 private structure FieldInfo where
-  name : String
   slot : Nat
   term : String
+  keyCount : Nat
   memberNames : Array String
   opaqueNames : Array String
 
@@ -135,7 +135,6 @@ private structure ProjRec where
   structName : String
   headWord : Nat
   modelParam : String
-  typeString : String
 
 private structure OpaqRec where
   field : String
@@ -147,11 +146,8 @@ private structure OpaqRec where
 private structure SrcParam where
   name : String
   id : Nat
-  typeString : String
-  location : String
 
 private structure Env where
-  nodes : RBMap Nat Json compare
   nodeFile : RBMap Nat String compare
   files : RBMap String ByteArray compare
   funs : RBMap Nat Json compare
@@ -162,6 +158,8 @@ private structure Env where
   paths : RBMap Nat SPath compare
   mems : RBMap Nat MemParam compare
   fieldsByName : RBMap String FieldInfo compare
+  layoutItems : RBMap String Json compare
+  layoutTypes : Json
   included : Array FnRec
   projections : Array ProjRec
   opaqueMembers : Array OpaqRec
@@ -173,7 +171,6 @@ private structure Env where
   currentFile : String
 
 private def Env.init : Env where
-  nodes := RBMap.empty
   nodeFile := RBMap.empty
   files := RBMap.empty
   funs := RBMap.empty
@@ -184,6 +181,8 @@ private def Env.init : Env where
   paths := RBMap.empty
   mems := RBMap.empty
   fieldsByName := RBMap.empty
+  layoutItems := RBMap.empty
+  layoutTypes := Json.null
   included := #[]
   projections := #[]
   opaqueMembers := #[]
@@ -194,7 +193,7 @@ private def Env.init : Env where
   yulNames := RBMap.empty
   currentFile := ""
 
-abbrev M := StateT Env MetaM
+private abbrev M := StateT Env MetaM
 
 private def mField (j : Json) (key : String) : M Json := liftM (field j key)
 private def mStr (j : Json) : M String := liftM (str j)
@@ -238,7 +237,9 @@ private def refInt (j : Json) : M Int := do
 private def fresh : M String := do
   let n := (← get).next
   modify fun e => { e with next := e.next + 1 }
-  pure s!"sliceTmp{n}"
+  -- A dot cannot occur in a Solidity identifier; generated bindings cannot
+  -- capture a source local, parameter, or projected parameter.
+  pure s!"slice.tmp.{n}"
 
 private def isAtom (expr : String) : Bool :=
   expr.startsWith "(Compiler.CompilationModel.Expr.literal " ||
@@ -298,6 +299,87 @@ private def noteProjection (p : ProjRec) : M Unit := do
   let env ← get
   unless env.projections.any (fun q => q.parameter == p.parameter && q.member == p.member) do
     modify fun e => { e with projections := e.projections.push p }
+
+private def keySyntax (ty : String) : MetaM String :=
+  match ty with
+  | "t_bytes32" => pure "Compiler.CompilationModel.MappingKeyType.bytes32"
+  | "t_address" => pure "Compiler.CompilationModel.MappingKeyType.address"
+  | "t_uint256" => pure "Compiler.CompilationModel.MappingKeyType.uint256"
+  | _ => throwError "unsupported mapping key {ty}"
+
+private def layoutType (types : Json) (id : String) : MetaM Json :=
+  field types id
+
+private def buildField (types item : Json) : M FieldInfo := do
+  let name ← mStr (← mField item "label")
+  let slot ← mNat (← mField item "slot")
+  let typeId ← mStr (← mField item "type")
+  let top ← liftM (layoutType types typeId)
+  unless (← mStr (← mField top "encoding")) == "mapping" do
+    throwError "storage field {name} is not a mapping"
+  let key1 ← liftM (keySyntax (← mStr (← mField top "key")))
+  let valueId ← mStr (← mField top "value")
+  let value ← liftM (layoutType types valueId)
+  let encoding ← mStr (← mField value "encoding")
+  let (key2, structTy) ←
+    if encoding == "mapping" then
+      let key2 ← liftM (keySyntax (← mStr (← mField value "key")))
+      let innerId ← mStr (← mField value "value")
+      pure (some key2, ← liftM (layoutType types innerId))
+    else if encoding == "inplace" then
+      pure (none, value)
+    else
+      throwError "unsupported mapping value encoding {encoding} for {name}"
+  let members ← mArr (← mField structTy "members")
+  let mut terms : Array String := #[]
+  let mut names : Array String := #[]
+  let mut skipped : Array String := #[]
+  for m in members do
+    let label ← mStr (← mField m "label")
+    let solcType ← mStr (← mField m "type")
+    let word ← mNat (← mField m "slot")
+    let byteOff ← mNat (← mField m "offset")
+    if solcType.startsWith "t_array" || solcType.startsWith "t_mapping" then
+      skipped := skipped.push label
+      modify fun e =>
+        let item : OpaqRec := ⟨name, label, solcType, word, byteOff⟩
+        { e with opaqueMembers := e.opaqueMembers.push item }
+    else if solcType.startsWith "t_uint" then
+      let some bits := (solcType.drop 6).toNat? | throwError "bad uint {solcType}"
+      let bitOff := byteOff * 8
+      unless bitOff + bits ≤ 256 do throwError "packed field {label} does not fit in a word"
+      let packed :=
+        if bits == 256 && bitOff == 0 then "none"
+        else
+          s!"some ({ "{ " }offset := {bitOff}, width := {bits}{ " }" } : Compiler.CompilationModel.PackedBits)"
+      let sty :=
+        if bits == 16 then "Compiler.CompilationModel.StructMemberType.uint16"
+        else "Compiler.CompilationModel.StructMemberType.uint256"
+      terms := terms.push
+        s!"({ "{ " }name := {leanStr label}, ty := {sty}, wordOffset := {word}, packed := {packed}{ " }" } : Compiler.CompilationModel.StructMember)"
+      names := names.push label
+    else
+      throwError "unsupported layout member {label} : {solcType}"
+  let tyExpr :=
+    match key2 with
+    | some k2 =>
+        s!"Compiler.CompilationModel.FieldType.mappingStruct2 {key1} {k2} {leanList terms}"
+    | none =>
+        s!"Compiler.CompilationModel.FieldType.mappingStruct {key1} {leanList terms}"
+  let term :=
+    s!"({ "{ " }name := {leanStr name}, ty := {tyExpr}, slot := some {slot}{ " }" } : Compiler.CompilationModel.Field)"
+  pure { slot, term, keyCount := if key2.isSome then 2 else 1,
+         memberNames := names, opaqueNames := skipped }
+
+/-- Resolve only reached fields: an unrelated unsupported layout must not
+prevent importing a supported function closure. -/
+private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
+  if let some info := (← get).fieldsByName.find? name then return info
+  let env ← get
+  let some item := env.layoutItems.find? name | failAt at_ s!"no storage layout for {name}"
+  let info ← buildField env.layoutTypes item
+  modify fun e => { e with fieldsByName := e.fieldsByName.insert name info }
+  return info
 
 private def memberRead (pre : Array String) (path : SPath) (member : String) (at_ : Json) : M Val := do
   let (fieldName, exprBody) ← match path with
@@ -393,7 +475,11 @@ private partial def lowerRef (j : Json) : M Ref := do
       else if env.mems.contains n then
         pure (.mem n #[])
       else if let some decl := env.stateVars.find? n then
-        pure (.state (← mStr (← mField decl "name")) #[])
+        let name ← mStr (← mField decl "name")
+        if let some item := env.layoutItems.find? name then
+          unless (← mNat (← mField item "astId")) == n do
+            failAt j s!"shadowed storage declaration {name} is outside this slice"
+        pure (.state name #[])
       else
         failAt j s!"unresolved identifier {id}"
   | "IndexAccess" =>
@@ -401,10 +487,9 @@ private partial def lowerRef (j : Json) : M Ref := do
       let key ← atom (← lowerExpr (← mField j "indexExpression"))
       match base with
       | .state name pre =>
-          let some info := (← get).fieldsByName.find? name
-            | failAt j s!"no storage layout for {name}"
+          let info ← resolveField name j
           markField name
-          if info.term.contains "mappingStruct2" then
+          if info.keyCount == 2 then
             pure (.path (pre ++ key.pre) (.outer name key.expr))
           else
             pure (.path (pre ++ key.pre) (.one name key.expr))
@@ -415,7 +500,8 @@ private partial def lowerRef (j : Json) : M Ref := do
       let member ← mStr (← mField j "memberName")
       let base ← mField j "expression"
       if member == "timestamp" && (← mKind base) == "Identifier" &&
-          optStr base "name" == some "block" then
+          optStr base "name" == some "block" &&
+          optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_block" then
         pure (.expr { pre := #[], expr := ex "blockTimestamp" })
       else if member == "max" then
         lowerTypeMax j base
@@ -459,7 +545,7 @@ private partial def projectMember (id : Nat) (pre : Array String) (member : Stri
   let modelParam := s!"{mem.param}_{member}"
   noteProjection {
     parameter := mem.param, member := member, structName := mem.structName,
-    headWord := head, modelParam := modelParam, typeString := mem.members[idx]!.2 }
+    headWord := head, modelParam := modelParam }
   pure { pre, expr := ex s!"param {leanStr modelParam}" }
 
 private partial def lowerBinary (j : Json) : M Val := do
@@ -467,6 +553,8 @@ private partial def lowerBinary (j : Json) : M Val := do
   let left ← lowerExpr (← mField j "leftExpression")
   let right ← lowerExpr (← mField j "rightExpression")
   let common ← mStr (← mField (← mField j "commonType") "typeString")
+  unless (bitsOf common).isSome || common == "bool" do
+    failAt j s!"unsupported operand type {common}"
   match op with
   | "+" =>
       let some bits := bitsOf common | failAt j s!"unsupported add type {common}"
@@ -519,13 +607,13 @@ private partial def checkedMul (bits : Nat) (left right : Val) : M Val := do
   let dest ← fresh
   let prod := bin "mul" a.expr b.expr
   let ok := letBind dest prod
-  if bits == 256 then
-    let inner := iteStmt (bin "eq" (bin "div" prod a.expr) b.expr) ok overflowPanic
-    let ite := iteStmt (bin "eq" a.expr (lit 0)) ok inner
-    pure { pre := a.pre ++ b.pre |>.push ite, expr := localName dest }
-  else
-    let cond := bin "lt" (lit (2 ^ bits - 1)) prod
-    pure { pre := a.pre ++ b.pre |>.push (iteStmt cond overflowPanic ok), expr := localName dest }
+  -- Check the EVM-width product before the Solidity-width bound. For e.g.
+  -- uint248, an overflowing 256-bit product can wrap below the uint248 bound.
+  let bounded := if bits == 256 then ok
+    else iteStmt (bin "lt" (lit (2 ^ bits - 1)) prod) overflowPanic ok
+  let inner := iteStmt (bin "eq" (bin "div" prod a.expr) b.expr) bounded overflowPanic
+  let ite := iteStmt (bin "eq" a.expr (lit 0)) bounded inner
+  pure { pre := a.pre ++ b.pre |>.push ite, expr := localName dest }
 
 private partial def cmp (op : String) (left right : Val) : M Val := do
   let a ← atom left
@@ -565,6 +653,8 @@ private partial def lowerCast (j : Json) : M Val := do
     pure v
 
 private partial def lowerCall (j : Json) : M Val := do
+  let names ← mArr (← mField j "names")
+  unless names.isEmpty do failAt j "named call arguments are outside this slice"
   let kind ← mStr (← mField j "kind")
   if kind == "typeConversion" then
     lowerCast j
@@ -598,6 +688,8 @@ private partial def lowerCall (j : Json) : M Val := do
 private partial def inlineFn (fnId : Nat) (args : Array Val) (at_ : Json) : M Val := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
+  if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
+    failAt fn "virtual dispatch is outside this slice"
   let mods ← mArr (← mField fn "modifiers")
   unless mods.isEmpty do failAt fn "modifiers are outside this slice"
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
@@ -606,7 +698,8 @@ private partial def inlineFn (fnId : Nat) (args : Array Val) (at_ : Json) : M Va
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
   unless rets.size == 1 do failAt fn "only single-value helpers are inlined"
   let retName ← mStr (← mField rets[0]! "name")
-  let savedYul := (← get).yulNames
+  let saved := ← get
+  let savedYul := saved.yulNames
   let savedFile := (← get).currentFile
   let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
   let frame := fnId :: (← get).stack
@@ -632,7 +725,9 @@ private partial def inlineFn (fnId : Nat) (args : Array Val) (at_ : Json) : M Va
   let body ← mField fn "body"
   let stmts ← mArr (← mField body "statements")
   let result ← lowerHelper stmts retName
-  modify fun e => { e with stack := e.stack.tail!, yulNames := savedYul, currentFile := savedFile }
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
+             values := saved.values, paths := saved.paths, mems := saved.mems }
   pure { pre := pre ++ result.pre, expr := result.expr }
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
@@ -686,7 +781,7 @@ private partial def lowerAssembly (j : Json) (retName : String) : M Val := do
   let vars ← mArr (← mField asg "variableNames")
   unless vars.size == 1 do failAt asg "Yul assignment must have one target"
   let vname ← mStr (← mField vars[0]! "name")
-  unless retName == "" || vname == retName do
+  unless retName != "" && vname == retName do
     failAt asg s!"Yul assigns {vname}, not the return name {retName}"
   pure { pre := #[], expr := ← lowerYul (← mField asg "value") }
 
@@ -709,11 +804,11 @@ private partial def lowerLocal (s : Json) : M (Array String) := do
     | _ => failAt s "storage local is not a resolved read path"
   else
     let v ← lowerExpr init
-    modify fun e => { e with values := e.values.insert id (ex s!"localVar {leanStr name}") }
-    let env ← get
-    if env.yulNames.contains name then
-      modify fun e => { e with yulNames := e.yulNames.insert name (ex s!"localVar {leanStr name}") }
-    pure (v.pre.push (st s!"letVar {leanStr name} {v.expr}"))
+    let binding ← fresh
+    let expr := localName binding
+    modify fun e =>
+      { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr }
+    pure (v.pre.push (letBind binding v.expr))
 
 end
 
@@ -733,7 +828,7 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
     let id ← mNat (← mField p "id")
     let ty ← mType p
     let loc := optStr p "storageLocation" |>.getD "default"
-    out := out.push { name, id, typeString := ty, location := loc }
+    out := out.push { name, id }
     if ty.startsWith "struct " && (loc == "memory" || loc == "calldata") then
       let typeName ← mField p "typeName"
       let sid ← refInt typeName
@@ -756,16 +851,21 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
 
 private def lowerRoot (fn : Json) : M (Array String × Array SrcParam) := do
   let srcParams ← bindRoot fn
+  if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
+    failAt fn "virtual dispatch is outside this slice"
   let mods ← mArr (← mField fn "modifiers")
   unless mods.isEmpty do failAt fn "modifiers are outside this slice"
   let some _ := field? fn "body" | failAt fn "function has no body"
   let stmts ← mArr (← mField (← mField fn "body") "statements")
   let mut out : Array String := #[]
+  let mut returned := false
   for s in stmts do
+    if returned then failAt s "statement after root return"
     match ← mKind s with
     | "VariableDeclarationStatement" =>
         out := out ++ (← lowerLocal s)
     | "Return" =>
+        returned := true
         let expr ← mField s "expression"
         if (← mKind expr) == "TupleExpression" then
           if ← mBool (← mField expr "isInlineArray") then
@@ -783,78 +883,8 @@ private def lowerRoot (fn : Json) : M (Array String × Array SrcParam) := do
           let v ← atom (← lowerExpr expr)
           out := out ++ v.pre |>.push (st s!"returnValues {leanList #[v.expr]}")
     | kind => failAt s s!"unsupported statement {kind}"
+  unless returned do failAt fn "an explicit root return is required"
   pure (out, srcParams)
-
-private def keySyntax (ty : String) : MetaM String :=
-  match ty with
-  | "t_bytes32" => pure "Compiler.CompilationModel.MappingKeyType.bytes32"
-  | "t_address" => pure "Compiler.CompilationModel.MappingKeyType.address"
-  | "t_uint256" => pure "Compiler.CompilationModel.MappingKeyType.uint256"
-  | _ => throwError "unsupported mapping key {ty}"
-
-private def layoutType (types : Json) (id : String) : MetaM Json :=
-  field types id
-
-private def buildField (types item : Json) : M FieldInfo := do
-  let name ← mStr (← mField item "label")
-  let slot ← mNat (← mField item "slot")
-  let typeId ← mStr (← mField item "type")
-  let top ← liftM (layoutType types typeId)
-  unless (← mStr (← mField top "encoding")) == "mapping" do
-    throwError "storage field {name} is not a mapping"
-  let key1 ← liftM (keySyntax (← mStr (← mField top "key")))
-  let valueId ← mStr (← mField top "value")
-  let value ← liftM (layoutType types valueId)
-  let encoding ← mStr (← mField value "encoding")
-  let (ctor, key2, structTy) ←
-    if encoding == "mapping" then
-      let key2 ← liftM (keySyntax (← mStr (← mField value "key")))
-      let innerId ← mStr (← mField value "value")
-      pure ("mappingStruct2", some key2, ← liftM (layoutType types innerId))
-    else if encoding == "inplace" then
-      pure ("mappingStruct", none, value)
-    else
-      throwError "unsupported mapping value encoding {encoding} for {name}"
-  let members ← mArr (← mField structTy "members")
-  let mut terms : Array String := #[]
-  let mut names : Array String := #[]
-  let mut skipped : Array String := #[]
-  for m in members do
-    let label ← mStr (← mField m "label")
-    let solcType ← mStr (← mField m "type")
-    let word ← mNat (← mField m "slot")
-    let byteOff ← mNat (← mField m "offset")
-    if solcType.startsWith "t_array" || solcType.startsWith "t_mapping" then
-      skipped := skipped.push label
-      modify fun e =>
-        let item : OpaqRec := ⟨name, label, solcType, word, byteOff⟩
-        { e with opaqueMembers := e.opaqueMembers.push item }
-    else if solcType.startsWith "t_uint" then
-      let some bits := (solcType.drop 6).toNat? | throwError "bad uint {solcType}"
-      let bitOff := byteOff * 8
-      unless bitOff + bits ≤ 256 do throwError "packed field {label} does not fit in a word"
-      let packed :=
-        if bits == 256 && bitOff == 0 then "none"
-        else
-          s!"some ({ "{ " }offset := {bitOff}, width := {bits}{ " }" } : Compiler.CompilationModel.PackedBits)"
-      let sty :=
-        if bits == 16 then "Compiler.CompilationModel.StructMemberType.uint16"
-        else "Compiler.CompilationModel.StructMemberType.uint256"
-      terms := terms.push
-        s!"({ "{ " }name := {leanStr label}, ty := {sty}, wordOffset := {word}, packed := {packed}{ " }" } : Compiler.CompilationModel.StructMember)"
-      names := names.push label
-    else
-      throwError "unsupported layout member {label} : {solcType}"
-  let tyExpr :=
-    match key2 with
-    | some k2 =>
-        s!"Compiler.CompilationModel.FieldType.mappingStruct2 {key1} {k2} {leanList terms}"
-    | none =>
-        s!"Compiler.CompilationModel.FieldType.mappingStruct {key1} {leanList terms}"
-  let _ := ctor
-  let term :=
-    s!"({ "{ " }name := {leanStr name}, ty := {tyExpr}, slot := some {slot}{ " }" } : Compiler.CompilationModel.Field)"
-  pure { name, slot, term, memberNames := names, opaqueNames := skipped }
 
 private partial def index (file : String) (contract? : Option String) (j : Json) : M Unit := do
   match j with
@@ -862,7 +892,7 @@ private partial def index (file : String) (contract? : Option String) (j : Json)
       if (field? j "nodeType").isSome then
         if let some idj := field? j "id" then
           let id ← mNat idj
-          modify fun e => { e with nodes := e.nodes.insert id j, nodeFile := e.nodeFile.insert id file }
+          modify fun e => { e with nodeFile := e.nodeFile.insert id file }
           match ← mKind j with
           | "FunctionDefinition" =>
               modify fun e =>
@@ -957,7 +987,7 @@ private partial def collectSources
     | .ok next => acc ← collectSources root next remaps acc
   pure acc
 
-private def verifyCompiler (compiler : System.FilePath) : MetaM Unit := do
+private def verifyCompiler (compiler : System.FilePath) : MetaM String := do
   let output ←
     if System.Platform.isOSX then
       IO.Process.output { cmd := "/usr/bin/shasum", args := #["-a", "256", compiler.toString] }
@@ -965,6 +995,7 @@ private def verifyCompiler (compiler : System.FilePath) : MetaM Unit := do
       IO.Process.output { cmd := "/usr/bin/sha256sum", args := #[compiler.toString] }
   unless output.exitCode == 0 && officialSolcSha256s.contains (output.stdout.take 64).toString do
     throwError "compiler checksum mismatch"
+  return (output.stdout.take 64).toString
 
 /-- Verity itself stores the importer next to its lakefile. A downstream package
 stores that checkout at `.lake/packages/verity`. The digest must hash those
@@ -1017,12 +1048,12 @@ private def importSlice
     (paramTys : Array String) (viaIR optimizer : Bool) (evm bytecodeHash : String)
     (runs : Nat) : MetaM (String × String × String) := do
   let compiler := pkgRoot / ".lake/solidity-import/solc-0.8.34"
-  verifyCompiler compiler
+  let solcSha ← verifyCompiler compiler
   let versionOut ← IO.Process.output { cmd := compiler.toString, args := #["--version"] }
   unless versionOut.exitCode == 0 &&
       acceptedSolcBanners.contains versionOut.stdout.trimAscii.toString do
     throwError "compiler version mismatch"
-  verifyCompiler compiler
+  unless (← verifyCompiler compiler) == solcSha do throwError "compiler changed during import"
   let remaps ← readRemappings projectRoot
   let sources ← collectSources projectRoot entry remaps RBMap.empty
   let mut fileBytes : RBMap String ByteArray compare := RBMap.empty
@@ -1047,7 +1078,7 @@ private def importSlice
     { cmd := compiler.toString, args := #["--standard-json", "--no-import-callback"] }
     (some input.compress)
   unless output.exitCode == 0 do throwError "solc failed: {output.stderr}"
-  verifyCompiler compiler
+  unless (← verifyCompiler compiler) == solcSha do throwError "compiler changed during import"
   let parsed ← match Json.parse output.stdout with
     | .ok v => pure v
     | .error e => throwError "solc output is not JSON: {e}"
@@ -1069,28 +1100,16 @@ private def importSlice
   let layout ← field chosen "storageLayout"
   let types ← field layout "types"
   let items ← arr (← field layout "storage")
+  env := { env with layoutTypes := types }
   for item in items do
     let label ← str (← field item "label")
-    let typeId ← str (← field item "type")
-    let top ← layoutType types typeId
-    let encoding ← str (← field top "encoding")
-    if encoding == "mapping" then
-      let value ← layoutType types (← str (← field top "value"))
-      let valueEnc ← str (← field value "encoding")
-      let leaf ←
-        if valueEnc == "mapping" then
-          layoutType types (← str (← field value "value"))
-        else
-          pure value
-      if (field? leaf "members").isSome then
-        let (info, env') ← (buildField types item).run env
-        env := env'
-        env := { env with fieldsByName := env.fieldsByName.insert label info }
+    env := { env with layoutItems := env.layoutItems.insert label item }
   let fn ← (selectFunction contract functionName paramTys).run' env
   env := { env with currentFile := entry }
   let ((body, srcParams), env2) ← (lowerRoot fn).run env
   env := env2
   let mut modelParams : Array String := #[]
+  let mut modelParamNames : Array String := #[]
   for p in srcParams do
     if env.mems.contains p.id then
       let some mem := env.mems.find? p.id | throwError "missing memory parameter {p.name}"
@@ -1099,12 +1118,17 @@ private def importSlice
         if let some proj := env.projections.find? (fun q => q.parameter == p.name && q.member == member) then
           let some tySyn := paramTypeSyntax ty
             | throwError "unsupported projected type {ty}"
+          if modelParamNames.contains proj.modelParam then
+            throwError "projected parameter name collision: {proj.modelParam}"
+          modelParamNames := modelParamNames.push proj.modelParam
           modelParams := modelParams.push
             s!"({ "{ " }name := {leanStr proj.modelParam}, ty := {tySyn}{ " }" } : Compiler.CompilationModel.Param)"
           seen := true
       unless seen do throwError "struct parameter {p.name} was not read"
     else
       let some tySyn := env.scalarTy.find? p.id | throwError "missing parameter type"
+      if modelParamNames.contains p.name then throwError "projected parameter name collision: {p.name}"
+      modelParamNames := modelParamNames.push p.name
       modelParams := modelParams.push
         s!"({ "{ " }name := {leanStr p.name}, ty := {tySyn}{ " }" } : Compiler.CompilationModel.Param)"
   let retSyntax ← (do
@@ -1144,7 +1168,8 @@ private def importSlice
     let ignored :=
       match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
       | some (_, mem) => mem.members.filterMap fun pair =>
-          if pair.1 == proj.member then none else some (leanStr pair.1)
+          if env.projections.any (fun q => q.parameter == proj.parameter && q.member == pair.1)
+          then none else some (leanStr pair.1)
       | none => #[]
     projTerms := projTerms.push
       s!"({ "{ " }parameter := {leanStr proj.parameter}, member := {leanStr proj.member}, structName := {leanStr proj.structName}, headWord := {proj.headWord}, modelParam := {leanStr proj.modelParam}, ignoredMembers := {leanList ignored}{ " }" } : Compiler.CompilationModel.SoliditySlice.SliceProjection)"
@@ -1157,22 +1182,25 @@ private def importSlice
   let importer ← moduleText sourceRoot "Compiler/SoliditySlice/Import.lean"
   let coverage ← moduleText sourceRoot "Compiler/SoliditySlice/Coverage.lean"
   let reportSrc ← moduleText sourceRoot "Compiler/SoliditySlice/Report.lean"
-  let mut digestInput := s!"{importerVersion}\n{solcLongVersion}\n{contract}\n{functionName}\n"
-  for ty in paramTys do
-    digestInput := digestInput ++ ty ++ "\n"
-  digestInput := digestInput ++ settings.compress ++ "\n"
-  for (logical, text) in sources.toList.mergeSort (fun a b => a.1 < b.1) do
-    digestInput := digestInput ++ logical ++ "\n" ++ text ++ "\n"
-  digestInput := digestInput ++ importer ++ "\n" ++ coverage ++ "\n" ++ reportSrc
-  let digest := sha256Hex digestInput.toUTF8
-  let solcSha :=
-    if System.Platform.isOSX then officialSolcSha256s[1]! else officialSolcSha256s[0]!
+  -- JSON framing prevents distinct file/signature lists from sharing a
+  -- concatenation merely because their text contains separator newlines.
+  let digestInput := Json.mkObj [
+    ("importerVersion", Json.str importerVersion),
+    ("solcVersion", Json.str solcLongVersion),
+    ("contract", Json.str contract),
+    ("function", Json.str functionName),
+    ("parameterTypes", Json.arr (paramTys.map Json.str)),
+    ("solcInput", input),
+    ("importerSources", Json.mkObj [
+      ("Import.lean", Json.str importer), ("Coverage.lean", Json.str coverage),
+      ("Report.lean", Json.str reportSrc)])]
+  let digest := sha256Hex digestInput.compress.toUTF8
   let reportTerm :=
     s!"({ "{ " }importerVersion := {leanStr importerVersion}, solcLongVersion := {leanStr solcLongVersion}, solcSha256 := {leanStr solcSha}, settingsJson := {leanStr settings.compress}, sourceDigest := {leanStr digest}, contract := {leanStr contract}, rootFunction := {leanStr functionName}, includedFunctions := {leanList (env.included.map renderFn)}, excludedFunctions := {leanList (sortedExcluded.map renderFn)}, projections := {leanList projTerms}, storageFields := {leanList (env.referenced.map leanStr)}, opaqueMembers := {leanList opaqueTerms}, observesPanicPayload := false{ " }" } : Compiler.CompilationModel.SoliditySlice.SliceReport)"
   pure (modelTerm, reportTerm, digest)
 
 private def elabDef (name : Name) (type body : String) : CommandElabM Unit := do
-  let cmd := s!"def {name} : {type} :=\n{body}"
+  let cmd := s!"def _root_.{name} : {type} :=\n{body}"
   match Parser.runParserCategory (← getEnv) `command cmd "<solidity-slice>" with
   | .error e => throwError e
   | .ok stx => elabCommand stx
@@ -1212,7 +1240,7 @@ def elabSliceImport : CommandElab := fun stx => do
       let some parent := pkg.parent | throwError "package root not found"
       if parent == pkg then throwError "package root not found"
       pkg := parent
-    let project := if ("/" ++ rootArg).startsWith "//" || rootArg.startsWith "/" then
+    let project := if rootArg.startsWith "/" then
       System.FilePath.mk rootArg else pkg / rootArg
     let (modelTerm, reportTerm, digest) ← liftTermElabM <|
       importSlice pkg project entryPath contractName functionName paramTys useIR optimize evmVersion hashMode runCount
@@ -1220,7 +1248,7 @@ def elabSliceImport : CommandElab := fun stx => do
     elabDef (ns ++ `model) "Compiler.CompilationModel.CompilationModel" modelTerm
     elabDef (ns ++ `report) "Compiler.CompilationModel.SoliditySlice.SliceReport" reportTerm
     elabDef (ns ++ `sourceDigest) "String" (leanStr digest)
-    let covered := s!"theorem {ns ++ `sliceCovered} : Compiler.CompilationModel.SoliditySlice.modelSliceCovered {ns ++ `model} = true := by decide"
+    let covered := s!"theorem _root_.{ns ++ `sliceCovered} : Compiler.CompilationModel.SoliditySlice.modelSliceCovered {ns ++ `model} = true := by decide"
     match Parser.runParserCategory (← getEnv) `command covered "<solidity-slice>" with
     | .error e => throwError e
     | .ok stx => elabCommand stx

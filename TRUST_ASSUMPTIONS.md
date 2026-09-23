@@ -35,6 +35,13 @@ Checked `uint256` and narrower unsigned arithmetic is lowered to `Stmt.ite` plus
 (`bitAnd` with `2^128-1`). Ternaries are `Stmt.ite`, so the untaken branch is
 not evaluated. Library helpers in an accepted acyclic slice are inlined.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
+Generated scalar bindings are hygienic, and helper-local bindings are scoped.
+Only reached storage fields are decoded. Namespace-qualified output names and
+framed-JSON provenance are deterministic. Implicit root returns, named call
+arguments, virtual dispatch, and unsupported signed operations are rejected.
+The slice makes no dynamic ABI-head claim: that unrelated denotation extension
+is not part of this change. Lake does not track the external Solidity reads,
+so consumers must re-elaborate to verify freshness against a compiled import.
 
 ## Proof-only Solidity Vault import
 

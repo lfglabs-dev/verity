@@ -56,4 +56,21 @@ structure SliceReport where
   observesPanicPayload : Bool := false
   deriving Repr, BEq
 
+/-- Stable, reviewable inventory of the translated closure and explicit exclusions. -/
+def SliceReport.toText (r : SliceReport) : String := Id.run do
+  let mut lines := [s!"importer {r.importerVersion}", s!"solc {r.solcLongVersion}",
+    s!"solcSha256 {r.solcSha256}", s!"digest {r.sourceDigest}",
+    s!"contract {r.contract}", s!"root {r.rootFunction}", s!"settings {r.settingsJson}"]
+  for fn in r.includedFunctions do
+    lines := lines ++ [s!"include {fn.contract}.{fn.name} decl {fn.declId} params {fn.paramTypes}"]
+  for fn in r.excludedFunctions do
+    lines := lines ++ [s!"exclude {fn.contract}.{fn.name} decl {fn.declId} params {fn.paramTypes}"]
+  for p in r.projections do
+    lines := lines ++ [s!"projection {p.parameter}.{p.member} head {p.headWord} as {p.modelParam} ignored {p.ignoredMembers}"]
+  for name in r.storageFields do
+    lines := lines ++ [s!"storage {name}"]
+  for m in r.opaqueMembers do
+    lines := lines ++ [s!"opaque {m.field}.{m.name} {m.solcType} word {m.wordOffset} byte {m.byteOffset}"]
+  return String.intercalate "\n" lines ++ "\n"
+
 end Compiler.CompilationModel.SoliditySlice

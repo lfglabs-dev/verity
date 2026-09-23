@@ -13,7 +13,7 @@ on `DenoteState.observedReturnWords` and is mirrored in `SourceSemantics` and
 `DenoteAgreement`. Accepted slices carry `sliceCovered`, proved by `decide`
 against `modelSliceCovered`. The smoke contract
 `Contracts/SoliditySliceSmoke` contains an unreached `for` loop; the import
-still succeeds. `#eval` checks the interpreter result of two witnesses on that
+still succeeds. The mutation harness checks the interpreter result of two witnesses on that
 imported body: `(95, 5, 5)` and a revert. `smoke_step_credit` is a kernel proof
 of the first packed `credit` read. It is not a proof of the whole body, and it
 is not a proof that the model matches solc bytecode.
@@ -29,7 +29,15 @@ installed at `.lake/solidity-import/solc-0.8.34`, and
 `python3 scripts/solidity_slice_mutations.py`. The mutation script checks an
 unreached `for`, rejection of that `for` once it is reachable, and detection of
 a reached-helper change, a fee-factor change, a field change, a return-order
-change, and a layout swap. A rejected import leaves no `.olean`.
+change, and a layout swap. It also covers hygienic helper locals, generated-name
+collisions, namespaces, repeated deterministic imports, unrelated unsupported
+layouts, and fail-closed rejection of named arguments and implicit returns.
+A rejected import leaves no `.olean`.
+
+The downstream `morpho-midnight-verity` pilot proves all five CVL assertions on
+actual imported execution, with arbitrary state/oracle and mathematical integer
+ghosts. That proof adds no source-to-model equivalence claim. See
+`Compiler/SoliditySlice/README.md` for the supported subset and freshness checks.
 
 ## Proof-only Solidity Vault POC
 

@@ -66,6 +66,10 @@ def body : List Stmt :=
     (witnessWorld 100 10 0 0 0) 50 (witnessBindings 100) body
   unless success == some [95, 5, 5] do
     throw (IO.userError s!"witness changed: {success}")
+  let reverted := denoteScalarBody sliceOracle imported.model.fields
+    (witnessWorld 1 2 0 0 0) 1 (witnessBindings 1) body
+  unless reverted == none do
+    throw (IO.userError s!"revert witness changed: {reverted}")
   IO.println imported.report.sourceDigest
 """
 
@@ -90,12 +94,12 @@ def write_project(name: str, mutate) -> Path:
     return dest
 
 
-def expect_success(name: str, project: Path, witness: bool) -> str:
+def expect_success(name: str, project: Path, witness: bool, extra: str = "") -> str:
     lean_path = project / "Check.lean"
     text = HEADER.format(root=project)
     if witness:
         text += WITNESS
-    lean_path.write_text(text)
+    lean_path.write_text(text + extra)
     result = lean(lean_path)
     if result.returncode != 0:
         sys.stderr.write(result.stdout)
@@ -179,6 +183,70 @@ def swap_layout(dest: Path) -> None:
     (dest / "Slice.sol").write_text(text)
 
 
+def helper_local_collision(dest: Path) -> None:
+    # The caller also has `credit`. Inlining must not overwrite that binding.
+    path = dest / "Lib.sol"
+    path.write_text(path.read_text().replace(
+        "return (x * y) / d;", "uint256 credit = x * y; return credit / d;"))
+
+
+def generated_name_collision(dest: Path) -> None:
+    path = dest / "Slice.sol"
+    path.write_text(path.read_text().replace("credit = p.credit", "sliceTmp0 = p.credit")
+                    .replace("credit.mulDivDown", "sliceTmp0.mulDivDown")
+                    .replace("credit > 0", "sliceTmp0 > 0")
+                    .replace("credit - post", "sliceTmp0 - post")
+                    .replace(", credit)", ", sliceTmp0)"))
+
+
+def unrelated_layout(dest: Path) -> None:
+    path = dest / "Slice.sol"
+    path.write_text(path.read_text().replace(
+        "contract C {", "struct Unused { int128 signedValue; }\ncontract C {").replace(
+        "public marketState;", "public marketState;\n    mapping(bytes32 => Unused) private unusedState;"))
+
+
+def named_arguments(dest: Path) -> None:
+    path = dest / "Lib.sol"
+    path.write_text(path.read_text().replace(
+        "return (x * y) / d;", "return named({d: d, y: y, x: x});"))
+    with path.open("a") as out:
+        out.write("\nfunction named(uint256 x, uint256 y, uint256 d) pure returns (uint256) { return x*y/d; }\n")
+
+
+def implicit_return(dest: Path) -> None:
+    path = dest / "Slice.sol"
+    path.write_text(path.read_text().replace(
+        "returns (uint128, uint128, uint128)", "returns (uint128 a, uint128 b, uint128 c)").replace(
+        "return (uint128(post) - fee, uint128(postFee) - fee, fee);", ""))
+
+
+def projected_name_collision(dest: Path) -> None:
+    path = dest / "Slice.sol"
+    path.write_text(path.read_text().replace("bytes32 id,", "bytes32 m_maturity,")
+                    .replace("[id]", "[m_maturity]"))
+
+
+def shadow_builtin(dest: Path) -> None:
+    path = dest / "Slice.sol"
+    path.write_text(path.read_text().replace("uint256 ignored;", "uint256 timestamp;")
+                    .replace("Mkt memory m,", "Mkt memory block,")
+                    .replace("m.maturity", "block.maturity"))
+
+
+def narrow_multiply(dest: Path) -> None:
+    (dest / "Slice.sol").write_text("""pragma solidity 0.8.34;
+struct Mkt { uint256 maturity; }
+contract C {
+    function f(Mkt memory m, bytes32 id, address user) external pure returns (uint128, uint128, uint128) {
+        uint248 x = uint248(m.maturity);
+        uint248 product = x * x;
+        return (uint128(product), 0, 0);
+    }
+}
+""")
+
+
 def digest_of(blob: str) -> str:
     lines = [line.strip() for line in blob.splitlines() if len(line.strip()) == 64]
     if not lines:
@@ -191,6 +259,34 @@ def main() -> None:
         raise SystemExit(f"missing {SOLC}")
     WORK.mkdir(parents=True, exist_ok=True)
     base = expect_success("unreached-for", write_project("base", unchanged), witness=True)
+    expect_success("helper-local-hygiene", write_project("helper-local", helper_local_collision), witness=True)
+    expect_success("generated-name-hygiene", write_project("generated-name", generated_name_collision), witness=True)
+    expect_success("unrelated-layout", write_project("unrelated-layout", unrelated_layout), witness=True)
+    expect_failure("named-arguments", write_project("named-arguments", named_arguments), "named call arguments")
+    expect_failure("implicit-return", write_project("implicit-return", implicit_return), "explicit root return")
+    expect_failure("projection-name-collision", write_project("projection-name", projected_name_collision), "projected parameter name collision")
+    namespaced = WORK / "base/Namespaced.lean"
+    namespaced.write_text(HEADER.format(root=WORK / "base").replace(
+        "solidity_slice_import imported", "namespace Nested\nsolidity_slice_import imported") +
+        "\nend Nested\nexample : modelSliceCovered Nested.imported.model = true := Nested.imported.sliceCovered\n")
+    result = lean(namespaced)
+    if result.returncode:
+        raise SystemExit(result.stdout + result.stderr)
+    print("pass namespaced-import")
+    expect_success("shadowed-block", write_project("shadowed-block", shadow_builtin), witness=False,
+                   extra='\n#eval show IO Unit from do\n  unless imported.report.projections.any (fun p => p.member == "timestamp") do\n    throw (IO.userError "shadowed block was treated as a builtin")\n')
+    expect_success("narrow-multiply-overflow", write_project("narrow-multiply", narrow_multiply), witness=False,
+                   extra=r'''
+#eval show IO Unit from do
+  let oracle : DenoteOracle := { mappingSlot := fun _ _ => 0, keccakMemorySlice := fun _ _ _ => 0 }
+  let body := match imported.model.functions with | f :: _ => f.body | [] => []
+  let run := fun maturity => denoteScalarBody oracle imported.model.fields Verity.defaultState 0 [("m_maturity", maturity)] body
+  unless run 3 == some [9, 0, 0] do throw (IO.userError "small uint248 product changed")
+  unless run (2^128) == none do throw (IO.userError "uint248 product overflow was accepted")
+''')
+    repeated = expect_success("deterministic", WORK / "base", witness=True)
+    if digest_of(base) != digest_of(repeated):
+        raise SystemExit("identical input did not reproduce the digest")
     rounding = expect_failure("rounding-detected", write_project("rounding", change_rounding), "witness changed")
     expect_failure("factor-detected", write_project("factor", change_factor), "witness changed")
     expect_failure("field-detected", write_project("field", change_field), "witness changed")

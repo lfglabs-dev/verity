@@ -58,14 +58,11 @@ semantic definition.
 ## Outside the initial denotation fragment
 
 Exactly the constructs `SourceSemantics` itself maps to `none`/`.revert`, apart
-from the memory-backed word arrays intentionally widened here and two
-extensions landed with the Solidity-slice importer:
-`Expr.paramDynamicHeadWord` (dynamic-tuple head-word projection, mirroring the
-calldata variant of `checkedParamDynamicHeadWordHelper`) and
+from the memory-backed word arrays intentionally widened here and
 `Stmt.returnValues` (multi-word return recorded in
 `DenoteState.observedReturnWords`, finished with `.stop`, and surfaced by
 `denoteFunction` as `DenoteResult.returnWords` in source order).
-Still outside: `arrayElementDynamic*`, the remaining `paramDynamic*`,
+Still outside: `arrayElementDynamic*`, `paramDynamic*`,
 `forkIfAtLeast`, `mappingChain`
 reads with zero or three-plus keys (one/two-key reads and writes are
 supported), and every `Expr`/`Stmt` constructor not listed
@@ -759,22 +756,6 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .paramDynamicMemberDataOffset _ _ => none
   | .paramDynamicMemberElement _ _ _ => none
   | .paramDynamicStaticComposite _ _ => none
-  | .paramDynamicHeadWord name wordOffset =>
-      -- Mirrors the calldata variant of
-      -- `Compiler.CompilationModel.DynamicData.checkedParamDynamicHeadWordHelper`:
-      -- read the word at `data_offset + wordOffset * 32`, where `data_offset`
-      -- is the `{name}_data_offset` binding produced for a dynamic tuple
-      -- parameter, and fail when the position would read past
-      -- `calldatasize() - 32`.  Arithmetic is modular, as in Yul.
-      match lookupBinding? state.bindings s!"{name}_data_offset" with
-      | some dataOffset =>
-          let wordPos := (dataOffset + wordOffset * 32) % Compiler.Constants.evmModulus
-          let bound :=
-            (state.world.calldataSize.val + Compiler.Constants.evmModulus - 32) %
-              Compiler.Constants.evmModulus
-          if wordPos > bound then none
-          else some (calldataloadWord state.selector state.world.calldata wordPos)
-      | none => none
   | .literal n => some (wordNormalize n)
   | .param name => some (lookupValue state.bindings name)
   | .immutable name => some (state.immutable name).val

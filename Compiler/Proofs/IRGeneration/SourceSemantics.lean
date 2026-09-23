@@ -1193,22 +1193,6 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .paramDynamicMemberDataOffset _ _ => none
   | .paramDynamicMemberElement _ _ _ => none
   | .paramDynamicStaticComposite _ _ => none
-  | .paramDynamicHeadWord name wordOffset =>
-      -- Mirrors `Denote.evalExpr`: calldata variant of
-      -- `Compiler.CompilationModel.DynamicData.checkedParamDynamicHeadWordHelper`.
-      -- Reads the word at `data_offset + wordOffset * 32` and fails when the
-      -- position would read past `calldatasize() - 32` (modular, as in Yul).
-      match lookupBinding? state.bindings s!"{name}_data_offset" with
-      | some dataOffset =>
-          let wordPos := (dataOffset + wordOffset * 32) % Compiler.Constants.evmModulus
-          let bound :=
-            (state.world.calldataSize.val + Compiler.Constants.evmModulus - 32) %
-              Compiler.Constants.evmModulus
-          if wordPos > bound then none
-          else
-            some (Compiler.Proofs.YulGeneration.calldataloadWord
-              state.selector state.world.calldata wordPos)
-      | none => none
   | .literal n => some (wordNormalize n)
   | .param name => some (lookupValue state.bindings name)
   | .immutable name => some (state.immutable name).val
@@ -1811,18 +1795,7 @@ private theorem evalExpr_paramDynamicHeadWord
     (state : RuntimeState)
     (name : String)
     (wordOffset : Nat) :
-    evalExpr fields state (.paramDynamicHeadWord name wordOffset) =
-      match lookupBinding? state.bindings s!"{name}_data_offset" with
-      | some dataOffset =>
-          let wordPos := (dataOffset + wordOffset * 32) % Compiler.Constants.evmModulus
-          let bound :=
-            (state.world.calldataSize.val + Compiler.Constants.evmModulus - 32) %
-              Compiler.Constants.evmModulus
-          if wordPos > bound then none
-          else
-            some (Compiler.Proofs.YulGeneration.calldataloadWord
-              state.selector state.world.calldata wordPos)
-      | none => none := rfl
+    evalExpr fields state (.paramDynamicHeadWord name wordOffset) = none := rfl
 
 private theorem evalExpr_paramDynamicStaticComposite
     (fields : List Field)
@@ -4439,22 +4412,8 @@ mutual
             (Verity.Core.Uint256.ofNat baseVal)
             (Verity.Core.Uint256.ofNat exponentVal)).val
         else none
-    | .paramDynamicHeadWord name wordOffset =>
-        -- Same semantics as `evalExpr` (no helper involvement): calldata
-        -- variant of `checkedParamDynamicHeadWordHelper`.
-        match lookupBinding? state.bindings s!"{name}_data_offset" with
-        | some dataOffset =>
-            let wordPos := (dataOffset + wordOffset * 32) % Compiler.Constants.evmModulus
-            let bound :=
-              (state.world.calldataSize.val + Compiler.Constants.evmModulus - 32) %
-                Compiler.Constants.evmModulus
-            if wordPos > bound then none
-            else
-              some (Compiler.Proofs.YulGeneration.calldataloadWord
-                state.selector state.world.calldata wordPos)
-        | none => none
     | .mulDiv512Down _ _ _ | .mulDiv512Up _ _ _
-    | .paramDynamicStaticComposite _ _
+    | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _
     | .paramDynamicMemberLength _ _
     | .paramDynamicMemberDataOffset _ _ | .paramDynamicMemberElement _ _ _
     | .arrayElementWord _ _ _ _

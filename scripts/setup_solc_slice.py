@@ -8,6 +8,7 @@ Lake elaboration never downloads the compiler.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import platform
 import sys
@@ -39,7 +40,7 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def install(platform_name: str) -> None:
+def install(platform_name: str, dest: Path) -> None:
     expected = SHA256[platform_name]
     list_url = f"https://binaries.soliditylang.org/{platform_name}/list.json"
     request = urllib.request.Request(list_url, headers={"User-Agent": "verity-official-solc/0.8.34"})
@@ -59,8 +60,8 @@ def install(platform_name: str) -> None:
     if published != expected:
         raise RuntimeError(f"list.json SHA-256 {published} != pin {expected}")
     url = f"https://binaries.soliditylang.org/{platform_name}/{match['path']}"
-    DEST.parent.mkdir(parents=True, exist_ok=True)
-    tmp = DEST.with_name(DEST.name + ".tmp")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".tmp")
     try:
         binary = urllib.request.Request(url, headers={"User-Agent": "verity-official-solc/0.8.34"})
         with urllib.request.urlopen(binary, timeout=60) as response, tmp.open("wb") as handle:
@@ -68,19 +69,22 @@ def install(platform_name: str) -> None:
         got = file_sha256(tmp)
         if got != expected:
             raise RuntimeError(f"downloaded SHA-256 {got} != {expected}")
-        tmp.replace(DEST)
-        DEST.chmod(0o755)
+        tmp.replace(dest)
+        dest.chmod(0o755)
     finally:
         if tmp.exists():
             tmp.unlink()
-    print(f"installed {LONG_VERSION} ({platform_name}) at {DEST}")
+    print(f"installed {LONG_VERSION} ({platform_name}) at {dest}")
 
 
 def main() -> int:
-    if DEST.exists() and file_sha256(DEST) == SHA256[host_platform()]:
-        print(f"already installed at {DEST}")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=DEST, help="destination binary path")
+    dest = parser.parse_args().output
+    if dest.exists() and file_sha256(dest) == SHA256[host_platform()]:
+        print(f"already installed at {dest}")
         return 0
-    install(host_platform())
+    install(host_platform(), dest)
     return 0
 
 
