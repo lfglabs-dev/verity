@@ -2783,16 +2783,25 @@ private def storageGetterBodyTerm (binding : LinkedContractDecl) (method : Strin
       expectArgs 2
       wordRead (← `(term| _root_.Verity.getMapping2 $fieldIdent $(args[0]!) $(args[1]!)))
 
+/-- Method component of a typed external name `"IFace.method"`. -/
+private def typedExternalMethodName (extName : String) : String :=
+  match extName.splitOn "." with
+  | _iface :: m :: _ => m
+  | _ => extName
+
+/-- Generated callee constant a bound typed call resolves to
+    (`<callee>.<method>`: a `Contract` function or, for G23 getters, a storage
+    field constant). -/
+private def boundCalleeConstName (binding : LinkedContractDecl) (extName : String) : Name :=
+  binding.calleeIdent.getId ++ Name.mkSimple (typedExternalMethodName extName)
+
 /-- Hop body for a bound typed call, and whether it must run as a view hop
     (storage-field getters are always view). -/
 private def boundCalleeBodyTerm (binding : LinkedContractDecl) (extName : String)
     (args : Array Term) (adv : Term) (returnTys : Array ValueType := #[]) :
     CommandElabM (Term × Bool) := do
-  let method :=
-    match extName.splitOn "." with
-    | _iface :: m :: _ => m
-    | _ => extName
-  let fnName := binding.calleeIdent.getId ++ Name.mkSimple method
+  let method := typedExternalMethodName extName
+  let fnName := boundCalleeConstName binding extName
   let fnIdent := mkIdent fnName
   -- G23: a Solidity `public` state variable's getter is a storage field
   -- constant (`StorageSlot α`) in the callee, not a `Contract` function.
@@ -2822,7 +2831,7 @@ private def hopBoundCallTerm?
   if binding.isDeferred then
     -- G15: keep the ABI external-call lowering, answered by the threaded
     -- context. The enclosing function takes the context (see
-    -- `bodyUsesDeferredLink`); reaching here with the fixed stub is a macro bug.
+    -- `bodyNeedsLinkedCallContext`); reaching here with the fixed stub is a macro bug.
     if advTermIsFixedStub adv then
       throwError s!"internal error: deferred linked_contracts '{binding.name}' call '{extName}' reached a context-free body; the enclosing function must take the ExecutableCallContext"
     return none
@@ -2832,22 +2841,35 @@ private def hopBoundCallTerm?
   else
     some <$> `(term| _root_.Verity.Contract.hopCall $target $body)
 
-/-- G15: does this executable body contain a typed interface call matched
-    (by `lookupLinkedBinding?`) to a `deferred` binding? Such a function must
-    take the `ExecutableCallContext` binder, exactly like a function that opens
-    a reentrancy window, so the deferred call is answered by the threaded
-    context instead of the fixed stub. Scans both source typed dot calls on
-    interface parameters and the `__verityTypedCall`/`__verityTypedEffect`
-    forms introduced by `rewriteForEachExecutableBody`. -/
-private partial def bodyUsesDeferredLink
+/-- Does this executable body contain a typed interface call matched (by
+    `lookupLinkedBinding?`) to a binding whose lowering consumes the threaded
+    `ExecutableCallContext`? Such a function must take the context binder,
+    exactly like a function that opens a reentrancy window, so the call is
+    answered by the context the proof instantiates instead of the fixed stub.
+    Two cases:
+    - G15: a `deferred` binding (ABI external call answered by the context);
+    - G26: a named binding whose resolved callee constant takes the context
+      (`constantTakesExecutableCallContext`, e.g. a callee function that itself
+      reaches a `deferred` link or opens a reentrancy window). The bound hop
+      forwards the caller's context into the callee body; a context-free caller
+      would forward the fixed stub. Storage-field getters (G23) and ctx-free
+      callee functions do not count.
+    Scans both source typed dot calls on interface parameters and the
+    `__verityTypedCall`/`__verityTypedEffect` forms introduced by
+    `rewriteForEachExecutableBody`. -/
+private partial def bodyNeedsLinkedCallContext
     (externalDecls : Array ExternalDecl) (params : Array ParamDecl)
     (linked : Array LinkedContractDecl) (stx : Syntax) : CommandElabM Bool := do
-  unless linked.any (·.isDeferred) do return false
-  let deferredFor (targetName extName : String) : Bool :=
-    externalDecls.any (fun ext => ext.name == extName) &&
-      match lookupLinkedBinding? linked targetName extName with
-      | some binding => binding.isDeferred
-      | none => false
+  if linked.isEmpty then return false
+  let deferredFor (targetName extName : String) : CommandElabM Bool := do
+    unless externalDecls.any (fun ext => ext.name == extName) do return false
+    match lookupLinkedBinding? linked targetName extName with
+    | some binding =>
+        if binding.isDeferred then
+          pure true
+        else
+          constantTakesExecutableCallContext (boundCalleeConstName binding extName)
+    | none => pure false
   let targetNameOf (target : Term) : String :=
     match (stripParens target).raw with
     | .ident _ _ raw _ => toString raw
@@ -2863,12 +2885,12 @@ private partial def bodyUsesDeferredLink
           | some str => some str
           | none => if args[1]!.raw.isIdent then some (toString args[1]!.raw.getId) else none
         if let some extName := extName? then
-          if deferredFor (targetNameOf args[0]!) extName then
+          if ← deferredFor (targetNameOf args[0]!) extName then
             return true
     if let some (target, methodName, _) := typedDotCallSyntax? term then
       let targetName := targetNameOf target
       if let some interfaceName := lookupInterfaceName? params #[] targetName then
-        if deferredFor targetName (interfaceExternalName interfaceName methodName) then
+        if ← deferredFor targetName (interfaceExternalName interfaceName methodName) then
           return true
     stx.getArgs.anyM go
   go stx
@@ -6203,7 +6225,7 @@ private def constructorOpensReentrancyWindow
     immutableDecls externalDecls functions ctor
   let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
   pure ((← translatedBodyOpensReentrancyWindow stmts) ||
-    (← bodyUsesDeferredLink externalDecls ctor.params linkedContracts executableBody.raw))
+    (← bodyNeedsLinkedCallContext externalDecls ctor.params linkedContracts executableBody.raw))
 
 private def constructorAdversarialHelpers
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
@@ -6217,7 +6239,7 @@ private def constructorAdversarialHelpers
       externalDecls functions helper
     let helperExecutableBody ← rewriteForEachExecutableBody fields externalDecls helper.params helper.body
     if (← translatedBodyOpensReentrancyWindow stmts) ||
-        (← bodyUsesDeferredLink externalDecls helper.params linkedContracts helperExecutableBody.raw) then
+        (← bodyNeedsLinkedCallContext externalDecls helper.params linkedContracts helperExecutableBody.raw) then
       adversarial := adversarial.push helper
   for _ in [:functions.size] do
     let names := adversarial.map (·.name)
@@ -6426,7 +6448,7 @@ def mkFunctionCommandsPublic
   -- plane only); both are propagated through the helper fixed point below.
   let directlyOpensReentrancyWindow ←
     pure ((← translatedBodyOpensReentrancyWindow stmtTerms) ||
-      (← bodyUsesDeferredLink externalDecls fn.params linkedContracts fnExecutableBody.raw))
+      (← bodyNeedsLinkedCallContext externalDecls fn.params linkedContracts fnExecutableBody.raw))
   let mut adversarialHelpers : Array FunctionDecl := #[]
   let mut translatedHelpers : Array (FunctionDecl × FunctionDecl) := #[]
   for helper in functions do
@@ -6443,7 +6465,7 @@ def mkFunctionCommandsPublic
     translatedHelpers := translatedHelpers.push (helper, helperModel)
     let helperExecutableBody ← rewriteForEachExecutableBody fields externalDecls helper.params helper.body
     if (← translatedBodyOpensReentrancyWindow helperStmtTerms) ||
-        (← bodyUsesDeferredLink externalDecls helper.params linkedContracts helperExecutableBody.raw) then
+        (← bodyNeedsLinkedCallContext externalDecls helper.params linkedContracts helperExecutableBody.raw) then
       adversarialHelpers := adversarialHelpers.push helper
   -- Reentrancy-window capability is transitive across internal helpers. Iterate to a
   -- fixed point so every caller in a multi-hop helper chain receives and forwards

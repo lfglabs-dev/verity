@@ -859,7 +859,7 @@ private def boundaryClassFromModule (mod : ECM.ExternalCallModule) : String :=
   | "convertToAssets" | "convertToShares" | "totalAssets" | "asset"
   | "maxDeposit" | "maxMint" | "maxWithdraw" | "maxRedeem" | "deposit" =>
       "tokenModel"
-  | "externalCallWithReturn" | "externalCallNoReturn" | "callWithValue" | "callWithValueBytes"
+  | "externalCallWithReturn" | "externalCallWithReturns" | "externalCallNoReturn" | "callWithValue" | "callWithValueBytes"
   | "bubblingValueCall" | "bubblingValueCallNoOutput" | "selfDelegateMulticallBytes" =>
       "abiBoundary"
   | "create2Deploy" | "sstore2ReadCode" =>

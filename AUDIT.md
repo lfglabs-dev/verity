@@ -551,6 +551,25 @@ sibling entrypoint.
   counterpart). With the stub context results are unchanged.
 - Compilation-model lowering is unchanged for both. Smoke:
   `Contracts/Smoke/LinkedGettersAndDeferred.lean`. Zero new axioms.
+- G26: a bound typed call whose resolved callee constant takes the
+  `ExecutableCallContext` forwarded the caller's context, but a caller with no
+  reentrancy window of its own had the fixed `AdversaryModel.stub` as its
+  context, so the callee's nested deferred calls were answered by the stub.
+  Such a bound call now makes the enclosing function take the context
+  (`bodyNeedsLinkedCallContext`, same helper fixed point as G15). Smoke:
+  `Contracts/Smoke/HopContextAndMutableTuples.lean` (`wrap_stub` vs
+  `wrap_withViewLinks`, `viaHelper_withViewLinks`).
+- G14 residual: typed interface tuple calls are no longer restricted to `view`
+  methods. Mutable tuple calls lower to `Contract.hopCall` (bound), the
+  mutable ABI external call with arity = number of results (unbound /
+  deferred), and `Compiler.Modules.Calls.withReturnsModule` in the
+  compilation model (new ECM `externalCallWithReturns`, classified
+  `abiBoundary`, assumption `external_call_abi_interface`). Smoke:
+  `run_bound_executes_callee`, `run_bound_revert_bubbles`,
+  `run_unbound_stub`, `run_deferred_stub`.
+- G25 (documented rule, no code): named bindings dispatch by interface, not by
+  runtime target; an interface used on several different contracts must be
+  `deferred` and answered by `withViewLinks` keyed by target.
 
 ## Bounded Returndatacopy (2026-09)
 

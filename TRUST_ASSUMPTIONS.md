@@ -252,6 +252,30 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   unchanged. Mutable deferred calls have no faithful responder combinator
   yet (they are answered by the instantiated adversary). Compilation-model
   lowering is unchanged.
+- **Context forwarding into bound callees (G26)**: a bound hop into a callee
+  function that takes the `ExecutableCallContext` (it reaches a `deferred`
+  link or opens a reentrancy window) forwards the caller's context. The
+  caller itself then takes the context binder (same propagation as deferred
+  calls, through the helper fixed point), so the callee's nested calls are
+  never answered by the fixed stub merely because the caller had no external
+  call of its own. Bound hops into context-free callees and storage-field
+  getters keep the context-free signature.
+- **Mutable typed tuple calls (G14 residual)**: `let (a, b) ← s.m x` on a
+  state-changing interface method (static single-word returns). Bound
+  (named): `Contract.hopCall target (Callee.m x)` (callee revert bubbles);
+  unbound / deferred: the mutable ABI external call with arity = number of
+  results, answered by the threaded context. Compilation model:
+  `Compiler.Modules.Calls.withReturnsModule` (ABI `call`, requires
+  `returndatasize >= 32 * n`, binds word `i` to result `i`; trust surface
+  `abiBoundary`, assumption `external_call_abi_interface`). View tuple calls
+  keep the static oracle-summary ECM.
+- **Author rule — one interface, several runtime contracts (G25)**: a named
+  binding dispatches by interface (and receiver/parameter name), **not** by
+  the runtime target address. If one interface is called on addresses that
+  hold different contracts, a named binding runs the bound callee's body for
+  every target, which is unfaithful for the other targets. Use `deferred` for
+  such interfaces and instantiate the context with `withViewLinks` keyed by
+  target address (`links "IFace.method" target`).
 
 ### 7. External Call Modules (ECMs)
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).

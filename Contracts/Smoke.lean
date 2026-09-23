@@ -28,3 +28,4 @@ import Contracts.Smoke.EIP712StaticSmoke
 import Contracts.Smoke.HashedMappings
 import Contracts.Smoke.ParetoSmallFidelityGaps
 import Contracts.Smoke.LinkedGettersAndDeferred
+import Contracts.Smoke.HopContextAndMutableTuples

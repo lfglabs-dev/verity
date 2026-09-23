@@ -106,6 +106,25 @@ fixed stub word; `ctx.withViewLinks links` answers static sites
 lemma. A contract literally named `deferred` must be bound by a qualified
 name.
 
+**One interface, several contracts (G25).** A named binding dispatches by
+interface (and receiver name), not by the runtime target address. If one
+interface is called on addresses holding different contracts, a named binding
+would run the bound callee's body for all of them. Bind such interfaces as
+`deferred` and answer them with `withViewLinks`, whose `links` function is
+keyed by target address.
+
+**Context forwarding (G26).** A bound call into a callee function that takes
+the call context (it reaches a `deferred` link or opens a reentrancy window)
+makes the caller, and helper chains calling it, take the context too, so a
+view wrapper such as `let (a, b) ← _s.preview x` forwards the context the
+proof instantiates instead of the fixed stub.
+
+**Mutable tuple calls (G14).** `let (a, b) ← s.prepare x` on a
+state-changing interface method is supported: bound calls run
+`Contract.hopCall target (Callee.prepare x)` (reverts bubble), unbound or
+deferred calls use the mutable ABI external call with arity = number of
+results, and the compilation model emits `Calls.withReturnsModule`.
+
 **Model plane.** A bound call is a CALL-shaped hop in
 `Verity.MultiContract.MultiWorld` (`Verity/Core/Model/ModeledCall.lean`):
 install `sender := caller.thisAddress`, `thisAddress := callee`,
@@ -128,7 +147,8 @@ call context. Same-contract `this.f(...)` uses
 That is distinct from DELEGATECALL `selfDelegateEntry`.
 
 **Compilation model.** Bound calls still lower to the existing interface
-ABI/ECM shape (`oracleSummary` / `externalCallWithReturn`). The binding is
+ABI/ECM shape (`oracleSummary` / `externalCallWithReturn` /
+`externalCallWithReturns`). The binding is
 a model-level assumption that the address holds the named contract; no
 bytecode claim (see `TRUST_ASSUMPTIONS.md`).
 
