@@ -2675,10 +2675,9 @@ private partial def forallHeadIsExecutableCallContext (ty : Expr) : Bool :=
       forallHeadIsExecutableCallContext body
   | _ => false
 
-/-- True when the already-elaborated callee `def` takes the executable call
-    context. Bound hops must forward the caller's context in that case; callees
-    that do not open a reentrancy window keep the ctx-free `hopCall` body. -/
-private def constantTakesExecutableCallContext (n : Name) : CommandElabM Bool := do
+/-- Resolve a generated callee constant the same way Lean resolves the name
+    at the use site (current namespace, then the global name table). -/
+private def resolveCalleeConstant? (n : Name) : CommandElabM (Option ConstantInfo) := do
   let env ← getEnv
   let ns ← getCurrNamespace
   let mut candidates : Array Name := #[ns ++ n, n]
@@ -2687,18 +2686,119 @@ private def constantTakesExecutableCallContext (n : Name) : CommandElabM Bool :=
       candidates := candidates.push resolved
   for cand in candidates do
     if let some info := env.find? cand then
-      if forallHeadIsExecutableCallContext info.type then
-        return true
-  return false
+      return some info
+  return none
 
+/-- True when the already-elaborated callee `def` takes the executable call
+    context. Bound hops must forward the caller's context in that case; callees
+    that do not open a reentrancy window keep the ctx-free `hopCall` body. -/
+private def constantTakesExecutableCallContext (n : Name) : CommandElabM Bool := do
+  match ← resolveCalleeConstant? n with
+  | some info => pure (forallHeadIsExecutableCallContext info.type)
+  | none => pure false
+
+/-- Storage shapes a public state-variable getter can read (G23). -/
+private inductive GetterStorageShape where
+  | word
+  | address
+  | mapAddress
+  | mapUint
+  | map2Address
+
+/-- If `n` names a generated `Verity.StorageSlot α` constant, classify `α`.
+    `some none` means a storage field of an unsupported shape. -/
+private def storageSlotGetterShape? (n : Name) :
+    CommandElabM (Option (Option GetterStorageShape × Expr)) := do
+  let some info ← resolveCalleeConstant? n | return none
+  liftTermElabM do
+    let ty ← Lean.Meta.whnfR info.type
+    unless ty.getAppFn.isConstOf `Verity.StorageSlot && ty.getAppNumArgs == 1 do
+      return none
+    let inner := ty.appArg!
+    let u256 := mkConst `Verity.Core.Uint256
+    let addr := mkConst `Verity.Core.Address
+    let candidates : List (GetterStorageShape × Expr) :=
+      [(.word, u256), (.address, addr),
+       (.mapAddress, mkForall `k .default addr u256),
+       (.mapUint, mkForall `k .default u256 u256),
+       (.map2Address, mkForall `k .default addr (mkForall `k2 .default addr u256))]
+    for (shape, candidate) in candidates do
+      if ← Lean.Meta.isDefEq inner candidate then
+        return some (some shape, inner)
+    return some (none, inner)
+
+/-- Lower a bound typed call whose method names a public storage field of the
+    callee (Solidity auto-generated getter, G23) to a typed storage read of
+    that field in the callee's frame. Bool getters read the 0/1 storage word
+    and return `word != 0`, the same decoding `ExternalResult Bool` applies to
+    an ABI return word. -/
+private def storageGetterBodyTerm (binding : LinkedContractDecl) (method : String)
+    (fieldIdent : Ident) (shape? : Option GetterStorageShape) (innerTy : Expr)
+    (args : Array Term) (returnTys : Array ValueType) : CommandElabM Term := do
+  let fieldLabel := s!"{binding.calleeName}.{method}"
+  let fail {α : Type} (why : String) : CommandElabM α := do
+    let tyFmt ← liftTermElabM (Lean.Meta.ppExpr innerTy)
+    throwError s!"linked_contracts '{binding.name}': '{fieldLabel}' is a storage field of type `StorageSlot ({tyFmt})`; {why}"
+  if let some field := binding.calleeFields.find? (fun f => f.name == method) then
+    if field.isTransient then
+      fail "transient fields have no public getter"
+    if field.packedBits.isSome then
+      fail "packed storage fields are not supported as getter hop targets"
+    match field.ty with
+    | .scalar .uint256 | .scalar .address | .mappingAddressToUint256
+    | .mappingUintToUint256 | .mapping2AddressToAddressToUint256 => pure ()
+    | _ => fail "only Uint256/Address scalars and Uint256-valued Address/Uint256 mappings are supported as getter hop targets"
+  let some shape := shape?
+    | fail "only Uint256/Address scalars and Uint256-valued Address/Uint256 mappings are supported as getter hop targets"
+  let retTy ← match returnTys.toList with
+    | [ty] => pure ty
+    | _ => fail "a getter hop target must declare exactly one return value"
+  let expectArgs (n : Nat) : CommandElabM Unit := do
+    unless args.size == n do
+      fail s!"its getter takes {n} argument(s), got {args.size}"
+  let wordRead (read : Term) : CommandElabM Term := do
+    match retTy with
+    | .uint256 => pure read
+    | .bool =>
+        `(term| _root_.Verity.bind $read
+            (fun (__verity_getter_word : _root_.Verity.Uint256) =>
+              _root_.Verity.pure (__verity_getter_word != 0)))
+    | other => fail s!"interface return type {renderValueType other} does not match a Uint256 word getter (expected Uint256 or Bool)"
+  match shape with
+  | .word =>
+      expectArgs 0
+      wordRead (← `(term| _root_.Verity.getStorage $fieldIdent))
+  | .address =>
+      expectArgs 0
+      unless retTy == .address do
+        fail s!"interface return type {renderValueType retTy} does not match an Address getter"
+      `(term| _root_.Verity.getStorageAddr $fieldIdent)
+  | .mapAddress =>
+      expectArgs 1
+      wordRead (← `(term| _root_.Verity.getMapping $fieldIdent $(args[0]!)))
+  | .mapUint =>
+      expectArgs 1
+      wordRead (← `(term| _root_.Verity.getMappingUint $fieldIdent $(args[0]!)))
+  | .map2Address =>
+      expectArgs 2
+      wordRead (← `(term| _root_.Verity.getMapping2 $fieldIdent $(args[0]!) $(args[1]!)))
+
+/-- Hop body for a bound typed call, and whether it must run as a view hop
+    (storage-field getters are always view). -/
 private def boundCalleeBodyTerm (binding : LinkedContractDecl) (extName : String)
-    (args : Array Term) (adv : Term) : CommandElabM Term := do
+    (args : Array Term) (adv : Term) (returnTys : Array ValueType := #[]) :
+    CommandElabM (Term × Bool) := do
   let method :=
     match extName.splitOn "." with
     | _iface :: m :: _ => m
     | _ => extName
   let fnName := binding.calleeIdent.getId ++ Name.mkSimple method
   let fnIdent := mkIdent fnName
+  -- G23: a Solidity `public` state variable's getter is a storage field
+  -- constant (`StorageSlot α`) in the callee, not a `Contract` function.
+  if let some (shape?, innerTy) ← storageSlotGetterShape? fnName then
+    let body ← storageGetterBodyTerm binding method fnIdent shape? innerTy args returnTys
+    return (body, true)
   let mut app : Term ← `(term| $fnIdent)
   -- Thread the caller's ExecutableCallContext into a bound callee that opens a
   -- reentrancy window. Ctx-free callees (ModeledCallee.get/set) stay unchanged
@@ -2707,18 +2807,71 @@ private def boundCalleeBodyTerm (binding : LinkedContractDecl) (extName : String
     app ← `(term| $app $adv)
   for arg in args do
     app ← `(term| $app $arg)
-  pure app
+  pure (app, false)
+
+private def advTermIsFixedStub (adv : Term) : Bool :=
+  adv.raw.isIdent &&
+    adv.raw.getId == `Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub
 
 private def hopBoundCallTerm?
     (linked : Array LinkedContractDecl) (target : Term) (targetName : String)
-    (extName : String) (args : Array Term) (isView : Bool) (adv : Term) :
+    (extName : String) (args : Array Term) (isView : Bool) (adv : Term)
+    (returnTys : Array ValueType := #[]) :
     CommandElabM (Option Term) := do
   let some binding := lookupLinkedBinding? linked targetName extName | return none
-  let body ← boundCalleeBodyTerm binding extName args adv
-  if isView then
+  if binding.isDeferred then
+    -- G15: keep the ABI external-call lowering, answered by the threaded
+    -- context. The enclosing function takes the context (see
+    -- `bodyUsesDeferredLink`); reaching here with the fixed stub is a macro bug.
+    if advTermIsFixedStub adv then
+      throwError s!"internal error: deferred linked_contracts '{binding.name}' call '{extName}' reached a context-free body; the enclosing function must take the ExecutableCallContext"
+    return none
+  let (body, forceView) ← boundCalleeBodyTerm binding extName args adv returnTys
+  if isView || forceView then
     some <$> `(term| _root_.Verity.Contract.hopCallView $target $body)
   else
     some <$> `(term| _root_.Verity.Contract.hopCall $target $body)
+
+/-- G15: does this executable body contain a typed interface call matched
+    (by `lookupLinkedBinding?`) to a `deferred` binding? Such a function must
+    take the `ExecutableCallContext` binder, exactly like a function that opens
+    a reentrancy window, so the deferred call is answered by the threaded
+    context instead of the fixed stub. Scans both source typed dot calls on
+    interface parameters and the `__verityTypedCall`/`__verityTypedEffect`
+    forms introduced by `rewriteForEachExecutableBody`. -/
+private partial def bodyUsesDeferredLink
+    (externalDecls : Array ExternalDecl) (params : Array ParamDecl)
+    (linked : Array LinkedContractDecl) (stx : Syntax) : CommandElabM Bool := do
+  unless linked.any (·.isDeferred) do return false
+  let deferredFor (targetName extName : String) : Bool :=
+    externalDecls.any (fun ext => ext.name == extName) &&
+      match lookupLinkedBinding? linked targetName extName with
+      | some binding => binding.isDeferred
+      | none => false
+  let targetNameOf (target : Term) : String :=
+    match (stripParens target).raw with
+    | .ident _ _ raw _ => toString raw
+    | _ => ""
+  let rec go (stx : Syntax) : CommandElabM Bool := do
+    let term : Term := ⟨stx⟩
+    let (head, args) := flattenAppSyntax term
+    if head.raw.isIdent then
+      let headName := toString head.raw.getId
+      if (headName == "__verityTypedCall" || headName == "__verityTypedEffect") && args.size ≥ 2 then
+        let extName? : Option String :=
+          match args[1]!.raw.isStrLit? with
+          | some str => some str
+          | none => if args[1]!.raw.isIdent then some (toString args[1]!.raw.getId) else none
+        if let some extName := extName? then
+          if deferredFor (targetNameOf args[0]!) extName then
+            return true
+    if let some (target, methodName, _) := typedDotCallSyntax? term then
+      let targetName := targetNameOf target
+      if let some interfaceName := lookupInterfaceName? params #[] targetName then
+        if deferredFor targetName (interfaceExternalName interfaceName methodName) then
+          return true
+    stx.getArgs.anyM go
+  go stx
 
 private def rewriteTypedInterfaceCall?
     (externalDecls : Array ExternalDecl)
@@ -2734,7 +2887,8 @@ private def rewriteTypedInterfaceCall?
   let extName := interfaceExternalName interfaceName methodName
   let some ext := externalDecls.find? (fun ext => ext.name == extName) | pure none
   let isView := externalDecls.any (fun candidate => candidate.name == extName && candidate.isView)
-  match ← hopBoundCallTerm? linkedContracts target targetName extName argTerms isView adv with
+  match ← hopBoundCallTerm? linkedContracts target targetName extName argTerms isView adv
+      (returnTys := ext.returnTys) with
   | some hop => return some hop
   | none => pure ()
   let siteId := natTerm (linkedExternalSiteId externalDecls extName)
@@ -2773,7 +2927,8 @@ private def rewriteLinkedCallTerm
         match stripParens target with
         | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
         | _ => pure ""
-      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv with
+      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv
+          (returnTys := ext.returnTys) with
       | some hop => return hop
       | none => pure ()
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
@@ -2798,7 +2953,8 @@ private def rewriteLinkedCallTerm
         match stripParens target with
         | `(term| $targetIdent:ident) => pure (toString targetIdent.getId)
         | _ => pure ""
-      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv with
+      match ← hopBoundCallTerm? linkedContracts target targetName extName args ext.isView adv
+          (returnTys := ext.returnTys) with
       | some hop => return hop
       | none => pure ()
       let rewritten ← args.zip ext.params |>.mapM fun (arg, ty) => do
@@ -5472,6 +5628,7 @@ partial def parseContractSyntax
       let availableInterfaceNames := seenInterfaceNames
       let mut seenLinkedNames : Array String := parent?.map (fun p =>
         p.linkedContracts.map (·.name)) |>.getD #[]
+      let mut resolvedLinkedContracts : Array LinkedContractDecl := #[]
       for binding in parsedLinkedContracts do
         if seenLinkedNames.contains binding.name then
           throwErrorAt binding.ident s!"duplicate linked_contracts name '{binding.name}'"
@@ -5479,16 +5636,24 @@ partial def parseContractSyntax
             availableInterfaceNames.contains (localDeclName binding.interfaceName) do
           throwErrorAt binding.interfaceIdent
             s!"linked_contracts '{binding.name}' refers to unknown interface '{binding.interfaceName}'"
-        let calleeCandidates := [currentNs ++ binding.calleeIdent.getId, binding.calleeIdent.getId]
-        let mut foundCallee := false
-        for candidate in calleeCandidates do
-          if !foundCallee then
-            if (← lookupContractSyntax candidate).isSome then
-              foundCallee := true
-        unless foundCallee do
-          throwErrorAt binding.calleeIdent
-            s!"linked_contracts '{binding.name}' refers to unknown contract '{binding.calleeName}'; declare the callee before the caller"
         seenLinkedNames := seenLinkedNames.push binding.name
+        -- `deferred` bindings have no callee to resolve (cyclic G15 bindings).
+        if binding.isDeferred then
+          resolvedLinkedContracts := resolvedLinkedContracts.push binding
+          continue
+        let calleeCandidates := [currentNs ++ binding.calleeIdent.getId, binding.calleeIdent.getId]
+        let mut calleeSyntax? : Option ParsedContractSyntax := none
+        for candidate in calleeCandidates do
+          if calleeSyntax?.isNone then
+            calleeSyntax? ← lookupContractSyntax candidate
+        let some calleeSyntax := calleeSyntax?
+          | throwErrorAt binding.calleeIdent
+              s!"linked_contracts '{binding.name}' refers to unknown contract '{binding.calleeName}'; declare the callee before the caller"
+        -- Registered callee syntax is already flattened across `is` parents,
+        -- so inherited public fields are visible to getter lowering (G23).
+        resolvedLinkedContracts := resolvedLinkedContracts.push
+          { binding with calleeFields := calleeSyntax.fields }
+      let parsedLinkedContracts := resolvedLinkedContracts
       let inheritedInterfaceNames := parent?.map (fun p =>
         p.interfaceDecls.map (·.name)) |>.getD #[]
       let interfaceNames := inheritedInterfaceNames ++ parsedInterfaces.map (·.name)
@@ -6032,21 +6197,27 @@ private def constructorOpensReentrancyWindow
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
     (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
-    (ctor : ConstructorDecl) : CommandElabM Bool := do
+    (ctor : ConstructorDecl)
+    (linkedContracts : Array LinkedContractDecl := #[]) : CommandElabM Bool := do
   let stmts ← translateConstructorBodyToStmtTerms fields errorDecls constDecls
     immutableDecls externalDecls functions ctor
-  translatedBodyOpensReentrancyWindow stmts
+  let executableBody ← rewriteForEachExecutableBody fields externalDecls ctor.params ctor.body
+  pure ((← translatedBodyOpensReentrancyWindow stmts) ||
+    (← bodyUsesDeferredLink externalDecls ctor.params linkedContracts executableBody.raw))
 
 private def constructorAdversarialHelpers
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
     (constDecls : Array ConstantDecl) (immutableDecls : Array ImmutableDecl)
-    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl) :
+    (externalDecls : Array ExternalDecl) (functions : Array FunctionDecl)
+    (linkedContracts : Array LinkedContractDecl := #[]) :
     CommandElabM (Array FunctionDecl) := do
   let mut adversarial : Array FunctionDecl := #[]
   for helper in functions do
     let stmts ← translateBodyToStmtTerms fields #[] errorDecls constDecls immutableDecls
       externalDecls functions helper
-    if ← translatedBodyOpensReentrancyWindow stmts then
+    let helperExecutableBody ← rewriteForEachExecutableBody fields externalDecls helper.params helper.body
+    if (← translatedBodyOpensReentrancyWindow stmts) ||
+        (← bodyUsesDeferredLink externalDecls helper.params linkedContracts helperExecutableBody.raw) then
       adversarial := adversarial.push helper
   for _ in [:functions.size] do
     let names := adversarial.map (·.name)
@@ -6067,9 +6238,9 @@ def mkConstructorDefCommandPublic
     (ctor : ConstructorDecl)
     (linkedContracts : Array LinkedContractDecl := #[]) : CommandElabM Cmd := do
   let directlyOpensReentrancyWindow ← constructorOpensReentrancyWindow fields errorDecls constDecls
-    immutableDecls externalDecls functions ctor
+    immutableDecls externalDecls functions ctor linkedContracts
   let adversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
-    immutableDecls externalDecls functions
+    immutableDecls externalDecls functions linkedContracts
   let callsAdversarial ←
     syntaxCallsAnyHelper (adversarialHelpers.map (·.name)) ctor.body.raw
   let opensReentrancyWindow := directlyOpensReentrancyWindow ||
@@ -6100,9 +6271,9 @@ def mkHostConstructorDefCommandPublic
     (resolvedIncludes : Array Name) (ctor : ConstructorDecl)
     (linkedContracts : Array LinkedContractDecl := #[]) : CommandElabM Cmd := do
   let ownDirectExternal ← constructorOpensReentrancyWindow fields errorDecls constDecls
-    immutableDecls externalDecls functions ctor
+    immutableDecls externalDecls functions ctor linkedContracts
   let ownAdversarialHelpers ← constructorAdversarialHelpers fields errorDecls constDecls
-    immutableDecls externalDecls functions
+    immutableDecls externalDecls functions linkedContracts
   let ownCallsAdversarial ←
     syntaxCallsAnyHelper (ownAdversarialHelpers.map (·.name)) ctor.body.raw
   let ownExternal := ownDirectExternal ||
@@ -6112,9 +6283,9 @@ def mkHostConstructorDefCommandPublic
     if let some mixin ← lookupContractSyntax mixinName then
       if let some mixinCtor := mixin.ctor then
         let direct ← constructorOpensReentrancyWindow mixin.fields mixin.errorDecls mixin.constDecls
-          mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor
+          mixin.immutableDecls mixin.externalDecls mixin.functions mixinCtor mixin.linkedContracts
         let helpers ← constructorAdversarialHelpers mixin.fields mixin.errorDecls mixin.constDecls
-          mixin.immutableDecls mixin.externalDecls mixin.functions
+          mixin.immutableDecls mixin.externalDecls mixin.functions mixin.linkedContracts
         let callsAdversarial ← syntaxCallsAnyHelper (helpers.map (·.name)) mixinCtor.body.raw
         if direct || callsAdversarial then
           mixinExternal := mixinExternal.push mixinName
@@ -6250,7 +6421,12 @@ def mkFunctionCommandsPublic
       | some inlined => pure inlined
       | none => pure fn
   let stmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls immutableDecls externalDecls functions modelFn
-  let directlyOpensReentrancyWindow ← translatedBodyOpensReentrancyWindow stmtTerms
+  -- "Takes the ExecutableCallContext" = opens a reentrancy window (model
+  -- plane) OR issues a typed call on a `deferred` binding (G15, executable
+  -- plane only); both are propagated through the helper fixed point below.
+  let directlyOpensReentrancyWindow ←
+    pure ((← translatedBodyOpensReentrancyWindow stmtTerms) ||
+      (← bodyUsesDeferredLink externalDecls fn.params linkedContracts fnExecutableBody.raw))
   let mut adversarialHelpers : Array FunctionDecl := #[]
   let mut translatedHelpers : Array (FunctionDecl × FunctionDecl) := #[]
   for helper in functions do
@@ -6265,7 +6441,9 @@ def mkFunctionCommandsPublic
     let helperStmtTerms ← translateBodyToStmtTerms fields roleDecls errorDecls constDecls
       immutableDecls externalDecls functions helperModel
     translatedHelpers := translatedHelpers.push (helper, helperModel)
-    if ← translatedBodyOpensReentrancyWindow helperStmtTerms then
+    let helperExecutableBody ← rewriteForEachExecutableBody fields externalDecls helper.params helper.body
+    if (← translatedBodyOpensReentrancyWindow helperStmtTerms) ||
+        (← bodyUsesDeferredLink externalDecls helper.params linkedContracts helperExecutableBody.raw) then
       adversarialHelpers := adversarialHelpers.push helper
   -- Reentrancy-window capability is transitive across internal helpers. Iterate to a
   -- fixed point so every caller in a multi-hop helper chain receives and forwards

@@ -26,3 +26,4 @@ import Contracts.Smoke.MultiArgIntrinsicSmoke
 import Contracts.Smoke.EIP712StaticSmoke
 import Contracts.Smoke.HashedMappings
 import Contracts.Smoke.ParetoSmallFidelityGaps
+import Contracts.Smoke.LinkedGettersAndDeferred

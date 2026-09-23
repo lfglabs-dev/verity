@@ -211,9 +211,37 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   success commits the callee world, revert restores the pre-call snapshot,
   and view hops discard callee writes. Unbound interfaces still use the
   adversary-oracle stub. Mapping/addr/transient channels stay global (G2).
-  Bindings cannot be cyclic (G15). `callEntry` is unchanged (still rejects
-  `caller = callee`); self-calls use the isolated CALL-shaped
-  `selfCallEntry` / `Contract.selfCall`.
+  Named-callee bindings cannot be cyclic (the callee must be declared
+  first); cyclic pairs use `deferred` bindings (below). `callEntry` is
+  unchanged (still rejects `caller = callee`); self-calls use the isolated
+  CALL-shaped `selfCallEntry` / `Contract.selfCall`.
+- **Public getters (G23, #2439)**: a bound typed call whose method names a
+  public storage field of the callee (Solidity auto-generated getter) lowers
+  to `Contract.hopCallView target (<typed read of that field>)`:
+  `getStorage` (Uint256; a `Bool` interface return decodes the 0/1 word as
+  `word != 0`, the same decoding `ExternalResult Bool` applies to an ABI
+  word), `getStorageAddr`, `getMapping`, `getMappingUint`, `getMapping2`.
+  Packed, transient, and other field shapes are rejected at elaboration.
+  The compilation-model lowering is unchanged (ABI getter call).
+- **Deferred bindings (G15, #2415)**: `linked_contracts name : IFace :=
+  deferred` binds an interface to a contract declared later (cyclic
+  pairs). No callee body is linked: executable typed calls keep the ABI
+  external-call lowering (`external*CallContractWordsTo` / effect variants)
+  but always consume the threaded `ExecutableCallContext` (the enclosing
+  function, and every helper that transitively calls it, takes the context
+  binder like a reentrancy-window function; it never falls back to the fixed
+  stub). **Trust boundary**: a deferred call is only as faithful as the
+  responder the proof instantiates the context with. With
+  `ExecutableCallContext.stub` it returns the fixed stub word (unchanged
+  behaviour). The faithful responder is
+  `AdversaryModel.withViewLinks` / `ExecutableCallContext.withViewLinks`,
+  which answers selected static sites (keyed by interface method name and
+  target address) by running a linked Verity body in `Contract.hopCallView`;
+  `Contracts.externalStaticCallContractWordsTo_withViewLinks` proves the call
+  then returns exactly the decoded hop words and leaves caller storage
+  unchanged. Mutable deferred calls have no faithful responder combinator
+  yet (they are answered by the instantiated adversary). Compilation-model
+  lowering is unchanged.
 
 ### 7. External Call Modules (ECMs)
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).
