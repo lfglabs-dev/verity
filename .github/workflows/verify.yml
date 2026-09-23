@@ -424,6 +424,12 @@ jobs:
             exit "${build_status}"
           fi
 
+      - name: Check Solidity slice imports and mutation regressions
+        run: |
+          python3 scripts/setup_solc_slice.py
+          lake build SoliditySliceSmoke
+          python3 scripts/solidity_slice_mutations.py
+
       - name: Check storage layout audit artifacts (#1897)
         run: make verify-storage-layout
 

@@ -824,10 +824,13 @@
   ],
   "expected_checks_other_commands": [],
   "expected_build_commands": [
-    "check_lean_warning_regression.py --log lake-build.log"
+    "check_lean_warning_regression.py --log lake-build.log",
+    "setup_solc_slice.py",
+    "solidity_slice_mutations.py"
   ],
   "required_build_run_commands": [
-    "lake build PrintAxioms"
+    "lake build PrintAxioms",
+    "lake build SoliditySliceSmoke"
   ],
   "expected_build_audit_commands": [
     "check_split_package_builds.py",
