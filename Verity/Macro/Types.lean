@@ -275,6 +275,14 @@ structure LinkedContractDecl where
   interfaceIdent : Ident
   calleeName : String
   calleeIdent : Ident
+  /-- `name : IFace := deferred`: no callee body is linked (cyclic bindings).
+      Executable typed calls keep the ABI external-call lowering but always use
+      the threaded `ExecutableCallContext`, so the proof chooses the responder
+      (e.g. `AdversaryModel.withViewLinks`). -/
+  isDeferred : Bool := false
+  /-- Storage fields of the resolved callee (flattened across `is` parents),
+      used to lower public state-variable getters (G23). -/
+  calleeFields : Array StorageFieldDecl := #[]
 
 structure ModifierDecl where
   ident : Ident

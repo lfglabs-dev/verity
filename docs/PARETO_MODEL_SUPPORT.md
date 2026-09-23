@@ -81,6 +81,31 @@ The name may also match an interface-typed storage field or parameter.
 The callee contract must already be declared. Duplicate binding names fail
 closed.
 
+**Public getters (G23).** If the interface method names a public storage
+field of the callee (a Solidity `public` state variable's auto-generated
+getter), the bound call lowers to a view hop reading that field:
+`getStorage` / `getStorageAddr` / `getMapping` / `getMappingUint` /
+`getMapping2`. A `Bool` return decodes the 0/1 storage word as `word != 0`.
+Fields declared in a parent (`Callee is Parent`) resolve through the child's
+flattened storage. Packed/transient fields are rejected.
+
+**Deferred bindings (G15).** For cyclic pairs (the callee is declared after
+the caller) write
+
+```
+linked_contracts cdo : IIdleCDO := deferred
+```
+
+Typed calls on a deferred binding keep the ABI external call, answered by the
+threaded `ExecutableCallContext` (the enclosing function takes the context).
+Proofs choose the responder: `ExecutableCallContext.stub` reproduces the
+fixed stub word; `ctx.withViewLinks links` answers static sites
+`links "IFace.method" target = some body` by running `body` (e.g.
+`viewLinkWord Callee.method`) in `Contract.hopCallView`, with
+`Contracts.externalStaticCallContractWordsTo_withViewLinks` as the fidelity
+lemma. A contract literally named `deferred` must be bound by a qualified
+name.
+
 **Model plane.** A bound call is a CALL-shaped hop in
 `Verity.MultiContract.MultiWorld` (`Verity/Core/Model/ModeledCall.lean`):
 install `sender := caller.thisAddress`, `thisAddress := callee`,
@@ -97,7 +122,8 @@ through `StorageKey.contractSlot`, and address / transient / mapping keys
 through `StorageKey.scoped` (G24). `storageArray` (dynamic arrays) is still
 global across hops. Generated bound
 calls run the callee body; they do not go through the adversary-oracle
-stub. Unbound interfaces keep the stub. Same-contract `this.f(...)` uses
+stub. Unbound interfaces keep the stub; deferred bindings use the threaded
+call context. Same-contract `this.f(...)` uses
 `Contract.selfCall` (new frame, sender replaced) so try/catch can wrap it.
 That is distinct from DELEGATECALL `selfDelegateEntry`.
 

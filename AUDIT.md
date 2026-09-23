@@ -534,6 +534,24 @@ sibling entrypoint.
   axiom, adjacent struct words are distinct without it.
 - Smoke: `Contracts/Smoke/HashedMappings.lean`. Zero new axioms.
 
+## EDSL Executable Plane: Getter Hops and Deferred Links (2026-09)
+
+- G23 (#2439): bound typed calls whose method names a public storage field of
+  the callee lower to `Contract.hopCallView target (<typed field read>)`
+  instead of applying the `StorageSlot` constant as a function (which failed
+  to elaborate). `Bool` getters decode the 0/1 word as `word != 0`. Packed,
+  transient and non-Uint256/Address field shapes fail closed at elaboration.
+- G15 (#2415): `linked_contracts name : IFace := deferred` for cyclic
+  bindings. Typed calls on a deferred binding keep the ABI external-call
+  lowering but always use the threaded `ExecutableCallContext`; the context
+  binder is propagated through the existing helper fixed point. Fidelity is
+  by instantiation: `AdversaryModel.withViewLinks` answers selected static
+  sites by a linked body in a view hop, with the fidelity lemma
+  `Contracts.externalStaticCallContractWordsTo_withViewLinks` (and a revert
+  counterpart). With the stub context results are unchanged.
+- Compilation-model lowering is unchanged for both. Smoke:
+  `Contracts/Smoke/LinkedGettersAndDeferred.lean`. Zero new axioms.
+
 ## Bounded Returndatacopy (2026-09)
 
 - Supersedes the conservative `returndataCopy` posture recorded above. Once the

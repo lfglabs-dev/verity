@@ -93,6 +93,13 @@ syntax "function " ident "(" sepBy(verityInterfaceParam, ",") ")" verityMutabili
 syntax "function " ident " (" sepBy(verityInterfaceParam, ",") ")" verityMutability* : verityInterfaceFunction
 syntax "interface " ident " where " verityInterfaceFunction* "end" : verityInterface
 syntax ident " : " ident " := " ident : verityLinkedContract
+-- Deferred (cyclic) binding: the callee is declared later, so typed calls on
+-- this binding keep the ABI external-call lowering but always consume the
+-- threaded `ExecutableCallContext` (never the fixed stub). `deferred` is a
+-- non-reserved keyword; the higher priority wins the tie with the plain
+-- `ident` form, so a contract literally named `deferred` must be bound through
+-- a qualified name (e.g. `MyNs.deferred`).
+syntax (priority := high) ident " : " ident " := " &"deferred" : verityLinkedContract
 syntax ident " := " ident ppSpace str : verityLocalObligation
 syntax "local_obligations " "[" sepBy(verityLocalObligation, ",") "]" : verityLocalObligations
 syntax "payable" : verityMutability
