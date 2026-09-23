@@ -3460,9 +3460,22 @@ private partial def threadAdversaryThroughExecutableSyntax
         (fun rewritten => `(doElem| let $name ← $rewritten:term))
         (fun rewritten => `(doElem| let $name := $rewritten:term))
   | `(doElem| let $pat:term ← $rhs:term) =>
-      hoistBound rhs
-        (fun rewritten => `(doElem| let $pat:term ← $rewritten:term))
-        (fun rewritten => `(doElem| let $pat:term := $rewritten:term))
+      -- A destructuring bind of an internal helper that takes the call context
+      -- (`let (a, b) ← helper x y`) threads the context like the single-name
+      -- form above; everything else keeps the generic hoisting path.
+      let helperApp? ← match rhs with
+        | `(term| $fn:ident $args:term*) =>
+            threadHelperApp? adversarialHelpers fn (args.map fun arg => (⟨arg.raw⟩ : Term)) adv
+        | `(term| $fn:ident($[$args:term],*)) =>
+            threadHelperApp? adversarialHelpers fn args adv
+        | _ => pure none
+      match helperApp? with
+      | some app =>
+          hoistLive false app fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
+      | none =>
+          hoistBound rhs
+            (fun rewritten => `(doElem| let $pat:term ← $rewritten:term))
+            (fun rewritten => `(doElem| let $pat:term := $rewritten:term))
   | `(doElem| let mut $name:ident := $rhs:term) =>
       hoistLive true rhs fun rewritten =>
         `(doElem| let mut $name := $rewritten:term)

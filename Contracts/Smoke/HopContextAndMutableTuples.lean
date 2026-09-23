@@ -83,6 +83,16 @@ verity_contract G26B where
     let p ← _one _s o
     return p
 
+  function internal view _pair (_s : IA, o : Address, x : Uint256) : Tuple [Uint256, Uint256] := do
+    let (p, q) ← _s.preview o x
+    return (p, q)
+
+  -- Reaches the context-taking callee through a destructuring bind of an
+  -- internal tuple helper (`let (a, b) ← helper args`).
+  function view viaPairHelper (_s : IA, o : Address, x : Uint256) : Uint256 := do
+    let (p, q) ← _pair _s o x
+    return add p q
+
   -- Control: `G26A.readK` is context-free, so this wrapper stays context-free.
   function view wrapK (_s : IA) : Uint256 := do
     let v ← _s.readK
@@ -97,6 +107,8 @@ example : G26B._one = fun (ctx : ExecutableCallContext) (s o : Address) =>
     G26B._one ctx s o := rfl
 example : G26B.viaHelper = fun (ctx : ExecutableCallContext) (s o : Address) =>
     G26B.viaHelper ctx s o := rfl
+example : G26B.viaPairHelper = fun (ctx : ExecutableCallContext) (s o : Address) (x : Uint256) =>
+    G26B.viaPairHelper ctx s o x := rfl
 /-- A bound hop into a context-free callee keeps the context-free signature. -/
 example : G26B.wrapK = fun (s : Address) => G26B.wrapK s := rfl
 
@@ -141,6 +153,15 @@ theorem viaHelper_withViewLinks :
         some (13 : Uint256) ∧
     (G26B.viaHelper (ExecutableCallContext.stub.withViewLinks oracleLinks) aAddr oAddr
       g26State).getValue? = some (100 : Uint256) := by
+  decide
+
+/-- Same through a destructuring bind of an internal tuple helper:
+(102, 5) sums to 107 with the faithful responder, (15, 5) to 20 with the stub. -/
+theorem viaPairHelper_withViewLinks :
+    (G26B.viaPairHelper ExecutableCallContext.stub aAddr oAddr 2 g26State).getValue? =
+        some (20 : Uint256) ∧
+    (G26B.viaPairHelper (ExecutableCallContext.stub.withViewLinks oracleLinks) aAddr oAddr 2
+      g26State).getValue? = some (107 : Uint256) := by
   decide
 
 /-! ## G14 residual: mutable typed tuple calls -/
