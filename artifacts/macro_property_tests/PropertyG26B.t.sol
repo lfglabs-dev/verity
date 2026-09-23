@@ -35,7 +35,16 @@ contract PropertyG26BTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 3: TODO decode and assert `wrapK` result
+    // Property 3: TODO decode and assert `viaPairHelper` result
+    function testTODO_ViaPairHelper_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("viaPairHelper(address,address,uint256)", alice, alice, uint256(1)));
+        require(ok, "viaPairHelper reverted unexpectedly");
+        assertEq(ret.length, 32, "viaPairHelper ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 4: TODO decode and assert `wrapK` result
     function testTODO_WrapK_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("wrapK(address)", alice));
