@@ -276,9 +276,43 @@ inductive StorageKey where
   | map (slot : Nat) (key : Address)
   | mapUint (slot : Nat) (key : Uint256)
   | map2 (slot : Nat) (key1 key2 : Address)
+  /-- Parked copy of a non-slot channel key (`addr` / `transient` / `map` /
+      `mapUint` / `map2`) belonging to contract `contract`. Hops
+      (`ContractState.switchSlotWorld`) park the caller's plain non-slot world
+      here and load the callee's, exactly as `contractSlot` does for `.slot`. -/
+  | scoped (contract : Nat) (key : StorageKey)
   deriving DecidableEq, Repr
 
 namespace StorageKey
+
+/-- Plain (unparked) non-slot channel keys: the keys that hops namespace via
+    `scoped`. `slot` is namespaced via `contractSlot` instead. -/
+def isPlainNonSlot : StorageKey → Bool
+  | .addr _ | .transient _ | .map _ _ | .mapUint _ _ | .map2 _ _ _ => true
+  | .slot _ | .contractSlot _ _ | .scoped _ _ => false
+
+@[simp] theorem slot_ne_scoped (n c : Nat) (k : StorageKey) : slot n ≠ StorageKey.scoped c k := by intro h; cases h
+@[simp] theorem scoped_ne_slot (c : Nat) (k : StorageKey) (n : Nat) : StorageKey.scoped c k ≠ slot n := by intro h; cases h
+@[simp] theorem contractSlot_ne_scoped (c n d : Nat) (k : StorageKey) :
+    contractSlot c n ≠ StorageKey.scoped d k := by intro h; cases h
+@[simp] theorem scoped_ne_contractSlot (d : Nat) (k : StorageKey) (c n : Nat) :
+    StorageKey.scoped d k ≠ contractSlot c n := by intro h; cases h
+@[simp] theorem transient_ne_scoped (n c : Nat) (k : StorageKey) : transient n ≠ StorageKey.scoped c k := by intro h; cases h
+@[simp] theorem scoped_ne_transient (c : Nat) (k : StorageKey) (n : Nat) : StorageKey.scoped c k ≠ transient n := by intro h; cases h
+@[simp] theorem addr_ne_scoped (n c : Nat) (k : StorageKey) : addr n ≠ StorageKey.scoped c k := by intro h; cases h
+@[simp] theorem scoped_ne_addr (c : Nat) (k : StorageKey) (n : Nat) : StorageKey.scoped c k ≠ addr n := by intro h; cases h
+@[simp] theorem map_ne_scoped (n : Nat) (a : Address) (c : Nat) (k : StorageKey) :
+    map n a ≠ StorageKey.scoped c k := by intro h; cases h
+@[simp] theorem scoped_ne_map (c : Nat) (k : StorageKey) (n : Nat) (a : Address) :
+    StorageKey.scoped c k ≠ map n a := by intro h; cases h
+@[simp] theorem mapUint_ne_scoped (n : Nat) (a : Uint256) (c : Nat) (k : StorageKey) :
+    mapUint n a ≠ StorageKey.scoped c k := by intro h; cases h
+@[simp] theorem scoped_ne_mapUint (c : Nat) (k : StorageKey) (n : Nat) (a : Uint256) :
+    StorageKey.scoped c k ≠ mapUint n a := by intro h; cases h
+@[simp] theorem map2_ne_scoped (n : Nat) (a b : Address) (c : Nat) (k : StorageKey) :
+    map2 n a b ≠ StorageKey.scoped c k := by intro h; cases h
+@[simp] theorem scoped_ne_map2 (c : Nat) (k : StorageKey) (n : Nat) (a b : Address) :
+    StorageKey.scoped c k ≠ map2 n a b := by intro h; cases h
 
 @[simp] theorem slot_ne_addr (n m : Nat) : slot n ≠ addr m := by intro h; cases h
 @[simp] theorem addr_ne_slot (n m : Nat) : addr n ≠ slot m := by intro h; cases h
@@ -439,19 +473,28 @@ def withStorageWords (s : ContractState) (f : StorageKey → Uint256) : Contract
 @[simp] theorem storageWords_withStorageWords (s : ContractState) (f : StorageKey → Uint256) :
     (s.withStorageWords f).storageWords = f := rfl
 
-/-- Park the current unqualified `.slot` world under `parkId` and load
-    `loadId`'s `contractSlot` world into `.slot`. Mapping/addr/transient
-    channels stay global (see G2). Involutive when the ids are swapped. -/
+/-- Park the current plain storage world under `parkId` and load `loadId`'s
+    parked world into the plain keys. Every word-valued channel is namespaced:
+    `.slot n` is parked under `.contractSlot id n`, and every plain non-slot
+    key `k` (`addr` / `transient` / `map` / `mapUint` / `map2`) under
+    `.scoped id k`. Parked worlds of contracts other than `parkId` are left
+    unchanged. `storageArray` (a separate field) is NOT namespaced and stays
+    global across hops. Swapping the ids restores the plain world. -/
 def switchSlotWorld (s : ContractState) (parkId loadId : Nat) : ContractState :=
   s.withStorageWords fun key =>
     match key with
     | .slot n => s.storageWords (.contractSlot loadId n)
     | .contractSlot id n =>
         if id == parkId then s.storageWords (.slot n) else s.storageWords key
-    | k => s.storageWords k
+    | .scoped id k =>
+        if id == parkId && k.isPlainNonSlot then s.storageWords k
+        else s.storageWords (.scoped id k)
+    | k => s.storageWords (.scoped loadId k)
 
 /-- CALL-shaped hop entry: callee sees `sender := caller`, `thisAddress := callee`,
-    `msgValue := 0`, empty returndata, and its namespaced scalar slots. -/
+    `msgValue := 0`, empty returndata, and its own namespaced storage world
+    (`.contractSlot callee` scalar slots, `.scoped callee` non-slot channels);
+    the caller's world is parked under `caller`. -/
 def enterHop (s : ContractState) (caller callee : Address) : ContractState :=
   { s.switchSlotWorld caller.toNat callee.toNat with
     sender := caller
@@ -459,8 +502,9 @@ def enterHop (s : ContractState) (caller callee : Address) : ContractState :=
     msgValue := 0
     returndata := [] }
 
-/-- Pop a successful hop: callee `.slot` is parked back under `callee`,
-    caller slots are restored, and caller context fields return. -/
+/-- Pop a successful hop: the callee's plain world is parked back under
+    `callee` (`.contractSlot` / `.scoped`), the caller's world is restored, and
+    caller context fields return. -/
 def exitHop (snap s' : ContractState) (caller callee : Address) : ContractState :=
   { s'.switchSlotWorld callee.toNat caller.toNat with
     sender := snap.sender
@@ -871,6 +915,114 @@ def writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Ui
     ContractState :=
   { s with storageWords := fun storageKey =>
       if storageKey == .map2 slot key1 key2 then value else s.storageWords storageKey }
+
+/-! ### Hop namespacing of non-slot channels (G24)
+
+`switchSlotWorld` parks every plain non-slot key under `.scoped parkId k` and
+loads `.scoped loadId k`, so a callee entered by `enterHop` sees its own
+address slots, transient slots and mappings, never the caller's. -/
+
+theorem switchSlotWorld_plainNonSlot (s : ContractState) (parkId loadId : Nat)
+    (k : StorageKey) (hk : k.isPlainNonSlot = true) :
+    (s.switchSlotWorld parkId loadId).storageWords k =
+      s.storageWords (.scoped loadId k) := by
+  cases k <;> first | rfl | simp [StorageKey.isPlainNonSlot] at hk
+
+theorem switchSlotWorld_scoped_park (s : ContractState) (parkId loadId : Nat)
+    (k : StorageKey) (hk : k.isPlainNonSlot = true) :
+    (s.switchSlotWorld parkId loadId).storageWords (.scoped parkId k) =
+      s.storageWords k := by
+  simp [switchSlotWorld, hk]
+
+theorem switchSlotWorld_scoped_other (s : ContractState) (parkId loadId id : Nat)
+    (k : StorageKey) (h : id ≠ parkId) :
+    (s.switchSlotWorld parkId loadId).storageWords (.scoped id k) =
+      s.storageWords (.scoped id k) := by
+  simp [switchSlotWorld, h]
+
+theorem switchSlotWorld_contractSlot_park (s : ContractState) (parkId loadId n : Nat) :
+    (s.switchSlotWorld parkId loadId).storageWords (.contractSlot parkId n) =
+      s.storageWords (.slot n) := by
+  simp [switchSlotWorld]
+
+theorem switchSlotWorld_contractSlot_other (s : ContractState) (parkId loadId id n : Nat)
+    (h : id ≠ parkId) :
+    (s.switchSlotWorld parkId loadId).storageWords (.contractSlot id n) =
+      s.storageWords (.contractSlot id n) := by
+  simp [switchSlotWorld, h]
+
+theorem enterHop_storageWords_plainNonSlot (s : ContractState) (caller callee : Address)
+    (k : StorageKey) (hk : k.isPlainNonSlot = true) :
+    (s.enterHop caller callee).storageWords k =
+      s.storageWords (.scoped callee.toNat k) :=
+  switchSlotWorld_plainNonSlot s caller.toNat callee.toNat k hk
+
+theorem enterHop_readAddrSlot (s : ContractState) (caller callee : Address) (n : Nat) :
+    (s.enterHop caller callee).readAddrSlot n =
+      wordToAddress (s.storageWords (.scoped callee.toNat (.addr n))) :=
+  rfl
+
+theorem enterHop_readTransient (s : ContractState) (caller callee : Address) (n : Nat) :
+    (s.enterHop caller callee).readTransient n =
+      s.storageWords (.scoped callee.toNat (.transient n)) :=
+  rfl
+
+theorem enterHop_readMap (s : ContractState) (caller callee : Address) (n : Nat)
+    (key : Address) :
+    (s.enterHop caller callee).readMap n key =
+      s.storageWords (.scoped callee.toNat (.map n key)) :=
+  rfl
+
+theorem enterHop_readMapUint (s : ContractState) (caller callee : Address) (n : Nat)
+    (key : Uint256) :
+    (s.enterHop caller callee).readMapUint n key =
+      s.storageWords (.scoped callee.toNat (.mapUint n key)) :=
+  rfl
+
+theorem enterHop_readMap2 (s : ContractState) (caller callee : Address) (n : Nat)
+    (key1 key2 : Address) :
+    (s.enterHop caller callee).readMap2 n key1 key2 =
+      s.storageWords (.scoped callee.toNat (.map2 n key1 key2)) :=
+  rfl
+
+/-- Entering a hop parks the caller's plain non-slot world under `.scoped caller`. -/
+theorem enterHop_scoped_caller (s : ContractState) (caller callee : Address)
+    (k : StorageKey) (hk : k.isPlainNonSlot = true) :
+    (s.enterHop caller callee).storageWords (.scoped caller.toNat k) = s.storageWords k :=
+  switchSlotWorld_scoped_park s caller.toNat callee.toNat k hk
+
+/-- A successful hop exit loads the caller's parked non-slot world back. -/
+theorem exitHop_storageWords_plainNonSlot (snap s' : ContractState) (caller callee : Address)
+    (k : StorageKey) (hk : k.isPlainNonSlot = true) :
+    (snap.exitHop s' caller callee).storageWords k =
+      s'.storageWords (.scoped caller.toNat k) :=
+  switchSlotWorld_plainNonSlot s' callee.toNat caller.toNat k hk
+
+/-- A successful hop exit parks the callee's plain non-slot world under `.scoped callee`. -/
+theorem exitHop_scoped_callee (snap s' : ContractState) (caller callee : Address)
+    (k : StorageKey) (hk : k.isPlainNonSlot = true) :
+    (snap.exitHop s' caller callee).storageWords (.scoped callee.toNat k) =
+      s'.storageWords k :=
+  switchSlotWorld_scoped_park s' callee.toNat caller.toNat k hk
+
+/-- A successful hop exit parks the callee's `.slot` world under `.contractSlot callee`. -/
+theorem exitHop_contractSlot_callee (snap s' : ContractState) (caller callee : Address)
+    (n : Nat) :
+    (snap.exitHop s' caller callee).storageWords (.contractSlot callee.toNat n) =
+      s'.storageWords (.slot n) :=
+  switchSlotWorld_contractSlot_park s' callee.toNat caller.toNat n
+
+/-- Round trip: entering and immediately exiting a hop (a callee body that does
+    not touch storage) restores the caller's plain storage world, on every
+    channel. -/
+theorem exitHop_enterHop_storageWords_plain (s : ContractState) (caller callee : Address)
+    (k : StorageKey) (hk : k.isPlainNonSlot = true ∨ ∃ n, k = .slot n) :
+    (s.exitHop (s.enterHop caller callee) caller callee).storageWords k =
+      s.storageWords k := by
+  rcases hk with hk | ⟨n, rfl⟩
+  · rw [exitHop_storageWords_plainNonSlot _ _ _ _ k hk,
+      enterHop_scoped_caller _ _ _ k hk]
+  · simp [exitHop, enterHop, switchSlotWorld]
 
 @[simp] theorem storage_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address)
     (value : Uint256) : (s.writeMap2 slot key1 key2 value).storage = s.storage := by
@@ -1317,6 +1469,7 @@ def ofChannels
   { storageWords := fun key => match key with
       | .slot slot => uintChannel slot
       | .contractSlot _ _ => 0
+      | .scoped _ _ => 0
       | .transient slot => transientChannel slot
       | .addr slot => addressToWord (addrChannel slot)
       | .map slot key => mapChannel slot key
@@ -1565,7 +1718,9 @@ def Contract.selfCall {α : Type} (body : Contract α) : Contract α := fun s =>
   | ContractResult.revert msg _ => ContractResult.revert msg s
 
 /-- Distinct-address CALL-shaped hop in the single-`ContractState` executable
-    plane. Scalar slots are namespaced via `StorageKey.contractSlot`; success
+    plane. Scalar slots are namespaced via `StorageKey.contractSlot` and every
+    other word-valued channel via `StorageKey.scoped` (`storageArray` stays
+    global); success
     commits the callee world and restores caller context; revert restores the
     pre-call snapshot. Same-address hops reuse `selfCall`. -/
 def Contract.hopCall {α : Type} (callee : Address) (body : Contract α) : Contract α :=

@@ -763,6 +763,36 @@ sibling entrypoint.
   (`storageKeySlot_slot_dynamicArray`).
 - Zero new axioms.
 
+## Hop Storage Namespacing — G24 (#2440, 2026-09)
+
+- `StorageKey` gains `scoped (contract : Nat) (key : StorageKey)`: the parked
+  copy of a non-slot channel key (`addr` / `transient` / `map` / `mapUint` /
+  `map2`, see `StorageKey.isPlainNonSlot`) of contract `contract`.
+- `ContractState.switchSlotWorld parkId loadId` (used by `enterHop` /
+  `exitHop`, hence `Contract.hopCall` / `Contract.hopCallView`) now namespaces
+  every word-valued channel: `.slot n` loads `.contractSlot loadId n` (as
+  before), each plain non-slot key `k` loads `.scoped loadId k`, and the
+  current plain world is parked under `.contractSlot parkId` / `.scoped parkId`.
+  Previously address slots, transient slots and mappings were shared between
+  caller and callee across a hop, which made cross-contract fidelity
+  statements over address fields or mappings unsound.
+- New lemmas (`Verity/Core.lean`): `enterHop_readAddrSlot`,
+  `enterHop_readTransient`, `enterHop_readMap`, `enterHop_readMapUint`,
+  `enterHop_readMap2`, `enterHop_storageWords_plainNonSlot`,
+  `enterHop_scoped_caller`, `exitHop_storageWords_plainNonSlot`,
+  `exitHop_scoped_callee`, `exitHop_contractSlot_callee`,
+  `switchSlotWorld_{plainNonSlot,scoped_park,scoped_other,contractSlot_park,contractSlot_other}`,
+  and the round trip `exitHop_enterHop_storageWords_plain`.
+  Smoke: `Contracts/Smoke/HopNamespace.lean` (callee address slot / mapping
+  are its own, caller untouched, second hop sees the parked write, nested
+  A→B→A reentrant hop sees A's own world, revert restores).
+- Compiler storage-coherence collapses map `scoped` keys to `none`
+  (`MappingCoherence.storageKeySlot`, `MappingCoherentAllKeys.storageKeySlot`):
+  they have no flat compiler-channel counterpart.
+- Remaining boundary: `storageArray` (dynamic arrays, a separate field) is
+  still global across hops.
+- Zero new axioms.
+
 ## CI Guards
 
 - `make check` validates generated reports, bridge coverage synchronization,

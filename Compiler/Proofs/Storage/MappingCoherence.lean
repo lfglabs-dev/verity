@@ -30,6 +30,7 @@ def storageKeySlot : StorageKey → Option Nat
       some (abstractNestedMappingSlot n (addressToWord k1).val (addressToWord k2).val)
   | .transient _ => none
   | .contractSlot c n => if c = 0 then some n else none
+  | .scoped _ _ => none
 
 /-- Address-keyed mapping shadow agrees with the flat channel at the
     derived Solidity slot. -/

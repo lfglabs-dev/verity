@@ -36,7 +36,9 @@ Axioms are exceptional. When an axiom exists, it must have:
 
 C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
 not add a keccak-injectivity axiom. Source lens laws use constructor
-injectivity; Solidity slot derivation remains compiler-side.
+injectivity; Solidity slot derivation remains compiler-side. The G24 hop
+namespace constructor `StorageKey.scoped` (#2440) likewise adds no axiom:
+its hop lemmas are definitional or constructor case splits.
 
 C5 step 4 is complete under `solidityMappingSlot_injective` below —
 collision-resistance of the 64-byte ABI mapping preimage, **not**
