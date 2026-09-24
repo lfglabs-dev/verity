@@ -11,25 +11,6 @@ concrete packed read. Interpreter `#eval` checks are not theorems. The frontend 
 builds the model from solc JSON remains a trust assumption; see
 `TRUST_ASSUMPTIONS.md`.
 
-## Proof-only Solidity Vault audit
-
-`PrintAxioms.lean` includes the imported Vault execution theorems. The focused
-`solidity_importer_test.py` runs `#print axioms` in a disposable audit module for
-every theorem in `Contracts/VaultFromSolidity/Proofs/ExecutionProof.lean` and requires
-coverage of all declared theorems, rejecting `sorryAx` and project axioms.
-Its malformed-declaration probe also checks that kernel error recovery does not
-leave any partial declarations or fallback axioms in the import namespace.
-The imported Vault proofs report only the standard Lean foundations `propext`
-and `Quot.sound`; they do not depend on `solidityMappingSlot_injective`.
-`solvent_invariant` is included in that audit. The inheritance-slice suite
-`inheritance_test.py` runs the same `#print axioms` gate on every theorem in
-`Contracts/SolidityImportSmoke/Inheritance/Proofs.lean` and likewise requires
-only `propext` and `Quot.sound`. The modifiers and structs suites
-`modifiers_test.py` and `structs_test.py` run the same gate on
-`Contracts/SolidityImportSmoke/Modifiers/Proofs.lean` and
-`Contracts/SolidityImportSmoke/Structs/Proofs.lean`. This does not remove the trusted Solidity frontend/translation boundary described
-in `TRUST_ASSUMPTIONS.md`, or change the compiler axiom registry below.
-
 ## Policy
 
 Axioms are exceptional. When an axiom exists, it must have:

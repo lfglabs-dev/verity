@@ -27,8 +27,7 @@ model matches the Solidity source or solc's bytecode. `storageLayout` slots and
 packed offsets are copied from pinned solc 0.8.34
 (`0.8.34+commit.80d5c536`; linux-amd64 and macosx-amd64 SHA-256 pins in
 `Import.lean`). `mappingSlot` in the denotation oracle is not Keccak. Numeric
-claims are about the values `structMember` reads back. The Vault importer's
-solc 0.8.33 pin is unchanged.
+claims are about the values `structMember` reads back.
 
 Checked `uint256` and narrower unsigned arithmetic is lowered to `Stmt.ite` plus
 `Stmt.panic`, not to a second interpreter. Explicit `uint128(x)` is truncation
@@ -42,130 +41,6 @@ arguments, virtual dispatch, and unsupported signed operations are rejected.
 The slice makes no dynamic ABI-head claim: that unrelated denotation extension
 is not part of this change. Lake does not track the external Solidity reads,
 so consumers must re-elaborate to verify freshness against a compiled import.
-
-## Proof-only Solidity Vault import
-
-This POC is separate from the verified compilation pipeline below. It trusts
-pinned solc's typed AST/storage layout and the Lean translation in
-`Contracts/VaultFromSolidity/Importer/Importer.lean` to preserve Solidity
-meaning. Kernel checking establishes well-typed definitions and theorems about
-their execution, not a Solidity-to-Verity equivalence theorem. `sourceDigest`
-is provenance, not proof of correspondence. It hashes the compiler input,
-standard-json output, Lean importer implementation, and the release identity
-`0.8.33+commit.64118f21` (not the host binary hash or Darwin/Linux banner), so
-Linux and macOS share one translation identity when they produce the same AST.
-The host's fixed checksum utility is trusted for compiler-pin checks:
-`/usr/bin/sha256sum` on Linux and `/usr/bin/shasum` on macOS. The on-disk
-compiler must match a committed allowlist of official
-`binaries.soliditylang.org` SHA-256 digests for linux-amd64 and macosx-amd64
-(the latter is a universal Mach-O). `make setup-solc-importer` fetches the
-platform `list.json`, requires the published digest to equal that pin, then
-downloads the listed build. `make check-solc-published` repeats the live
-list.json check without installing. Lake elaboration never fetches. Linux CI
-still installs and runs the linux-amd64 artifact.
-The digest is checked before version inspection, immediately before compilation,
-and again after compilation, so `PATH` substitution and persistent compiler
-replacement fail closed. As with all local builds, a concurrently malicious
-process with the builder's own filesystem privileges is outside the threat model.
-It is not full build identity: transitive Verity semantics, Lean toolchain, and
-Lake build policy are tracked separately by normal build dependencies, not this
-digest. The recursive closed AST schema rejects unknown fields/node kinds and
-contract `layout at`; semantically used type metadata and all storage-layout
-records are checked explicitly. Canonical package containment is checked
-independently of source registration.
-
-`Importer.lean` runs pinned solc itself with `--standard-json` and
-`--no-import-callback`, parses the typed AST/storage layout, validates the
-closed subset, resolves IDs/types/storage slots, and parses it into the closed,
-intrinsically typed inductive in `Syntax.lean`. Each entry point is registered
-as `Semantics.lean`'s `Fn.meaning` applied to that parsed term, so
-`Semantics.lean` is the single definition of what each construct means and is
-part of the digest. Declaration
-registration disables asynchronous kernel checking inside the transaction,
-restores the pre-import environment on failure, parses every body at its typed
-return signature (an ill-typed body is unrepresentable), and registers safe
-transparent definitions. The same
-transaction elaborates `Storage` with the standard structure command (the one
-use of that elaborator; kernel-checked, rolled back on failure), then
-registers `view : ContractState → Storage` built from the imported
-`<var>Slot` handles, tags slot handles, getters, functions, and `view` into
-the `solidity_import` simp set, and registers a deterministic entry-point
-relation `step` (the target's public/external functions in source order, then
-each base in linearization order, then public getters in field order).
-`Storage`, `view`, and `step` are reserved Solidity names. Opaque fields are
-listed in `opaqueFields`. The importer source manifest is `registeredSources`. The
-frontend emits no generated Lean source and keeps
-no serialized AST/model cache; the parsed term is a kernel-checked Lean value,
-never serialized. `Semantics.lean` tags its definitions into the
-`solidity_import` simp set, so `solidity_simp` unfolds `Fn.meaning` down to the
-Verity primitives exactly as it did before the split.
-
-The accepted fragment covers the existing Vault, the S1 inheritance slice, and
-the S2 modifiers/structs slice: full-width `uint256` scalars, `address` scalars,
-address-to-uint256 mappings and public getters, straight-line reads/writes,
-locals, checked addition/subtraction, comparison/custom-error guards (including
-`address !=` for `onlyOwner`), same-file `is` bases with solc's C3
-linearization (including diamonds), virtual dispatch and `super` specialized at
-  import time from the target's `linearizedBaseContracts` (matching 0.8.x runtime;
-  the AST `referencedDeclaration` on `super` follows the defining contract and is
-  not the dispatch key on diamonds; `super` inside an inlined modifier starts
-  after that modifier's defining contract, not the function's), internal function
-  calls (`Expr.call` is
-  `view`/`pure` only; effectful internals are `Stmt.callStmt`, because legacy
-  codegen evaluates those calls before the other operand / `+=` old-read),
-  abstract bases with body-less `virtual`s, opaque storage fields (slot reserved,
-  not in `Storage`; a body that reads or writes one is rejected), argument-free
-  modifiers inlined at parse time in declaration order (`Stmt.seq` prelude plus
-  `Stmt.block` so a function `return` still runs the postlude; prelude `uint256`
-  locals scope over the inlined body and postlude; identifier calls in a
-  modifier body that resolve to a private or non-virtual helper stay bound to
-  the declaring contract even if a derived contract declares a same-name private
-  function; a modifier with
-  two `_`, with arguments, or with a prelude `return` before `_` is rejected;
-  `Semantics.lean` never sees `_`), named `address`/struct returns defaulting to
-  the zero address rather than `msg.sender`, and
-  user structs used as parameters, storage, and returns when they are the closed
-  `uint256` then `address` pair (members occupy consecutive solc slots; encode is
-  `Expr.pair` indexed by the solc struct id so same-shape structs stay distinct
-  in signatures; a public struct field registers one product getter; a storage
-  struct assignment binds the RHS pair once; named `Acc({...})` constructors
-  evaluate arguments in source order (pinned 0.8.33) then pack into the
-  `uint256 × address` member product — `Expr.pair` when names are already
-  member order, `Expr.pairRev` when they are `{who, amount}`; positional
-  `Acc(a, b)` stays AST/member order). Unknown executable constructs are
-rejected; this is not general Solidity support. Multi-file units, packed
-fields, events, and external calls remain out of the fragment.
-Arguments/context are already typed and decoded. `Contract.run` rolls back
-failed executions; errors are model strings, not verified ABI revert bytes.
-The storage model uses logical keys, not a proof of physical keccak layout.
-There is no deployment, calldata/dispatch, gas, external interaction, bytecode,
-or full EVM equivalence claim. Initial states are arbitrary, not proven deployed
-states. Arithmetic success premises restrict the success theorems. The example keeps one
-readable proof set: each successful entry point meets its named-storage spec
-(`*_success_spec`), each spec holds under its precondition (`*_meets_spec`),
-and the vault's solvency invariant (`totalAssets = totalSupply`) is preserved
-by `step` (`solvent_invariant`). Rollback on revert is proved by `run_snd_cases`;
-the revert conditions themselves are exercised by the acceptance suite, not proved.
-
-The specification states its promises over the imported storage view
-(`v.totalAssets`, `v.shareBalances account`) rather than raw slot numbers; the
-execution proof file relates that view to the imported definitions. Each
-`*_meets_spec` theorem asserts that the call succeeds under its precondition
-and that the successful post-state (or returned value) meets the spec, so a
-reverting implementation cannot satisfy it; the `*_success_spec` theorems pin
-the same named-storage equations from a success hypothesis. The view adds no
-trust: `view` unfolds to `ContractState.readSlot`/`readMap` at the slot
-solc's storage layout assigned. Zero-argument custom errors use Verity's `Name()` model convention;
-arithmetic panic strings remain a model representation, not an assertion of
-matching EVM revert bytes. The statements do not assert full equivalence of all
-executions or all public/deployment interfaces.
-
-Lake's dedicated `VaultFromSolidity` target tracks source/compiler/Lean-importer/build
-policy bytes and normal Lean dependencies. Acceptance evidence is obtained with
-`python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py`;
-that Python file only orchestrates disposable builds and mutations and is not in
-the translation path. Stale editor snapshots are not a current-source proof
-certificate. No additional project axiom is introduced.
 
 ## Compilation Pipeline
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Install pinned solc 0.8.34 for the function-slice importer.
 
-The Vault importer keeps solc 0.8.33 at `.lake/solidity-import/solc`.
-This script writes `.lake/solidity-import/solc-0.8.34` and does not replace it.
+The binary is written to `.lake/solidity-import/solc-0.8.34`.
 Lake elaboration never downloads the compiler.
 """
 

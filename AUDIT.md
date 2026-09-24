@@ -18,8 +18,7 @@ imported body: `(95, 5, 5)` and a revert. `smoke_step_credit` is a kernel proof
 of the first packed `credit` read. It is not a proof of the whole body, and it
 is not a proof that the model matches solc bytecode.
 
-The slice compiler pin is solc `0.8.34+commit.80d5c536`, installed separately
-from the Vault 0.8.33 pin by `python3 scripts/setup_solc_slice.py`. The source
+The slice compiler pin is solc `0.8.34+commit.80d5c536`, installed by `python3 scripts/setup_solc_slice.py`. The source
 digest reads the importer modules from the Verity tree, or from
 `.lake/packages/verity` when a downstream package elaborates the command. The
 solc binary remains the elaborating package's `.lake/solidity-import/solc-0.8.34`.
@@ -38,74 +37,6 @@ The downstream `morpho-midnight-verity` pilot proves all five CVL assertions on
 actual imported execution, with arbitrary state/oracle and mathematical integer
 ghosts. That proof adds no source-to-model equivalence claim. See
 `Compiler/SoliditySlice/README.md` for the supported subset and freshness checks.
-
-## Proof-only Solidity Vault POC
-
-The focused suite probes unknown, wrong-typed, and missing AST fields (including
-documentation metadata), invalid source spans, and malformed storage layout
-through synthetic compiler-output mutations, plus unsupported source constructs,
-contract `layout at`,
-registered-source symlink escape, and Lean importer digest sensitivity. It also
-checks safe transparent declarations, duplicate aliases, a deliberately
-malformed late declaration and complete registration rollback (including the
-named storage view), plus the pinned compiler's checksum. Named-storage checks
-cover `v.totalAssets` dot notation and `#print view`, a
-declaration-reorder mutation that moves solc slots while every proof still
-builds, a state-variable rename that makes `Spec.lean` fail to elaborate, and
-Solidity variables named `Storage` or `step` rejected with a source position.
-Behaviour mutations must break both the `*_success_spec` theorem and the
-`*_meets_spec` theorem of the affected entry point, three `Spec.lean` mutations
-that weaken a promise must fail inside both corresponding theorems, and a new
-`mint` entry point must break `solvent_invariant`. The `spec_named_storage`
-lean_lint rule (in `make check`) rejects every raw `ContractState` accessor
-(the list is read from `Verity/Core.lean`), raw storage fields, direct
-`ContractState` mentions, positional projections, and `knownAddresses` in
-opted-in spec files. The digest scope is documented in `TRUST_ASSUMPTIONS.md`; it is not a transitive build identity.
-
-The importer accepts the official 0.8.33 linux-amd64 and macosx-amd64
-builds published on `binaries.soliditylang.org` (the same lists `solc-select`
-uses). Checksum verification uses `/usr/bin/sha256sum` on Linux and
-`/usr/bin/shasum` on macOS against that committed allowlist. `sourceDigest`
-hashes source, standard-json, importer text, and `0.8.33+commit.64118f21`, not
-the host binary. Setup and `make check-solc-published` may fetch `list.json`;
-Lake does not. Linux CI still installs and runs the linux-amd64 artifact.
-
-Evidence command:
-`python3 Contracts/VaultFromSolidity/Importer/scripts/solidity_importer_test.py`
-(after `lake build VaultFromSolidity` and installation of the pinned compiler).
-The focused runner builds and audits the imported execution proofs, changes
-accepted deposit/getter behavior while preserving source mtime and requires old
-proofs to fail at both the success and spec layer, weakens the named spec
-and requires both corresponding theorems to fail, rejects unsupported source,
-checks unchanged artifacts, and
-exercises Lean-importer and compiler content invalidation. Mutations occur only
-in disposable copies. This is local acceptance evidence, not a new CI job,
-bytecode/runtime test, or proof of translation correctness.
-
-The complete example surface lives under `Contracts/VaultFromSolidity`: Solidity
-source, Lean importer, specification, execution proofs and focused acceptance
-tests. It is independent of the handwritten `Contracts/Vault` example. The S1
-inheritance slice adds `Contracts/SolidityImportSmoke/Inheritance` with the same
-shape (source, import command, named-storage spec, proofs, focused Python
-suite). The S2 modifiers/structs slice adds
-`Contracts/SolidityImportSmoke/Modifiers` and
-`Contracts/SolidityImportSmoke/Structs` with the same shape. No
-Python frontend, custom serialized IR, generated Lean source, or bytecode is in
-the translation path: the accepted Solidity subset is the kernel-checked
-inductive in `Importer/Syntax.lean` and `Importer/Semantics.lean` is its single
-meaning. Trust and axiom scope are recorded in
-`TRUST_ASSUMPTIONS.md` and `AXIOMS.md`.
-
-Evidence command for the inheritance slice:
-`python3 Contracts/SolidityImportSmoke/Inheritance/scripts/inheritance_test.py`
-(after `lake build SolidityImportSmokeInheritance`).
-Evidence commands for the modifiers/structs slice:
-`python3 Contracts/SolidityImportSmoke/Modifiers/scripts/modifiers_test.py`
-(after `lake build SolidityImportSmokeModifiers`) and
-`python3 Contracts/SolidityImportSmoke/Structs/scripts/structs_test.py`
-(after `lake build SolidityImportSmokeStructs`). The structs suite also
-imports a named constructor that lists `{who, amount}` out of member order
-(`Expr.pairRev` evaluates source order then packs `uint256 × address`).
 
 ## Current Audit State
 

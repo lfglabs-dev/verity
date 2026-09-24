@@ -26,7 +26,6 @@ VERIFY_YML = ROOT / ".github" / "workflows" / "verify.yml"
 SETUP_SOLC_ACTION = ROOT / ".github" / "actions" / "setup-solc" / "action.yml"
 FOUNDRY_TOML = ROOT / "foundry.toml"
 TRUST_ASSUMPTIONS = ROOT / "TRUST_ASSUMPTIONS.md"
-MACOS_SOLC_SHA256 = official_solc.OFFICIAL_SOLC_SHA256["macosx-amd64"]
 
 SOLC_VERSION_RE = re.compile(r'^\s*SOLC_VERSION:\s*"([^"]+)"\s*$', re.MULTILINE)
 SOLC_URL_RE = re.compile(r'^\s*SOLC_URL:\s*"([^"]+)"\s*$', re.MULTILINE)
@@ -145,40 +144,11 @@ def main(argv: list[str] | None = None) -> int:
     if re.search(r"\bsudo\b", action_text):
         errors.append(".github/actions/setup-solc/action.yml: solc install step must not require sudo")
 
-    importer = ROOT / "Contracts" / "VaultFromSolidity" / "Importer" / "Importer.lean"
     if linux_sha256 != official_solc.OFFICIAL_SOLC_SHA256["linux-amd64"]:
         errors.append(
             ".github/workflows/verify.yml: SOLC_SHA256 must be the official "
             "linux-amd64 list.json digest"
         )
-
-    if importer.exists():
-        importer_text = _read(importer)
-        if official_solc.SOLC_LONG_VERSION not in importer_text:
-            errors.append(
-                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
-                f"must pin solcVersionPin {official_solc.SOLC_LONG_VERSION}"
-            )
-        if linux_sha256 not in importer_text:
-            errors.append(
-                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
-                "must pin verify.yml SOLC_SHA256 for linux-amd64"
-            )
-        if MACOS_SOLC_SHA256 not in importer_text:
-            errors.append(
-                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
-                "must pin the official macosx-amd64 solc SHA-256"
-            )
-        if "officialSolcSha256s" not in importer_text:
-            errors.append(
-                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
-                "must accept official solc builds via officialSolcSha256s"
-            )
-        if "/usr/bin/shasum" not in importer_text:
-            errors.append(
-                "Contracts/VaultFromSolidity/Importer/Importer.lean: "
-                "macOS checksum path must be /usr/bin/shasum"
-            )
 
     if args.verify_published_checksums:
         _verify_published_checksums(errors)

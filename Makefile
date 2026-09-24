@@ -3,7 +3,7 @@
 # Prerequisites: curl, git, python3, bash
 # Run `make setup` to install all tooling, then `make verify` to check all proofs.
 
-.PHONY: help setup setup-elan setup-solc setup-solc-importer check-solc-published setup-foundry \
+.PHONY: help setup setup-elan setup-solc check-solc-published setup-foundry \
         verify verify-packages verify-targeted profile-lean test test-foundry test-python axiom-report \
         compile generate-yul check checks test-evmyullean-fork \
         refresh-status all clean
@@ -23,7 +23,7 @@ help: ## Show this help
 # Setup
 # ---------------------------------------------------------------------------
 
-setup: setup-elan setup-solc setup-solc-importer setup-foundry ## Install all tooling (elan, solc, foundry)
+setup: setup-elan setup-solc setup-foundry ## Install all tooling (elan, solc, foundry)
 	@echo ""
 	@echo "Setup complete. Run 'make verify' to check all proofs."
 
@@ -48,9 +48,6 @@ setup-solc: ## Install solc (SHA256-verified)
 		sudo chmod +x /usr/local/bin/solc; \
 		echo "solc $(SOLC_VERSION) installed"; \
 	fi
-
-setup-solc-importer: ## Install official solc for the Lean Solidity importer
-	python3 scripts/setup_solc_importer.py
 
 check-solc-published: ## Fetch official list.json and verify committed SHA-256 pins
 	python3 scripts/check_solc_pin.py --verify-published-checksums
@@ -171,7 +168,6 @@ check: ## Run local CI-equivalent checks job (no Lean build, no solc)
 	python3 scripts/generate_print_axioms.py --check
 	python3 scripts/generate_trust_surface_report.py --check
 	python3 scripts/lean_lint.py --only proof_length
-	python3 scripts/lean_lint.py --only spec_named_storage
 	python3 scripts/check_issue_1060_integrity.py
 	python3 scripts/update_doc_numbers.py --check
 	python3 -m unittest discover -s scripts -p 'test_*.py' -v

@@ -4,9 +4,6 @@
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Compiler.CompilationModel.ReservedScratchNames
-import Contracts.SolidityImportSmoke.Inheritance.Proofs
-import Contracts.SolidityImportSmoke.Modifiers.Proofs
-import Contracts.SolidityImportSmoke.Structs.Proofs
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -38,7 +35,6 @@ import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
-import Contracts.VaultFromSolidity.Proofs.ExecutionProof
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Model.CommonExternalCallEquivalence
@@ -47,7 +43,6 @@ import Verity.Proofs.Stdlib.Int256
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
-import Verity.Proofs.Stdlib.SolidityImport
 import Compiler.Proofs.AbiDynamicEventObservable
 import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.AbiEventObservable
@@ -295,32 +290,6 @@ end Verity.AxiomAudit
   -- Compiler/CompilationModel/ReservedScratchNames.lean
   Compiler.CompilationModel.compatScratch_startsWith_reserved
   Compiler.CompilationModel.compatScratch_not_internalImmutable
-
-  -- Contracts/SolidityImportSmoke/Inheritance/Proofs.lean
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.pause_success_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.go_success_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.bump_success_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.dispatch_is_child
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.super_runs_parent
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.pause_meets_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.go_meets_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.bump_meets_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.paused_invariant
-
-  -- Contracts/SolidityImportSmoke/Modifiers/Proofs.lean
-  Contracts.SolidityImportSmoke.Modifiers.Proofs.status_restored
-  Contracts.SolidityImportSmoke.Modifiers.Proofs.early_meets_spec
-  Contracts.SolidityImportSmoke.Modifiers.Proofs.guarded_success_spec
-  Contracts.SolidityImportSmoke.Modifiers.Proofs.guarded_reverts_not_owner_before_pause
-  Contracts.SolidityImportSmoke.Modifiers.Proofs.tagged_uses_base_helper
-  Contracts.SolidityImportSmoke.Modifiers.Proofs.snapshot_restores_status
-
-  -- Contracts/SolidityImportSmoke/Structs/Proofs.lean
-  Contracts.SolidityImportSmoke.Structs.Proofs.set_then_get
-  Contracts.SolidityImportSmoke.Structs.Proofs.other_member_unchanged_thm
-  Contracts.SolidityImportSmoke.Structs.Proofs.get_meets_spec
-  Contracts.SolidityImportSmoke.Structs.Proofs.make_encodes
-  Contracts.SolidityImportSmoke.Structs.Proofs.makeRev_encodes
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -720,15 +689,6 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
-
-  -- Contracts/VaultFromSolidity/Proofs/ExecutionProof.lean
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_success_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_success_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_success_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_meets_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_meets_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_meets_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.solvent_invariant
 
   -- Verity/Proofs/CheckedExternalCallConsumer.lean
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
@@ -1189,10 +1149,6 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.safeDiv_self
   Verity.Proofs.Stdlib.Math.safeMul_result_bounded
   Verity.Proofs.Stdlib.Math.safeDiv_result_le_numerator
-
-  -- Verity/Proofs/Stdlib/SolidityImport.lean
-  Verity.Proofs.Stdlib.SolidityImport.run_snd_cases
-  Verity.Proofs.Stdlib.SolidityImport.uint256_eq_zero_iff
 
   -- Compiler/Proofs/AbiDynamicEventObservable.lean
   Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_append
@@ -7626,4 +7582,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7040 theorems/lemmas (5027 public, 2013 private, 0 sorry'd)
+-- Total: 7011 theorems/lemmas (4998 public, 2013 private, 0 sorry'd)
