@@ -1,8 +1,8 @@
 /-
   IRStorageWord: typed-storage helper surface for the IR storage carrier.
 
-  This module is **Phase 0** of the IR storage type refactor described in
-  `docs/IR_STORAGE_UINT256_REFACTOR.md`. It introduces a type alias plus
+  This module is **Phase 0** of the IR storage type refactor. It introduces a
+  type alias plus
   canonical injection / projection helpers and round-trip lemmas, *without*
   changing the underlying carrier or any existing callsite.
 
@@ -22,9 +22,6 @@
     `simpleStorageNativeStoreHitBridge` by reduction through the bounded
     carrier, then drop the corresponding hypotheses from
     `simpleStorage_endToEnd_native_evmYulLean`.
-
-  The full plan and acceptance signals live in
-  `docs/IR_STORAGE_UINT256_REFACTOR.md`.
 -/
 
 import EvmYul.UInt256

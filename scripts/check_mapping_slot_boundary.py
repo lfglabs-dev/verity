@@ -16,7 +16,7 @@ from property_utils import scrub_lean_code
 ROOT = Path(__file__).resolve().parents[1]
 PROOFS_DIR = ROOT / "Compiler" / "Proofs"
 MAPPING_SLOT_FILE = PROOFS_DIR / "MappingSlot.lean"
-TRUST_ASSUMPTIONS_FILE = ROOT / "TRUST_ASSUMPTIONS.md"
+TRUST_ASSUMPTIONS_FILE = ROOT / "docs" / "TRUST_ASSUMPTIONS.md"
 
 ALLOWED_MAPPING_ENCODING_IMPORTERS: set[Path] = set()
 

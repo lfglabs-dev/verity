@@ -34,8 +34,8 @@ surfaces (the txOrigin postmortem). Landed so far on this branch:
   `verity-compiler` (patch pass is a proven identity when disabled).
 - ✅ `SupportedFunction.noNonReentrant`: the guarded-functions-outside-
   SupportedSpec boundary is machine-checked.
-- ✅ `Contracts/Smoke.lean` split by feature surface; doc-sync consolidation
-  inventory at `scripts/consolidation-inventory.md`.
+- ✅ `Contracts/Smoke.lean` split by feature surface; doc-sync checks
+  consolidated into `scripts/docsync.py`.
 
 Next: derive the executable shallow program from the deep model
 (`Stmt.denote`, macro retarget per-contract behind a flag), collapse the

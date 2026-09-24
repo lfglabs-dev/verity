@@ -1,308 +1,57 @@
 # Contributing to Verity
 
-Quick conventions for contributing. See [README.md](README.md) for project overview, [docs/ROADMAP.md](docs/ROADMAP.md) for status.
+## Pull requests
 
-## Issue Format
+Title with a category prefix (`[Layer 3]`, `[Trust Reduction]`,
+`[Compiler Enhancement]`, `[Documentation]`, `[Infrastructure]`, …). The body
+has a **Summary**, a **Test Plan** (what you ran), and **Related Issues**.
+Issues use the templates in `.github/ISSUE_TEMPLATE/`.
 
-**Title**: `[Category] Brief description`
+Before opening a PR:
 
-**Categories**: `[Layer 3]` `[Trust Reduction]` `[Property Coverage]` `[Compiler Enhancement]` `[Documentation]` `[Infrastructure]`
-
-**Labels**: Use `layer-3` `lean` `proof` `enhancement` `bug` `documentation` `help-wanted` `good-first-issue`
-
-**Structure**: Use issue templates in `.github/ISSUE_TEMPLATE/`
-- Goal (what needs doing)
-- Effort estimate (hours/weeks)
-- Implementation approach
-- Acceptance criteria
-- References (file paths, issues)
-
-## PR Format
-
-**Title**: Same `[Category]` prefix as issues
-
-**Body**:
-```markdown
-## Summary
-- Bullet points of changes
-
-## Test Plan
-How you verified it works
-
-## Related Issues
-Closes #X, addresses #Y
+```sh
+lake build        # every proof must check
+make check        # repository checks, as in CI
+make test-foundry # property and differential tests (uses vm.ffi)
 ```
 
-**Before submitting**:
-```bash
-lake build  # Must pass — verifies all proofs
-FOUNDRY_PROFILE=difftest forge test  # Must pass — runs all Foundry tests
-# FOUNDRY_PROFILE=difftest is required because property and differential
-# tests use vm.ffi() to invoke the Lean-based interpreter
-# No new `sorry` without documentation
-# No new `axiom` without documenting in AXIOMS.md
-# Update docs/ROADMAP.md if architectural changes
-# If adding a new contract, run the checklist below
-```
-
-**When adding a new contract**, also update:
-- Author the contract with `verity_contract`; do not add a separate hand-written `Compiler.Specs` body unless the workflow truly requires a special case like external linking.
-- A new reusable facet (Ownable, Pausable, …) is a `verity_mixin` plus named-slot specs, a `Footprint`, and `_meets_spec` / guard theorems. Hosts `include` the mixin; do not copy `Owned.lean` into the host.
-- Add the macro-generated `<Name>.spec` alias/list entry in [`Contracts/Specs.lean`](Contracts/Specs.lean) if the contract should ship through the default compiler manifest.
-- `test/property_manifest.json` — Run `python3 scripts/extract_property_manifest.py`
-- `README.md` — Contracts table (theorem count and description)
-- `docs/VERIFICATION_STATUS.md` — Contract table and coverage stats
-- `docs-site/public/llms.txt` — Quick Facts and theorem breakdown table
-- `docs-site/content/verification.mdx` — Snapshot section
-- `docs-site/content/examples.mdx` — Contract descriptions and count
-- Plus any other files that reference theorem/test/contract counts (e.g., `compiler.mdx`, `research.mdx`, `index.mdx`, `layout.tsx`, `ROADMAP.md`, `TRUST_ASSUMPTIONS.md`, `test/README.md`)
-- Run `python3 scripts/check_contract_structure.py` to verify file structure is complete
-- Run `python3 scripts/generate_verification_status.py --check` to verify the machine-readable status artifact is current
-- Run `python3 scripts/check_lean_hygiene.py` to verify no `#eval` in proof files and `allowUnsafeReducibility` count is correct
-
-## Adding an Intrinsic
-
-Declare consumer-owned opcode bindings with `verity_intrinsic` only when the
-consumer owns the temporary trust boundary. Keep Verity opcode-agnostic: changes
-in this repository should add generic intrinsic mechanics, not opcode-specific
-business logic. The consumer repository must document any generated obligation
-in its own `AXIOMS.md` or trust-boundary document. Set `min_fork` to the first
-fork where the emitted opcode is valid; Verity accepts `cancun`, `prague`, and
-`osaka` (`fusaka` is parsed as the Ethereum combined-upgrade alias) and enforces
-the declaration against `--target-fork`.
-
-See [docs/INTRINSICS.md](docs/INTRINSICS.md) for the declaration format,
-audit checklist, and worked example.
-
-## Proof Hygiene Requirements
-
-Every PR that touches proof files must satisfy all of the following.
-Each requirement is enforced by CI and cannot be bypassed without updating
-the corresponding enforcement script.
-
-1. **Zero `sorry`**: `lake build` rejects incomplete proofs at the Lean kernel level.
-   CI runs an independent grep scan as defense in depth
-   ([`check_lean_hygiene.py`](scripts/check_lean_hygiene.py)).
-
-2. **Zero new axioms** without a same-commit update to [AXIOMS.md](AXIOMS.md)
-   including: justification, risk rating, CI validation strategy, and
-   elimination path. Enforced by
-   [`check_axioms.py`](scripts/check_axioms.py).
-
-3. **Axiom dependency freshness**: If theorems are added or removed,
-   `PrintAxioms.lean` must be regenerated
-   (`python3 scripts/generate_print_axioms.py`).
-   CI validates via `--check` mode.
-
-4. **Proof size**: Proofs should be under 30 lines. Proofs over 50 lines
-   require an entry in the allowlist in
-   [`check_proof_length.py`](scripts/check_proof_length.py) with a
-   PR comment explaining why decomposition is not feasible. Enforced by CI.
-
-5. **No `native_decide` in contract proofs**: `native_decide` bypasses the
-   Lean kernel checker. It is allowed only in smoke tests
-   (`Compiler/Proofs/YulGeneration/SmokeTests.lean`). Enforced by
-   [`check_lean_hygiene.py`](scripts/check_lean_hygiene.py).
-
-6. **No debug commands in proofs**: `#eval`, `#check`, `#print`, `#reduce` are
-   forbidden in proof files (they slow incremental builds). Enforced by
-   [`check_lean_hygiene.py`](scripts/check_lean_hygiene.py).
-
-7. **Verification status freshness**: Regenerate and commit
-   [`artifacts/verification_status.json`](artifacts/verification_status.json)
-   when theorem/test/axiom counts change.
-   Enforced by [`generate_verification_status.py`](scripts/generate_verification_status.py).
-
-## Code Style
-
-**Lean**:
-- 2-space indentation
-- Meaningful names (`irState` not `s`)
-- Proofs under 30 lines when possible (see Proof Hygiene above)
-- Document complex proof strategies
-
-**Commits**:
-```
-type: description
-
-[optional body]
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-```
-
-Types: `feat` `fix` `proof` `docs` `refactor` `test` `chore`
-
-## Code Comment Conventions
-
-Follow these conventions to keep documentation accurate and maintainable.
-
-### Proof Status
-
-**For Theorems**:
-- `sorry` - Incomplete proof (blocked by CI in proof files)
-- No marker - Complete proof
-- **DON'T** use TODO/STUB in proven theorems
-
-```lean
--- ✅ GOOD: Complete proof, no marker needed
-theorem my_theorem : ... := by
-  unfold ...
-  simp [...]
-
--- ❌ BAD: Complete proof but has misleading TODO
-theorem my_theorem : ... := by
-  -- TODO: This actually works fine
-  unfold ...
-  simp [...]
-```
-
-**For Incomplete Proofs**:
-```lean
--- Only in draft branches, NOT in main
-theorem draft_theorem : ... := by
-  sorry  -- Strategy: Use induction on List structure
-           -- See issue #123 for details
-```
-
-### Module Documentation
-
-**Module Headers** should reflect current status:
-
-```lean
-/-! ## Module Name
-
-Brief description of what this module does.
-
-**Status**: Complete | Partial | Draft
-**Dependencies**: List axioms/external dependencies
-**Related**: Links to other relevant modules
--/
-```
-
-**Status Definitions**:
-- **Complete**: All theorems proven, no sorry
-- **Partial**: Some proven, some sorry (specify which)
-- **Draft**: Structural outline only
-
-**Example**:
-```lean
-/-! ## Layer 3: Statement-Level Equivalence
-
-Proves IR statement execution is equivalent to Yul statement execution
-when states are aligned.
-
-**Status**: Complete - All statement types proven
-**Dependencies**: Uses keccak256 axiom (see AXIOMS.md)
--/
-```
-
-### Future Work Comments
-
-For planned improvements or known limitations:
-
-```lean
--- FUTURE: Add support for delegatecall
--- See issue #123 for design discussion
-def currentImplementation := ...
-```
-
-**DON'T** use:
-- ~~`TODO:`~~ (implies incomplete current work)
-- ~~`FIXME:`~~ (implies broken code)
-- ~~`HACK:`~~ (use `NOTE:` with explanation instead)
-
-### Implementation Notes
-
-For non-obvious design choices:
-
-```lean
--- NOTE: We use fuel-based recursion here because Lean cannot prove
--- termination for mutually recursive functions with this structure.
--- See Equivalence.lean for the proof strategy this enables.
-def execIRStmtFuel (fuel : Nat) : ... := ...
-```
-
-### Axiom Documentation
-
-All axioms **must** be documented inline **and** in AXIOMS.md:
-
-```lean
-/-- AXIOM: explain the remaining trust boundary
-
-Document why the declaration cannot yet be proved in Lean,
-what guards or regression checks keep it honest,
-and link to AXIOMS.md for the current trust story.
-See AXIOMS.md for full soundness justification.
--/
-axiom some_remaining_axiom : Prop
-```
-
-### Property Test Tags
-
-Property tests must match Lean theorem names exactly:
-
-```solidity
-/// Property: store_retrieve_roundtrip
-function testProp_StoreRetrieveRoundtrip(...) public { ... }
-```
-
-Tag format: `/// Property: exact_theorem_name`
-
-### What NOT to Include
-
-❌ **Stale TODOs** in completed code
-❌ **Difficulty estimates** after proof is done
-❌ **Verbose explanations** of obvious code
-❌ **Status claims** that don't match reality
-
-✅ **Brief descriptions** of what code does
-✅ **Links** to related issues for context
-✅ **Explanations** of non-obvious design choices
-✅ **Accurate status** in module headers
-
-## Development
-
-**Layer 3 proofs**: Read [Compiler/Proofs/README.md](Compiler/Proofs/README.md), study completed proofs (`assign_equiv`, `storageStore_equiv`), use templates
-
-**New contracts**: Use `python3 scripts/generate_contract.py <Name>` to scaffold all boilerplate files, then follow the `SimpleStorage` pattern: Spec → Invariants → Implementation → Proofs → Tests
-
-**Compiler changes**: Ensure `lake build` and `make check` pass
-
-## Adding Axioms
-
-Axioms should be **avoided whenever possible** as they introduce trust assumptions. If you must add an axiom:
-
-1. **Exhaust all alternatives first**:
-   - Can you prove it? (even if difficult)
-   - Can you use a weaker lemma?
-   - Can you refactor to avoid the need?
-
-2. **Document in AXIOMS.md**:
-   - State the axiom clearly
-   - Provide soundness justification
-   - Explain why a proof isn't feasible
-   - Note future work to eliminate axiom
-   - Assess risk level
-
-3. **Add inline comment in source**:
-   ```lean
-   /--
-   AXIOM: Brief explanation
-   See AXIOMS.md for full soundness justification
-   -/
-   axiom my_axiom : ...
-   ```
-
-4. **CI will validate**: The CI workflow automatically detects axioms and ensures they're documented in AXIOMS.md. Undocumented axioms will fail the build.
-
-See [AXIOMS.md](AXIOMS.md) for current axioms and detailed guidelines.
-
-## Key Files
-
-- `Verity/` - EDSL, user-facing specs, and contract-specific specification proofs
-- `Compiler/` - IR, Yul, codegen
-- `Compiler/Proofs/` - Layer 2 & 3 proofs
-- `docs/ROADMAP.md` - Progress tracking
-- `test/` - Foundry tests
-
-Full details: [docs/VERIFICATION_STATUS.md](docs/VERIFICATION_STATUS.md)
+A change to the trust boundary, an axiom, or CI updates
+[docs/TRUST_ASSUMPTIONS.md](docs/TRUST_ASSUMPTIONS.md) and
+[docs/AXIOMS.md](docs/AXIOMS.md) in the same PR.
+
+## Proof hygiene
+
+Enforced by CI; changing a rule means changing its script.
+
+1. No `sorry` (`scripts/check_lean_hygiene.py` double-checks the build).
+2. No new axiom without a same-commit entry in docs/AXIOMS.md
+   (`scripts/check_axioms.py`).
+3. Regenerate `PrintAxioms.lean` (`scripts/generate_print_axioms.py`) and
+   `artifacts/verification_status.json` (`make refresh-status`) when theorems
+   or counts change.
+4. Proofs stay under 30 lines; over 50 needs an allowlist entry with a reason
+   (`scripts/check_proof_length.py`).
+5. No `native_decide` outside smoke tests, and no `#eval`/`#check`/`#print`
+   in proof files.
+
+## Adding an axiom
+
+Avoid it: try to prove it, weaken the lemma, or refactor. If it is truly
+needed, document it in docs/AXIOMS.md (statement, soundness justification, why
+a proof is not feasible, risk, elimination path) and mark the declaration with
+an `AXIOM:` doc comment pointing there.
+
+## Adding a contract or intrinsic
+
+- Write contracts with `verity_contract`; reusable facets are `verity_mixin`s
+  that hosts `include`. `python3 scripts/generate_contract.py <Name>`
+  scaffolds the files; `scripts/check_contract_structure.py` checks them.
+- Refresh `test/property_manifest.json`
+  (`python3 scripts/extract_property_manifest.py`) and the counts
+  (`make refresh-status`, `python3 scripts/update_doc_numbers.py`).
+- Intrinsics (`verity_intrinsic`) are consumer-owned opcode bindings; see
+  [docs/INTRINSICS.md](docs/INTRINSICS.md).
+- Solidity imports: see [docs/SOLIDITY_IMPORT.md](docs/SOLIDITY_IMPORT.md) for
+  what a new supported construct must ship with.
+
+Layer 3 proof work starts from [Compiler/Proofs/README.md](Compiler/Proofs/README.md).

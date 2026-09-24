@@ -378,7 +378,7 @@ with no remaining pure builtins relying only on concrete bridge checks.
 Additionally, 8 higher-level expression operators have proven compilation
 correctness in the `ExprCompileCore` fragment: `min`, `max`, `ceilDiv`, `ite`
 (conditional), `wMulDown`, `wDivUp`, `mulDivDown`, and `mulDivUp`. See
-[`docs/ARITHMETIC_PROFILE.md`](docs/ARITHMETIC_PROFILE.md) for the full
+[`docs/ARITHMETIC_PROFILE.md`](ARITHMETIC_PROFILE.md) for the full
 specification.
 
 The structured checked-arithmetic panic migration adds **no project-level
@@ -460,8 +460,7 @@ proof exists.
 
 Any commit that adds, removes, renames, or moves a project-level axiom must
 update this file in the same commit. Any commit that changes intrinsic trust
-semantics must update this file, [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md),
-and [AUDIT.md](AUDIT.md).
+semantics must update this file and [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md).
 
 If this file is stale, trust analysis is stale.
 

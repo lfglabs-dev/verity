@@ -6,9 +6,7 @@
     "docs/**",
     "docs-site/**",
     "Makefile",
-    "AXIOMS.md",
-    "README.md",
-    "TRUST_ASSUMPTIONS.md"
+    "README.md"
   ],
   "build_paths": [
     ".github/actions/**",

@@ -21,7 +21,7 @@
   Trust: the aligned `writeMap*` laws inherit
   `solidityMappingSlot_injective` (ABI mapping-preimage collision
   resistance), exactly as the per-channel globals in `MappingCoherence`
-  already do — see AXIOMS.md. No new axiom is introduced here. The
+  already do — see docs/AXIOMS.md. No new axiom is introduced here. The
   map-vs-nested-map cross case additionally takes an explicit
   `MappingBasesNotDerived` layout certificate; it is a hypothesis of the
   same shape as the image-avoidance `∀` that

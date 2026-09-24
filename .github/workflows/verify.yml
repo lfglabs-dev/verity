@@ -28,9 +28,7 @@ on:
       - 'lean-toolchain'
       - 'foundry.toml'
       - 'Makefile'
-      - 'AXIOMS.md'
       - 'README.md'
-      - 'TRUST_ASSUMPTIONS.md'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
@@ -56,9 +54,7 @@ on:
       - 'lean-toolchain'
       - 'foundry.toml'
       - 'Makefile'
-      - 'AXIOMS.md'
       - 'README.md'
-      - 'TRUST_ASSUMPTIONS.md'
   workflow_dispatch:
     inputs:
       clean_build:

@@ -43,7 +43,7 @@ def update_llms_txt(data: dict) -> bool:
         f"- **Verified Contracts**: {contract_count} ({', '.join(theorems['per_contract'].keys())})\n"
         f"- **Theorems**: {theorems['total']} across {theorems['categories']} categories, "
         f"{theorems['proven']} fully proven\n"
-        f"- **Axioms**: {proofs['axioms']} documented Lean axioms (see AXIOMS.md)\n"
+        f"- **Axioms**: {proofs['axioms']} documented Lean axioms (see docs/AXIOMS.md)\n"
         f"- **Tests**: {tests['foundry_functions']} Foundry tests, "
         f"{tests['property_functions']} property tests\n"
         f"- **Build**: `lake build` verifies all proofs\n"

@@ -61,7 +61,7 @@ def solidityMappingSlot (baseSlot key : Nat) : Nat :=
     `keccak256(abi.encode(key, baseSlot))`.
 
     **Not** injectivity of keccak256 on arbitrary `ByteArray`s (256-bit
-    output, infinite domain). See `AXIOMS.md`. -/
+    output, infinite domain). See `docs/AXIOMS.md`. -/
 axiom solidityMappingSlot_injective
     (base₁ key₁ base₂ key₂ : Nat) :
     solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →

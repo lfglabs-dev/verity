@@ -1345,7 +1345,7 @@ function countCategories(included, supportedFiles) {
 function categorize(filePath) {
   const base = path.posix.basename(filePath);
   if (filePath.endsWith('.lean')) return 'lean';
-  if (['AUDIT.md', 'TRUST_ASSUMPTIONS.md', 'AXIOMS.md'].includes(base)) return 'trust-doc';
+  if (['TRUST_ASSUMPTIONS.md', 'AXIOMS.md'].includes(base)) return 'trust-doc';
   if (filePath.startsWith('.github/')) return 'workflow-script';
   if (/\.(sol|yul|cairo)$/.test(filePath)) return 'contract';
   if (filePath === 'README.md' || (filePath.startsWith('docs/') && filePath.endsWith('.md'))) return 'doc';
@@ -1358,7 +1358,7 @@ function isSupported(filePath) {
   const base = path.posix.basename(filePath);
   return filePath.endsWith('.lean') ||
     /\.(sol|yul|cairo)$/.test(filePath) ||
-    ['AUDIT.md', 'TRUST_ASSUMPTIONS.md', 'AXIOMS.md', 'README.md'].includes(base) ||
+    ['TRUST_ASSUMPTIONS.md', 'AXIOMS.md', 'README.md'].includes(base) ||
     (filePath.startsWith('docs/') && filePath.endsWith('.md')) ||
     filePath.startsWith('.github/') ||
     /\.(py|sh|bash|js|ts|json|ya?ml|toml)$/.test(filePath);

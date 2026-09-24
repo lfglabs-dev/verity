@@ -19,7 +19,7 @@ from pathlib import Path
 from property_utils import ROOT, report_errors, scrub_lean_code, strip_lean_comments
 
 SCAN_ROOTS = ("Compiler", "Verity", "Contracts", "Benchmark")
-DOC_PATHS = ("AXIOMS.md", "TRUST_ASSUMPTIONS.md")
+DOC_PATHS = ("docs/AXIOMS.md", "docs/TRUST_ASSUMPTIONS.md")
 DOC_DIRS = ("docs",)
 
 LEAN431_STRING_FACTS = Path("Compiler/CompilationModel/ReservedScratchNames.lean")

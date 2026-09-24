@@ -16,7 +16,7 @@ defense-in-depth consistency check.
 ## References
 
 - Solidity ABI Spec: https://docs.soliditylang.org/en/latest/abi-spec.html#function-selector
-- Trust Assumptions: TRUST_ASSUMPTIONS.md
+- Trust Assumptions: docs/TRUST_ASSUMPTIONS.md
 -/
 
 namespace Compiler

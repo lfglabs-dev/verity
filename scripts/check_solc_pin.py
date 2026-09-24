@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERIFY_YML = ROOT / ".github" / "workflows" / "verify.yml"
 SETUP_SOLC_ACTION = ROOT / ".github" / "actions" / "setup-solc" / "action.yml"
 FOUNDRY_TOML = ROOT / "foundry.toml"
-TRUST_ASSUMPTIONS = ROOT / "TRUST_ASSUMPTIONS.md"
+TRUST_ASSUMPTIONS = ROOT / "docs" / "TRUST_ASSUMPTIONS.md"
 
 SOLC_VERSION_RE = re.compile(r'^\s*SOLC_VERSION:\s*"([^"]+)"\s*$', re.MULTILINE)
 SOLC_URL_RE = re.compile(r'^\s*SOLC_URL:\s*"([^"]+)"\s*$', re.MULTILINE)
@@ -128,11 +128,11 @@ def main(argv: list[str] | None = None) -> int:
     trust_pin = TRUST_PIN_RE.search(trust_text)
     if trust_pin is None:
         errors.append(
-            "TRUST_ASSUMPTIONS.md: missing pinned solc version line ('**Version**: <semver+commit> (pinned)')"
+            "docs/TRUST_ASSUMPTIONS.md: missing pinned solc version line ('**Version**: <semver+commit> (pinned)')"
         )
     elif url_commit is not None and trust_pin.group(1) != f"{solc_version}+commit.{url_commit}":
         errors.append(
-            "TRUST_ASSUMPTIONS.md: pinned solc version must match verify.yml SOLC_VERSION/SOLC_URL"
+            "docs/TRUST_ASSUMPTIONS.md: pinned solc version must match verify.yml SOLC_VERSION/SOLC_URL"
         )
 
     if SOLC_DOWNLOAD_RE.search(action_text) is None:

@@ -7,8 +7,8 @@
 * @Th0rgal
 
 # Axioms and trust assumptions — any change weakens guarantees
-AXIOMS.md @Th0rgal
-TRUST_ASSUMPTIONS.md @Th0rgal
+docs/AXIOMS.md @Th0rgal
+docs/TRUST_ASSUMPTIONS.md @Th0rgal
 
 # Lean proof files — ensure no sorry regressions
 Verity/Proofs/ @Th0rgal

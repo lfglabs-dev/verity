@@ -116,7 +116,7 @@ IR/source semantics on the observable storage/log/result surface. The old
 fuel-parametric Verity-side Yul executor and preservation/equivalence files are no
 longer part of the checked-in proof tree.
 
-Key files: [`EndToEnd.lean`](../Compiler/Proofs/EndToEnd.lean), [`EvmYulLeanNativeHarness.lean`](../Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean), [`EvmYulLeanBodyClosure.lean`](../Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure.lean), [`EvmYulLeanBridgeLemmas.lean`](../Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBridgeLemmas.lean), [`AXIOMS.md`](../AXIOMS.md)
+Key files: [`EndToEnd.lean`](../Compiler/Proofs/EndToEnd.lean), [`EvmYulLeanNativeHarness.lean`](../Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean), [`EvmYulLeanBodyClosure.lean`](../Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure.lean), [`EvmYulLeanBridgeLemmas.lean`](../Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBridgeLemmas.lean), [`AXIOMS.md`](AXIOMS.md)
 
 ### Phase 4: EVMYulLean Native Dispatcher (safe-body EndToEnd target)
 
@@ -275,7 +275,7 @@ Diagnostics policy for unsupported constructs:
 
 ## Trust Assumptions
 
-See [`TRUST_ASSUMPTIONS.md`](../TRUST_ASSUMPTIONS.md) for the full trust model and [`AXIOMS.md`](../AXIOMS.md) for axiom documentation.
+See [`TRUST_ASSUMPTIONS.md`](TRUST_ASSUMPTIONS.md) for the full trust model and [`AXIOMS.md`](AXIOMS.md) for axiom documentation.
 
 ---
 

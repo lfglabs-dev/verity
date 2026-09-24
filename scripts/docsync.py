@@ -2,8 +2,7 @@
 """Schema-driven doc-sync engine (P7 consolidation).
 
 One declarative registry replaces the per-checker scripts of the
-"Lean decl -> JSON artifact -> Markdown doc" pipeline described in
-scripts/consolidation-inventory.md (Clusters A/B). Each entry binds an
+"Lean decl -> JSON artifact -> Markdown doc" pipeline. Each entry binds an
 extraction condition (interpreter feature matrix, Lean source surface, or
 static expectations) to required/forbidden snippets in Markdown docs.
 
@@ -572,12 +571,12 @@ STRUCT_MAPPING_SURFACE = ConditionalNoteEntry(
 LAYER2_BOUNDARY = SnippetSyncEntry(
     name="layer2_boundary",
     targets={
-        "AXIOMS": "AXIOMS.md",
+        "AXIOMS": "docs/AXIOMS.md",
         "COMPILER_PROOFS_README": "Compiler/Proofs/README.md",
         "VERIFICATION_STATUS": "docs/VERIFICATION_STATUS.md",
         "ROADMAP": "docs/ROADMAP.md",
         "ROOT_README": "README.md",
-        "TRUST_ASSUMPTIONS": "TRUST_ASSUMPTIONS.md",
+        "TRUST_ASSUMPTIONS": "docs/TRUST_ASSUMPTIONS.md",
         "DOCS_SITE_COMPILER": "docs-site/content/compiler.mdx",
         "DOCS_SITE_INDEX": "docs-site/content/index.mdx",
         "DOCS_SITE_EXAMPLES": "docs-site/content/examples.mdx",
