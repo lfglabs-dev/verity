@@ -113,17 +113,17 @@
     },
     {
       "file": "Compiler/Modules/Calls.lean",
-      "line": 161,
+      "line": 163,
       "name": "external_call_abi_interface"
     },
     {
       "file": "Compiler/Modules/Calls.lean",
-      "line": 377,
+      "line": 451,
       "name": "generic_call_with_value_interface"
     },
     {
       "file": "Compiler/Modules/Calls.lean",
-      "line": 317,
+      "line": 391,
       "name": "generic_low_level_value_call_interface"
     },
     {
@@ -143,7 +143,7 @@
     },
     {
       "file": "Compiler/Modules/Calls.lean",
-      "line": 482,
+      "line": 556,
       "name": "self_delegate_multicall_bytes_revert_bubbling"
     },
     {
@@ -169,7 +169,7 @@
   "mechanisms": {
     "@[implemented_by": 1,
     "native_decide": 613,
-    "partial def": 204
+    "partial def": 205
   },
   "notes": "native_decide trusts Lean.ofReduceBool or Lean 4.31 generated per-proof native_decide axioms + Lean.trustCompiler. Prose registry: AXIOMS.md, TRUST_ASSUMPTIONS.md (enforced by scripts/check_trust_surface_registry.py).",
   "schema_version": 1

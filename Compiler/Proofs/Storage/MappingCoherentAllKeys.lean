@@ -91,6 +91,7 @@ def storageKeySlot (fields : List Field) : StorageKey → Option (Channel × Nat
   | .addr n => some (.address, n)
   | .transient n => some (.transient, n)
   | .contractSlot c n => some (.contract c, n)
+  | .scoped _ _ => none
   | .map n key =>
       match fieldMapKindAt fields n with
       | some (.simple .address) =>
@@ -240,6 +241,7 @@ theorem mappingCoherentAllKeys_of_globals (fields : List Field) (s : ContractSta
       obtain ⟨rfl, rfl⟩ := storageKeySlot_transient_eq h; rfl
   | contractSlot c m =>
       obtain ⟨rfl, rfl⟩ := storageKeySlot_contractSlot_eq h; rfl
+  | «scoped» _ _ => simp [storageKeySlot] at h
   | map m key =>
       obtain ⟨_, rfl, rfl⟩ := storageKeySlot_map_eq h
       exact h1 m key
@@ -472,6 +474,7 @@ theorem writeMap_aligned_preserves_mappingCoherentAllKeys
   | addr m => obtain ⟨rfl, rfl⟩ := storageKeySlot_addr_eq h; rfl
   | transient m => obtain ⟨rfl, rfl⟩ := storageKeySlot_transient_eq h; rfl
   | contractSlot c m => obtain ⟨rfl, rfl⟩ := storageKeySlot_contractSlot_eq h; rfl
+  | «scoped» _ _ => simp [storageKeySlot] at h
   | map m key' =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map_eq h
       exact writeMap_aligned_map_case fields s slot key v m key' hkind' hcoh
@@ -509,6 +512,7 @@ theorem writeMapUint_aligned_preserves_mappingCoherentAllKeys
   | addr m => obtain ⟨rfl, rfl⟩ := storageKeySlot_addr_eq h; rfl
   | transient m => obtain ⟨rfl, rfl⟩ := storageKeySlot_transient_eq h; rfl
   | contractSlot c m => obtain ⟨rfl, rfl⟩ := storageKeySlot_contractSlot_eq h; rfl
+  | «scoped» _ _ => simp [storageKeySlot] at h
   | map m key' =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map_eq h
       have hm : m ≠ slot := base_ne_of_kind_ne hkind' hkind (by simp)
@@ -545,6 +549,7 @@ theorem writeMap2_aligned_preserves_mappingCoherentAllKeys
   | addr m => obtain ⟨rfl, rfl⟩ := storageKeySlot_addr_eq h; rfl
   | transient m => obtain ⟨rfl, rfl⟩ := storageKeySlot_transient_eq h; rfl
   | contractSlot c m => obtain ⟨rfl, rfl⟩ := storageKeySlot_contractSlot_eq h; rfl
+  | «scoped» _ _ => simp [storageKeySlot] at h
   | map m key' =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map_eq h
       have hsome' : (fieldMapKindAt fields m).isSome = true := by rw [hkind']; rfl
@@ -583,6 +588,7 @@ theorem writeSlot_preserves_mappingCoherentAllKeys
   | addr m => obtain ⟨rfl, rfl⟩ := storageKeySlot_addr_eq h; rfl
   | transient m => obtain ⟨rfl, rfl⟩ := storageKeySlot_transient_eq h; rfl
   | contractSlot c m => obtain ⟨rfl, rfl⟩ := storageKeySlot_contractSlot_eq h; rfl
+  | «scoped» _ _ => simp [storageKeySlot] at h
   | map m key' =>
       have hne := havoid _ _ _ h rfl
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map_eq h
@@ -614,6 +620,7 @@ theorem writeAddrSlot_preserves_mappingCoherentAllKeys
   | addr m => obtain ⟨rfl, rfl⟩ := storageKeySlot_addr_eq h; rfl
   | transient m => obtain ⟨rfl, rfl⟩ := storageKeySlot_transient_eq h; rfl
   | contractSlot c m => obtain ⟨rfl, rfl⟩ := storageKeySlot_contractSlot_eq h; rfl
+  | «scoped» _ _ => simp [storageKeySlot] at h
   | map m key' =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map_eq h
       simpa [channelRead, storageMap, storage, writeAddrSlot] using
@@ -638,6 +645,7 @@ theorem writeTransient_preserves_mappingCoherentAllKeys
   | addr m => obtain ⟨rfl, rfl⟩ := storageKeySlot_addr_eq h; rfl
   | transient m => obtain ⟨rfl, rfl⟩ := storageKeySlot_transient_eq h; rfl
   | contractSlot c m => obtain ⟨rfl, rfl⟩ := storageKeySlot_contractSlot_eq h; rfl
+  | «scoped» _ _ => simp [storageKeySlot] at h
   | map m key' =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map_eq h
       simpa [channelRead, storageMap, storage, writeTransient] using

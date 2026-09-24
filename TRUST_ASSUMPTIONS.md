@@ -248,13 +248,75 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   bound call is the same ABI/ECM call as an unbound interface call.
 - **Semantics**: hops in `Verity.MultiContract.MultiWorld` (`ModeledCall.lean`).
   The executable plane of a bound call is `Contract.hopCall` /
-  `Contract.hopCallView`: scalar slots move through `StorageKey.contractSlot`,
-  success commits the callee world, revert restores the pre-call snapshot,
-  and view hops discard callee writes. Unbound interfaces still use the
-  adversary-oracle stub. Mapping/addr/transient channels stay global (G2).
-  Bindings cannot be cyclic (G15). `callEntry` is unchanged (still rejects
-  `caller = callee`); self-calls use the isolated CALL-shaped
-  `selfCallEntry` / `Contract.selfCall`.
+  `Contract.hopCallView`: every word-valued storage channel is namespaced
+  per contract across a distinct-address hop — scalar slots move through
+  `StorageKey.contractSlot`, and address slots, transient slots and all
+  mappings (`addr` / `transient` / `map` / `mapUint` / `map2`) through
+  `StorageKey.scoped` (G24, #2440; `ContractState.switchSlotWorld`,
+  `enterHop_readAddrSlot` / `enterHop_readMap` / …,
+  `exitHop_enterHop_storageWords_plain`). A callee never sees or clobbers the
+  caller's same-numbered address slot or mapping entry. Success commits the
+  callee world, revert restores the pre-call snapshot, and view hops discard
+  callee writes. Unbound interfaces still use the adversary-oracle stub.
+  **Remaining boundary**: `storageArray` (dynamic-array storage, a separate
+  `ContractState` field) is *not* namespaced and stays global across hops,
+  so a cross-contract statement that reads a dynamic array inside a hop is
+  not sound in this plane.
+  Named-callee bindings cannot be cyclic (the callee must be declared
+  first); cyclic pairs use `deferred` bindings (below). `callEntry` is
+  unchanged (still rejects `caller = callee`); self-calls use the isolated
+  CALL-shaped `selfCallEntry` / `Contract.selfCall`.
+- **Public getters (G23, #2439)**: a bound typed call whose method names a
+  public storage field of the callee (Solidity auto-generated getter) lowers
+  to `Contract.hopCallView target (<typed read of that field>)`:
+  `getStorage` (Uint256; a `Bool` interface return decodes the 0/1 word as
+  `word != 0`, the same decoding `ExternalResult Bool` applies to an ABI
+  word), `getStorageAddr`, `getMapping`, `getMappingUint`, `getMapping2`.
+  Packed, transient, and other field shapes are rejected at elaboration.
+  The compilation-model lowering is unchanged (ABI getter call).
+- **Deferred bindings (G15, #2415)**: `linked_contracts name : IFace :=
+  deferred` binds an interface to a contract declared later (cyclic
+  pairs). No callee body is linked: executable typed calls keep the ABI
+  external-call lowering (`external*CallContractWordsTo` / effect variants)
+  but always consume the threaded `ExecutableCallContext` (the enclosing
+  function, and every helper that transitively calls it, takes the context
+  binder like a reentrancy-window function; it never falls back to the fixed
+  stub). **Trust boundary**: a deferred call is only as faithful as the
+  responder the proof instantiates the context with. With
+  `ExecutableCallContext.stub` it returns the fixed stub word (unchanged
+  behaviour). The faithful responder is
+  `AdversaryModel.withViewLinks` / `ExecutableCallContext.withViewLinks`,
+  which answers selected static sites (keyed by interface method name and
+  target address) by running a linked Verity body in `Contract.hopCallView`;
+  `Contracts.externalStaticCallContractWordsTo_withViewLinks` proves the call
+  then returns exactly the decoded hop words and leaves caller storage
+  unchanged. Mutable deferred calls have no faithful responder combinator
+  yet (they are answered by the instantiated adversary). Compilation-model
+  lowering is unchanged.
+- **Context forwarding into bound callees (G26)**: a bound hop into a callee
+  function that takes the `ExecutableCallContext` (it reaches a `deferred`
+  link or opens a reentrancy window) forwards the caller's context. The
+  caller itself then takes the context binder (same propagation as deferred
+  calls, through the helper fixed point), so the callee's nested calls are
+  never answered by the fixed stub merely because the caller had no external
+  call of its own. Bound hops into context-free callees and storage-field
+  getters keep the context-free signature.
+- **Mutable typed tuple calls (G14 residual)**: `let (a, b) ← s.m x` on a
+  state-changing interface method (static single-word returns). Bound
+  (named): `Contract.hopCall target (Callee.m x)` (callee revert bubbles);
+  unbound / deferred: the mutable ABI external call with arity = number of
+  results, answered by the threaded context. Compilation model:
+  `Compiler.Modules.Calls.withReturnsModule` (ABI `call`, requires
+  `returndatasize >= 32 * n`, binds word `i` to result `i`; trust surface
+  `abiBoundary`, assumption `external_call_abi_interface`). View tuple calls
+  keep the static oracle-summary ECM.
+- **Author rule — one interface, several runtime contracts (G25)**: a named
+  binding dispatches by interface (and receiver/parameter name), **not** by
+  the runtime target address. If one interface is called on addresses that
+  hold different contracts, a named binding runs the bound callee's body for
+  every target, which is unfaithful for the other targets. Use `deferred` for
+  such interfaces and instantiate the context with `withViewLinks` keyed by
+  target address (`links "IFace.method" target`).
 
 ### 7. External Call Modules (ECMs)
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).
@@ -419,7 +481,10 @@ semantics provably collapses to the plain one). Outside the proven fragment:
 ### Canonical `StorageKey` backing (`ContractState.storageWords`)
 Word-valued source storage is one map `StorageKey → Uint256`. The key is
 an injective inductive (`slot` / `contractSlot` / `transient` / `addr` /
-`map` / `mapUint` / `map2`); public accessors keep the old channel names.
+`map` / `mapUint` / `map2` / `scoped`); public accessors keep the old channel
+names. `scoped c k` is contract `c`'s parked copy of a non-slot key `k` across
+hops; it has no flat compiler-channel counterpart (`storageKeySlot` maps it to
+`none`).
 This is a representation change, not a new trust boundary: lens laws use
 constructor injectivity. Solidity keccak slot derivation lives in
 `Compiler.Proofs.Storage.MappingCoherence.storageKeySlot`. Address-,

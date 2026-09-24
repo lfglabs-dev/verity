@@ -568,6 +568,43 @@ sibling entrypoint.
   axiom, adjacent struct words are distinct without it.
 - Smoke: `Contracts/Smoke/HashedMappings.lean`. Zero new axioms.
 
+## EDSL Executable Plane: Getter Hops and Deferred Links (2026-09)
+
+- G23 (#2439): bound typed calls whose method names a public storage field of
+  the callee lower to `Contract.hopCallView target (<typed field read>)`
+  instead of applying the `StorageSlot` constant as a function (which failed
+  to elaborate). `Bool` getters decode the 0/1 word as `word != 0`. Packed,
+  transient and non-Uint256/Address field shapes fail closed at elaboration.
+- G15 (#2415): `linked_contracts name : IFace := deferred` for cyclic
+  bindings. Typed calls on a deferred binding keep the ABI external-call
+  lowering but always use the threaded `ExecutableCallContext`; the context
+  binder is propagated through the existing helper fixed point. Fidelity is
+  by instantiation: `AdversaryModel.withViewLinks` answers selected static
+  sites by a linked body in a view hop, with the fidelity lemma
+  `Contracts.externalStaticCallContractWordsTo_withViewLinks` (and a revert
+  counterpart). With the stub context results are unchanged.
+- Compilation-model lowering is unchanged for both. Smoke:
+  `Contracts/Smoke/LinkedGettersAndDeferred.lean`. Zero new axioms.
+- G26: a bound typed call whose resolved callee constant takes the
+  `ExecutableCallContext` forwarded the caller's context, but a caller with no
+  reentrancy window of its own had the fixed `AdversaryModel.stub` as its
+  context, so the callee's nested deferred calls were answered by the stub.
+  Such a bound call now makes the enclosing function take the context
+  (`bodyNeedsLinkedCallContext`, same helper fixed point as G15). Smoke:
+  `Contracts/Smoke/HopContextAndMutableTuples.lean` (`wrap_stub` vs
+  `wrap_withViewLinks`, `viaHelper_withViewLinks`).
+- G14 residual: typed interface tuple calls are no longer restricted to `view`
+  methods. Mutable tuple calls lower to `Contract.hopCall` (bound), the
+  mutable ABI external call with arity = number of results (unbound /
+  deferred), and `Compiler.Modules.Calls.withReturnsModule` in the
+  compilation model (new ECM `externalCallWithReturns`, classified
+  `abiBoundary`, assumption `external_call_abi_interface`). Smoke:
+  `run_bound_executes_callee`, `run_bound_revert_bubbles`,
+  `run_unbound_stub`, `run_deferred_stub`.
+- G25 (documented rule, no code): named bindings dispatch by interface, not by
+  runtime target; an interface used on several different contracts must be
+  `deferred` and answered by `withViewLinks` keyed by target.
+
 ## Bounded Returndatacopy (2026-09)
 
 - Supersedes the conservative `returndataCopy` posture recorded above. Once the
@@ -795,6 +832,36 @@ sibling entrypoint.
   (`Compiler/Proofs/Storage/StructArrayStorage.lean:666-671`); the collapse
   returns `none` at dynamic-array roots
   (`storageKeySlot_slot_dynamicArray`).
+- Zero new axioms.
+
+## Hop Storage Namespacing — G24 (#2440, 2026-09)
+
+- `StorageKey` gains `scoped (contract : Nat) (key : StorageKey)`: the parked
+  copy of a non-slot channel key (`addr` / `transient` / `map` / `mapUint` /
+  `map2`, see `StorageKey.isPlainNonSlot`) of contract `contract`.
+- `ContractState.switchSlotWorld parkId loadId` (used by `enterHop` /
+  `exitHop`, hence `Contract.hopCall` / `Contract.hopCallView`) now namespaces
+  every word-valued channel: `.slot n` loads `.contractSlot loadId n` (as
+  before), each plain non-slot key `k` loads `.scoped loadId k`, and the
+  current plain world is parked under `.contractSlot parkId` / `.scoped parkId`.
+  Previously address slots, transient slots and mappings were shared between
+  caller and callee across a hop, which made cross-contract fidelity
+  statements over address fields or mappings unsound.
+- New lemmas (`Verity/Core.lean`): `enterHop_readAddrSlot`,
+  `enterHop_readTransient`, `enterHop_readMap`, `enterHop_readMapUint`,
+  `enterHop_readMap2`, `enterHop_storageWords_plainNonSlot`,
+  `enterHop_scoped_caller`, `exitHop_storageWords_plainNonSlot`,
+  `exitHop_scoped_callee`, `exitHop_contractSlot_callee`,
+  `switchSlotWorld_{plainNonSlot,scoped_park,scoped_other,contractSlot_park,contractSlot_other}`,
+  and the round trip `exitHop_enterHop_storageWords_plain`.
+  Smoke: `Contracts/Smoke/HopNamespace.lean` (callee address slot / mapping
+  are its own, caller untouched, second hop sees the parked write, nested
+  A→B→A reentrant hop sees A's own world, revert restores).
+- Compiler storage-coherence collapses map `scoped` keys to `none`
+  (`MappingCoherence.storageKeySlot`, `MappingCoherentAllKeys.storageKeySlot`):
+  they have no flat compiler-channel counterpart.
+- Remaining boundary: `storageArray` (dynamic arrays, a separate field) is
+  still global across hops.
 - Zero new axioms.
 
 ## CI Guards

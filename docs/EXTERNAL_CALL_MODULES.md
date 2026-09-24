@@ -76,8 +76,11 @@ call with one static ABI-word return emits
 `IERC20.balanceOf` plus the exact ABI selector in trust reports. Non-`view`
 single-return calls continue to use `Compiler.Modules.Calls.withReturnModule`
 and select `call`. Interface methods with no `returns` clause lower to
-`Compiler.Modules.Calls.noReturnModule` in statement position. Interface calls
-currently support one return value and type-only interface parameter lists.
+`Compiler.Modules.Calls.noReturnModule` in statement position. Tuple
+destructuring binds (`let (a, b) ← s.m x`) over static single-word returns use
+`Compiler.Modules.Oracle.typedReadWordsSummaryModule` for `view` methods and
+`Compiler.Modules.Calls.withReturnsModule` (ABI `call`, several return words)
+for state-changing methods. Interface parameter lists are type-only.
 
 Typed-interface parameters are deliberately limited to static single-word ABI
 values (`Uint256`, `Int256`, `Uint8`, `Uint16`, `Address`, `Bytes32`, `Bool`,

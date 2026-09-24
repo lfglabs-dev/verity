@@ -961,6 +961,141 @@ def externalStaticCallEffectWordsTo (name : String) (target : Address)
     | .failure _ | .revert _ => fun state =>
         ContractResult.revert "external call failed" state
 
+/-! ### Faithful responders for `deferred` linked contracts (G15)
+
+A `linked_contracts name : IFace := deferred` binding keeps the ABI external
+call in the executable plane, answered by the threaded `ExecutableCallContext`.
+`withViewLinks` is the faithful responder for static (view) typed calls: the
+selected call sites are answered by running a linked Verity body in a view hop
+(`Contract.hopCallView`) at the call-site target, so the caller observes
+exactly the words the linked body returns and keeps its own storage. -/
+
+/-- Answer selected `staticcall` sites by running a linked body in a view hop.
+`links site.name target = some body` selects the site (`site.name` is the typed
+interface name `"IFace.method"`, `target` the call-site target address, so one
+interface called on different addresses can be answered by different bodies); `body` receives the site calldata words
+(the ABI-flattened arguments) and returns the ABI result words. A reverting
+body answers `.revert []`. Every other site (mutable calls, unlinked names) is
+answered by `base`. State transition and gas stay `base`'s (a static call never
+commits a transition). -/
+def _root_.Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256))) : AdversaryModel :=
+  { base with
+    result := fun site state =>
+      match site.kind, links site.name (Verity.Core.Address.ofNat site.target) with
+      | .staticcall, some body =>
+          match Contract.hopCallView (Verity.Core.Address.ofNat site.target)
+              (body (site.calldata.map Core.Uint256.ofNat)) state with
+          | .success words _ => .success (words.map Core.Uint256.val)
+          | .revert _ _ => .revert []
+      | _, _ => base.result site state }
+
+/-- Context-level `withViewLinks`: link resolution is unchanged. -/
+def ExecutableCallContext.withViewLinks (ctx : ExecutableCallContext)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256))) :
+    ExecutableCallContext :=
+  { ctx with adversary := ctx.adversary.withViewLinks links }
+
+@[simp] theorem ExecutableCallContext.withViewLinks_adversary (ctx : ExecutableCallContext)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256))) :
+    (ctx.withViewLinks links).adversary = ctx.adversary.withViewLinks links := rfl
+
+/-- Adapt a single-word typed view body (e.g. a generated `B.value`) to a link. -/
+def viewLinkWord (body : Contract Uint256) : List Uint256 → Contract (List Uint256) :=
+  fun _ => Verity.bind body fun v => Verity.pure [v]
+
+private theorem uint256_ofNat_val (w : Uint256) : Core.Uint256.ofNat w.val = w := by
+  apply Core.Uint256.ext
+  exact Nat.mod_eq_of_lt w.isLt
+
+private theorem address_ofNat_toNat (a : Address) : Verity.Core.Address.ofNat a.toNat = a := by
+  apply Verity.Core.Address.ext
+  exact Nat.mod_eq_of_lt a.isLt
+
+private theorem map_ofNat_val (ws : List Uint256) :
+    (ws.map Core.Uint256.val).map Core.Uint256.ofNat = ws := by
+  induction ws with
+  | nil => rfl
+  | cons w ws ih => simp only [List.map_cons, uint256_ofNat_val, ih]
+
+private theorem linkedCallSite_calldata_ofNat (name : String) (args : List Uint256)
+    (arity : Nat) (kind : Compiler.CompilationModel.DenoteExternalCalls.CallKind) (target value : Nat) (pre : List Nat) (siteId : Nat) :
+    (linkedCallSite name args arity kind target value pre siteId).calldata.map
+      Core.Uint256.ofNat = args := by
+  induction args with
+  | nil => rfl
+  | cons w ws ih =>
+      simp only [linkedCallSite] at ih ⊢
+      simpa [uint256_ofNat_val] using ih
+
+private theorem linkedCallSite_proj (name : String) (args : List Uint256)
+    (arity : Nat) (kind : Compiler.CompilationModel.DenoteExternalCalls.CallKind) (target value : Nat) (pre : List Nat) (siteId : Nat) :
+    (linkedCallSite name args arity kind target value pre siteId).kind = kind ∧
+    (linkedCallSite name args arity kind target value pre siteId).name = name ∧
+    (linkedCallSite name args arity kind target value pre siteId).target = target :=
+  ⟨rfl, rfl, rfl⟩
+
+/-- Fidelity of `withViewLinks` (G15). For a static typed call whose name is
+linked to `body`, if the view hop of `body args` into `target` succeeds with
+`words` and the declared arity fits, the typed call returns exactly the decoding
+of the first `arity` hop words, and the caller's storage is unchanged. -/
+theorem externalStaticCallContractWordsTo_withViewLinks {α : Type} [ExternalResult α]
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (words : List Uint256) (s' : ContractState)
+    (hlink : links name target = some body)
+    (hhop : Contract.hopCallView target (body args) s = ContractResult.success words s')
+    (harity : arity ≤ words.length) :
+    ∃ post,
+      (externalStaticCallContractWordsTo (α := α) name target args
+          (base.withViewLinks links) arity siteId).run s =
+        ContractResult.success (ExternalResult.fromWords (words.take arity)) post ∧
+      post.storageWords = s.storageWords := by
+  have hres :
+      (base.withViewLinks links).result
+          (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s =
+        .success (words.map Core.Uint256.val) := by
+    simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks,
+      linkedCallSite_calldata_ofNat, (linkedCallSite_proj ..).1, (linkedCallSite_proj ..).2.1,
+      (linkedCallSite_proj ..).2.2, hlink, address_ofNat_toNat, hhop]
+  refine ⟨{ (Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled
+      (base.withViewLinks links)
+      (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId)
+      { world := s, gasRemaining := 0 }).state.world with
+      returndata := (words.map Core.Uint256.val).map
+        Compiler.CompilationModel.Denote.wordNormalize }, ?_, ?_⟩
+  · have hlen : arity ≤ (words.map Core.Uint256.val).length := by simpa using harity
+    simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
+      if_pos hlen, ← List.map_take, map_ofNat_val]
+    rfl
+  · rw [Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled_world,
+      Compiler.CompilationModel.DenoteExternalCalls.denoteCall_staticcall_world _ _ _ rfl]
+
+/-- A reverting linked view body makes the typed static call revert with the
+caller state restored (the ABI path treats a callee revert as a failed call). -/
+theorem externalStaticCallContractWordsTo_withViewLinks_revert {α : Type} [ExternalResult α]
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (msg : String) (s' : ContractState)
+    (hlink : links name target = some body)
+    (hhop : Contract.hopCallView target (body args) s = ContractResult.revert msg s') :
+    (externalStaticCallContractWordsTo (α := α) name target args
+        (base.withViewLinks links) arity siteId).run s =
+      ContractResult.revert "external call failed" s := by
+  have hres :
+      (base.withViewLinks links).result
+          (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s =
+        .revert [] := by
+    simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks,
+      linkedCallSite_calldata_ofNat, (linkedCallSite_proj ..).1, (linkedCallSite_proj ..).2.1,
+      (linkedCallSite_proj ..).2.2, hlink, address_ofNat_toNat, hhop]
+  simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres]
+
 def failedExternalResult {α : Type} [ExternalResult α] [Inhabited α] : List Nat → α
   | [] => Inhabited.default
   | words => ExternalResult.fromWords (words.map Core.Uint256.ofNat)

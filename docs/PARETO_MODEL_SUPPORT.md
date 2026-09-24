@@ -81,6 +81,50 @@ The name may also match an interface-typed storage field or parameter.
 The callee contract must already be declared. Duplicate binding names fail
 closed.
 
+**Public getters (G23).** If the interface method names a public storage
+field of the callee (a Solidity `public` state variable's auto-generated
+getter), the bound call lowers to a view hop reading that field:
+`getStorage` / `getStorageAddr` / `getMapping` / `getMappingUint` /
+`getMapping2`. A `Bool` return decodes the 0/1 storage word as `word != 0`.
+Fields declared in a parent (`Callee is Parent`) resolve through the child's
+flattened storage. Packed/transient fields are rejected.
+
+**Deferred bindings (G15).** For cyclic pairs (the callee is declared after
+the caller) write
+
+```
+linked_contracts cdo : IIdleCDO := deferred
+```
+
+Typed calls on a deferred binding keep the ABI external call, answered by the
+threaded `ExecutableCallContext` (the enclosing function takes the context).
+Proofs choose the responder: `ExecutableCallContext.stub` reproduces the
+fixed stub word; `ctx.withViewLinks links` answers static sites
+`links "IFace.method" target = some body` by running `body` (e.g.
+`viewLinkWord Callee.method`) in `Contract.hopCallView`, with
+`Contracts.externalStaticCallContractWordsTo_withViewLinks` as the fidelity
+lemma. A contract literally named `deferred` must be bound by a qualified
+name.
+
+**One interface, several contracts (G25).** A named binding dispatches by
+interface (and receiver name), not by the runtime target address. If one
+interface is called on addresses holding different contracts, a named binding
+would run the bound callee's body for all of them. Bind such interfaces as
+`deferred` and answer them with `withViewLinks`, whose `links` function is
+keyed by target address.
+
+**Context forwarding (G26).** A bound call into a callee function that takes
+the call context (it reaches a `deferred` link or opens a reentrancy window)
+makes the caller, and helper chains calling it, take the context too, so a
+view wrapper such as `let (a, b) ← _s.preview x` forwards the context the
+proof instantiates instead of the fixed stub.
+
+**Mutable tuple calls (G14).** `let (a, b) ← s.prepare x` on a
+state-changing interface method is supported: bound calls run
+`Contract.hopCall target (Callee.prepare x)` (reverts bubble), unbound or
+deferred calls use the mutable ABI external call with arity = number of
+results, and the compilation model emits `Calls.withReturnsModule`.
+
 **Model plane.** A bound call is a CALL-shaped hop in
 `Verity.MultiContract.MultiWorld` (`Verity/Core/Model/ModeledCall.lean`):
 install `sender := caller.thisAddress`, `thisAddress := callee`,
@@ -92,14 +136,19 @@ discard callee writes.
 The `Contract` monad still carries one `ContractState`. Cross-contract
 hops are a MultiWorld state transformer (`hop` / `hopContract`) **and** an
 executable combinator (`Contract.hopCall` / `Contract.hopCallView`) that
-namespaces scalar slots through `StorageKey.contractSlot`. Generated bound
+namespaces every word-valued storage channel per contract: scalar slots
+through `StorageKey.contractSlot`, and address / transient / mapping keys
+through `StorageKey.scoped` (G24). `storageArray` (dynamic arrays) is still
+global across hops. Generated bound
 calls run the callee body; they do not go through the adversary-oracle
-stub. Unbound interfaces keep the stub. Same-contract `this.f(...)` uses
+stub. Unbound interfaces keep the stub; deferred bindings use the threaded
+call context. Same-contract `this.f(...)` uses
 `Contract.selfCall` (new frame, sender replaced) so try/catch can wrap it.
 That is distinct from DELEGATECALL `selfDelegateEntry`.
 
 **Compilation model.** Bound calls still lower to the existing interface
-ABI/ECM shape (`oracleSummary` / `externalCallWithReturn`). The binding is
+ABI/ECM shape (`oracleSummary` / `externalCallWithReturn` /
+`externalCallWithReturns`). The binding is
 a model-level assumption that the address holds the named contract; no
 bytecode claim (see `TRUST_ASSUMPTIONS.md`).
 
