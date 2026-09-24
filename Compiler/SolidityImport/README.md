@@ -1,29 +1,31 @@
-# Solidity function slices
+# Solidity import
 
-`solidity_slice_import` elaborates a selected Solidity function and its reached
+`solidity_import` elaborates a selected Solidity function and its reached
 helpers into the ordinary Verity `CompilationModel`. It consumes a checksum-pinned
-solc 0.8.34 AST and storage layout. There is no separate slice interpreter.
+solc 0.8.34 AST and storage layout. There is no separate Solidity interpreter.
 
 ```lean
-import Compiler.SoliditySlice.Import
+import Compiler.SolidityImport.Import
 
-solidity_slice_import example
-  slice_root "Contracts/SoliditySliceSmoke" slice_entry "Slice.sol"
-  slice_contract "C" slice_function "f"
-  slice_param_tys ["struct Mkt", "bytes32", "address"]
-  slice_solc "0.8.34+commit.80d5c536" slice_via_ir true slice_evm "osaka"
-  slice_optimizer true slice_runs 466 slice_bytecode_hash "none"
+def build : Profile :=
+  { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+
+solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" using build
+  contract C
+  function f(Mkt, bytes32, address)
 ```
 
 The command defines `example.model`, `example.report`, `example.sourceDigest`,
-and the kernel theorem `example.sliceCovered`. It also works inside namespaces.
+and the kernel theorem `example.covered`. It also works inside namespaces.
 `example.report.toText` renders the included/excluded signatures, projections,
-opaque members, settings, and source digest.
+opaque members, settings, and source digest. The profile can also be written
+inline: `using { evmVersion := "osaka", ... }`. Parameter types use their
+Solidity spelling; a struct may be qualified (`IMidnight.Market`).
 
-Install the compiler with `python3 scripts/setup_solc_slice.py`; a downstream
+Install the compiler with `python3 scripts/setup_solc_import.py`; a downstream
 package can pass `--output .lake/solidity-import/solc-0.8.34`. Elaboration never
-downloads a compiler. `slice_root` resolves relative to the importing package's
-`lakefile.lean`, and imports use the project's `remappings.txt`.
+downloads a compiler. The `from` directory resolves relative to the importing
+package's `lakefile.lean`, and imports use that directory's `remappings.txt`.
 
 ## Supported boundary
 
@@ -73,8 +75,8 @@ The Morpho pilot demonstrates that workflow along with universal properties on
 ## Validation
 
 ```sh
-lake build SoliditySliceSmoke
-python3 scripts/solidity_slice_mutations.py
+lake build SolidityImportSmoke
+python3 scripts/solidity_import_mutations.py
 ```
 
 The regression suite exercises helper/local-name hygiene, namespace use,

@@ -4,11 +4,11 @@ This document states what Verity proves and what it still trusts.
 
 ## Solidity function-slice import
 
-`Compiler/SoliditySlice/Import.lean` selects one function from a solc project,
+`Compiler/SolidityImport/Import.lean` selects one function from a solc project,
 closes over the definitions solc's declaration ids actually reach, and elaborates
 a `CompilationModel`. Execution of an accepted slice is
 `Compiler.CompilationModel.Denote.execStmt`, restricted by
-`stmtListCovered` in `Compiler/SoliditySlice/Coverage.lean`. That predicate is
+`stmtListCovered` in `Compiler/SolidityImport/Coverage.lean`. That predicate is
 not `SupportedFunction`: the slice uses `panic`, `returnValues`, packed
 `structMember` / `structMember2`, and checked arithmetic, which the IR raccord
 does not cover. `DenoteAgreement.execStmt_eq` still holds, including

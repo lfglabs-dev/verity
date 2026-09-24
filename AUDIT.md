@@ -7,25 +7,25 @@ boundary checks change.
 
 ## Solidity function-slice import
 
-`Compiler/SoliditySlice` lowers one selected function and the callees solc's
+`Compiler/SolidityImport` lowers one selected function and the callees solc's
 declaration ids reach into a `CompilationModel`. `returnValues` is observable
 on `DenoteState.observedReturnWords` and is mirrored in `SourceSemantics` and
-`DenoteAgreement`. Accepted slices carry `sliceCovered`, proved by `decide`
-against `modelSliceCovered`. The smoke contract
-`Contracts/SoliditySliceSmoke` contains an unreached `for` loop; the import
+`DenoteAgreement`. Accepted imports carry `covered`, proved by `decide`
+against `modelImportCovered`. The smoke contract
+`Contracts/SolidityImportSmoke` contains an unreached `for` loop; the import
 still succeeds. The mutation harness checks the interpreter result of two witnesses on that
 imported body: `(95, 5, 5)` and a revert. `smoke_step_credit` is a kernel proof
 of the first packed `credit` read. It is not a proof of the whole body, and it
 is not a proof that the model matches solc bytecode.
 
-The slice compiler pin is solc `0.8.34+commit.80d5c536`, installed by `python3 scripts/setup_solc_slice.py`. The source
+The slice compiler pin is solc `0.8.34+commit.80d5c536`, installed by `python3 scripts/setup_solc_import.py`. The source
 digest reads the importer modules from the Verity tree, or from
 `.lake/packages/verity` when a downstream package elaborates the command. The
 solc binary remains the elaborating package's `.lake/solidity-import/solc-0.8.34`.
 
-Evidence commands: `lake build SoliditySliceSmoke` after the 0.8.34 compiler is
+Evidence commands: `lake build SolidityImportSmoke` after the 0.8.34 compiler is
 installed at `.lake/solidity-import/solc-0.8.34`, and
-`python3 scripts/solidity_slice_mutations.py`. The mutation script checks an
+`python3 scripts/solidity_import_mutations.py`. The mutation script checks an
 unreached `for`, rejection of that `for` once it is reachable, and detection of
 a reached-helper change, a fee-factor change, a field change, a return-order
 change, and a layout swap. It also covers hygienic helper locals, generated-name
@@ -36,7 +36,7 @@ A rejected import leaves no `.olean`.
 The downstream `morpho-midnight-verity` pilot proves all five CVL assertions on
 actual imported execution, with arbitrary state/oracle and mathematical integer
 ghosts. That proof adds no source-to-model equivalence claim. See
-`Compiler/SoliditySlice/README.md` for the supported subset and freshness checks.
+`Compiler/SolidityImport/README.md` for the supported subset and freshness checks.
 
 ## Current Audit State
 

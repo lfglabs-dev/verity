@@ -1,14 +1,25 @@
 import Lean
 import Compiler.Sha256.Engine
-import Compiler.SoliditySlice.Coverage
-import Compiler.SoliditySlice.Report
+import Compiler.SolidityImport.Coverage
+import Compiler.SolidityImport.Profile
+import Compiler.SolidityImport.Report
 
 /-!
-Slice importer. Pinned `solc --standard-json` supplies the AST, declaration
-ids, and `storageLayout`. This module selects one function, closes over the
-definitions that resolution actually reaches, and elaborates a
+Solidity importer. Pinned `solc --standard-json` supplies the AST, declaration
+ids, and `storageLayout`. The `solidity_import` command selects a function,
+closes over the definitions that resolution actually reaches, and elaborates a
 `CompilationModel`. It does not interpret that model: execution is
 `Denote.execStmt`, restricted by `stmtListCovered`.
+
+```lean
+solidity_import midnight from "vendor/midnight" entry "src/Midnight.sol"
+  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract Midnight
+  function updatePositionView(Market, bytes32, address)
+```
+
+This defines `midnight.model`, `midnight.report`, `midnight.sourceDigest` and
+the theorem `midnight.covered`.
 
 The frontend is in the trust base. A covered model is not, by itself, a proof
 that the model matches the Solidity source or solc's bytecode.
@@ -16,9 +27,9 @@ that the model matches the Solidity source or solc's bytecode.
 
 open Lean Meta Elab Command
 
-namespace Compiler.CompilationModel.SoliditySlice
+namespace Compiler.CompilationModel.SolidityImport
 
-def importerVersion : String := "solidity-slice-3"
+def importerVersion : String := "solidity-import-1"
 
 private def solcLongVersion := "0.8.34+commit.80d5c536"
 
@@ -211,7 +222,7 @@ private def failAt (j : Json) (why : String) : M α := do
     let owner := env.funContract.find? id |>.getD "<free>"
     let name := (env.funs.find? id).bind (fun fn => optStr fn "name") |>.getD s!"decl#{id}"
     s!"{owner}.{name}"
-  let why := s!"[solidity-slice:unsupported] {why}\nclosure: {String.intercalate " -> " frames}"
+  let why := s!"[solidity-import:unsupported] {why}\nclosure: {String.intercalate " -> " frames}"
   let file :=
     match (field? j "id").bind (fun id => id.getNat?.toOption) with
     | some id => env.nodeFile.find? id |>.getD env.currentFile
@@ -1023,12 +1034,12 @@ private def verifyCompiler (compiler : System.FilePath) : MetaM String := do
 stores that checkout at `.lake/packages/verity`. The digest must hash those
 sources in either layout. -/
 private def importerSourceRoot (pkgRoot : System.FilePath) : MetaM System.FilePath := do
-  if ← (pkgRoot / "Compiler/SoliditySlice/Import.lean").pathExists then
+  if ← (pkgRoot / "Compiler/SolidityImport/Import.lean").pathExists then
     return pkgRoot
   let dep := pkgRoot / ".lake/packages/verity"
-  if ← (dep / "Compiler/SoliditySlice/Import.lean").pathExists then
+  if ← (dep / "Compiler/SolidityImport/Import.lean").pathExists then
     return dep
-  throwError "importer source missing: {pkgRoot / "Compiler/SoliditySlice/Import.lean"}"
+  throwError "importer source missing: {pkgRoot / "Compiler/SolidityImport/Import.lean"}"
 
 private def moduleText (pkgRoot : System.FilePath) (rel : String) : MetaM String := do
   let path := pkgRoot / rel
@@ -1037,11 +1048,27 @@ private def moduleText (pkgRoot : System.FilePath) (rel : String) : MetaM String
 
 private def renderFn (f : FnRec) : String :=
   let tys := leanList (f.paramTypes.map leanStr)
-  s!"({ "{ " }contract := {leanStr f.contract}, name := {leanStr f.name}, declId := {f.declId}, paramTypes := {tys}{ " }" } : Compiler.CompilationModel.SoliditySlice.SliceFunction)"
+  s!"({ "{ " }contract := {leanStr f.contract}, name := {leanStr f.name}, declId := {f.declId}, paramTypes := {tys}{ " }" } : Compiler.CompilationModel.SolidityImport.ImportedFunction)"
 
-private def selectFunction (contract functionName : String) (paramTys : Array String) : M Json := do
+/-- Solidity spelling of a solc `typeString`: `struct Market memory` → `Market`. -/
+private def sourceTypeName (typeString : String) : String := Id.run do
+  let mut t := typeString
+  for pre in ["struct ", "contract ", "enum "] do
+    if t.startsWith pre then t := (t.drop pre.length).toString
+  for suf in [" storage pointer", " storage ref", " memory", " calldata", " storage"] do
+    if t.endsWith suf then t := (t.dropEnd suf.length).toString
+  return t
+
+/-- A written type matches its Solidity spelling, optionally qualified (`I.Market`). -/
+private def typeMatches (written typeString : String) : Bool :=
+  let t := sourceTypeName typeString
+  t == written || t.endsWith ("." ++ written) || written.endsWith ("." ++ t)
+
+/-- Select the function; also return its solc parameter type strings. -/
+private def selectFunction (contract functionName : String) (written : Array String) :
+    M (Json × Array String) := do
   let env ← get
-  let mut hits : Array Json := #[]
+  let mut hits : Array (Json × Array String) := #[]
   let mut described : Array String := #[]
   for (id, fn) in env.funs do
     let name ← mStr (← mField fn "name")
@@ -1051,24 +1078,25 @@ private def selectFunction (contract functionName : String) (paramTys : Array St
     for p in params do
       tys := tys.push (← mType p)
     if owner == contract && name == functionName then
-      described := described.push (String.intercalate ", " tys.toList)
-      if tys == paramTys then
-        hits := hits.push fn
+      described := described.push
+        s!"{functionName}({String.intercalate ", " (tys.map sourceTypeName).toList})"
+      if tys.size == written.size && (tys.zip written).all (fun (t, w) => typeMatches w t) then
+        hits := hits.push (fn, tys)
+  let sig := s!"{contract}.{functionName}({String.intercalate ", " written.toList})"
   if hits.size == 0 then
-    throwError "no function {contract}.{functionName} matching [{String.intercalate ", " paramTys.toList}]; candidates: {described}"
+    throwError "no function {sig}; candidates: {described}"
   if hits.size > 1 then
-    throwError "ambiguous function {contract}.{functionName}"
-  let fn := hits[0]!
+    throwError "ambiguous function {sig}; qualify the parameter types"
+  let (fn, tys) := hits[0]!
   let implemented ← match field? fn "implemented" with
     | some b => mBool b
     | none => pure true
   unless implemented do throwError "function is not implemented"
-  pure fn
+  pure (fn, tys)
 
 private def importSlice
     (pkgRoot projectRoot : System.FilePath) (entry contract functionName : String)
-    (paramTys : Array String) (viaIR optimizer : Bool) (evm bytecodeHash : String)
-    (runs : Nat) : MetaM (String × String × String) := do
+    (written : Array String) (profile : Profile) : MetaM (String × String × String) := do
   let compiler := pkgRoot / ".lake/solidity-import/solc-0.8.34"
   let solcSha ← verifyCompiler compiler
   let versionOut ← IO.Process.output { cmd := compiler.toString, args := #["--version"] }
@@ -1084,14 +1112,15 @@ private def importSlice
     fileBytes := fileBytes.insert logical (text.toUTF8)
     sourceObj := sourceObj.push (logical, Json.mkObj [("content", Json.str text)])
   let settings := Json.mkObj [
-    ("evmVersion", Json.str evm),
-    ("metadata", Json.mkObj [("bytecodeHash", Json.str bytecodeHash)]),
-    ("optimizer", Json.mkObj [("enabled", Json.bool optimizer), ("runs", runs)]),
+    ("evmVersion", Json.str profile.evmVersion),
+    ("metadata", Json.mkObj [("bytecodeHash", Json.str profile.bytecodeHash)]),
+    ("optimizer", Json.mkObj [("enabled", Json.bool profile.optimizerRuns.isSome),
+      ("runs", profile.optimizerRuns.getD 200)]),
     ("outputSelection", Json.mkObj [("*", Json.mkObj [
       ("", Json.arr #[Json.str "ast"]),
       ("*", Json.arr #[Json.str "storageLayout"])])]),
     ("remappings", Json.arr (remaps.map fun p => Json.str s!"{p.1}={p.2}")),
-    ("viaIR", Json.bool viaIR)]
+    ("viaIR", Json.bool profile.viaIR)]
   let input := Json.mkObj [
     ("language", Json.str "Solidity"),
     ("settings", settings),
@@ -1126,7 +1155,7 @@ private def importSlice
   for item in items do
     let label ← str (← field item "label")
     env := { env with layoutItems := env.layoutItems.insert label item }
-  let fn ← (selectFunction contract functionName paramTys).run' env
+  let (fn, paramTys) ← (selectFunction contract functionName written).run' env
   env := { env with currentFile := entry }
   let ((body, srcParams), env2) ← (lowerRoot fn).run env
   env := env2
@@ -1194,16 +1223,16 @@ private def importSlice
           then none else some (leanStr pair.1)
       | none => #[]
     projTerms := projTerms.push
-      s!"({ "{ " }parameter := {leanStr proj.parameter}, member := {leanStr proj.member}, structName := {leanStr proj.structName}, headWord := {proj.headWord}, modelParam := {leanStr proj.modelParam}, ignoredMembers := {leanList ignored}{ " }" } : Compiler.CompilationModel.SoliditySlice.SliceProjection)"
+      s!"({ "{ " }parameter := {leanStr proj.parameter}, member := {leanStr proj.member}, structName := {leanStr proj.structName}, headWord := {proj.headWord}, modelParam := {leanStr proj.modelParam}, ignoredMembers := {leanList ignored}{ " }" } : Compiler.CompilationModel.SolidityImport.ParamProjection)"
   let mut opaqueTerms : Array String := #[]
   for o in env.opaqueMembers do
     if env.referenced.contains o.field then
       opaqueTerms := opaqueTerms.push
-        s!"({ "{ " }field := {leanStr o.field}, name := {leanStr o.name}, solcType := {leanStr o.solcType}, wordOffset := {o.wordOffset}, byteOffset := {o.byteOffset}{ " }" } : Compiler.CompilationModel.SoliditySlice.OpaqueMember)"
+        s!"({ "{ " }field := {leanStr o.field}, name := {leanStr o.name}, solcType := {leanStr o.solcType}, wordOffset := {o.wordOffset}, byteOffset := {o.byteOffset}{ " }" } : Compiler.CompilationModel.SolidityImport.OpaqueMember)"
   let sourceRoot ← importerSourceRoot pkgRoot
-  let importer ← moduleText sourceRoot "Compiler/SoliditySlice/Import.lean"
-  let coverage ← moduleText sourceRoot "Compiler/SoliditySlice/Coverage.lean"
-  let reportSrc ← moduleText sourceRoot "Compiler/SoliditySlice/Report.lean"
+  let importer ← moduleText sourceRoot "Compiler/SolidityImport/Import.lean"
+  let coverage ← moduleText sourceRoot "Compiler/SolidityImport/Coverage.lean"
+  let reportSrc ← moduleText sourceRoot "Compiler/SolidityImport/Report.lean"
   -- JSON framing prevents distinct file/signature lists from sharing a
   -- concatenation merely because their text contains separator newlines.
   let digestInput := Json.mkObj [
@@ -1218,66 +1247,74 @@ private def importSlice
       ("Report.lean", Json.str reportSrc)])]
   let digest := sha256Hex digestInput.compress.toUTF8
   let reportTerm :=
-    s!"({ "{ " }importerVersion := {leanStr importerVersion}, solcLongVersion := {leanStr solcLongVersion}, solcSha256 := {leanStr solcSha}, settingsJson := {leanStr settings.compress}, sourceDigest := {leanStr digest}, contract := {leanStr contract}, rootFunction := {leanStr functionName}, includedFunctions := {leanList (env.included.map renderFn)}, excludedFunctions := {leanList (sortedExcluded.map renderFn)}, projections := {leanList projTerms}, storageFields := {leanList (env.referenced.map leanStr)}, opaqueMembers := {leanList opaqueTerms}, observesPanicPayload := false{ " }" } : Compiler.CompilationModel.SoliditySlice.SliceReport)"
+    s!"({ "{ " }importerVersion := {leanStr importerVersion}, solcLongVersion := {leanStr solcLongVersion}, solcSha256 := {leanStr solcSha}, settingsJson := {leanStr settings.compress}, sourceDigest := {leanStr digest}, contract := {leanStr contract}, rootFunction := {leanStr functionName}, includedFunctions := {leanList (env.included.map renderFn)}, excludedFunctions := {leanList (sortedExcluded.map renderFn)}, projections := {leanList projTerms}, storageFields := {leanList (env.referenced.map leanStr)}, opaqueMembers := {leanList opaqueTerms}, observesPanicPayload := false{ " }" } : Compiler.CompilationModel.SolidityImport.ImportReport)"
   pure (modelTerm, reportTerm, digest)
 
 private def elabDef (name : Name) (type body : String) : CommandElabM Unit := do
   let cmd := s!"def _root_.{name} : {type} :=\n{body}"
-  match Parser.runParserCategory (← getEnv) `command cmd "<solidity-slice>" with
+  match Parser.runParserCategory (← getEnv) `command cmd "<solidity-import>" with
   | .error e => throwError e
   | .ok stx => elabCommand stx
 
-syntax (name := sliceImportCmd)
-  "solidity_slice_import " ident
-  " slice_root " str " slice_entry " str " slice_contract " str " slice_function " str
-  " slice_param_tys " "[" str,* "]"
-  " slice_solc " str " slice_via_ir " ident " slice_evm " str
-  " slice_optimizer " ident " slice_runs " num " slice_bytecode_hash " str : command
+/-- `function name(T₁, …, Tₙ)`: a function to import, with its Solidity parameter types. -/
+syntax solidityRoot := &"function" ident "(" ident,* ")"
 
-@[command_elab sliceImportCmd]
-def elabSliceImport : CommandElab := fun stx => do
+/-- Import Solidity functions as a `CompilationModel`; see the module docstring. -/
+syntax (name := solidityImportCmd)
+  "solidity_import " ident &"from" str &"entry" str " using " term:max
+  &"contract" ident (ppLine solidityRoot)+ : command
+
+private unsafe def evalProfileUnsafe (stx : Term) : TermElabM Profile := do
+  let e ← Term.elabTermEnsuringType stx (mkConst ``Profile)
+  Term.synthesizeSyntheticMVarsNoPostponing
+  let e ← instantiateMVars e
+  if e.hasMVar then throwError "the solc profile is not fully determined"
+  Meta.evalExpr Profile (mkConst ``Profile) e
+
+@[implemented_by evalProfileUnsafe]
+private opaque evalProfile (stx : Term) : TermElabM Profile
+
+/-- The directory holding the importing package's `lakefile.lean`. -/
+private def packageRoot : CommandElabM System.FilePath := do
+  let mut pkg := (← IO.FS.realPath (← getFileName)).parent.getD "."
+  while !(← (pkg / "lakefile.lean").pathExists) do
+    let some parent := pkg.parent | throwError "package root not found"
+    if parent == pkg then throwError "package root not found"
+    pkg := parent
+  return pkg
+
+@[command_elab solidityImportCmd]
+def elabSolidityImport : CommandElab := fun stx => do
+  let `(solidity_import $alias from $root entry $entry using $prof contract $contract
+      $roots:solidityRoot*) := stx | throwUnsupportedSyntax
   let saved ← getEnv
   try
     if debug.skipKernelTC.get (← getOptions) then
       throwError "kernel checking must be enabled"
-    let aliasName := stx[1].getId
-    let rootArg := stx[3].isStrLit?.get!
-    let entryPath := stx[5].isStrLit?.get!
-    let contractName := stx[7].isStrLit?.get!
-    let functionName := stx[9].isStrLit?.get!
-    let paramTys := stx[12].getSepArgs.map fun s => s.isStrLit?.get!
-    let solcArg := stx[15].isStrLit?.get!
-    unless solcArg == solcLongVersion do
-      throwError "this importer is pinned to {solcLongVersion}"
-    let useIR := stx[17].getId == `true
-    let evmVersion := stx[19].isStrLit?.get!
-    let optimize := stx[21].getId == `true
-    let some runCount := stx[23].isNatLit? | throwError "optimizer runs must be a nat"
-    let hashMode := stx[25].isStrLit?.get!
-    unless useIR || stx[17].getId == `false do throwError "viaIR must be true or false"
-    unless optimize || stx[21].getId == `false do throwError "optimizer must be true or false"
-    let authored ← IO.FS.realPath (← getFileName)
-    let mut pkg := authored.parent.getD "."
-    while !(← (pkg / "lakefile.lean").pathExists) do
-      let some parent := pkg.parent | throwError "package root not found"
-      if parent == pkg then throwError "package root not found"
-      pkg := parent
-    let project := if rootArg.startsWith "/" then
-      System.FilePath.mk rootArg else pkg / rootArg
+    let profile ← liftTermElabM <| evalProfile prof
+    unless profile.solc == solcLongVersion do
+      throwError "this importer is pinned to solc {solcLongVersion}, not {profile.solc}"
+    let #[fnStx] := roots
+      | throwError "importing several functions is not supported yet"
+    let `(solidityRoot| function $fn ( $tys,* )) := fnStx | throwUnsupportedSyntax
+    let written := tys.getElems.map (·.getId.toString (escape := false))
+    let pkg ← packageRoot
+    let project := if root.getString.startsWith "/" then
+      System.FilePath.mk root.getString else pkg / root.getString
     let (modelTerm, reportTerm, digest) ← liftTermElabM <|
-      importSlice pkg project entryPath contractName functionName paramTys useIR optimize evmVersion hashMode runCount
-    let ns := (← getCurrNamespace) ++ aliasName
+      importSlice pkg project entry.getString contract.getId.toString fn.getId.toString written profile
+    let ns := (← getCurrNamespace) ++ alias.getId
     elabDef (ns ++ `model) "Compiler.CompilationModel.CompilationModel" modelTerm
-    elabDef (ns ++ `report) "Compiler.CompilationModel.SoliditySlice.SliceReport" reportTerm
+    elabDef (ns ++ `report) "Compiler.CompilationModel.SolidityImport.ImportReport" reportTerm
     elabDef (ns ++ `sourceDigest) "String" (leanStr digest)
-    let covered := s!"theorem _root_.{ns ++ `sliceCovered} : Compiler.CompilationModel.SoliditySlice.modelSliceCovered {ns ++ `model} = true := by decide"
-    match Parser.runParserCategory (← getEnv) `command covered "<solidity-slice>" with
+    let covered := s!"theorem _root_.{ns ++ `covered} : Compiler.CompilationModel.SolidityImport.modelImportCovered {ns ++ `model} = true := by decide"
+    match Parser.runParserCategory (← getEnv) `command covered "<solidity-import>" with
     | .error e => throwError e
     | .ok stx => elabCommand stx
     if (← get).messages.hasErrors then
-      throwError "slice import failed to check"
+      throwError "Solidity import failed to check"
   catch e =>
     setEnv saved
     throw e
 
-end Compiler.CompilationModel.SoliditySlice
+end Compiler.CompilationModel.SolidityImport

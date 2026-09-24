@@ -1,5 +1,5 @@
-import Compiler.SoliditySlice.Coverage
-import Compiler.SoliditySlice.Report
+import Compiler.SolidityImport.Coverage
+import Compiler.SolidityImport.Report
 import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
@@ -9,7 +9,7 @@ import Lean.Data.Json
 /-! Test-only runner for an arbitrary covered Solidity slice. The execution path
 is the same `Denote.execStmtList` used by proofs. JSON/IO and the concrete hash
 implementation are harness code, not additional proof assumptions. -/
-namespace Compiler.CompilationModel.SoliditySlice.Differential
+namespace Compiler.CompilationModel.SolidityImport.Differential
 open Lean Compiler.CompilationModel.Denote Verity.Core
 
 private def word (j : Json) : Except String Nat := do
@@ -68,8 +68,8 @@ private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : 
 
 /-- The driver imports the selected model, then invokes this shared entrypoint.
 `describe` also attempts the ordinary Verity compiler; a failure is explicit. -/
-def run (model : CompilationModel) (report : SliceReport) (args : List String) : IO UInt32 := do
-  unless modelSliceCovered model do throw (IO.userError "unsupported Denote slice")
+def run (model : CompilationModel) (report : ImportReport) (args : List String) : IO UInt32 := do
+  unless modelImportCovered model do throw (IO.userError "unsupported Denote slice")
   let [fn] := model.functions | throw (IO.userError "expected exactly one imported root")
   match args with
   | ["describe", output, yulPath] =>
@@ -95,4 +95,4 @@ def run (model : CompilationModel) (report : SliceReport) (args : List String) :
   | _ => throw (IO.userError "expected describe OUTPUT YUL or run INPUT OUTPUT DIGEST")
   return 0
 
-end Compiler.CompilationModel.SoliditySlice.Differential
+end Compiler.CompilationModel.SolidityImport.Differential

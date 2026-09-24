@@ -232,10 +232,10 @@ jobs:
               - 'lakefile.lean'
               - 'lake-manifest.json'
               - 'scripts/solidity_differential/**'
-              - 'scripts/solidity_slice_differential.py'
+              - 'scripts/solidity_import_differential.py'
               - 'scripts/check_solidity_differential.sh'
-              - 'scripts/solidity_slice_mutations.py'
-              - 'scripts/setup_solc_slice.py'
+              - 'scripts/solidity_import_mutations.py'
+              - 'scripts/setup_solc_import.py'
               - 'lean-toolchain'
             compiler:
               - '.github/actions/**'
@@ -261,10 +261,10 @@ jobs:
               - 'lakefile.lean'
               - 'lake-manifest.json'
               - 'scripts/solidity_differential/**'
-              - 'scripts/solidity_slice_differential.py'
+              - 'scripts/solidity_import_differential.py'
               - 'scripts/check_solidity_differential.sh'
-              - 'scripts/solidity_slice_mutations.py'
-              - 'scripts/setup_solc_slice.py'
+              - 'scripts/solidity_import_mutations.py'
+              - 'scripts/setup_solc_import.py'
               - 'lean-toolchain'
               - 'foundry.toml'
       - name: Resolve effective change flags
@@ -431,9 +431,9 @@ jobs:
 
       - name: Check Solidity slice imports and mutation regressions
         run: |
-          python3 scripts/setup_solc_slice.py
-          lake build SoliditySliceSmoke
-          python3 scripts/solidity_slice_mutations.py
+          python3 scripts/setup_solc_import.py
+          lake build SolidityImportSmoke
+          python3 scripts/solidity_import_mutations.py
 
       - name: Check storage layout audit artifacts (#1897)
         run: make verify-storage-layout
@@ -1247,26 +1247,26 @@ jobs:
       - name: Compare Solidity, Denote and compiled models
         timeout-minutes: 10
         run: |
-          scripts/check_solidity_differential.sh --config Contracts/SoliditySliceSmoke/differential.json --output .lake/slice-differential/smoke --cases 128 --seed 2438
-          scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --output .lake/slice-differential/programs
+          scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential.json --output .lake/import-differential/smoke --cases 128 --seed 2438
+          scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --output .lake/import-differential/programs
 
       - name: Extended Solidity slice campaigns
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         timeout-minutes: 60
         run: |
-          scripts/check_solidity_differential.sh --config Contracts/SoliditySliceSmoke/differential.json --output .lake/slice-differential/nightly-inputs --cases 2048 --seed "$GITHUB_RUN_NUMBER"
-          scripts/check_solidity_differential.sh --programs 20 --cases 64 --seed "$GITHUB_RUN_NUMBER" --output .lake/slice-differential/nightly-programs
-          scripts/check_solidity_differential.sh --mutations --output .lake/slice-differential/mutants
+          scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential.json --output .lake/import-differential/nightly-inputs --cases 2048 --seed "$GITHUB_RUN_NUMBER"
+          scripts/check_solidity_differential.sh --programs 20 --cases 64 --seed "$GITHUB_RUN_NUMBER" --output .lake/import-differential/nightly-programs
+          scripts/check_solidity_differential.sh --mutations --output .lake/import-differential/mutants
 
       - name: Archive Solidity slice comparison evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: solidity-slice-differential
+          name: solidity-import-differential
           path: |
-            .lake/slice-differential/**
-            !.lake/slice-differential/**/.lake/build/**
-            !.lake/slice-differential/**/.lake/packages/**
+            .lake/import-differential/**
+            !.lake/import-differential/**/.lake/build/**
+            !.lake/import-differential/**/.lake/packages/**
           include-hidden-files: true
           retention-days: 14
 

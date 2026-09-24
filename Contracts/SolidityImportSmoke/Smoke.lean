@@ -1,16 +1,16 @@
-import Compiler.SoliditySlice.Import
-import Compiler.SoliditySlice.Coverage
+import Compiler.SolidityImport.Import
+import Compiler.SolidityImport.Coverage
 
 open Compiler.CompilationModel
-open Compiler.CompilationModel.SoliditySlice
+open Compiler.CompilationModel.SolidityImport
 open Compiler.CompilationModel.Denote
 
-solidity_slice_import slice
-  slice_root "Contracts/SoliditySliceSmoke" slice_entry "Slice.sol"
-  slice_contract "C" slice_function "f"
-  slice_param_tys ["struct Mkt", "bytes32", "address"]
-  slice_solc "0.8.34+commit.80d5c536" slice_via_ir true slice_evm "osaka"
-  slice_optimizer true slice_runs 466 slice_bytecode_hash "none"
+def smokeBuild : Profile :=
+  { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+
+solidity_import smoke from "Contracts/SolidityImportSmoke" entry "Slice.sol" using smokeBuild
+  contract C
+  function f(Mkt, bytes32, address)
 
 /-- Oracle used only to place the two struct words of this witness.
 The numeric claim is about the values `structMember` reads back. -/
@@ -36,7 +36,7 @@ def witnessBindings (maturity : Nat) : Env :=
   [("m_maturity", maturity), ("id", 1), ("user", 2)]
 
 private def smokeBody : List Stmt :=
-  match slice.model.functions with
+  match smoke.model.functions with
   | fn :: _ => fn.body
   | [] => []
 
@@ -60,11 +60,11 @@ theorem string_beq_kernel : ("m_maturity" == "id") = false := by
 
 set_option maxHeartbeats 2000000 in
 theorem smoke_step_credit :
-    execStmt sliceOracle slice.model.fields (witnessState 100 10 0 0 0 50 100) (peel smokeBody).1 =
+    execStmt sliceOracle smoke.model.fields (witnessState 100 10 0 0 0 50 100) (peel smokeBody).1 =
       .continue
         { witnessState 100 10 0 0 0 50 100 with
           bindings := bindValue (witnessBindings 100) "_verity_slice_tmp_0" 100 } := by
-  dsimp only [peel, smokeBody, slice.model]
+  dsimp only [peel, smokeBody, smoke.model]
   have hmi : ("m_maturity" == "id") = false := by decide
   have hmu : ("m_maturity" == "user") = false := by decide
   have hiu : ("id" == "user") = false := by decide
@@ -86,5 +86,5 @@ theorem smoke_step_credit :
       Verity.Core.Uint256.modulus = 100 := by decide
   simp [hcredit]
 
--- Interpreter witnesses A/B live in scripts/solidity_slice_mutations.py.
+-- Interpreter witnesses A/B live in scripts/solidity_import_mutations.py.
 -- Keeping test execution out of this proof module satisfies Lean hygiene.

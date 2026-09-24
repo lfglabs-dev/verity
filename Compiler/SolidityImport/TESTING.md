@@ -40,7 +40,7 @@ Run from a Lake workspace (Verity or a downstream project):
 
 ```sh
 scripts/check_solidity_differential.sh \
-  --config Contracts/SoliditySliceSmoke/differential.json \
+  --config Contracts/SolidityImportSmoke/differential.json \
   --output .lake/differential/smoke --seed 2438 --cases 128
 
 scripts/check_solidity_differential.sh \

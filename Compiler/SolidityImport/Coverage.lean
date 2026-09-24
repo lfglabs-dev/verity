@@ -3,7 +3,7 @@ import Verity.Core.Model.Denote
 /-!
 # Denotation coverage certificate for Solidity slices
 
-The Solidity-slice importer (`Compiler/SoliditySlice`) emits only a small,
+The Solidity-slice importer (`Compiler/SolidityImport`) emits only a small,
 explicitly listed fragment of the deep `CompilationModel`.  This module is the
 machine-checked side of that contract:
 
@@ -24,7 +24,7 @@ the Denote↔IR raccord boundary (it rejects `panic`, `returnValues`, ...),
 while this one characterizes the compiler-free `Denote` execution path only.
 -/
 
-namespace Compiler.CompilationModel.SoliditySlice
+namespace Compiler.CompilationModel.SolidityImport
 
 open Compiler.CompilationModel
 open Compiler.CompilationModel.Denote
@@ -298,7 +298,7 @@ theorem execStmtList_returnValues_stop_arm (oracle : DenoteOracle) (fields : Lis
   simp [execStmtList, execStmt, evalExprList, evalExpr, wordNormalize]
 
 /-- Every function body of a model is in the slice whitelist. -/
-def modelSliceCovered (model : CompilationModel) : Bool :=
+def modelImportCovered (model : CompilationModel) : Bool :=
   model.functions.all fun fn => stmtListCovered fn.body
 
 /-- Level A: run a body on scalar bindings. Arguments are Solidity words, not
@@ -397,4 +397,4 @@ theorem execStmtList_slice_storageWords
   intro state
   exact execStmtList_slice_world oracle fields state body h
 
-end Compiler.CompilationModel.SoliditySlice
+end Compiler.CompilationModel.SolidityImport

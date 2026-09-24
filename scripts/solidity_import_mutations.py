@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Mutation checks for the Solidity slice importer.
+"""Mutation checks for the Solidity importer.
 
 Each case copies the smoke project, changes one thing, and elaborates
-`solidity_slice_import`. A reached helper, a return-order change, and a layout
+`solidity_import`. A reached helper, a return-order change, and a layout
 change must make the witness check fail. An unreached `for` stays importable.
 Reaching that `for` must be rejected with a source position, and the failed
 process must not leave an olean.
@@ -15,24 +15,22 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
-WORK = ROOT / ".lake/slice-mutations"
-SMOKE = ROOT / "Contracts/SoliditySliceSmoke"
+WORK = ROOT / ".lake/import-mutations"
+SMOKE = ROOT / "Contracts/SolidityImportSmoke"
 GOLDEN = SMOKE / "model.golden"
 
 HEADER = """
-import Compiler.SoliditySlice.Import
-import Compiler.SoliditySlice.Coverage
+import Compiler.SolidityImport.Import
+import Compiler.SolidityImport.Coverage
 
 open Compiler.CompilationModel
-open Compiler.CompilationModel.SoliditySlice
+open Compiler.CompilationModel.SolidityImport
 open Compiler.CompilationModel.Denote
 
-solidity_slice_import imported
-  slice_root "{root}" slice_entry "Slice.sol"
-  slice_contract "C" slice_function "f"
-  slice_param_tys ["struct Mkt", "bytes32", "address"]
-  slice_solc "0.8.34+commit.80d5c536" slice_via_ir true slice_evm "osaka"
-  slice_optimizer true slice_runs 466 slice_bytecode_hash "none"
+solidity_import imported from "{root}" entry "Slice.sol"
+  using {{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }}
+  contract C
+  function f(Mkt, bytes32, address)
 """
 
 WITNESS = r"""
@@ -277,8 +275,8 @@ def main() -> None:
     expect_failure("projection-name-collision", write_project("projection-name", projected_name_collision), "projected parameter name collision")
     namespaced = WORK / "base/Namespaced.lean"
     namespaced.write_text(HEADER.format(root=WORK / "base").replace(
-        "solidity_slice_import imported", "namespace Nested\nsolidity_slice_import imported") +
-        "\nend Nested\nexample : modelSliceCovered Nested.imported.model = true := Nested.imported.sliceCovered\n")
+        "solidity_import imported", "namespace Nested\nsolidity_import imported") +
+        "\nend Nested\nexample : modelImportCovered Nested.imported.model = true := Nested.imported.covered\n")
     result = lean(namespaced)
     if result.returncode:
         raise SystemExit(result.stdout + result.stderr)
@@ -303,12 +301,12 @@ def main() -> None:
     expect_failure("return-order", write_project("returns", swap_returns), "witness changed")
     expect_failure("layout", write_project("layout", swap_layout), "witness changed")
     diagnostic = expect_failure("reachable-for", write_project("reachable", call_unused), "unsupported")
-    assert "[solidity-slice:unsupported]" in diagnostic and "closure:" in diagnostic
+    assert "[solidity-import:unsupported]" in diagnostic and "closure:" in diagnostic
     assert "Lib.sol:" in diagnostic and "closure: C.f -> L.unused" in diagnostic, diagnostic
     if digest_of(base) == digest_of(rounding):
         raise SystemExit("helper change did not move the digest")
     print("pass helper-digest")
-    print("slice mutations passed")
+    print("import mutations passed")
 
 
 if __name__ == "__main__":

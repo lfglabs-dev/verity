@@ -8,8 +8,8 @@ import sys
 from .engine import ROOT, WORKSPACE, HarnessError, command, write_json
 
 MUTANTS = {
-    "import-comparison": ("Compiler/SoliditySlice/Import.lean", '| "<" => cmp "lt" left right', '| "<" => cmp "gt" left right'),
-    "import-field-slot": ("Compiler/SoliditySlice/Import.lean", 'slot := some {slot}', 'slot := some {slot + 1}'),
+    "import-comparison": ("Compiler/SolidityImport/Import.lean", '| "<" => cmp "lt" left right', '| "<" => cmp "gt" left right'),
+    "import-field-slot": ("Compiler/SolidityImport/Import.lean", 'slot := some {slot}', 'slot := some {slot + 1}'),
     "denote-packed-mask": ("Verity/Core/Model/Denote.lean", '(2 ^ packed.width) - 1', '(2 ^ packed.width) - 2'),
     "denote-storage-read": ("Verity/Core/Model/Denote.lean", '    world.readSlot (wordNormalize slot)\n', '    world.readSlot (wordNormalize (slot + 1))\n'),
 }
@@ -51,8 +51,8 @@ def mutation_campaign(output, selected=None):
         if text.count(before) != 1:
             raise HarnessError("mutation anchor drifted: " + name)
         source.write_text(text.replace(before, after))
-        argv = [sys.executable, str(directory / "scripts/solidity_slice_differential.py"),
-                "--config", str(directory / "Contracts/SoliditySliceSmoke/differential.json"),
+        argv = [sys.executable, str(directory / "scripts/solidity_import_differential.py"),
+                "--config", str(directory / "Contracts/SolidityImportSmoke/differential.json"),
                 "--output", str(directory / ".lake/campaign"), "--cases", "8"]
         try:
             result = subprocess.run(argv, cwd=directory, text=True, capture_output=True, timeout=600)

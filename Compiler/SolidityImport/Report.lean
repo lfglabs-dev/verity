@@ -4,11 +4,11 @@ Report of a Solidity function slice lowered to `CompilationModel`.
 A slice is not a whole-contract invariant. `opaqueMembers` are layout records
 copied from solc and deliberately not given an executable encoding.
 -/
-namespace Compiler.CompilationModel.SoliditySlice
+namespace Compiler.CompilationModel.SolidityImport
 
 /-- One function whose body was translated. Library helpers are included even
 when the executable model inlines them. -/
-structure SliceFunction where
+structure ImportedFunction where
   contract : String
   name : String
   declId : Nat
@@ -18,7 +18,7 @@ structure SliceFunction where
 /-- A memory-struct parameter replaced by the static members the slice reads.
 `headWord` is the member's index in the Solidity memory/ABI head, derived from
 the struct declaration order. This is not an ABI decoder. -/
-structure SliceProjection where
+structure ParamProjection where
   parameter : String
   member : String
   structName : String
@@ -38,7 +38,7 @@ structure OpaqueMember where
 
 /-- Provenance and closure report. `sourceDigest` covers sources, solc settings,
 the compiler release identity, and the importer sources. -/
-structure SliceReport where
+structure ImportReport where
   importerVersion : String
   solcLongVersion : String
   solcSha256 : String
@@ -46,9 +46,9 @@ structure SliceReport where
   sourceDigest : String
   contract : String
   rootFunction : String
-  includedFunctions : List SliceFunction
-  excludedFunctions : List SliceFunction
-  projections : List SliceProjection
+  includedFunctions : List ImportedFunction
+  excludedFunctions : List ImportedFunction
+  projections : List ParamProjection
   storageFields : List String
   opaqueMembers : List OpaqueMember
   /-- Proof denotation records success versus revert. `Stmt.panic` keeps its
@@ -57,7 +57,7 @@ structure SliceReport where
   deriving Repr, BEq
 
 /-- Stable, reviewable inventory of the translated closure and explicit exclusions. -/
-def SliceReport.toText (r : SliceReport) : String := Id.run do
+def ImportReport.toText (r : ImportReport) : String := Id.run do
   let mut lines := [s!"importer {r.importerVersion}", s!"solc {r.solcLongVersion}",
     s!"solcSha256 {r.solcSha256}", s!"digest {r.sourceDigest}",
     s!"contract {r.contract}", s!"root {r.rootFunction}", s!"settings {r.settingsJson}"]
@@ -73,4 +73,4 @@ def SliceReport.toText (r : SliceReport) : String := Id.run do
     lines := lines ++ [s!"opaque {m.field}.{m.name} {m.solcType} word {m.wordOffset} byte {m.byteOffset}"]
   return String.intercalate "\n" lines ++ "\n"
 
-end Compiler.CompilationModel.SoliditySlice
+end Compiler.CompilationModel.SolidityImport

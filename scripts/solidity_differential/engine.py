@@ -49,7 +49,7 @@ def implementation_hashes():
             for directory in ("Compiler", "Verity", "scripts/solidity_differential")
             for p in (ROOT / directory).rglob("*") if p.suffix in (".lean", ".py", ".sol", ".txt")}
 
-    for name in ("scripts/solidity_slice_differential.py", "lake-manifest.json", "lean-toolchain"):
+    for name in ("scripts/solidity_import_differential.py", "lake-manifest.json", "lean-toolchain"):
         hashes[name] = hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
     return hashes
 
@@ -73,19 +73,22 @@ def prepare(config_path, output):
                "metadata": {"bytecodeHash": "none"}, **settings}
     if profile["evmVersion"] != "osaka":
         raise HarnessError("fixture_unsupported: this runner currently targets Osaka")
-    command(["lake", "build", "Compiler.SoliditySlice.Import", "Compiler.SoliditySlice.Differential"],
+    command(["lake", "build", "Compiler.SolidityImport.Import", "Compiler.SolidityImport.Differential"],
             timeout=1800, log=output / "build.log")
     # Keep the importer and reference compiler profile identical.
     driver = output / "Driver.lean"
-    driver.write_text('import Compiler.SoliditySlice.Import\nimport Compiler.SoliditySlice.Differential\n'
-        + 'solidity_slice_import tested\n'
-        + f'  slice_root {json.dumps(str(project))} slice_entry {json.dumps(config["entry"])}\n'
-        + f'  slice_contract {json.dumps(config["contract"])} slice_function {json.dumps(config["function"])}\n'
-        + '  slice_param_tys [' + ', '.join(map(json.dumps, config["param_types"])) + ']\n'
-        + f'  slice_solc "0.8.34+commit.80d5c536" slice_via_ir {str(profile["viaIR"]).lower()} slice_evm {json.dumps(profile["evmVersion"])}\n'
-        + f'  slice_optimizer {str(profile["optimizer"]["enabled"]).lower()} slice_runs {profile["optimizer"]["runs"]} slice_bytecode_hash {json.dumps(profile["metadata"]["bytecodeHash"])}\n'
+    runs = f'some {profile["optimizer"]["runs"]}' if profile["optimizer"]["enabled"] else "none"
+    # solc type strings ("struct Market") become Solidity spellings ("Market").
+    written = [ty.split(" ", 1)[1] if ty.split(" ", 1)[0] in ("struct", "contract", "enum") else ty
+               for ty in config["param_types"]]
+    driver.write_text('import Compiler.SolidityImport.Import\nimport Compiler.SolidityImport.Differential\n'
+        + f'solidity_import tested from {json.dumps(str(project))} entry {json.dumps(config["entry"])}\n'
+        + f'  using {{ evmVersion := {json.dumps(profile["evmVersion"])}, viaIR := {str(profile["viaIR"]).lower()}, '
+        + f'optimizerRuns := {runs}, bytecodeHash := {json.dumps(profile["metadata"]["bytecodeHash"])} }}\n'
+        + f'  contract {config["contract"]}\n'
+        + f'  function {config["function"]}({", ".join(written)})\n'
         + 'def main (args : List String) : IO UInt32 :=\n'
-        + '  Compiler.CompilationModel.SoliditySlice.Differential.run tested.model tested.report args\n')
+        + '  Compiler.CompilationModel.SolidityImport.Differential.run tested.model tested.report args\n')
     command(["lake", "env", "lean", "--run", driver, "describe", output / "model.json", output / "model.yul"],
             timeout=300, log=output / "import.log")
     metadata = json.loads((output / "model.json").read_text())
