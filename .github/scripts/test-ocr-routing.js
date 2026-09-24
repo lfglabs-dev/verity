@@ -1365,6 +1365,8 @@ async function testLargeLeanScoutNoPacketsStatus() {
   await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
   assert.strictEqual(decision.scout.enabled, true);
   assert.strictEqual(decision.scout.status, 'skipped_no_packets');
+  const result = router.buildSyntheticResult(decision, {});
+  assert.ok(result.warnings.some(w => w.message.includes('no semantic packet review')));
 }
 
 function testWorkflowDocsEnabled() {

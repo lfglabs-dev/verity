@@ -1440,7 +1440,7 @@ function buildSyntheticResult(decision, metrics) {
     message: decision.reason,
     comments: [],
     warnings: decision.mode === 'large-lean-hotspots'
-      ? [{ type: 'routing', message: 'Large diff receives bounded packet review only; full-diff OCR is not attempted.' }]
+      ? [{ type: 'routing', message: 'No safe review packets could be produced; this diff received no semantic packet review. Use the top-changed-files checklist for manual review.' }]
       : [],
     summary: {
       files_reviewed: 0,
@@ -1571,9 +1571,6 @@ function packetResidualRisk(decision) {
   if (decision.mode === 'large-lean-hotspots' && (decision.packets?.length || 0) > 0) {
     const basis = decision.scout?.attempted && decision.scout?.status === 'success' ? 'scout-ranked' : 'deterministically ranked';
     return `Triaged top ${decision.packets?.length || 0} ${basis} packet(s); remaining changed hunks/files require Codex or human proof review, and selected packets still need strong reviewer analysis.`;
-  }
-  if (decision.mode === 'large-lean-hotspots' && ((decision.counts?.lean || 0) > THRESHOLDS.packetMaxFiles || (decision.changedLines || 0) > THRESHOLDS.packetMaxChangedLines)) {
-    return 'Diff exceeded packet budget; use top changed files and deterministic signals as required Codex/human review checklist.';
   }
   if (decision.mode === 'large-lean-hotspots') {
     return 'Router could not produce safe diff packets; use top changed files as required Codex/human review checklist.';
