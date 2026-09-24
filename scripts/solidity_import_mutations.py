@@ -263,6 +263,8 @@ def digest_of(blob: str) -> str:
 def main() -> None:
     if not SOLC.is_file():
         raise SystemExit(f"missing {SOLC}")
+    # The checks import the status driver, which `lake build SolidityImportSmoke` does not build.
+    subprocess.run(["lake", "build", "Compiler.SolidityImport.Differential"], cwd=ROOT, check=True)
     WORK.mkdir(parents=True, exist_ok=True)
     snapshot = WORK / "model.txt"
     snapshot.unlink(missing_ok=True)
