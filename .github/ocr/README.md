@@ -91,3 +91,13 @@ scout triage. The route now continues:
 
 Kill switch: repo variable `OCR_PACKET_REVIEW_ENABLED=false`;
 per-group budget: `OCR_PACKET_TIMEOUT_MINUTES` (default 10).
+
+### Large-diff routing (September 2026)
+
+The router accepts Git output up to 32 MiB (including context) instead of Node's
+1 MiB default. PR-wide file/line counts no longer disable packet reviews:
+ranking still selects at most eight packets and semantic review at most four
+file groups. This is partial review, not a claim that all hunks were checked.
+The CLI and job timeouts remain in force. A failed or timed-out group must not
+be counted as covered. Tooling continues to load from the trusted default
+branch, never from the PR being reviewed.

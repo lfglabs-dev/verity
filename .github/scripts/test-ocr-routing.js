@@ -104,6 +104,42 @@ function testBaseOnlyLeanChangesDoNotRouteThroughLeanPath() {
   }
 }
 
+function testLargeDiffStillProducesBoundedSemanticPlan() {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ocr-large-diff-'));
+  const previousCwd = process.cwd();
+  const previousTemp = process.env.RUNNER_TEMP;
+  const git = args => execFileSync('git', args, {cwd: repo, encoding: 'utf8'}).trim();
+  try {
+    git(['init', '--initial-branch=main']);
+    git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-m', 'base']);
+    const base = git(['rev-parse', 'HEAD']);
+    fs.mkdirSync(path.join(repo, 'Compiler'));
+    for (let i = 0; i < 33; i++) {
+      fs.writeFileSync(path.join(repo, `Compiler/File${i}.lean`), '-- context '.repeat(100) + '\n' +
+        Array.from({length: 400}, (_, n) => `def example${n} : Nat := ${n} -- ${'context '.repeat(12)}\n`).join(''));
+    }
+    git(['add', '.']);
+    git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'large PR']);
+    process.chdir(repo); process.env.RUNNER_TEMP = repo;
+    const diff = router.loadDiff(base, 'HEAD');
+    assert.strictEqual(diff.files.length, 33);
+    const decision = router.decideRoute(diff.files);
+    assert.ok(decision.changedLines > 10000);
+    assert.strictEqual(decision.mode, 'large-lean-hotspots');
+    assert.ok(decision.packets.length > 0 && decision.packets.length <= router.THRESHOLDS.packetMaxCount);
+    const plan = JSON.parse(fs.readFileSync(router.writePacketReviewPlan(decision, diff), 'utf8'));
+    assert.ok(plan.groups.length > 0 && plan.groups.length <= 4);
+    for (const group of plan.groups) {
+      assert.strictEqual(group.exclude.length, 32);
+      assert.ok(!group.exclude.includes(group.files[0]));
+    }
+  } finally {
+    process.chdir(previousCwd);
+    if (previousTemp === undefined) delete process.env.RUNNER_TEMP; else process.env.RUNNER_TEMP = previousTemp;
+    fs.rmSync(repo, {recursive: true, force: true});
+  }
+}
+
 function testLargeLeanPacketized() {
   const decision = router.decideRoute([
     file('Compiler/Proofs/A.lean', 40, 0),
@@ -792,6 +828,7 @@ async function testLargeLeanScoutNotConfiguredFallsBack() {
     file('Compiler/Proofs/B.lean', 40, 0),
     file('Compiler/Proofs/C.lean', 40, 0),
   ];
+  for (const entry of files) entry.hunks = [];
   const decision = router.decideRoute(files);
   await router.applyScoutStage(decision, { files }, { url: '', key: '', model: '' });
   assert.strictEqual(decision.mode, 'large-lean-hotspots');
@@ -1323,6 +1360,7 @@ function testScoutErrorRedactsLargeStructuredBodiesBeforeBounding() {
 
 async function testLargeLeanScoutNoPacketsStatus() {
   const files = Array.from({ length: 13 }, (_, i) => file(`Compiler/Proofs/Large${i}.lean`, 40, 0));
+  for (const entry of files) entry.hunks = [];
   const decision = router.decideRoute(files);
   await router.applyScoutStage(decision, { files }, { url: 'https://example.invalid/v1', key: 'test-key', model: 'cheap-scout' });
   assert.strictEqual(decision.scout.enabled, true);
@@ -2135,6 +2173,7 @@ async function run() {
   testOneLeanFileNormal();
   testBaseOnlyLeanChangesDoNotRouteThroughLeanPath();
   testLargeLeanPacketized();
+  testLargeDiffStillProducesBoundedSemanticPlan();
   testLeanCommentDoesNotTriggerSorrySignal();
   testLeanBlockCommentDoesNotTriggerSorrySignal();
   testLeanBlockCommentStateFromContextDoesNotTriggerSignals();

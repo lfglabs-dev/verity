@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROUTER_VERSION = 'router-v10';
+const ROUTER_VERSION = 'router-v11';
 const DEFAULT_SCOUT_MODEL = 'MiniMax-M3';
 const RUBRIC_PATH = path.join(__dirname, '..', 'ocr', 'rubric.json');
 
@@ -38,7 +38,7 @@ const LENSES = Object.freeze([
     focus: 'Scrutinize Lean proof soundness: vacuous or over-strong hypotheses, introduced sorry/admit/axiom, unsound tactic shortcuts, weakened theorem conclusions, and broad automation replacing structured proof.',
   }),
 ]);
-const STRONG_REVIEW_BLOCKER_MESSAGE = 'OpenCodeReview 1.7.9 supports --from/--to full diff ranges, but this workflow does not have a safe packet/window input bridge for Lean hunks yet.';
+const STRONG_REVIEW_BLOCKER_MESSAGE = 'Selected packets require semantic review; see packet review outcomes for actual coverage.';
 const THRESHOLDS = Object.freeze({
   smallLeanFiles: 1,
   smallChangedLines: 300,
@@ -230,19 +230,6 @@ function decideRoute(files) {
       counts,
       changedLines,
       largestFiles,
-      ocr: { concurrency: 0, timeout: 0, backgroundChars: 0 },
-    });
-  }
-
-  if (leanFiles.length > 0 && (leanFiles.length > THRESHOLDS.packetMaxFiles || changedLines > THRESHOLDS.packetMaxChangedLines)) {
-    return route({
-      mode: 'large-lean-hotspots',
-      shouldRunOcr: false,
-      reason: `Lean packet budget exceeded: ${leanFiles.length} Lean file(s), ${changedLines} changed supported line(s).`,
-      counts,
-      changedLines,
-      largestFiles,
-      packets: [],
       ocr: { concurrency: 0, timeout: 0, backgroundChars: 0 },
     });
   }
@@ -1453,7 +1440,7 @@ function buildSyntheticResult(decision, metrics) {
     message: decision.reason,
     comments: [],
     warnings: decision.mode === 'large-lean-hotspots'
-      ? [{ type: 'routing', message: 'Diff exceeded bounded packet review capability; full OCR not attempted.' }]
+      ? [{ type: 'routing', message: 'Large diff receives bounded packet review only; full-diff OCR is not attempted.' }]
       : [],
     summary: {
       files_reviewed: 0,
@@ -1608,7 +1595,7 @@ function writeOutputs(outputPath, values) {
 }
 
 function git(args) {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function requiredEnv(name) {
