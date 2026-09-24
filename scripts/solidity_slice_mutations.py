@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
 WORK = ROOT / ".lake/slice-mutations"
 SMOKE = ROOT / "Contracts/SoliditySliceSmoke"
+GOLDEN = SMOKE / "model.golden"
 
 HEADER = """
 import Compiler.SoliditySlice.Import
@@ -258,7 +259,16 @@ def main() -> None:
     if not SOLC.is_file():
         raise SystemExit(f"missing {SOLC}")
     WORK.mkdir(parents=True, exist_ok=True)
-    base = expect_success("unreached-for", write_project("base", unchanged), witness=True)
+    snapshot = WORK / "model.txt"
+    snapshot.unlink(missing_ok=True)
+    base = expect_success("unreached-for", write_project("base", unchanged), witness=True,
+                          extra=f'\n#eval IO.FS.writeFile "{snapshot}" (toString (repr imported.model) ++ "\\n")\n')
+    # Refactors of the importer must reproduce the imported model exactly.
+    if "--update-golden" in sys.argv:
+        shutil.copy(snapshot, GOLDEN)
+    elif snapshot.read_text() != GOLDEN.read_text():
+        raise SystemExit(f"imported model differs from {GOLDEN}; review, then rerun with --update-golden")
+    print("pass golden-model")
     expect_success("helper-local-hygiene", write_project("helper-local", helper_local_collision), witness=True)
     expect_success("generated-name-hygiene", write_project("generated-name", generated_name_collision), witness=True)
     expect_success("unrelated-layout", write_project("unrelated-layout", unrelated_layout), witness=True)
