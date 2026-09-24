@@ -166,6 +166,8 @@ private structure Env where
   referenced : Array String
   scalarTy : RBMap Nat ParamType compare
   next : Nat
+  /-- Every binding name allocated in the current root, including its parameters. -/
+  bound : List String
   stack : List Nat
   yulNames : RBMap String Expr compare
   currentFile : String
@@ -190,6 +192,7 @@ private def Env.init : Env where
   referenced := #[]
   scalarTy := RBMap.empty
   next := 0
+  bound := []
   stack := []
   yulNames := RBMap.empty
   currentFile := ""
@@ -244,15 +247,43 @@ private def fresh : M String := do
   let env ← get
   let projected := env.mems.toList.flatMap fun (_, p) =>
     p.members.toList.map (fun (member, _) => s!"{p.param}_{member}")
-  let reserved := env.sourceNames ++ projected
+  let reserved := env.sourceNames ++ projected ++ env.bound
   -- The prefix is a valid compiler identifier, but is not assumed reserved by
   -- Solidity. Check every source name and every potential scalar projection.
   for _ in [:reserved.length + 1] do
     let n := (← get).next
     modify fun e => { e with next := e.next + 1 }
     let candidate := s!"_verity_slice_tmp_{n}"
-    unless reserved.contains candidate do return candidate
+    unless reserved.contains candidate do
+      modify fun e => { e with bound := candidate :: e.bound }
+      return candidate
   throwError "unable to allocate a hygienic slice binding"
+
+private def yulKeywords : List String :=
+  ["let", "if", "switch", "case", "default", "for", "break", "continue", "leave",
+   "function", "true", "false"]
+
+/-- Binding for the Solidity local `name`: the source name itself when it is
+free, so that proofs can refer to it, else `name_1`, `name_2`, ... Names that
+the compiler reserves or Yul forbids fall back to `fresh`. -/
+private def freshFor (name : String) : M String := do
+  if name.startsWith "__" || name.startsWith "_verity_slice_tmp" then return ← fresh
+  let env ← get
+  let projected := env.mems.toList.flatMap fun (_, p) =>
+    p.members.toList.map (fun (member, _) => s!"{p.param}_{member}")
+  let usable (candidate : String) : Bool :=
+    !(env.bound.contains candidate || projected.contains candidate ||
+      yulKeywords.contains candidate || (Verity.Core.Intrinsics.yulBuiltinArity? candidate).isSome)
+  let mut chosen := none
+  if usable name then chosen := some name
+  else
+    for k in [1:env.bound.length + 2] do
+      let candidate := s!"{name}_{k}"
+      if chosen.isNone && usable candidate && !env.sourceNames.contains candidate then
+        chosen := some candidate
+  let some binding := chosen | fresh
+  modify fun e => { e with bound := binding :: e.bound }
+  pure binding
 
 private def isAtom : Expr → Bool
   | .literal _ | .localVar _ | .param _ | .blockTimestamp => true
@@ -792,7 +823,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     | _ => failAt s "storage local is not a resolved read path"
   else
     let v ← lowerExpr init
-    let binding ← fresh
+    let binding ← freshFor name
     let expr := Expr.localVar binding
     modify fun e =>
       { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr }
@@ -817,6 +848,7 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
     let ty ← mType p
     let loc := optStr p "storageLocation" |>.getD "default"
     out := out.push { name, id }
+    modify fun e => { e with bound := name :: e.bound }
     if ty.startsWith "struct " && (loc == "memory" || loc == "calldata") then
       let typeName ← mField p "typeName"
       let sid ← refInt typeName
@@ -1127,7 +1159,7 @@ private def importSlice
       [("function", Json.str functionName), ("parameterTypes", Json.arr (paramTys.map Json.str))])
     -- Each root is lowered on its own: bindings, generated names and projections
     -- do not leak between functions. Field layouts and the closure are shared.
-    env := { env with currentFile := entry, next := 0, values := RBMap.empty, paths := RBMap.empty,
+    env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       mems := RBMap.empty, scalarTy := RBMap.empty, yulNames := RBMap.empty,
                       projections := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env

@@ -66,7 +66,7 @@ theorem smoke_step_credit :
     execStmt sliceOracle smoke.model.fields (witnessState 100 10 0 0 0 50 100) (peel smokeBody).1 =
       .continue
         { witnessState 100 10 0 0 0 50 100 with
-          bindings := bindValue (witnessBindings 100) "_verity_slice_tmp_0" 100 } := by
+          bindings := bindValue (witnessBindings 100) "credit" 100 } := by
   dsimp only [peel, smokeBody, smoke.model]
   have hmi : ("m_maturity" == "id") = false := by decide
   have hmu : ("m_maturity" == "user") = false := by decide

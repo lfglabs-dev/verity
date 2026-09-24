@@ -55,6 +55,19 @@ lean_lib MorphoMidnight where
   needs := #[midnightSol]
 ```
 
+## Proving properties of an imported function
+
+`Compiler.SolidityImport.Proofs` provides `runFunction model "name"`, which
+runs an imported function on scalar arguments (`none` means revert), and the
+lemmas used to reason about that execution: word arithmetic (`sub_word`,
+`mul_word128`, `div_word`, `mask_eq`), bindings (`lookup_bind_same`,
+`lookup_bind_other`), and splitting a body into straight-line parts
+(`split_prefix`, `list_frame`, `ends_return`). Solidity locals keep their name
+in the model, so a proof can refer to `postSlashCredit` rather than to a
+generated temporary. See
+[morpho-midnight-verity](https://github.com/lfglabs-dev/morpho-midnight-verity)
+for a complete example.
+
 ## Supported Solidity
 
 This is deliberately the subset Midnight's `updatePositionView` needs, not a
@@ -63,7 +76,7 @@ claim to support arbitrary Solidity.
 | Construct | Lowering |
 | --- | --- |
 | Explicit scalar/tuple return | `returnValues`, preserving order |
-| Local declarations and storage aliases | Hygienic scalar bindings or resolved read paths |
+| Local declarations and storage aliases | Bindings named after the Solidity local (suffixed `_1`, `_2`, ... on collision), or resolved read paths |
 | One/two-key mappings to structs | solc slots, word offsets, and packed uint offsets |
 | Scalar member of a memory/calldata struct parameter | Explicit scalar projection; no ABI decoder |
 | Unsigned `+`, `-`, `*`, `/` | Word arithmetic with overflow/underflow/zero-divisor panics |
