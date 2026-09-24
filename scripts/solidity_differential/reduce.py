@@ -25,6 +25,8 @@ def reduce_failure(directory, seconds=120):
     if not report["divergences"]:
         raise ValueError("campaign has no divergence to reduce")
     failure = report["divergences"][0]
+    if "case" not in failure:
+        raise ValueError("only A/B/C case divergences are reducible; inspect metamorphic-divergence.json")
     target = signature(failure)
     manifest = json.loads((directory / "manifest.json").read_text())
     config, metadata = manifest["config"], manifest["model"]

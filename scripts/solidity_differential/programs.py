@@ -106,6 +106,10 @@ def generated_campaign(output, count, cases, seed):
             # Renaming + helper extraction must preserve the observed behavior.
             rows = (directory / "run/out/source.txt").read_text()
             if reference is not None and reference != rows:
-                return {"programs": len(reports), "divergences": [{"metamorphic": str(directory)}]}
-            reference = rows
+                divergence = {"metamorphic": str(directory), "reference": str(reference_dir),
+                              "rows": [{"line": k, "reference": a, "variant": b} for k, (a, b)
+                                       in enumerate(zip(reference.splitlines(), rows.splitlines())) if a != b]}
+                write_json(output / "metamorphic-divergence.json", divergence)
+                return {"programs": len(reports), "divergences": [divergence]}
+            reference, reference_dir = rows, directory
     return {"programs": len(reports), "cases": sum(r["cases"] for r in reports), "divergences": []}

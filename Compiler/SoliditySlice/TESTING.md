@@ -58,7 +58,9 @@ Each generated expression is run directly and through hygienic renamed/helper
 variants, including a scalar projection whose name collides with the temporary
 prefix. The grammar exercises uint8/16/128/248/256 casts, checked arithmetic,
 ternaries and helper composition. Independent source executions must agree
-between metamorphic variants as well as between A/B/C.
+between metamorphic variants as well as between A/B/C. A metamorphic mismatch
+is recorded in `metamorphic-divergence.json` with the differing source rows;
+it is investigated directly rather than by the input reducer.
 
 ## Failure evidence and reduction
 

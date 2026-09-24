@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from solidity_differential.cases import generate, canonical
 from solidity_differential.engine import HarnessError, parse_evm, execute
-from solidity_differential.programs import source, smaller_expressions
-from solidity_differential.reduce import signature
+from solidity_differential.programs import generated_campaign, source, smaller_expressions
+from solidity_differential.reduce import reduce_failure, signature
 
 
 class SolidityDifferentialTests(unittest.TestCase):
@@ -72,6 +72,24 @@ class SolidityDifferentialTests(unittest.TestCase):
         reverted = {**a, "status": "revert", "words": []}
         self.assertNotEqual(signature({"source": a, "model": wrong_return, "compiled": a}),
                             signature({"source": a, "model": reverted, "compiled": a}))
+
+    def test_metamorphic_divergence_is_recorded_and_not_reduced(self):
+        def fake_campaign(fixture, run, cases, seed):
+            out = Path(run) / "out"
+            out.mkdir(parents=True, exist_ok=True)
+            rows = "0 ok 0x01\n" if "program-0-0" in str(run) else "0 revert 0x\n"
+            (out / "source.txt").write_text(rows)
+            return {"cases": 1, "divergences": []}
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("solidity_differential.programs.campaign", fake_campaign):
+                report = generated_campaign(directory, 1, 0, 0)
+            evidence = json.loads((Path(directory) / "metamorphic-divergence.json").read_text())
+            self.assertEqual(report["divergences"], [evidence])
+            self.assertEqual(evidence["rows"], [{"line": 0, "reference": "0 ok 0x01", "variant": "0 revert 0x"}])
+            (Path(directory) / "results.json").write_text(json.dumps(report))
+            with self.assertRaisesRegex(ValueError, "metamorphic"):
+                reduce_failure(directory)
 
 
 if __name__ == "__main__":
