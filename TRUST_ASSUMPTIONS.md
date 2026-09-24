@@ -16,7 +16,8 @@ does not cover. `DenoteAgreement.execStmt_eq` still holds, including
 finishes as `.stop`. The proof denotation observes success versus revert. It
 does not observe the `PanicCode` payload.
 
-The source digest hashes `Import.lean`, `Coverage.lean`, and `Report.lean` from
+The source digest hashes `Import.lean`, `Coverage.lean`, `Report.lean`,
+`Quote.lean`, and `Profile.lean` from
 the package that contains them: the Verity tree itself, or
 `.lake/packages/verity` when a downstream package elaborates the import. The
 pinned solc binary stays in the elaborating package's

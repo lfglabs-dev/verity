@@ -1192,6 +1192,8 @@ private def importSlice
   let importer ← moduleText sourceRoot "Compiler/SolidityImport/Import.lean"
   let coverage ← moduleText sourceRoot "Compiler/SolidityImport/Coverage.lean"
   let reportSrc ← moduleText sourceRoot "Compiler/SolidityImport/Report.lean"
+  let quoteSrc ← moduleText sourceRoot "Compiler/SolidityImport/Quote.lean"
+  let profileSrc ← moduleText sourceRoot "Compiler/SolidityImport/Profile.lean"
   -- JSON framing prevents distinct file/signature lists from sharing a
   -- concatenation merely because their text contains separator newlines.
   let digestInput := Json.mkObj [
@@ -1203,7 +1205,8 @@ private def importSlice
     ("solcInput", input),
     ("importerSources", Json.mkObj [
       ("Import.lean", Json.str importer), ("Coverage.lean", Json.str coverage),
-      ("Report.lean", Json.str reportSrc)])]
+      ("Report.lean", Json.str reportSrc), ("Quote.lean", Json.str quoteSrc),
+      ("Profile.lean", Json.str profileSrc)])]
   let digest := sha256Hex digestInput.compress.toUTF8
   let report : ImportReport :=
     { importerVersion, solcLongVersion, solcSha256 := solcSha, settingsJson := settings.compress,
