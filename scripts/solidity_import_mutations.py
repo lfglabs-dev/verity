@@ -292,6 +292,42 @@ def main() -> None:
   unless run 3 == some [9, 0, 0] do throw (IO.userError "small uint248 product changed")
   unless run (2^128) == none do throw (IO.userError "uint248 product overflow was accepted")
 ''')
+    two_roots = WORK / "base/TwoRoots.lean"
+    two_roots.write_text(HEADER.format(root=WORK / "base") + WITNESS + f'''
+solidity_import both from "{WORK / "base"}" entry "Slice.sol"
+  using {{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }}
+  contract C
+  function f(Mkt, bytes32, address)
+  function lossOf(bytes32)
+
+#eval show IO Unit from do
+  -- A second root must not change how the first one is lowered.
+  let single := imported.model.functions
+  match both.model.functions with
+  | [f, loss] =>
+      unless toString (repr [f]) == toString (repr single) do
+        throw (IO.userError "adding a root changed the first function")
+      unless loss.name == "lossOf" && loss.params.map (·.name) == ["market"] do
+        throw (IO.userError s!"unexpected second root {{loss.name}}")
+  | _ => throw (IO.userError "expected two imported functions")
+  unless both.model.fields.map (·.name) == ["position", "marketState"] do
+    throw (IO.userError "roots do not share one field list")
+  unless both.report.roots == ["f", "lossOf"] do
+    throw (IO.userError "report roots changed")
+''')
+    result = lean(two_roots)
+    if result.returncode:
+        raise SystemExit(result.stdout + result.stderr)
+    print("pass two-roots")
+    for name, extra, needle in [
+            ("duplicate-root", "  function f(Mkt, bytes32, address)\n  function f(Mkt, bytes32, address)\n", "imported twice"),
+            ("unknown-root", "  function nope(bytes32)\n", "no function C.nope(bytes32)")]:
+        bad = WORK / f"base/{name}.lean"
+        bad.write_text(HEADER.format(root=WORK / "base").replace("  function f(Mkt, bytes32, address)\n", extra))
+        blob = lean(bad)
+        if blob.returncode == 0 or needle not in blob.stdout + blob.stderr:
+            raise SystemExit(f"{name}: expected rejection containing {needle!r}\n{blob.stdout}{blob.stderr}")
+        print(f"pass {name}")
     repeated = expect_success("deterministic", WORK / "base", witness=True)
     if digest_of(base) != digest_of(repeated):
         raise SystemExit("identical input did not reproduce the digest")

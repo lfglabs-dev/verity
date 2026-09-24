@@ -1,4 +1,4 @@
-{ name := "C_f_slice",
+{ name := "C",
   contractId := 1,
   fields := [{ name := "position",
                ty := Compiler.CompilationModel.FieldType.mappingStruct2

@@ -121,7 +121,8 @@ def quoteReport (r : ImportReport) : m Term := do
     `(({ contract := $(quote f.contract), name := $(quote f.name), declId := $(quote f.declId),
          paramTypes := $(← strings f.paramTypes) } : Compiler.CompilationModel.SolidityImport.ImportedFunction))
   let proj (p : ParamProjection) : m Term := do
-    `(({ parameter := $(quote p.parameter), member := $(quote p.member), structName := $(quote p.structName),
+    `(({ function := $(quote p.function), parameter := $(quote p.parameter), member := $(quote p.member),
+         structName := $(quote p.structName),
          headWord := $(quote p.headWord), modelParam := $(quote p.modelParam),
          ignoredMembers := $(← strings p.ignoredMembers) } :
         Compiler.CompilationModel.SolidityImport.ParamProjection))
@@ -132,7 +133,7 @@ def quoteReport (r : ImportReport) : m Term := do
   `(({ importerVersion := $(quote r.importerVersion), solcLongVersion := $(quote r.solcLongVersion),
        solcSha256 := $(quote r.solcSha256), settingsJson := $(quote r.settingsJson),
        sourceDigest := $(quote r.sourceDigest), contract := $(quote r.contract),
-       rootFunction := $(quote r.rootFunction),
+       roots := $(← strings r.roots),
        includedFunctions := $(← list (← r.includedFunctions.mapM fn)),
        excludedFunctions := $(← list (← r.excludedFunctions.mapM fn)),
        projections := $(← list (← r.projections.mapM proj)),

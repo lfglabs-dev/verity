@@ -19,6 +19,8 @@ structure ImportedFunction where
 `headWord` is the member's index in the Solidity memory/ABI head, derived from
 the struct declaration order. This is not an ABI decoder. -/
 structure ParamProjection where
+  /-- The imported function whose parameter is projected. -/
+  function : String
   parameter : String
   member : String
   structName : String
@@ -45,7 +47,8 @@ structure ImportReport where
   settingsJson : String
   sourceDigest : String
   contract : String
-  rootFunction : String
+  /-- The imported functions, in `solidity_import` order. -/
+  roots : List String
   includedFunctions : List ImportedFunction
   excludedFunctions : List ImportedFunction
   projections : List ParamProjection
@@ -60,13 +63,13 @@ structure ImportReport where
 def ImportReport.toText (r : ImportReport) : String := Id.run do
   let mut lines := [s!"importer {r.importerVersion}", s!"solc {r.solcLongVersion}",
     s!"solcSha256 {r.solcSha256}", s!"digest {r.sourceDigest}",
-    s!"contract {r.contract}", s!"root {r.rootFunction}", s!"settings {r.settingsJson}"]
+    s!"contract {r.contract}"] ++ r.roots.map (s!"root {·}") ++ [s!"settings {r.settingsJson}"]
   for fn in r.includedFunctions do
     lines := lines ++ [s!"include {fn.contract}.{fn.name} decl {fn.declId} params {fn.paramTypes}"]
   for fn in r.excludedFunctions do
     lines := lines ++ [s!"exclude {fn.contract}.{fn.name} decl {fn.declId} params {fn.paramTypes}"]
   for p in r.projections do
-    lines := lines ++ [s!"projection {p.parameter}.{p.member} head {p.headWord} as {p.modelParam} ignored {p.ignoredMembers}"]
+    lines := lines ++ [s!"projection {p.function} {p.parameter}.{p.member} head {p.headWord} as {p.modelParam} ignored {p.ignoredMembers}"]
   for name in r.storageFields do
     lines := lines ++ [s!"storage {name}"]
   for m in r.opaqueMembers do

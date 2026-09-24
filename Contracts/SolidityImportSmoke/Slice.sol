@@ -50,4 +50,8 @@ contract C {
             : 0;
         return (uint128(post) - fee, uint128(postFee) - fee, fee);
     }
+
+    function lossOf(bytes32 market) external view returns (uint128) {
+        return marketState[market].lossFactor;
+    }
 }

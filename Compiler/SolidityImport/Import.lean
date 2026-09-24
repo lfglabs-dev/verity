@@ -1053,8 +1053,9 @@ private def selectFunction (contract functionName : String) (written : Array Str
   pure (fn, tys)
 
 private def importSlice
-    (pkgRoot projectRoot : System.FilePath) (entry contract functionName : String)
-    (written : Array String) (profile : Profile) : MetaM (CompilationModel × ImportReport) := do
+    (pkgRoot projectRoot : System.FilePath) (entry contract : String)
+    (roots : Array (String × Array String)) (profile : Profile) :
+    MetaM (CompilationModel × ImportReport) := do
   let compiler := pkgRoot / ".lake/solidity-import/solc-0.8.34"
   let solcSha ← verifyCompiler compiler
   let versionOut ← IO.Process.output { cmd := compiler.toString, args := #["--version"] }
@@ -1113,52 +1114,76 @@ private def importSlice
   for item in items do
     let label ← str (← field item "label")
     env := { env with layoutItems := env.layoutItems.insert label item }
-  let (fn, paramTys) ← (selectFunction contract functionName written).run' env
-  env := { env with currentFile := entry }
-  let ((body, srcParams), env2) ← (lowerRoot fn).run env
-  env := env2
-  let mut modelParams : Array Param := #[]
-  let mut modelParamNames : Array String := #[]
-  for p in srcParams do
-    if env.mems.contains p.id then
-      let some mem := env.mems.find? p.id | throwError "missing memory parameter {p.name}"
-      let mut seen := false
-      for (member, ty) in mem.members do
-        if let some proj := env.projections.find? (fun q => q.parameter == p.name && q.member == member) then
-          let some pty := paramType ty
-            | (failAt fn s!"unsupported projected type {ty}").run' env
-          if modelParamNames.contains proj.modelParam then
-            (failAt fn s!"projected parameter name collision: {proj.modelParam}").run' env
-          modelParamNames := modelParamNames.push proj.modelParam
-          modelParams := modelParams.push { name := proj.modelParam, ty := pty }
-          seen := true
-      unless seen do (failAt fn s!"struct parameter {p.name} was not read").run' env
-    else
-      let some pty := env.scalarTy.find? p.id | throwError "missing parameter type"
-      if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
-      modelParamNames := modelParamNames.push p.name
-      modelParams := modelParams.push { name := p.name, ty := pty }
-  let returns ← (do
-    let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
-    let mut out : Array ParamType := #[]
-    for r in rets do
-      let ty ← mType r
-      let some pty := paramType ty | failAt r s!"unsupported return type {ty}"
-      out := out.push pty
-    pure out) |>.run' env
-  let mutability ← str (← field fn "stateMutability")
-  let isView := mutability == "view" || mutability == "pure"
+  let mut specs : Array FunctionSpec := #[]
+  let mut projections : Array ParamProjection := #[]
+  let mut signatures : Array Json := #[]
+  let mut rootIds : Array Nat := #[]
+  for (functionName, written) in roots do
+    let (fn, paramTys) ← (selectFunction contract functionName written).run' env
+    let rootId ← flexNat (← field fn "id")
+    if rootIds.contains rootId then throwError "function {contract}.{functionName} is imported twice"
+    rootIds := rootIds.push rootId
+    signatures := signatures.push (Json.mkObj
+      [("function", Json.str functionName), ("parameterTypes", Json.arr (paramTys.map Json.str))])
+    -- Each root is lowered on its own: bindings, generated names and projections
+    -- do not leak between functions. Field layouts and the closure are shared.
+    env := { env with currentFile := entry, next := 0, values := RBMap.empty, paths := RBMap.empty,
+                      mems := RBMap.empty, scalarTy := RBMap.empty, yulNames := RBMap.empty,
+                      projections := #[] }
+    let ((body, srcParams), env2) ← (lowerRoot fn).run env
+    env := env2
+    let mut modelParams : Array Param := #[]
+    let mut modelParamNames : Array String := #[]
+    for p in srcParams do
+      if env.mems.contains p.id then
+        let some mem := env.mems.find? p.id | throwError "missing memory parameter {p.name}"
+        let mut seen := false
+        for (member, ty) in mem.members do
+          if let some proj := env.projections.find? (fun q => q.parameter == p.name && q.member == member) then
+            let some pty := paramType ty
+              | (failAt fn s!"unsupported projected type {ty}").run' env
+            if modelParamNames.contains proj.modelParam then
+              (failAt fn s!"projected parameter name collision: {proj.modelParam}").run' env
+            modelParamNames := modelParamNames.push proj.modelParam
+            modelParams := modelParams.push { name := proj.modelParam, ty := pty }
+            seen := true
+        unless seen do (failAt fn s!"struct parameter {p.name} was not read").run' env
+      else
+        let some pty := env.scalarTy.find? p.id | throwError "missing parameter type"
+        if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
+        modelParamNames := modelParamNames.push p.name
+        modelParams := modelParams.push { name := p.name, ty := pty }
+    let returns ← (do
+      let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+      let mut out : Array ParamType := #[]
+      for r in rets do
+        let ty ← mType r
+        let some pty := paramType ty | failAt r s!"unsupported return type {ty}"
+        out := out.push pty
+      pure out) |>.run' env
+    let mutability ← str (← field fn "stateMutability")
+    let isView := mutability == "view" || mutability == "pure"
+    specs := specs.push
+      { name := functionName, params := modelParams.toList, returnType := none,
+        returns := returns.toList, isView, body := body.toList }
+    for proj in env.projections do
+      let ignored :=
+        match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
+        | some (_, mem) => mem.members.filterMap fun (pair : String × String) =>
+            if env.projections.any (fun q => q.parameter == proj.parameter && q.member == pair.1)
+            then none else some pair.1
+        | none => #[]
+      projections := projections.push
+        { function := functionName, parameter := proj.parameter, member := proj.member,
+          structName := proj.structName, headWord := proj.headWord, modelParam := proj.modelParam,
+          ignoredMembers := ignored.toList }
   let mut fields : Array (Nat × Field) := #[]
   for name in env.referenced do
     let some info := env.fieldsByName.find? name | throwError "missing field {name}"
     fields := fields.push (info.slot, info.field)
   let sortedFields := (fields.qsort (fun a b => a.1 < b.1)).map (·.2)
-  let spec : FunctionSpec :=
-    { name := functionName, params := modelParams.toList, returnType := none,
-      returns := returns.toList, isView, body := body.toList }
   let model : CompilationModel :=
-    { name := contract ++ "_" ++ functionName ++ "_slice", constructor := none,
-      fields := sortedFields.toList, functions := [spec] }
+    { name := contract, constructor := none, fields := sortedFields.toList, functions := specs.toList }
   let mut excluded : Array FnRec := #[]
   for (id, decl) in env.funs do
     unless env.included.any (·.declId == id) do
@@ -1171,17 +1196,6 @@ private def importSlice
         contract := env.funContract.find? id |>.getD "<free>",
         name, declId := id, paramTypes := tys }
   let sortedExcluded := excluded.qsort (fun a b => a.declId < b.declId)
-  let mut projections : Array ParamProjection := #[]
-  for proj in env.projections do
-    let ignored :=
-      match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
-      | some (_, mem) => mem.members.filterMap fun (pair : String × String) =>
-          if env.projections.any (fun q => q.parameter == proj.parameter && q.member == pair.1)
-          then none else some pair.1
-      | none => #[]
-    projections := projections.push
-      { parameter := proj.parameter, member := proj.member, structName := proj.structName,
-        headWord := proj.headWord, modelParam := proj.modelParam, ignoredMembers := ignored.toList }
   let mut opaqueMembers : Array OpaqueMember := #[]
   for o in env.opaqueMembers do
     if env.referenced.contains o.field then
@@ -1200,8 +1214,7 @@ private def importSlice
     ("importerVersion", Json.str importerVersion),
     ("solcVersion", Json.str solcLongVersion),
     ("contract", Json.str contract),
-    ("function", Json.str functionName),
-    ("parameterTypes", Json.arr (paramTys.map Json.str)),
+    ("functions", Json.arr signatures),
     ("solcInput", input),
     ("importerSources", Json.mkObj [
       ("Import.lean", Json.str importer), ("Coverage.lean", Json.str coverage),
@@ -1210,7 +1223,7 @@ private def importSlice
   let digest := sha256Hex digestInput.compress.toUTF8
   let report : ImportReport :=
     { importerVersion, solcLongVersion, solcSha256 := solcSha, settingsJson := settings.compress,
-      sourceDigest := digest, contract, rootFunction := functionName,
+      sourceDigest := digest, contract, roots := (roots.map (·.1)).toList,
       includedFunctions := (env.included.map FnRec.toImported).toList,
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,
@@ -1267,15 +1280,14 @@ def elabSolidityImport : CommandElab := fun stx => do
     let profile ← liftTermElabM <| evalProfile prof
     unless profile.solc == solcLongVersion do
       throwError "this importer is pinned to solc {solcLongVersion}, not {profile.solc}"
-    let #[fnStx] := roots
-      | throwError "importing several functions is not supported yet"
-    let `(solidityRoot| function $fn ( $tys,* )) := fnStx | throwUnsupportedSyntax
-    let written := tys.getElems.map (·.getId.toString (escape := false))
+    let roots ← roots.mapM fun root => do
+      let `(solidityRoot| function $fn ( $tys,* )) := root | throwUnsupportedSyntax
+      pure (fn.getId.toString, tys.getElems.map (·.getId.toString (escape := false)))
     let pkg ← packageRoot
     let project := if root.getString.startsWith "/" then
       System.FilePath.mk root.getString else pkg / root.getString
     let (model, report) ← liftTermElabM <|
-      importSlice pkg project entry.getString contract.getId.toString fn.getId.toString written profile
+      importSlice pkg project entry.getString contract.getId.toString roots profile
     let ns := (← getCurrNamespace) ++ alias.getId
     let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
     elabCommand (← `(def $(name `model) : Compiler.CompilationModel.CompilationModel :=
