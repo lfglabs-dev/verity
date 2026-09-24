@@ -89,7 +89,7 @@ def prepare(config_path, output):
         + f'  function {config["function"]}({", ".join(written)})\n'
         + 'def main (args : List String) : IO UInt32 :=\n'
         + '  Compiler.CompilationModel.SolidityImport.Differential.run tested.model tested.report args\n')
-    command(["lake", "env", "lean", "--run", driver, "describe", output / "model.json", output / "model.yul"],
+    command(["lake", "env", "lean", "--run", driver, "describe", config["function"], output / "model.json", output / "model.yul"],
             timeout=300, log=output / "import.log")
     metadata = json.loads((output / "model.json").read_text())
     if not metadata["compilable"]:
@@ -193,7 +193,7 @@ def execute(output, cases):
     # Delete old outputs: a broken process cannot pass by leaving stale results.
     for file in ("model-results.json", "out/source.txt", "out/compiled.txt"):
         (output / file).unlink(missing_ok=True)
-    command(["lake", "env", "lean", "--run", output / "Driver.lean", "run", output / "model-cases.json", output / "model-results.json", manifest["model"]["digest"]],
+    command(["lake", "env", "lean", "--run", output / "Driver.lean", "run", manifest["config"]["function"], output / "model-cases.json", output / "model-results.json", manifest["model"]["digest"]],
             timeout=300, log=output / "model-run.log")
     command(["forge", "test", "--root", output, "--match-contract", "SliceDifferentialTest", "-vv"],
             cwd=output, timeout=300, log=output / "forge.log")

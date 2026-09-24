@@ -5,8 +5,11 @@ open Compiler.CompilationModel
 open Compiler.CompilationModel.SolidityImport
 open Compiler.CompilationModel.Denote
 
-def smokeBuild : Profile :=
-  { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+solidity_profile smokeBuild where
+  evmVersion := "osaka"
+  viaIR := true
+  optimizerRuns := some 466
+  bytecodeHash := "none"
 
 solidity_import smoke from "Contracts/SolidityImportSmoke" entry "Slice.sol" using smokeBuild
   contract C

@@ -1224,11 +1224,24 @@ private def importSlice
   let report : ImportReport :=
     { importerVersion, solcLongVersion, solcSha256 := solcSha, settingsJson := settings.compress,
       sourceDigest := digest, contract, roots := (roots.map (·.1)).toList,
+      functions := specs.toList.map fun f =>
+        { function := f.name, denoteCovered := stmtListCovered f.body,
+          compilerProof := .unavailable noCompilerProofReason },
       includedFunctions := (env.included.map FnRec.toImported).toList,
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,
       opaqueMembers := opaqueMembers.toList, observesPanicPayload := false }
   pure (model, report)
+
+/-- `solidity_profile osaka466 where evmVersion := "osaka" …` defines a named
+`Profile`, reusable by several imports and printable with `#print`. -/
+syntax (name := solidityProfileCmd) "solidity_profile " ident " where"
+  sepByIndentSemicolon(Lean.Parser.Term.structInstField) : command
+
+macro_rules
+  | `(solidity_profile $id where $fields;*) => do
+    let fields : Syntax.TSepArray `Lean.Parser.Term.structInstField ", " := fields.getElems
+    `(def $id : Compiler.CompilationModel.SolidityImport.Profile := { $fields:structInstField,* })
 
 /-- `function name(T₁, …, Tₙ)`: a function to import, with its Solidity parameter types. -/
 syntax solidityRoot := &"function" ident "(" ident,* ")"

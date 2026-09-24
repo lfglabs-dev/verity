@@ -11,8 +11,11 @@ Midnight pilot (`lfglabs-dev/morpho-midnight-verity`) is the reference user.
 ```lean
 import Compiler.SolidityImport.Import
 
-def build : Profile :=
-  { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+solidity_profile build where
+  evmVersion := "osaka"
+  viaIR := true
+  optimizerRuns := some 466   -- none = optimizer off
+  bytecodeHash := "none"
 
 solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" using build
   contract C
@@ -23,7 +26,8 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
 - `from` is the Solidity project directory, relative to the importing
   package's `lakefile.lean`; its `remappings.txt` resolves imports. `entry` is
   the file declaring the contract.
-- `using` takes any `Profile` value, named or inline
+- `solidity_profile` defines an ordinary `Profile` value (reusable,
+  `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
   digest; they should match how the audited bytecode is built. `solc` defaults
   to the only accepted release, `0.8.34+commit.80d5c536`.
@@ -79,16 +83,34 @@ array/mapping struct members are reported as opaque and cannot be read.
 
 ## What each check establishes
 
-Four questions are answered separately; none implies the next.
+Four questions are answered separately, per root; none implies the next.
 
 1. **Importable.** The command succeeds, or fails with the diagnostic above.
-   A partial model is never produced.
-2. **Runs on Denote.** `x.covered` is a kernel proof that every constructor in
-   the model has an explicit denotation arm (not the catch-all).
-3. **Compiles.** The differential engine compiles the model with the normal
-   Verity compiler and reports `compilable`/`compileError`.
-4. **Covered by compiler proofs.** Not established by the importer. Compiled
-   bytecode is tested (path C below), not proved equivalent.
+   A partial model is never produced, so every listed root is importable.
+2. **Runs on Denote** (`denoteCovered`). Every constructor in the body has an
+   explicit denotation arm (not the catch-all). The kernel proof for all roots
+   together is `x.covered`.
+3. **Compiles** (`compilable`). The ordinary Verity compiler accepts the root on
+   its own. This is a compile attempt, not a correctness result; agreement
+   with Denote and solc is only sampled by the A/B/C campaigns below.
+4. **Covered by compiler proofs** (`compilerProofCovered`). Always
+   `unavailable`: the importer builds no `SupportedSpec` witness and
+   `SupportedSpec` has no decision procedure. The report never implies it.
+
+`x.report` records 1, 2 and 4 (`status` lines of `toText`). Compilation depends
+on the compiler, not the import, so the differential driver reports all four:
+
+```lean
+#eval IO.print (Differential.statusText x.model x.report)
+```
+
+```text
+function f
+  importable true
+  denoteCovered true
+  compilable true
+  compilerProofCovered unavailable (the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C)
+```
 
 ## Trust boundary
 

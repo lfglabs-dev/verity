@@ -130,10 +130,17 @@ def quoteReport (r : ImportReport) : m Term := do
     `(({ field := $(quote o.field), name := $(quote o.name), solcType := $(quote o.solcType),
          wordOffset := $(quote o.wordOffset), byteOffset := $(quote o.byteOffset) } :
         Compiler.CompilationModel.SolidityImport.OpaqueMember))
+  let status (st : FunctionStatus) : m Term := do
+    let proof ← match st.compilerProof with
+      | .unavailable reason =>
+        `(Compiler.CompilationModel.SolidityImport.CompilerProofStatus.unavailable $(quote reason))
+    `(({ function := $(quote st.function), denoteCovered := $(quote st.denoteCovered),
+         compilerProof := $proof } : Compiler.CompilationModel.SolidityImport.FunctionStatus))
   `(({ importerVersion := $(quote r.importerVersion), solcLongVersion := $(quote r.solcLongVersion),
        solcSha256 := $(quote r.solcSha256), settingsJson := $(quote r.settingsJson),
        sourceDigest := $(quote r.sourceDigest), contract := $(quote r.contract),
        roots := $(← strings r.roots),
+       functions := $(← list (← r.functions.mapM status)),
        includedFunctions := $(← list (← r.includedFunctions.mapM fn)),
        excludedFunctions := $(← list (← r.excludedFunctions.mapM fn)),
        projections := $(← list (← r.projections.mapM proj)),

@@ -66,33 +66,62 @@ private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : 
     ("words", jsonWords output),
     ("storage", jsonWords (slots.map fun slot => (finalWorld.storageWords (.slot slot)).val))]
 
-/-- The driver imports the selected model, then invokes this shared entrypoint.
+/-- Compile one root on its own with the ordinary Verity compiler, behind a
+placeholder selector. Success means the compiler accepts the function; it says
+nothing about agreement with Denote or solc (that is what `run` samples). -/
+def compileRoot (model : CompilationModel) (fn : FunctionSpec) :=
+  Compiler.CompilationModel.compile { model with functions := [fn] } [0x12345678] .osaka
+
+/-- The four statuses of every root, one block per root. `importable` holds for
+every listed root; `denoteCovered` and `compilerProofCovered` come from the
+import report; `compilable` is this compile attempt. -/
+def statusText (model : CompilationModel) (report : ImportReport) : String := Id.run do
+  let mut lines := #[]
+  for fn in model.functions do
+    let some st := report.functions.find? (·.function == fn.name)
+      | lines := lines.push s!"function {fn.name}\n  missing from the import report"
+    let compilable := match compileRoot model fn with
+      | .ok _ => "true"
+      | .error reason => s!"false ({reason.replace "\n" " "})"
+    lines := lines.push (String.intercalate "\n"
+      [s!"function {fn.name}", "  importable true", s!"  denoteCovered {st.denoteCovered}",
+       s!"  compilable {compilable}", s!"  compilerProofCovered {st.compilerProof.toText}"])
+  return String.intercalate "\n" lines.toList ++ "\n"
+
+private def selectRoot (model : CompilationModel) (name : String) : IO FunctionSpec := do
+  let some fn := model.functions.find? (·.name == name)
+    | throw (IO.userError s!"no imported root {name}; roots: {model.functions.map (·.name)}")
+  return fn
+
+/-- The driver imports the model, then invokes this shared entrypoint.
 `describe` also attempts the ordinary Verity compiler; a failure is explicit. -/
 def run (model : CompilationModel) (report : ImportReport) (args : List String) : IO UInt32 := do
   unless modelImportCovered model do throw (IO.userError "unsupported Denote slice")
-  let [fn] := model.functions | throw (IO.userError "expected exactly one imported root")
   match args with
-  | ["describe", output, yulPath] =>
-    let compiled := Compiler.CompilationModel.compile model [0x12345678] .osaka
-    let (compilable, reason) ← match compiled with
+  | ["status", output] => IO.FS.writeFile output (statusText model report)
+  | ["describe", name, output, yulPath] =>
+    let fn ← selectRoot model name
+    let (compilable, reason) ← match compileRoot model fn with
       | .ok ir =>
         IO.FS.writeFile yulPath (Compiler.Yul.render (Compiler.emitYul ir))
         pure (true, "")
       | .error reason => pure (false, reason)
-    let projections := report.projections.map fun p => Json.mkObj
+    let projections := (report.projections.filter (·.function == name)).map fun p => Json.mkObj
       [("parameter", toJson p.parameter), ("member", toJson p.member), ("modelParam", toJson p.modelParam)]
     IO.FS.writeFile output (Json.compress (Json.mkObj
-      [("params", toJson (fn.params.map (·.name))), ("projections", toJson projections),
+      [("function", toJson name), ("params", toJson (fn.params.map (·.name))),
+       ("projections", toJson projections),
        ("digest", toJson report.sourceDigest), ("settings", toJson report.settingsJson),
        ("compilable", toJson compilable), ("compileError", toJson reason),
        ("panicPayloadObserved", toJson report.observesPanicPayload)]))
-  | ["run", input, output, digest] =>
+  | ["run", name, input, output, digest] =>
+    let fn ← selectRoot model name
     unless digest == report.sourceDigest do throw (IO.userError "source/importer digest changed; rebuild the campaign")
     let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile input))
     let results ← IO.ofExcept do
       (← parsed.getArr?).toList.mapM (execute model fn)
     IO.FS.writeFile output (Json.compress (toJson results))
-  | _ => throw (IO.userError "expected describe OUTPUT YUL or run INPUT OUTPUT DIGEST")
+  | _ => throw (IO.userError "expected status OUTPUT, describe FUNCTION OUTPUT YUL, or run FUNCTION INPUT OUTPUT DIGEST")
   return 0
 
 end Compiler.CompilationModel.SolidityImport.Differential

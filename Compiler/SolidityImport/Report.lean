@@ -38,6 +38,32 @@ structure OpaqueMember where
   byteOffset : Nat
   deriving Repr, BEq
 
+/-- What is known about a Verity compiler-correctness proof for one imported
+function. There is no `covered` case: the importer has no decision procedure
+for `SupportedSpec` and builds no witness, so it never claims coverage. -/
+inductive CompilerProofStatus where
+  /-- No compiler-correctness theorem is instantiated for this function. -/
+  | unavailable (reason : String)
+  deriving Repr, BEq
+
+def CompilerProofStatus.toText : CompilerProofStatus → String
+  | .unavailable reason => s!"unavailable ({reason})"
+
+/-- Why `compilerProof` is `unavailable` for every imported function. -/
+def noCompilerProofReason : String :=
+  "the importer builds no SupportedSpec witness; compiled code is only tested by A/B/C"
+
+/-- Static status of one root. A root is listed only if it was importable.
+`compilable` is not recorded here: it depends on the compiler, not the import,
+and `Differential` reports it next to these fields. -/
+structure FunctionStatus where
+  function : String
+  /-- `stmtListCovered` holds on the lowered body. The kernel-checked form of
+  this fact, for all roots together, is the theorem `x.covered`. -/
+  denoteCovered : Bool
+  compilerProof : CompilerProofStatus
+  deriving Repr, BEq
+
 /-- Provenance and closure report. `sourceDigest` covers sources, solc settings,
 the compiler release identity, and the importer sources. -/
 structure ImportReport where
@@ -49,6 +75,8 @@ structure ImportReport where
   contract : String
   /-- The imported functions, in `solidity_import` order. -/
   roots : List String
+  /-- One status per root, in `roots` order. -/
+  functions : List FunctionStatus
   includedFunctions : List ImportedFunction
   excludedFunctions : List ImportedFunction
   projections : List ParamProjection
@@ -64,6 +92,8 @@ def ImportReport.toText (r : ImportReport) : String := Id.run do
   let mut lines := [s!"importer {r.importerVersion}", s!"solc {r.solcLongVersion}",
     s!"solcSha256 {r.solcSha256}", s!"digest {r.sourceDigest}",
     s!"contract {r.contract}"] ++ r.roots.map (s!"root {·}") ++ [s!"settings {r.settingsJson}"]
+  for st in r.functions do
+    lines := lines ++ [s!"status {st.function} importable denoteCovered {st.denoteCovered} compilerProof {st.compilerProof.toText}"]
   for fn in r.includedFunctions do
     lines := lines ++ [s!"include {fn.contract}.{fn.name} decl {fn.declId} params {fn.paramTypes}"]
   for fn in r.excludedFunctions do

@@ -132,6 +132,13 @@ def unchanged(dest: Path) -> None:
     return None
 
 
+def call_unused_from_loss(dest: Path) -> None:
+    text = (dest / "Slice.sol").read_text()
+    old = "return marketState[market].lossFactor;"
+    assert old in text
+    (dest / "Slice.sol").write_text(text.replace(old, "uint256 ignored = L.unused();\n        " + old))
+
+
 def call_unused(dest: Path) -> None:
     text = (dest / "Slice.sol").read_text()
     text = text.replace(
@@ -293,7 +300,7 @@ def main() -> None:
   unless run (2^128) == none do throw (IO.userError "uint248 product overflow was accepted")
 ''')
     two_roots = WORK / "base/TwoRoots.lean"
-    two_roots.write_text(HEADER.format(root=WORK / "base") + WITNESS + f'''
+    two_roots.write_text("import Compiler.SolidityImport.Differential\n" + HEADER.format(root=WORK / "base") + WITNESS + f'''
 solidity_import both from "{WORK / "base"}" entry "Slice.sol"
   using {{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }}
   contract C
@@ -314,6 +321,16 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
     throw (IO.userError "roots do not share one field list")
   unless both.report.roots == ["f", "lossOf"] do
     throw (IO.userError "report roots changed")
+  -- One status per root. Compiler-proof coverage is never claimed.
+  unless both.report.functions.map (·.function) == ["f", "lossOf"] &&
+      both.report.functions.all (·.denoteCovered) &&
+      both.report.functions.all (·.compilerProof == CompilerProofStatus.unavailable noCompilerProofReason) do
+    throw (IO.userError s!"unexpected function statuses {{repr both.report.functions}}")
+  let status := Differential.statusText both.model both.report
+  IO.println status
+  unless (status.splitOn "compilable true").length == 3 &&
+      (status.splitOn "compilerProofCovered unavailable").length == 3 do
+    throw (IO.userError "status table changed")
 ''')
     result = lean(two_roots)
     if result.returncode:
@@ -328,6 +345,17 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
         if blob.returncode == 0 or needle not in blob.stdout + blob.stderr:
             raise SystemExit(f"{name}: expected rejection containing {needle!r}\n{blob.stdout}{blob.stderr}")
         print(f"pass {name}")
+    # An unsupported construct reached from the second root names that root.
+    second = write_project("second-root", call_unused_from_loss)
+    bad = second / "SecondRoot.lean"
+    bad.write_text(HEADER.format(root=second).replace(
+        "  function f(Mkt, bytes32, address)\n",
+        "  function f(Mkt, bytes32, address)\n  function lossOf(bytes32)\n"))
+    blob = lean(bad)
+    text = blob.stdout + blob.stderr
+    if blob.returncode == 0 or "closure: C.lossOf -> L.unused" not in text:
+        raise SystemExit(f"second-root-unsupported: expected the lossOf call path\n{text}")
+    print("pass second-root-unsupported")
     repeated = expect_success("deterministic", WORK / "base", witness=True)
     if digest_of(base) != digest_of(repeated):
         raise SystemExit("identical input did not reproduce the digest")
