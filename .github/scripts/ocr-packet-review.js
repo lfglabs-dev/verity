@@ -106,6 +106,11 @@ function reviewGroup(plan, group, rulesPath) {
     });
     fs.writeFileSync(outPath, stdout);
     const parsed = JSON.parse(stdout);
+    if (parsed.status !== 'success') {
+      // The CLI can exit zero while reporting provider/tool failures in JSON.
+      // Such a group must not contribute to semantic coverage.
+      return { ...base, status: 'error', error: 'OCR did not report a successful semantic review' };
+    }
     const comments = Array.isArray(parsed.comments) ? parsed.comments : [];
     return { ...base, status: 'success', findings: comments.length, comments };
   } catch (err) {
@@ -130,4 +135,5 @@ function requiredEnv(name) {
   return value;
 }
 
-main();
+if (require.main === module) main();
+module.exports = { reviewGroup };
