@@ -932,3 +932,12 @@ SPEC['expected_downloaded_artifact_paths'] = {
 
 def build_spec() -> dict:
     return copy.deepcopy(SPEC)
+
+# Solidity slice differential changes require the compiled-model validation lane.
+for _lane in ("build_paths", "compiler_paths"):
+    SPEC[_lane][SPEC[_lane].index("lean-toolchain"):SPEC[_lane].index("lean-toolchain")] = ['scripts/solidity_differential/**', 'scripts/solidity_slice_differential.py', 'scripts/check_solidity_differential.sh', 'scripts/solidity_slice_mutations.py', 'scripts/setup_solc_slice.py']
+SPEC["expected_uploaded_artifacts"]["compiler-regressions"] = ["solidity-slice-differential"]
+SPEC["expected_uploaded_artifact_paths"]["compiler-regressions"] = [".lake/slice-differential/**\n!.lake/slice-differential/**/.lake/build/**\n!.lake/slice-differential/**/.lake/packages/**"]
+for _key in ("expected_uploaded_artifacts", "expected_uploaded_artifact_paths"):
+    _profile = SPEC[_key].pop("lean-profile")
+    SPEC[_key]["lean-profile"] = _profile

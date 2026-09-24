@@ -18,7 +18,7 @@ open Lean Meta Elab Command
 
 namespace Compiler.CompilationModel.SoliditySlice
 
-def importerVersion : String := "solidity-slice-2"
+def importerVersion : String := "solidity-slice-3"
 
 private def solcLongVersion := "0.8.34+commit.80d5c536"
 
@@ -148,6 +148,7 @@ private structure SrcParam where
   id : Nat
 
 private structure Env where
+  sourceNames : List String
   nodeFile : RBMap Nat String compare
   files : RBMap String ByteArray compare
   funs : RBMap Nat Json compare
@@ -171,6 +172,7 @@ private structure Env where
   currentFile : String
 
 private def Env.init : Env where
+  sourceNames := []
   nodeFile := RBMap.empty
   files := RBMap.empty
   funs := RBMap.empty
@@ -205,6 +207,11 @@ private def mType (j : Json) : M String := liftM (typeString j)
 
 private def failAt (j : Json) (why : String) : M α := do
   let env ← get
+  let frames := env.stack.reverse.map fun id =>
+    let owner := env.funContract.find? id |>.getD "<free>"
+    let name := (env.funs.find? id).bind (fun fn => optStr fn "name") |>.getD s!"decl#{id}"
+    s!"{owner}.{name}"
+  let why := s!"[solidity-slice:unsupported] {why}\nclosure: {String.intercalate " -> " frames}"
   let file :=
     match (field? j "id").bind (fun id => id.getNat?.toOption) with
     | some id => env.nodeFile.find? id |>.getD env.currentFile
@@ -235,11 +242,18 @@ private def refInt (j : Json) : M Int := do
   | .error e => failAt j e
 
 private def fresh : M String := do
-  let n := (← get).next
-  modify fun e => { e with next := e.next + 1 }
-  -- A dot cannot occur in a Solidity identifier; generated bindings cannot
-  -- capture a source local, parameter, or projected parameter.
-  pure s!"slice.tmp.{n}"
+  let env ← get
+  let projected := env.mems.toList.flatMap fun (_, p) =>
+    p.members.toList.map (fun (member, _) => s!"{p.param}_{member}")
+  let reserved := env.sourceNames ++ projected
+  -- The prefix is a valid compiler identifier, but is not assumed reserved by
+  -- Solidity. Check every source name and every potential scalar projection.
+  for _ in [:reserved.length + 1] do
+    let n := (← get).next
+    modify fun e => { e with next := e.next + 1 }
+    let candidate := s!"_verity_slice_tmp_{n}"
+    unless reserved.contains candidate do return candidate
+  throwError "unable to allocate a hygienic slice binding"
 
 private def isAtom (expr : String) : Bool :=
   expr.startsWith "(Compiler.CompilationModel.Expr.literal " ||
@@ -377,7 +391,8 @@ private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
   if let some info := (← get).fieldsByName.find? name then return info
   let env ← get
   let some item := env.layoutItems.find? name | failAt at_ s!"no storage layout for {name}"
-  let info ← buildField env.layoutTypes item
+  let info ← try buildField env.layoutTypes item catch ex =>
+    failAt at_ (← ex.toMessageData.toString)
   modify fun e => { e with fieldsByName := e.fieldsByName.insert name info }
   return info
 
@@ -406,6 +421,9 @@ private def localName (name : String) : String :=
 
 private def letBind (name value : String) : String :=
   st ("letVar " ++ leanStr name ++ " " ++ value)
+
+private def assignBind (name value : String) : String :=
+  st ("assignVar " ++ leanStr name ++ " " ++ value)
 
 private def iteStmt (cond thenStmt elseStmt : String) : String :=
   st ("ite " ++ cond ++ " [" ++ thenStmt ++ "] [" ++ elseStmt ++ "]")
@@ -578,42 +596,42 @@ private partial def checkedSub (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
-  let ok := letBind dest (bin "sub" a.expr b.expr)
+  let ok := assignBind dest (bin "sub" a.expr b.expr)
   let ite := iteStmt (bin "lt" a.expr b.expr) overflowPanic ok
-  pure { pre := a.pre ++ b.pre |>.push ite, expr := localName dest }
+  pure { pre := a.pre ++ b.pre |>.push (letBind dest (lit 0)) |>.push ite, expr := localName dest }
 
 private partial def checkedDiv (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
-  let ok := letBind dest (bin "div" a.expr b.expr)
+  let ok := assignBind dest (bin "div" a.expr b.expr)
   let ite := iteStmt (bin "eq" b.expr (lit 0)) divPanic ok
-  pure { pre := a.pre ++ b.pre |>.push ite, expr := localName dest }
+  pure { pre := a.pre ++ b.pre |>.push (letBind dest (lit 0)) |>.push ite, expr := localName dest }
 
 private partial def checkedAdd (bits : Nat) (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
   let sum := bin "add" a.expr b.expr
-  let ok := letBind dest sum
+  let ok := assignBind dest sum
   let cond :=
     if bits == 256 then bin "lt" sum a.expr
     else bin "lt" (lit (2 ^ bits - 1)) sum
-  pure { pre := a.pre ++ b.pre |>.push (iteStmt cond overflowPanic ok), expr := localName dest }
+  pure { pre := a.pre ++ b.pre |>.push (letBind dest (lit 0)) |>.push (iteStmt cond overflowPanic ok), expr := localName dest }
 
 private partial def checkedMul (bits : Nat) (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
   let prod := bin "mul" a.expr b.expr
-  let ok := letBind dest prod
+  let ok := assignBind dest prod
   -- Check the EVM-width product before the Solidity-width bound. For e.g.
   -- uint248, an overflowing 256-bit product can wrap below the uint248 bound.
   let bounded := if bits == 256 then ok
     else iteStmt (bin "lt" (lit (2 ^ bits - 1)) prod) overflowPanic ok
   let inner := iteStmt (bin "eq" (bin "div" prod a.expr) b.expr) bounded overflowPanic
   let ite := iteStmt (bin "eq" a.expr (lit 0)) bounded inner
-  pure { pre := a.pre ++ b.pre |>.push ite, expr := localName dest }
+  pure { pre := a.pre ++ b.pre |>.push (letBind dest (lit 0)) |>.push ite, expr := localName dest }
 
 private partial def cmp (op : String) (left right : Val) : M Val := do
   let a ← atom left
@@ -625,10 +643,10 @@ private partial def lowerConditional (j : Json) : M Val := do
   let yes ← lowerExpr (← mField j "trueExpression")
   let no ← lowerExpr (← mField j "falseExpression")
   let dest ← fresh
-  let thenB := yes.pre.push (st s!"letVar {leanStr dest} {yes.expr}")
-  let elseB := no.pre.push (st s!"letVar {leanStr dest} {no.expr}")
+  let thenB := yes.pre.push (assignBind dest yes.expr)
+  let elseB := no.pre.push (assignBind dest no.expr)
   let ite := st s!"ite {cond.expr} {leanList thenB} {leanList elseB}"
-  pure { pre := cond.pre.push ite, expr := ex s!"localVar {leanStr dest}" }
+  pure { pre := cond.pre.push (letBind dest (lit 0)) |>.push ite, expr := ex s!"localVar {leanStr dest}" }
 
 private partial def lowerCast (j : Json) : M Val := do
   let targetExpr ← mField j "expression"
@@ -688,6 +706,12 @@ private partial def lowerCall (j : Json) : M Val := do
 private partial def inlineFn (fnId : Nat) (args : Array Val) (at_ : Json) : M Val := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
+  let saved := ← get
+  let savedYul := saved.yulNames
+  let savedFile := (← get).currentFile
+  let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
+  let frame := fnId :: (← get).stack
+  modify fun e => { e with stack := frame, currentFile := frameFile }
   if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
     failAt fn "virtual dispatch is outside this slice"
   let mods ← mArr (← mField fn "modifiers")
@@ -698,12 +722,6 @@ private partial def inlineFn (fnId : Nat) (args : Array Val) (at_ : Json) : M Va
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
   unless rets.size == 1 do failAt fn "only single-value helpers are inlined"
   let retName ← mStr (← mField rets[0]! "name")
-  let saved := ← get
-  let savedYul := saved.yulNames
-  let savedFile := (← get).currentFile
-  let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
-  let frame := fnId :: (← get).stack
-  modify fun e => { e with stack := frame, currentFile := frameFile }
   let mut pre : Array String := #[]
   let mut yul := savedYul
   for i in [:params.size] do
@@ -850,6 +868,8 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
   pure out
 
 private def lowerRoot (fn : Json) : M (Array String × Array SrcParam) := do
+  let rootId ← mNat (← mField fn "id")
+  modify fun e => { e with stack := [rootId] }
   let srcParams ← bindRoot fn
   if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
     failAt fn "virtual dispatch is outside this slice"
@@ -889,6 +909,8 @@ private def lowerRoot (fn : Json) : M (Array String × Array SrcParam) := do
 private partial def index (file : String) (contract? : Option String) (j : Json) : M Unit := do
   match j with
   | .obj o =>
+      if let some name := optStr j "name" then
+        modify fun e => { e with sourceNames := name :: e.sourceNames }
       if (field? j "nodeType").isSome then
         if let some idj := field? j "id" then
           let id ← mNat idj
@@ -1117,17 +1139,17 @@ private def importSlice
       for (member, ty) in mem.members do
         if let some proj := env.projections.find? (fun q => q.parameter == p.name && q.member == member) then
           let some tySyn := paramTypeSyntax ty
-            | throwError "unsupported projected type {ty}"
+            | (failAt fn s!"unsupported projected type {ty}").run' env
           if modelParamNames.contains proj.modelParam then
-            throwError "projected parameter name collision: {proj.modelParam}"
+            (failAt fn s!"projected parameter name collision: {proj.modelParam}").run' env
           modelParamNames := modelParamNames.push proj.modelParam
           modelParams := modelParams.push
             s!"({ "{ " }name := {leanStr proj.modelParam}, ty := {tySyn}{ " }" } : Compiler.CompilationModel.Param)"
           seen := true
-      unless seen do throwError "struct parameter {p.name} was not read"
+      unless seen do (failAt fn s!"struct parameter {p.name} was not read").run' env
     else
       let some tySyn := env.scalarTy.find? p.id | throwError "missing parameter type"
-      if modelParamNames.contains p.name then throwError "projected parameter name collision: {p.name}"
+      if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
       modelParamNames := modelParamNames.push p.name
       modelParams := modelParams.push
         s!"({ "{ " }name := {leanStr p.name}, ty := {tySyn}{ " }" } : Compiler.CompilationModel.Param)"
@@ -1136,7 +1158,7 @@ private def importSlice
     let mut out : Array String := #[]
     for r in rets do
       let ty ← mType r
-      let some tySyn := paramTypeSyntax ty | throwError "unsupported return type {ty}"
+      let some tySyn := paramTypeSyntax ty | failAt r s!"unsupported return type {ty}"
       out := out.push tySyn
     pure out) |>.run' env
   let mutability ← str (← field fn "stateMutability")

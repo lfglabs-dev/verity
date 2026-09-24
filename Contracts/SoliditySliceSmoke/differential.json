@@ -1,0 +1,63 @@
+{
+  "project": ".",
+  "entry": "Slice.sol",
+  "contract": "C",
+  "function": "f",
+  "param_types": [
+    "struct Mkt",
+    "bytes32",
+    "address"
+  ],
+  "variables": {
+    "maturity": 256,
+    "id": 256,
+    "user": 160,
+    "credit": 128,
+    "pending": 128,
+    "lastLoss": 128,
+    "lastAccrual": 128,
+    "lossFactor": 128,
+    "timestamp": 256
+  },
+  "arguments": {
+    "m.maturity": "maturity",
+    "id": "id",
+    "user": "user"
+  },
+  "timestamp": "timestamp",
+  "ordered_pairs": [
+    [
+      "lastLoss",
+      "lossFactor"
+    ],
+    [
+      "lastAccrual",
+      "timestamp"
+    ]
+  ],
+  "storage": [
+    {
+      "field": "position",
+      "keys": [
+        "id",
+        "user"
+      ],
+      "members": {
+        "credit": "credit",
+        "pendingFee": "pending",
+        "lastLossFactor": "lastLoss",
+        "lastAccrual": "lastAccrual"
+      }
+    },
+    {
+      "field": "marketState",
+      "keys": [
+        "id"
+      ],
+      "members": {
+        "lossFactor": "lossFactor"
+      }
+    }
+  ],
+  "corpus": "differential-cases.json"
+}

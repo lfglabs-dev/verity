@@ -23,6 +23,11 @@
     "packages/**",
     "lakefile.lean",
     "lake-manifest.json",
+    "scripts/solidity_differential/**",
+    "scripts/solidity_slice_differential.py",
+    "scripts/check_solidity_differential.sh",
+    "scripts/solidity_slice_mutations.py",
+    "scripts/setup_solc_slice.py",
     "lean-toolchain"
   ],
   "compiler_paths": [
@@ -48,6 +53,11 @@
     "scripts/property_utils.py",
     "lakefile.lean",
     "lake-manifest.json",
+    "scripts/solidity_differential/**",
+    "scripts/solidity_slice_differential.py",
+    "scripts/check_solidity_differential.sh",
+    "scripts/solidity_slice_mutations.py",
+    "scripts/setup_solc_slice.py",
     "lean-toolchain",
     "foundry.toml"
   ],
@@ -910,6 +920,9 @@
       "static-gas-report",
       "static-gas-report-patched"
     ],
+    "compiler-regressions": [
+      "solidity-slice-differential"
+    ],
     "lean-profile": [
       "lean-perf-queue"
     ]
@@ -932,6 +945,9 @@
       "compiler/patch-report.tsv",
       "gas-report-static.tsv",
       "gas-report-static-patched.tsv"
+    ],
+    "compiler-regressions": [
+      ".lake/slice-differential/**\n!.lake/slice-differential/**/.lake/build/**\n!.lake/slice-differential/**/.lake/packages/**"
     ],
     "lean-profile": [
       "lean-perf-queue.md"

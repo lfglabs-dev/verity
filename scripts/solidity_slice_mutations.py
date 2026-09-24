@@ -192,11 +192,11 @@ def helper_local_collision(dest: Path) -> None:
 
 def generated_name_collision(dest: Path) -> None:
     path = dest / "Slice.sol"
-    path.write_text(path.read_text().replace("credit = p.credit", "sliceTmp0 = p.credit")
-                    .replace("credit.mulDivDown", "sliceTmp0.mulDivDown")
-                    .replace("credit > 0", "sliceTmp0 > 0")
-                    .replace("credit - post", "sliceTmp0 - post")
-                    .replace(", credit)", ", sliceTmp0)"))
+    path.write_text(path.read_text().replace("credit = p.credit", "_verity_slice_tmp_0 = p.credit")
+                    .replace("credit.mulDivDown", "_verity_slice_tmp_0.mulDivDown")
+                    .replace("credit > 0", "_verity_slice_tmp_0 > 0")
+                    .replace("credit - post", "_verity_slice_tmp_0 - post")
+                    .replace(", credit)", ", _verity_slice_tmp_0)"))
 
 
 def unrelated_layout(dest: Path) -> None:
@@ -292,7 +292,9 @@ def main() -> None:
     expect_failure("field-detected", write_project("field", change_field), "witness changed")
     expect_failure("return-order", write_project("returns", swap_returns), "witness changed")
     expect_failure("layout", write_project("layout", swap_layout), "witness changed")
-    expect_failure("reachable-for", write_project("reachable", call_unused), "unsupported")
+    diagnostic = expect_failure("reachable-for", write_project("reachable", call_unused), "unsupported")
+    assert "[solidity-slice:unsupported]" in diagnostic and "closure:" in diagnostic
+    assert "Lib.sol:" in diagnostic and "closure: C.f -> L.unused" in diagnostic, diagnostic
     if digest_of(base) == digest_of(rounding):
         raise SystemExit("helper change did not move the digest")
     print("pass helper-digest")

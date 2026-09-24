@@ -53,8 +53,8 @@ are checked for parameter-name collisions.
 ## Determinism and trust
 
 Function selection uses the contract, name, and full parameter-type list. Helper
-resolution uses solc declaration IDs. Generated names cannot capture Solidity
-identifiers; helper-local environments are restored after inlining. Field and
+resolution uses solc declaration IDs. Generated names are valid compiler identifiers and checked against source names
+and potential parameter projections; helper-local environments are restored after inlining. Field and
 function ordering is deterministic. The digest uses framed JSON containing the
 complete solc input, selected signature, release identity, and importer sources.
 The report records the checksum actually verified for the invoked compiler.
@@ -83,3 +83,6 @@ unrelated unsupported storage, explicit rejection
 of named arguments and implicit returns, reached/unreached unsupported loops,
 and detection of changes to arithmetic, field reads, layout, and return order.
 The smoke interpreter checks do not replace kernel proofs.
+
+See [TESTING.md](TESTING.md) for reusable A/B/C execution, seeded fuzzing,
+generated programs, reduction, mutations and the exact observation boundary.

@@ -231,6 +231,11 @@ jobs:
               - 'packages/**'
               - 'lakefile.lean'
               - 'lake-manifest.json'
+              - 'scripts/solidity_differential/**'
+              - 'scripts/solidity_slice_differential.py'
+              - 'scripts/check_solidity_differential.sh'
+              - 'scripts/solidity_slice_mutations.py'
+              - 'scripts/setup_solc_slice.py'
               - 'lean-toolchain'
             compiler:
               - '.github/actions/**'
@@ -255,6 +260,11 @@ jobs:
               - 'scripts/property_utils.py'
               - 'lakefile.lean'
               - 'lake-manifest.json'
+              - 'scripts/solidity_differential/**'
+              - 'scripts/solidity_slice_differential.py'
+              - 'scripts/check_solidity_differential.sh'
+              - 'scripts/solidity_slice_mutations.py'
+              - 'scripts/setup_solc_slice.py'
               - 'lean-toolchain'
               - 'foundry.toml'
       - name: Resolve effective change flags
@@ -1233,6 +1243,37 @@ jobs:
       - name: Restore compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
         run: tar -xf lean-workspace-compiler-build.tar
+
+      - name: Install Foundry for Solidity slice comparisons
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.5.0
+
+      - name: Compare Solidity, Denote and compiled models
+        timeout-minutes: 10
+        run: |
+          scripts/check_solidity_differential.sh --config Contracts/SoliditySliceSmoke/differential.json --output .lake/slice-differential/smoke --cases 128 --seed 2438
+          scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --output .lake/slice-differential/programs
+
+      - name: Extended Solidity slice campaigns
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        timeout-minutes: 60
+        run: |
+          scripts/check_solidity_differential.sh --config Contracts/SoliditySliceSmoke/differential.json --output .lake/slice-differential/nightly-inputs --cases 2048 --seed "$GITHUB_RUN_NUMBER"
+          scripts/check_solidity_differential.sh --programs 20 --cases 64 --seed "$GITHUB_RUN_NUMBER" --output .lake/slice-differential/nightly-programs
+          scripts/check_solidity_differential.sh --mutations --output .lake/slice-differential/mutants
+
+      - name: Archive Solidity slice comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: solidity-slice-differential
+          path: |
+            .lake/slice-differential/**
+            !.lake/slice-differential/**/.lake/build/**
+            !.lake/slice-differential/**/.lake/packages/**
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Build compiler CLI regression executable
         run: stdbuf -oL -eL lake build compiler-main-test

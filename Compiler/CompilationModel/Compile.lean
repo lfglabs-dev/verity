@@ -42,6 +42,14 @@ import Compiler.Yul.StatementRegions
 
 namespace Compiler.CompilationModel
 
+/-- Nested if/else blocks cannot redeclare a surrounding Yul local, even in a
+new block. Strictly smaller branch subtrees receive different numeric bases;
+`pickFreshName` still protects against every source name in scope. -/
+def iteCondBaseName (thenBranch elseBranch : List Stmt) : String :=
+  let count := Stmt.foldList (fun n _ _ => n + 1) 0 (thenBranch ++ elseBranch)
+  s!"__ite_cond_{count}"
+
+
 open Compiler
 open Compiler.Yul
 
@@ -369,7 +377,7 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
         -- Wrapped in block { } and freshened against names seen in this if/else shape
         -- so user locals cannot shadow the compiler-generated temp.
         let iteUsedNames := inScopeNames ++ collectExprNames cond ++ collectStmtListNames thenBranch ++ collectStmtListNames elseBranch
-        let iteCondName := pickFreshName "__ite_cond" iteUsedNames
+        let iteCondName := pickFreshName (iteCondBaseName thenBranch elseBranch) iteUsedNames
         pure [YulStmt.block [
           YulStmt.let_ iteCondName condExpr,
           YulStmt.if_ (YulExpr.ident iteCondName) thenStmts,
