@@ -2,11 +2,11 @@
 
 This document states what Verity proves and what it still trusts.
 
-## Solidity function-slice import
+## Solidity import
 
-`Compiler/SolidityImport/Import.lean` selects one function from a solc project,
+`Compiler/SolidityImport/Import.lean` selects functions from a solc project,
 closes over the definitions solc's declaration ids actually reach, and elaborates
-a `CompilationModel`. Execution of an accepted slice is
+a `CompilationModel` (see `docs/SOLIDITY_IMPORT.md`). Execution of an accepted import is
 `Compiler.CompilationModel.Denote.execStmt`, restricted by
 `stmtListCovered` in `Compiler/SolidityImport/Coverage.lean`. That predicate is
 not `SupportedFunction`: the slice uses `panic`, `returnValues`, packed

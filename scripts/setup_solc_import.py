@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install pinned solc 0.8.34 for the function-slice importer.
+"""Install pinned solc 0.8.34 for the Solidity importer (`solidity_import`).
 
 The binary is written to `.lake/solidity-import/solc-0.8.34`.
 Lake elaboration never downloads the compiler.

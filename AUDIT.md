@@ -5,7 +5,7 @@ reviewable. Keep it synchronized with `TRUST_ASSUMPTIONS.md` and `AXIOMS.md`
 whenever semantics, trusted components, generated audit artifacts, or CI
 boundary checks change.
 
-## Solidity function-slice import
+## Solidity import
 
 `Compiler/SolidityImport` lowers one selected function and the callees solc's
 declaration ids reach into a `CompilationModel`. `returnValues` is observable
@@ -36,7 +36,7 @@ A rejected import leaves no `.olean`.
 The downstream `morpho-midnight-verity` pilot proves all five CVL assertions on
 actual imported execution, with arbitrary state/oracle and mathematical integer
 ghosts. That proof adds no source-to-model equivalence claim. See
-`Compiler/SolidityImport/README.md` for the supported subset and freshness checks.
+`docs/SOLIDITY_IMPORT.md` for the supported subset and freshness checks.
 
 ## Current Audit State
 
