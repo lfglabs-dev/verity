@@ -2,6 +2,7 @@ import Lean
 import Compiler.Sha256.Engine
 import Compiler.SolidityImport.Coverage
 import Compiler.SolidityImport.Profile
+import Compiler.SolidityImport.Quote
 import Compiler.SolidityImport.Report
 
 /-!
@@ -93,34 +94,21 @@ private def sha256Hex (bytes : ByteArray) : String :=
   (Sha256Engine.sha256 bytes).data.foldl (init := "") fun acc byte =>
     acc.push (hexDigit (byte.toNat / 16)) |>.push (hexDigit (byte.toNat % 16))
 
-private def leanStr (s : String) : String :=
-  let escaped := s.foldl (init := "") fun acc c =>
-    if c == '\"' || c == '\\' then acc ++ "\\" ++ c.toString else acc.push c
-  "\"" ++ escaped ++ "\""
-
-private def leanList (xs : Array String) : String :=
-  "[" ++ String.intercalate ", " xs.toList ++ "]"
-
-private def ex (body : String) : String :=
-  s!"(Compiler.CompilationModel.Expr.{body})"
-
-private def st (body : String) : String :=
-  s!"(Compiler.CompilationModel.Stmt.{body})"
-
+/-- A lowered expression and the statements that must run before it. -/
 private structure Val where
-  pre : Array String
-  expr : String
+  pre : Array Stmt
+  expr : Expr
 
 private inductive SPath where
-  | one (field key : String)
-  | two (field k1 k2 : String)
-  | outer (field k1 : String)
+  | one (field : String) (key : Expr)
+  | two (field : String) (k1 k2 : Expr)
+  | outer (field : String) (k1 : Expr)
 
 private inductive Ref where
   | expr (v : Val)
-  | path (pre : Array String) (p : SPath)
-  | mem (id : Nat) (pre : Array String)
-  | state (name : String) (pre : Array String)
+  | path (pre : Array Stmt) (p : SPath)
+  | mem (id : Nat) (pre : Array Stmt)
+  | state (name : String) (pre : Array Stmt)
 
 private structure MemParam where
   param : String
@@ -129,7 +117,7 @@ private structure MemParam where
 
 private structure FieldInfo where
   slot : Nat
-  term : String
+  field : Field
   keyCount : Nat
   memberNames : Array String
   opaqueNames : Array String
@@ -166,7 +154,7 @@ private structure Env where
   funContract : RBMap Nat String compare
   structs : RBMap Nat Json compare
   stateVars : RBMap Nat Json compare
-  values : RBMap Nat String compare
+  values : RBMap Nat Expr compare
   paths : RBMap Nat SPath compare
   mems : RBMap Nat MemParam compare
   fieldsByName : RBMap String FieldInfo compare
@@ -176,10 +164,10 @@ private structure Env where
   projections : Array ProjRec
   opaqueMembers : Array OpaqRec
   referenced : Array String
-  scalarTy : RBMap Nat String compare
+  scalarTy : RBMap Nat ParamType compare
   next : Nat
   stack : List Nat
-  yulNames : RBMap String String compare
+  yulNames : RBMap String Expr compare
   currentFile : String
 
 private def Env.init : Env where
@@ -266,19 +254,16 @@ private def fresh : M String := do
     unless reserved.contains candidate do return candidate
   throwError "unable to allocate a hygienic slice binding"
 
-private def isAtom (expr : String) : Bool :=
-  expr.startsWith "(Compiler.CompilationModel.Expr.literal " ||
-    expr.startsWith "(Compiler.CompilationModel.Expr.localVar " ||
-    expr.startsWith "(Compiler.CompilationModel.Expr.param " ||
-    expr == "(Compiler.CompilationModel.Expr.blockTimestamp)"
+private def isAtom : Expr → Bool
+  | .literal _ | .localVar _ | .param _ | .blockTimestamp => true
+  | _ => false
 
 private def atom (v : Val) : M Val := do
   if v.pre.isEmpty && isAtom v.expr then
     pure v
   else
     let n ← fresh
-    pure { pre := v.pre.push (st s!"letVar {leanStr n} {v.expr}"),
-            expr := ex s!"localVar {leanStr n}" }
+    pure { pre := v.pre.push (.letVar n v.expr), expr := .localVar n }
 
 private def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256
@@ -287,18 +272,15 @@ private def bitsOf (ty : String) : Option Nat :=
   else if ty.startsWith "uint" then (ty.drop 4).toNat?
   else none
 
-private def paramTypeSyntax (ty : String) : Option String :=
+private def paramType (ty : String) : Option ParamType :=
   match ty with
-  | "uint256" | "uint" => some "Compiler.CompilationModel.ParamType.uint256"
-  | "address" => some "Compiler.CompilationModel.ParamType.address"
-  | "bytes32" => some "Compiler.CompilationModel.ParamType.bytes32"
-  | "bool" => some "Compiler.CompilationModel.ParamType.bool"
+  | "uint256" | "uint" => some .uint256
+  | "address" => some .address
+  | "bytes32" => some .bytes32
+  | "bool" => some .bool
   | _ =>
       match bitsOf ty with
-      | some n =>
-          if n != 256 && ty.startsWith "uint" then
-            some s!"(Compiler.CompilationModel.ParamType.uintN {n})"
-          else none
+      | some n => if n != 256 && ty.startsWith "uint" then some (.uintN n) else none
       | none => none
 
 private def noteFn (fn : Json) : M Unit := do
@@ -325,11 +307,11 @@ private def noteProjection (p : ProjRec) : M Unit := do
   unless env.projections.any (fun q => q.parameter == p.parameter && q.member == p.member) do
     modify fun e => { e with projections := e.projections.push p }
 
-private def keySyntax (ty : String) : MetaM String :=
+private def mappingKey (ty : String) : MetaM MappingKeyType :=
   match ty with
-  | "t_bytes32" => pure "Compiler.CompilationModel.MappingKeyType.bytes32"
-  | "t_address" => pure "Compiler.CompilationModel.MappingKeyType.address"
-  | "t_uint256" => pure "Compiler.CompilationModel.MappingKeyType.uint256"
+  | "t_bytes32" => pure .bytes32
+  | "t_address" => pure .address
+  | "t_uint256" => pure .uint256
   | _ => throwError "unsupported mapping key {ty}"
 
 private def layoutType (types : Json) (id : String) : MetaM Json :=
@@ -342,13 +324,13 @@ private def buildField (types item : Json) : M FieldInfo := do
   let top ← liftM (layoutType types typeId)
   unless (← mStr (← mField top "encoding")) == "mapping" do
     throwError "storage field {name} is not a mapping"
-  let key1 ← liftM (keySyntax (← mStr (← mField top "key")))
+  let key1 ← liftM (mappingKey (← mStr (← mField top "key")))
   let valueId ← mStr (← mField top "value")
   let value ← liftM (layoutType types valueId)
   let encoding ← mStr (← mField value "encoding")
   let (key2, structTy) ←
     if encoding == "mapping" then
-      let key2 ← liftM (keySyntax (← mStr (← mField value "key")))
+      let key2 ← liftM (mappingKey (← mStr (← mField value "key")))
       let innerId ← mStr (← mField value "value")
       pure (some key2, ← liftM (layoutType types innerId))
     else if encoding == "inplace" then
@@ -356,7 +338,7 @@ private def buildField (types item : Json) : M FieldInfo := do
     else
       throwError "unsupported mapping value encoding {encoding} for {name}"
   let members ← mArr (← mField structTy "members")
-  let mut terms : Array String := #[]
+  let mut members' : Array StructMember := #[]
   let mut names : Array String := #[]
   let mut skipped : Array String := #[]
   for m in members do
@@ -373,27 +355,19 @@ private def buildField (types item : Json) : M FieldInfo := do
       let some bits := (solcType.drop 6).toNat? | throwError "bad uint {solcType}"
       let bitOff := byteOff * 8
       unless bitOff + bits ≤ 256 do throwError "packed field {label} does not fit in a word"
-      let packed :=
-        if bits == 256 && bitOff == 0 then "none"
-        else
-          s!"some ({ "{ " }offset := {bitOff}, width := {bits}{ " }" } : Compiler.CompilationModel.PackedBits)"
-      let sty :=
-        if bits == 16 then "Compiler.CompilationModel.StructMemberType.uint16"
-        else "Compiler.CompilationModel.StructMemberType.uint256"
-      terms := terms.push
-        s!"({ "{ " }name := {leanStr label}, ty := {sty}, wordOffset := {word}, packed := {packed}{ " }" } : Compiler.CompilationModel.StructMember)"
+      let packed : Option PackedBits :=
+        if bits == 256 && bitOff == 0 then none else some { offset := bitOff, width := bits }
+      let ty : StructMemberType := if bits == 16 then .uint16 else .uint256
+      members' := members'.push { name := label, ty, wordOffset := word, packed }
       names := names.push label
     else
       throwError "unsupported layout member {label} : {solcType}"
-  let tyExpr :=
+  let ty : FieldType :=
     match key2 with
-    | some k2 =>
-        s!"Compiler.CompilationModel.FieldType.mappingStruct2 {key1} {k2} {leanList terms}"
-    | none =>
-        s!"Compiler.CompilationModel.FieldType.mappingStruct {key1} {leanList terms}"
-  let term :=
-    s!"({ "{ " }name := {leanStr name}, ty := {tyExpr}, slot := some {slot}{ " }" } : Compiler.CompilationModel.Field)"
-  pure { slot, term, keyCount := if key2.isSome then 2 else 1,
+    | some k2 => .mappingStruct2 key1 k2 members'.toList
+    | none => .mappingStruct key1 members'.toList
+  let field : Field := { name, ty, slot := some slot }
+  pure { slot, field, keyCount := if key2.isSome then 2 else 1,
          memberNames := names, opaqueNames := skipped }
 
 /-- Resolve only reached fields: an unrelated unsupported layout must not
@@ -407,10 +381,10 @@ private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
   modify fun e => { e with fieldsByName := e.fieldsByName.insert name info }
   return info
 
-private def memberRead (pre : Array String) (path : SPath) (member : String) (at_ : Json) : M Val := do
-  let (fieldName, exprBody) ← match path with
-    | .one field key => pure (field, s!"structMember {leanStr field} {key} {leanStr member}")
-    | .two field k1 k2 => pure (field, s!"structMember2 {leanStr field} {k1} {k2} {leanStr member}")
+private def memberRead (pre : Array Stmt) (path : SPath) (member : String) (at_ : Json) : M Val := do
+  let (fieldName, read) ← match path with
+    | .one field key => pure (field, Expr.structMember field key member)
+    | .two field k1 k2 => pure (field, Expr.structMember2 field k1 k2 member)
     | .outer _ _ => failAt at_ "member access on an incomplete mapping"
   let some info := (← get).fieldsByName.find? fieldName
     | failAt at_ s!"no storage layout for {fieldName}"
@@ -419,35 +393,19 @@ private def memberRead (pre : Array String) (path : SPath) (member : String) (at
   unless info.memberNames.contains member do
     failAt at_ s!"member {member} is not a layout member of {fieldName}"
   markField fieldName
-  pure { pre, expr := ex exprBody }
+  pure { pre, expr := read }
 
-private def bin (op lhs rhs : String) : String :=
-  ex (op ++ " " ++ lhs ++ " " ++ rhs)
+/-- `if cond then [yes] else [no]` with single-statement branches. -/
+private def iteStmt (cond : Expr) (yes no : Stmt) : Stmt :=
+  .ite cond [yes] [no]
 
-private def lit (n : Nat) : String :=
-  ex s!"literal {n}"
+private def overflowPanic : Stmt := .panic .arithmeticOverflow
 
-private def localName (name : String) : String :=
-  ex ("localVar " ++ leanStr name)
-
-private def letBind (name value : String) : String :=
-  st ("letVar " ++ leanStr name ++ " " ++ value)
-
-private def assignBind (name value : String) : String :=
-  st ("assignVar " ++ leanStr name ++ " " ++ value)
-
-private def iteStmt (cond thenStmt elseStmt : String) : String :=
-  st ("ite " ++ cond ++ " [" ++ thenStmt ++ "] [" ++ elseStmt ++ "]")
-
-private def overflowPanic : String :=
-  st "panic Verity.Core.PanicCode.arithmeticOverflow"
-
-private def divPanic : String :=
-  st "panic Verity.Core.PanicCode.divisionByZero"
+private def divPanic : Stmt := .panic .divisionByZero
 
 mutual
 
-private partial def lowerYul (j : Json) : M String := do
+private partial def lowerYul (j : Json) : M Expr := do
   match ← mKind j with
   | "YulIdentifier" =>
       let name ← mStr (← mField j "name")
@@ -457,13 +415,13 @@ private partial def lowerYul (j : Json) : M String := do
   | "YulFunctionCall" =>
       let fname ← mStr (← mField (← mField j "functionName") "name")
       let args ← mArr (← mField j "arguments")
-      let mut xs : Array String := #[]
+      let mut xs : Array Expr := #[]
       for arg in args do
         xs := xs.push (← lowerYul arg)
       match fname, xs with
-      | "xor", #[a, b] => pure (ex s!"bitXor {a} {b}")
-      | "mul", #[a, b] => pure (ex s!"mul {a} {b}")
-      | "lt", #[a, b] => pure (ex s!"lt {a} {b}")
+      | "xor", #[a, b] => pure (.bitXor a b)
+      | "mul", #[a, b] => pure (.mul a b)
+      | "lt", #[a, b] => pure (.lt a b)
       | _, _ => failAt j s!"unsupported Yul builtin {fname}"
   | kind => failAt j s!"unsupported Yul node {kind}"
 
@@ -472,7 +430,7 @@ private partial def lowerExpr (j : Json) : M Val := do
   | "Literal" =>
       let raw := optStr j "value" |>.getD ""
       let some n := raw.toNat? | failAt j s!"unsupported literal {raw}"
-      pure { pre := #[], expr := ex s!"literal {n}" }
+      pure { pre := #[], expr := .literal n }
   | "TupleExpression" =>
       if ← mBool (← mField j "isInlineArray") then failAt j "inline arrays are outside this slice"
       let cs ← mArr (← mField j "components")
@@ -531,7 +489,7 @@ private partial def lowerRef (j : Json) : M Ref := do
       if member == "timestamp" && (← mKind base) == "Identifier" &&
           optStr base "name" == some "block" &&
           optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_block" then
-        pure (.expr { pre := #[], expr := ex "blockTimestamp" })
+        pure (.expr { pre := #[], expr := .blockTimestamp })
       else if member == "max" then
         lowerTypeMax j base
       else
@@ -556,9 +514,9 @@ private partial def lowerTypeMax (at_ base : Json) : M Ref := do
     failAt at_ "type() expects an elementary type"
   let tname ← mStr (← mField (← mField arg "typeName") "name")
   let some bits := bitsOf tname | failAt at_ s!"unsupported type().max {tname}"
-  pure (.expr { pre := #[], expr := ex s!"literal {2 ^ bits - 1}" })
+  pure (.expr { pre := #[], expr := .literal (2 ^ bits - 1) })
 
-private partial def projectMember (id : Nat) (pre : Array String) (member : String) (at_ : Json) : M Val := do
+private partial def projectMember (id : Nat) (pre : Array Stmt) (member : String) (at_ : Json) : M Val := do
   let some mem := (← get).mems.find? id | failAt at_ "unknown memory parameter"
   let some idx := mem.members.findIdx? (fun p => p.1 == member)
     | failAt at_ s!"{member} is not a member of {mem.structName}"
@@ -575,7 +533,7 @@ private partial def projectMember (id : Nat) (pre : Array String) (member : Stri
   noteProjection {
     parameter := mem.param, member := member, structName := mem.structName,
     headWord := head, modelParam := modelParam }
-  pure { pre, expr := ex s!"param {leanStr modelParam}" }
+  pure { pre, expr := .param modelParam }
 
 private partial def lowerBinary (j : Json) : M Val := do
   let op ← mStr (← mField j "operator")
@@ -593,71 +551,72 @@ private partial def lowerBinary (j : Json) : M Val := do
       let some bits := bitsOf common | failAt j s!"unsupported mul type {common}"
       checkedMul bits left right
   | "/" => checkedDiv left right
-  | "<" => cmp "lt" left right
-  | ">" => cmp "gt" left right
-  | "<=" => cmp "le" left right
-  | ">=" => cmp "ge" left right
-  | "==" => cmp "eq" left right
+  | "<" => cmp .lt left right
+  | ">" => cmp .gt left right
+  | "<=" => cmp .le left right
+  | ">=" => cmp .ge left right
+  | "==" => cmp .eq left right
   | "!=" =>
-      let v ← cmp "eq" left right
-      pure { v with expr := ex s!"logicalNot {v.expr}" }
+      let v ← cmp .eq left right
+      pure { v with expr := .logicalNot v.expr }
   | _ => failAt j s!"unsupported operator {op}"
 
 private partial def checkedSub (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
-  let ok := assignBind dest (bin "sub" a.expr b.expr)
-  let ite := iteStmt (bin "lt" a.expr b.expr) overflowPanic ok
-  pure { pre := a.pre ++ b.pre |>.push (letBind dest (lit 0)) |>.push ite, expr := localName dest }
+  let ok := Stmt.assignVar dest (.sub a.expr b.expr)
+  let ite := iteStmt (.lt a.expr b.expr) overflowPanic ok
+  pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
 
 private partial def checkedDiv (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
-  let ok := assignBind dest (bin "div" a.expr b.expr)
-  let ite := iteStmt (bin "eq" b.expr (lit 0)) divPanic ok
-  pure { pre := a.pre ++ b.pre |>.push (letBind dest (lit 0)) |>.push ite, expr := localName dest }
+  let ok := Stmt.assignVar dest (.div a.expr b.expr)
+  let ite := iteStmt (.eq b.expr (.literal 0)) divPanic ok
+  pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
 
 private partial def checkedAdd (bits : Nat) (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
-  let sum := bin "add" a.expr b.expr
-  let ok := assignBind dest sum
+  let sum := Expr.add a.expr b.expr
+  let ok := Stmt.assignVar dest sum
   let cond :=
-    if bits == 256 then bin "lt" sum a.expr
-    else bin "lt" (lit (2 ^ bits - 1)) sum
-  pure { pre := a.pre ++ b.pre |>.push (letBind dest (lit 0)) |>.push (iteStmt cond overflowPanic ok), expr := localName dest }
+    if bits == 256 then Expr.lt sum a.expr
+    else Expr.lt (.literal (2 ^ bits - 1)) sum
+  pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push (iteStmt cond overflowPanic ok),
+         expr := .localVar dest }
 
 private partial def checkedMul (bits : Nat) (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
-  let prod := bin "mul" a.expr b.expr
-  let ok := assignBind dest prod
+  let prod := Expr.mul a.expr b.expr
+  let ok := Stmt.assignVar dest prod
   -- Check the EVM-width product before the Solidity-width bound. For e.g.
   -- uint248, an overflowing 256-bit product can wrap below the uint248 bound.
   let bounded := if bits == 256 then ok
-    else iteStmt (bin "lt" (lit (2 ^ bits - 1)) prod) overflowPanic ok
-  let inner := iteStmt (bin "eq" (bin "div" prod a.expr) b.expr) bounded overflowPanic
-  let ite := iteStmt (bin "eq" a.expr (lit 0)) bounded inner
-  pure { pre := a.pre ++ b.pre |>.push (letBind dest (lit 0)) |>.push ite, expr := localName dest }
+    else iteStmt (.lt (.literal (2 ^ bits - 1)) prod) overflowPanic ok
+  let inner := iteStmt (.eq (.div prod a.expr) b.expr) bounded overflowPanic
+  let ite := iteStmt (.eq a.expr (.literal 0)) bounded inner
+  pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
 
-private partial def cmp (op : String) (left right : Val) : M Val := do
+private partial def cmp (op : Expr → Expr → Expr) (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
-  pure { pre := a.pre ++ b.pre, expr := ex s!"{op} {a.expr} {b.expr}" }
+  pure { pre := a.pre ++ b.pre, expr := op a.expr b.expr }
 
 private partial def lowerConditional (j : Json) : M Val := do
   let cond ← atom (← lowerExpr (← mField j "condition"))
   let yes ← lowerExpr (← mField j "trueExpression")
   let no ← lowerExpr (← mField j "falseExpression")
   let dest ← fresh
-  let thenB := yes.pre.push (assignBind dest yes.expr)
-  let elseB := no.pre.push (assignBind dest no.expr)
-  let ite := st s!"ite {cond.expr} {leanList thenB} {leanList elseB}"
-  pure { pre := cond.pre.push (letBind dest (lit 0)) |>.push ite, expr := ex s!"localVar {leanStr dest}" }
+  let thenB := yes.pre.push (.assignVar dest yes.expr)
+  let elseB := no.pre.push (.assignVar dest no.expr)
+  let ite := Stmt.ite cond.expr thenB.toList elseB.toList
+  pure { pre := cond.pre.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
 
 private partial def lowerCast (j : Json) : M Val := do
   let targetExpr ← mField j "expression"
@@ -676,8 +635,8 @@ private partial def lowerCast (j : Json) : M Val := do
   if narrow then
     let a ← atom v
     let dest ← fresh
-    let bound := letBind dest (bin "bitAnd" a.expr (lit (2 ^ bits - 1)))
-    pure { pre := a.pre.push bound, expr := localName dest }
+    let bound := Stmt.letVar dest (.bitAnd a.expr (.literal (2 ^ bits - 1)))
+    pure { pre := a.pre.push bound, expr := .localVar dest }
   else
     pure v
 
@@ -733,7 +692,7 @@ private partial def inlineFn (fnId : Nat) (args : Array Val) (at_ : Json) : M Va
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
   unless rets.size == 1 do failAt fn "only single-value helpers are inlined"
   let retName ← mStr (← mField rets[0]! "name")
-  let mut pre : Array String := #[]
+  let mut pre : Array Stmt := #[]
   let mut yul := savedYul
   for i in [:params.size] do
     let p := params[i]!
@@ -784,7 +743,7 @@ private partial def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M 
       else failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
 
 private partial def lowerHelper (stmts : Array Json) (retName : String) : M Val := do
-  let mut pre : Array String := #[]
+  let mut pre : Array Stmt := #[]
   let mut result : Option Val := none
   for s in stmts do
     if result.isSome then failAt s "statement after helper result"
@@ -814,7 +773,7 @@ private partial def lowerAssembly (j : Json) (retName : String) : M Val := do
     failAt asg s!"Yul assigns {vname}, not the return name {retName}"
   pure { pre := #[], expr := ← lowerYul (← mField asg "value") }
 
-private partial def lowerLocal (s : Json) : M (Array String) := do
+private partial def lowerLocal (s : Json) : M (Array Stmt) := do
   let decls ← mArr (← mField s "declarations")
   unless decls.size == 1 do failAt s "only a single declaration is supported"
   if decls[0]!.isNull then failAt s "empty declaration"
@@ -834,10 +793,10 @@ private partial def lowerLocal (s : Json) : M (Array String) := do
   else
     let v ← lowerExpr init
     let binding ← fresh
-    let expr := localName binding
+    let expr := Expr.localVar binding
     modify fun e =>
       { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr }
-    pure (v.pre.push (letBind binding v.expr))
+    pure (v.pre.push (.letVar binding v.expr))
 
 end
 
@@ -871,14 +830,14 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
     else if ty.startsWith "struct " then
       failAt p s!"unsupported location {loc} for {ty}"
     else
-      let some tySyn := paramTypeSyntax ty | failAt p s!"unsupported parameter type {ty}"
+      let some pty := paramType ty | failAt p s!"unsupported parameter type {ty}"
       modify fun e =>
-        let values := e.values.insert id (ex s!"param {leanStr name}")
-        let scalarTy := e.scalarTy.insert id tySyn
+        let values := e.values.insert id (.param name)
+        let scalarTy := e.scalarTy.insert id pty
         { e with values, scalarTy }
   pure out
 
-private def lowerRoot (fn : Json) : M (Array String × Array SrcParam) := do
+private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let rootId ← mNat (← mField fn "id")
   modify fun e => { e with stack := [rootId] }
   let srcParams ← bindRoot fn
@@ -888,7 +847,7 @@ private def lowerRoot (fn : Json) : M (Array String × Array SrcParam) := do
   unless mods.isEmpty do failAt fn "modifiers are outside this slice"
   let some _ := field? fn "body" | failAt fn "function has no body"
   let stmts ← mArr (← mField (← mField fn "body") "statements")
-  let mut out : Array String := #[]
+  let mut out : Array Stmt := #[]
   let mut returned := false
   for s in stmts do
     if returned then failAt s "statement after root return"
@@ -902,17 +861,17 @@ private def lowerRoot (fn : Json) : M (Array String × Array SrcParam) := do
           if ← mBool (← mField expr "isInlineArray") then
             failAt expr "inline arrays are outside this slice"
           let cs ← mArr (← mField expr "components")
-          let mut pres : Array String := #[]
-          let mut exprs : Array String := #[]
+          let mut pres : Array Stmt := #[]
+          let mut exprs : Array Expr := #[]
           for c in cs do
             if c.isNull then failAt expr "empty return component"
             let v ← atom (← lowerExpr c)
             pres := pres ++ v.pre
             exprs := exprs.push v.expr
-          out := out ++ pres |>.push (st s!"returnValues {leanList exprs}")
+          out := out ++ pres |>.push (.returnValues exprs.toList)
         else
           let v ← atom (← lowerExpr expr)
-          out := out ++ v.pre |>.push (st s!"returnValues {leanList #[v.expr]}")
+          out := out ++ v.pre |>.push (.returnValues [v.expr])
     | kind => failAt s s!"unsupported statement {kind}"
   unless returned do failAt fn "an explicit root return is required"
   pure (out, srcParams)
@@ -1046,9 +1005,8 @@ private def moduleText (pkgRoot : System.FilePath) (rel : String) : MetaM String
   unless ← path.pathExists do throwError "importer source missing: {path}"
   IO.FS.readFile path
 
-private def renderFn (f : FnRec) : String :=
-  let tys := leanList (f.paramTypes.map leanStr)
-  s!"({ "{ " }contract := {leanStr f.contract}, name := {leanStr f.name}, declId := {f.declId}, paramTypes := {tys}{ " }" } : Compiler.CompilationModel.SolidityImport.ImportedFunction)"
+private def FnRec.toImported (f : FnRec) : ImportedFunction :=
+  { contract := f.contract, name := f.name, declId := f.declId, paramTypes := f.paramTypes.toList }
 
 /-- Solidity spelling of a solc `typeString`: `struct Market memory` → `Market`. -/
 private def sourceTypeName (typeString : String) : String := Id.run do
@@ -1096,7 +1054,7 @@ private def selectFunction (contract functionName : String) (written : Array Str
 
 private def importSlice
     (pkgRoot projectRoot : System.FilePath) (entry contract functionName : String)
-    (written : Array String) (profile : Profile) : MetaM (String × String × String) := do
+    (written : Array String) (profile : Profile) : MetaM (CompilationModel × ImportReport) := do
   let compiler := pkgRoot / ".lake/solidity-import/solc-0.8.34"
   let solcSha ← verifyCompiler compiler
   let versionOut ← IO.Process.output { cmd := compiler.toString, args := #["--version"] }
@@ -1159,7 +1117,7 @@ private def importSlice
   env := { env with currentFile := entry }
   let ((body, srcParams), env2) ← (lowerRoot fn).run env
   env := env2
-  let mut modelParams : Array String := #[]
+  let mut modelParams : Array Param := #[]
   let mut modelParamNames : Array String := #[]
   for p in srcParams do
     if env.mems.contains p.id then
@@ -1167,41 +1125,40 @@ private def importSlice
       let mut seen := false
       for (member, ty) in mem.members do
         if let some proj := env.projections.find? (fun q => q.parameter == p.name && q.member == member) then
-          let some tySyn := paramTypeSyntax ty
+          let some pty := paramType ty
             | (failAt fn s!"unsupported projected type {ty}").run' env
           if modelParamNames.contains proj.modelParam then
             (failAt fn s!"projected parameter name collision: {proj.modelParam}").run' env
           modelParamNames := modelParamNames.push proj.modelParam
-          modelParams := modelParams.push
-            s!"({ "{ " }name := {leanStr proj.modelParam}, ty := {tySyn}{ " }" } : Compiler.CompilationModel.Param)"
+          modelParams := modelParams.push { name := proj.modelParam, ty := pty }
           seen := true
       unless seen do (failAt fn s!"struct parameter {p.name} was not read").run' env
     else
-      let some tySyn := env.scalarTy.find? p.id | throwError "missing parameter type"
+      let some pty := env.scalarTy.find? p.id | throwError "missing parameter type"
       if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
       modelParamNames := modelParamNames.push p.name
-      modelParams := modelParams.push
-        s!"({ "{ " }name := {leanStr p.name}, ty := {tySyn}{ " }" } : Compiler.CompilationModel.Param)"
-  let retSyntax ← (do
+      modelParams := modelParams.push { name := p.name, ty := pty }
+  let returns ← (do
     let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
-    let mut out : Array String := #[]
+    let mut out : Array ParamType := #[]
     for r in rets do
       let ty ← mType r
-      let some tySyn := paramTypeSyntax ty | failAt r s!"unsupported return type {ty}"
-      out := out.push tySyn
+      let some pty := paramType ty | failAt r s!"unsupported return type {ty}"
+      out := out.push pty
     pure out) |>.run' env
   let mutability ← str (← field fn "stateMutability")
   let isView := mutability == "view" || mutability == "pure"
-  let mut fieldTerms : Array (Nat × String) := #[]
+  let mut fields : Array (Nat × Field) := #[]
   for name in env.referenced do
     let some info := env.fieldsByName.find? name | throwError "missing field {name}"
-    fieldTerms := fieldTerms.push (info.slot, info.term)
-  let sortedFields := (fieldTerms.qsort (fun a b => a.1 < b.1)).map (·.2)
-  let fnTerm :=
-    s!"({ "{ " }name := {leanStr functionName}, params := {leanList modelParams}, returnType := none, returns := {leanList retSyntax}, isView := {isView}, body := {leanList body}{ " }" } : Compiler.CompilationModel.FunctionSpec)"
-  let modelName := contract ++ "_" ++ functionName ++ "_slice"
-  let modelTerm :=
-    s!"({ "{ " }name := {leanStr modelName}, constructor := none, fields := {leanList sortedFields}, functions := [{fnTerm}]{ " }" } : Compiler.CompilationModel.CompilationModel)"
+    fields := fields.push (info.slot, info.field)
+  let sortedFields := (fields.qsort (fun a b => a.1 < b.1)).map (·.2)
+  let spec : FunctionSpec :=
+    { name := functionName, params := modelParams.toList, returnType := none,
+      returns := returns.toList, isView, body := body.toList }
+  let model : CompilationModel :=
+    { name := contract ++ "_" ++ functionName ++ "_slice", constructor := none,
+      fields := sortedFields.toList, functions := [spec] }
   let mut excluded : Array FnRec := #[]
   for (id, decl) in env.funs do
     unless env.included.any (·.declId == id) do
@@ -1214,21 +1171,23 @@ private def importSlice
         contract := env.funContract.find? id |>.getD "<free>",
         name, declId := id, paramTypes := tys }
   let sortedExcluded := excluded.qsort (fun a b => a.declId < b.declId)
-  let mut projTerms : Array String := #[]
+  let mut projections : Array ParamProjection := #[]
   for proj in env.projections do
     let ignored :=
       match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with
-      | some (_, mem) => mem.members.filterMap fun pair =>
+      | some (_, mem) => mem.members.filterMap fun (pair : String × String) =>
           if env.projections.any (fun q => q.parameter == proj.parameter && q.member == pair.1)
-          then none else some (leanStr pair.1)
+          then none else some pair.1
       | none => #[]
-    projTerms := projTerms.push
-      s!"({ "{ " }parameter := {leanStr proj.parameter}, member := {leanStr proj.member}, structName := {leanStr proj.structName}, headWord := {proj.headWord}, modelParam := {leanStr proj.modelParam}, ignoredMembers := {leanList ignored}{ " }" } : Compiler.CompilationModel.SolidityImport.ParamProjection)"
-  let mut opaqueTerms : Array String := #[]
+    projections := projections.push
+      { parameter := proj.parameter, member := proj.member, structName := proj.structName,
+        headWord := proj.headWord, modelParam := proj.modelParam, ignoredMembers := ignored.toList }
+  let mut opaqueMembers : Array OpaqueMember := #[]
   for o in env.opaqueMembers do
     if env.referenced.contains o.field then
-      opaqueTerms := opaqueTerms.push
-        s!"({ "{ " }field := {leanStr o.field}, name := {leanStr o.name}, solcType := {leanStr o.solcType}, wordOffset := {o.wordOffset}, byteOffset := {o.byteOffset}{ " }" } : Compiler.CompilationModel.SolidityImport.OpaqueMember)"
+      opaqueMembers := opaqueMembers.push
+        { field := o.field, name := o.name, solcType := o.solcType,
+          wordOffset := o.wordOffset, byteOffset := o.byteOffset }
   let sourceRoot ← importerSourceRoot pkgRoot
   let importer ← moduleText sourceRoot "Compiler/SolidityImport/Import.lean"
   let coverage ← moduleText sourceRoot "Compiler/SolidityImport/Coverage.lean"
@@ -1246,15 +1205,14 @@ private def importSlice
       ("Import.lean", Json.str importer), ("Coverage.lean", Json.str coverage),
       ("Report.lean", Json.str reportSrc)])]
   let digest := sha256Hex digestInput.compress.toUTF8
-  let reportTerm :=
-    s!"({ "{ " }importerVersion := {leanStr importerVersion}, solcLongVersion := {leanStr solcLongVersion}, solcSha256 := {leanStr solcSha}, settingsJson := {leanStr settings.compress}, sourceDigest := {leanStr digest}, contract := {leanStr contract}, rootFunction := {leanStr functionName}, includedFunctions := {leanList (env.included.map renderFn)}, excludedFunctions := {leanList (sortedExcluded.map renderFn)}, projections := {leanList projTerms}, storageFields := {leanList (env.referenced.map leanStr)}, opaqueMembers := {leanList opaqueTerms}, observesPanicPayload := false{ " }" } : Compiler.CompilationModel.SolidityImport.ImportReport)"
-  pure (modelTerm, reportTerm, digest)
-
-private def elabDef (name : Name) (type body : String) : CommandElabM Unit := do
-  let cmd := s!"def _root_.{name} : {type} :=\n{body}"
-  match Parser.runParserCategory (← getEnv) `command cmd "<solidity-import>" with
-  | .error e => throwError e
-  | .ok stx => elabCommand stx
+  let report : ImportReport :=
+    { importerVersion, solcLongVersion, solcSha256 := solcSha, settingsJson := settings.compress,
+      sourceDigest := digest, contract, rootFunction := functionName,
+      includedFunctions := (env.included.map FnRec.toImported).toList,
+      excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
+      projections := projections.toList, storageFields := env.referenced.toList,
+      opaqueMembers := opaqueMembers.toList, observesPanicPayload := false }
+  pure (model, report)
 
 /-- `function name(T₁, …, Tₙ)`: a function to import, with its Solidity parameter types. -/
 syntax solidityRoot := &"function" ident "(" ident,* ")"
@@ -1273,6 +1231,18 @@ private unsafe def evalProfileUnsafe (stx : Term) : TermElabM Profile := do
 
 @[implemented_by evalProfileUnsafe]
 private opaque evalProfile (stx : Term) : TermElabM Profile
+
+private unsafe def evalModelUnsafe (n : Name) : TermElabM CompilationModel :=
+  evalConstCheck CompilationModel ``CompilationModel n
+
+@[implemented_by evalModelUnsafe]
+private opaque evalModel (n : Name) : TermElabM CompilationModel
+
+private unsafe def evalReportUnsafe (n : Name) : TermElabM ImportReport :=
+  evalConstCheck ImportReport ``ImportReport n
+
+@[implemented_by evalReportUnsafe]
+private opaque evalReport (n : Name) : TermElabM ImportReport
 
 /-- The directory holding the importing package's `lakefile.lean`. -/
 private def packageRoot : CommandElabM System.FilePath := do
@@ -1301,16 +1271,25 @@ def elabSolidityImport : CommandElab := fun stx => do
     let pkg ← packageRoot
     let project := if root.getString.startsWith "/" then
       System.FilePath.mk root.getString else pkg / root.getString
-    let (modelTerm, reportTerm, digest) ← liftTermElabM <|
+    let (model, report) ← liftTermElabM <|
       importSlice pkg project entry.getString contract.getId.toString fn.getId.toString written profile
     let ns := (← getCurrNamespace) ++ alias.getId
-    elabDef (ns ++ `model) "Compiler.CompilationModel.CompilationModel" modelTerm
-    elabDef (ns ++ `report) "Compiler.CompilationModel.SolidityImport.ImportReport" reportTerm
-    elabDef (ns ++ `sourceDigest) "String" (leanStr digest)
-    let covered := s!"theorem _root_.{ns ++ `covered} : Compiler.CompilationModel.SolidityImport.modelImportCovered {ns ++ `model} = true := by decide"
-    match Parser.runParserCategory (← getEnv) `command covered "<solidity-import>" with
-    | .error e => throwError e
-    | .ok stx => elabCommand stx
+    let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
+    elabCommand (← `(def $(name `model) : Compiler.CompilationModel.CompilationModel :=
+      $(← quoteModel model)))
+    elabCommand (← `(def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
+      $(← quoteReport report)))
+    elabCommand (← `(def $(name `sourceDigest) : String := $(quote report.sourceDigest)))
+    elabCommand (← `(theorem $(name `covered) :
+      Compiler.CompilationModel.SolidityImport.modelImportCovered $(name `model) = true := by decide))
+    -- The quoted definitions must denote exactly the values the importer built.
+    unless (← get).messages.hasErrors do
+      let back ← liftTermElabM <| evalModel (ns ++ `model)
+      unless toString (repr back) == toString (repr model) do
+        throwError "internal: the elaborated model differs from the imported value"
+      let backReport ← liftTermElabM <| evalReport (ns ++ `report)
+      unless backReport == report do
+        throwError "internal: the elaborated report differs from the imported value"
     if (← get).messages.hasErrors then
       throwError "Solidity import failed to check"
   catch e =>

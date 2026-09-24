@@ -66,9 +66,21 @@ proof of source-to-model fidelity, nor membership in the compiler's proven IR
 fragment. The translator and solc remain trusted; public ABI decoding, panic
 payloads, gas, and bytecode equivalence are outside this interface.
 
-Lake does not track Solidity files read during elaboration. Consumers must
-re-elaborate the import when checking external source freshness, compare the
-fresh model/digest with the compiled import, and retain a reviewed inventory.
+Declare the Solidity tree as a Lake input of the importing library, so editing
+a source rebuilds the import:
+
+```lean
+input_dir midnightSol where
+  path := "vendor/midnight/src"
+  filter := .extension "sol"
+lean_lib MorphoMidnight where
+  needs := #[midnightSol]
+```
+
+The elaborated definitions are built as values and quoted, then evaluated back
+and compared with the imported value. Consumers should still re-elaborate in
+CI, compare the fresh model/digest with the compiled import, and retain a
+reviewed inventory.
 The Morpho pilot demonstrates that workflow along with universal properties on
 `Denote.execStmtList`, rather than properties only on handwritten arithmetic.
 

@@ -8,8 +8,8 @@ import sys
 from .engine import ROOT, WORKSPACE, HarnessError, command, write_json
 
 MUTANTS = {
-    "import-comparison": ("Compiler/SolidityImport/Import.lean", '| "<" => cmp "lt" left right', '| "<" => cmp "gt" left right'),
-    "import-field-slot": ("Compiler/SolidityImport/Import.lean", 'slot := some {slot}', 'slot := some {slot + 1}'),
+    "import-comparison": ("Compiler/SolidityImport/Import.lean", '| "<" => cmp .lt left right', '| "<" => cmp .gt left right'),
+    "import-field-slot": ("Compiler/SolidityImport/Import.lean", 'slot := some slot }', 'slot := some (slot + 1) }'),
     "denote-packed-mask": ("Verity/Core/Model/Denote.lean", '(2 ^ packed.width) - 1', '(2 ^ packed.width) - 2'),
     "denote-storage-read": ("Verity/Core/Model/Denote.lean", '    world.readSlot (wordNormalize slot)\n', '    world.readSlot (wordNormalize (slot + 1))\n'),
 }

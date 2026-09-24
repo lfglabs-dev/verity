@@ -39,8 +39,9 @@ Only reached storage fields are decoded. Namespace-qualified output names and
 framed-JSON provenance are deterministic. Implicit root returns, named call
 arguments, virtual dispatch, and unsupported signed operations are rejected.
 The slice makes no dynamic ABI-head claim: that unrelated denotation extension
-is not part of this change. Lake does not track the external Solidity reads,
-so consumers must re-elaborate to verify freshness against a compiled import.
+is not part of this change. Solidity sources are Lake inputs only when the
+consumer declares them (`input_dir` + `needs`); consumers should also
+re-elaborate in CI to verify freshness against a compiled import.
 
 ## Compilation Pipeline
 

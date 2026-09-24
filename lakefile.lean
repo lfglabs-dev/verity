@@ -51,8 +51,15 @@ lean_lib «Contracts» where
     .andSubmodules `Contracts.ReentrancyRelyGuarantee
   ]
 
+/-- Solidity read by `solidity_import`: editing it rebuilds the import. -/
+input_dir solidityImportSmokeSources where
+  path := "Contracts/SolidityImportSmoke"
+  filter := .extension "sol"
+  text := true
+
 lean_lib «SolidityImportSmoke» where
   globs := #[.one `Contracts.SolidityImportSmoke.Smoke]
+  needs := #[solidityImportSmokeSources]
 
 lean_lib «Compiler» where
   globs := #[.andSubmodules `Compiler]
