@@ -549,6 +549,8 @@ theorem execStmt_forEachSetBit_eq (fields : List Field)
         (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
         hbody 256 st bits
 
+section StatementTactics
+
 /-- Generic discharge tactic for the non-recursive `execStmt` arms: align the
 expression evaluators, split every residual match/ite, then close each leaf
 definitionally or by the mapping-write/array bridges. -/
@@ -581,6 +583,8 @@ macro "denote_stmt_arm" : tactic =>
              SourceSemantics.eventFromResolvedArgs?,
              SourceSemantics.eventScratchMemoryAfterEmit?]
          | (simp_all only [Option.bind_eq_some_iff]; aesop)))
+
+end StatementTactics
 
 mutual
 
