@@ -35,7 +35,7 @@ theorem increment_meets_spec_when_owner (s : ContractState)
     Specs.storageUpdateSpec, Specs.storageUnchangedExcept,
     Specs.sameAddrMapContext, Specs.sameStorageAddr, Specs.sameStorageMap,
     Specs.sameStorageArray, Specs.sameContext]
-  simp_all [ContractState.storage_unfold, ContractState.storageAddr_unfold, ContractState.storageMap_unfold, ContractState.storageMapUint_unfold, ContractState.storageMap2_unfold, ContractState.transientStorage_unfold]
+  simp_all [ContractState.storage_unfold, ContractState.storageAddr_unfold, ContractState.storageMap_unfold,  ]
 
 theorem increment_preserves_owner (s : ContractState)
     (h_owner : s.sender = s.storageAddr (StorageSlot.slot owner)) :

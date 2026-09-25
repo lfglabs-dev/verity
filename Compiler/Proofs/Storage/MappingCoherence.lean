@@ -255,7 +255,7 @@ theorem writeMap_aligned_preserves_mappingCoherent
   intro slot' key'
   by_cases hs : slot' = slot
   · by_cases hk : key' = key
-    · simpa [hs, hk] using writeMap_aligned_same s slot key v
+    · simp [hs, hk]
     · have hkey : StorageKey.map slot' key' ≠ StorageKey.map slot key := by
         intro heq; injection heq with _ hk'; exact hk hk'
       exact writeMap_aligned_other s slot key v slot' key' (hcoh slot' key')
@@ -297,7 +297,7 @@ theorem writeMap2_aligned_preserves_mappingCoherentMap2
   by_cases hs : slot' = slot
   · by_cases h1 : k1' = k1
     · by_cases h2 : k2' = k2
-      · simpa [hs, h1, h2] using writeMap2_aligned_same s slot k1 k2 v
+      · simp [hs, h1, h2]
       · have hkey : StorageKey.map2 slot' k1' k2' ≠ StorageKey.map2 slot k1 k2 := by
           intro heq; injection heq with _ _ hk2; exact h2 hk2
         exact writeMap2_aligned_other s slot k1 k2 v slot' k1' k2'

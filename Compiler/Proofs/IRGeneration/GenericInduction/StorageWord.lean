@@ -396,8 +396,8 @@ private theorem scopeNamesIncluded_setStorageWord
     {fieldName : String}
     {value : Expr}
     {wordOffset : Nat}
-    (hcore : FunctionBody.ExprCompileCore value)
-    (hinScope : FunctionBody.exprBoundNamesInScope value scope) :
+    (_hcore : FunctionBody.ExprCompileCore value)
+    (_hinScope : FunctionBody.exprBoundNamesInScope value scope) :
     FunctionBody.scopeNamesIncluded
       (stmtNextScope scope (.setStorageWord fieldName wordOffset value)) scope := by
   intro n hn

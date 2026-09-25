@@ -45,7 +45,7 @@ theorem transferOwnership_preserves_wellformedness (s : ContractState) (newOwner
   WellFormedState s' := by
   verity_frame (transferOwnership_unfold s newOwner h_owner)
   exact ⟨h_owner ▸ h.sender_nonzero, h.contract_nonzero,
-    by simp [owner, ContractState.storageAddr, ContractState.writeAddrSlot, h_new]⟩
+    by simp [owner, ContractState.storageAddr,  h_new]⟩
 
 /-! ## End-to-End Composition -/
 
