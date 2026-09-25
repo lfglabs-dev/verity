@@ -1,0 +1,31 @@
+{
+  "language": "Solidity",
+  "settings": {
+    "evmVersion": "osaka",
+    "metadata": {
+      "bytecodeHash": "none"
+    },
+    "optimizer": {
+      "enabled": true,
+      "runs": 466
+    },
+    "outputSelection": {
+      "*": {
+        "*": [
+          "irOptimized",
+          "irOptimizedAst",
+          "evm.bytecode.object"
+        ]
+      }
+    },
+    "viaIR": true
+  },
+  "sources": {
+    "MulDivDown.sol": {
+      "content": "// SPDX-License-Identifier: GPL-2.0-or-later\npragma solidity ^0.8.0;\nimport {UtilsLib} from \"src/libraries/UtilsLib.sol\";\ncontract MulDivDown {\n    function mulDivDown(uint256 x, uint256 y, uint256 d) external pure returns (uint256) {\n        return UtilsLib.mulDivDown(x, y, d);\n    }\n}\n"
+    },
+    "src/libraries/UtilsLib.sol": {
+      "content": "// SPDX-License-Identifier: GPL-2.0-or-later\n// Copyright (c) 2026 Morpho Association\npragma solidity ^0.8.0;\n\nlibrary UtilsLib {\n    error CastOverflow();\n\n    /// @dev Returns min(a, b).\n    function min(uint256 x, uint256 y) internal pure returns (uint256 z) {\n        assembly {\n            z := xor(x, mul(xor(x, y), lt(y, x)))\n        }\n    }\n\n    function zeroFloorSub(uint256 x, uint256 y) internal pure returns (uint256 z) {\n        assembly {\n            z := mul(gt(x, y), sub(x, y))\n        }\n    }\n\n    /// @dev Returns (x * y) / d rounded down.\n    function mulDivDown(uint256 x, uint256 y, uint256 d) internal pure returns (uint256) {\n        return (x * y) / d;\n    }\n\n    /// @dev Returns (x * y) / d rounded up.\n    function mulDivUp(uint256 x, uint256 y, uint256 d) internal pure returns (uint256) {\n        return (x * y + (d - 1)) / d;\n    }\n\n    function toUint128(uint256 x) internal pure returns (uint128) {\n        require(x <= type(uint128).max, CastOverflow());\n        // forge-lint: disable-next-item(unsafe-typecast) as x is less than type(uint128).max\n        return uint128(x);\n    }\n\n    function countBits(uint128 x) internal pure returns (uint256) {\n        unchecked {\n            x = x - ((x >> 1) & 0x55555555555555555555555555555555);\n            x = (x & 0x33333333333333333333333333333333) + ((x >> 2) & 0x33333333333333333333333333333333);\n            x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f;\n            return (x * 0x01010101010101010101010101010101) >> 120;\n        }\n    }\n\n    /// @dev Assumes bitmap is not zero.\n    function msb(uint128 bitmap) internal pure returns (uint256 res) {\n        assembly {\n            res := sub(255, clz(bitmap))\n        }\n    }\n\n    /// @dev Assumes bit is less than 128.\n    function setBit(uint128 bitmap, uint256 bit) internal pure returns (uint128) {\n        // forge-lint: disable-next-item(unsafe-typecast) as bit < 128\n        return uint128(bitmap | (1 << bit));\n    }\n\n    /// @dev Assumes bit is less than 128.\n    function clearBit(uint128 bitmap, uint256 bit) internal pure returns (uint128) {\n        // forge-lint: disable-next-item(unsafe-typecast)\n        return uint128(bitmap & ~(1 << bit));\n    }\n\n    /// @dev Sets a boolean in transient storage keyed by a (bytes32, address) pair.\n    /// @dev Returns the previous value at the written slot.\n    function tExchange(uint256 baseSlot, bytes32 key1, address key2, bool value) internal returns (bool previous) {\n        uint256 slot = uint256(keccak256(abi.encode(key1, key2, baseSlot)));\n        assembly (\"memory-safe\") {\n            previous := tload(slot)\n            tstore(slot, value)\n        }\n    }\n\n    /// @dev Gets a boolean from transient storage keyed by a (bytes32, address) pair.\n    function tGet(uint256 baseSlot, bytes32 key1, address key2) internal view returns (bool value) {\n        uint256 slot = uint256(keccak256(abi.encode(key1, key2, baseSlot)));\n        assembly (\"memory-safe\") {\n            value := tload(slot)\n        }\n    }\n}\n"
+    }
+  }
+}
