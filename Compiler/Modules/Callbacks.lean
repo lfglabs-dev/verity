@@ -38,7 +38,7 @@ def callbackModule (selector : Nat) (numStaticArgs : Nat) (bytesParam : String)
   axioms := ["callback_target_interface"]
   compile := fun ctx args => do
     if selector >= 2^32 then
-      throw s!"callback: selector 0x{String.mk (Nat.toDigits 16 selector)} exceeds 4 bytes"
+      throw s!"callback: selector 0x{String.ofList (Nat.toDigits 16 selector)} exceeds 4 bytes"
     if bytesParam.isEmpty then
       throw "callback: bytesParam must be non-empty"
     let targetExpr ← match args.head? with

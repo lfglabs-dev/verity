@@ -75,8 +75,7 @@ private theorem permitStaticHashAndDigest_supported :
       simp at ha
       rcases ha with rfl | rfl | rfl | rfl | rfl | rfl <;>
         simp [FunctionBody.exprBoundNamesInScope, FunctionBody.exprBoundNames,
-          permitScope, collectStmtBindNames,
-          Compiler.Modules.Hashing.abiEncodeStaticWordsModule]
+          permitScope, ]
   · apply SupportedStmtList.pureHashingEcm
     · simp [ecmPureHashing, Compiler.Modules.Hashing.eip712DigestModule]
     · intro a ha

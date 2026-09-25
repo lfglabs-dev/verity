@@ -2510,13 +2510,13 @@ private theorem exec_block_nativeRevertZeroZero_low_fuel_ne_ok
   | 0, _, hExec => simp [EvmYul.Yul.exec] at hExec
   | 1, _, hExec => simp [EvmYul.Yul.exec, nativeRevertZeroZeroStmt] at hExec
   | 2, _, hExec =>
-      simp [EvmYul.Yul.exec, nativeRevertZeroZeroStmt, EvmYul.Yul.eval,
-        EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
-        EvmYul.Yul.reverse', EvmYul.Yul.cons'] at hExec
+      simp [EvmYul.Yul.exec, nativeRevertZeroZeroStmt,
+        EvmYul.Yul.evalArgs,  EvmYul.Yul.execPrimCall,
+        EvmYul.Yul.reverse'] at hExec
   | 3, _, hExec =>
       simp [EvmYul.Yul.exec, nativeRevertZeroZeroStmt, EvmYul.Yul.eval,
         EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
-        EvmYul.Yul.reverse', EvmYul.Yul.cons'] at hExec
+        EvmYul.Yul.reverse'] at hExec
   | 4, _, hExec =>
       simp [EvmYul.Yul.exec, nativeRevertZeroZeroStmt, EvmYul.Yul.eval,
         EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.execPrimCall,
@@ -9611,10 +9611,10 @@ theorem exec_if_lt_calldatasize_take_markedPrefix_lt_revert_fuel
             (tx.functionSelector % Compiler.Constants.selectorModulus))).insert
         (Backends.nativeSwitchMatchedTempName switchId)
         (EvmYul.UInt256.ofNat 1))
-      k hSize' hKSize hLt' using 1 <;>
+      k hSize' hKSize hLt' using 1 ;
     simp [nativeSwitchStoreMarkedPrefixStateForId,
       nativeSwitchStorePrefixStateForId, nativeSwitchStoreInitialState,
-      EvmYul.Yul.State.insert] <;> rfl
+      EvmYul.Yul.State.insert] ; rfl
 
 /-- Execute a payable selected switch-case prefix as a no-op and continue with
 the lowered user body. The generated case prefix is the lowered comment no-op

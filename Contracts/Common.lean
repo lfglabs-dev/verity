@@ -1381,8 +1381,8 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
         Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
         Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
         Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-        externalCallStubSuccess, linkedCallSite, linkedCallEntryTo, linkedCallEntry,
-        externalCallStubWord, hbal, h]
+        externalCallStubSuccess, linkedCallSite,
+         hbal, h]
     · simp [Contract.run, externalCallBindTo, commonExternalCall,
         Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
@@ -1427,11 +1427,11 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
       Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
       Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
       Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-      Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded,
+
       Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-      Contract.run, Verity.bind, Verity.pure, Verity.instMonadContract, Bind.bind, Pure.pure,
+      Contract.run,    Bind.bind, Pure.pure,
       linkedCallSite, linkedCallEntry,
-      externalCallStubSuccess, externalCallStubWord, externalCallResultWord,
+      externalCallStubSuccess, externalCallStubWord,
       failedExternalResult, h]
 
 @[simp] theorem tryExternalCallWords_run {α : Type} [ExternalResult α] [Inhabited α]
@@ -1462,11 +1462,11 @@ theorem externalCallBindTo_run {α : Type} [ExternalArg α]
       Compiler.CompilationModel.DenoteExternalCalls.CallControl.toJournal,
       Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
       Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
-      Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.succeeded,
+
       Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-      Contract.run, Verity.bind, Verity.pure, Verity.instMonadContract, Bind.bind, Pure.pure,
+      Contract.run,    Bind.bind, Pure.pure,
       linkedCallSite, linkedCallEntry,
-      externalCallStubSuccess, externalCallStubWord, externalCallResultWord,
+      externalCallStubSuccess, externalCallStubWord,
       failedExternalResult, h]
 
 private def erc20ReadStubWord (name : String) (args : List Uint256) : Uint256 :=
@@ -1695,8 +1695,8 @@ theorem erc20Read_stub_run (name : String) (token : Address)
     Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.control,
     Compiler.CompilationModel.DenoteExternalCalls.ExternalCallResult.returndata,
     Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.stub,
-    Contract.run, Verity.bind, Verity.pure, Verity.instMonadContract, Bind.bind, Pure.pure,
-    linkedCallSite, externalCallResultWord, erc20ReadStubWord, externalCallStubWord,
+    Contract.run,    Bind.bind, Pure.pure,
+    linkedCallSite,  erc20ReadStubWord, externalCallStubWord,
     erc20ReadEntry, linkedCallEntry, h]
 
 @[simp] theorem balanceOf_run (token owner : Address) (s : ContractState) :

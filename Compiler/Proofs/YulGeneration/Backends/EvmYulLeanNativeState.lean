@@ -916,10 +916,10 @@ theorem lowerRuntimeContractNative_nonFunc_eq_lowerStmtsNative
       Backends.lowerStmtsNativeWithSwitchIds
         (Backends.yulStmtsIdentifierNames stmts) 0 stmts with
   | error err =>
-      simp [hLower, Bind.bind, Except.bind, Pure.pure, Except.pure]
+      simp [ Bind.bind, Except.bind, ]
   | ok pair =>
       cases pair
-      simp [hLower, Bind.bind, Except.bind, Pure.pure, Except.pure]
+      simp [ Bind.bind, Except.bind, Pure.pure, Except.pure]
 
 /-- Helper-free, no-fallback/no-receive emitted runtimes are exactly the
 generated dispatcher shell prefixed by free-memory-pointer initialization. -/
@@ -959,7 +959,7 @@ theorem lowerRuntimeContractNative_emitYul_noMapping_noInternals_noFallback_noRe
       Compiler.CodegenCommon.buildSwitch contract.functions none none]
     (by
       intro stmt hmem name params rets body h
-      simp only [List.mem_cons, List.mem_singleton] at hmem
+      simp only [List.mem_cons] at hmem
       rcases hmem with hInit | hSwitch
       · subst hInit
         simp [Compiler.CodegenCommon.initFreeMemoryPointer] at h
@@ -2150,7 +2150,7 @@ theorem generatedRuntimeFunctionNamesUnique_initFreeMemoryPointer_buildSwitch_ap
       generatedRuntimeFunctionNamesUnique funcPrefix := by
   apply generatedRuntimeFunctionNamesUnique_append_nonFunc_suffix
   intro stmt hmem name params rets body h
-  simp only [List.mem_cons, List.mem_singleton] at hmem
+  simp only [List.mem_cons] at hmem
   rcases hmem with hInit | hSwitch
   · subst hInit
     simp [Compiler.CodegenCommon.initFreeMemoryPointer] at h
@@ -2339,14 +2339,14 @@ theorem lowerRuntimeContractNative_emitYul_mapping_noInternals_noFallback_noRece
         0 [Compiler.CodegenCommon.initFreeMemoryPointer,
           Compiler.CodegenCommon.buildSwitch contract.functions none none] with
       | error err =>
-          simp [hLower, Functor.map, Except.map, Bind.bind, Except.bind,
-            Pure.pure, Except.pure]
+          simp [   Bind.bind, Except.bind,
+            ]
       | ok pair =>
           cases pair
-          simp [hLower, Functor.map, Except.map, Bind.bind, Except.bind,
+          simp [   Bind.bind, Except.bind,
             Pure.pure, Except.pure]
     · intro stmt hmem name params rets body h
-      simp only [List.mem_cons, List.mem_singleton] at hmem
+      simp only [List.mem_cons] at hmem
       rcases hmem with hInit | hSwitch
       · subst hInit
         simp [Compiler.CodegenCommon.initFreeMemoryPointer] at h
@@ -2860,7 +2860,7 @@ def validateNativeRuntimeEnvironment
   simp only [EvmYul.Yul.State.sharedState]
   dsimp
   split <;> rename_i h
-  all_goals simp [Std.TreeMap.get?, Std.TreeMap.getElem?_insert]
+  all_goals simp []
 
 @[simp] theorem initialState_transactionEnvironment
     (contract : EvmYul.Yul.Ast.YulContract)

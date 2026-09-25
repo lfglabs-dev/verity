@@ -81,8 +81,7 @@ private theorem mint_isolation (s : ContractState) (toAddr : Address) (amount : 
       ContractState.storageMap_unfold]
   cases safeAdd (s.storageWords (StorageKey.slot 2)) amount <;>
     simp_all [Verity.require, Verity.pure, Verity.bind,
-      ContractState.storage_unfold, ContractState.storageAddr_unfold,
-      ContractState.storageMap_unfold]
+       ]
 
 /-- Mint only writes Uint256 slotIdx 2. -/
 theorem mint_supply_storage_isolated (s : ContractState) (toAddr : Address) (amount : Uint256)
