@@ -122,8 +122,8 @@ Current P1 foundation coverage (Issue #582):
 - Report-capable compiler path via `Compiler.emitYulWithOptionsReport` to surface patch manifest/iteration metadata to CI and tooling
 - `verity-compiler` patch coverage emission (`--patch-report`) now writes per-contract/rule TSV output and CI uploads it as an artifact for Issue #583 tuning
 - Static gas delta gate for patch impact (`scripts/check_patch_gas_delta.py`) now compares baseline vs patch-enabled reports in CI with median/p90 non-regression and measurable-improvement requirements
-- CI now runs `check_yul.py` + `check_gas.py coverage` on `artifacts/yul-patched` as part of Issue #582 fail-closed hardening for patch-enabled output, including filename-set parity checks against baseline Yul output
-- CI now runs a dedicated Foundry patched-Yul smoke gate (`DIFFTEST_YUL_DIR=artifacts/yul-patched`) so differential/property harnesses execute against patch-enabled output
+- CI now runs `check_yul.py` + `check_gas.py coverage` on `compiler/yul-patched` as part of Issue #582 fail-closed hardening for patch-enabled output, including filename-set parity checks against baseline Yul output
+- CI now runs a dedicated Foundry patched-Yul smoke gate (`DIFFTEST_YUL_DIR=compiler/yul-patched`) so differential/property harnesses execute against patch-enabled output
 
 Execution policy:
 1. Do not start patch-pack expansion in `#583` before `#582` proof hooks are merged.
@@ -384,7 +384,6 @@ A comprehensive feature matrix documents which CompilationModel constructs each 
 
 - **Human-readable**: [`docs/INTERPRETER_FEATURE_MATRIX.md`](INTERPRETER_FEATURE_MATRIX.md)
 - **Machine-readable**: `artifacts/interpreter_feature_matrix.json`
-- **Smoke tests**: `Compiler/Proofs/InterpreterFeatureTest.lean` (22 `native_decide` proofs)
 
 Key: the default path is `execStmtsFuel` (fuel-based), which supports the full construct set including loops and internal calls. The basic `execStmts` path is used only for proofs that do not need these features.
 
@@ -416,7 +415,7 @@ Execution priorities:
 ### ✅ **ERC-4337 Frame Primitives Landed**
 **What**: Reusable primitives extracted from the ERC-4337 EntryPoint benchmark.
 **Status**: Landed as `Verity.EVM.Frame`, `Verity.EVM.MemoryModel`,
-`Verity.EVM.Layout`, `Verity.Trace`, `Verity.Compiler.FromSolidity`, plus
+`Verity.EVM.Layout`, plus
 `nonReentrantTransient` in `Verity.Core` and a `let _ := …` discard rule in
 `Contracts.Common`. Each closes a trust gap for every benchmark, not just
 ERC-4337.
@@ -426,10 +425,6 @@ ERC-4337.
 - **EvmYul ↔ frame correspondence**: prove `Verity.EVM.Frame.applyCallToCaller`
   is the projection of EvmYul's `CALL` opcode semantics through the caller
   frame. Closes the abstract-model gap. ~2-4 weeks.
-- **Machine `fromSolidity`**: replace the CLI scaffold in
-  `Verity.Compiler.FromSolidity` with an in-process Solidity → Verity IR →
-  `verity_contract` translator. Multi-week. Tracked as the canonical
-  follow-up to the scaffold landed here.
 - **`solc_disjoint` tactic**: today `Verity.EVM.Layout.call_buffer_disjoint_from_heap`
   discharges the disjointness premise from `SolcLayout` invariants. A
   proper tactic that closes `MemoryModel.Disjoint` goals automatically would

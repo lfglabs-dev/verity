@@ -175,7 +175,7 @@ proof work (issue #1618). `supported_function_correct` is now a real theorem.
 ### 4. Layer 3 dispatch bridge (eliminated earlier)
 
 The dispatch bridge in Layer 3 was converted from a Lean axiom to an explicit
-theorem hypothesis in `Compiler/Proofs/YulGeneration/Preservation.lean`.
+theorem hypothesis (in the former `Compiler/Proofs/YulGeneration/Preservation.lean`, since removed).
 
 ## Trusted Cryptographic Primitives (Non-Axiom)
 

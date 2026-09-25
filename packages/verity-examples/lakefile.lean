@@ -14,8 +14,6 @@ lean_lib «Contracts» where
     .one `Contracts.Common,
     .one `Contracts.Specs,
     .one `Contracts.Interpreter,
-    .one `Contracts.MacroTranslateInvariantTest,
-    .one `Contracts.MacroTranslateRoundTripFuzz,
     .one `Contracts.Smoke,
     .andSubmodules `Contracts.Counter,
     .andSubmodules `Contracts.SimpleStorage,

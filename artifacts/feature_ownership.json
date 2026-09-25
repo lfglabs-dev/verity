@@ -11,7 +11,7 @@
     {
       "id": "source_internal_helpers",
       "name": "Source-level internal helper functions",
-      "owner": "Verity.Macro / Compiler.CompilationModel / Compiler.Proofs.SourceSemantics",
+      "owner": "Verity.Macro / Compiler.CompilationModel / Compiler.Proofs.IRGeneration.SourceSemantics",
       "source_supported": "supported",
       "compile_supported": "supported",
       "proof_modeled": "partial",
@@ -20,7 +20,7 @@
       "canonical_entrypoints": [
         "Verity/Macro/Translate.lean",
         "Compiler/CompilationModel.lean",
-        "Compiler/Proofs/SourceSemantics.lean"
+        "Compiler/Proofs/IRGeneration/SourceSemantics.lean"
       ],
       "notes": "Internal helpers stay out of ABI dispatch. Helper-summary reuse is available in source-semantics lemmas but is not yet fully consumed through the generic body/IR theorem path."
     },
@@ -100,7 +100,7 @@
       "deprecated": false,
       "canonical_entrypoints": [
         "Verity/Macro/Translate.lean",
-        "Compiler/CompilationModel/StorageLayout.lean",
+        "Compiler/CompilationModel/LayoutValidation.lean",
         "docs/SOLIDITY_PARITY_PROFILE.md"
       ],
       "notes": "Many scalar, mapping, struct, packed-word, and ERC-7201 forms are present, but compatibility layout features are not all inside the generic proof fragment."
@@ -122,24 +122,9 @@
       "notes": "Zero-bound supported bodies and literal-bound empty bodies are covered. Positive non-empty loop bodies remain outside the current generic theorem."
     },
     {
-      "id": "legacy_spec_aliases",
-      "name": "Legacy CompilationModel spec aliases",
-      "owner": "Contracts.Legacy",
-      "source_supported": "not_applicable",
-      "compile_supported": "supported",
-      "proof_modeled": "not_applicable",
-      "trust_reported": "not_applicable",
-      "deprecated": true,
-      "canonical_entrypoints": [
-        "Contracts/Legacy/SpecAliases.lean",
-        "Contracts/SpecAliases.lean"
-      ],
-      "notes": "Historical names remain available through a compatibility namespace. New code should import the canonical contract module and use Contracts.<Name>.spec directly."
-    },
-    {
       "id": "patched_compiler_entrypoint",
-      "name": "Patch-enabled compiler binary",
-      "owner": "Compiler.MainPatched",
+      "name": "Patch-enabled compilation",
+      "owner": "Compiler.MainDriver",
       "source_supported": "not_applicable",
       "compile_supported": "supported",
       "proof_modeled": "not_applicable",
@@ -147,11 +132,10 @@
       "deprecated": false,
       "canonical_entrypoints": [
         "Compiler/Main.lean",
-        "Compiler/MainPatched.lean",
-        "lakefile.lean",
-        "packages/verity-compiler/lakefile.lean"
+        "Compiler/MainDriver.lean",
+        "lakefile.lean"
       ],
-      "notes": "The canonical compiler binary is Compiler.Main / verity-compiler. MainPatched remains as the intentionally separate parity and patch-enabled binary."
+      "notes": "The Yul patch pass is enabled with `verity-compiler --enable-patches`; the former separate patched binary is folded into verity-compiler."
     },
     {
       "id": "external_call_with_return_ecm_name",

@@ -12,38 +12,8 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from check_storage_layout import (
     check_spec_edsl_consistency,
-    extract_compiler_specs,
     extract_spec_slots,
 )
-
-
-class CheckStorageLayoutExtractCompilerSpecsTests(unittest.TestCase):
-    def test_extract_compiler_specs_supports_macro_alias_defs(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            spec_file = Path(tmpdir) / "Specs.lean"
-            spec_file.write_text(
-                "def ownedSpec : CompilationModel := Contracts.Owned.spec\n",
-                encoding="utf-8",
-            )
-            rows = extract_compiler_specs(spec_file)
-
-        self.assertIn("Owned", rows)
-        self.assertEqual(rows["Owned"], [("owner", "Address", 0)])
-
-    def test_extract_compiler_specs_supports_filtered_macro_alias_defs(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            spec_file = Path(tmpdir) / "Specs.lean"
-            spec_file.write_text(
-                "def counterSpec : CompilationModel :=\n"
-                "  let canonical := Contracts.Counter.spec\n"
-                "  { canonical with\n"
-                '    functions := canonical.functions.filter fun fn => fn.name = "increment" }\n',
-                encoding="utf-8",
-            )
-            rows = extract_compiler_specs(spec_file)
-
-        self.assertIn("Counter", rows)
-        self.assertEqual(rows["Counter"], [("count", "Uint256", 0)])
 
 
 class CheckStorageLayoutSpecEdslConsistencyTests(unittest.TestCase):
@@ -73,15 +43,24 @@ class CheckStorageLayoutSpecEdslConsistencyTests(unittest.TestCase):
     def test_check_spec_edsl_consistency_reports_missing_spec_slots(self) -> None:
         errors = check_spec_edsl_consistency(
             edsl={"Owned": [("owner", "Address", 0)]},
-            spec={"Owned": []},
-            compiler={"Owned": [("owner", "Address", 0)]},
-            compiler_externals={},
+            spec={"Owned": [("slot1", "uint256", 1)]},
         )
 
         self.assertEqual(
             errors,
-            ["Spec-EDSL: Owned.slot0 (address) in EDSL but not in Spec"],
+            [
+                "Spec-EDSL: Owned.slot1 (uint256) in Spec but not in EDSL",
+                "Spec-EDSL: Owned.slot0 (address) in EDSL but not in Spec",
+            ],
         )
+
+
+    def test_check_spec_edsl_consistency_skips_smoke_contracts(self) -> None:
+        errors = check_spec_edsl_consistency(
+            edsl={"FooSmoke": [("x", "Uint256", 0)]},
+            spec={"FooSmoke": [("slot1", "uint256", 1)]},
+        )
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

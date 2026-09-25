@@ -1221,14 +1221,8 @@ def {name_lower}Spec : CompilationModel := {{
 
 
 def gen_all_lean_imports(cfg: ContractConfig) -> str:
-    """Generate import lines for Verity/All.lean."""
-    return f"""
-import Contracts.{cfg.name}.{cfg.name}
-import Contracts.{cfg.name}.Spec
-import Contracts.{cfg.name}.Invariants
-import Contracts.{cfg.name}.Proofs
-import Contracts.{cfg.name}.Proofs.Basic
-import Contracts.{cfg.name}.Proofs.Correctness"""
+    """Generate the import line to add to Contracts.lean."""
+    return f"import Contracts.{cfg.name}"
 
 
 def scaffold_files(cfg: ContractConfig) -> List[tuple[Path, str]]:
@@ -1344,7 +1338,7 @@ Examples:
     print("=" * 60)
     print()
 
-    print("1. Add imports to Verity/All.lean:")
+    print("1. Add the import to Contracts.lean:")
     print(gen_all_lean_imports(cfg))
     print()
 
