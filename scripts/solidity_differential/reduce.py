@@ -16,7 +16,7 @@ def signature(divergence):
         return ("metamorphic",)
     routes = [divergence[k] for k in ("source", "model", "compiled")]
     return tuple((key, routes[0][key] == routes[1][key], routes[1][key] == routes[2][key])
-                 for key in ("status", "words", "storage")) + (("revert-data", routes[0]["data"] == routes[2]["data"]),)
+                 for key in ("status", "words", "storage", "data")) + (("revert-data", routes[0]["data"] == routes[2]["data"]),)
 
 
 def reduce_failure(directory, seconds=120):

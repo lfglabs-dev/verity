@@ -148,8 +148,10 @@ The model is built as ordinary values and quoted (`Quote.lean`); after
 elaboration the definitions are evaluated back and must equal those values.
 The digest is SHA-256 over framed JSON of the complete solc input, the selected
 signatures, the solc release, and the sources of `Import.lean`,
-`Coverage.lean`, `Report.lean`, `Quote.lean` and `Profile.lean`. Panic payloads,
-gas, public ABI decoding and bytecode equivalence are outside the model.
+`Coverage.lean`, `Report.lean`, `Quote.lean` and `Profile.lean`. The statement
+denotation retains exact panic bytes; legacy scalar accessors erase failure
+bytes. Gas, public ABI decoding and bytecode equivalence remain outside the
+import certificate.
 
 Consumers should re-elaborate in CI, check the fresh model is `rfl`-equal to
 the compiled import, and keep a reviewed inventory (`report.toText`) and a
@@ -173,8 +175,8 @@ independently of Verity. Unused packed bits, neighbouring words and unrelated
 slots get noise. Each EVM case runs from a restored snapshot and must not
 write storage.
 
-A/B/C must agree on success/revert, return words and observed storage; A and C
-must also agree on revert bytes. Timeouts, resource limits, unsupported
+A/B/C must agree on success/revert, return words, observed storage, and exact
+return/revert bytes. A payload-free Denote failure is a harness error. Timeouts, resource limits, unsupported
 compilation and tool failures are harness errors, never reverts.
 
 ```sh

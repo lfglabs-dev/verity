@@ -13,8 +13,15 @@ not `SupportedFunction`: the slice uses `panic`, `returnValues`, packed
 `structMember` / `structMember2`, and checked arithmetic, which the IR raccord
 does not cover. `DenoteAgreement.execStmt_eq` still holds, including
 `Stmt.returnValues`, which records source-order words on `DenoteState` and
-finishes as `.stop`. The proof denotation observes success versus revert. It
-does not observe the `PanicCode` payload.
+finishes as `.stop`. `Stmt.panic` and resolved `Stmt.panicCode` retain their
+36-byte ABI payload in `StmtOutcome.revertWithData`; statement lists and loops
+propagate those bytes. The agreement projection explicitly erases them to the
+older SourceSemantics result, so that theorem does not establish byte equality.
+The differential runner compares the bytes on all three routes and treats a
+payload-free Denote failure as an instrumentation error. Legacy scalar accessors
+still expose only success versus failure. The call-composition interface retains
+local panic bytes separately from its legacy word-return result; full byte-level
+external-call composition is not yet certified.
 
 The typed accessors that the import also generates (`example.f`,
 `example.position.credit`, ...) add no trust: they are Lean definitions over

@@ -1,4 +1,4 @@
-import Mathlib.Tactic
+import Mathlib.Data.Nat.Basic
 import Compiler.SolidityImport.Access
 
 /-!
@@ -108,7 +108,7 @@ end
 
 def Frame (keys : List String) (s : DenoteState) : StmtOutcome → Prop
  | .continue t => t.world = s.world ∧ ∀ k ∈ keys, lookupValue t.bindings k = lookupValue s.bindings k
- | .revert => True
+ | .revert | .revertWithData _ => True
  | _ => False
 
 mutual
@@ -157,6 +157,7 @@ mutual
      · simp_all [Frame]
      · simp_all [Frame]
      · trivial
+     · trivial
 end
 
 theorem exec_append (o : DenoteOracle) (fs : List Field) (s : DenoteState)
@@ -204,6 +205,7 @@ theorem exec_let_cons (o : DenoteOracle) (fs : List Field) (s : DenoteState)
 theorem ends_return (o : DenoteOracle) (fs : List Field) (s : DenoteState)
     (pre : List Stmt) (args : List Expr) (hp : prefixList [] pre = true) :
     execStmtList o fs s (pre ++ [.returnValues args]) = .revert ∨
+      (∃ data, execStmtList o fs s (pre ++ [.returnValues args]) = .revertWithData data) ∨
       ∃ t, execStmtList o fs s (pre ++ [.returnValues args]) = .stop t := by
   rw [exec_append]
   have hf := list_frame o fs s pre [] hp
@@ -213,6 +215,7 @@ theorem ends_return (o : DenoteOracle) (fs : List Field) (s : DenoteState)
     cases evalExprList o fs t args <;> simp
   · simp_all [Frame]
   · simp_all [Frame]
+  · simp
   · simp
 
 end Compiler.CompilationModel.SolidityImport

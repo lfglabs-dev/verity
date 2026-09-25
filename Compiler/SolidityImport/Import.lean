@@ -1285,7 +1285,7 @@ private def importSlice
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,
       storageKeys := env.referenced.toList.map fun name => (name, mappingKeyNames env name),
-      opaqueMembers := opaqueMembers.toList, observesPanicPayload := false }
+      opaqueMembers := opaqueMembers.toList, observesPanicPayload := true }
   pure (model, report)
 
 /-- `solidity_profile osaka466 where evmVersion := "osaka" …` defines a named

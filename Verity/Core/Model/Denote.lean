@@ -272,8 +272,7 @@ structure DenoteState where
   /-- Words produced by `Stmt.returnValues`, in source order.
       `none` means this frame has not executed a multi-value return.
       The proof semantics records the words here and finishes with `.stop`;
-      it does not observe a Solidity panic payload. `Stmt.panic` is still a
-      revert, and the `PanicCode` stays on the statement for audit. -/
+      panic payloads are carried separately by `StmtOutcome.revertWithData`. -/
   observedReturnWords : Option (List Nat) := none
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
@@ -282,6 +281,24 @@ inductive StmtOutcome where
   | stop (state : DenoteState)
   | return (value : Nat) (state : DenoteState)
   | revert
+  /-- An explicitly observed EVM revert payload. The legacy `revert` arm also
+      represents unsupported evaluation, so differential tests must not invent
+      bytes for it. -/
+  | revertWithData (data : List UInt8)
+
+/-- Canonical big-endian ABI word bytes. -/
+def wordBytes (value : Nat) : List UInt8 :=
+  (List.range 32).map fun i => UInt8.ofNat (value / 2^(8*(31-i)) % 256)
+
+/-- Exact Solidity `Panic(uint256)` revert encoding. -/
+def panicBytes (code : Nat) : List UInt8 :=
+  [0x4e, 0x48, 0x7b, 0x71] ++ wordBytes code
+
+theorem wordBytes_length (value : Nat) : (wordBytes value).length = 32 := by
+  simp [wordBytes]
+
+theorem panicBytes_length (code : Nat) : (panicBytes code).length = 36 := by
+  simp [panicBytes, wordBytes_length]
 
 /-! ## Storage read helpers (mirroring `SourceSemantics`) -/
 
@@ -1122,6 +1139,7 @@ def execForEachLoop
       | .stop next => .stop next
       | .return value next => .return value next
       | .revert => .revert
+      | .revertWithData data => .revertWithData data
 
 def msbIndex (bitmap : Nat) : Nat :=
   if bitmap = 0 then 0 else Nat.log2 bitmap
@@ -1147,6 +1165,7 @@ def execForEachSetBitLoop
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
 
 mutual
   def execStmt (oracle : DenoteOracle) (fields : List Field) :
@@ -1418,9 +1437,9 @@ mutual
         | _ => .revert
     | state, .panicCode code =>
         match evalExpr oracle fields state code with
-        | some _ => .revert
+        | some value => .revertWithData (panicBytes value)
         | none => .revert
-    | _, .panic _ => .revert
+    | _, .panic code => .revertWithData (panicBytes code.toNat)
     | state, .return value =>
         match evalExpr oracle fields state value with
         | some resolved => .return resolved
@@ -1541,6 +1560,7 @@ mutual
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
 end
 
 /-! ## Function denotation (mirrors `SourceSemantics.interpretFunction`) -/
@@ -1685,7 +1705,7 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
           successResult oracle spec state.world none
             (returnWords := state.observedReturnWords.getD [])
       | .return value state => successResult oracle spec state.world (some value)
-      | .revert => revertedResult oracle spec worldWithTx
+      | .revert | .revertWithData _ => revertedResult oracle spec worldWithTx
 
 /-! ## Smoke checks (oracle-independent scenarios) -/
 

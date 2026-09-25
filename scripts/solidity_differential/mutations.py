@@ -8,6 +8,8 @@ import sys
 from .engine import ROOT, WORKSPACE, HarnessError, command, write_json
 
 MUTANTS = {
+    "denote-panic-selector": ("Verity/Core/Model/Denote.lean", '[0x4e, 0x48, 0x7b, 0x71]', '[0x4e, 0x48, 0x7b, 0x70]'),
+    "denote-panic-endian": ("Verity/Core/Model/Denote.lean", 'value / 2^(8*(31-i))', 'value / 2^(8*i)'),
     "import-comparison": ("Compiler/SolidityImport/Import.lean", '| "<" => cmp .lt left right', '| "<" => cmp .gt left right'),
     "import-field-slot": ("Compiler/SolidityImport/Import.lean", 'slot := some slot }', 'slot := some (slot + 1) }'),
     "denote-packed-mask": ("Verity/Core/Model/Denote.lean", '(2 ^ packed.width) - 1', '(2 ^ packed.width) - 2'),
@@ -29,7 +31,7 @@ def snapshot(destination):
     (cache / "packages").symlink_to(WORKSPACE / ".lake/packages", target_is_directory=True)
     # Private copy-on-write cache: no hardlinks/symlinks to mutable parent oleans.
     if sys.platform == "darwin":
-        command(["cp", "-cR", WORKSPACE / ".lake/build", cache / "build"], timeout=300)
+        command(["/bin/cp", "-cR", WORKSPACE / ".lake/build", cache / "build"], timeout=300)
     else:
         command(["cp", "-a", "--reflink=auto", WORKSPACE / ".lake/build", cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
