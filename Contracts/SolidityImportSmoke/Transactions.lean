@@ -10,7 +10,7 @@ private def fields : List Field :=
   [{ name := "stored", ty := .uint256 },
    { name := "scratch", ty := .uint256, isTransient := true }]
 
-#eval show IO Unit from do
+def runChecks : IO Unit := do
   let first ← IO.ofExcept (executeBody oracle fields Verity.defaultState []
     [.setStorage "stored" (.literal 7), .setStorage "scratch" (.literal 11),
      .returnValues [.storage "stored", .storage "scratch"]])
@@ -52,3 +52,5 @@ private def fields : List Field :=
     throw (IO.userError "combined Denote frame lost rollback, payload or accesses")
   IO.println "Denote transaction persistence, transient reset, exact panic, rollback and access traces passed"
 end SolidityImportSmoke.Transactions
+
+def main : IO Unit := SolidityImportSmoke.Transactions.runChecks

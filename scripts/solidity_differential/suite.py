@@ -13,6 +13,9 @@ def stateful_campaign(output, transactions, seed):
     # Finish all compilation before taking executable snapshots in adapters.
     command(['lake', 'build', 'SolidityImportSmoke', 'Compiler.Codegen',
              'Compiler.Yul.PrettyPrint'], timeout=1800, log=output / 'build.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/Transactions.lean'],
+            log=output / 'transaction-smoke.log')
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
