@@ -232,6 +232,9 @@ jobs:
               - 'scripts/check_solidity_differential.sh'
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/setup_solc_import.py'
+              - 'scripts/solidity_import_coverage.py'
+              - 'scripts/solidity_import_corpus/**'
+              - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
             compiler:
               - '.github/actions/**'
@@ -261,6 +264,9 @@ jobs:
               - 'scripts/check_solidity_differential.sh'
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/setup_solc_import.py'
+              - 'scripts/solidity_import_coverage.py'
+              - 'scripts/solidity_import_corpus/**'
+              - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
               - 'foundry.toml'
       - name: Resolve effective change flags

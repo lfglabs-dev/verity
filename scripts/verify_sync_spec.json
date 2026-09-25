@@ -26,6 +26,9 @@
     "scripts/check_solidity_differential.sh",
     "scripts/solidity_import_mutations.py",
     "scripts/setup_solc_import.py",
+    "scripts/solidity_import_coverage.py",
+    "scripts/solidity_import_corpus/**",
+    "scripts/test_solidity_import_coverage.py",
     "lean-toolchain"
   ],
   "compiler_paths": [
@@ -56,6 +59,9 @@
     "scripts/check_solidity_differential.sh",
     "scripts/solidity_import_mutations.py",
     "scripts/setup_solc_import.py",
+    "scripts/solidity_import_coverage.py",
+    "scripts/solidity_import_corpus/**",
+    "scripts/test_solidity_import_coverage.py",
     "lean-toolchain",
     "foundry.toml"
   ],
@@ -918,7 +924,8 @@
       "static-gas-report-patched"
     ],
     "compiler-regressions": [
-      "solidity-import-differential"
+      "solidity-import-differential",
+      "solidity-import-coverage"
     ],
     "lean-profile": [
       "lean-perf-queue"
@@ -944,7 +951,8 @@
       "gas-report-static-patched.tsv"
     ],
     "compiler-regressions": [
-      ".lake/import-differential/**\n!.lake/import-differential/**/.lake/build/**\n!.lake/import-differential/**/.lake/packages/**"
+      ".lake/import-differential/**\n!.lake/import-differential/**/.lake/build/**\n!.lake/import-differential/**/.lake/packages/**",
+      ".lake/solidity-import-coverage/**"
     ],
     "lean-profile": [
       "lean-perf-queue.md"
