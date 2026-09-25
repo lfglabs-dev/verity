@@ -49,6 +49,12 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def implementation_hashes(workspace):
+    files = [p for name in ('Compiler', 'Verity') for p in (workspace / name).rglob('*.lean')]
+    files += [workspace / name for name in ('lean-toolchain', 'lake-manifest.json', 'lakefile.lean')]
+    return {p.relative_to(workspace).as_posix(): sha(p) for p in sorted(files)}
+
+
 def write_json(path, value):
     path.write_text(json.dumps(value, indent=2) + '\n')
 
@@ -377,6 +383,7 @@ def main():
         write_json(output / 'coverage.json', report)
         (output / 'coverage.md').write_text('# Solidity import coverage unavailable\n\n' + str(exc) + '\n')
         return 1
+    report['implementation_sha256'] = implementation_hashes(workspace)
     for project in projects:
         for target in project['contracts']:
             item = {'project': project['id'], 'commit': project['commit'], **target, 'functions': []}
@@ -398,6 +405,10 @@ def main():
                     item['functions'].append({**fn, **result})
             except (MeasurementError, OSError, ValueError, KeyError) as exc:
                 item['error'] = str(exc)
+            if implementation_hashes(workspace) != report['implementation_sha256']:
+                item['error'] = 'importer/semantics sources changed during measurement; rerun'
+                for fn in item['functions']:
+                    fn.update({'status': 'error', 'error': item['error']})
             item['summary'] = summarize(item['functions'])
             if project['id'] == 'midnight':
                 item['milestone_without_multicall'] = summarize(

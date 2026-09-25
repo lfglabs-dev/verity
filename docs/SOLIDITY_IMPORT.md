@@ -256,6 +256,14 @@ The first-blocker histogram weights each diagnostic by the number of rejected
 functions encountering it first. These are **potential** unlocks, not a promise
 that implementing that construct alone makes all those functions importable.
 Rerun the report after each lowering family to reveal subsequent blockers.
+The report records implementation hashes; source changes during measurement
+invalidate that contract's results.
 Legacy compiler-version blockers must be addressed before their construct
 histograms can be compared with Midnight's. No coverage result is a proof of
 semantic equivalence; that requires the separate differential/proof evidence.
+
+The initial corpus campaign exposed uninitialized-local rejections that lacked
+Solidity source locations. These remain unsupported, but now fail at the
+`VariableDeclarationStatement` with a precise diagnostic instead of a missing
+JSON-field error. This diagnostic correction does not change successful models
+or the smoke golden; the importer source digest changes as designed.
