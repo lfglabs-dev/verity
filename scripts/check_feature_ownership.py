@@ -70,7 +70,6 @@ def main() -> None:
         "typed_external_interface_calls",
         "low_level_call_returndata",
         "foreach_positive_nonempty",
-        "legacy_spec_aliases",
         "patched_compiler_entrypoint",
         "external_call_with_return_ecm_name",
     }

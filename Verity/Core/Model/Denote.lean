@@ -58,8 +58,12 @@ semantic definition.
 ## Outside the initial denotation fragment
 
 Exactly the constructs `SourceSemantics` itself maps to `none`/`.revert`, apart
-from the memory-backed word arrays intentionally widened here:
-`arrayElementDynamic*`, `paramDynamic*`, `forkIfAtLeast`, `mappingChain`
+from the memory-backed word arrays intentionally widened here and
+`Stmt.returnValues` (multi-word return recorded in
+`DenoteState.observedReturnWords`, finished with `.stop`, and surfaced by
+`denoteFunction` as `DenoteResult.returnWords` in source order).
+Still outside: `arrayElementDynamic*`, `paramDynamic*`,
+`forkIfAtLeast`, `mappingChain`
 reads with zero or three-plus keys (one/two-key reads and writes are
 supported), and every `Expr`/`Stmt` constructor not listed
 in the arms below (raw calls, ABI re-encoding returns, ECM, unsafe Yul,
@@ -265,6 +269,12 @@ structure DenoteState where
   externalCallReturnValues : Nat → List Nat := fun _ => []
   externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none
   externalCallIndex : Nat := 0
+  /-- Words produced by `Stmt.returnValues`, in source order.
+      `none` means this frame has not executed a multi-value return.
+      The proof semantics records the words here and finishes with `.stop`;
+      it does not observe a Solidity panic payload. `Stmt.panic` is still a
+      revert, and the `PanicCode` stays on the statement for audit. -/
+  observedReturnWords : Option (List Nat) := none
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
 inductive StmtOutcome where
@@ -1515,6 +1525,11 @@ mutual
             else .revert
         | none => .revert
     | _, .revertReturndata => .revert
+    | state, .returnValues values =>
+        match evalExprList oracle fields state values with
+        | some resolved =>
+            .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
+        | none => .revert
     | _, _ => .revert
 
   def execStmtList (oracle : DenoteOracle) (fields : List Field) :
@@ -1548,6 +1563,10 @@ structure DenoteTransaction where
 structure DenoteResult where
   success : Bool
   returnValue : Option Nat
+  /-- Multi-word return observed from `Stmt.returnValues`.
+      Empty when the frame returned a single word or no word.
+      Order is the source order of the return expressions. -/
+  returnWords : List Nat := []
   finalStorage : Nat → Nat
   events : List (List Nat)
 
@@ -1565,9 +1584,11 @@ def revertedResult (oracle : DenoteOracle) (spec : CompilationModel)
     events := encodeEvents initialWorld.events }
 
 def successResult (oracle : DenoteOracle) (spec : CompilationModel)
-    (world : Verity.ContractState) (ret : Option Nat) : DenoteResult :=
+    (world : Verity.ContractState) (ret : Option Nat) (returnWords : List Nat := []) :
+    DenoteResult :=
   { success := true
     returnValue := ret
+    returnWords := returnWords
     finalStorage := encodeStorage oracle spec world
     events := encodeEvents world.events }
 
@@ -1653,7 +1674,16 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
             externalCallPostWorld := externalCallPostWorld }
           fn.body with
       | .continue state => successResult oracle spec state.world none
-      | .stop state => successResult oracle spec state.world none
+      | .stop state =>
+          -- Multi-word returns (`Stmt.returnValues`) are observable in
+          -- `returnWords` (source order).  `returnValue` stays `none` so that
+          -- `toSourceResult` — whose target type has no multi-word field —
+          -- still agrees with `SourceSemantics.interpretFunction`, which does
+          -- not surface `Stmt.returnValues` payloads.  No `match` on
+          -- `observedReturnWords` here: keeping the arm match-free lets the
+          -- `denoteFunction_eq` agreement proof close by `simp`.
+          successResult oracle spec state.world none
+            (returnWords := state.observedReturnWords.getD [])
       | .return value state => successResult oracle spec state.world (some value)
       | .revert => revertedResult oracle spec worldWithTx
 

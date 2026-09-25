@@ -10,8 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_LEMMAS = ROOT / "Compiler" / "Proofs" / "YulGeneration" / "Backends" / "EvmYulLeanBridgeLemmas.lean"
 TARGET_FILES = {
-    "TRUST_ASSUMPTIONS": ROOT / "TRUST_ASSUMPTIONS.md",
-    "AXIOMS": ROOT / "AXIOMS.md",
+    "TRUST_ASSUMPTIONS": ROOT / "docs" / "TRUST_ASSUMPTIONS.md",
+    "AXIOMS": ROOT / "docs" / "AXIOMS.md",
     "ARITHMETIC_PROFILE": ROOT / "docs" / "ARITHMETIC_PROFILE.md",
     "INTERPRETER_FEATURE_MATRIX": ROOT / "docs" / "INTERPRETER_FEATURE_MATRIX.md",
     "END_TO_END": ROOT / "Compiler" / "Proofs" / "EndToEnd.lean",

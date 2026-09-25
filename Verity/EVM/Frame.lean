@@ -28,7 +28,7 @@ Before this module, every benchmark that touched external calls had to
 assume (or reproduce in their own file) the EVM-level frame condition
 that external `CALL` cannot SSTORE the caller's slots and cannot write
 to caller memory outside the declared output buffer. That assumption is
-documented in `AXIOMS.md` under "External Call Module". This module
+documented in `docs/AXIOMS.md` under "External Call Module". This module
 makes the frame condition a theorem of `Verity.EVM`, parameterised over
 an abstract finite `CalleeResult` observable.
 

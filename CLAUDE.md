@@ -1,10 +1,8 @@
 # Agent Guide for Verity
 
-This file is the operator quickstart. Keep it short and enforceable.
-
 ## Non-Negotiables
 
-1. Keep `AUDIT.md`, `TRUST_ASSUMPTIONS.md`, and `AXIOMS.md` synchronized with any semantic/trust/CI boundary change.
+1. Keep `docs/TRUST_ASSUMPTIONS.md` and `docs/AXIOMS.md` synchronized with any semantic, trust or CI boundary change.
 2. Never claim completion without evidence and passing checks.
 
 ## Core Commands
@@ -18,7 +16,7 @@ make test-foundry   # Run Foundry differential tests
 
 ## Reference Docs
 
-- Project overview: [README.md](README.md)
+- Project overview and review order: [README.md](README.md)
 - Contribution conventions: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
-- Script reference: [scripts/REFERENCE.md](scripts/REFERENCE.md)
+- Solidity import: [docs/SOLIDITY_IMPORT.md](docs/SOLIDITY_IMPORT.md)

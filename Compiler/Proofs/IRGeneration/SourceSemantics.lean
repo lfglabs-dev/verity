@@ -850,6 +850,10 @@ structure RuntimeState where
   selector : Nat := 0
   externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩
   externalCallIndex : Nat := 0
+  /-- Words produced by `Stmt.returnValues`, in source order.
+      Mirrors `DenoteState.observedReturnWords`. Proof semantics observes the
+      words, not a Solidity panic payload: `Stmt.panic` remains a revert. -/
+  observedReturnWords : Option (List Nat) := none
 
 inductive StmtResult where
   | continue (state : RuntimeState)
@@ -2822,6 +2826,11 @@ mutual
                       externalCallIndex := state.externalCallIndex + 1 }
             else .revert
         | none => .revert
+    | state, .returnValues values =>
+        match evalExprList fields state values with
+        | some resolved =>
+            .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
+        | none => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -3199,6 +3208,11 @@ mutual
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
             else .revert
+        | none => .revert
+    | state, .returnValues values =>
+        match evalExprList fields state values with
+        | some resolved =>
+            .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
         | none => .revert
     | _, _ => .revert
 
@@ -4825,6 +4839,14 @@ mutual
                         (outcome.returnValues.map wordNormalize)
                       externalCallIndex := state.externalCallIndex + 1 }
             else .revert
+        | none => .revert
+    | .returnValues values =>
+        -- Base expression semantics, matching `execStmt`. Arguments are not
+        -- given helper fuel; the slice importer inlines pure helpers before
+        -- this statement is produced.
+        match evalExprList fields state values with
+        | some resolved =>
+            .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
         | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)

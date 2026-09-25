@@ -6352,9 +6352,7 @@ theorem witness_abiHeadParamShapes_compile :
 /-!
 `getApproved` and `approve` depend on the live `ownersSlot = 4` /
 `tokenApprovalsSlot = 5` layout and include multi-step owner guards. They do
-not fit the older single-fragment witness surface used above. Likewise, the
-broader ABI-head roundtrip/lowering regressions for tuple/bytes/array/string
-params live in `Contracts/TypedIRTests.lean`.
+not fit the older single-fragment witness surface used above.
 -/
 
 -- ============================================================================

@@ -80,7 +80,7 @@ External libraries are **outside the formal verification boundary**. The linker 
 
 In practice: a contract using `PoseidonT3_hash` via the linker has formally verified logic (storage, access control, arithmetic) but an *unverified* cryptographic core. The proof guarantees the contract correctly *uses* the hash; it does not guarantee the hash *is* Poseidon. Auditing the `.yul` library is the developer's responsibility.
 
-To increase confidence: use audited implementations, add Foundry tests that exercise the linked contract end-to-end, compare library output against a reference, and document the assumption in [`TRUST_ASSUMPTIONS.md`](https://github.com/lfglabs-dev/verity/blob/main/TRUST_ASSUMPTIONS.md).
+To increase confidence: use audited implementations, add Foundry tests that exercise the linked contract end-to-end, compare library output against a reference, and document the assumption in [`TRUST_ASSUMPTIONS.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md).
 
 ## CLI
 

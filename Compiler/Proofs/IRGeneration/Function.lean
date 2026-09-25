@@ -3362,14 +3362,14 @@ theorem stmtListTerminalCore_compiledLegacyCompatible
             cases hcompile
             exact .block
               [YulStmt.let_
-                (pickFreshName "__ite_cond"
+                (pickFreshName (iteCondBaseName thenBranch elseBranch)
                   (compilerScope ++
                     (collectExprNames cond ++
                       (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))
                 condIR,
                YulStmt.if_
                 (YulExpr.ident
-                  (pickFreshName "__ite_cond"
+                  (pickFreshName (iteCondBaseName thenBranch elseBranch)
                     (compilerScope ++
                       (collectExprNames cond ++
                         (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)))))
@@ -3377,7 +3377,7 @@ theorem stmtListTerminalCore_compiledLegacyCompatible
                YulStmt.if_
                 (YulExpr.call "iszero"
                   [YulExpr.ident
-                    (pickFreshName "__ite_cond"
+                    (pickFreshName (iteCondBaseName thenBranch elseBranch)
                       (compilerScope ++
                         (collectExprNames cond ++
                           (collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))))])

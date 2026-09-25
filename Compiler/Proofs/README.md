@@ -3,7 +3,7 @@
 Formal verification proofs for the Verity compiler pipeline:
 `EDSL -> CompilationModel -> IR -> native EVMYulLean`.
 
-See [TRUST_ASSUMPTIONS.md](../../TRUST_ASSUMPTIONS.md) for the full trust boundary and [veritylang.com/verification](https://veritylang.com/verification) for proof status.
+See [TRUST_ASSUMPTIONS.md](../../docs/TRUST_ASSUMPTIONS.md) for the full trust boundary and [veritylang.com/verification](https://veritylang.com/verification) for proof status.
 
 ## Verification Layers
 

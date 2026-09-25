@@ -31,11 +31,11 @@ Every transition inside the proof envelope is either fully verified or recorded 
 
 <!-- BEGIN GENERATED QUICK FACTS -->
 - **Language**: Lean 4.31.0
-- **Core Size**: 2257 lines
-- **Verified Contracts**: 17 (Counter, ERC20, ERC721, Ledger, LocalObligationMacroSmoke, Ownable, Owned, OwnedCounter, OwnedCounterComposed, ReentrancyExample, ReentrancyRelyGuarantee, SafeCounter, SimpleStorage, SimpleToken, SolidityImportSmoke, Vault, VaultFromSolidity)
-- **Theorems**: 356 across 17 categories, 356 fully proven
-- **Axioms**: 1 documented Lean axioms (see AXIOMS.md)
-- **Tests**: 532 Foundry tests, 239 property tests
+- **Core Size**: 2412 lines
+- **Verified Contracts**: 15 (Counter, ERC20, ERC721, Ledger, LocalObligationMacroSmoke, Ownable, Owned, OwnedCounter, OwnedCounterComposed, ReentrancyExample, ReentrancyRelyGuarantee, SafeCounter, SimpleStorage, SimpleToken, Vault)
+- **Theorems**: 329 across 15 categories, 329 fully proven
+- **Axioms**: 1 documented Lean axioms (see docs/AXIOMS.md)
+- **Tests**: 524 Foundry tests, 239 property tests
 - **Build**: `lake build` verifies all proofs
 - **Repository**: https://github.com/lfglabs-dev/verity
 <!-- END GENERATED QUICK FACTS -->

@@ -99,7 +99,7 @@ theorem successResult_eq (spec : CompilationModel) (world : Verity.ContractState
     (ret : Option Nat) :
     toSourceResult (Denote.successResult sourceOracle spec world ret) =
       SourceSemantics.successResult spec world ret :=
-  DenoteAgreement.toSourceResult_successResult spec world ret
+  DenoteAgreement.toSourceResult_successResult spec world ret []
 
 theorem withTransactionContext_eq (world : Verity.ContractState) (tx : DenoteTransaction) :
     Denote.withTransactionContext world tx =

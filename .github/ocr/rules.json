@@ -1,7 +1,7 @@
 {
   "rules": [
     {
-      "path": "{AUDIT.md,TRUST_ASSUMPTIONS.md,AXIOMS.md}",
+      "path": "docs/{TRUST_ASSUMPTIONS.md,AXIOMS.md}",
       "rule": "Treat trust-boundary documentation changes as high-risk. Check whether a code/proof change weakens, broadens, or silently depends on assumptions, axioms, admitted facts, trusted external semantics, compiler equivalence, or audit exclusions. Flag any mismatch between these docs and changed Lean/Solidity/Yul/Cairo code. Prefer concrete line-linked findings; do not comment on wording unless it changes the trust model.",
       "merge_system_rule": true
     },
@@ -50,9 +50,8 @@
     "**/*.sol",
     "**/*.yul",
     "**/*.cairo",
-    "AUDIT.md",
-    "TRUST_ASSUMPTIONS.md",
-    "AXIOMS.md",
+    "docs/TRUST_ASSUMPTIONS.md",
+    "docs/AXIOMS.md",
     "README.md",
     "docs/**/*.md",
     ".github/**/*"

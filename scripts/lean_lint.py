@@ -35,7 +35,6 @@ RULES: dict[str, str] = {
     "split_compiler_test_artifacts": "check_split_compiler_test_artifacts",
     "rewrite_proof_metadata": "check_rewrite_proof_metadata",
     "proof_length": "check_proof_length",
-    "spec_named_storage": "check_spec_named_storage",
 }
 
 

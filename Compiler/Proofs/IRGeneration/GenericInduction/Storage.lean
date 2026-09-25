@@ -7278,7 +7278,7 @@ theorem compiledStmtStep_ite
     | nil => exfalso; exact FunctionBody.stmtListTerminalCore_ne_nil helse rfl
     | cons => simp
   let tempName :=
-    CompilationModel.pickFreshName "__ite_cond"
+    CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
       (scope ++ collectExprNames cond ++
         collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)
   let compiledIR :=

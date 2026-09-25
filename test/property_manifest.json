@@ -347,28 +347,6 @@
     "transfer_then_balanceOf_recipient_correct",
     "transfer_then_balanceOf_sender_correct"
   ],
-  "SolidityImportSmoke": [
-    "bump_meets_spec",
-    "bump_success_spec",
-    "dispatch_is_child",
-    "early_meets_spec",
-    "get_meets_spec",
-    "go_meets_spec",
-    "go_success_spec",
-    "guarded_reverts_not_owner_before_pause",
-    "guarded_success_spec",
-    "makeRev_encodes",
-    "make_encodes",
-    "other_member_unchanged_thm",
-    "pause_meets_spec",
-    "pause_success_spec",
-    "paused_invariant",
-    "set_then_get",
-    "snapshot_restores_status",
-    "status_restored",
-    "super_runs_parent",
-    "tagged_uses_base_helper"
-  ],
   "Vault": [
     "balanceOf_meets_spec",
     "balanceOf_preserves_state",
@@ -379,14 +357,5 @@
     "vaultMinimal_functions_bridged",
     "vaultMinimal_runtime_lowers_native",
     "vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value"
-  ],
-  "VaultFromSolidity": [
-    "balance_meets_spec",
-    "balance_success_spec",
-    "deposit_meets_spec",
-    "deposit_success_spec",
-    "solvent_invariant",
-    "withdraw_meets_spec",
-    "withdraw_success_spec"
   ]
 }

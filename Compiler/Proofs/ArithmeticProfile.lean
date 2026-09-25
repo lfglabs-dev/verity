@@ -163,7 +163,7 @@ theorem shr_bridge (shift value : Nat) :
 -- overflow checks. Contracts that need checked arithmetic must use the EDSL
 -- safeAdd/safeSub/safeMul functions, which return Option and revert on None.
 --
--- Cryptographic primitives: keccak256 is axiomatized (see AXIOMS.md).
+-- Cryptographic primitives: keccak256 is axiomatized (see docs/AXIOMS.md).
 -- The mapping-slot derivation trusts the keccak FFI.
 --
 -- Legacy/native bridge equivalence: comparison lemmas are part of the

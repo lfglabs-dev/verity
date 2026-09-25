@@ -59,7 +59,7 @@ outside the proof envelope.
 
 ## Axioms and assumptions
 
-[`AXIOMS.md`](https://github.com/lfglabs-dev/verity/blob/main/AXIOMS.md) is the authoritative registry of Lean axioms in the proof tree. Today it lists **zero active project-level axioms**: the last residual axiom (`solidityMappingSlot_lt_evmModulus`) was eliminated when the FFI-based `keccak256` call was replaced by the kernel-computable `KeccakEngine.keccak256` whose output length is proved by `squeeze256_size`.
+[`AXIOMS.md`](https://github.com/lfglabs-dev/verity/blob/main/docs/AXIOMS.md) is the authoritative registry of Lean axioms in the proof tree. Today it lists **zero active project-level axioms**: the last residual axiom (`solidityMappingSlot_lt_evmModulus`) was eliminated when the FFI-based `keccak256` call was replaced by the kernel-computable `KeccakEngine.keccak256` whose output length is proved by `squeeze256_size`.
 
 What remains outside the proof envelope is **assumptions**, not axioms:
 

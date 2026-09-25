@@ -104,9 +104,9 @@ def discover_repo_axioms() -> dict[str, tuple[str, int]]:
 
 
 def run_location_check() -> int:
-    axioms_md = ROOT / "AXIOMS.md"
+    axioms_md = ROOT / "docs" / "AXIOMS.md"
     if not axioms_md.exists():
-        die("AXIOMS.md not found")
+        die("docs/AXIOMS.md not found")
 
     text = axioms_md.read_text(encoding="utf-8")
     axiom_blocks = parse_axiom_entries(text)
