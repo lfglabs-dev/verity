@@ -487,7 +487,7 @@ private theorem simpleStorageNativeRuntimeDispatcherStmts_exists_init_block :
           subst lowered
           subst finalNext
           exact ⟨inner, innerNext, by simp, by
-            simp [simpleStorageBuildSwitchBody, simpleStorageBuildSwitchSourceCases]⟩
+            simp⟩
 
 private noncomputable def simpleStorageNativeDispatcherInnerStmts :
     List EvmYul.Yul.Ast.Stmt :=
@@ -4137,7 +4137,7 @@ private theorem projectStorageFromState_storeHit_initialState_materialized
               storage slots)
             (EvmYul.UInt256.ofNat 0))[EvmYul.UInt256.ofNat slot]? =
             none := by
-        simp [Std.TreeMap.get?_eq_getElem?, hUInt]
+        simp [hUInt]
       rw [hErase, hUInt]
       simp only [Compiler.Proofs.abstractStoreStorageOrMapping,
         Compiler.Proofs.IRGeneration.IRStorageWord.ofNat, IRStorageSlot.ofNat]
