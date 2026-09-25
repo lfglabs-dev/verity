@@ -758,3 +758,19 @@ helper (`NonreentrantInternalHelperRejected`, #1971).
 
 **Last Updated**: 2026-05 (intrinsics addition)
 **Maintainer Rule**: Update on every trust-boundary-relevant code change.
+
+### Call-summary storage observation
+
+`DenoteExternalCalls.externalWorldOf` includes contract namespace **0**,
+which has aliased the caller's unqualified storage since #2243. It is not
+filtered out: doing so would hide callback/delegatecall writes from summary
+postconditions and the staticcall preservation law. Positive namespaces
+remain observable too. Namespace IDs are model identities, not a claim that
+namespace 0 is the EVM address zero. This projection covers the `contractStorage`
+view; it does not establish preservation of balances, transient storage,
+events, or other state channels.
+
+`Contracts.Examples.SummaryConformance` specifies an exact caller-slot update
+on non-static calls and complete projected-storage preservation on static
+calls. Its transaction example still executes real writes before rollback.
+CI builds the entire `Contracts` library, including this conformance proof.
