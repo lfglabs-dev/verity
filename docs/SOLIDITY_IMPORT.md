@@ -234,7 +234,9 @@ contract and its solc C3 inheritance chain**, including internal/private helpers
 Most-derived implementations win by signature; private helpers retain their
 declaring-contract identity. Constructors, generated getters and abstract
 declarations are excluded. Inherited implementation selection failures are
-reported against the declaration that the importer cannot select.
+reported against the declaration that the importer cannot select. Each probe
+checks the root's declaring contract in the import report, so a same-named
+private helper cannot stand in for an inherited implementation.
 Fallback/receive bodies remain counted and are rejected as unnamed roots.
 Midnight is reported both in full and with only `multicall` removed for the
 milestone. This is function-import coverage, not whole-contract ABI or EVM
@@ -249,8 +251,10 @@ both a zero process status and the post-import marker. Timeouts, crashes,
 unlocated importer errors, missing dependencies, and kernel errors are unknown
 measurements. Unknown functions stay in the denominator; an unavailable
 contract inventory suppresses the aggregate percentage. Reports explicitly
-mark incomplete measurements and the CLI returns nonzero, which CI treats as
-advisory.
+mark incomplete measurements and pending contracts. Fresh incomplete artifacts
+replace prior-run output before the build starts; a timeout cannot leave an
+old success report behind. The CLI returns nonzero for incomplete measurements,
+which CI treats as advisory.
 
 The first-blocker histogram weights each diagnostic by the number of rejected
 functions encountering it first. These are **potential** unlocks, not a promise

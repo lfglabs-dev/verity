@@ -236,8 +236,10 @@ def inventory(project, target, source_root, solc, out):
             if node.get('body') is None:
                 continue
             types = [spelling(p['typeName'], text) for p in node['parameters']['parameters']]
-            signature = node['name'] + '(' + ','.join(types) + ')'
-            identity = (signature, declaration['name'] if node['visibility'] == 'private' else '')
+            label = node['name'] or node.get('kind', 'function')
+            signature = label + '(' + ','.join(types) + ')'
+            identity = (node.get('kind', 'function'), signature,
+                        declaration['name'] if node['visibility'] == 'private' else '')
             if identity in seen:
                 continue
             seen.add(identity)
@@ -295,7 +297,11 @@ def probe(function, target, source_root, out, workspace, timeout):
         + '  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }\n'
         + f'  contract {ident(target["contract"])}\n'
         + f'  function {ident(name)}({", ".join(ident(t) for t in function["types"])})\n'
-        + '#eval IO.println "COVERAGE_IMPORT_OK"\n')
+        + '#eval show IO Unit from do\n'
+        + '  let some root := measured.report.includedFunctions.head? | throw (IO.userError "missing root report")\n'
+        + f'  if root.contract != {json.dumps(function["declaring_contract"])} || root.name != {json.dumps(name)} then\n'
+        + '    IO.println "COVERAGE_WRONG_ROOT"\n'
+        + '  else IO.println "COVERAGE_IMPORT_OK"\n')
     # The generated file must live beneath the workspace lakefile: the importer
     # determines its package root from the importing Lean source location.
     if not driver.resolve().is_relative_to(workspace):
@@ -304,6 +310,14 @@ def probe(function, target, source_root, out, workspace, timeout):
     output = result.stdout + result.stderr
     (out / 'import.log').write_text(output)
     classified = classify(result.returncode, output)
+    root_closure = re.search(r'^closure: ([^\n]+)', output, re.MULTILINE)
+    wrong_root = (result.returncode == 0 and 'COVERAGE_WRONG_ROOT' in output)
+    wrong_failure = (classified['status'] == 'rejected' and root_closure is not None
+                     and root_closure[1].split(' -> ')[0] != function['declaring_contract'] + '.' + name)
+    if wrong_root or wrong_failure:
+        return {'status': 'rejected', 'blocker': {
+            'file': function['file'], 'line': function['line'], 'column': function['column'],
+            'construct': 'Inheritance', 'reason': 'probe selected a different declaring contract'}}
     if (classified['status'] == 'error' and result.returncode == 1
             and function['declaring_contract'] != target['contract']
             and f'no function {target["contract"]}.{name}(' in output):
@@ -325,8 +339,26 @@ def summarize(rows):
                                       for k, v in sorted(blockers.items(), key=lambda p: (-p[1], p[0]))]}
 
 
+def refresh_report(report):
+    """Finalize a snapshot without ever treating pending inventory as complete."""
+    identity = lambda c: (c['project'], c['entry'], c['contract'])
+    observed = [identity(c) for c in report['contracts']]
+    expected = [identity(c) for c in report['expected_contracts']]
+    report['pending'] = [c for c in report['expected_contracts'] if identity(c) not in observed]
+    report['summary'] = summarize([fn for c in report['contracts'] for fn in c['functions']])
+    report['complete'] = (bool(expected) and len(observed) == len(set(observed))
+                          and set(observed) == set(expected)
+                          and all(c['summary']['complete'] for c in report['contracts']))
+    if report['pending'] or any('error' in c for c in report['contracts']):
+        report['summary']['percent_importable'] = None
+        report['summary']['complete'] = False
+    return report
+
+
 def markdown(report):
     lines = ['# Solidity import coverage', '', report['scope'], '',
+             'Measurement complete: ' + str(report['complete']).lower() + '.', '',
+             'Pending contracts: ' + (', '.join(c['project'] + ':' + c['contract'] for c in report.get('pending', [])) or 'none') + '.', '',
              'Unknown/tool failures stay in the denominator. Percentages are lower bounds when a measurement is incomplete.', '',
              '| Contract | Imported / declared | % | Unknown |', '| --- | ---: | ---: | ---: |']
     for contract in report['contracts']:
@@ -363,16 +395,23 @@ def main():
     parser.add_argument('--project', action='append', help='measure only named projects (recorded in report)')
     parser.add_argument('--timeout', type=int, default=120)
     args = parser.parse_args()
-    manifest = json.loads(args.manifest.read_text())
     workspace, output, cache = args.workspace.resolve(), args.output.resolve(), args.cache.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    # Replace prior-run success artifacts before any fallible setup/build work.
+    write_json(output / 'coverage.json', {'schema': 1, 'complete': False, 'error': 'measurement initializing'})
+    (output / 'coverage.md').write_text('# Solidity import coverage unavailable\n\nMeasurement initializing.\n')
+    manifest = json.loads(args.manifest.read_text())
     projects = [p for p in manifest['projects'] if not args.project or p['id'] in args.project]
     if not projects or (args.project and set(args.project) - {p['id'] for p in projects}):
         parser.error('unknown or empty project selection')
     report = {'schema': 1, 'scope': manifest['scope'], 'manifest_sha256': sha(args.manifest),
               'selection': [p['id'] for p in projects], 'contracts': [],
               'verity_head': checked(['git', 'rev-parse', 'HEAD'], cwd=workspace).strip(),
-              'measurement_script_sha256': sha(Path(__file__))}
+              'measurement_script_sha256': sha(Path(__file__)),
+              'expected_contracts': [{'project': p['id'], **t} for p in projects for t in p['contracts']]}
+    refresh_report(report)
+    write_json(output / 'coverage.json', report)
+    (output / 'coverage.md').write_text(markdown(report))
     try:
         build = run(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=workspace, timeout=1800)
         (output / 'build.log').write_text(build.stdout + build.stderr)
@@ -417,11 +456,7 @@ def main():
                 item['summary']['complete'] = False
             report['contracts'].append(item)
             print(project['id'], target['contract'], item['summary'], flush=True)
-            report['summary'] = summarize([fn for c in report['contracts'] for fn in c['functions']])
-            report['complete'] = all(c['summary']['complete'] for c in report['contracts'])
-            if any('error' in c for c in report['contracts']):
-                report['summary']['percent_importable'] = None
-                report['summary']['complete'] = False
+            refresh_report(report)
             write_json(output / 'coverage.json', report)
             (output / 'coverage.md').write_text(markdown(report))
     return 0 if report['complete'] else 1
