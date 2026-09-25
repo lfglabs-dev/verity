@@ -16,6 +16,13 @@ does not cover. `DenoteAgreement.execStmt_eq` still holds, including
 finishes as `.stop`. The proof denotation observes success versus revert. It
 does not observe the `PanicCode` payload.
 
+The typed accessors that the import also generates (`example.f`,
+`example.position.credit`, ...) add no trust: they are Lean definitions over
+the model, through `runFunction` and `readMember` in
+`Compiler/SolidityImport/Access.lean`. A theorem stated with them is
+kernel-checked against those definitions. They inherit the model's layout, so
+they mean the Solidity storage member only as far as the imported layout does.
+
 The source digest hashes `Import.lean`, `Coverage.lean`, `Report.lean`,
 `Quote.lean`, and `Profile.lean` from
 the package that contains them: the Verity tree itself, or

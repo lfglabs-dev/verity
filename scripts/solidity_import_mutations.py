@@ -347,6 +347,16 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
         if blob.returncode == 0 or needle not in blob.stdout + blob.stderr:
             raise SystemExit(f"{name}: expected rejection containing {needle!r}\n{blob.stdout}{blob.stderr}")
         print(f"pass {name}")
+    # Generated typed accessors must not shadow `model`, `report`, ...
+    clash = write_project("accessor-collision", lambda d: (d / "Slice.sol").write_text(
+        (d / "Slice.sol").read_text().replace("function lossOf(", "function model(")))
+    bad = clash / "Clash.lean"
+    bad.write_text(HEADER.format(root=clash).replace(
+        "  function f(Mkt, bytes32, address)\n", "  function model(bytes32)\n"))
+    blob = lean(bad)
+    if blob.returncode == 0 or "collides with the generated" not in blob.stdout + blob.stderr:
+        raise SystemExit(f"accessor-collision: expected rejection\n{blob.stdout}{blob.stderr}")
+    print("pass accessor-collision")
     # An unsupported construct reached from the second root names that root.
     second = write_project("second-root", call_unused_from_loss)
     bad = second / "SecondRoot.lean"

@@ -145,6 +145,7 @@ def quoteReport (r : ImportReport) : m Term := do
        excludedFunctions := $(← list (← r.excludedFunctions.mapM fn)),
        projections := $(← list (← r.projections.mapM proj)),
        storageFields := $(← strings r.storageFields),
+       storageKeys := $(← list (← r.storageKeys.mapM fun (f, ks) => do `(($(quote f), $(← strings ks))))),
        opaqueMembers := $(← list (← r.opaqueMembers.mapM opq)),
        observesPanicPayload := $(quote r.observesPanicPayload) } :
       Compiler.CompilationModel.SolidityImport.ImportReport))

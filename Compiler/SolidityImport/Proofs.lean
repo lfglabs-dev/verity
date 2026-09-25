@@ -1,29 +1,14 @@
 import Mathlib.Tactic
-import Compiler.SolidityImport.Coverage
+import Compiler.SolidityImport.Access
 
 /-!
-Lemmas for proofs about an imported model's `Denote` execution: running a
-function by name, 256-bit word arithmetic, environment bindings, and splitting
-a body into straight-line parts.
+Lemmas for proofs about an imported model's `Denote` execution: 256-bit word
+arithmetic, environment bindings, and splitting a body into straight-line parts.
 -/
 
 open Compiler.CompilationModel Compiler.CompilationModel.Denote
 open Verity.Core
 namespace Compiler.CompilationModel.SolidityImport
-
-/-- Body of the function `name` in `model`; `[]` if there is none. -/
-def functionBody (model : CompilationModel) (name : String) : List Stmt :=
-  go model.functions
-where
-  go : List FunctionSpec → List Stmt
-    | [] => []
-    | fn :: rest => if fn.name = name then fn.body else go rest
-
-/-- Run the function `name` of an imported model on scalar arguments;
-`none` means it reverted. -/
-def runFunction (oracle : DenoteOracle) (model : CompilationModel) (name : String)
-    (world : Verity.ContractState) (timestamp : Nat) (args : Env) : Option (List Nat) :=
-  denoteScalarBody oracle model.fields world timestamp args (functionBody model name)
 
 /-- Split a body just after its top-level `let name := ...`. Since imported
 Solidity locals keep their name, this cuts a body at a Solidity statement. -/

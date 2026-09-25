@@ -39,6 +39,20 @@ The command defines `example.model`, `example.report` (`toText` renders the
 reviewed inventory), `example.sourceDigest`, and the kernel theorem
 `example.covered`. It works inside namespaces.
 
+It also defines typed accessors for specifications, with Solidity types
+(`UIntN n`, `Uint256`, `Address`, `BytesN 32`, `Bool`):
+
+- `example.f oracle world m_maturity id user : Option (UIntN 128 × UIntN 128 × UIntN 128)`
+  calls the imported function `f` in `world` (block timestamp included);
+  `none` means it reverts.
+- `example.position.credit oracle world id user : UIntN 128` reads
+  `position[id][user].credit` with the imported layout (solc's slot, word
+  offset and packing); `example.position.credit_val` states that its value is
+  exactly the model's read. Key binders use the Solidity key names.
+
+`oracle` computes mapping slots and is a parameter, so a theorem over these
+accessors holds for any slot derivation; it does not identify slots with Keccak.
+
 Install the compiler once with `python3 scripts/setup_solc_import.py` (a
 downstream package passes `--output .lake/solidity-import/solc-0.8.34`).
 Elaboration never downloads a compiler; it checks the binary's SHA-256 before
@@ -57,9 +71,11 @@ lean_lib MorphoMidnight where
 
 ## Proving properties of an imported function
 
-`Compiler.SolidityImport.Proofs` provides `runFunction model "name"`, which
-runs an imported function on scalar arguments (`none` means revert), and the
-lemmas used to reason about that execution: word arithmetic (`sub_word`,
+State properties with the typed accessors above. The accessors unfold to
+`runFunction` and `readMember` (`Compiler.SolidityImport.Access`), and
+`evalExpr_structMember2_param` rewrites the model's own storage reads to
+`readMember`. `Compiler.SolidityImport.Proofs` provides the lemmas used to
+reason about the execution: word arithmetic (`sub_word`,
 `mul_word128`, `div_word`, `mask_eq`), bindings (`lookup_bind_same`,
 `lookup_bind_other`), and splitting a body into straight-line parts
 (`split_prefix`, `list_frame`, `ends_return`). Solidity locals keep their name

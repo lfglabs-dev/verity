@@ -91,3 +91,11 @@ theorem smoke_step_credit :
 
 -- Interpreter witnesses A/B live in scripts/solidity_import_mutations.py.
 -- Keeping test execution out of this proof module satisfies Lean hygiene.
+
+/-- The generated storage reader follows the imported layout: in the witness,
+`position[1][2].credit` is the low half of slot 5 and `pendingFee` its high half. -/
+example : (smoke.position.credit sliceOracle (witnessWorld 100 10 0 0 0) 1 2).val = 100 := by
+  decide
+
+example : (smoke.position.pendingFee sliceOracle (witnessWorld 100 10 0 0 0) 1 2).val = 10 := by
+  decide

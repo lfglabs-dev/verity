@@ -1,6 +1,6 @@
 import Lean
 import Compiler.Sha256.Engine
-import Compiler.SolidityImport.Coverage
+import Compiler.SolidityImport.Access
 import Compiler.SolidityImport.Profile
 import Compiler.SolidityImport.Quote
 import Compiler.SolidityImport.Report
@@ -19,8 +19,10 @@ solidity_import midnight from "vendor/midnight" entry "src/Midnight.sol"
   function updatePositionView(Market, bytes32, address)
 ```
 
-This defines `midnight.model`, `midnight.report`, `midnight.sourceDigest` and
-the theorem `midnight.covered`.
+This defines `midnight.model`, `midnight.report`, `midnight.sourceDigest`, the
+theorem `midnight.covered`, and typed accessors: `midnight.updatePositionView`
+for each imported function and `midnight.position.credit` for each storage
+struct member.
 
 The frontend is in the trust base. A covered model is not, by itself, a proof
 that the model matches the Solidity source or solc's bytecode.
@@ -347,6 +349,23 @@ private def mappingKey (ty : String) : MetaM MappingKeyType :=
 
 private def layoutType (types : Json) (id : String) : MetaM Json :=
   field types id
+
+/-- Solidity names of the mapping keys of the state variable `name`
+(`mapping(bytes32 id => ...)`), outermost first; `""` when unnamed. -/
+private def mappingKeyNames (env : Env) (name : String) : List String :=
+  let decl := env.stateVars.toList.find? fun (_, j) => optStr j "name" == some name
+  let rec go (fuel : Nat) (ty : Json) : List String :=
+    match fuel with
+    | 0 => []
+    | fuel + 1 =>
+      if optStr ty "nodeType" == some "Mapping" then
+        (optStr ty "keyName" |>.getD "") :: (match field? ty "valueType" with
+          | some v => go fuel v
+          | none => [])
+      else []
+  match decl.bind (fun (_, j) => field? j "typeName") with
+  | some ty => go 8 ty
+  | none => []
 
 private def buildField (types item : Json) : M FieldInfo := do
   let name ← mStr (← mField item "label")
@@ -1262,6 +1281,7 @@ private def importSlice
       includedFunctions := (env.included.map FnRec.toImported).toList,
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,
       projections := projections.toList, storageFields := env.referenced.toList,
+      storageKeys := env.referenced.toList.map fun name => (name, mappingKeyNames env name),
       opaqueMembers := opaqueMembers.toList, observesPanicPayload := false }
   pure (model, report)
 
@@ -1314,6 +1334,121 @@ private def packageRoot : CommandElabM System.FilePath := do
     pkg := parent
   return pkg
 
+/-! ## Typed accessors
+
+For readable specifications, the import also defines, under its namespace, one
+typed function per imported root (`midnight.updatePositionView`) and one typed
+reader per storage struct member (`midnight.position.credit`). They only wrap
+`runFunction` and `readMember` on the imported model. -/
+
+private def keyTypeTerm : MappingKeyType → CommandElabM Term
+  | .address => `(Verity.Core.Address)
+  | .bytes32 => `(Verity.Core.BytesN 32)
+  | .uint256 => `(Verity.Core.Uint256)
+
+/-- Lean type of a scalar parameter or return value, when it has one. -/
+private def paramTypeTerm? : ParamType → Option (CommandElabM Term)
+  | .uint256 => some `(Verity.Core.Uint256)
+  | .uintN bits => some `(Verity.Core.UIntN $(quote bits))
+  | .uint8 => some `(Verity.Core.UIntN 8)
+  | .uint16 => some `(Verity.Core.UIntN 16)
+  | .address => some `(Verity.Core.Address)
+  | .bytes32 => some `(Verity.Core.BytesN 32)
+  | .bool => some `(Bool)
+  | _ => none
+
+private def docComment (text : String) : TSyntax ``Lean.Parser.Command.docComment :=
+  ⟨mkNode ``Lean.Parser.Command.docComment #[mkAtom "/--", mkAtom (text ++ "-/")]⟩
+
+/-- A binder name for `base` that no Solidity parameter uses. -/
+private def freeBinder (taken : List String) (base : String) : Ident := Id.run do
+  let mut name := base
+  while taken.contains name do name := name ++ "'"
+  pure (mkIdent (Name.mkSimple name))
+
+private def elabStorageAccessors (ns : Name) (model : CompilationModel) (report : ImportReport) :
+    CommandElabM (List Name) := do
+  let mut names := []
+  for field in model.fields do
+    let (keys, members) ← match field.ty with
+      | .mappingStruct k members => pure ([k], members)
+      | .mappingStruct2 k1 k2 members => pure ([k1, k2], members)
+      | _ => continue
+    let solNames := (report.storageKeys.find? (·.1 == field.name)).map (·.2) |>.getD []
+    let keyIdents := (List.range keys.length).map fun i =>
+      let solName := solNames.getD i ""
+      let usable := solName != "" && !["oracle", "world"].contains solName &&
+        (solNames.filter (· == solName)).length == 1
+      mkIdent (Name.mkSimple (if usable then solName else s!"key{i + 1}"))
+    let mut binders : Array (TSyntax ``Lean.Parser.Term.bracketedBinder) := #[]
+    for (k, ident) in keys.zip keyIdents do
+      binders := binders.push (← `(bracketedBinder| ($ident : $(← keyTypeTerm k))))
+    let keyWords ← keyIdents.toArray.mapM fun ident => `(($ident).val)
+    let path := String.join (keyIdents.map fun _ => "[..]")
+    for member in members do
+      let name := ns ++ Name.mkSimple field.name ++ Name.mkSimple member.name
+      let valName := ns ++ Name.mkSimple field.name ++ Name.mkSimple (member.name ++ "_val")
+      let read ← `(Compiler.CompilationModel.SolidityImport.readMember oracle $(mkIdent (`_root_ ++ ns ++ `model))
+        world $(quote field.name) [$keyWords,*] $(quote member.name))
+      let doc := docComment s!"`{field.name}{path}.{member.name}`, read with the imported storage layout. "
+      match member.packed with
+      | some packed =>
+          elabCommand (← `($doc:docComment def $(mkIdent (`_root_ ++ name))
+              (oracle : Compiler.CompilationModel.Denote.DenoteOracle) (world : Verity.ContractState)
+              $binders* : Verity.Core.UIntN $(quote packed.width) :=
+            Verity.Core.UIntN.ofNat $(quote packed.width) $read))
+          elabCommand (← `(@[simp] theorem $(mkIdent (`_root_ ++ valName))
+              (oracle : Compiler.CompilationModel.Denote.DenoteOracle) (world : Verity.ContractState)
+              $binders* : ($(mkIdent (`_root_ ++ name)) oracle world $keyIdents.toArray*).val = $read :=
+            Compiler.CompilationModel.SolidityImport.val_uintN_readMember _ _ _ _ _ _ (by decide)))
+      | none =>
+          elabCommand (← `($doc:docComment def $(mkIdent (`_root_ ++ name))
+              (oracle : Compiler.CompilationModel.Denote.DenoteOracle) (world : Verity.ContractState)
+              $binders* : Verity.Core.Uint256 :=
+            Verity.Core.Uint256.ofNat $read))
+          elabCommand (← `(@[simp] theorem $(mkIdent (`_root_ ++ valName))
+              (oracle : Compiler.CompilationModel.Denote.DenoteOracle) (world : Verity.ContractState)
+              $binders* : ($(mkIdent (`_root_ ++ name)) oracle world $keyIdents.toArray*).val = $read :=
+            Compiler.CompilationModel.SolidityImport.val_uint256_readMember _ _ _ _ _ _ (by decide)))
+      names := name :: valName :: names
+  pure names
+
+private def elabFunctionCalls (ns : Name) (model : CompilationModel) : CommandElabM (List Name) := do
+  let mut names := []
+  for fn in model.functions do
+    let taken := fn.params.map (·.name)
+    let some paramTys := fn.params.mapM (paramTypeTerm? ·.ty) | continue
+    let some returnTys := fn.returns.mapM paramTypeTerm? | continue
+    let oracle := freeBinder taken "oracle"
+    let world := freeBinder taken "world"
+    let paramIdents := fn.params.map fun p => mkIdent (Name.mkSimple p.name)
+    let mut binders : Array (TSyntax ``Lean.Parser.Term.bracketedBinder) := #[]
+    for (ident, ty) in paramIdents.zip paramTys do
+      binders := binders.push (← `(bracketedBinder| ($ident : $(← ty))))
+    let args ← (fn.params.zip paramIdents).toArray.mapM fun (p, ident) =>
+      `(($(quote p.name), Compiler.CompilationModel.SolidityImport.Word.toWord $ident))
+    let returnTys ← returnTys.mapM id
+    let resultTy ← match returnTys.reverse with
+      | [] => `(Unit)
+      | last :: rest => rest.foldlM (fun acc ty => `($ty × $acc)) last
+    let words := (List.range fn.returns.length).toArray.map fun i => mkIdent (Name.mkSimple s!"r{i}")
+    let decoded ← words.mapM fun w => `(Compiler.CompilationModel.SolidityImport.Word.ofWord $w)
+    let result ← match decoded.toList with
+      | [] => `(())
+      | [x] => pure x
+      | x :: xs => `(($x, $(xs.toArray),*))
+    let name := ns ++ Name.mkSimple fn.name
+    let doc := docComment s!"Call `{fn.name}` on the imported model in `{world.getId}`; `none` means it reverts. "
+    elabCommand (← `($doc:docComment def $(mkIdent (`_root_ ++ name))
+        ($oracle : Compiler.CompilationModel.Denote.DenoteOracle) ($world : Verity.ContractState)
+        $binders* : Option $resultTy :=
+      match Compiler.CompilationModel.SolidityImport.runFunction $oracle $(mkIdent (`_root_ ++ ns ++ `model))
+          $(quote fn.name) $world [$args,*] with
+      | some [$words,*] => some $result
+      | _ => none))
+    names := name :: names
+  pure names
+
 @[command_elab solidityImportCmd]
 def elabSolidityImport : CommandElab := fun stx => do
   let `(solidity_import $alias from $root entry $entry using $prof contract $contract
@@ -1342,6 +1477,12 @@ def elabSolidityImport : CommandElab := fun stx => do
     elabCommand (← `(def $(name `sourceDigest) : String := $(quote report.sourceDigest)))
     elabCommand (← `(theorem $(name `covered) :
       Compiler.CompilationModel.SolidityImport.modelImportCovered $(name `model) = true := by decide))
+    for fn in model.functions do
+      if [`model, `report, `sourceDigest, `covered].contains (Name.mkSimple fn.name) then
+        throwError "imported function {fn.name} collides with the generated {ns ++ Name.mkSimple fn.name}"
+    let generated := (← elabFunctionCalls ns model) ++ (← elabStorageAccessors ns model report)
+    if let some dup := generated.find? (fun n => (generated.filter (· == n)).length > 1) then
+      throwError "generated accessor {dup} is defined twice"
     -- The quoted definitions must denote exactly the values the importer built.
     unless (← get).messages.hasErrors do
       let back ← liftTermElabM <| evalModel (ns ++ `model)

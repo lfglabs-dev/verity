@@ -81,6 +81,8 @@ structure ImportReport where
   excludedFunctions : List ImportedFunction
   projections : List ParamProjection
   storageFields : List String
+  /-- Solidity names of each storage field's mapping keys (`""` when unnamed). -/
+  storageKeys : List (String × List String) := []
   opaqueMembers : List OpaqueMember
   /-- Proof denotation records success versus revert. `Stmt.panic` keeps its
   `PanicCode` on the statement, and `execStmt` does not return that payload. -/
@@ -101,7 +103,8 @@ def ImportReport.toText (r : ImportReport) : String := Id.run do
   for p in r.projections do
     lines := lines ++ [s!"projection {p.function} {p.parameter}.{p.member} head {p.headWord} as {p.modelParam} ignored {p.ignoredMembers}"]
   for name in r.storageFields do
-    lines := lines ++ [s!"storage {name}"]
+    let keys := (r.storageKeys.find? (·.1 == name)).map (·.2) |>.getD []
+    lines := lines ++ [s!"storage {name} keys {keys}"]
   for m in r.opaqueMembers do
     lines := lines ++ [s!"opaque {m.field}.{m.name} {m.solcType} word {m.wordOffset} byte {m.byteOffset}"]
   return String.intercalate "\n" lines ++ "\n"
