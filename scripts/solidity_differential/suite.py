@@ -16,17 +16,27 @@ def stateful_campaign(output, transactions, seed):
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/Transactions.lean'],
             log=output / 'transaction-smoke.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/EventRejections.lean'],
+            log=output / 'event-rejections.log')
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
         ('mocks', ['-m', 'solidity_differential.check_mocks']),
         ('rejections', ['-m', 'solidity_differential.check_denote_rejections']),
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
+        ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
     ]
     for variant in ('baseline', 'scoped', 'early-return'):
         checks.append((variant, ['-m', 'solidity_differential.check_stateful',
             '--transactions', str(transactions), '--seed', str(seed), '--variant', variant,
             '--output', str(output / variant)]))
+    for variant in ('baseline', 'scoped', 'early-return'):
+        checks.append(('events-' + variant, ['-m', 'solidity_differential.check_stateful',
+            '--transactions', str(transactions), '--seed', str(seed), '--variant', variant,
+            '--source-fixture', 'scripts/solidity_differential/fixtures/EventSequence.sol',
+            '--model-driver', 'Contracts/SolidityImportSmoke/EventSequenceModel.lean',
+            '--output', str(output / ('events-' + variant))]))
     completed = []
     for name, args in checks:
         # The primary script installs scripts/ on sys.path, but subprocess modules

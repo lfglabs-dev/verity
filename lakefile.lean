@@ -60,7 +60,9 @@ input_dir solidityImportSmokeSources where
 lean_lib «SolidityImportSmoke» where
   globs := #[.one `Contracts.SolidityImportSmoke.Smoke,
     .one `Contracts.SolidityImportSmoke.Transactions,
-    .one `Contracts.SolidityImportSmoke.SequenceModel]
+    .one `Contracts.SolidityImportSmoke.SequenceModel,
+    .one `Contracts.SolidityImportSmoke.EventSequenceModel,
+    .one `Contracts.SolidityImportSmoke.EventRejections]
   needs := #[solidityImportSmokeSources]
 
 lean_lib «Compiler» where

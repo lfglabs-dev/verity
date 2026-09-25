@@ -123,6 +123,13 @@ def stateful_scalar_source(original, variant):
     """
     if variant == 'baseline':
         return original
+    event_line = '        emit Changed(old, value);\n'
+    if event_line in original:
+        if original.count(event_line) != 1:
+            raise ValueError('nonunique event source anchor')
+        plain = original.replace(event_line, '')
+        return stateful_scalar_source(plain, variant).replace(
+            'return old;', 'emit Changed(old, value); return old;')
     before = '''        old = stored;
         stored = value;
         return old;'''
