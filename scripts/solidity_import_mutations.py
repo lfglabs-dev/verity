@@ -13,6 +13,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -399,7 +400,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
     # Compile and execute actual Denote mutants: a build failure is invalid,
     # not a detected semantic mutation. These regressions compare EVM bytes.
     for mutant in ("denote-panic-selector", "denote-panic-endian"):
-        output = WORK / mutant
+        output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],
                        cwd=ROOT, check=True, timeout=900)
