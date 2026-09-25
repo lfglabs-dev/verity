@@ -774,3 +774,10 @@ events, or other state channels.
 on non-static calls and complete projected-storage preservation on static
 calls. Its transaction example still executes real writes before rollback.
 CI builds the entire `Contracts` library, including this conformance proof.
+
+The pinned-corpus coverage tool uses separately checksum-pinned legacy solc
+binaries solely to inventory unchanged upstream sources and their inheritance
+chains. These do not become accepted `solidity_import` compiler versions.
+Importability is measured by the actual Lean importer; coverage percentages
+and first-blocker histograms neither establish EVM equivalence nor expand any
+compiler proof boundary. Missing or failed measurements are reported explicitly.

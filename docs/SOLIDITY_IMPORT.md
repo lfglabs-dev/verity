@@ -217,3 +217,45 @@ counterexample into a permanent regression.
 EVMYulLean has a bytecode executor (`EvmYul.EVM.Ξ`) that could become a fourth
 path; it would need account/block setup, opcode conformance checks and
 independent result decoding, and must not replace Foundry.
+
+## Pinned-corpus import coverage
+
+`python3 scripts/solidity_import_coverage.py --fetch` checks the immutable
+corpus in `scripts/solidity_import_corpus/manifest.json`: Midnight, Uniswap
+v2/v3 core contracts, Pareto credit vaults, and OpenZeppelin ERC20/ERC4626.
+`--fetch` permits downloading pinned source commits and checksum-verified
+inventory compilers and dependency archives. No npm lifecycle scripts run.
+Subsequent runs can omit it. Artifacts go to `.lake/solidity-import-coverage`;
+CI publishes JSON, Markdown, per-function import logs, and the inventory
+compiler input/output without making coverage a build gate.
+
+The current denominator is **implemented functions in the selected
+contract and its solc C3 inheritance chain**, including internal/private helpers.
+Most-derived implementations win by signature; private helpers retain their
+declaring-contract identity. Constructors, generated getters and abstract
+declarations are excluded. Inherited implementation selection failures are
+reported against the declaration that the importer cannot select.
+Fallback/receive bodies remain counted and are rejected as unnamed roots.
+Midnight is reported both in full and with only `multicall` removed for the
+milestone. This is function-import coverage, not whole-contract ABI or EVM
+coverage; in particular an import using scalar struct projections still counts
+as importable until that importer limitation is removed.
+
+Inventory uses the source project's pinned solc, preserving its original
+pragmas. Each named declaration then goes through the actual Lean importer
+under its current compiler pin. Source-version mismatches are reported as
+pragma blockers, never fixed by rewriting sources. A successful probe requires
+both a zero process status and the post-import marker. Timeouts, crashes,
+unlocated importer errors, missing dependencies, and kernel errors are unknown
+measurements. Unknown functions stay in the denominator; an unavailable
+contract inventory suppresses the aggregate percentage. Reports explicitly
+mark incomplete measurements and the CLI returns nonzero, which CI treats as
+advisory.
+
+The first-blocker histogram weights each diagnostic by the number of rejected
+functions encountering it first. These are **potential** unlocks, not a promise
+that implementing that construct alone makes all those functions importable.
+Rerun the report after each lowering family to reveal subsequent blockers.
+Legacy compiler-version blockers must be addressed before their construct
+histograms can be compared with Midnight's. No coverage result is a proof of
+semantic equivalence; that requires the separate differential/proof evidence.

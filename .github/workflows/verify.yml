@@ -1267,6 +1267,32 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
+      - name: Measure pinned Solidity import coverage
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          python3 scripts/solidity_import_coverage.py --fetch
+
+      - name: Publish Solidity import coverage
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f .lake/solidity-import-coverage/coverage.md ]; then
+            cat .lake/solidity-import-coverage/coverage.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Solidity import coverage unavailable: inspect measurement logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Archive Solidity import coverage
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: solidity-import-coverage
+          path: .lake/solidity-import-coverage/**
+          include-hidden-files: true
+          retention-days: 14
+
       - name: Build compiler CLI regression executable
         run: stdbuf -oL -eL lake build compiler-main-test
 
