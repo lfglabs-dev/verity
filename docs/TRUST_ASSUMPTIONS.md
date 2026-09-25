@@ -23,6 +23,28 @@ still expose only success versus failure. The call-composition interface retains
 local panic bytes separately from its legacy word-return result; full byte-level
 external-call composition is not yet certified.
 
+The experimental stateful instrument in `scripts/solidity_differential` runs
+separate real Anvil transactions against solc and Verity bytecode, and invokes
+`SequenceRunner` for Denote. Its scalar trace calls the actual statement
+executor; `traceStraightLine_agrees` proves equality of the complete outcome,
+including the resulting world and rich revert bytes, whenever tracing succeeds.
+The transaction wrapper clears transient storage and frame-local observations,
+commits successful execution, and restores the initial world on rich reverts.
+Unsupported statements, foreign storage observations, value transfers and
+nonempty model events fail the scalar adapter. No synthetic event or revert
+observations fill those gaps.
+
+Storage comparison samples the cumulative union of accessed slots after every
+transaction using fresh discovery and replay worlds. The EVM access inventory
+and observations trust Foundry's call/prestate tracers and historical storage
+RPC. Calldata and model arguments are paired by the campaign generator; this
+is not a proof of ABI decoding or dispatch. The handwritten sequence fixture
+is an instrument test, not evidence of additional importable Solidity. Mock
+ERC20/oracle/callback tests currently validate only the EVM adapter; their
+Denote external-world counterparts remain an integration obligation. Sequence
+reduction proves deletion-1-minimality by replay within its stated budget,
+not global minimality of arguments or programs.
+
 The typed accessors that the import also generates (`example.f`,
 `example.position.credit`, ...) add no trust: they are Lean definitions over
 the model, through `runFunction` and `readMember` in

@@ -20,15 +20,19 @@ def main():
     parser.add_argument("--reduce-seconds", type=int, default=120)
     parser.add_argument("--mutations", action="store_true", help="test importer and Denote mutants in isolated snapshots")
     parser.add_argument("--mutant", action="append", help="select a named mutant")
+    parser.add_argument("--stateful", action="store_true", help="run stateful scalar A/B/C instrument checks")
     args = parser.parse_args()
     if args.cases < 0 or args.programs < 0 or args.reduce_seconds <= 0:
         parser.error("case/program counts must be nonnegative and reduction budget positive")
-    if sum(map(bool, (args.config, args.replay, args.programs, args.reduce, args.mutations))) != 1:
-        parser.error("choose exactly one of --config, --replay, --programs, --reduce, --mutations")
+    if sum(map(bool, (args.config, args.replay, args.programs, args.reduce, args.mutations, args.stateful))) != 1:
+        parser.error("choose exactly one of --config, --replay, --programs, --reduce, --mutations, --stateful")
     if args.mutant and not args.mutations:
         parser.error("--mutant requires --mutations")
     try:
-        if args.mutations:
+        if args.stateful:
+            from solidity_differential.suite import stateful_campaign
+            report = stateful_campaign(args.output, args.cases, args.seed)
+        elif args.mutations:
             from solidity_differential.mutations import mutation_campaign
             report = mutation_campaign(args.output, args.mutant)
         elif args.reduce:

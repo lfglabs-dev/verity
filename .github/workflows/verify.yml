@@ -231,6 +231,7 @@ jobs:
               - 'scripts/solidity_import_differential.py'
               - 'scripts/check_solidity_differential.sh'
               - 'scripts/solidity_import_mutations.py'
+              - 'scripts/test_solidity_stateful*.py'
               - 'scripts/setup_solc_import.py'
               - 'scripts/solidity_import_coverage.py'
               - 'scripts/solidity_import_corpus/**'
@@ -263,6 +264,7 @@ jobs:
               - 'scripts/solidity_import_differential.py'
               - 'scripts/check_solidity_differential.sh'
               - 'scripts/solidity_import_mutations.py'
+              - 'scripts/test_solidity_stateful*.py'
               - 'scripts/setup_solc_import.py'
               - 'scripts/solidity_import_coverage.py'
               - 'scripts/solidity_import_corpus/**'
@@ -1253,6 +1255,11 @@ jobs:
           scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential-loss.json --output .lake/import-differential/loss --cases 64 --seed 2438
           scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --output .lake/import-differential/programs
 
+      - name: Stateful Solidity instrument checks
+        timeout-minutes: 30
+        run: |
+          scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --output .lake/import-differential/stateful
+
       - name: Extended Solidity slice campaigns
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         timeout-minutes: 60
@@ -1268,6 +1275,8 @@ jobs:
           name: solidity-import-differential
           path: |
             .lake/import-differential/**
+            .lake/stateful-*/**
+            .lake/denote-rejections-*/**
             !.lake/import-differential/**/.lake/build/**
             !.lake/import-differential/**/.lake/packages/**
           include-hidden-files: true
