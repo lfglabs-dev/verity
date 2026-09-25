@@ -30,9 +30,15 @@ executor; `traceStraightLine_agrees` proves equality of the complete outcome,
 including the resulting world and rich revert bytes, whenever tracing succeeds.
 The transaction wrapper clears transient storage and frame-local observations,
 commits successful execution, and restores the initial world on rich reverts.
-Unsupported statements, foreign storage observations, value transfers and
-nonempty model events fail the scalar adapter. No synthetic event or revert
-observations fill those gaps.
+Unsupported statements, foreign storage observations and value transfers fail
+the scalar adapter. Named events with uint256 parameters are encoded from the
+actual Denote emission and the model declaration: signature Keccak topic, indexed
+word topics, and unindexed word data. The current executor retains emission
+arguments in source order, so the observation layer partitions them using the
+declaration. Unknown or ambiguous declarations, arity mismatches, other parameter
+types and more than three indexed arguments fail explicitly. Anonymous events
+and foreign emitters are outside this instrument. No synthetic event or revert
+observations fill unsupported gaps.
 
 Storage comparison samples the cumulative union of accessed slots after every
 transaction using fresh discovery and replay worlds. The EVM access inventory

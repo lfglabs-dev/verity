@@ -77,8 +77,9 @@ in another replay; infrastructure errors propagate.
 
 The scalar Denote route retains reverted-path accesses and rolls back failed
 transactions. Its trace is proved to agree with actual statement execution.
-It rejects unsupported statements and nonempty events; exact byte-level event
-encoding remains required. Its existing legacy event representation
+It rejects unsupported statements. Named uint256 events now preserve exact
+signature/indexed topics and data using the actual model declarations; other
+event parameter types and anonymous events remain unsupported. Its existing legacy event representation
 and payload-erasing result projections cannot serve as exact EVM observations.
 The campaign must also pin adapter/tool/configuration provenance, connect the
 mock behaviors to Denote's external-world semantics, extend generated source variants and semantic mutation coverage to the
@@ -86,3 +87,14 @@ remaining construct families. The scalar generator supplies scoped-local and
 early-return equivalents; the write-zero model mutation must disagree on real
 storage and reduce to a single replayed transaction. The scalar campaign generates random transactions and automatically
 replays and reduces any observed A/B/C divergence. No current adapter-only result discharges these gates.
+
+
+## Event observations
+
+The event fixture emits `Changed(uint256 indexed previous,uint256 next)` on a
+successful write and also before a panic. Actual A/B/C replay checks both exact
+committed logs and their removal on revert. `EventRejections.lean` exercises
+ambiguous/missing declarations, arity mismatches, unsupported types and excess
+topics; `check_event_mutations` tests omission, indexing and argument ordering
+through executable mutated models. These are instrument fixtures, not Solidity
+importer acceptance claims.

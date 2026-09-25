@@ -22,6 +22,8 @@ def main():
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--source-fixture', type=Path,
+        default=Path(__file__).parent / 'fixtures/Sequence.sol')
     args = parser.parse_args()
     if args.transactions < 3 or args.shrink_attempts < 2:
         parser.error('at least three transactions and two shrink attempts required')
@@ -30,7 +32,7 @@ def main():
     else:
         output = args.output.resolve()
         output.mkdir(parents=True, exist_ok=False)
-    fixture = Path(__file__).parent / 'fixtures/Sequence.sol'
+    fixture = args.source_fixture.resolve()
     source_text = stateful_scalar_source(fixture.read_text(), args.variant)
     request = {'language': 'Solidity', 'sources': {'Sequence.sol': {'content': source_text}},
         'settings': {'evmVersion': 'osaka', 'viaIR': True,
