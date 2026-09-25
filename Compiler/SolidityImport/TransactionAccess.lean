@@ -47,6 +47,23 @@ structure AccessResult where
   outcome : StmtOutcome
   touched : List Verity.StorageKey
 
+/-- Error arguments are evaluated only on the failing Denote branch. Observe
+that branch using the same evaluator, retaining condition reads in either case.
+The accepted expressions remain the explicit scalar access subset above. -/
+def observedStatementAccesses (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (statement : Stmt) (events : List EventDef) :
+    Except String (List Verity.StorageKey) := do
+  match statement with
+  | .require condition _ => expressionAccesses fields condition
+  | .requireError condition _ arguments =>
+      let reads ← expressionAccesses fields condition
+      match evalExpr oracle fields state condition with
+      | some 0 => return reads ++ (← arguments.mapM (expressionAccesses fields)).flatten
+      | some _ | none => return reads
+  | .revertError _ arguments =>
+      return (← arguments.mapM (expressionAccesses fields)).flatten
+  | _ => statementAccesses fields statement events
+
 /-- Keep accesses made before a revert, including writes rolled back later.
 Only the continuation case executes another statement. -/
 def traceStraightLine (oracle : DenoteOracle) (fields : List Field)
@@ -55,7 +72,7 @@ def traceStraightLine (oracle : DenoteOracle) (fields : List Field)
   match body with
   | [] => .ok ⟨.continue state, []⟩
   | statement :: rest => do
-      let accesses ← statementAccesses fields statement events
+      let accesses ← observedStatementAccesses oracle fields state statement events
       let outcome := execStmt oracle fields state statement
       match outcome with
       | .continue next =>
@@ -71,10 +88,10 @@ structure TracedFrameResult where
 world is suitable as the persistent input to the next transaction. -/
 def executeTracedBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
-    (events : List EventDef := []) :
+    (events : List EventDef := []) (errors : List ErrorDef := []) :
     Except String TracedFrameResult := do
   let initial := beginTransaction world
-  let traced ← traceStraightLine oracle fields { world := initial, bindings } body events
+  let traced ← traceStraightLine oracle fields { world := initial, bindings, errors } body events
   let frame ← finishFrame initial traced.outcome
   return ⟨frame, traced.touched⟩
 
@@ -91,7 +108,7 @@ theorem traceStraightLine_agrees (oracle : DenoteOracle) (fields : List Field)
       cases h
       rfl
   | cons statement rest ih =>
-      cases ha : statementAccesses fields statement events with
+      cases ha : observedStatementAccesses oracle fields state statement events with
       | error reason => simp [traceStraightLine, ha, bind, Except.bind] at h
       | ok accesses =>
           cases he : execStmt oracle fields state statement with

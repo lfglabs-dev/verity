@@ -8,6 +8,11 @@ import sys
 from .engine import ROOT, WORKSPACE, HarnessError, command, write_json
 
 MUTANTS = {
+    "import-require-condition": ("Compiler/SolidityImport/Import.lean", 'return condition.pre.push (.require condition.expr value)', 'return condition.pre.push (.require (.literal 1) value)'),
+    "denote-require-selector": ("Verity/Core/Model/Denote.lean", '[0x08, 0xc3, 0x79, 0xa0]', '[0x08, 0xc3, 0x79, 0xa1]'),
+    "import-custom-require-condition": ("Compiler/SolidityImport/Import.lean", '(.requireError condition.expr name values)', '(.requireError (.literal 1) name values)'),
+    "denote-custom-require-selector": ("Verity/Core/Model/Denote.lean", '(wordBytes hash).take 4', '((wordBytes hash).drop 1).take 4'),
+    "denote-custom-require-argument": ("Verity/Core/Model/Denote.lean", 'return selector ++ values.flatMap wordBytes', 'return selector ++ values.flatMap (fun value => wordBytes (value + 1))'),
     "denote-panic-selector": ("Verity/Core/Model/Denote.lean", '[0x4e, 0x48, 0x7b, 0x71]', '[0x4e, 0x48, 0x7b, 0x70]'),
     "denote-panic-endian": ("Verity/Core/Model/Denote.lean", 'value / 2^(8*(31-i))', 'value / 2^(8*i)'),
     "import-comparison": ("Compiler/SolidityImport/Import.lean", '| "<" => cmp .lt left right', '| "<" => cmp .gt left right'),
@@ -53,8 +58,11 @@ def mutation_campaign(output, selected=None):
         if text.count(before) != 1:
             raise HarnessError("mutation anchor drifted: " + name)
         source.write_text(text.replace(before, after))
+        config = "differential-require.json" if "require" in name else "differential.json"
+        if "custom-require" in name:
+            config = "differential-require-custom.json"
         argv = [sys.executable, str(directory / "scripts/solidity_import_differential.py"),
-                "--config", str(directory / "Contracts/SolidityImportSmoke/differential.json"),
+                "--config", str(directory / "Contracts/SolidityImportSmoke" / config),
                 "--output", str(directory / ".lake/campaign"), "--cases", "8"]
         try:
             result = subprocess.run(argv, cwd=directory, text=True, capture_output=True, timeout=600)

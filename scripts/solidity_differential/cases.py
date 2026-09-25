@@ -108,6 +108,7 @@ def generate(config, count, seed, corpus):
         values = dict(seeds[i % len(seeds)]) if i % 3 else {}
         for key, bits in domains.items():
             edge = [0, 1, 2, (1 << bits) - 1, (1 << bits) - 2, 1 << (bits - 1)]
+            edge = [value for value in edge if 0 <= value < 1 << bits]
             if key not in values or rng.randrange(3) == 0:
                 values[key] = rng.choice(edge) if rng.randrange(2) else rng.getrandbits(bits)
         if i % 2 == 0:

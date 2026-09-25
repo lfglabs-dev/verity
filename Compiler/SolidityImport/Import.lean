@@ -155,6 +155,8 @@ private structure Env where
   funs : RBMap Nat Json compare
   funContract : RBMap Nat String compare
   structs : RBMap Nat Json compare
+  errorDecls : RBMap Nat Json compare
+  usedErrors : List ErrorDef
   stateVars : RBMap Nat Json compare
   values : RBMap Nat Expr compare
   paths : RBMap Nat SPath compare
@@ -181,6 +183,8 @@ private def Env.init : Env where
   funs := RBMap.empty
   funContract := RBMap.empty
   structs := RBMap.empty
+  errorDecls := RBMap.empty
+  usedErrors := []
   stateVars := RBMap.empty
   values := RBMap.empty
   paths := RBMap.empty
@@ -800,6 +804,8 @@ private partial def lowerHelper (stmts : Array Json) (retName : String) : M Val 
     match ← mKind s with
     | "VariableDeclarationStatement" =>
         pre := pre ++ (← lowerLocal s)
+    | "ExpressionStatement" =>
+        pre := pre ++ (← lowerRequire s)
     | "Return" =>
         result := some (← lowerExpr (← mField s "expression"))
     | "InlineAssembly" =>
@@ -808,6 +814,90 @@ private partial def lowerHelper (stmts : Array Json) (retName : String) : M Val 
   match result with
   | some v => pure { pre := pre ++ v.pre, expr := v.expr }
   | none => throwError "inlined helper did not return"
+
+private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
+  let call ← mField statement "expression"
+  unless (← mKind call) == "FunctionCall" do
+    failAt call "only builtin require calls are supported as expression statements"
+  let callee ← mField call "expression"
+  unless (← mKind callee) == "Identifier" && optStr callee "name" == some "require" do
+    failAt callee "only builtin require calls are supported as expression statements"
+  -- solc 0.8.34 retains all three builtin overloads (-18) even after
+  -- selecting the (bool,string) signature. Do not relax user-call refInt.
+  let signature ← mType callee
+  unless (← mField callee "referencedDeclaration").getInt?.toOption == some (-18) &&
+      (signature == "function (bool,string memory) pure" || signature == "function (bool,error) pure") do
+    failAt callee "require must resolve to a supported Solidity builtin signature"
+  unless (← mArr (← mField callee "overloadedDeclarations")).all
+      (fun declaration => declaration.getInt?.toOption == some (-18)) do
+    failAt callee "require overload set contains a non-builtin declaration"
+  unless optStr call "kind" == some "functionCall" do
+    failAt call "require must be a function call"
+  unless (← mArr (← mField call "names")).isEmpty do
+    failAt call "named require arguments are unsupported"
+  let args ← mArr (← mField call "arguments")
+  unless args.size == 2 do failAt call "require currently needs a literal string message"
+  let message := args[1]!
+  if signature == "function (bool,error) pure" then
+    let condition ← atom (← lowerExpr args[0]!)
+    let (pre, name, values) ← lowerErrorArguments message
+    return condition.pre ++ pre |>.push (.requireError condition.expr name values)
+  unless (← mKind message) == "Literal" do
+    failAt message "require currently needs a literal string message"
+  let kind ← mStr (← mField message "kind")
+  unless kind == "string" || kind == "unicodeString" do
+    failAt message "require message must be a UTF-8 string literal"
+  let some value := optStr message "value"
+    | failAt message "require message bytes are not represented exactly by UTF-8"
+  let actual ← mStr (← mField message "hexValue")
+  let expected := value.toUTF8.data.foldl (init := "") fun acc byte =>
+    acc.push (hexDigit (byte.toNat / 16)) |>.push (hexDigit (byte.toNat % 16))
+  unless actual == expected do failAt message "require message bytes are not represented exactly by UTF-8"
+  let condition ← atom (← lowerExpr args[0]!)
+  return condition.pre.push (.require condition.expr value)
+
+private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String × List Expr) := do
+  unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
+    failAt call "custom error must be a resolved constructor call"
+  unless (← mArr (← mField call "names")).isEmpty do
+    failAt call "named custom-error arguments are unsupported"
+  let callee ← mField call "expression"
+  let id ← refInt callee
+  let some declaration := (← get).errorDecls.find? id.toNat
+    | failAt callee "custom error does not resolve to an error declaration"
+  let name ← mStr (← mField declaration "name")
+  let parameters ← mArr (← mField (← mField declaration "parameters") "parameters")
+  let arguments ← mArr (← mField call "arguments")
+  unless parameters.size == arguments.size do failAt call "custom-error argument count differs"
+  let mut types : List ParamType := []
+  let mut values : List Expr := []
+  let mut pre : Array Stmt := #[]
+  for index in [:parameters.size] do
+    let parameter := parameters[index]!
+    let ty ← mType parameter
+    let some modelType := paramType ty | failAt parameter s!"unsupported custom-error parameter type {ty}"
+    unless (Denote.errorScalarType modelType).isSome do
+      failAt parameter s!"unsupported custom-error parameter type {ty}"
+    let argument := arguments[index]!
+    -- Restrict this first slice to total scalar operands. General expressions
+    -- need an evaluation-order argument, including competing panic paths.
+    match ← mKind argument with
+    | "Literal" => pure ()
+    | "Identifier" =>
+        let argumentId ← refInt argument
+        unless (← get).values.contains argumentId.toNat do
+          failAt argument "custom-error arguments currently require literals or scalar bindings"
+    | _ => failAt argument "custom-error arguments currently require literals or scalar bindings"
+    let value ← atom (← convert ty (← mType argument) (← lowerExpr argument) argument)
+    types := types ++ [modelType]
+    values := values ++ [value.expr]
+    pre := pre ++ value.pre
+  let definition : ErrorDef := { name, params := types }
+  if let some previous := (← get).usedErrors.find? (·.name == name) then
+    unless previous.params == types do failAt callee "custom-error name has multiple signatures"
+  else
+    modify fun e => { e with usedErrors := e.usedErrors ++ [definition] }
+  return (pre, name, values)
 
 private partial def lowerAssembly (j : Json) (retName : String) : M Val := do
   let ast ← mField j "AST"
@@ -908,6 +998,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     match ← mKind s with
     | "VariableDeclarationStatement" =>
         out := out ++ (← lowerLocal s)
+    | "ExpressionStatement" =>
+        out := out ++ (← lowerRequire s)
     | "Return" =>
         returned := true
         let expr ← mField s "expression"
@@ -947,6 +1039,8 @@ private partial def index (file : String) (contract? : Option String) (j : Json)
                 { e with funs, funContract }
           | "StructDefinition" =>
               modify fun e => { e with structs := e.structs.insert id j }
+          | "ErrorDefinition" =>
+              modify fun e => { e with errorDecls := e.errorDecls.insert id j }
           | "VariableDeclaration" =>
               let isState := match field? j "stateVariable" with
                 | some b => match b.getBool? with | .ok v => v | _ => false
@@ -1237,7 +1331,8 @@ private def importSlice
     fields := fields.push (info.slot, info.field)
   let sortedFields := (fields.qsort (fun a b => a.1 < b.1)).map (·.2)
   let model : CompilationModel :=
-    { name := contract, constructor := none, fields := sortedFields.toList, functions := specs.toList }
+    { name := contract, constructor := none, fields := sortedFields.toList,
+      errors := env.usedErrors, functions := specs.toList }
   let mut excluded : Array FnRec := #[]
   for (id, decl) in env.funs do
     unless env.included.any (·.declId == id) do

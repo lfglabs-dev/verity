@@ -45,10 +45,11 @@ def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String
 /-- Execute a body through Denote, after installing fresh frame-local state.
 This function is a frame runner, not yet a full ABI/dispatch transaction runner. -/
 def executeBody (oracle : DenoteOracle) (fields : List Field)
-    (world : Verity.ContractState) (bindings : Env) (body : List Stmt) :
+    (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
+    (errors : List ErrorDef := []) :
     Except String FrameResult :=
   let initial := beginTransaction world
-  finishFrame initial (execStmtList oracle fields { world := initial, bindings } body)
+  finishFrame initial (execStmtList oracle fields { world := initial, bindings, errors } body)
 
 @[simp] theorem beginTransaction_storage (world : Verity.ContractState) (slot : Nat) :
     (beginTransaction world).storageWords (.slot slot) = world.storageWords (.slot slot) := rfl

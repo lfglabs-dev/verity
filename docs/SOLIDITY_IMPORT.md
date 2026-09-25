@@ -97,6 +97,8 @@ claim to support arbitrary Solidity.
 | Scalar member of a memory/calldata struct parameter | Explicit scalar projection; no ABI decoder |
 | Unsigned `+`, `-`, `*`, `/` | Word arithmetic with overflow/underflow/zero-divisor panics |
 | Unsigned comparisons, equality | Scalar conditions |
+| `require(condition, "message")` | Exact `Error(string)` bytes; UTF-8 literal messages, including empty strings, in roots and inlined helpers |
+| `require(condition, CustomError(args))` | Resolved static unsigned/address/bool/bytes32 errors; arguments restricted to decimal numeric literals or scalar bindings; exact selector and ABI words |
 | Narrowing casts | Bit masks, not overflow checks |
 | Ternaries | Lazy `ite` branches |
 | Resolved acyclic helper calls | Inlined bodies with separate local scopes |

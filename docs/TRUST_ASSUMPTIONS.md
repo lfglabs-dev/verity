@@ -23,6 +23,19 @@ still expose only success versus failure. The call-composition interface retains
 local panic bytes separately from its legacy word-return result; full byte-level
 external-call composition is not yet certified.
 
+Literal-message `require` retains the exact ABI `Error(string)` payload,
+including UTF-8 byte length and padding. The importer checks solc's resolved
+builtin signature and literal bytes; dynamic messages are rejected. Denote
+also encodes declared static scalar custom errors with a unique declaration,
+matching arity and canonical arguments. Imported custom-error `require` calls
+accept only decimal numeric literals or scalar-binding arguments; general expressions are
+rejected until their evaluation order, including competing panics, is covered.
+Explicit `revert CustomError(...)` statements remain outside the importer. Error
+declarations travel with the execution state. The differential oracle computes
+signature Keccak over a temporary word-chunk memory buffer; this does not
+establish general Solidity memory or ABI-decoder correctness. The legacy
+agreement projection continues to erase rich revert bytes.
+
 The experimental stateful instrument in `scripts/solidity_differential` runs
 separate real Anvil transactions against solc and Verity bytecode, and invokes
 `SequenceRunner` for Denote. Its scalar trace calls the actual statement

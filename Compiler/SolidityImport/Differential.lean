@@ -35,8 +35,15 @@ private def mappingSlot (base key : Nat) : Nat :=
   (KeccakEngine.keccak256 (bytes key ++ bytes base)).data.foldl
     (fun n b => n * 256 + b.toNat) 0
 
-private def oracle : DenoteOracle :=
-  { mappingSlot, keccakMemorySlice := fun _ _ _ => 0 }
+/-- Concrete hash oracle for word-chunk memory slices used by the adapter.
+Custom-error signatures populate this temporary buffer explicitly. -/
+def oracle : DenoteOracle :=
+  { mappingSlot, keccakMemorySlice := fun memory offset size =>
+      let bytes := (List.range size).toArray.map fun index =>
+        UInt8.ofNat ((memory (offset + index / 32 * 32)).val /
+          2^(8*(31-index % 32)) % 256)
+      (KeccakEngine.keccak256 (ByteArray.mk bytes)).data.foldl
+        (fun value byte => value * 256 + byte.toNat) 0 }
 
 private def jsonWords (xs : List Nat) : Json := toJson (xs.map toString)
 
@@ -59,7 +66,8 @@ private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : 
     | _ => Verity.defaultState.storageWords slot
   let initial : DenoteState :=
     { world := { world with blockTimestamp := Uint256.ofNat timestamp }
-      bindings := fn.params.map (·.name) |>.zip args }
+      bindings := fn.params.map (·.name) |>.zip args
+      errors := model.errors }
   let result := execStmtList oracle model.fields initial fn.body
   let (status, output, data, finalWorld) ← match result with
     | .stop final => match final.observedReturnWords with

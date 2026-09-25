@@ -94,7 +94,7 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
       blockNumber := Uint256.ofNat number
       chainId := 31337 }
     let result ← executeTracedBody oracle (effectiveFields model) world
-      ((fn.params.map (·.name)).zip args) fn.body model.events
+      ((fn.params.map (·.name)).zip args) fn.body model.events model.errors
     let emitted ← result.frame.world.events.mapM (encodeEvent account model.events)
     let touched ← result.touched.filterMapM fun key =>
       match key with
