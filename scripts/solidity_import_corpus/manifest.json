@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "scope": "Implemented functions in each selected contract and its solc C3 inheritance chain, including internal/private helpers. Most-derived implementations win by signature; private helpers retain declaring-contract identity. Constructors, generated getters and abstract declarations are not in this denominator. Fallback/receive declarations remain counted.",
+  "compilers": {
+    "0.5.16": {
+      "macosx-amd64": {
+        "path": "solc-macosx-amd64-v0.5.16+commit.9c3226ce",
+        "sha256": "9f6624e408497142bbd29efe0744ee25e445aeb7c932be401c0bc30478a6bb75"
+      },
+      "linux-amd64": {
+        "path": "solc-linux-amd64-v0.5.16+commit.9c3226ce",
+        "sha256": "a15f01700ec7e02f91bbdfd4b6ff4450b3c2decae173e4f41910a3cfbaf5d3d3"
+      }
+    },
+    "0.7.6": {
+      "macosx-amd64": {
+        "path": "solc-macosx-amd64-v0.7.6+commit.7338295f",
+        "sha256": "a6a8f9f9388c5fcd9222474e00270242c832e936b0f5257c20374d27ee5bd1ab"
+      },
+      "linux-amd64": {
+        "path": "solc-linux-amd64-v0.7.6+commit.7338295f",
+        "sha256": "bd69ea85427bf2f4da74cb426ad951dd78db9dfdd01d791208eccc2d4958a6bb"
+      }
+    },
+    "0.8.10": {
+      "macosx-amd64": {
+        "path": "solc-macosx-amd64-v0.8.10+commit.fc410830",
+        "sha256": "a79fff23aeb35be856e446827c44a9cfa4c382f29babd2f6a405ef73d1e2a4cc"
+      },
+      "linux-amd64": {
+        "path": "solc-linux-amd64-v0.8.10+commit.fc410830",
+        "sha256": "c7effacf28b9d64495f81b75228fbf4266ac0ec87e8f1adc489ddd8a4dd06d89"
+      }
+    },
+    "0.8.34": {
+      "macosx-amd64": {
+        "path": "solc-macosx-amd64-v0.8.34+commit.80d5c536",
+        "sha256": "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746"
+      },
+      "linux-amd64": {
+        "path": "solc-linux-amd64-v0.8.34+commit.80d5c536",
+        "sha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39"
+      }
+    }
+  },
+  "projects": [
+    {
+      "id": "midnight",
+      "repository": "https://github.com/morpho-org/midnight.git",
+      "commit": "96d31343e993329e7a593dde46516a2c0cbcd142",
+      "inventory_solc": "0.8.34",
+      "contracts": [
+        {
+          "entry": "src/Midnight.sol",
+          "contract": "Midnight"
+        }
+      ]
+    },
+    {
+      "id": "uniswap-v2",
+      "repository": "https://github.com/Uniswap/v2-core.git",
+      "commit": "4dd59067c76dea4a0e8e4bfdda41877a6b16dedc",
+      "inventory_solc": "0.5.16",
+      "contracts": [
+        {
+          "entry": "contracts/UniswapV2Pair.sol",
+          "contract": "UniswapV2Pair"
+        },
+        {
+          "entry": "contracts/UniswapV2Factory.sol",
+          "contract": "UniswapV2Factory"
+        },
+        {
+          "entry": "contracts/UniswapV2ERC20.sol",
+          "contract": "UniswapV2ERC20"
+        }
+      ]
+    },
+    {
+      "id": "uniswap-v3",
+      "repository": "https://github.com/Uniswap/v3-core.git",
+      "commit": "e3589b192d0be27e100cd0daaf6c97204fdb1899",
+      "inventory_solc": "0.7.6",
+      "contracts": [
+        {
+          "entry": "contracts/UniswapV3Pool.sol",
+          "contract": "UniswapV3Pool"
+        },
+        {
+          "entry": "contracts/UniswapV3Factory.sol",
+          "contract": "UniswapV3Factory"
+        }
+      ]
+    },
+    {
+      "id": "pareto",
+      "repository": "https://github.com/Idle-Labs/idle-tranches.git",
+      "commit": "54502d162e58fef706e7c3dfd24e59c442ae5576",
+      "inventory_solc": "0.8.10",
+      "contracts": [
+        {
+          "entry": "contracts/IdleCDOCreditVault.sol",
+          "contract": "IdleCDOCreditVault"
+        },
+        {
+          "entry": "contracts/IdleCDOEpochVariant.sol",
+          "contract": "IdleCDOEpochVariant"
+        },
+        {
+          "entry": "contracts/strategies/idle/IdleCreditVault.sol",
+          "contract": "IdleCreditVault"
+        }
+      ],
+      "dependencies": [
+        {
+          "package": "@openzeppelin/contracts",
+          "url": "https://registry.yarnpkg.com/@openzeppelin/contracts/-/contracts-4.9.6.tgz",
+          "integrity": "sha512-xSmezSupL+y9VkHZJGDoCBpmnB2ogM13ccaYDWqJTfS3dbuHkgjuwDFUmaFauBCboQMGB/S5UqUl2y54X99BmA=="
+        },
+        {
+          "package": "@openzeppelin/contracts-upgradeable",
+          "url": "https://registry.yarnpkg.com/@openzeppelin/contracts-upgradeable/-/contracts-upgradeable-4.9.6.tgz",
+          "integrity": "sha512-m4iHazOsOCv1DgM7eD7GupTJ+NFVujRZt1wzddDPSVGpWdKq1SKkla5htKG7+IS4d2XOCtzkUNwRZ7Vq5aEUMA=="
+        },
+        {
+          "package": "@uniswap/v2-periphery",
+          "url": "https://registry.yarnpkg.com/@uniswap/v2-periphery/-/v2-periphery-1.1.0-beta.0.tgz",
+          "integrity": "sha512-6dkwAMKza8nzqYiXEr2D86dgW3TTavUvCR0w2Tu33bAbM8Ah43LKAzH7oKKPRT5VJQaMi1jtkGs1E8JPor1n5g=="
+        }
+      ]
+    },
+    {
+      "id": "openzeppelin",
+      "repository": "https://github.com/OpenZeppelin/openzeppelin-contracts.git",
+      "commit": "dbb6104ce834628e473d2173bbc9d47f81a9eec3",
+      "inventory_solc": "0.8.34",
+      "contracts": [
+        {
+          "entry": "contracts/token/ERC20/ERC20.sol",
+          "contract": "ERC20"
+        },
+        {
+          "entry": "contracts/token/ERC20/extensions/ERC4626.sol",
+          "contract": "ERC4626"
+        }
+      ]
+    }
+  ]
+}

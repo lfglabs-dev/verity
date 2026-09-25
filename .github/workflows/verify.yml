@@ -232,6 +232,9 @@ jobs:
               - 'scripts/check_solidity_differential.sh'
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/setup_solc_import.py'
+              - 'scripts/solidity_import_coverage.py'
+              - 'scripts/solidity_import_corpus/**'
+              - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
             compiler:
               - '.github/actions/**'
@@ -261,6 +264,9 @@ jobs:
               - 'scripts/check_solidity_differential.sh'
               - 'scripts/solidity_import_mutations.py'
               - 'scripts/setup_solc_import.py'
+              - 'scripts/solidity_import_coverage.py'
+              - 'scripts/solidity_import_corpus/**'
+              - 'scripts/test_solidity_import_coverage.py'
               - 'lean-toolchain'
               - 'foundry.toml'
       - name: Resolve effective change flags
@@ -1264,6 +1270,32 @@ jobs:
             .lake/import-differential/**
             !.lake/import-differential/**/.lake/build/**
             !.lake/import-differential/**/.lake/packages/**
+          include-hidden-files: true
+          retention-days: 14
+
+      - name: Measure pinned Solidity import coverage
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          python3 scripts/solidity_import_coverage.py --fetch
+
+      - name: Publish Solidity import coverage
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f .lake/solidity-import-coverage/coverage.md ]; then
+            cat .lake/solidity-import-coverage/coverage.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Solidity import coverage unavailable: inspect measurement logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Archive Solidity import coverage
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: solidity-import-coverage
+          path: .lake/solidity-import-coverage/**
           include-hidden-files: true
           retention-days: 14
 

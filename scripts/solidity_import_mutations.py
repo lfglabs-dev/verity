@@ -9,6 +9,7 @@ process must not leave an olean.
 """
 
 import shutil
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -130,6 +131,14 @@ def expect_failure(name: str, project: Path, needle: str) -> str:
 
 def unchanged(dest: Path) -> None:
     return None
+
+
+def uninitialized_local(dest: Path) -> None:
+    path = dest / "Slice.sol"
+    source = path.read_text()
+    old = "uint128 credit = p.credit;"
+    assert old in source
+    path.write_text(source.replace(old, "uint128 ignored;\n        " + old))
 
 
 def call_unused_from_loss(dest: Path) -> None:
@@ -281,6 +290,10 @@ def main() -> None:
     expect_success("unrelated-layout", write_project("unrelated-layout", unrelated_layout), witness=True)
     expect_failure("named-arguments", write_project("named-arguments", named_arguments), "named call arguments")
     expect_failure("implicit-return", write_project("implicit-return", implicit_return), "explicit root return")
+    diagnostic = expect_failure("uninitialized-local", write_project("uninitialized-local", uninitialized_local),
+                                "local declarations without an initializer")
+    if not re.search(r"Slice\.sol:\d+:\d+: VariableDeclarationStatement:", diagnostic):
+        raise SystemExit("uninitialized local lacks a Solidity source diagnostic")
     expect_failure("projection-name-collision", write_project("projection-name", projected_name_collision), "projected parameter name collision")
     namespaced = WORK / "base/Namespaced.lean"
     namespaced.write_text(HEADER.format(root=WORK / "base").replace(
