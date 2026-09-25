@@ -9,9 +9,11 @@ process must not leave an olean.
 """
 
 import shutil
+import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -395,6 +397,17 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
     if digest_of(base) == digest_of(rounding):
         raise SystemExit("helper change did not move the digest")
     print("pass helper-digest")
+    # Compile and execute actual Denote mutants: a build failure is invalid,
+    # not a detected semantic mutation. These regressions compare EVM bytes.
+    for mutant in ("denote-panic-selector", "denote-panic-endian"):
+        output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
+        subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
+                        "--mutations", "--mutant", mutant, "--output", str(output)],
+                       cwd=ROOT, check=True, timeout=900)
+        results = json.loads((output / "mutation-results.json").read_text())
+        if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
+            raise SystemExit(f"{mutant}: expected a runtime differential divergence")
+        print(f"pass {mutant}")
     print("import mutations passed")
 
 

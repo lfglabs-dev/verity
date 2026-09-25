@@ -128,8 +128,8 @@ def prepare(config_path, output):
                 "verity": command(["git", "rev-parse", "HEAD"], cwd=ROOT).strip(),
                 "solcSha256": hashlib.sha256(SOLC.read_bytes()).hexdigest(),
                 "forge": command(["forge", "--version"]).strip(),
-                "observables": ["success/revert", "return words", "observed storage", "no storage writes", "A/C revert payload"],
-                "exclusions": ["Denote revert payload", "gas equivalence", "memory allocation identity", "full ABI equivalence"]}
+                "observables": ["success/revert", "return words", "observed storage", "no storage writes", "A/B/C revert payload"],
+                "exclusions": ["gas equivalence", "memory allocation identity", "full ABI equivalence"]}
     # Archive the source closure loaded by solc. Reject paths escaping the project.
     for logical in source_result["sources"]:
         path = (project / logical).resolve()
@@ -204,11 +204,11 @@ def execute(output, cases):
         raise HarnessError("missing model results")
     divergences = []
     for case, a, b, c in zip(cases, source, model, compiled):
-        if b["status"] not in ("ok", "revert"):
+        if b["status"] not in ("ok", "revert") or "data" not in b:
             raise HarnessError("invalid model status")
         if b["id"] != case["id"]:
             raise HarnessError("model result identity mismatch")
-        observable = lambda r: (r["status"], r["words"], r["storage"])
+        observable = lambda r: (r["status"], r["words"], r["storage"], r["data"])
         if observable(a) != observable(b) or observable(b) != observable(c) or a["data"] != c["data"]:
             divergences.append({"case": case, "source": a, "model": b, "compiled": c})
     report = {"cases": len(cases), "successes": sum(r["status"] == "ok" for r in source),

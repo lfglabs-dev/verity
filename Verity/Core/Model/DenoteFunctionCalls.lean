@@ -476,6 +476,7 @@ mutual
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
 end
 
 /-- Execution-level result retained for composition into an explicit callee
@@ -483,6 +484,8 @@ frame.  Unlike `DenoteResult`, this keeps the actual post-world. -/
 structure FunctionExecution where
   result : ExternalCallResult
   world : ContractState
+  /-- Byte observation kept separately from the legacy word-return interface. -/
+  revertBytes : Option (List UInt8) := none
 
 /-- Execute a FunctionSpec with raw / linked calls in-fragment. -/
 def executeFunctionWithCalls (env : CallEnv) (spec : CompilationModel)
@@ -501,6 +504,8 @@ def executeFunctionWithCalls (env : CallEnv) (spec : CompilationModel)
       | .return value state =>
           { result := .success [value], world := state.world }
       | .revert => { result := .revert [], world := worldWithTx }
+      | .revertWithData data =>
+          { result := .revert [], world := worldWithTx, revertBytes := some data }
 
 /-- Canonical FunctionSpec denotation, projected from the composable
 execution result so the two semantics cannot drift. -/

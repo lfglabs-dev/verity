@@ -84,8 +84,8 @@ structure ImportReport where
   /-- Solidity names of each storage field's mapping keys (`""` when unnamed). -/
   storageKeys : List (String × List String) := []
   opaqueMembers : List OpaqueMember
-  /-- Proof denotation records success versus revert. `Stmt.panic` keeps its
-  `PanicCode` on the statement, and `execStmt` does not return that payload. -/
+  /-- The statement denotation exposes the exact panic bytes. Legacy scalar
+  projections still erase failure bytes; the differential runner retains them. -/
   observesPanicPayload : Bool := false
   deriving Repr, BEq
 

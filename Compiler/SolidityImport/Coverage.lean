@@ -275,7 +275,17 @@ theorem execStmt_ite_arm (oracle : DenoteOracle) (fields : List Field)
 
 theorem execStmt_panic_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (code : Verity.Core.PanicCode) :
-    execStmt oracle fields s (.panic code) = .revert := rfl
+    execStmt oracle fields s (.panic code) = .revertWithData (panicBytes code.toNat) := rfl
+
+theorem execStmtList_panic_stops (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (code : Verity.Core.PanicCode) (rest : List Stmt) :
+    execStmtList oracle fields s (.panic code :: rest) =
+      .revertWithData (panicBytes code.toNat) := rfl
+
+theorem execForEachLoop_preserves_revert_bytes (s : DenoteState)
+    (name : String) (index remaining : Nat) (data : List UInt8) :
+    execForEachLoop name (fun _ => .revertWithData data) s index (remaining + 1) =
+      .revertWithData data := rfl
 
 /-- Multi-value returns are denoted: the resolved words are recorded in source
 order in `observedReturnWords` and execution stops. -/
@@ -312,7 +322,7 @@ def denoteScalarBody
       { world := { world with blockTimestamp := Verity.Core.Uint256.ofNat timestamp }
         bindings := bindings } body with
   | .stop state | .continue state | .return _ state => state.observedReturnWords
-  | .revert => none
+  | .revert | .revertWithData _ => none
 
 private theorem boolAnd2 {a b : Bool} (h : (a && b) = true) : a = true ∧ b = true := by
   cases a <;> cases b <;> simp_all
@@ -325,7 +335,7 @@ private theorem boolAnd3 {a b c : Bool} (h : (a && b && c) = true) :
 A revert has no successor state. -/
 def preservesWorld (origin : DenoteState) : StmtOutcome → Prop
   | .continue next | .stop next | .return _ next => next.world = origin.world
-  | .revert => True
+  | .revert | .revertWithData _ => True
 
 mutual
 
@@ -379,6 +389,7 @@ theorem execStmtList_slice_world
         simpa [preservesWorld, hExec] using hone
       · rename_i value next
         simpa [preservesWorld, hExec] using hone
+      · simp [preservesWorld]
       · simp [preservesWorld]
 
 end

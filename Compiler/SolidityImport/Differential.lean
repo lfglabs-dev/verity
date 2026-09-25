@@ -4,6 +4,7 @@ import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 import Compiler.Keccak.Sponge
+import Compiler.Hex
 import Lean.Data.Json
 
 /-! Test-only runner for an arbitrary covered Solidity slice. The execution path
@@ -39,6 +40,10 @@ private def oracle : DenoteOracle :=
 
 private def jsonWords (xs : List Nat) : Json := toJson (xs.map toString)
 
+private def jsonBytes (bytes : List UInt8) : Json :=
+  toJson ("0x" ++ String.ofList (bytes.flatMap fun byte =>
+    [Compiler.Hex.hexDigit (byte.toNat / 16), Compiler.Hex.hexDigit (byte.toNat % 16)]))
+
 private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : Except String Json := do
   let ident ← j.getObjValAs? String "id"
   let args ← words (← j.getObjVal? "args")
@@ -56,14 +61,15 @@ private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : 
     { world := { world with blockTimestamp := Uint256.ofNat timestamp }
       bindings := fn.params.map (·.name) |>.zip args }
   let result := execStmtList oracle model.fields initial fn.body
-  let (status, output, finalWorld) ← match result with
+  let (status, output, data, finalWorld) ← match result with
     | .stop final => match final.observedReturnWords with
-      | some xs => pure ("ok", xs, final.world)
+      | some xs => pure ("ok", xs, xs.flatMap wordBytes, final.world)
       | none => throw "covered slice stopped without return words"
-    | .revert => pure ("revert", [], initial.world)
+    | .revertWithData bytes => pure ("revert", [], bytes, initial.world)
+    | .revert => throw "Denote failure has no exact revert observation"
     | _ => throw "covered slice did not return or revert"
   return Json.mkObj [("id", toJson ident), ("status", toJson status),
-    ("words", jsonWords output),
+    ("words", jsonWords output), ("data", jsonBytes data),
     ("storage", jsonWords (slots.map fun slot => (finalWorld.storageWords (.slot slot)).val))]
 
 /-- Compile one root on its own with the ordinary Verity compiler, behind a
