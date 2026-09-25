@@ -932,9 +932,9 @@ def build_spec() -> dict:
 
 # Solidity slice differential changes require the compiled-model validation lane.
 for _lane in ("build_paths", "compiler_paths"):
-    SPEC[_lane][SPEC[_lane].index("lean-toolchain"):SPEC[_lane].index("lean-toolchain")] = ['scripts/solidity_differential/**', 'scripts/solidity_import_differential.py', 'scripts/check_solidity_differential.sh', 'scripts/solidity_import_mutations.py', 'scripts/setup_solc_import.py', 'scripts/solidity_import_coverage.py', 'scripts/solidity_import_corpus/**', 'scripts/test_solidity_import_coverage.py']
+    SPEC[_lane][SPEC[_lane].index("lean-toolchain"):SPEC[_lane].index("lean-toolchain")] = ['scripts/solidity_differential/**', 'scripts/solidity_import_differential.py', 'scripts/check_solidity_differential.sh', 'scripts/solidity_import_mutations.py', 'scripts/test_solidity_stateful*.py', 'scripts/setup_solc_import.py', 'scripts/solidity_import_coverage.py', 'scripts/solidity_import_corpus/**', 'scripts/test_solidity_import_coverage.py']
 SPEC["expected_uploaded_artifacts"]["compiler-regressions"] = ["solidity-import-differential", "solidity-import-coverage"]
-SPEC["expected_uploaded_artifact_paths"]["compiler-regressions"] = [".lake/import-differential/**\n!.lake/import-differential/**/.lake/build/**\n!.lake/import-differential/**/.lake/packages/**", ".lake/solidity-import-coverage/**"]
+SPEC["expected_uploaded_artifact_paths"]["compiler-regressions"] = [".lake/import-differential/**\n.lake/stateful-*/**\n.lake/denote-rejections-*/**\n!.lake/import-differential/**/.lake/build/**\n!.lake/import-differential/**/.lake/packages/**", ".lake/solidity-import-coverage/**"]
 for _key in ("expected_uploaded_artifacts", "expected_uploaded_artifact_paths"):
     _profile = SPEC[_key].pop("lean-profile")
     SPEC[_key]["lean-profile"] = _profile

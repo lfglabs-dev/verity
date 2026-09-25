@@ -113,3 +113,28 @@ def generated_campaign(output, count, cases, seed):
                 return {"programs": len(reports), "divergences": [divergence]}
             reference, reference_dir = rows, directory
     return {"programs": len(reports), "cases": sum(r["cases"] for r in reports), "divergences": []}
+
+
+def stateful_scalar_source(original, variant):
+    """Equivalent source forms for the handwritten scalar sequence instrument.
+
+    These are not accepted-import claims. Each form is compiled by solc and
+    compared to the same model on identical generated transaction sequences.
+    """
+    if variant == 'baseline':
+        return original
+    before = '''        old = stored;
+        stored = value;
+        return old;'''
+    replacements = {
+        'scoped': '''        { uint256 previous = stored; old = previous; }
+        { uint256 next = value; stored = next; }
+        return old;''',
+        'early-return': '''        old = stored;
+        if (value == 0) { stored = 0; return old; }
+        stored = value;
+        return old;''',
+    }
+    if variant not in replacements or original.count(before) != 1:
+        raise ValueError('unknown stateful variant or nonunique source anchor')
+    return original.replace(before, replacements[variant])
