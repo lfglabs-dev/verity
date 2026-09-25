@@ -16,8 +16,9 @@ def isTransientKey : Verity.StorageKey → Bool
 The caller supplies the explicit transaction environment in `world` first.
 Value transfers, dispatch and ABI decoding are separate adapter obligations. -/
 def beginTransaction (world : Verity.ContractState) : Verity.ContractState :=
-  { world with
-    storageWords := fun key => if isTransientKey key then 0 else world.storageWords key
+  let fresh := world.withStorageWords fun key =>
+    if isTransientKey key then 0 else world.storageWords key
+  { fresh with
     memory := fun _ => 0
     returndata := []
     events := []
