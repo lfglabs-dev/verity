@@ -1,0 +1,16 @@
+{
+  "project": ".",
+  "entry": "Require.sol",
+  "contract": "RequireFixture",
+  "function": "checked",
+  "param_types": [
+    "uint256"
+  ],
+  "variables": {
+    "value": 256
+  },
+  "arguments": {
+    "value": "value"
+  },
+  "corpus": "require-cases.json"
+}

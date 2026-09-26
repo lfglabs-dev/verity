@@ -43,7 +43,7 @@ where
 argument words; `none` means it reverted. -/
 def runFunction (oracle : DenoteOracle) (model : CompilationModel) (name : String)
     (world : Verity.ContractState) (args : Env) : Option (List Nat) :=
-  match execStmtList oracle model.fields { world, bindings := args } (functionBody model name) with
+  match execStmtList oracle model.fields { world, bindings := args, errors := model.errors } (functionBody model name) with
   | .stop state | .continue state | .return _ state => state.observedReturnWords
   | .revert | .revertWithData _ => none
 

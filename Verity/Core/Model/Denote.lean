@@ -274,6 +274,8 @@ structure DenoteState where
       The proof semantics records the words here and finishes with `.stop`;
       panic payloads are carried separately by `StmtOutcome.revertWithData`. -/
   observedReturnWords : Option (List Nat) := none
+  /-- Declarations needed for exact custom-error ABI encoding. -/
+  errors : List ErrorDef := []
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
 inductive StmtOutcome where
@@ -293,6 +295,55 @@ def wordBytes (value : Nat) : List UInt8 :=
 /-- Exact Solidity `Panic(uint256)` revert encoding. -/
 def panicBytes (code : Nat) : List UInt8 :=
   [0x4e, 0x48, 0x7b, 0x71] ++ wordBytes code
+
+/-- Exact ABI Error(string) bytes for a UTF-8 model message. -/
+def errorStringBytes (message : String) : List UInt8 :=
+  let bytes := message.toUTF8.data.toList
+  [0x08, 0xc3, 0x79, 0xa0] ++ wordBytes 32 ++ wordBytes bytes.length ++ bytes ++
+    List.replicate ((32 - bytes.length % 32) % 32) 0
+
+/-- Canonical signatures for the scalar custom-error fragment. Unsupported
+ABI types return none rather than being approximated as words. -/
+def errorScalarType : ParamType → Option String
+  | .uint256 => some "uint256"
+  | .uint8 => some "uint8"
+  | .uint16 => some "uint16"
+  | .uintN bits => if 0 < bits && bits ≤ 256 && bits % 8 == 0 then some s!"uint{bits}" else none
+  | .address => some "address"
+  | .bool => some "bool"
+  | .bytes32 => some "bytes32"
+  | _ => none
+
+/-- Reject noncanonical narrow ABI words instead of truncating error arguments. -/
+def errorScalarValueValid (ty : ParamType) (value : Nat) : Bool :=
+  match ty with
+  | .uint256 | .bytes32 => value < 2^256
+  | .uint8 => value < 2^8
+  | .uint16 => value < 2^16
+  | .uintN bits => 0 < bits && bits ≤ 256 && bits % 8 == 0 && value < 2^bits
+  | .address => value < 2^160
+  | .bool => value ≤ 1
+  | _ => false
+
+/-- Reconstruct a byte slice as word-addressed EVM memory for the existing hash
+oracle. The temporary buffer is not a mutation of the contract world. -/
+def signatureMemory (bytes : List UInt8) (offset : Nat) : Verity.Core.Uint256 :=
+  Verity.Core.Uint256.ofNat ((List.range 32).foldl
+    (fun word index => word * 256 + ((bytes[offset + index]?).getD 0).toNat) 0)
+
+/-- Exact selector and argument words for a uniquely resolved scalar error.
+Hash faithfulness has the same explicit oracle boundary as model keccak256. -/
+def customErrorBytes (oracle : DenoteOracle) (errors : List ErrorDef)
+    (name : String) (values : List Nat) : Option (List UInt8) := do
+  let [definition] := errors.filter (·.name == name) | none
+  if definition.params.length != values.length then none else do
+    if !(definition.params.zip values).all (fun pair => errorScalarValueValid pair.1 pair.2) then none else do
+      let types ← definition.params.mapM errorScalarType
+      let signature := name ++ "(" ++ String.intercalate "," types ++ ")"
+      let bytes := signature.toUTF8.data.toList
+      let hash := oracle.keccakMemorySlice (signatureMemory bytes) 0 bytes.length
+      let selector := (wordBytes hash).take 4
+      return selector ++ values.flatMap wordBytes
 
 theorem wordBytes_length (value : Nat) : (wordBytes value).length = 32 := by
   simp [wordBytes]
@@ -1418,23 +1469,31 @@ mutual
               }
             else .revert
         | _, _, _ => .revert
-    | state, .require cond _ =>
+    | state, .require cond message =>
         match evalExpr oracle fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
+            if resolved != 0 then .continue state else .revertWithData (errorStringBytes message)
         | none => .revert
-    | state, .requireError cond _ args =>
+    | state, .requireError cond name args =>
         match evalExpr oracle fields state cond with
         | some resolved =>
             if resolved != 0 then
               .continue state
             else
               match evalExprList oracle fields state args with
-              | _ => .revert
+              | none => .revert
+              | some values =>
+                  match customErrorBytes oracle state.errors name values with
+                  | some bytes => .revertWithData bytes
+                  | none => .revert
         | none => .revert
-    | state, .revertError _ args =>
+    | state, .revertError name args =>
         match evalExprList oracle fields state args with
-        | _ => .revert
+        | none => .revert
+        | some values =>
+            match customErrorBytes oracle state.errors name values with
+            | some bytes => .revertWithData bytes
+            | none => .revert
     | state, .panicCode code =>
         match evalExpr oracle fields state code with
         | some value => .revertWithData (panicBytes value)
@@ -1689,6 +1748,7 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
   | some bindings =>
       match execStmtList oracle fields
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            errors := spec.errors,
             externalCallSucceeded := externalCallSucceeded,
             externalCallReturnValues := externalCallReturnValues,
             externalCallPostWorld := externalCallPostWorld }

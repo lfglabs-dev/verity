@@ -276,6 +276,8 @@ def main() -> None:
         raise SystemExit(f"missing {SOLC}")
     # The checks import the status driver, which `lake build SolidityImportSmoke` does not build.
     subprocess.run(["lake", "build", "Compiler.SolidityImport.Differential"], cwd=ROOT, check=True)
+    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_require_rejections.py")],
+                   cwd=ROOT, check=True)
     WORK.mkdir(parents=True, exist_ok=True)
     snapshot = WORK / "model.txt"
     snapshot.unlink(missing_ok=True)
@@ -399,7 +401,10 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
     print("pass helper-digest")
     # Compile and execute actual Denote mutants: a build failure is invalid,
     # not a detected semantic mutation. These regressions compare EVM bytes.
-    for mutant in ("denote-panic-selector", "denote-panic-endian"):
+    for mutant in ("denote-panic-selector", "denote-panic-endian",
+                   "import-require-condition", "denote-require-selector",
+                   "import-custom-require-condition", "denote-custom-require-selector",
+                   "denote-custom-require-argument"):
         output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],

@@ -67,6 +67,8 @@ def stmtCovered : Stmt → Bool
   | .ite cond thenBranch elseBranch =>
       exprCovered cond && stmtListCovered thenBranch && stmtListCovered elseBranch
   | .panic _ => true
+  | .require condition _ => exprCovered condition
+  | .requireError condition _ args => exprCovered condition && exprListCovered args
   | .returnValues args => exprListCovered args
   | _ => false
 
@@ -76,6 +78,26 @@ def stmtListCovered : List Stmt → Bool
   | s :: ss => stmtCovered s && stmtListCovered ss
 
 end
+
+theorem execStmt_require_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (condition : Expr) (message : String) :
+    execStmt oracle fields state (.require condition message) =
+      (match evalExpr oracle fields state condition with
+       | some value => if value != 0 then .continue state
+           else .revertWithData (errorStringBytes message)
+       | none => .revert) := rfl
+
+theorem execStmt_requireError_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (condition : Expr) (name : String) (args : List Expr) :
+    execStmt oracle fields state (.requireError condition name args) =
+      (match evalExpr oracle fields state condition with
+       | some value => if value != 0 then .continue state else
+           match evalExprList oracle fields state args with
+           | none => .revert
+           | some values => match customErrorBytes oracle state.errors name values with
+               | some bytes => .revertWithData bytes
+               | none => .revert
+       | none => .revert) := rfl
 
 /-! ## Arm pins: expressions
 
@@ -363,6 +385,23 @@ theorem execStmt_slice_world
         simpa [preservesWorld, execStmt, hEval, hnot] using
           execStmtList_slice_world oracle fields state elseBranch helse
   · simp [preservesWorld, execStmt]
+  · rename_i condition message
+    cases hEval : evalExpr oracle fields state condition with
+    | none => simp [preservesWorld, execStmt, hEval]
+    | some value =>
+        by_cases hzero : value = 0 <;>
+          simp [preservesWorld, execStmt, hEval, hzero]
+  · rename_i condition name args
+    cases hEval : evalExpr oracle fields state condition with
+    | none => simp [preservesWorld, execStmt, hEval]
+    | some value =>
+        by_cases hzero : value = 0
+        · cases hArgs : evalExprList oracle fields state args with
+          | none => simp [preservesWorld, execStmt, hEval, hzero, hArgs]
+          | some values =>
+              cases hBytes : customErrorBytes oracle state.errors name values <;>
+                simp [preservesWorld, execStmt, hEval, hzero, hArgs, hBytes]
+        · simp [preservesWorld, execStmt, hEval, hzero]
   · rename_i args
     cases hEval : evalExprList oracle fields state args <;>
       simp [preservesWorld, execStmt, hEval]
