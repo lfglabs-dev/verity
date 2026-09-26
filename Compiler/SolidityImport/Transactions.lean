@@ -35,6 +35,7 @@ empty revert. Events remain in the returned world for subsequent ABI encoding. -
 def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String FrameResult
   | .continue _ => .error "Denote frame fell through without an explicit return"
   | .stop final =>
+      if final.observedStop then .ok ⟨true, [], final.world⟩ else
       match final.observedReturnWords with
       | none => .error "Denote frame stopped without an explicit return observation"
       | some words => .ok ⟨true, words.flatMap wordBytes, final.world⟩

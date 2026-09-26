@@ -11,6 +11,21 @@ private def fields : List Field :=
    { name := "scratch", ty := .uint256, isTransient := true }]
 
 def runChecks : IO Unit := do
+  let stopped ← IO.ofExcept (executeBody oracle fields Verity.defaultState []
+    [.setStorage "stored" (.literal 23), .stop])
+  unless stopped.success && stopped.data == [] && stopped.world.readSlot 0 == 23 do
+    throw (IO.userError "explicit STOP did not commit with empty response")
+  match finishFrame Verity.defaultState
+      (.stop { world := Verity.defaultState, bindings := [] }) with
+  | .error _ => pure ()
+  | .ok _ => throw (IO.userError "unobserved stop was silently converted to empty response")
+  let stale : DenoteState :=
+    { world := Verity.defaultState, bindings := [], observedReturnWords := some [99] }
+  let explicit ← IO.ofExcept (finishFrame Verity.defaultState (execStmt oracle fields stale .stop))
+  unless explicit.data == [] do throw (IO.userError "STOP reused stale return words")
+  let returned ← IO.ofExcept (finishFrame Verity.defaultState
+    (execStmt oracle fields { stale with observedStop := true } (.returnValues [.literal 7])))
+  unless returned.data == wordBytes 7 do throw (IO.userError "returnValues reused stale STOP marker")
   let first ← IO.ofExcept (executeBody oracle fields Verity.defaultState []
     [.setStorage "stored" (.literal 7), .setStorage "scratch" (.literal 11),
      .returnValues [.storage "stored", .storage "scratch"]])

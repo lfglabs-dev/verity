@@ -16,6 +16,11 @@ def expressionAccesses (fields : List Field) : Expr → Except String (List Veri
       let some (field, slot) := findFieldWithResolvedSlot fields name
         | throw s!"unknown observed field {name}"
       return [fieldKey field slot]
+  | .add left right | .sub left right | .mul left right | .div left right
+  | .bitAnd left right | .bitXor left right | .eq left right | .lt left right
+  | .gt left right | .le left right | .ge left right => do
+      return (← expressionAccesses fields left) ++ (← expressionAccesses fields right)
+  | .logicalNot value => expressionAccesses fields value
   | expression => .error s!"unsupported storage observation expression: {repr expression}"
 
 def statementAccesses (fields : List Field) (statement : Stmt)
@@ -23,6 +28,7 @@ def statementAccesses (fields : List Field) (statement : Stmt)
   match statement with
   | .letVar _ value | .assignVar _ value | .return value | .panicCode value =>
       expressionAccesses fields value
+  | .stop => pure []
   | .returnValues values => do
       return (← values.mapM (expressionAccesses fields)).flatten
   | .panic _ => .ok []
@@ -48,6 +54,8 @@ structure AccessResult where
   outcome : StmtOutcome
   touched : List Verity.StorageKey
 
+mutual
+
 /-- Error arguments are evaluated only on the failing Denote branch. Observe
 that branch using the same evaluator, retaining condition reads in either case.
 The accepted expressions remain the explicit scalar access subset above. -/
@@ -55,6 +63,15 @@ def observedStatementAccesses (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (statement : Stmt) (events : List EventDef) :
     Except String (List Verity.StorageKey) := do
   match statement with
+  | .ite condition yes no => do
+      let reads ← expressionAccesses fields condition
+      match evalExpr oracle fields state condition with
+      | none => throw "conditional observation could not evaluate the condition"
+      | some value =>
+          if value != 0 then
+            return reads ++ (← observedBodyAccesses oracle fields state yes events)
+          else
+            return reads ++ (← observedBodyAccesses oracle fields state no events)
   | .require condition _ => expressionAccesses fields condition
   | .requireError condition _ arguments =>
       let reads ← expressionAccesses fields condition
@@ -64,6 +81,22 @@ def observedStatementAccesses (oracle : DenoteOracle) (fields : List Field)
   | .revertError _ arguments =>
       return (← arguments.mapM (expressionAccesses fields)).flatten
   | _ => statementAccesses fields statement events
+
+/-- Follow only executed statements, retaining accesses before a stop or revert.
+State advancement uses the original Denote executor. -/
+def observedBodyAccesses (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (body : List Stmt) (events : List EventDef) :
+    Except String (List Verity.StorageKey) := do
+  match body with
+  | [] => return []
+  | head :: tail =>
+      let accesses ← observedStatementAccesses oracle fields state head events
+      match execStmt oracle fields state head with
+      | .continue next =>
+          return accesses ++ (← observedBodyAccesses oracle fields next tail events)
+      | _ => return accesses
+
+end
 
 /-- Keep accesses made before a revert, including writes rolled back later.
 Only the continuation case executes another statement. -/

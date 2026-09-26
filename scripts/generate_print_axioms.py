@@ -22,6 +22,7 @@ PROOF_DIRS = [ROOT / "Verity" / "Proofs", ROOT / "Compiler" / "Proofs"]
 TRUST_BOUNDARY_FILES = [
     ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
     ROOT / "Compiler" / "SolidityImport" / "Transactions.lean",
+    ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",
     ROOT / "Compiler" / "SolidityImport" / "TransactionAccess.lean",
 ]
 

@@ -77,6 +77,29 @@ The campaign identity includes the actual imported Solidity fixture alongside
 the Lean driver and implementation artifacts, detecting local source edits or
 removal during replay. It does not defend against a malicious filesystem.
 
+The imported scalar storage slice trusts solc's slot/byte-offset layout and the
+importer's conversion to packed bit ranges. Unsigned integers, addresses and
+bytes32 are represented by physical uint256 fields; their source types govern
+casts and ABI results. Writes and deletes use the existing masked Denote write
+semantics. The imported packed-storage sequence supplies sampled A/B/C evidence,
+including rollback and sibling retention, not a frontend equivalence theorem.
+Write-aware coverage does not extend the old read-only preservation theorem.
+Separate kernel-checked frame lemmas cover other persistent slots, not arbitrary
+contract invariants. Void root fallthrough uses the compiler's dedicated stop instruction. Denote
+records an explicit-stop marker separately from the legacy return-word
+projection. The transaction adapter emits empty bytes only for that marker;
+missing observations still fail. This replaces no
+compiler return-shape check. Helpers with storage writes are rejected because
+the importer does not yet validate solc's nested expression evaluation order.
+Constructor execution and state-variable initialization remain outside the
+runtime-slice claim.
+
+Storage access tracing now follows only the selected conditional branch and
+advances branch-local state through the actual executor, stopping at return or
+revert. Pure arithmetic/bitmask operands are recursively inventoried. Unsupported
+expressions still fail observation; no accesses are inferred from execution
+success. The original full-outcome trace agreement theorem is unchanged.
+
 The typed accessors that the import also generates (`example.f`,
 `example.position.credit`, ...) add no trust: they are Lean definitions over
 the model, through `runFunction` and `readMember` in

@@ -274,6 +274,9 @@ structure DenoteState where
       The proof semantics records the words here and finishes with `.stop`;
       panic payloads are carried separately by `StmtOutcome.revertWithData`. -/
   observedReturnWords : Option (List Nat) := none
+  /-- The current frame executed `Stmt.stop`, whose EVM response is empty.
+      Kept separate from the legacy return-word projection. -/
+  observedStop : Bool := false
   /-- Declarations needed for exact custom-error ABI encoding. -/
   errors : List ErrorDef := []
 
@@ -1506,7 +1509,7 @@ mutual
                 world := { state.world with
                   memory := fun o => if o = 0 then resolved else state.world.memory o } }
         | none => .revert
-    | state, .stop => .stop state
+    | state, .stop => .stop { state with observedStop := true }
     | state, .ite cond thenBranch elseBranch =>
         match evalExpr oracle fields state cond with
         | some resolved =>
@@ -1606,7 +1609,7 @@ mutual
     | state, .returnValues values =>
         match evalExprList oracle fields state values with
         | some resolved =>
-            .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
+            .stop { state with observedReturnWords := some (resolved.map wordNormalize), observedStop := false }
         | none => .revert
     | _, _ => .revert
 

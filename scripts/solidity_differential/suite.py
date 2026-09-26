@@ -22,6 +22,9 @@ def stateful_campaign(output, transactions, seed):
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/ErrorPayloads.lean'],
             log=output / 'error-payloads.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/StorageTraceChecks.lean'],
+            log=output / 'storage-trace-checks.log')
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
@@ -43,6 +46,13 @@ def stateful_campaign(output, transactions, seed):
     checks.append(('environment', ['-m', 'solidity_differential.check_environment',
         '--transactions', str(transactions), '--seed', str(seed),
         '--output', str(output / 'environment')]))
+    checks.append(('storage', ['-m', 'solidity_differential.check_storage',
+        '--transactions', str(transactions), '--seed', str(seed),
+        '--output', str(output / 'storage')]))
+    for fixture in ('void', 'bytes'):
+        checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
+            '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),
+            '--output', str(output / ('storage-' + fixture))]))
     completed = []
     checks.append(('errors', ['-m', 'solidity_differential.check_stateful',
         '--transactions', str(transactions), '--seed', str(seed),

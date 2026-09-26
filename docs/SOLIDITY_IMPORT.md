@@ -96,6 +96,8 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | `block.timestamp`, `block.number`, `block.chainid` | Dedicated transaction-context expressions |
 | Explicit scalar/tuple return | `returnValues`, preserving order |
 | Local declarations and storage aliases | Bindings named after the Solidity local (suffixed `_1`, `_2`, ... on collision), or resolved read paths |
+| Scalar storage reads, `=`, and `delete` | Resolved uint8–uint256, address, and bytes32 fields; exact solc slots and packed offsets; masked writes preserve neighboring bits |
+| Void root fallthrough | Explicit `stop` with empty return bytes; named/value-returning roots still require an explicit return |
 | One/two-key mappings to structs | solc slots, word offsets, and packed uint offsets |
 | Scalar member of a memory/calldata struct parameter | Explicit scalar projection; no ABI decoder |
 | Unsigned `+`, `-`, `*`, `/` | Word arithmetic with overflow/underflow/zero-divisor panics |
@@ -107,9 +109,9 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Resolved acyclic helper calls | Inlined bodies with separate local scopes |
 | Single assignment to a named assembly return | `xor`, `mul`, `lt`, as in `UtilsLib.min` |
 
-Each root must return explicitly. Payable roots are rejected until value-transfer
+Value-returning roots must return explicitly. Payable roots are rejected until value-transfer
 semantics are supported. Other `msg`, `block`, and `tx` context members are
-rejected when reached. Loops, state writes, external calls,
+rejected when reached. Loops, mapping/struct writes, compound assignments, external calls,
 modifiers, recursion, virtual dispatch, named call arguments, signed
 operations, and any other construct reached from a root are rejected with
 `file:line:column`, the construct, the reason, and the call path from the root
@@ -298,3 +300,35 @@ The executable context mutations replace each new imported context expression
 with zero. Every mutant must first pass the unchanged fixture, then produce a
 real A/B/C divergence and a separately replayed, deletion-minimal one-transaction
 witness. Tool and compilation failures cannot count as detection.
+
+### Imported scalar storage sequences
+
+`StorageSequence.sol` imports three mutating entry points with packed uint128
+siblings, a packed address/uint96 pair, and a full uint256 field. Transactions
+exercise successive writes, deletion of one sibling while retaining the other,
+and writes followed by a message-bearing revert. Direct, local-binding, and
+reordered-write variants are independently imported and run through A/B/C.
+Cross-variant comparison treats storage as a key/value map and touched slots as
+a set; it preserves ordered events, status, and exact return/revert bytes and
+rejects duplicated or missing storage observations.
+
+The physical model fields are uint256 words with solc-derived bit ranges;
+Solidity source types still control conversions and return ABI types. Boolean,
+signed, array, and direct struct storage are rejected in this slice. Storage
+assignments are accepted only as root statements. Helpers that write storage
+are rejected until nested operand and argument evaluation order is validated. Mapping
+writes and whole-contract deployment/initialization are not established by this
+fixture. The importer still selects runtime function closures.
+
+Write-aware executable coverage is separate from the original read-only
+`stmtCovered` predicate and its world-preservation theorem. Storage frame lemmas
+in `StorageFrames.lean` prove preservation of other persistent slots for the
+actual Denote write helper and successful `setStorage` step, including packed
+writes and normalized alias destinations. They do not by themselves prove a
+whole-contract invariant or preservation of other bits in the same slot.
+
+`StorageVoidSequence` checks empty ABI responses and rollback from void entry
+points. Its fallthrough lowers to `Stmt.stop`; the compiler's return-shape
+validation remains unchanged. `StorageBytesSequence` separately checks bytes32
+assignment, read, deletion, and rollback. Both have direct, binding, and
+arithmetic-identity variants generated in `programs.py`.

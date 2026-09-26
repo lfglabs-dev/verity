@@ -49,7 +49,14 @@ def mutation_campaign(output, selected=None):
     reports = []
     from .check_environment_mutations import MUTANTS as CONTEXT_MUTANTS
     from .check_environment_mutations import mutation_campaign as context_campaign
-    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS]:
+    from .check_storage_mutations import MUTANTS as STORAGE_MUTANTS
+    from .check_storage_mutations import mutation_campaign as storage_campaign
+    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS]:
+        if name in STORAGE_MUTANTS:
+            storage = storage_campaign(output, [name])
+            reports.extend(storage['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
         if name in CONTEXT_MUTANTS:
             context = context_campaign(output, [name])
             reports.extend(context['mutants'])
