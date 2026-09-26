@@ -63,7 +63,14 @@
                   isPayable := false,
                   isView := true,
                   isPure := false,
-                  body := [Compiler.CompilationModel.Stmt.letVar
+                  body := [Compiler.CompilationModel.Stmt.ite
+                             (Compiler.CompilationModel.Expr.lt
+                               (Compiler.CompilationModel.Expr.calldataload (Compiler.CompilationModel.Expr.literal 68))
+                               (Compiler.CompilationModel.Expr.literal
+                                 1461501637330902918203684832716283019655932542976))
+                             []
+                             [Compiler.CompilationModel.Stmt.revertReturndata],
+                           Compiler.CompilationModel.Stmt.letVar
                              "credit"
                              (Compiler.CompilationModel.Expr.structMember2
                                "position"
@@ -489,7 +496,9 @@
                   reentrancyTrusted := false,
                   requiresRole := none,
                   isInternal := false,
-                  localObligations := [] }],
+                  localObligations := [{ name := "solidity_scalar_abi_entry",
+                                         obligation := "Before source execution, raw ABI scalar words must be canonical; the fresh EIP-211 returndata buffer is empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved.",
+                                         proofStatus := Compiler.ProofStatus.unchecked }] }],
   events := [],
   errors := [],
   externals := [],

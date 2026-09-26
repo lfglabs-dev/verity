@@ -922,3 +922,11 @@ The smoke witness executes the ABI guard followed by the original credit read
 with calldata consistent with its bound parameters. Its expected credit result
 is unchanged. All named smoke theorems are registered in the generated axiom
 audit; no golden model or pilot provenance was changed.
+
+The scalar-ABI change updates the smoke `model.golden` only by prepending the
+raw address-word guard at calldata byte offset 68 (strict bound 2^160, empty
+revert on failure) and recording its unchecked local obligation. Removing
+those two additions reproduces the previous golden byte-for-byte. The prior
+body and storage model are unchanged; the runtime mutation suite checks that
+removing or corrupting this validation is detected. Pilot provenance is not
+changed by this golden update.
