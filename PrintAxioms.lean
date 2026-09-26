@@ -5,6 +5,7 @@
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
+import Compiler.SolidityImport.StorageFrames
 import Compiler.SolidityImport.TransactionAccess
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
@@ -299,6 +300,10 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_transient
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_parkedTransient
   Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_revert
+
+  -- Compiler/SolidityImport/StorageFrames.lean
+  Compiler.CompilationModel.Denote.writeUintFieldSlots_storage_frame
+  Compiler.CompilationModel.Denote.execStmt_setStorage_storage_frame
 
   -- Compiler/SolidityImport/TransactionAccess.lean
   Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
@@ -7594,4 +7599,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7017 theorems/lemmas (5004 public, 2013 private, 0 sorry'd)
+-- Total: 7019 theorems/lemmas (5006 public, 2013 private, 0 sorry'd)

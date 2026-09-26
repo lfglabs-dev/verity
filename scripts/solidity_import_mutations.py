@@ -406,7 +406,10 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    "import-block-number", "import-block-chainid",
                    "import-require-condition", "denote-require-selector",
                    "import-custom-require-condition", "denote-custom-require-selector",
-                   "denote-custom-require-argument"):
+                   "denote-custom-require-argument",
+                   "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
+                   "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
+                   "denote-scalar-sibling-mask"):
         output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],
@@ -416,6 +419,8 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
             raise SystemExit(f"{mutant}: expected a runtime differential divergence")
         print(f"pass {mutant}")
     subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
+                   cwd=ROOT, check=True, timeout=300)
+    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_storage_rejections.py")],
                    cwd=ROOT, check=True, timeout=300)
     print("import mutations passed")
 

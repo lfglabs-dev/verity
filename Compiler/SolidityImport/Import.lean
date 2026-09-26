@@ -379,8 +379,26 @@ private def buildField (types item : Json) : M FieldInfo := do
   let slot ← mNat (← mField item "slot")
   let typeId ← mStr (← mField item "type")
   let top ← liftM (layoutType types typeId)
-  unless (← mStr (← mField top "encoding")) == "mapping" do
-    throwError "storage field {name} is not a mapping"
+  let encoding ← mStr (← mField top "encoding")
+  if encoding == "inplace" then
+    let width ←
+      if typeId == "t_address" || typeId == "t_address_payable" then pure 160
+      else if typeId == "t_bytes32" then pure 256
+      else if typeId.startsWith "t_uint" then
+        let some bits := (typeId.drop 6).toNat? | throwError "invalid scalar uint layout {typeId}"
+        unless bits > 0 && bits ≤ 256 && bits % 8 == 0 do
+          throwError "invalid scalar uint width {bits}"
+        pure bits
+      else throwError "unsupported scalar storage type {typeId}"
+    let offset := (← mNat (← mField item "offset")) * 8
+    unless offset + width ≤ 256 do throwError "scalar storage field {name} crosses a word boundary"
+    let packedBits : Option PackedBits :=
+      if offset == 0 && width == 256 then none else some { offset, width }
+    -- Exact physical words; source types still govern conversions and ABI.
+    let field : Field := { name, ty := .uint256, slot := some slot, packedBits }
+    return { slot, field, keyCount := 0, memberNames := #[], opaqueNames := #[] }
+  unless encoding == "mapping" do
+    throwError "unsupported storage encoding {encoding} for {name}"
   let key1 ← liftM (mappingKey (← mStr (← mField top "key")))
   let valueId ← mStr (← mField top "value")
   let value ← liftM (layoutType types valueId)
@@ -502,6 +520,11 @@ private partial def lowerExpr (j : Json) : M Val := do
   | "Identifier" | "MemberAccess" | "IndexAccess" =>
       match ← lowerRef j with
       | .expr v => pure v
+      | .state name pre =>
+          let info ← resolveField name j
+          unless info.keyCount == 0 do failAt j "mapping used as a scalar value"
+          markField name
+          pure { pre, expr := .storage name }
       | _ => failAt j "storage or memory path used as a value"
   | kind => failAt j s!"unsupported expression {kind}"
 
@@ -835,6 +858,28 @@ private partial def lowerHelper (stmts : Array Json) (retName : String) : M Val 
   | some v => pure { pre := pre ++ v.pre, expr := v.expr }
   | none => throwError "inlined helper did not return"
 
+private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
+  let expression ← mField statement "expression"
+  let kind ← mKind expression
+  if kind != "Assignment" && kind != "UnaryOperation" then
+    return ← lowerRequire statement
+  let deleting := kind == "UnaryOperation"
+  let operator ← mStr (← mField expression "operator")
+  unless (deleting && operator == "delete") || (!deleting && operator == "=") do
+    failAt expression "only scalar storage assignment and delete are supported"
+  let target ← mField expression (if deleting then "subExpression" else "leftHandSide")
+  unless (← mKind target) == "Identifier" do
+    failAt target "only a resolved scalar storage identifier is writable"
+  let .state name pre ← lowerRef target
+    | failAt target "assignment target is not scalar storage"
+  let info ← resolveField name target
+  unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
+  markField name
+  let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
+    let right ← mField expression "rightHandSide"
+    atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+  return (pre ++ value.pre).push (.setStorage name value.expr)
+
 private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "expression"
   unless (← mKind call) == "FunctionCall" do
@@ -1021,10 +1066,12 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     | "VariableDeclarationStatement" =>
         out := out ++ (← lowerLocal s)
     | "ExpressionStatement" =>
-        out := out ++ (← lowerRequire s)
+        out := out ++ (← lowerEffect s)
     | "Return" =>
         returned := true
-        let expr ← mField s "expression"
+        let some expr := field? s "expression"
+          | failAt s "bare return requires explicit void-return lowering"
+        if expr.isNull then failAt s "bare return requires explicit void-return lowering"
         if (← mKind expr) == "TupleExpression" then
           if ← mBool (← mField expr "isInlineArray") then
             failAt expr "inline arrays are outside this slice"
@@ -1041,7 +1088,10 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
           let v ← atom (← lowerExpr expr)
           out := out ++ v.pre |>.push (.returnValues [v.expr])
     | kind => failAt s s!"unsupported statement {kind}"
-  unless returned do failAt fn "an explicit root return is required"
+  unless returned do
+    let returns ← mArr (← mField (← mField fn "returnParameters") "parameters")
+    unless returns.isEmpty do failAt fn "an explicit root return is required"
+    out := out.push .stop
   pure (out, srcParams)
 
 private partial def index (file : String) (contract? : Option String) (j : Json) : M Unit := do
@@ -1396,7 +1446,7 @@ private def importSlice
     { importerVersion, solcLongVersion, solcSha256 := solcSha, settingsJson := settings.compress,
       sourceDigest := digest, contract, roots := (roots.map (·.1)).toList,
       functions := specs.toList.map fun f =>
-        { function := f.name, denoteCovered := stmtListCovered f.body,
+        { function := f.name, denoteCovered := executableStmtListCovered f.body,
           compilerProof := .unavailable noCompilerProofReason },
       includedFunctions := (env.included.map FnRec.toImported).toList,
       excludedFunctions := (sortedExcluded.map FnRec.toImported).toList,

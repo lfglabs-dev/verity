@@ -206,3 +206,58 @@ def stateful_environment_source(original, variant):
         return original.replace('contract SequenceFixture {', library + 'contract SequenceFixture {').replace(
             before, 'return (EnvironmentContext.sender(), EnvironmentContext.self(), EnvironmentContext.timestamp(), EnvironmentContext.number(), EnvironmentContext.chain());')
     raise ValueError('unknown environment variant: ' + variant)
+
+
+def stateful_storage_source(original, variant):
+    """Equivalent packed scalar writes/deletes, imported independently per variant."""
+    if variant == 'baseline':
+        return original
+    writes = """low = uint128(value);
+        high = uint128(value / 2);
+        owner = msg.sender;
+        tag = uint96(value);
+        stored = value;"""
+    deletes = """delete low;
+        delete stored;"""
+    if original.count(writes) != 1 or original.count(deletes) != 1:
+        raise ValueError('nonunique storage source anchors')
+    if variant == 'bindings':
+        return original.replace(writes, """uint128 nextLow = uint128(value);
+        uint128 nextHigh = uint128(value / 2);
+        address nextOwner = msg.sender;
+        uint96 nextTag = uint96(value);
+        low = nextLow;
+        high = nextHigh;
+        owner = nextOwner;
+        tag = nextTag;
+        stored = value;""")
+    if variant == 'reordered':
+        # Disjoint fields, including siblings sharing a physical word: reordering
+        # must preserve exactly the same resulting bytes and observations.
+        return original.replace(writes, """stored = value;
+        tag = uint96(value);
+        owner = msg.sender;
+        high = uint128(value / 2);
+        low = uint128(value);""").replace(deletes, """delete stored;
+        delete low;""")
+    raise ValueError('unknown storage variant: ' + variant)
+
+
+def stateful_storage_word_source(original, variant, kind):
+    """Equivalent void/bytes32 assignments, preserving each fixture's ABI."""
+    if kind not in ('void', 'bytes'):
+        raise ValueError('unknown storage word fixture: ' + kind)
+    if variant == 'baseline':
+        return original
+    expression = 'value' if kind == 'void' else 'bytes32(value)'
+    before = 'stored = ' + expression + ';'
+    if original.count(before) != 1:
+        raise ValueError('nonunique storage word assignment anchor')
+    if variant == 'bindings':
+        ty = 'uint256' if kind == 'void' else 'bytes32'
+        after = ty + ' next = ' + expression + ';\n        stored = next;'
+    elif variant == 'expression':
+        after = 'stored = ' + ('value + 0' if kind == 'void' else 'bytes32(value + 0)') + ';'
+    else:
+        raise ValueError('unknown storage word variant: ' + variant)
+    return original.replace(before, after)

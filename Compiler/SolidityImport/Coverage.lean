@@ -7,7 +7,7 @@ The Solidity-slice importer (`Compiler/SolidityImport`) emits only a small,
 explicitly listed fragment of the deep `CompilationModel`.  This module is the
 machine-checked side of that contract:
 
-* `exprCovered` / `stmtCovered` / `stmtListCovered` are the decidable
+* `exprCovered` / `executableStmtCovered` / `executableStmtListCovered` are the decidable
   whitelists of `Expr` / `Stmt` constructors the importer may emit.  A
   constructor is whitelisted only when `Compiler.CompilationModel.Denote`
   gives it a dedicated arm — never the catch-all `none` / `.revert` fallback.
@@ -16,7 +16,7 @@ machine-checked side of that contract:
   or its meaning changes, the pin stops compiling, so the whitelist cannot
   silently drift away from the semantics.
 
-The importer refuses to register a slice whose body fails `stmtListCovered`,
+The importer refuses to register a slice whose body fails `executableStmtListCovered`,
 and registers the passing verdict as a theorem proved by `decide`.
 
 This predicate is deliberately *not* `SupportedFunction`: that predicate is
@@ -39,6 +39,7 @@ constructor (including `paramDynamicMember*`, `paramDynamicStaticComposite`,
 def exprCovered : Expr → Bool
   | .literal _ => true
   | .param _ => true
+  | .storage _ => true
   | .localVar _ => true
   | .blockTimestamp => true
   | .blockNumber | .chainid | .caller | .contractAddress => true
@@ -59,7 +60,7 @@ def exprListCovered : List Expr → Bool
 
 mutual
 
-/-- Statements the slice importer may emit, mirrored against `Denote.execStmt`.
+/-- Read-only statements, mirrored against `Denote.execStmt`.
 Multi-value returns are covered: `Stmt.returnValues` records the resolved words
 in `DenoteState.observedReturnWords` and finishes with `.stop`. -/
 def stmtCovered : Stmt → Bool
@@ -79,6 +80,33 @@ def stmtListCovered : List Stmt → Bool
   | s :: ss => stmtCovered s && stmtListCovered ss
 
 end
+
+/- Executable coverage includes writes; `stmtCovered` retains its read-only
+meaning and its original world-preservation theorems. -/
+mutual
+  def executableStmtCovered : Stmt → Bool
+    | .stop => true
+    | .setStorage _ value => exprCovered value
+    | .ite condition yes no =>
+        exprCovered condition && executableStmtListCovered yes && executableStmtListCovered no
+    | statement => stmtCovered statement
+  def executableStmtListCovered : List Stmt → Bool
+    | [] => true
+    | head :: tail => executableStmtCovered head && executableStmtListCovered tail
+end
+
+theorem execStmt_stop_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    execStmt oracle fields state .stop =
+      .stop { state with observedStop := true } := rfl
+
+theorem execStmt_setStorage_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name : String) (value : Expr) :
+    execStmt oracle fields state (.setStorage name value) =
+      (match findFieldWriteSlots fields name, evalExpr oracle fields state value with
+       | some slots, some resolved =>
+           .continue { state with world := writeUintFieldSlots fields name state.world slots resolved }
+       | _, _ => .revert) := rfl
 
 theorem execStmt_require_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (condition : Expr) (message : String) :
@@ -105,6 +133,18 @@ theorem execStmt_requireError_arm (oracle : DenoteOracle) (fields : List Field)
 Each pin restates the dedicated `Denote.evalExpr` arm.  They are proved by
 `rfl`, so deleting the arm (falling back to the catch-all `none`) or changing
 the arm's meaning breaks the build here. -/
+
+theorem evalExpr_storage_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name : String) :
+    evalExpr oracle fields state (.storage name) =
+      (match findFieldWithResolvedSlot fields name with
+       | some (field, slot) =>
+           let rawWord := (readFieldWord state.world field slot).val
+           match field.packedBits with
+           | none => some rawWord
+           | some packed => some (Verity.Core.Uint256.and
+               (Verity.Core.Uint256.shr packed.offset rawWord) (packedMaskNat packed)).val
+       | none => none) := rfl
 
 theorem evalExpr_literal_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (n : Nat) :
@@ -333,7 +373,7 @@ theorem execStmt_returnValues_arm (oracle : DenoteOracle) (fields : List Field)
     execStmt oracle fields s (.returnValues args) =
       (match evalExprList oracle fields s args with
       | some resolved =>
-          .stop { s with observedReturnWords := some (resolved.map wordNormalize) }
+          .stop { s with observedReturnWords := some (resolved.map wordNormalize), observedStop := false }
       | none => .revert) := rfl
 
 /-- A `returnValues` statement terminates the statement list: later statements
@@ -343,12 +383,12 @@ theorem execStmtList_returnValues_stop_arm (oracle : DenoteOracle) (fields : Lis
     (s : DenoteState) (a b : Nat) :
     execStmtList oracle fields s
         [.returnValues [.literal a, .literal b], .panic .arithmeticOverflow] =
-      .stop { s with observedReturnWords := some [wordNormalize a, wordNormalize b] } := by
+      .stop { s with observedReturnWords := some [wordNormalize a, wordNormalize b], observedStop := false } := by
   simp [execStmtList, execStmt, evalExprList, evalExpr, wordNormalize]
 
 /-- Every function body of a model is in the slice whitelist. -/
 def modelImportCovered (model : CompilationModel) : Bool :=
-  model.functions.all fun fn => stmtListCovered fn.body
+  model.functions.all fun fn => executableStmtListCovered fn.body
 
 /-- Level A: run a body on scalar bindings. Arguments are Solidity words, not
 ABI-decoded calldata. `some` is the source-order return list of a successful

@@ -27,6 +27,7 @@ private def optNat : Option Nat → m Term
 partial def quoteExpr : Expr → m Term
   | .literal n => `(Compiler.CompilationModel.Expr.literal $(quote n))
   | .localVar x => `(Compiler.CompilationModel.Expr.localVar $(quote x))
+  | .storage x => `(Compiler.CompilationModel.Expr.storage $(quote x))
   | .param x => `(Compiler.CompilationModel.Expr.param $(quote x))
   | .blockTimestamp => `(Compiler.CompilationModel.Expr.blockTimestamp)
   | .blockNumber => `(Compiler.CompilationModel.Expr.blockNumber)
@@ -57,6 +58,7 @@ private def quotePanic : Verity.Core.PanicCode → m Term
 
 partial def quoteStmt : Stmt → m Term
   | .letVar x v => do `(Compiler.CompilationModel.Stmt.letVar $(quote x) $(← quoteExpr v))
+  | .setStorage x v => do `(Compiler.CompilationModel.Stmt.setStorage $(quote x) $(← quoteExpr v))
   | .assignVar x v => do `(Compiler.CompilationModel.Stmt.assignVar $(quote x) $(← quoteExpr v))
   | .ite c t e => do
       `(Compiler.CompilationModel.Stmt.ite $(← quoteExpr c)
@@ -67,6 +69,7 @@ partial def quoteStmt : Stmt → m Term
   | .requireError condition name args => do
       `(Compiler.CompilationModel.Stmt.requireError $(← quoteExpr condition) $(quote name)
         $(← list (← args.mapM quoteExpr)))
+  | .stop => `(Compiler.CompilationModel.Stmt.stop)
   | .returnValues vs => do
       `(Compiler.CompilationModel.Stmt.returnValues $(← list (← vs.mapM quoteExpr)))
   | _ => throwError "internal: the importer cannot quote this statement"
@@ -89,16 +92,20 @@ private def quoteMember (s : StructMember) : m Term := do
       Compiler.CompilationModel.StructMember))
 
 def quoteField (f : Field) : m Term := do
-  unless !f.isTransient && f.packedBits.isNone && f.aliasSlots.isEmpty do
+  unless !f.isTransient && f.aliasSlots.isEmpty do
     throwError "internal: field {f.name} has settings the importer does not emit"
+  let packed ← match f.packedBits with
+    | none => `(none)
+    | some p => `(some ({ offset := $(quote p.offset), width := $(quote p.width) } : Compiler.CompilationModel.PackedBits))
   let ty ← match f.ty with
+    | .uint256 => `(Compiler.CompilationModel.FieldType.uint256)
     | .mappingStruct k ms => do
         `(Compiler.CompilationModel.FieldType.mappingStruct $(← quoteKey k) $(← list (← ms.mapM quoteMember)))
     | .mappingStruct2 k1 k2 ms => do
         `(Compiler.CompilationModel.FieldType.mappingStruct2 $(← quoteKey k1) $(← quoteKey k2)
           $(← list (← ms.mapM quoteMember)))
     | t => throwError "internal: the importer cannot quote {repr t}"
-  `(({ name := $(quote f.name), ty := $ty, slot := $(← optNat f.slot) } : Compiler.CompilationModel.Field))
+  `(({ name := $(quote f.name), ty := $ty, slot := $(← optNat f.slot), packedBits := $packed } : Compiler.CompilationModel.Field))
 
 def quoteParamType : ParamType → m Term
   | .uint256 => `(Compiler.CompilationModel.ParamType.uint256)

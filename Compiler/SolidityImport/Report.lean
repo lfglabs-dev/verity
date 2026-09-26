@@ -58,7 +58,7 @@ def noCompilerProofReason : String :=
 and `Differential` reports it next to these fields. -/
 structure FunctionStatus where
   function : String
-  /-- `stmtListCovered` holds on the lowered body. The kernel-checked form of
+  /-- `executableStmtListCovered` holds on the lowered body. The kernel-checked form of
   this fact, for all roots together, is the theorem `x.covered`. -/
   denoteCovered : Bool
   compilerProof : CompilerProofStatus
