@@ -178,3 +178,31 @@ def stateful_scalar_source(original, variant):
     if variant not in replacements or original.count(before) != 1:
         raise ValueError('unknown stateful variant or nonunique source anchor')
     return original.replace(before, replacements[variant])
+
+
+def stateful_environment_source(original, variant):
+    """Equivalent context reads, each imported from its own generated source."""
+    if variant == 'baseline':
+        return original
+    before = 'return (msg.sender, address(this), block.timestamp, block.number, block.chainid);'
+    if original.count(before) != 1:
+        raise ValueError('nonunique environment return anchor')
+    if variant == 'bindings':
+        return original.replace(before, '''address sender = msg.sender;
+        address self = address(this);
+        uint256 timestamp = block.timestamp;
+        uint256 number = block.number;
+        uint256 chain = block.chainid;
+        return (sender, self, timestamp, number, chain);''')
+    if variant == 'helpers':
+        library = '''library EnvironmentContext {
+    function sender() internal view returns (address) { return msg.sender; }
+    function self() internal view returns (address) { return address(this); }
+    function timestamp() internal view returns (uint256) { return block.timestamp; }
+    function number() internal view returns (uint256) { return block.number; }
+    function chain() internal view returns (uint256) { return block.chainid; }
+}
+'''
+        return original.replace('contract SequenceFixture {', library + 'contract SequenceFixture {').replace(
+            before, 'return (EnvironmentContext.sender(), EnvironmentContext.self(), EnvironmentContext.timestamp(), EnvironmentContext.number(), EnvironmentContext.chain());')
+    raise ValueError('unknown environment variant: ' + variant)

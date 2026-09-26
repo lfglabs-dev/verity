@@ -11,6 +11,7 @@ private def fieldKey (field : Field) (slot : Nat) : Verity.StorageKey :=
 
 def expressionAccesses (fields : List Field) : Expr → Except String (List Verity.StorageKey)
   | .literal _ | .param _ | .localVar _ => .ok []
+  | .caller | .contractAddress | .blockTimestamp | .blockNumber | .chainid => .ok []
   | .storage name => do
       let some (field, slot) := findFieldWithResolvedSlot fields name
         | throw s!"unknown observed field {name}"

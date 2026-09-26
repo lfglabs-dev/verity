@@ -29,6 +29,10 @@ partial def quoteExpr : Expr → m Term
   | .localVar x => `(Compiler.CompilationModel.Expr.localVar $(quote x))
   | .param x => `(Compiler.CompilationModel.Expr.param $(quote x))
   | .blockTimestamp => `(Compiler.CompilationModel.Expr.blockTimestamp)
+  | .blockNumber => `(Compiler.CompilationModel.Expr.blockNumber)
+  | .chainid => `(Compiler.CompilationModel.Expr.chainid)
+  | .caller => `(Compiler.CompilationModel.Expr.caller)
+  | .contractAddress => `(Compiler.CompilationModel.Expr.contractAddress)
   | .structMember f k x => do
       `(Compiler.CompilationModel.Expr.structMember $(quote f) $(← quoteExpr k) $(quote x))
   | .structMember2 f k1 k2 x => do

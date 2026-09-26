@@ -86,11 +86,14 @@ for a complete example.
 
 ## Supported Solidity
 
-This is deliberately the subset Midnight's `updatePositionView` needs, not a
-claim to support arbitrary Solidity.
+The importer accepts the following constructs in a resolved function closure.
+Other constructs fail with a located diagnostic; this is not general Solidity support.
 
 | Construct | Lowering |
 | --- | --- |
+| Multiple selected entry points | One model with independently resolved root closures |
+| `msg.sender`, `address(this)` | Dedicated caller and current-contract expressions, resolved by solc builtin declaration ids |
+| `block.timestamp`, `block.number`, `block.chainid` | Dedicated transaction-context expressions |
 | Explicit scalar/tuple return | `returnValues`, preserving order |
 | Local declarations and storage aliases | Bindings named after the Solidity local (suffixed `_1`, `_2`, ... on collision), or resolved read paths |
 | One/two-key mappings to structs | solc slots, word offsets, and packed uint offsets |
@@ -104,7 +107,9 @@ claim to support arbitrary Solidity.
 | Resolved acyclic helper calls | Inlined bodies with separate local scopes |
 | Single assignment to a named assembly return | `xor`, `mul`, `lt`, as in `UtilsLib.min` |
 
-Each root must return explicitly. Loops, state writes, external calls,
+Each root must return explicitly. Payable roots are rejected until value-transfer
+semantics are supported. Other `msg`, `block`, and `tx` context members are
+rejected when reached. Loops, state writes, external calls,
 modifiers, recursion, virtual dispatch, named call arguments, signed
 operations, and any other construct reached from a root are rejected with
 `file:line:column`, the construct, the reason, and the call path from the root
@@ -277,3 +282,19 @@ Solidity source locations. These remain unsupported, but now fail at the
 `VariableDeclarationStatement` with a precise diagnostic instead of a missing
 JSON-field error. This diagnostic correction does not change successful models
 or the smoke golden; the importer source digest changes as designed.
+
+### Imported transaction-context sequences
+
+`EnvironmentSequence.sol` is an actual three-entry-point import.
+`solidity_differential.check_environment` generates direct, local-binding, and
+internal-helper variants in `programs.py`, imports each generated source into
+Denote and the Verity compiler, and compares all three execution routes. It also
+compares transaction inputs and complete observations between variants. Sender,
+contract address, timestamp, block number, and chain id are checked through their
+ABI return bytes across three funded callers. This fixture exercises context and dispatch; it does not
+establish storage-write or external-call import support.
+
+The executable context mutations replace each new imported context expression
+with zero. Every mutant must first pass the unchanged fixture, then produce a
+real A/B/C divergence and a separately replayed, deletion-minimal one-transaction
+witness. Tool and compilation failures cannot count as detection.

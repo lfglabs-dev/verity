@@ -294,7 +294,8 @@ private def freshFor (name : String) : M String := do
   pure binding
 
 private def isAtom : Expr → Bool
-  | .literal _ | .localVar _ | .param _ | .blockTimestamp => true
+  | .literal _ | .localVar _ | .param _ | .blockTimestamp | .blockNumber
+  | .caller | .contractAddress | .chainid => true
   | _ => false
 
 private def atom (v : Val) : M Val := do
@@ -542,10 +543,21 @@ private partial def lowerRef (j : Json) : M Ref := do
   | "MemberAccess" =>
       let member ← mStr (← mField j "memberName")
       let base ← mField j "expression"
-      if member == "timestamp" && (← mKind base) == "Identifier" &&
+      if (← mKind base) == "Identifier" &&
           optStr base "name" == some "block" &&
           optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_block" then
-        pure (.expr { pre := #[], expr := .blockTimestamp })
+        unless (← refInt base) == -4 do failAt base "block does not resolve to the Solidity builtin"
+        let expression ← match member with
+          | "timestamp" => pure Expr.blockTimestamp
+          | "number" => pure Expr.blockNumber
+          | "chainid" => pure Expr.chainid
+          | _ => failAt j s!"unsupported block context member {member}"
+        pure (.expr { pre := #[], expr := expression })
+      else if (← mKind base) == "Identifier" && optStr base "name" == some "msg" &&
+          optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_message" then
+        unless (← refInt base) == -15 do failAt base "msg does not resolve to the Solidity builtin"
+        unless member == "sender" do failAt j s!"unsupported message context member {member}"
+        pure (.expr { pre := #[], expr := .caller })
       else if member == "max" then
         lowerTypeMax j base
       else
@@ -701,6 +713,12 @@ private partial def lowerCall (j : Json) : M Val := do
   unless names.isEmpty do failAt j "named call arguments are outside this slice"
   let kind ← mStr (← mField j "kind")
   if kind == "typeConversion" then
+    let args ← mArr (← mField j "arguments")
+    if (← mType j) == "address" && args.size == 1 &&
+        (← mKind args[0]!) == "Identifier" && optStr args[0]! "name" == some "this" then
+      unless (← refInt args[0]!) == -28 do
+        failAt args[0]! "this does not resolve to the current contract builtin"
+      return { pre := #[], expr := .contractAddress }
     lowerCast j
   else if kind == "functionCall" then
     let callee ← mField j "expression"
@@ -986,6 +1004,8 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
 private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let rootId ← mNat (← mField fn "id")
   modify fun e => { e with stack := [rootId] }
+  if optStr fn "stateMutability" == some "payable" then
+    failAt fn "payable entry points require value-transfer semantics and are unsupported"
   let srcParams ← bindRoot fn
   if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
     failAt fn "virtual dispatch is outside this slice"

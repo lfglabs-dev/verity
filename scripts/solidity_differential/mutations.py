@@ -47,7 +47,14 @@ def mutation_campaign(output, selected=None):
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     reports = []
-    for name in selected or MUTANTS:
+    from .check_environment_mutations import MUTANTS as CONTEXT_MUTANTS
+    from .check_environment_mutations import mutation_campaign as context_campaign
+    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS]:
+        if name in CONTEXT_MUTANTS:
+            context = context_campaign(output, [name])
+            reports.extend(context['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
         relative, before, after = MUTANTS[name]
         directory = output / name
         if directory.exists():

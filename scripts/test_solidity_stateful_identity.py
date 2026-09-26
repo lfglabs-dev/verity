@@ -28,6 +28,30 @@ class IdentityTests(unittest.TestCase):
                    str(self.toolchain) if '--print-prefix' in args else 'test-revision'):
             self.identity = ImplementationIdentity(self.source)
 
+    def test_imported_solidity_input_is_hashed_and_edits_rejected(self):
+        source = self.root / 'Generated.sol'
+        source.write_text('contract Generated { }')
+        with patch('solidity_differential.identity.command', side_effect=lambda args:
+                   str(self.toolchain) if '--print-prefix' in args else 'test-revision'):
+            identity = ImplementationIdentity(self.source, extra_inputs=[source])
+        self.assertIn(str(source.resolve()), identity.manifest['files'])
+        identity.verify()
+        stat = source.stat()
+        source.write_text('contract Corrupted { }')
+        os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        with self.assertRaisesRegex(HarnessError, 'implementation changed'):
+            identity.verify()
+
+    def test_missing_imported_solidity_input_invalidates_identity(self):
+        source = self.root / 'Generated.sol'
+        source.write_text('contract Generated { }')
+        with patch('solidity_differential.identity.command', side_effect=lambda args:
+                   str(self.toolchain) if '--print-prefix' in args else 'test-revision'):
+            identity = ImplementationIdentity(self.source, extra_inputs=[source])
+        source.unlink()
+        with self.assertRaisesRegex(HarnessError, 'snapshot became unavailable'):
+            identity.verify()
+
     def test_unchanged(self):
         self.identity.verify()
         self.assertEqual(self.identity.manifest['revision'], 'test-revision')
