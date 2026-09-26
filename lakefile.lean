@@ -66,6 +66,8 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.StorageSequenceModel,
     .one `Contracts.SolidityImportSmoke.MappingSequenceModel,
     .one `Contracts.SolidityImportSmoke.ShortCircuitSequenceModel,
+    .one `Contracts.SolidityImportSmoke.ImportedEventSequenceModel,
+    .one `Contracts.SolidityImportSmoke.NarrowEventSequenceModel,
     .one `Contracts.SolidityImportSmoke.MappingDirtySequenceModel,
     .one `Contracts.SolidityImportSmoke.StorageVoidSequenceModel,
     .one `Contracts.SolidityImportSmoke.StorageBytesSequenceModel,

@@ -40,15 +40,32 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-event-converted-binding': ('value := { pre := value.pre.push (.letVar binding value.expr), expr := .localVar binding }', 'value := { pre := value.pre.push (.letVar binding (.literal 0)), expr := .localVar binding }'),
+    'import-event-indexed': ('kind := if indexed then .indexed else .unindexed', 'kind := .unindexed'),
+    'import-event-drop': ('pure (pre.push (.emit name values))', 'pure pre'),
+    'import-event-values': ('pure (pre.push (.emit name values))', 'pure (pre.push (.emit name (values.map (fun _ => .literal 0))))'),
+    'import-event-signature': ('failAt declaration "anonymous events are unsupported"\n  let name ← mStr (← mField declaration "name")',
+        'failAt declaration "anonymous events are unsupported"\n  let originalName ← mStr (← mField declaration "name")\n  let name := originalName ++ "Mutated"'),
+    'observe-event-word': ('| .uint256 | .bytes32 => pure (value % 2^256)', '| .uint256 | .bytes32 => pure 0'),
+    'observe-event-narrow': ('pure (value % 2^bits)', 'pure 0'),
+    'observe-event-address': ('| .address => pure (value % 2^160)', '| .address => pure 0'),
+    'observe-event-bool': ('| .bool => pure (if value == 0 then 0 else 1)', '| .bool => pure (if value == 0 then 1 else 0)'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
         fixture = "MappingSequence"
     if name.startswith("import-logical-"):
         fixture = "ShortCircuitSequence"
+    if name.startswith(('import-event-', 'observe-event-')):
+        fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
+            '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
             '--transactions', '3', '--seed', '2453', '--shrink-attempts', '30',
             '--output', str(output)]
     environment = dict(os.environ)
@@ -74,7 +91,9 @@ def mutation_campaign(output, selected=None):
         baseline_code, baseline = run(directory, directory / '.lake/baseline', name)
         if baseline_code or not baseline['transactions'] or baseline['divergences']:
             raise HarnessError(f'{name}: unmodified positive control failed')
-        source = directory / ('Verity/Core/Model/Denote.lean' if name.startswith('denote-') else 'Compiler/SolidityImport/Import.lean')
+        source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')
+                              else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
+                              else 'Compiler/SolidityImport/Import.lean')
         text = source.read_text()
         if text.count(before) != 1:
             raise HarnessError(f'{name}: nonunique mutation anchor')

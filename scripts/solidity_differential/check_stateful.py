@@ -18,6 +18,8 @@ def main():
     parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
     parser.add_argument('--dirty-mappings', action='store_true',
         help='seed the MappingDirtySequence layout with noncanonical low bytes and nonzero upper bits')
+    parser.add_argument('--argument-bits', type=int, default=256,
+        help='unsigned width of the change argument; generates canonical ABI words')
     parser.add_argument('--seed', type=int, default=2448)
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--senders', type=int, default=1, help='number of funded transaction senders (1 to 10)')
@@ -28,6 +30,10 @@ def main():
     parser.add_argument('--source-fixture', type=Path,
         default=Path(__file__).parent / 'fixtures/Sequence.sol')
     args = parser.parse_args()
+    if args.argument_bits not in range(8, 257, 8):
+        parser.error('argument width must be a byte-aligned unsigned width from 8 to 256')
+    if args.dirty_mappings and args.argument_bits != 256:
+        parser.error('dirty mapping fixture requires uint256 arguments')
     if not 1 <= args.senders <= 10:
         parser.error('sender count must be between one and ten')
     if args.transactions < 3 or args.shrink_attempts < 2:
@@ -46,7 +52,7 @@ def main():
             'optimizer': {'enabled': True, 'runs': 466},
             'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}}
     source = solc_compile(request, fixture.parent, output / 'source')['contracts']['Sequence.sol']['SequenceFixture']['evm']
-    names = ['change(uint256)', 'fail()', 'read()']
+    names = [f'change(uint{args.argument_bits})', 'fail()', 'read()']
     write_json(output / 'selectors.json', [int(source['methodIdentifiers'][name], 16) for name in names])
     driver = args.model_driver.resolve()
     identity = ImplementationIdentity(driver, extra_inputs=[fixture])
@@ -86,10 +92,10 @@ def main():
                                 '0x' + format(dirty, '064x')] for slot in sorted(slots)]
     write_json(output / 'initial-storage.json', initial_storage)
     rng = random.Random(args.seed)
-    calls = [('change(uint256)', [7]), ('fail()', []), ('read()', [])]
+    calls = [(names[0], [7]), ('fail()', []), ('read()', [])]
     for _ in range(args.transactions - 3):
         name = rng.choice(names)
-        call_args = [rng.choice([0, 1, (1 << 256) - 1, rng.getrandbits(256)])] if name == names[0] else []
+        call_args = [rng.choice([0, 1, (1 << args.argument_bits) - 1, rng.getrandbits(args.argument_bits)])] if name == names[0] else []
         calls.append((name, call_args))
     if args.dirty_mappings:
         calls = [('read()', []), ('read()', []), ('change(uint256)', [7]),
@@ -114,7 +120,7 @@ def main():
         'sourceSha256': hashlib.sha256(source_text.encode()).hexdigest(),
         'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest(),
         'variant': args.variant, 'seed': args.seed, 'transactionCount': args.transactions,
-        'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
+        'argumentBits': args.argument_bits, 'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
         'evmVersion': 'osaka', 'optimizerRuns': 466})
     result = replay_three_routes(transactions, adapters)
     identity.verify()

@@ -157,6 +157,8 @@ private structure Env where
   funs : RBMap Nat Json compare
   funContract : RBMap Nat String compare
   structs : RBMap Nat Json compare
+  eventDecls : RBMap Nat Json compare
+  usedEvents : List (Nat × EventDef)
   errorDecls : RBMap Nat Json compare
   usedErrors : List ErrorDef
   stateVars : RBMap Nat Json compare
@@ -185,6 +187,8 @@ private def Env.init : Env where
   funs := RBMap.empty
   funContract := RBMap.empty
   structs := RBMap.empty
+  eventDecls := RBMap.empty
+  usedEvents := []
   errorDecls := RBMap.empty
   usedErrors := []
   stateVars := RBMap.empty
@@ -324,6 +328,21 @@ private def paramType (ty : String) : Option ParamType :=
       match bitsOf ty with
       | some n => if n != 256 && ty.startsWith "uint" then some (.uintN n) else none
       | none => none
+
+/-- Resolve the actual CompilationModel parameter type, including projected
+struct members. A helper's Solidity return type need not be the type of the
+root parameter expression that survives inlining. -/
+private def rootParamType? (env : Env) (name : String) : Option ParamType := do
+  for (id, expression) in env.values do
+    match expression with
+    | .param candidate =>
+        if candidate == name then
+          if let some ty := env.scalarTy.find? id then return ty
+    | _ => pure ()
+  for (_, memory) in env.mems do
+    for (member, ty) in memory.members do
+      if s!"{memory.param}_{member}" == name then return ← paramType ty
+  none
 
 private def noteFn (fn : Json) : M Unit := do
   let id ← mNat (← mField fn "id")
@@ -1006,6 +1025,69 @@ private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
   let condition ← atom (← lowerExpr args[0]!)
   return condition.pre.push (.require condition.expr value)
 
+private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
+  let call ← mField statement "eventCall"
+  unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
+    failAt call "event must be a resolved declaration call"
+  unless (← mArr (← mField call "names")).isEmpty do
+    failAt call "named event arguments are unsupported"
+  let callee ← mField call "expression"
+  let id ← refInt callee
+  let some declaration := (← get).eventDecls.find? id.toNat
+    | failAt callee "event does not resolve to an event declaration"
+  if ← mBool (← mField declaration "anonymous") then
+    failAt declaration "anonymous events are unsupported"
+  let name ← mStr (← mField declaration "name")
+  let parameters ← mArr (← mField (← mField declaration "parameters") "parameters")
+  let arguments ← mArr (← mField call "arguments")
+  unless parameters.size == arguments.size do failAt call "event argument count differs"
+  let mut params : List EventParam := []
+  let mut values : List Expr := []
+  let mut pre : Array Stmt := #[]
+  for index in [:parameters.size] do
+    let parameter := parameters[index]!
+    let ty ← mType parameter
+    let some modelType := paramType ty | failAt parameter s!"unsupported event parameter type {ty}"
+    unless (Denote.errorScalarType modelType).isSome do
+      failAt parameter s!"unsupported event parameter type {ty}"
+    let indexed ← mBool (← mField parameter "indexed")
+    let parameterName ← mStr (← mField parameter "name")
+    let argument := arguments[index]!
+    let mut value ← convert ty (← mType argument) (← lowerExpr argument) argument
+    -- Total scalar reads/casts commute. Reject guards and effects rather than
+    -- choosing an argument evaluation order for competing revert paths.
+    unless value.pre.all (fun | .letVar _ _ => true | _ => false) do
+      failAt argument "event arguments currently require total scalar expressions"
+    match value.expr with
+    | .param parameterName =>
+        let some actualType := rootParamType? (← get) parameterName
+          | failAt argument "unresolved event model parameter type"
+        if actualType != modelType then
+          match modelType with
+          | .uintN _ => failAt argument "event direct parameter type differs from its declaration"
+          | _ =>
+              -- Materialize a converted value so a type-preserving word cast
+              -- or unsigned widening does not masquerade as a typed parameter.
+              let binding ← fresh
+              value := { pre := value.pre.push (.letVar binding value.expr), expr := .localVar binding }
+    | _ => pure ()
+    match modelType with
+    | .uintN _ =>
+        unless (match value.expr with | .param _ => true | _ => false) && value.pre.isEmpty do
+          failAt argument "narrow event arguments currently require a matching direct parameter"
+    | _ => pure ()
+    let boundValue ← atom value
+    params := params ++ [{ name := parameterName, ty := modelType, kind := if indexed then .indexed else .unindexed }]
+    values := values ++ [boundValue.expr]
+    pre := pre ++ boundValue.pre
+  unless (params.filter (·.kind == .indexed)).length ≤ 3 do
+    failAt declaration "event has more than three indexed parameters"
+  if let some previous := (← get).usedEvents.find? (fun pair => pair.2.name == name) then
+    unless previous.1 == id.toNat do failAt callee "event name resolves to multiple declarations"
+  else
+    modify fun e => { e with usedEvents := e.usedEvents ++ [(id.toNat, { name, params })] }
+  pure (pre.push (.emit name values))
+
 private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String × List Expr) := do
   unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
     failAt call "custom error must be a resolved constructor call"
@@ -1152,6 +1234,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
         out := out ++ (← lowerLocal s)
     | "ExpressionStatement" =>
         out := out ++ (← lowerEffect s)
+    | "EmitStatement" =>
+        out := out ++ (← lowerEmit s)
     | "Return" =>
         returned := true
         let some expr := field? s "expression"
@@ -1196,6 +1280,8 @@ private partial def index (file : String) (contract? : Option String) (j : Json)
                 { e with funs, funContract }
           | "StructDefinition" =>
               modify fun e => { e with structs := e.structs.insert id j }
+          | "EventDefinition" =>
+              modify fun e => { e with eventDecls := e.eventDecls.insert id j }
           | "ErrorDefinition" =>
               modify fun e => { e with errorDecls := e.errorDecls.insert id j }
           | "VariableDeclaration" =>
@@ -1489,7 +1575,7 @@ private def importSlice
   let sortedFields := (fields.qsort (fun a b => a.1 < b.1)).map (·.2)
   let model : CompilationModel :=
     { name := contract, constructor := none, fields := sortedFields.toList,
-      errors := env.usedErrors, functions := specs.toList }
+      errors := env.usedErrors, events := env.usedEvents.map Prod.snd, functions := specs.toList }
   let mut excluded : Array FnRec := #[]
   for (id, decl) in env.funs do
     unless env.included.any (·.declId == id) do

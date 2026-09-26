@@ -325,3 +325,24 @@ def stateful_short_circuit_source(original, variant):
             raise ValueError(f'missing short-circuit source anchor: {before}')
         original = original.replace(before, after)
     return original
+
+
+def stateful_imported_event_source(original, variant, narrow=False):
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        return original.replace('stored', 'amount').replace('value', 'quantity')
+    if narrow and variant == 'reordered':
+        before = 'stored = value;\n        emit Narrow(value, value);'
+        after = 'emit Narrow(value, value);\n        stored = value;'
+        if original.count(before) != 1:
+            raise ValueError('missing narrow event order anchor')
+        return original.replace(before, after)
+    if not narrow and variant == 'bindings':
+        original = original.replace('emit Notices.Changed(msg.sender,',
+            'address emitter = msg.sender;\n        emit Notices.Changed(emitter,')
+        before = 'emit Detail(low, middle, value, address(this), accepted, bytes32(value));'
+        if original.count(before) != 1:
+            raise ValueError('missing event binding anchor')
+        return original.replace(before, 'address owner = address(this);\n        emit Detail(low, middle, value, owner, accepted, bytes32(value));')
+    raise ValueError(variant)

@@ -26,6 +26,19 @@ private def hexBytes (bytes : List UInt8) : String :=
 private def hexWord (n : Nat) : String := hexBytes (wordBytes n)
 private def hexAddress (n : Nat) : String := hexBytes ((wordBytes n).drop 12)
 
+/-- Scalar ABI cleanup matching the compiler's event-word normalization. -/
+private def eventWord (ty : ParamType) (value : Nat) : Except String Nat := do
+  match ty with
+  | .uint256 | .bytes32 => pure (value % 2^256)
+  | .uint8 => pure (value % 2^8)
+  | .uint16 => pure (value % 2^16)
+  | .uintN bits =>
+      unless 0 < bits && bits ≤ 256 && bits % 8 == 0 do throw "invalid event integer width"
+      pure (value % 2^bits)
+  | .address => pure (value % 2^160)
+  | .bool => pure (if value == 0 then 0 else 1)
+  | _ => throw "unsupported event observation parameter type"
+
 /-- Exact scalar event encoding from actual Denote emissions and model declarations.
 Denote's legacy eventless executor retains arguments in source order. -/
 private def encodeEvent (account : Nat) (definitions : List EventDef)
@@ -34,14 +47,13 @@ private def encodeEvent (account : Nat) (definitions : List EventDef)
     | throw s!"observed event must resolve uniquely: {event.name}"
   unless event.indexedArgs.isEmpty do throw "unexpected pre-partitioned Denote event"
   unless definition.params.length == event.args.length do throw "event argument count differs"
-  unless definition.params.all (fun p => p.ty == .uint256) do
-    throw "event observation currently requires uint256 parameters"
-  let pairs := definition.params.zip event.args
+  let pairs ← (definition.params.zip event.args).mapM fun (parameter, value) => do
+    pure (parameter, ← eventWord parameter.ty value.val)
   let indexed := pairs.filter (fun p => p.1.kind == .indexed)
   unless indexed.length ≤ 3 do throw "event has more than three indexed parameters"
   let topic0 := hexBytes (KeccakEngine.keccak256_str (eventSignature definition)).data.toList
-  let topics := topic0 :: indexed.map (fun p => hexWord p.2.val)
-  let data := (pairs.filter (fun p => p.1.kind == .unindexed)).flatMap (fun p => wordBytes p.2.val)
+  let topics := topic0 :: indexed.map (fun p => hexWord p.2)
+  let data := (pairs.filter (fun p => p.1.kind == .unindexed)).flatMap (fun p => wordBytes p.2)
   return Json.mkObj [("address", toJson (hexAddress account)),
     ("topics", toJson topics), ("data", toJson (hexBytes data))]
 

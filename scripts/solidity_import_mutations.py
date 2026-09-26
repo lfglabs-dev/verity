@@ -418,7 +418,10 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-mapping-delete',
                    'import-mapping-bool-literal',
                    'import-mapping-bool-read', 'import-logical-and-branch',
-                   'import-logical-or-branch', 'import-logical-initial-value'):
+                   'import-logical-or-branch', 'import-logical-initial-value',
+                   'import-event-converted-binding', 'import-event-indexed', 'import-event-drop', 'import-event-values',
+                   'import-event-signature', 'observe-event-word', 'observe-event-narrow',
+                   'observe-event-address', 'observe-event-bool'):
         output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],

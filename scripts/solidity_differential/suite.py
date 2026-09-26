@@ -29,6 +29,7 @@ def stateful_campaign(output, transactions, seed):
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
         ('mocks', ['-m', 'solidity_differential.check_mocks']),
+        ('emit-rejections', ['-m', 'solidity_differential.check_emit_rejections']),
         ('rejections', ['-m', 'solidity_differential.check_denote_rejections']),
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
         ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
@@ -49,7 +50,7 @@ def stateful_campaign(output, transactions, seed):
     checks.append(('storage', ['-m', 'solidity_differential.check_storage',
         '--transactions', str(transactions), '--seed', str(seed),
         '--output', str(output / 'storage')]))
-    for fixture in ('void', 'bytes', 'mapping', 'short-circuit'):
+    for fixture in ('void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event'):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),
             '--output', str(output / ('storage-' + fixture))]))
@@ -58,6 +59,11 @@ def stateful_campaign(output, transactions, seed):
         '--source-fixture', 'Contracts/SolidityImportSmoke/MappingDirtySequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/MappingDirtySequenceModel.lean',
         '--output', str(output / 'mapping-dirty')]))
+    for bits in (8, 16, 248):
+        checks.append(('narrow-event-' + str(bits), ['-m', 'solidity_differential.check_storage',
+            '--fixture', 'narrow-event', '--narrow-bits', str(bits),
+            '--transactions', str(transactions), '--seed', str(seed),
+            '--output', str(output / ('narrow-event-' + str(bits)))]))
     completed = []
     checks.append(('errors', ['-m', 'solidity_differential.check_stateful',
         '--transactions', str(transactions), '--seed', str(seed),

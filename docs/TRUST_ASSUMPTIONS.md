@@ -881,3 +881,11 @@ semantics is pinned in `SolidityImport.Coverage`. They do not use the eager
 model logical operators. Differential fixtures compare skipped and executed
 guards, mapping accesses and helper calls against solc, plus conditional and
 De Morgan variants. This is tested lowering, not a Solidity semantics proof.
+
+Imported scalar event declarations feed both compilation and the stateful
+observer. Denote retains source-order event arguments; `SequenceRunner` performs
+ABI scalar cleanup and partitions indexed topics using the imported declarations,
+with Keccak of the canonical event signature. This observer encoding is tested,
+not a proof that Denote's legacy event representation is already EVM log bytes.
+Anonymous/dynamic event encodings and arguments with guards or effects fail
+closed. Existing backend restrictions on direct narrow parameters remain intact.
