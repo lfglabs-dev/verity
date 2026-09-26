@@ -37,6 +37,9 @@ def stateful_campaign(output, transactions, seed):
             '--source-fixture', 'scripts/solidity_differential/fixtures/EventSequence.sol',
             '--model-driver', 'Contracts/SolidityImportSmoke/EventSequenceModel.lean',
             '--output', str(output / ('events-' + variant))]))
+    checks.append(('environment', ['-m', 'solidity_differential.check_environment',
+        '--transactions', str(transactions), '--seed', str(seed),
+        '--output', str(output / 'environment')]))
     completed = []
     for name, args in checks:
         # The primary script installs scripts/ on sys.path, but subprocess modules

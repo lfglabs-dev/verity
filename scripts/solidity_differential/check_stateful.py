@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
     parser.add_argument('--seed', type=int, default=2448)
     parser.add_argument('--transactions', type=int, default=32)
+    parser.add_argument('--senders', type=int, default=1, help='number of funded transaction senders (1 to 10)')
     parser.add_argument('--shrink-attempts', type=int, default=1000)
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
@@ -25,6 +26,8 @@ def main():
     parser.add_argument('--source-fixture', type=Path,
         default=Path(__file__).parent / 'fixtures/Sequence.sol')
     args = parser.parse_args()
+    if not 1 <= args.senders <= 10:
+        parser.error('sender count must be between one and ten')
     if args.transactions < 3 or args.shrink_attempts < 2:
         parser.error('at least three transactions and two shrink attempts required')
     if args.output is None:
@@ -42,7 +45,7 @@ def main():
     names = ['change(uint256)', 'fail()', 'read()']
     write_json(output / 'selectors.json', [int(source['methodIdentifiers'][name], 16) for name in names])
     driver = args.model_driver.resolve()
-    identity = ImplementationIdentity(driver)
+    identity = ImplementationIdentity(driver, extra_inputs=[fixture])
     write_json(output / 'implementation.json', identity.manifest)
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json', output / 'model.yul'],
             log=output / 'compile-model.log')
@@ -56,7 +59,10 @@ def main():
     source_code = '0x' + source['bytecode']['object']
     compiled_code = '0x' + objects[0]['evm']['bytecode']['object']
     with Anvil(output / 'deployment-discovery') as node:
-        sender = node.rpc('eth_accounts')[0]
+        senders = node.rpc('eth_accounts')[:args.senders]
+        if len(senders) != args.senders:
+            raise HarnessError('Anvil did not provide the requested funded senders')
+        sender = senders[0]
         deployed = node.transact({'from': sender, 'data': source_code, 'gas': hex(10000000)})
         if deployed['receipt']['status'] != '0x1':
             raise HarnessError('source fixture deployment failed')
@@ -67,8 +73,11 @@ def main():
         name = rng.choice(names)
         call_args = [rng.choice([0, 1, (1 << 256) - 1, rng.getrandbits(256)])] if name == names[0] else []
         calls.append((name, call_args))
+    sender_rng = random.Random(args.seed)
+    transaction_senders = [senders[index] if index < len(senders) else sender_rng.choice(senders)
+                           for index in range(len(calls))]
     transactions = [{'id': str(index), 'function': name.split('(')[0], 'args': args,
-        'sender': sender, 'target': account, 'value': '0x0',
+        'sender': transaction_senders[index], 'target': account, 'value': '0x0',
         'timestamp': 1000000100 + index, 'blockNumber': 2 + index,
         'data': '0x' + source['methodIdentifiers'][name] + ''.join(format(arg, '064x') for arg in args)}
         for index, (name, args) in enumerate(calls)]
@@ -82,6 +91,7 @@ def main():
         'sourceSha256': hashlib.sha256(source_text.encode()).hexdigest(),
         'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest(),
         'variant': args.variant, 'seed': args.seed, 'transactionCount': args.transactions,
+        'senderCount': args.senders,
         'evmVersion': 'osaka', 'optimizerRuns': 466})
     result = replay_three_routes(transactions, adapters)
     identity.verify()

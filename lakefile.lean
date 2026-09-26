@@ -62,6 +62,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.Transactions,
     .one `Contracts.SolidityImportSmoke.SequenceModel,
     .one `Contracts.SolidityImportSmoke.EventSequenceModel,
+    .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,
     .one `Contracts.SolidityImportSmoke.EventRejections]
   needs := #[solidityImportSmokeSources]
 

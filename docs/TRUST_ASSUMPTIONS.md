@@ -51,6 +51,19 @@ Denote external-world counterparts remain an integration obligation. Sequence
 reduction proves deletion-1-minimality by replay within its stated budget,
 not global minimality of arguments or programs.
 
+The imported `EnvironmentSequence` fixture additionally exercises multiple entry
+points and the dedicated caller, current-contract, timestamp, block-number, and
+chain-id expressions. Solc builtin declaration ids and type identifiers select
+these lowerings; names alone do not identify a builtin. The stateful harness
+provides the same transaction context to each route and compares returned ABI
+bytes. Direct, local-binding, and helper variants are separately imported and
+checked for identical observations. This remains sampled differential evidence,
+not a proof of frontend correctness. Payable entry points and unsupported context
+members fail import rather than inheriting incomplete value-transfer behavior.
+The campaign identity includes the actual imported Solidity fixture alongside
+the Lean driver and implementation artifacts, detecting local source edits or
+removal during replay. It does not defend against a malicious filesystem.
+
 The typed accessors that the import also generates (`example.f`,
 `example.position.credit`, ...) add no trust: they are Lean definitions over
 the model, through `runFunction` and `readMember` in

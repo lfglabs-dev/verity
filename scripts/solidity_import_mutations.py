@@ -399,7 +399,9 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
     print("pass helper-digest")
     # Compile and execute actual Denote mutants: a build failure is invalid,
     # not a detected semantic mutation. These regressions compare EVM bytes.
-    for mutant in ("denote-panic-selector", "denote-panic-endian"):
+    for mutant in ("denote-panic-selector", "denote-panic-endian",
+                   "import-msg-sender", "import-address-this",
+                   "import-block-number", "import-block-chainid"):
         output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],
@@ -408,6 +410,8 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
         if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
             raise SystemExit(f"{mutant}: expected a runtime differential divergence")
         print(f"pass {mutant}")
+    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
+                   cwd=ROOT, check=True, timeout=300)
     print("import mutations passed")
 
 

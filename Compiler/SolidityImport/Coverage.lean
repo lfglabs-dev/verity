@@ -41,6 +41,7 @@ def exprCovered : Expr → Bool
   | .param _ => true
   | .localVar _ => true
   | .blockTimestamp => true
+  | .blockNumber | .chainid | .caller | .contractAddress => true
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
   | .add a b | .sub a b | .mul a b | .div a b
@@ -98,6 +99,22 @@ theorem evalExpr_localVar_arm (oracle : DenoteOracle) (fields : List Field)
 theorem evalExpr_blockTimestamp_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) :
     evalExpr oracle fields s .blockTimestamp = some s.world.blockTimestamp.val := rfl
+
+theorem evalExpr_blockNumber_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .blockNumber = some s.world.blockNumber.val := rfl
+
+theorem evalExpr_chainid_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .chainid = some s.world.chainId.val := rfl
+
+theorem evalExpr_caller_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .caller = some s.world.sender.val := rfl
+
+theorem evalExpr_contractAddress_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .contractAddress = some s.world.thisAddress.val := rfl
 
 theorem evalExpr_add_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (a b : Expr) :
