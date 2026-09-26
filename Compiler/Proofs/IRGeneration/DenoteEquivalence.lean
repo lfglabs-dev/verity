@@ -146,7 +146,7 @@ theorem denote_eq_sourceSemantics
             (SourceSemantics.effectiveFields spec)
             { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
               bindings := bindings
-              selector := tx.functionSelector } fn.body) =
+              selector := tx.functionSelector, errors := spec.errors } fn.body) =
             SourceSemantics.execStmtList (SourceSemantics.effectiveFields spec)
               { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
                 bindings := bindings
@@ -155,12 +155,12 @@ theorem denote_eq_sourceSemantics
           statement_list_composition (SourceSemantics.effectiveFields spec)
             { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
               bindings := bindings
-              selector := tx.functionSelector } fn.body
+              selector := tx.functionSelector, errors := spec.errors } fn.body
       rw [← hagree]
       cases Denote.execStmtList sourceOracle (SourceSemantics.effectiveFields spec)
           { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
             bindings := bindings
-            selector := tx.functionSelector } fn.body <;>
+            selector := tx.functionSelector, errors := spec.errors } fn.body <;>
         simp [DenoteAgreement.toStmtResult, DenoteAgreement.toRuntimeState]
 
 end Compiler.Proofs.IRGeneration.DenoteEquivalence
