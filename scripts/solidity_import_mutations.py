@@ -409,7 +409,15 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    "denote-custom-require-argument",
                    "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
                    "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
-                   "denote-scalar-sibling-mask"):
+                   "denote-scalar-sibling-mask",
+                   'import-mapping-layout',
+                   'import-mapping-read-one',
+                   'import-mapping-read-two',
+                   'import-mapping-write-one',
+                   'import-mapping-write-two',
+                   'import-mapping-delete',
+                   'import-mapping-bool-literal',
+                   'import-mapping-bool-read'):
         output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],

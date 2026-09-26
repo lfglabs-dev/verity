@@ -18,9 +18,25 @@ MUTANTS = {
     'import-scalar-delete': ('if deleting then pure ({ pre := #[], expr := .literal 0 } : Val)', 'if deleting then pure ({ pre := #[], expr := .literal 1 } : Val)'),
 }
 
+MUTANTS.update({'import-mapping-layout': ('if width == 256 then none else some { offset := 0, width }',
+                           'if width == 256 then none else some { offset := 1, width }'),
+ 'import-mapping-read-one': ('Expr.structMember field key "__solidity_value"',
+                             'Expr.structMember field (.literal 0) "__solidity_value"'),
+ 'import-mapping-read-two': ('Expr.structMember2 field key1 key2 "__solidity_value"',
+                             'Expr.structMember2 field key2 key1 "__solidity_value"'),
+ 'import-mapping-write-one': ('Stmt.setStructMember field key "__solidity_value" value',
+                              'Stmt.setStructMember field key "__solidity_value" (.literal 0)'),
+ 'import-mapping-write-two': ('Stmt.setStructMember2 field key1 key2 "__solidity_value" value',
+                              'Stmt.setStructMember2 field key2 key1 "__solidity_value" value'),
+ 'import-mapping-delete': ('expr := (.literal 0 : Expr)', 'expr := (.literal 1 : Expr)'),
+ 'import-mapping-bool-literal': ('| "true" => pure 1', '| "true" => pure 0'),
+ 'import-mapping-bool-read': ('Expr.logicalNot (.logicalNot read)', 'Expr.logicalNot read')})
+
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-mapping-"):
+        fixture = "MappingSequence"
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',

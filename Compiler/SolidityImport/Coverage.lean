@@ -87,6 +87,9 @@ mutual
   def executableStmtCovered : Stmt → Bool
     | .stop => true
     | .setStorage _ value => exprCovered value
+    | .setStructMember _ key _ value => exprCovered key && exprCovered value
+    | .setStructMember2 _ key1 key2 _ value =>
+        exprCovered key1 && exprCovered key2 && exprCovered value
     | .ite condition yes no =>
         exprCovered condition && executableStmtListCovered yes && executableStmtListCovered no
     | statement => stmtCovered statement
@@ -324,6 +327,61 @@ theorem evalExpr_structMember2_arm (oracle : DenoteOracle) (fields : List Field)
         | _, _ => none) := rfl
 
 /-! ## Arm pins: statements -/
+
+theorem execStmt_setStructMember_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (fieldName memberName : String) (key value : Expr) :
+    execStmt oracle fields state (.setStructMember fieldName key memberName value) =
+      (
+        match findFieldWriteSlots fields fieldName,
+            findStructMembers fields fieldName,
+            evalExpr oracle fields state key,
+            evalExpr oracle fields state value with
+        | some slots@(_ :: _), some members, some resolvedKey, some resolved =>
+            match findStructMember members memberName with
+            | some { wordOffset := wordOffset, packed := none, .. } =>
+                .continue
+                  { state with
+                      world := writeAddressKeyedMappingWordFieldSlots
+                        oracle fields fieldName state.world slots resolvedKey wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMappingPackedWordFieldSlots oracle
+                          fields fieldName state.world slots resolvedKey wordOffset packed resolved }
+                else
+                  .revert
+            | _ => .revert
+        | _, _, _, _ => .revert) := rfl
+
+theorem execStmt_setStructMember2_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (fieldName memberName : String) (key1 key2 value : Expr) :
+    execStmt oracle fields state (.setStructMember2 fieldName key1 key2 memberName value) =
+      (
+        match findFieldWriteSlots fields fieldName,
+            findStructMembers fields fieldName,
+            evalExpr oracle fields state key1,
+            evalExpr oracle fields state key2,
+            evalExpr oracle fields state value with
+        | some slots@(_ :: _), some members, some resolvedKey1, some resolvedKey2, some resolved =>
+            match findStructMember members memberName with
+            | some { wordOffset := wordOffset, packed := none, .. } =>
+                .continue
+                  { state with
+                      world := writeAddressKeyedMapping2WordFieldSlots
+                        oracle fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMapping2PackedWordFieldSlots oracle
+                          fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
+                else
+                  .revert
+            | _ => .revert
+        | _, _, _, _, _ => .revert) := rfl
+
+
 
 theorem execStmt_letVar_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (name : String) (value : Expr) :

@@ -123,6 +123,8 @@ private structure FieldInfo where
   keyCount : Nat
   memberNames : Array String
   opaqueNames : Array String
+  scalarMapping : Bool := false
+  booleanMapping : Bool := false
 
 private structure FnRec where
   contract : String
@@ -412,6 +414,38 @@ private def buildField (types item : Json) : M FieldInfo := do
       pure (none, value)
     else
       throwError "unsupported mapping value encoding {encoding} for {name}"
+  -- A scalar mapping value occupies a word just like a one-member mapping
+  -- struct. Keep narrow writes as read/modify/write operations, including the
+  -- one-byte Solidity bool representation, rather than clearing upper bits.
+  if (field? structTy "members").isNone then
+    let leafEncoding ← mStr (← mField structTy "encoding")
+    unless leafEncoding == "inplace" do
+      throwError "unsupported scalar mapping value encoding {leafEncoding} for {name}"
+    let leafType ← mStr (← mField structTy "label")
+    let width ←
+      if leafType == "bool" then pure 8
+      else if leafType == "address" || leafType == "address payable" then pure 160
+      else if leafType == "bytes32" then pure 256
+      else if leafType.startsWith "uint" then
+        let some bits := (leafType.drop 4).toNat? | throwError "invalid mapping uint layout {leafType}"
+        unless bits > 0 && bits ≤ 256 && bits % 8 == 0 do
+          throwError "invalid mapping uint width {bits}"
+        pure bits
+      else throwError "unsupported scalar mapping value type {leafType}"
+    let bytes ← mNat (← mField structTy "numberOfBytes")
+    unless bytes * 8 == width do
+      throwError "scalar mapping value size disagrees with type {leafType}"
+    let packed : Option PackedBits :=
+      if width == 256 then none else some { offset := 0, width }
+    let member : StructMember :=
+      { name := "__solidity_value", ty := .uint256, wordOffset := 0, packed }
+    let ty : FieldType := match key2 with
+      | some k2 => .mappingStruct2 key1 k2 [member]
+      | none => .mappingStruct key1 [member]
+    let field : Field := { name, ty, slot := some slot }
+    return { slot, field, keyCount := if key2.isSome then 2 else 1,
+             memberNames := #[], opaqueNames := #[], scalarMapping := true,
+             booleanMapping := leafType == "bool" }
   let members ← mArr (← mField structTy "members")
   let mut members' : Array StructMember := #[]
   let mut names : Array String := #[]
@@ -470,6 +504,19 @@ private def memberRead (pre : Array Stmt) (path : SPath) (member : String) (at_ 
   markField fieldName
   pure { pre, expr := read }
 
+private def scalarMappingRead (pre : Array Stmt) (path : SPath) (at_ : Json) : M Val := do
+  let (name, count, read) ← match path with
+    | .one field key => pure (field, 1, Expr.structMember field key "__solidity_value")
+    | .two field key1 key2 => pure (field, 2, Expr.structMember2 field key1 key2 "__solidity_value")
+    | .outer _ _ => failAt at_ "scalar mapping read requires both keys"
+  let info ← resolveField name at_
+  unless info.scalarMapping && info.keyCount == count do
+    failAt at_ "storage or memory path used as a value"
+  markField name
+  -- Solidity cleans a storage bool by testing the loaded byte for nonzero.
+  let expr := if info.booleanMapping then Expr.logicalNot (.logicalNot read) else read
+  pure { pre, expr }
+
 /-- `if cond then [yes] else [no]` with single-statement branches. -/
 private def iteStmt (cond : Expr) (yes no : Stmt) : Stmt :=
   .ite cond [yes] [no]
@@ -504,6 +551,16 @@ private partial def lowerExpr (j : Json) : M Val := do
   match ← mKind j with
   | "Literal" =>
       let raw := optStr j "value" |>.getD ""
+      if optStr j "kind" == some "bool" then
+        unless (← mType j) == "bool" do failAt j "boolean literal has inconsistent type"
+        let value ← match raw with
+          | "true" => pure 1
+          | "false" => pure 0
+          | _ => failAt j "invalid boolean literal"
+        return { pre := #[], expr := .literal value }
+      unless optStr j "kind" == some "number" do failAt j "unsupported non-numeric literal"
+      if let some denomination := optStr j "subdenomination" then
+        failAt j s!"unsupported literal denomination {denomination}"
       let some n := raw.toNat? | failAt j s!"unsupported literal {raw}"
       pure { pre := #[], expr := .literal n }
   | "TupleExpression" =>
@@ -525,6 +582,7 @@ private partial def lowerExpr (j : Json) : M Val := do
           unless info.keyCount == 0 do failAt j "mapping used as a scalar value"
           markField name
           pure { pre, expr := .storage name }
+      | .path pre path => scalarMappingRead pre path j
       | _ => failAt j "storage or memory path used as a value"
   | kind => failAt j s!"unsupported expression {kind}"
 
@@ -868,6 +926,22 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   unless (deleting && operator == "delete") || (!deleting && operator == "=") do
     failAt expression "only scalar storage assignment and delete are supported"
   let target ← mField expression (if deleting then "subExpression" else "leftHandSide")
+  if (← mKind target) == "IndexAccess" then
+    let .path pre path ← lowerRef target
+      | failAt target "mapping assignment target is not a storage path"
+    let (name, count, write) ← match path with
+      | .one field key => pure (field, 1, fun (value : Expr) => Stmt.setStructMember field key "__solidity_value" value)
+      | .two field key1 key2 => pure (field, 2, fun (value : Expr) => Stmt.setStructMember2 field key1 key2 "__solidity_value" value)
+      | .outer _ _ => failAt target "mapping assignment requires both keys"
+    let info ← resolveField name target
+    unless info.scalarMapping && info.keyCount == count do
+      failAt target "only scalar mapping values are writable"
+    markField name
+    let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
+      let right ← mField expression "rightHandSide"
+      atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+    let expr := if info.booleanMapping then Expr.logicalNot (.logicalNot value.expr) else value.expr
+    return (pre ++ value.pre).push (write expr)
   unless (← mKind target) == "Identifier" do
     failAt target "only a resolved scalar storage identifier is writable"
   let .state name pre ← lowerRef target

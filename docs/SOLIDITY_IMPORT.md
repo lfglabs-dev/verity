@@ -99,6 +99,8 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Scalar storage reads, `=`, and `delete` | Resolved uint8–uint256, address, and bytes32 fields; exact solc slots and packed offsets; masked writes preserve neighboring bits |
 | Void root fallthrough | Explicit `stop` with empty return bytes; named/value-returning roots still require an explicit return |
 | One/two-key mappings to structs | solc slots, word offsets, and packed uint offsets |
+| One/two-key scalar mappings | address/uint256/bytes32 keys; uint8–uint256, address, bytes32 and bool values; root assignment and `delete`, with masked narrow writes |
+| Boolean literals | Resolved `true`/`false`; canonical 1/0 values |
 | Scalar member of a memory/calldata struct parameter | Explicit scalar projection; no ABI decoder |
 | Unsigned `+`, `-`, `*`, `/` | Word arithmetic with overflow/underflow/zero-divisor panics |
 | Unsigned comparisons, equality | Scalar conditions |
@@ -111,7 +113,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 
 Value-returning roots must return explicitly. Payable roots are rejected until value-transfer
 semantics are supported. Other `msg`, `block`, and `tx` context members are
-rejected when reached. Loops, mapping/struct writes, compound assignments, external calls,
+rejected when reached. Loops, mapping-to-struct writes, compound assignments, external calls,
 modifiers, recursion, virtual dispatch, named call arguments, signed
 operations, and any other construct reached from a root are rejected with
 `file:line:column`, the construct, the reason, and the call path from the root
@@ -332,3 +334,27 @@ points. Its fallthrough lowers to `Stmt.stop`; the compiler's return-shape
 validation remains unchanged. `StorageBytesSequence` separately checks bytes32
 assignment, read, deletion, and rollback. Both have direct, binding, and
 arithmetic-identity variants generated in `programs.py`.
+
+### Imported scalar mapping sequences
+
+`MappingSequence.sol` exercises one-key uint128 and bytes32 mappings, two-key
+boolean authorization and uint128 consumption mappings, rollback, deletion,
+and distinct transaction senders. Direct, local-binding and reordered-write
+variants are imported independently and compared through the three stateful
+routes. Mapping values are represented as a synthetic single member at word
+zero, with solc-derived width; narrow writes retain the remaining word bits.
+Boolean reads normalize the loaded byte to zero or one. No Solidity struct
+member access is exposed by this internal representation.
+
+Mapping slot observations evaluate keys in the current Denote state and use
+the supplied Keccak oracle, including both hashes for nested mappings. Reached
+key/value reads and writes before rollback remain observable. More than two
+keys, signed/narrow/dynamic key types, unsupported value types, and compound
+assignments remain rejected with source locations. Decimal numeric literals
+with denominations and string literals used as numbers are rejected explicitly.
+
+The mapping dirty-slot campaign seeds identical independently hashed slots in all
+three routes. Its fixed prefix reads a noncanonical true byte, deletes it while
+preserving upper bits, then reads the zero low byte with those upper bits still
+set. Narrow assignments, deletes, rollback and later reads compare complete
+words, including bits outside the declared value width.
