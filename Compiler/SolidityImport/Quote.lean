@@ -59,6 +59,10 @@ private def quotePanic : Verity.Core.PanicCode → m Term
 partial def quoteStmt : Stmt → m Term
   | .letVar x v => do `(Compiler.CompilationModel.Stmt.letVar $(quote x) $(← quoteExpr v))
   | .setStorage x v => do `(Compiler.CompilationModel.Stmt.setStorage $(quote x) $(← quoteExpr v))
+  | .setStructMember f k x v => do
+      `(Compiler.CompilationModel.Stmt.setStructMember $(quote f) $(← quoteExpr k) $(quote x) $(← quoteExpr v))
+  | .setStructMember2 f k1 k2 x v => do
+      `(Compiler.CompilationModel.Stmt.setStructMember2 $(quote f) $(← quoteExpr k1) $(← quoteExpr k2) $(quote x) $(← quoteExpr v))
   | .assignVar x v => do `(Compiler.CompilationModel.Stmt.assignVar $(quote x) $(← quoteExpr v))
   | .ite c t e => do
       `(Compiler.CompilationModel.Stmt.ite $(← quoteExpr c)

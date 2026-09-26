@@ -261,3 +261,33 @@ def stateful_storage_word_source(original, variant, kind):
     else:
         raise ValueError('unknown storage word variant: ' + variant)
     return original.replace(before, after)
+
+
+def stateful_mapping_source(original, variant):
+    """Equivalent mapping assignments with separately imported source variants."""
+    if variant == 'baseline':
+        return original
+    writes = """balances[msg.sender] = uint128(value);
+        authorized[msg.sender][address(this)] = true;
+        consumed[msg.sender][bytes32(value)] = uint128(value);
+        words[value] = bytes32(value);"""
+    if original.count(writes) != 1:
+        raise ValueError('nonunique mapping assignment anchor')
+    if variant == 'bindings':
+        replacement = """address sender = msg.sender;
+        address self = address(this);
+        uint128 narrow = uint128(value);
+        bytes32 word = bytes32(value);
+        bool allowed = true;
+        balances[sender] = narrow;
+        authorized[sender][self] = allowed;
+        consumed[sender][word] = narrow;
+        words[value] = word;"""
+    elif variant == 'reordered':
+        replacement = """words[value] = bytes32(value);
+        consumed[msg.sender][bytes32(value)] = uint128(value);
+        authorized[msg.sender][address(this)] = true;
+        balances[msg.sender] = uint128(value);"""
+    else:
+        raise ValueError('unknown mapping variant: ' + variant)
+    return original.replace(writes, replacement)

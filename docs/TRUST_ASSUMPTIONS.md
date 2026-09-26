@@ -94,6 +94,16 @@ the importer does not yet validate solc's nested expression evaluation order.
 Constructor execution and state-variable initialization remain outside the
 runtime-slice claim.
 
+Scalar mappings reuse the model's mapping-to-struct representation with one
+internal member at word zero. The importer trusts solc's mapping key types and
+value widths, checks the reported byte size, and preserves upper bits on narrow
+writes. Boolean values occupy one byte and reads normalize nonzero to true.
+This representation is an importer lowering, not a proof of solc equivalence.
+The mapping sequence and its three variants provide sampled real A/B/C evidence.
+Their Denote route uses the actual Keccak oracle. Slot instrumentation evaluates
+keys in the current state and records the nested hash plus member offset; this
+instrumentation remains part of the differential harness trust boundary.
+
 Storage access tracing now follows only the selected conditional branch and
 advances branch-local state through the actual executor, stopping at return or
 revert. Pure arithmetic/bitmask operands are recursively inventoried. Unsupported

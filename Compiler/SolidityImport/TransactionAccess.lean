@@ -1,6 +1,6 @@
 import Compiler.SolidityImport.Transactions
 
-/-! Access instrumentation for straight-line scalar Denote bodies. Unsupported
+/-! Access instrumentation for scalar and mapping Denote bodies. Unsupported
 forms fail before they can be reported as observed. Execution itself always
 uses `Denote.execStmt`; this module does not reimplement arithmetic or writes. -/
 namespace Compiler.CompilationModel.SolidityImport.Transactions
@@ -9,7 +9,29 @@ open Denote Verity.Core
 private def fieldKey (field : Field) (slot : Nat) : Verity.StorageKey :=
   if field.isTransient then .transient (wordNormalize slot) else .slot (wordNormalize slot)
 
-def expressionAccesses (fields : List Field) : Expr → Except String (List Verity.StorageKey)
+private def mappingMemberKeys (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name memberName : String) (keys : List Expr)
+    (writing : Bool) : Except String (List Verity.StorageKey) := do
+  let some (field, slot) := findFieldWithResolvedSlot fields name
+    | throw s!"unknown observed mapping {name}"
+  let some members := findStructMembers fields name
+    | throw s!"observed mapping {name} has no member layout"
+  let some member := findStructMember members memberName
+    | throw s!"unknown observed mapping member {name}.{memberName}"
+  let values ← keys.mapM fun key => do
+    let some value := evalExpr oracle fields state key
+      | throw "mapping observation could not evaluate a key"
+    pure value
+  let slots ← if writing then do
+      let some slots := findFieldWriteSlots fields name
+        | throw s!"unknown observed mapping write slots for {name}"
+      pure slots
+    else pure [slot]
+  return slots.map fun base =>
+    fieldKey field (values.foldl oracle.mappingSlot base + member.wordOffset)
+
+def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) : Expr → Except String (List Verity.StorageKey)
   | .literal _ | .param _ | .localVar _ => .ok []
   | .caller | .contractAddress | .blockTimestamp | .blockNumber | .chainid => .ok []
   | .storage name => do
@@ -19,18 +41,26 @@ def expressionAccesses (fields : List Field) : Expr → Except String (List Veri
   | .add left right | .sub left right | .mul left right | .div left right
   | .bitAnd left right | .bitXor left right | .eq left right | .lt left right
   | .gt left right | .le left right | .ge left right => do
-      return (← expressionAccesses fields left) ++ (← expressionAccesses fields right)
-  | .logicalNot value => expressionAccesses fields value
+      return (← expressionAccesses oracle fields state left) ++ (← expressionAccesses oracle fields state right)
+  | .logicalNot value => expressionAccesses oracle fields state value
+  | .structMember name key member => do
+      let reads ← expressionAccesses oracle fields state key
+      return reads ++ (← mappingMemberKeys oracle fields state name member [key] false)
+  | .structMember2 name key1 key2 member => do
+      let reads1 ← expressionAccesses oracle fields state key1
+      let reads2 ← expressionAccesses oracle fields state key2
+      return reads1 ++ reads2 ++ (← mappingMemberKeys oracle fields state name member [key1, key2] false)
   | expression => .error s!"unsupported storage observation expression: {repr expression}"
 
-def statementAccesses (fields : List Field) (statement : Stmt)
+def statementAccesses (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (statement : Stmt)
     (events : List EventDef := []) : Except String (List Verity.StorageKey) :=
   match statement with
   | .letVar _ value | .assignVar _ value | .return value | .panicCode value =>
-      expressionAccesses fields value
+      expressionAccesses oracle fields state value
   | .stop => pure []
   | .returnValues values => do
-      return (← values.mapM (expressionAccesses fields)).flatten
+      return (← values.mapM (expressionAccesses oracle fields state)).flatten
   | .panic _ => .ok []
   | .emit name values => do
       let [definition] := events.filter (·.name == name)
@@ -40,14 +70,24 @@ def statementAccesses (fields : List Field) (statement : Stmt)
         throw "event observation currently requires uint256 parameters"
       unless (definition.params.filter (fun p => p.kind == .indexed)).length ≤ 3 do
         throw "event has more than three indexed parameters"
-      return (← values.mapM (expressionAccesses fields)).flatten
+      return (← values.mapM (expressionAccesses oracle fields state)).flatten
   | .setStorage name value => do
-      let reads ← expressionAccesses fields value
+      let reads ← expressionAccesses oracle fields state value
       let some (field, _) := findFieldWithResolvedSlot fields name
         | throw s!"unknown observed field {name}"
       let some slots := findFieldWriteSlots fields name
         | throw s!"unknown observed write slots for {name}"
       return reads ++ slots.map (fieldKey field)
+  | .setStructMember name key member value => do
+      let keyReads ← expressionAccesses oracle fields state key
+      let valueReads ← expressionAccesses oracle fields state value
+      return keyReads ++ valueReads ++ (← mappingMemberKeys oracle fields state name member [key] true)
+  | .setStructMember2 name key1 key2 member value => do
+      let keyReads1 ← expressionAccesses oracle fields state key1
+      let keyReads2 ← expressionAccesses oracle fields state key2
+      let valueReads ← expressionAccesses oracle fields state value
+      return keyReads1 ++ keyReads2 ++ valueReads ++
+        (← mappingMemberKeys oracle fields state name member [key1, key2] true)
   | statement => .error s!"unsupported storage observation statement: {repr statement}"
 
 structure AccessResult where
@@ -64,7 +104,7 @@ def observedStatementAccesses (oracle : DenoteOracle) (fields : List Field)
     Except String (List Verity.StorageKey) := do
   match statement with
   | .ite condition yes no => do
-      let reads ← expressionAccesses fields condition
+      let reads ← expressionAccesses oracle fields state condition
       match evalExpr oracle fields state condition with
       | none => throw "conditional observation could not evaluate the condition"
       | some value =>
@@ -72,15 +112,15 @@ def observedStatementAccesses (oracle : DenoteOracle) (fields : List Field)
             return reads ++ (← observedBodyAccesses oracle fields state yes events)
           else
             return reads ++ (← observedBodyAccesses oracle fields state no events)
-  | .require condition _ => expressionAccesses fields condition
+  | .require condition _ => expressionAccesses oracle fields state condition
   | .requireError condition _ arguments =>
-      let reads ← expressionAccesses fields condition
+      let reads ← expressionAccesses oracle fields state condition
       match evalExpr oracle fields state condition with
-      | some 0 => return reads ++ (← arguments.mapM (expressionAccesses fields)).flatten
+      | some 0 => return reads ++ (← arguments.mapM (expressionAccesses oracle fields state)).flatten
       | some _ | none => return reads
   | .revertError _ arguments =>
-      return (← arguments.mapM (expressionAccesses fields)).flatten
-  | _ => statementAccesses fields statement events
+      return (← arguments.mapM (expressionAccesses oracle fields state)).flatten
+  | _ => statementAccesses oracle fields state statement events
 
 /-- Follow only executed statements, retaining accesses before a stop or revert.
 State advancement uses the original Denote executor. -/
