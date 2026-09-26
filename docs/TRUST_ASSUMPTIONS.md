@@ -875,3 +875,15 @@ chains. These do not become accepted `solidity_import` compiler versions.
 Importability is measured by the actual Lean importer; coverage percentages
 and first-blocker histograms neither establish EVM equivalence nor expand any
 compiler proof boundary. Missing or failed measurements are reported explicitly.
+
+### Solidity importer bounded-loop proofs
+
+The indexed invariant rule in `Compiler/SolidityImport/LoopInvariants.lean`
+is proved by induction over Denote's actual bounded-loop executor. It requires
+body preservation after index binding, initial-state validity, and an explicit
+postcondition for every early-exit outcome. Its `.forEach` corollary also
+requires successful count evaluation. Unclassified interpreter failure is
+not identified with an empty EVM revert. These kernel-checked theorems add no
+axioms, source-loop lowering, EVM correspondence, gas guarantee or assumption
+of callback correctness. Concrete smoke proofs cover storage writes and exact
+panic propagation; they do not prove Midnight's whole-contract invariants.

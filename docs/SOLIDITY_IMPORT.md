@@ -358,3 +358,19 @@ three routes. Its fixed prefix reads a noncanonical true byte, deletes it while
 preserving upper bits, then reads the zero low byte with those upper bits still
 set. Narrow assignments, deletes, rollback and later reads compare complete
 words, including bits outside the declared value width.
+
+### Bounded-loop proof rule
+
+`Compiler/SolidityImport/LoopInvariants.lean` proves an indexed-invariant rule
+for Denote's actual `execForEachLoop`, and lifts it to `.forEach` after successful
+count evaluation. The step obligation includes the normalized index binding;
+the initial obligation includes the binding installed even when the bound is
+zero. Normal completion establishes the invariant at the final index. Stop,
+return, unclassified revert and byte-carrying revert have a separate explicit
+postcondition, retaining their complete outcomes.
+
+`LoopInvariantChecks.lean` applies the rule to a storage-writing loop for any
+evaluated bound, and proves exact propagation of panic bytes on the first
+iteration. This is model proof infrastructure: it adds no Solidity lowering
+and does not establish a source-loop correspondence, gas bound, reentrancy
+property or invariant of Midnight.

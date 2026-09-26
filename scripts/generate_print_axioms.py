@@ -24,6 +24,8 @@ TRUST_BOUNDARY_FILES = [
     ROOT / "Compiler" / "SolidityImport" / "Transactions.lean",
     ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",
     ROOT / "Compiler" / "SolidityImport" / "TransactionAccess.lean",
+    ROOT / "Compiler" / "SolidityImport" / "LoopInvariants.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "LoopInvariantChecks.lean",
 ]
 
 def _collect_contract_proof_dirs() -> list[Path]:

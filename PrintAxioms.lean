@@ -7,6 +7,8 @@ import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
 import Compiler.SolidityImport.TransactionAccess
+import Compiler.SolidityImport.LoopInvariants
+import Contracts.SolidityImportSmoke.LoopInvariantChecks
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -307,6 +309,14 @@ end Verity.AxiomAudit
 
   -- Compiler/SolidityImport/TransactionAccess.lean
   Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
+
+  -- Compiler/SolidityImport/LoopInvariants.lean
+  Compiler.CompilationModel.Denote.execForEachLoop_invariant
+  Compiler.CompilationModel.Denote.forEach_invariant
+
+  -- Contracts/SolidityImportSmoke/LoopInvariantChecks.lean
+  SolidityImportSmoke.LoopInvariantChecks.write_loop_preserves
+  SolidityImportSmoke.LoopInvariantChecks.loop_panic_bytes
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -7599,4 +7609,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7019 theorems/lemmas (5006 public, 2013 private, 0 sorry'd)
+-- Total: 7023 theorems/lemmas (5010 public, 2013 private, 0 sorry'd)
