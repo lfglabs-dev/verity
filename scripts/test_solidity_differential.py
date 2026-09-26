@@ -3,15 +3,39 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from solidity_differential.cases import generate, canonical
 from solidity_differential.engine import HarnessError, parse_evm, execute
 from solidity_differential.programs import generated_campaign, source, smaller_expressions
 from solidity_differential.reduce import reduce_failure, signature
+from solidity_differential.mutations import mutation_campaign
 
 
 class SolidityDifferentialTests(unittest.TestCase):
+    def test_existing_divergence_does_not_kill_a_mutant(self):
+        def fake_snapshot(directory):
+            directory.mkdir(parents=True)
+            (directory / "Example.lean").write_text("original")
+
+        def failing_baseline(argv, **kwargs):
+            directory = Path(argv[argv.index("--output") + 1])
+            directory.mkdir(parents=True)
+            (directory / "results.json").write_text(json.dumps({
+                "cases": 1, "divergences": [{"preexisting": True}]}))
+            return SimpleNamespace(returncode=1, stdout="baseline diverged", stderr="")
+
+        with tempfile.TemporaryDirectory() as output:
+            with patch("solidity_differential.mutations.MUTANTS", {
+                    "probe": ("Example.lean", "original", "mutated")}), \
+                 patch("solidity_differential.mutations.snapshot", fake_snapshot), \
+                 patch("solidity_differential.mutations.subprocess.run", failing_baseline):
+                with self.assertRaisesRegex(HarnessError, "positive control failed"):
+                    mutation_campaign(output)
+            self.assertEqual((Path(output) / "probe/Example.lean").read_text(), "original")
+            self.assertFalse((Path(output) / "mutation-results.json").exists())
+
     def test_seed_reproduces_every_input(self):
         config = {"variables": {"a": 8, "b": 16}, "ordered_pairs": []}
         first = generate(config, 100, 17, [])

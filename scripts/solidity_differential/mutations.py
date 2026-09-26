@@ -57,13 +57,25 @@ def mutation_campaign(output, selected=None):
         text = source.read_text()
         if text.count(before) != 1:
             raise HarnessError("mutation anchor drifted: " + name)
-        source.write_text(text.replace(before, after))
         config = "differential-require.json" if "require" in name else "differential.json"
         if "custom-require" in name:
             config = "differential-require-custom.json"
         argv = [sys.executable, str(directory / "scripts/solidity_import_differential.py"),
                 "--config", str(directory / "Contracts/SolidityImportSmoke" / config),
                 "--output", str(directory / ".lake/campaign"), "--cases", "8"]
+        # A pre-existing fixture divergence is not evidence that a mutation was
+        # detected. Run the identical inputs in the private snapshot first.
+        baseline_argv = [str(directory / ".lake/baseline") if arg == str(directory / ".lake/campaign")
+                         else arg for arg in argv]
+        baseline = subprocess.run(baseline_argv, cwd=directory, text=True,
+                                  capture_output=True, timeout=600)
+        (directory / "baseline.log").write_text(baseline.stdout + baseline.stderr)
+        baseline_file = directory / ".lake/baseline/results.json"
+        baseline_report = json.loads(baseline_file.read_text()) if baseline_file.exists() else {}
+        if (baseline.returncode != 0 or baseline_report.get("divergences") != [] or
+                baseline_report.get("cases", 0) <= 0):
+            raise HarnessError("mutation positive control failed: " + name)
+        source.write_text(text.replace(before, after))
         try:
             result = subprocess.run(argv, cwd=directory, text=True, capture_output=True, timeout=600)
             (directory / "mutation.log").write_text(result.stdout + result.stderr)

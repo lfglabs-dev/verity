@@ -199,6 +199,8 @@ scripts/check_solidity_differential.sh --reduce --reduce-seconds 120 --output .l
   changed artifacts. The reducer shrinks inputs (and generated expression
   trees) while preserving the mismatch category.
 - **Mutants** are real importer and Denote edits built in isolated copies.
+  The unchanged copy must first pass A/B/C on the same fixture and inputs;
+  an existing divergence cannot count as a detected mutation.
   Each must produce a runtime divergence; one that fails to compile is
   invalid, not detected.
 - **Importer regressions:** `python3 scripts/solidity_import_mutations.py`
