@@ -7,6 +7,8 @@ import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
 import Compiler.SolidityImport.TransactionAccess
+import Compiler.SolidityImport.EntryPointInvariants
+import Contracts.SolidityImportSmoke.EntryPointInvariantChecks
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -307,6 +309,20 @@ end Verity.AxiomAudit
 
   -- Compiler/SolidityImport/TransactionAccess.lean
   Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
+
+  -- Compiler/SolidityImport/EntryPointInvariants.lean
+  Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_failed_world
+  Compiler.CompilationModel.SolidityImport.Transactions.executeBody_failed_world
+  Compiler.CompilationModel.SolidityImport.Transactions.all_entry_points_preserve_of_success
+  Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_all_entry_points
+  Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_contextual_entry_points
+
+  -- Contracts/SolidityImportSmoke/EntryPointInvariantChecks.lean
+  SolidityImportSmoke.EntryPointInvariantChecks.zero_exec
+  SolidityImportSmoke.EntryPointInvariantChecks.one_exec
+  SolidityImportSmoke.EntryPointInvariantChecks.failed_exec
+  SolidityImportSmoke.EntryPointInvariantChecks.every_entry_preserves
+  SolidityImportSmoke.EntryPointInvariantChecks.arbitrary_sequence_preserves
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -7599,4 +7615,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7019 theorems/lemmas (5006 public, 2013 private, 0 sorry'd)
+-- Total: 7029 theorems/lemmas (5016 public, 2013 private, 0 sorry'd)

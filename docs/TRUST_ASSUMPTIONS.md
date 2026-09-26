@@ -36,6 +36,17 @@ signature Keccak over a temporary word-chunk memory buffer; this does not
 establish general Solidity memory or ABI-decoder correctness. The legacy
 agreement projection continues to erase rich revert bytes.
 
+The entry-point invariant infrastructure in
+`Compiler/SolidityImport/EntryPointInvariants.lean` composes actual
+`Transactions.executeBody` steps with explicit bindings, effective model
+fields and custom errors. It proves rollback and finite-sequence invariant
+preservation from per-public-entry obligations; environment preparation and
+frame reset have explicit preservation premises. It introduces no project
+axiom. It does not establish the ABI/dispatch boundary, deployment, value
+transfer, loop correctness, reentrant external-call correctness, or a
+Midnight invariant. Instrument errors are excluded by successful `Except`
+observations, rather than treated as Solidity reverts.
+
 The experimental stateful instrument in `scripts/solidity_differential` runs
 separate real Anvil transactions against solc and Verity bytecode, and invokes
 `SequenceRunner` for Denote. Its scalar trace calls the actual statement
