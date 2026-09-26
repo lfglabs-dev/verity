@@ -61,6 +61,9 @@ def stateful_campaign(output, transactions, seed):
     checks.append(('abi', ['-m', 'solidity_differential.check_abi_programs',
         '--output', str(output / 'abi')]))
     checks.append(('abi-rejections', ['-m', 'solidity_differential.check_abi_rejections']))
+    checks.append(('struct-abi', ['-m', 'solidity_differential.check_struct_abi_programs',
+        '--output', str(output / 'struct-abi')]))
+    checks.append(('struct-abi-rejections', ['-m', 'solidity_differential.check_struct_abi_rejections']))
     completed = []
     checks.append(('errors', ['-m', 'solidity_differential.check_stateful',
         '--transactions', str(transactions), '--seed', str(seed),

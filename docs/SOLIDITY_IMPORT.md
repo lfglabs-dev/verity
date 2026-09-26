@@ -103,7 +103,8 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Short-circuit boolean expressions | `&&` and `||` evaluate the left operand once; the right operand, including guards and helper preludes, executes only in its selected branch. Unsupported constructs still reject even in unreachable operands. |
 | Scalar ABI canonicality | Raw `uintN`, address and bool words are checked before source execution, including unused parameters. Noncanonical words revert with empty bytes. Complete-word A/B/C checks exercise mixed parameter positions; dynamic struct and partial-byte ABI validation remain outside this instrument. |
 | Boolean literals | Resolved `true`/`false`; canonical 1/0 values |
-| Scalar member of a memory/calldata struct parameter | Explicit scalar projection; no ABI decoder |
+| Flat static memory/calldata struct parameters | Full tuple ABI including unused scalar members; indexed field bindings and complete head sizes. Memory members are validated at entry; calldata members are validated when read, preserving competing reverts. |
+| Scalar member of a dynamic struct parameter (legacy slice) | Explicit projection only; full dynamic ABI decoding remains unsupported |
 | Unsigned `+`, `-`, `*`, `/` | Word arithmetic with overflow/underflow/zero-divisor panics |
 | Unsigned comparisons, equality | Scalar conditions |
 | `require(condition, "message")` | Exact `Error(string)` bytes; UTF-8 literal messages, including empty strings, in roots and inlined helpers |

@@ -497,7 +497,7 @@
                   requiresRole := none,
                   isInternal := false,
                   localObligations := [{ name := "solidity_scalar_abi_entry",
-                                         obligation := "Before source execution, raw ABI scalar words must be canonical; the fresh EIP-211 returndata buffer is empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved.",
+                                         obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Within this fragment without external calls the fresh EIP-211 returndata buffer stays empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved.",
                                          proofStatus := Compiler.ProofStatus.unchecked }] }],
   events := [],
   errors := [],

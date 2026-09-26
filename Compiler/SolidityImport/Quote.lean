@@ -113,12 +113,14 @@ def quoteField (f : Field) : m Term := do
     | t => throwError "internal: the importer cannot quote {repr t}"
   `(({ name := $(quote f.name), ty := $ty, slot := $(← optNat f.slot), packedBits := $packed } : Compiler.CompilationModel.Field))
 
-def quoteParamType : ParamType → m Term
+partial def quoteParamType : ParamType → m Term
   | .uint256 => `(Compiler.CompilationModel.ParamType.uint256)
   | .address => `(Compiler.CompilationModel.ParamType.address)
   | .bytes32 => `(Compiler.CompilationModel.ParamType.bytes32)
   | .bool => `(Compiler.CompilationModel.ParamType.bool)
   | .uintN n => `(Compiler.CompilationModel.ParamType.uintN $(quote n))
+  | .tuple types => do
+      `(Compiler.CompilationModel.ParamType.tuple $(← list (← types.mapM quoteParamType)))
   | t => throwError "internal: the importer cannot quote {repr t}"
 
 /-- Quote a function built by the importer. Only the fields it sets are

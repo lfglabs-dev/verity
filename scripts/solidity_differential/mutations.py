@@ -53,7 +53,14 @@ def mutation_campaign(output, selected=None):
     from .check_storage_mutations import mutation_campaign as storage_campaign
     from .check_abi_mutations import MUTANTS as ABI_MUTANTS
     from .check_abi_mutations import mutation_campaign as abi_campaign
-    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS]:
+    from .check_struct_abi_mutations import MUTANTS as STRUCT_ABI_MUTANTS
+    from .check_struct_abi_mutations import mutation_campaign as struct_abi_campaign
+    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS, *STRUCT_ABI_MUTANTS]:
+        if name in STRUCT_ABI_MUTANTS:
+            result = struct_abi_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
         if name in ABI_MUTANTS:
             result = abi_campaign(output, [name])
             reports.extend(result['mutants'])

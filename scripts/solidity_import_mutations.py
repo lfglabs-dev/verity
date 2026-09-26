@@ -421,7 +421,18 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-logical-or-branch', 'import-logical-initial-value',
                    'import-abi-source-offset', 'import-abi-drop', 'import-abi-offset', 'import-abi-uint-bound',
                    'import-abi-address-bound', 'import-abi-bool-bound',
-                   'import-abi-inclusive', 'import-abi-revert'):
+                   'import-abi-inclusive', 'import-abi-revert',
+                   'import-struct-tuple-order',
+                   'import-struct-memory-drop',
+                   'import-struct-calldata-eager',
+                   'import-struct-calldata-drop',
+                   'import-struct-member-value',
+                   'import-struct-member-offset',
+                   'import-struct-head-base',
+                   'import-struct-memory-offset',
+                   'denote-struct-member-offset',
+                   'denote-struct-member-name',
+                   'denote-struct-member-value'):
         output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],

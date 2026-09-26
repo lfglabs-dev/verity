@@ -910,18 +910,31 @@ external returndata is outside this entry-guard instrument. The scalar probe rej
 failure and therefore cannot silently reinterpret a missing semantics arm as
 an ABI rejection.
 
-Scalar guard positions are derived from the actual model parameter list, not
-source parameter ordinals. A regression checks a fully read two-word static
-struct followed by a narrow scalar against the real source ABI. This does not
-remove or validate the inherited projection ABI for partially read or dynamic
-structs; replacing that projection remains required for full-contract imports.
-These guards apply to scalar source parameters; they do not move lazy checks
-of calldata struct members ahead of source execution.
+Scalar guard positions use the sum of preceding model ABI head sizes, not
+source parameter ordinals or one word per model parameter. Flat structs whose
+members all have supported scalar types use the full tuple ABI, including
+unused fields. Public Denote binds their indexed fields with the same head
+layout as the compiler. Memory parameters validate all narrow fields before
+source execution; calldata parameters validate a narrow field at its read.
+This preserves which revert wins when a source `require` precedes that read.
+The A/B/C fixture exercises this distinction with noncanonical words, and the
+binder has separate kernel-checked flat/nested offset and rejection witnesses.
+These finite checks are not a general solc ABI-decoder equivalence proof.
+
+The importer currently lowers only flat scalar structs through this full ABI
+path. Nested structs, arrays, dynamic `Market` parameters and partial-byte
+calldata remain outside it. The inherited dynamic-struct projection has not
+been validated as a complete source ABI and must still be replaced before
+claiming full-contract import. Read-time guards use the empty returndata buffer
+within the present fragment, which has no external calls; adding external calls
+requires an explicit empty-revert lowering that cannot inherit stale returndata.
 
 The smoke witness executes the ABI guard followed by the original credit read
 with calldata consistent with its bound parameters. Its expected credit result
 is unchanged. All named smoke theorems are registered in the generated axiom
-audit; no golden model or pilot provenance was changed.
+audit. The inherited golden update is documented below; the static-struct
+family changes only its obligation wording, as described below. Pilot provenance
+is unchanged.
 
 The scalar-ABI change updates the smoke `model.golden` only by prepending the
 raw address-word guard at calldata byte offset 68 (strict bound 2^160, empty
@@ -930,3 +943,13 @@ those two additions reproduces the previous golden byte-for-byte. The prior
 body and storage model are unchanged; the runtime mutation suite checks that
 removing or corrupting this validation is detected. Pilot provenance is not
 changed by this golden update.
+
+The five named static-tuple decoder checks in `StaticAbiChecks.lean` are
+registered in the generated axiom inventory.
+
+The static-struct golden update changes only the local obligation description:
+it distinguishes eager scalar/memory validation from lazy calldata-field validation.
+The generated model is otherwise byte-for-byte identical to the scalar-ABI golden,
+including its executable body, storage layout, and unchecked proof status.
+The recursive tuple quotation adds one `partial def` to the generated trust inventory;
+quotation is importer metaprogramming, not a logical axiom or equivalence proof.

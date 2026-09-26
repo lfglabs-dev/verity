@@ -346,3 +346,21 @@ def scalar_abi_source(source, variant):
         return source.replace('return (full, narrow, account, flag);',
             'uint256 copy = full; return (copy, narrow, account, flag);')
     raise ValueError(f'unknown scalar ABI variant: {variant}')
+
+
+def static_struct_abi_source(source, variant):
+    """Equivalent programs preserving eager-memory/lazy-calldata read order."""
+    if variant == 'baseline':
+        return source
+    if variant == 'renamed':
+        import re
+        for old, new in [('pair', 'input'), ('pad', 'prefix'),
+                         ('small', 'leaf'), ('flag', 'enabled')]:
+            source = re.sub(r'\b' + old + r'\b', new, source)
+        return source
+    if variant == 'bindings':
+        anchor = 'return pair.small;'
+        if source.count(anchor) != 2:
+            raise ValueError('static struct binding variant requires two reads')
+        return source.replace(anchor, 'uint8 copy = pair.small; return copy;')
+    raise ValueError(f'unknown static struct ABI variant: {variant}')

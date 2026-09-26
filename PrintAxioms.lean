@@ -8,6 +8,7 @@ import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
 import Compiler.SolidityImport.TransactionAccess
 import Contracts.SolidityImportSmoke.Smoke
+import Contracts.SolidityImportSmoke.StaticAbiChecks
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -315,6 +316,13 @@ end Verity.AxiomAudit
   smoke_entry_guard
   smoke_credit_statement
   smoke_step_credit
+
+  -- Contracts/SolidityImportSmoke/StaticAbiChecks.lean
+  SolidityImportSmoke.StaticAbiChecks.flat_tuple_followed_by_scalar
+  SolidityImportSmoke.StaticAbiChecks.nested_tuple_offsets
+  SolidityImportSmoke.StaticAbiChecks.truncated_tuple_rejected
+  SolidityImportSmoke.StaticAbiChecks.dynamic_leaf_rejected
+  SolidityImportSmoke.StaticAbiChecks.fixed_array_leaf_rejected
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -7607,4 +7615,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7024 theorems/lemmas (5011 public, 2013 private, 0 sorry'd)
+-- Total: 7029 theorems/lemmas (5016 public, 2013 private, 0 sorry'd)

@@ -116,6 +116,9 @@ private structure MemParam where
   param : String
   structName : String
   members : Array (String × String)
+  staticTypes : Option (List ParamType) := none
+  calldataLocation : Bool := false
+  headBinding : String := ""
 
 private structure FieldInfo where
   slot : Nat
@@ -678,6 +681,21 @@ private partial def projectMember (id : Nat) (pre : Array Stmt) (member : String
       failAt at_ s!"cannot place {member}; earlier member {mem.members[i]!.1} is {ty}"
     else
       head := head + 1
+  if let some types := mem.staticTypes then
+    let modelParam := s!"{mem.param}_{idx}"
+    let some ty := types[idx]? | failAt at_ "missing static tuple member type"
+    let limit := match ty with
+      | .uintN bits => if bits < 256 then some (2^bits) else none
+      | .address => some (2^160)
+      | .bool => some 2
+      | _ => none
+    let mut pre := pre
+    if mem.calldataLocation then
+      if let some bound := limit then
+        pre := pre.push (.ite
+          (.lt (.calldataload (.add (.localVar mem.headBinding) (.literal (32*idx))))
+            (.literal bound)) [] [.revertReturndata])
+    return { pre, expr := .param modelParam }
   let modelParam := s!"{mem.param}_{member}"
   noteProjection {
     parameter := mem.param, member := member, structName := mem.structName,
@@ -1118,8 +1136,22 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       let some decl := (← get).structs.find? sid.toNat | failAt p s!"unresolved struct {ty}"
       let members ← structMemberList decl
       let sname ← mStr (← mField decl "name")
+      let staticTypes := members.toList.mapM (fun (_, ty) => paramType ty)
+      let headBinding ← if staticTypes.isSome then fresh else pure ""
+      if staticTypes.isSome then
+        for i in [:members.size] do
+          let binding := s!"{name}_{i}"
+          if (← get).sourceNames.contains binding then
+            failAt p s!"static tuple binding collides with source name {binding}"
+          modify fun e => { e with bound := binding :: e.bound }
       modify fun e =>
-        let bound : MemParam := ⟨name, sname, members⟩
+        let bound : MemParam :=
+          { param := name
+            structName := sname
+            members := members
+            staticTypes := staticTypes
+            calldataLocation := loc == "calldata"
+            headBinding := headBinding }
         { e with mems := e.mems.insert id bound }
     else if ty.startsWith "struct " then
       failAt p s!"unsupported location {loc} for {ty}"
@@ -1442,6 +1474,12 @@ private def importSlice
     for p in srcParams do
       if env.mems.contains p.id then
         let some mem := env.mems.find? p.id | throwError "missing memory parameter {p.name}"
+        if let some types := mem.staticTypes then
+          if modelParamNames.contains p.name then
+            (failAt fn s!"parameter name collision: {p.name}").run' env
+          modelParamNames := modelParamNames.push p.name
+          modelParams := modelParams.push { name := p.name, ty := .tuple types }
+          continue
         let mut seen := false
         for (member, ty) in mem.members do
           if let some proj := env.projections.find? (fun q => q.parameter == p.name && q.member == member) then
@@ -1463,6 +1501,23 @@ private def importSlice
     -- since the model parameter loader has already masked/normalized it.
     let mut abiGuards : Array Stmt := #[]
     for p in srcParams do
+      if let some mem := env.mems.find? p.id then
+        if let some types := mem.staticTypes then
+          let some i := modelParamNames.findIdx? (· == p.name)
+            | throwError "missing tuple model parameter {p.name}"
+          let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+          abiGuards := abiGuards.push (.letVar mem.headBinding (.literal offset))
+          unless mem.calldataLocation do
+            for (ty, j) in types.zipIdx do
+              let limit := match ty with
+                | .uintN bits => if bits < 256 then some (2^bits) else none
+                | .address => some (2^160)
+                | .bool => some 2
+                | _ => none
+              if let some bound := limit then
+                abiGuards := abiGuards.push (.ite
+                  (.lt (.calldataload (.literal (offset + 32*j))) (.literal bound))
+                  [] [.revertReturndata])
       if let some ty := env.scalarTy.find? p.id then
         -- The legacy projection ABI expands each read struct member into a
         -- separate scalar model parameter. Use that model position, not the
@@ -1481,7 +1536,7 @@ private def importSlice
           -- At entry the EVM return-data buffer is empty. This guard is placed
           -- before every source statement, so the rejection has empty bytes.
           abiGuards := abiGuards.push (.ite
-            (.lt (.calldataload (.literal (4 + 32*i))) (.literal bound))
+            (.lt (.calldataload (.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0))) (.literal bound))
             [] [.revertReturndata])
     let body := abiGuards ++ body
     let returns ← (do
@@ -1499,7 +1554,7 @@ private def importSlice
         returns := returns.toList, isView, body := body.toList,
         localObligations := if abiGuards.isEmpty then [] else [{
           name := "solidity_scalar_abi_entry"
-          obligation := "Before source execution, raw ABI scalar words must be canonical; the fresh EIP-211 returndata buffer is empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved."
+          obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Within this fragment without external calls the fresh EIP-211 returndata buffer stays empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved."
           proofStatus := .unchecked }] }
     for proj in env.projections do
       let ignored :=
