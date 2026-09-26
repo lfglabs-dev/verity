@@ -42,6 +42,7 @@ def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
   | .bitAnd left right | .bitXor left right | .eq left right | .lt left right
   | .gt left right | .le left right | .ge left right => do
       return (← expressionAccesses oracle fields state left) ++ (← expressionAccesses oracle fields state right)
+  | .calldataload value => expressionAccesses oracle fields state value
   | .logicalNot value => expressionAccesses oracle fields state value
   | .structMember name key member => do
       let reads ← expressionAccesses oracle fields state key
@@ -58,7 +59,7 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
   match statement with
   | .letVar _ value | .assignVar _ value | .return value | .panicCode value =>
       expressionAccesses oracle fields state value
-  | .stop => pure []
+  | .revertReturndata | .stop => pure []
   | .returnValues values => do
       return (← values.mapM (expressionAccesses oracle fields state)).flatten
   | .panic _ => .ok []

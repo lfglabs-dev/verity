@@ -55,15 +55,22 @@ theorem smokeBody_peel : smokeBody = (peel smokeBody).1 :: (peel smokeBody).2 :=
 def witnessState (credit pending lossFactor lastLoss lastAccrual timestamp maturity : Nat) : DenoteState :=
   { world :=
       { witnessWorld credit pending lossFactor lastLoss lastAccrual with
-        blockTimestamp := Verity.Core.Uint256.ofNat timestamp }
+        blockTimestamp := Verity.Core.Uint256.ofNat timestamp
+        calldata := [maturity, 1, 2] }
     bindings := witnessBindings maturity }
 
 theorem string_beq_kernel : ("m_maturity" == "id") = false := by
   decide
 
-set_option maxHeartbeats 2000000 in
-theorem smoke_step_credit :
+/-- The imported ABI guard validates the actual witness call and preserves its state. -/
+theorem smoke_entry_guard :
     execStmt sliceOracle smoke.model.fields (witnessState 100 10 0 0 0 50 100) (peel smokeBody).1 =
+      .continue (witnessState 100 10 0 0 0 50 100) := by
+  rfl
+
+set_option maxHeartbeats 2000000 in
+theorem smoke_credit_statement :
+    execStmt sliceOracle smoke.model.fields (witnessState 100 10 0 0 0 50 100) (peel (peel smokeBody).2).1 =
       .continue
         { witnessState 100 10 0 0 0 50 100 with
           bindings := bindValue (witnessBindings 100) "credit" 100 } := by
@@ -88,6 +95,16 @@ theorem smoke_step_credit :
         340282366920938463463374607431768211455 % Verity.Core.Uint256.modulus) %
       Verity.Core.Uint256.modulus = 100 := by decide
   simp [hcredit]
+
+/-- The real prefix includes the ABI check before the original credit read. -/
+theorem smoke_step_credit :
+    execStmtList sliceOracle smoke.model.fields (witnessState 100 10 0 0 0 50 100) (smokeBody.take 2) =
+      .continue
+        { witnessState 100 10 0 0 0 50 100 with
+          bindings := bindValue (witnessBindings 100) "credit" 100 } := by
+  have prefix_eq : smokeBody.take 2 = [(peel smokeBody).1, (peel (peel smokeBody).2).1] := rfl
+  rw [prefix_eq]
+  simp only [execStmtList, smoke_entry_guard, smoke_credit_statement]
 
 -- Interpreter witnesses A/B live in scripts/solidity_import_mutations.py.
 -- Keeping test execution out of this proof module satisfies Lean hygiene.

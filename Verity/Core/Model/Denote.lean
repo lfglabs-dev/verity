@@ -1605,7 +1605,7 @@ mutual
                       externalCallIndex := state.externalCallIndex + 1 }
             else .revert
         | none => .revert
-    | _, .revertReturndata => .revert
+    | state, .revertReturndata => .revertWithData (state.world.returndata.flatMap wordBytes)
     | state, .returnValues values =>
         match evalExprList oracle fields state values with
         | some resolved =>

@@ -325,3 +325,24 @@ def stateful_short_circuit_source(original, variant):
             raise ValueError(f'missing short-circuit source anchor: {before}')
         original = original.replace(before, after)
     return original
+
+
+def scalar_abi_source(source, variant):
+    """Equivalent scalar ABI programs, retaining selectors and parameter types."""
+    if variant == 'baseline':
+        return source
+    if variant == 'renamed':
+        import re
+        for old, new in [('value', 'argument'), ('full', 'whole'),
+                         ('narrow', 'small'), ('account', 'owner'), ('flag', 'enabled')]:
+            source = re.sub(r'\b' + old + r'\b', new, source)
+        return source
+    if variant == 'bindings':
+        import re
+        source, count = re.subn(r'returns \((uint[0-9]+|address|bool)\) \{ return value; \}',
+            lambda m: f'returns ({m[1]}) {{ {m[1]} copy = value; return copy; }}', source)
+        if count != 7:
+            raise ValueError('ABI binding variant requires seven echo roots')
+        return source.replace('return (full, narrow, account, flag);',
+            'uint256 copy = full; return (copy, narrow, account, flag);')
+    raise ValueError(f'unknown scalar ABI variant: {variant}')

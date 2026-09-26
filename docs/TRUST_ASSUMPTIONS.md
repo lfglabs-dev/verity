@@ -881,3 +881,44 @@ semantics is pinned in `SolidityImport.Coverage`. They do not use the eager
 model logical operators. Differential fixtures compare skipped and executed
 guards, mapping accesses and helper calls against solc, plus conditional and
 De Morgan variants. This is tested lowering, not a Solidity semantics proof.
+
+### Imported scalar ABI entry guards
+
+Scalar `uintN`, address and bool parameters now receive entry checks against
+raw calldata words, before any source statement. Parameter cleanup alone is
+not validation. Failed guards use the fresh EIP-211 return-data buffer, which
+is empty at external-call entry; `Denote.returndata_withTransactionContext`
+pins that initialization. Imported functions record this low-level boundary
+as the explicit `solidity_scalar_abi_entry` local obligation with status
+`unchecked`: differential evidence is not a Lean proof of solc equivalence.
+The compiler's unsafe-boundary validation remains enabled. Semantic coverage
+pins the calldataload arm and the exact revertReturndata bytes arm; it does not assert
+correctness of arbitrary use of returndata after external calls.
+
+The raw-word ABI probe includes public Denote parameter binding as well as
+actual solc and Verity bytecode. This instrument currently covers complete
+scalar words; it does not establish dynamic-struct or partial-byte calldata
+validation. The existing stateful scalar runner supplies the same argument
+words as calldata when executing imported entry guards.
+
+The ABI observer also executes the same bound frame and reads its actual
+return/revert bytes, checking public `denoteFunction` status and successful
+return words against that frame. `revertReturndata` now preserves the actual
+word buffer as `revertWithData` bytes; the observer never synthesizes empty bytes for an
+unclassified Denote failure. The existing returndata representation is word-based; arbitrary partial-byte
+external returndata is outside this entry-guard instrument. The scalar probe rejects unexpected binding
+failure and therefore cannot silently reinterpret a missing semantics arm as
+an ABI rejection.
+
+Scalar guard positions are derived from the actual model parameter list, not
+source parameter ordinals. A regression checks a fully read two-word static
+struct followed by a narrow scalar against the real source ABI. This does not
+remove or validate the inherited projection ABI for partially read or dynamic
+structs; replacing that projection remains required for full-contract imports.
+These guards apply to scalar source parameters; they do not move lazy checks
+of calldata struct members ahead of source execution.
+
+The smoke witness executes the ABI guard followed by the original credit read
+with calldata consistent with its bound parameters. Its expected credit result
+is unchanged. All named smoke theorems are registered in the generated axiom
+audit; no golden model or pilot provenance was changed.

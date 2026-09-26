@@ -25,6 +25,7 @@ private def optNat : Option Nat → m Term
   | some n => `(some $(quote n))
 
 partial def quoteExpr : Expr → m Term
+  | .calldataload offset => do `(Compiler.CompilationModel.Expr.calldataload $(← quoteExpr offset))
   | .literal n => `(Compiler.CompilationModel.Expr.literal $(quote n))
   | .localVar x => `(Compiler.CompilationModel.Expr.localVar $(quote x))
   | .storage x => `(Compiler.CompilationModel.Expr.storage $(quote x))
@@ -73,6 +74,7 @@ partial def quoteStmt : Stmt → m Term
   | .requireError condition name args => do
       `(Compiler.CompilationModel.Stmt.requireError $(← quoteExpr condition) $(quote name)
         $(← list (← args.mapM quoteExpr)))
+  | .revertReturndata => `(Compiler.CompilationModel.Stmt.revertReturndata)
   | .stop => `(Compiler.CompilationModel.Stmt.stop)
   | .returnValues vs => do
       `(Compiler.CompilationModel.Stmt.returnValues $(← list (← vs.mapM quoteExpr)))
@@ -124,9 +126,16 @@ emitted; `quoteModel` callers check the round trip against the value. -/
 def quoteFunction (f : FunctionSpec) : m Term := do
   let params ← f.params.mapM fun p => do
     `(({ name := $(quote p.name), ty := $(← quoteParamType p.ty) } : Compiler.CompilationModel.Param))
+  let obligations ← f.localObligations.mapM fun obligation => do
+    let status ← match obligation.proofStatus with
+      | .proved => `(Compiler.ProofStatus.proved)
+      | .assumed => `(Compiler.ProofStatus.assumed)
+      | .unchecked => `(Compiler.ProofStatus.unchecked)
+    `(({ name := $(quote obligation.name), obligation := $(quote obligation.obligation),
+         proofStatus := $status } : Compiler.CompilationModel.LocalObligation))
   `(({ name := $(quote f.name), params := $(← list params), returnType := none,
        returns := $(← list (← f.returns.mapM quoteParamType)), isView := $(quote f.isView),
-       body := $(← list (← f.body.mapM quoteStmt)) } : Compiler.CompilationModel.FunctionSpec))
+       body := $(← list (← f.body.mapM quoteStmt)), localObligations := $(← list obligations) } : Compiler.CompilationModel.FunctionSpec))
 
 def quoteModel (model : CompilationModel) : m Term := do
   let errors ← model.errors.mapM fun error => do

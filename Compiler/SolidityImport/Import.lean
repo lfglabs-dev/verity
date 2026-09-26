@@ -1458,6 +1458,32 @@ private def importSlice
         if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
         modelParamNames := modelParamNames.push p.name
         modelParams := modelParams.push { name := p.name, ty := pty }
+    -- ABI cleanup is not validation: Solidity rejects noncanonical scalar
+    -- words before executing the function. Inspect the original calldata word,
+    -- since the model parameter loader has already masked/normalized it.
+    let mut abiGuards : Array Stmt := #[]
+    for p in srcParams do
+      if let some ty := env.scalarTy.find? p.id then
+        -- The legacy projection ABI expands each read struct member into a
+        -- separate scalar model parameter. Use that model position, not the
+        -- source parameter ordinal; projected members themselves retain their
+        -- existing boundary until full struct decoding replaces projections.
+        let some i := modelParamNames.findIdx? (· == p.name)
+          | throwError "missing scalar model parameter {p.name}"
+        let limit := match ty with
+          | .uint8 => some (2^8)
+          | .uint16 => some (2^16)
+          | .uintN bits => if bits < 256 then some (2^bits) else none
+          | .address => some (2^160)
+          | .bool => some 2
+          | _ => none
+        if let some bound := limit then
+          -- At entry the EVM return-data buffer is empty. This guard is placed
+          -- before every source statement, so the rejection has empty bytes.
+          abiGuards := abiGuards.push (.ite
+            (.lt (.calldataload (.literal (4 + 32*i))) (.literal bound))
+            [] [.revertReturndata])
+    let body := abiGuards ++ body
     let returns ← (do
       let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
       let mut out : Array ParamType := #[]
@@ -1470,7 +1496,11 @@ private def importSlice
     let isView := mutability == "view" || mutability == "pure"
     specs := specs.push
       { name := functionName, params := modelParams.toList, returnType := none,
-        returns := returns.toList, isView, body := body.toList }
+        returns := returns.toList, isView, body := body.toList,
+        localObligations := if abiGuards.isEmpty then [] else [{
+          name := "solidity_scalar_abi_entry"
+          obligation := "Before source execution, raw ABI scalar words must be canonical; the fresh EIP-211 returndata buffer is empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved."
+          proofStatus := .unchecked }] }
     for proj in env.projections do
       let ignored :=
         match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with

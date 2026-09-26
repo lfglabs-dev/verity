@@ -7,6 +7,7 @@ import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
 import Compiler.SolidityImport.TransactionAccess
+import Contracts.SolidityImportSmoke.Smoke
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -307,6 +308,13 @@ end Verity.AxiomAudit
 
   -- Compiler/SolidityImport/TransactionAccess.lean
   Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
+
+  -- Contracts/SolidityImportSmoke/Smoke.lean
+  smokeBody_peel
+  string_beq_kernel
+  smoke_entry_guard
+  smoke_credit_statement
+  smoke_step_credit
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -7599,4 +7607,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7019 theorems/lemmas (5006 public, 2013 private, 0 sorry'd)
+-- Total: 7024 theorems/lemmas (5011 public, 2013 private, 0 sorry'd)

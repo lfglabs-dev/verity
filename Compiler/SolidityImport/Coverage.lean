@@ -37,6 +37,7 @@ constructor (including `paramDynamicMember*`, `paramDynamicStaticComposite`,
 `mulDiv512*`, raw calls, `internalCall`, `intrinsic`, `forkIfAtLeast`, ADTs,
 `arrayElementWord`, `mappingChain`, and any future constructor) is rejected. -/
 def exprCovered : Expr → Bool
+  | .calldataload offset => exprCovered offset
   | .literal _ => true
   | .param _ => true
   | .storage _ => true
@@ -85,6 +86,7 @@ end
 meaning and its original world-preservation theorems. -/
 mutual
   def executableStmtCovered : Stmt → Bool
+    | .revertReturndata => true
     | .stop => true
     | .setStorage _ value => exprCovered value
     | .setStructMember _ key _ value => exprCovered key && exprCovered value
@@ -97,6 +99,16 @@ mutual
     | [] => true
     | head :: tail => executableStmtCovered head && executableStmtListCovered tail
 end
+
+theorem evalExpr_calldataload_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset : Expr) :
+    evalExpr oracle fields state (.calldataload offset) = (do
+      let resolvedOffset ← evalExpr oracle fields state offset
+      some (calldataloadWord state.selector state.world.calldata resolvedOffset)) := rfl
+
+theorem execStmt_revertReturndata_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    execStmt oracle fields state .revertReturndata = .revertWithData (state.world.returndata.flatMap wordBytes) := rfl
 
 theorem execStmt_stop_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :

@@ -58,6 +58,9 @@ def stateful_campaign(output, transactions, seed):
         '--source-fixture', 'Contracts/SolidityImportSmoke/MappingDirtySequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/MappingDirtySequenceModel.lean',
         '--output', str(output / 'mapping-dirty')]))
+    checks.append(('abi', ['-m', 'solidity_differential.check_abi_programs',
+        '--output', str(output / 'abi')]))
+    checks.append(('abi-rejections', ['-m', 'solidity_differential.check_abi_rejections']))
     completed = []
     checks.append(('errors', ['-m', 'solidity_differential.check_stateful',
         '--transactions', str(transactions), '--seed', str(seed),
