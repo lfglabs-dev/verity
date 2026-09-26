@@ -313,8 +313,16 @@ def main() -> None:
                    extra=r'''
 #eval show IO Unit from do
   let oracle : DenoteOracle := { mappingSlot := fun _ _ => 0, keccakMemorySlice := fun _ _ _ => 0 }
-  let body := match imported.model.functions with | f :: _ => f.body | [] => []
-  let run := fun maturity => denoteScalarBody oracle imported.model.fields Verity.defaultState 0 [("m_maturity", maturity)] body
+  let some fn := imported.model.functions.head?
+    | throw (IO.userError "missing imported function")
+  -- Execute the full source tuple ABI, including unused scalar arguments.
+  -- Manual legacy projection bindings would bypass the public tuple decoder.
+  let run := fun maturity => do
+    let args := [maturity, 0, 0]
+    let bindings ← bindExternalParams 0 fn.params args
+    let world := withTransactionContext Verity.defaultState
+      { sender := 1, functionSelector := 0, args := args }
+    denoteScalarBody oracle imported.model.fields world 0 bindings fn.body
   unless run 3 == some [9, 0, 0] do throw (IO.userError "small uint248 product changed")
   unless run (2^128) == none do throw (IO.userError "uint248 product overflow was accepted")
 ''')
