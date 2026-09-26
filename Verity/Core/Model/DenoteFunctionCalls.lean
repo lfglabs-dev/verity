@@ -497,7 +497,8 @@ def executeFunctionWithCalls (env : CallEnv) (spec : CompilationModel)
   | none => { result := .revert [], world := worldWithTx }
   | some bindings =>
       match execStmtListWithCalls env fields
-          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector }
+          { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            errors := spec.errors }
           fn.body with
       | .continue state | .stop state =>
           { result := .success [], world := state.world }

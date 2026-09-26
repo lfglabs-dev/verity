@@ -62,6 +62,11 @@ partial def quoteStmt : Stmt → m Term
       `(Compiler.CompilationModel.Stmt.ite $(← quoteExpr c)
         $(← list (← t.mapM quoteStmt)) $(← list (← e.mapM quoteStmt)))
   | .panic code => do `(Compiler.CompilationModel.Stmt.panic $(← quotePanic code))
+  | .require condition message => do
+      `(Compiler.CompilationModel.Stmt.require $(← quoteExpr condition) $(quote message))
+  | .requireError condition name args => do
+      `(Compiler.CompilationModel.Stmt.requireError $(← quoteExpr condition) $(quote name)
+        $(← list (← args.mapM quoteExpr)))
   | .returnValues vs => do
       `(Compiler.CompilationModel.Stmt.returnValues $(← list (← vs.mapM quoteExpr)))
   | _ => throwError "internal: the importer cannot quote this statement"
@@ -113,7 +118,11 @@ def quoteFunction (f : FunctionSpec) : m Term := do
        body := $(← list (← f.body.mapM quoteStmt)) } : Compiler.CompilationModel.FunctionSpec))
 
 def quoteModel (model : CompilationModel) : m Term := do
+  let errors ← model.errors.mapM fun error => do
+    `(({ name := $(quote error.name), params := $(← list (← error.params.mapM quoteParamType)) } :
+       Compiler.CompilationModel.ErrorDef))
   `(({ name := $(quote model.name), constructor := none,
+       errors := $(← list errors),
        fields := $(← list (← model.fields.mapM quoteField)),
        functions := $(← list (← model.functions.mapM quoteFunction)) } :
       Compiler.CompilationModel.CompilationModel))

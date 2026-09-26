@@ -19,6 +19,9 @@ def stateful_campaign(output, transactions, seed):
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/EventRejections.lean'],
             log=output / 'event-rejections.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/ErrorPayloads.lean'],
+            log=output / 'error-payloads.log')
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
@@ -41,6 +44,11 @@ def stateful_campaign(output, transactions, seed):
         '--transactions', str(transactions), '--seed', str(seed),
         '--output', str(output / 'environment')]))
     completed = []
+    checks.append(('errors', ['-m', 'solidity_differential.check_stateful',
+        '--transactions', str(transactions), '--seed', str(seed),
+        '--source-fixture', 'scripts/solidity_differential/fixtures/ErrorSequence.sol',
+        '--model-driver', 'Contracts/SolidityImportSmoke/ErrorSequenceModel.lean',
+        '--output', str(output / 'errors')]))
     for name, args in checks:
         # The primary script installs scripts/ on sys.path, but subprocess modules
         # need it explicitly; use a small launcher without altering caller state.

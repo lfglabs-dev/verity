@@ -29,9 +29,32 @@ def source(spec):
     member = "tmp_0" if spec.get("projection_collision") else "maturity"
     market = "_verity_slice" if spec.get("projection_collision") else "m"
     expr = render_expr(spec["expression"], bits, x)
+    guard = ""
+    error_declaration = ""
+    def guard_call(left, right):
+        if "require_error" in spec:
+            name = spec["require_error"]
+            arguments = f"{left}, {right}" if spec["error_arguments"] else ""
+            return f'require({left} > {right}, {name}({arguments}));'
+        message = json.dumps(spec["require_message"], ensure_ascii=False)
+        return f'require({left} > {right}, unicode{message});'
+    has_guard = spec.get("require_message") is not None or "require_error" in spec
+    if "require_error" in spec:
+        parameters = "uint256 left, uint256 right" if spec["error_arguments"] else ""
+        error_declaration = f'error {spec["require_error"]}({parameters});'
+    if has_guard:
+        guard = guard_call(x, "y")
     helper = ""
     if spec["helper"]:
+        guard_helper = ""
+        if has_guard:
+            guard_helper = f'''function check(uint256 x, uint256 y) internal pure returns (uint256) {{
+        {guard_call("x", "y")}
+        return x;
+    }}'''
+            guard = f'uint256 checked = L.check({x}, y);'
         helper = f'''library L {{
+    {guard_helper}
     function work(uint{bits} x, uint{bits} y) internal pure returns (uint{bits}) {{
         return {render_expr(spec['expression'], bits)};
     }}
@@ -40,9 +63,11 @@ def source(spec):
     return f'''// SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 struct Mkt {{ uint256 ignored; uint128[] ignoredArray; uint256 {member}; }}
+{error_declaration}
 {helper}
 contract C {{
     function f(Mkt memory {market}, uint256 {x}, uint256 y) external pure returns (uint256, uint256, uint256) {{
+        {guard}
         uint256 stamp = {market}.{member};
         uint{bits} a = {expr};
         uint{bits} b = stamp < {x} ? a : uint{bits}(y);
@@ -87,7 +112,9 @@ def generated_campaign(output, count, cases, seed):
     output.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
     reports = []
-    for i in range(count):
+    # Preserve every original arithmetic program, then add guarded programs.
+    # Each guarded program retains all three equivalent extraction/name forms.
+    for i in range(3 * count):
         bits = [8, 16, 128, 248, 256][i % 5]
         tree = expression(rng, 2, bits)
         # First five explicitly exercise each checked width, especially uint248.
@@ -96,6 +123,12 @@ def generated_campaign(output, count, cases, seed):
         reference = None
         for variant in (0, 1, 2):
             spec = {"bits": bits, "expression": tree, "renamed": variant == 1, "helper": variant != 0, "projection_collision": variant == 2}
+            if count <= i < 2 * count:
+                spec["require_message"] = ["", "échec", "x" * 33][(i - count) % 3]
+            elif i >= 2 * count:
+                kind = (i - 2 * count) % 3
+                spec["require_error"] = ["EmptyFailure", "Failure", "AnErrorWhoseSignatureCrossesAThirtyTwoByteWordBoundary"][kind]
+                spec["error_arguments"] = kind != 0
             directory = output / f"program-{i}-{variant}"
             fixture = write_program(directory, spec)
             report = campaign(fixture, directory / "run", cases, seed + i)
