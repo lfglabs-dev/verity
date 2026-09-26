@@ -22,6 +22,7 @@ def main():
         ('custom-error-dynamic', 'require(value > 7, Failure(bytes("x")));', 'unsupported custom-error parameter type bytes'),
         ('dynamic-message', 'require(value > 7, reason);', 'literal string message'),
         ('byte-string-cast', 'require(value > 7, string(hex"61"));', 'literal string message'),
+        ('abi-decode', 'abi.decode(abi.encode(value), (uint256));', 'expression has no supported declaration reference'),
         ('other-call', 'helper(value);', 'only builtin require calls'),
     ]
     for name, statement, expected in cases:
@@ -38,6 +39,10 @@ contract C {
 }
 '''
         source = source.replace(', string memory reason', '')
+        if name == 'abi-decode':
+            source = source.replace('abi.decode(abi.encode(value), (uint256));',
+                                    'return abi.decode(abi.encode(value), (uint256));')
+            source = source.replace('  return value;\n', '')
         if name == 'custom-error-signed':
             source = source.replace('error Failure(uint256 value)', 'error Failure(int256 value)')
         if name == 'custom-error-dynamic':

@@ -245,7 +245,9 @@ private def refInt (j : Json) : M Int := do
       let xs ← mArr over
       if xs.size ≠ 0 then failAt j "ambiguous declaration"
   | none => pure ()
-  match (← mField j "referencedDeclaration").getInt? with
+  let some declaration := field? j "referencedDeclaration"
+    | failAt j "expression has no supported declaration reference"
+  match declaration.getInt? with
   | .ok i => pure i
   | .error e => failAt j e
 
