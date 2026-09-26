@@ -875,3 +875,15 @@ chains. These do not become accepted `solidity_import` compiler versions.
 Importability is measured by the actual Lean importer; coverage percentages
 and first-blocker histograms neither establish EVM equivalence nor expand any
 compiler proof boundary. Missing or failed measurements are reported explicitly.
+
+### Mutation snapshot revision identity
+
+Mutation snapshots have their own detached Git HEAD pinned to the source
+checkout's revision. This prevents an external output directory from failing
+revision lookup or inheriting an unrelated ancestor repository's revision.
+Only immutable Git objects are shared with the source repository; retain that
+object database while using the snapshot. The actual working-tree contents,
+including uncommitted edits, untracked sources and tracked deletions, are copied
+separately. A revision alone does not attest those contents: the existing
+implementation inventory and hashes remain required. Mutable Lean build
+artifacts still use private copies, and mutation acceptance criteria are unchanged.

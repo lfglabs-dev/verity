@@ -24,6 +24,15 @@ MUTANTS = {
 
 def snapshot(destination):
     destination.mkdir(parents=True, exist_ok=False)
+    # Give snapshots their own HEAD: an arbitrary output directory must not
+    # inherit an unrelated ancestor repository (or fail outside any repository).
+    # Share only immutable Git objects, never mutable Lean build artifacts.
+    revision = command(["git", "rev-parse", "HEAD"], cwd=ROOT).strip()
+    command(["git", "clone", "--shared", "--no-checkout", "--", ROOT, destination])
+    command(["git", "update-ref", "--no-deref", "HEAD", revision], cwd=destination)
+    # Populate only the index. Checking out HEAD would resurrect files deleted
+    # in the candidate working tree before its current contents are copied.
+    command(["git", "read-tree", revision], cwd=destination)
     paths = command(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=ROOT).split("\0")
     for name in paths:
         if not name or not (ROOT / name).is_file():
