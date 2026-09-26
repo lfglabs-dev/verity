@@ -9,6 +9,12 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('logical-or', '', 'return x == 0 || 100 / x > 1;', 'bool', None),
+        ('logical-and', '', 'return x != 0 && 100 / x > 1;', 'bool', None),
+        ('logical-dead-effect', 'uint256 value; function bump() internal returns (bool) { value = 1; return true; }', 'return true || bump();', 'bool', 'only builtin require calls'),
+        ('logical-dead-remainder', '', 'return false && x % 2 == 0;', 'bool', 'unsupported operator %'),
+        ('logical-external', 'function probe() external pure returns (bool) { return true; }', 'return true || this.probe();', 'bool', 'unresolved builtin identifier'),
+
         ('effectful-helper', 'uint256 value; function bump() internal returns (uint256) { value = value + 1; return value; }', 'return bump() + bump();', 'uint256', 'only builtin require calls'),
         ('helper-argument-effects', 'uint256 value; function bump() internal returns (uint256) { value = value + 1; return value; } function add(uint256 a, uint256 b) internal pure returns (uint256) { return a + b; }', 'return add(bump(), bump());', 'uint256', 'only builtin require calls'),
         ('bare-return', 'uint256 value;', 'value = x; return;', '', 'bare return requires'),

@@ -692,6 +692,17 @@ private partial def lowerBinary (j : Json) : M Val := do
   unless (bitsOf common).isSome || common == "bool" do
     failAt j s!"unsupported operand type {common}"
   match op with
+  | "&&" | "||" =>
+      unless common == "bool" do failAt j s!"unsupported logical operand type {common}"
+      let a ← atom left
+      let dest ← fresh
+      -- Solidity evaluates the RHS only when the LHS does not determine the
+      -- result. Keep its guards and helper prelude inside the selected branch.
+      let rhs := right.pre.push (.assignVar dest right.expr)
+      let branch := if op == "&&" then Stmt.ite a.expr rhs.toList []
+        else Stmt.ite a.expr [] rhs.toList
+      pure { pre := a.pre.push (.letVar dest a.expr) |>.push branch,
+             expr := .localVar dest }
   | "+" =>
       let some bits := bitsOf common | failAt j s!"unsupported add type {common}"
       checkedAdd bits left right
