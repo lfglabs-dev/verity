@@ -76,6 +76,8 @@ partial def quoteStmt : Stmt → m Term
         $(← list (← args.mapM quoteExpr)))
   | .revertReturndata => `(Compiler.CompilationModel.Stmt.revertReturndata)
   | .stop => `(Compiler.CompilationModel.Stmt.stop)
+  | .emit name args => do
+      `(Compiler.CompilationModel.Stmt.emit $(quote name) $(← list (← args.mapM quoteExpr)))
   | .returnValues vs => do
       `(Compiler.CompilationModel.Stmt.returnValues $(← list (← vs.mapM quoteExpr)))
   | _ => throwError "internal: the importer cannot quote this statement"
@@ -140,11 +142,19 @@ def quoteFunction (f : FunctionSpec) : m Term := do
        body := $(← list (← f.body.mapM quoteStmt)), localObligations := $(← list obligations) } : Compiler.CompilationModel.FunctionSpec))
 
 def quoteModel (model : CompilationModel) : m Term := do
+  let events ← model.events.mapM fun event => do
+    let params ← event.params.mapM fun parameter => do
+      let kind ← match parameter.kind with
+        | .indexed => `(Compiler.CompilationModel.EventParamKind.indexed)
+        | .unindexed => `(Compiler.CompilationModel.EventParamKind.unindexed)
+      `(({ name := $(quote parameter.name), ty := $(← quoteParamType parameter.ty),
+           kind := $kind } : Compiler.CompilationModel.EventParam))
+    `(({ name := $(quote event.name), params := $(← list params) } : Compiler.CompilationModel.EventDef))
   let errors ← model.errors.mapM fun error => do
     `(({ name := $(quote error.name), params := $(← list (← error.params.mapM quoteParamType)) } :
        Compiler.CompilationModel.ErrorDef))
   `(({ name := $(quote model.name), constructor := none,
-       errors := $(← list errors),
+       errors := $(← list errors), events := $(← list events),
        fields := $(← list (← model.fields.mapM quoteField)),
        functions := $(← list (← model.functions.mapM quoteFunction)) } :
       Compiler.CompilationModel.CompilationModel))

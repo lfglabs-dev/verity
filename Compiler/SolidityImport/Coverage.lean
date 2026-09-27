@@ -87,6 +87,8 @@ meaning and its original world-preservation theorems. -/
 mutual
   def executableStmtCovered : Stmt → Bool
     | .revertReturndata => true
+
+    | .emit _ args => exprListCovered args
     | .stop => true
     | .setStorage _ value => exprCovered value
     | .setStructMember _ key _ value => exprCovered key && exprCovered value
@@ -339,6 +341,24 @@ theorem evalExpr_structMember2_arm (oracle : DenoteOracle) (fields : List Field)
         | _, _ => none) := rfl
 
 /-! ## Arm pins: statements -/
+
+theorem execStmt_emit_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (eventName : String) (args : List Expr) :
+    execStmt oracle fields state (.emit eventName args) =
+      (
+        match evalExprList oracle fields state args with
+        | some resolved =>
+            -- Event-less semantics: matches `SourceSemantics.execStmt`'s `.emit`
+            -- arm, which calls the event helpers with an empty `EventDef` list.
+            .continue { state with
+              world := {
+                state.world with
+                events := state.world.events ++
+                  [{ name := eventName
+                     args := valuesAsEventArgs resolved
+                     indexedArgs := [] }] } }
+        | none => .revert) := rfl
+
 
 theorem execStmt_setStructMember_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (fieldName memberName : String) (key value : Expr) :

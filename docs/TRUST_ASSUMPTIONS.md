@@ -953,3 +953,11 @@ The generated model is otherwise byte-for-byte identical to the scalar-ABI golde
 including its executable body, storage layout, and unchecked proof status.
 The recursive tuple quotation adds one `partial def` to the generated trust inventory;
 quotation is importer metaprogramming, not a logical axiom or equivalence proof.
+
+Imported scalar event declarations feed both compilation and the stateful
+observer. Denote retains source-order event arguments; `SequenceRunner` performs
+ABI scalar cleanup and partitions indexed topics using the imported declarations,
+with Keccak of the canonical event signature. This observer encoding is tested,
+not a proof that Denote's legacy event representation is already EVM log bytes.
+Anonymous/dynamic event encodings and arguments with guards or effects fail
+closed. Existing backend restrictions on direct narrow parameters remain intact.

@@ -100,6 +100,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Void root fallthrough | Explicit `stop` with empty return bytes; named/value-returning roots still require an explicit return |
 | One/two-key mappings to structs | solc slots, word offsets, and packed uint offsets |
 | One/two-key scalar mappings | address/uint256/bytes32 keys; uint8–uint256, address, bytes32 and bool values; root assignment and `delete`, with masked narrow writes |
+| Events | Resolved non-anonymous scalar events, including qualified library declarations, up to three indexed arguments and exact source-order data. Arguments must have total scalar preludes. Narrow unsigned event arguments require a direct parameter of exactly the declared type; anonymous/dynamic events, named arguments and conflicting declarations reject with source locations. |
 | Short-circuit boolean expressions | `&&` and `||` evaluate the left operand once; the right operand, including guards and helper preludes, executes only in its selected branch. Unsupported constructs still reject even in unreachable operands. |
 | Scalar ABI canonicality | Raw `uintN`, address and bool words are checked before source execution, including unused parameters. Noncanonical words revert with empty bytes. Complete-word A/B/C checks exercise mixed parameter positions; dynamic struct and partial-byte ABI validation remain outside this instrument. |
 | Boolean literals | Resolved `true`/`false`; canonical 1/0 values |
@@ -361,3 +362,11 @@ three routes. Its fixed prefix reads a noncanonical true byte, deletes it while
 preserving upper bits, then reads the zero low byte with those upper bits still
 set. Narrow assignments, deletes, rollback and later reads compare complete
 words, including bits outside the declared value width.
+
+Imported event sequence fixtures exercise indexed/unindexed scalar words,
+empty and repeated events, and rollback of emitted events. The narrow fixture
+uses a matching `uint128` parameter; widening a different parameter or passing
+a local narrow value remains a located rejection under the compiler's existing
+narrow event check. Generated renamed/binding/order variants preserve the exact
+ordered event sequence. `--argument-bits` generates canonical narrow ABI words;
+it does not claim malformed-calldata equivalence.
