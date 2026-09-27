@@ -333,6 +333,22 @@ actual Denote write helper and successful `setStorage` step, including packed
 writes and normalized alias destinations. They do not by themselves prove a
 whole-contract invariant or preservation of other bits in the same slot.
 
+`EntryPointInvariants.lean` supplies `AllEntryPointsPreserve` obligations for
+every public function in a model. Proving these obligations lifts an invariant
+to arbitrary finite `EntryPointSequence`s. `ContextualEntryPointSequence`
+additionally requires that environment preparation preserve the invariant.
+The execution uses `Denote.effectiveFields`, including namespaced fields, and
+the model's custom errors. Reverting frames restore the transaction's initial
+world; `all_entry_points_preserve_of_success` therefore reduces the obligations
+to successful calls and preservation by the frame reset.
+
+`EntryPointInvariantChecks.lean` proves that a stored word stays at most one
+across every sequence of three public entries: write zero, write one, and
+write 99 followed by panic and rollback. This handwritten model illustrates
+the proof interface; it does not establish an invariant for Midnight. ABI
+decoding, dispatch, value transfer, and initialization remain separate
+obligations, as do loop reasoning and external reentrant transitions.
+
 `StorageVoidSequence` checks empty ABI responses and rollback from void entry
 points. Its fallthrough lowers to `Stmt.stop`; the compiler's return-shape
 validation remains unchanged. `StorageBytesSequence` separately checks bytes32

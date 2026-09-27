@@ -11,6 +11,12 @@ concrete packed read. Interpreter `#eval` checks are not theorems. The frontend 
 builds the model from solc JSON remains a trust assumption; see
 `TRUST_ASSUMPTIONS.md`.
 
+`EntryPointInvariants.lean` proves rollback and composition of per-entry-point
+invariants over finite model-call sequences, including explicit environment
+preparation. These theorems and the executable-model example in
+`EntryPointInvariantChecks.lean` are included in `PrintAxioms.lean`; they add no
+project axiom, `sorry`, or `native_decide`.
+
 ## Policy
 
 Axioms are exceptional. When an axiom exists, it must have:
