@@ -84,6 +84,10 @@ def stateful_campaign(output, transactions, seed):
         '--output', str(output / 'market-abi')]))
     checks.append(('market-abi-rejections', ['-m', 'solidity_differential.check_market_abi_rejections',
         '--output', str(output / 'market-abi-rejections')]))
+    checks.append(('block-rejections', ['-m', 'solidity_differential.check_block_rejections',
+        '--output', str(output / 'block-rejections')]))
+    checks.append(('abi-event-composition', ['-m', 'solidity_differential.check_abi_event_composition',
+        '--output', str(output / 'abi-event-composition')]))
     checks.append(('multiple-dynamic-abi', ['-m', 'solidity_differential.check_multiple_dynamic_abi_programs',
         '--output', str(output / 'multiple-dynamic-abi')]))
     completed = []

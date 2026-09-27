@@ -513,6 +513,16 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                 'runpy.run_module("solidity_differential.check_market_abi_rejections",run_name="__main__")')
     subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
                    cwd=ROOT, check=True, timeout=300)
+    output = Path(tempfile.mkdtemp(prefix="block-mutations-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_block_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=1800)
+    block_result = json.loads((output / "complete.json").read_text())
+    if (block_result["mutant"] != "import-block-drop" or not block_result["detected"]
+            or not block_result["baselinePassed"] or not block_result["witness"]["deletion_minimal"]):
+        raise SystemExit("block mutation requires detected minimal runtime witness")
+    print("pass import-block-drop")
     print("import mutations passed")
 
 

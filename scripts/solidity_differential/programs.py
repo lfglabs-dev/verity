@@ -454,3 +454,18 @@ def multiple_dynamic_abi_source(source, variant):
             raise ValueError('four multiple-root guards required')
         return source.replace(anchor, 'require(0 != flag, "first");')
     raise ValueError(f'unknown multiple-root variant: {variant}')
+
+
+def abi_event_variants(original):
+    """Equivalent ABI, lexical-scope and event compositions for real A/B/C tests."""
+    renamed = original.replace('uint256 tag =', 'uint256 decodedTag =').replace(
+        'uint256 value =', 'uint256 decodedValue =').replace('stored = value;',
+        'stored = decodedValue;').replace('tag, value);', 'decodedTag, decodedValue);').replace(
+        'return value;', 'return decodedValue;')
+    scoped = original.replace('        stored = value;', '        { stored = value; }').replace(
+        '        emit Decoded(msg.sender, tag, value);',
+        '        { emit Decoded(msg.sender, tag, value); }')
+    lexical = original.replace('        stored = value;',
+        '        { uint256 value = box.values[0]; { stored = value; } }').replace(
+        '        return value;', '        { { return value; } }')
+    return [('baseline', original), ('renamed', renamed), ('scoped', scoped), ('lexical', lexical)]

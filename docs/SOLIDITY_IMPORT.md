@@ -96,6 +96,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Multiple selected entry points | One model with independently resolved root closures |
 | `msg.sender`, `address(this)` | Dedicated caller and current-contract expressions, resolved by solc builtin declaration ids |
 | `block.timestamp`, `block.number`, `block.chainid` | Dedicated transaction-context expressions |
+| Ordinary nested root blocks | Ordered recursive lowering with unique local bindings, lexical lookup restoration, and propagated unconditional returns; unsupported nested control flow and statements after return reject with source locations |
 | Explicit scalar/tuple return | `returnValues`, preserving order |
 | Local declarations and storage aliases | Bindings named after the Solidity local (suffixed `_1`, `_2`, ... on collision), or resolved read paths |
 | Scalar storage reads, `=`, and `delete` | Resolved uint8–uint256, address, and bytes32 fields; exact solc slots and packed offsets; masked writes preserve neighboring bits |

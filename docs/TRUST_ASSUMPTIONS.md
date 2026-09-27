@@ -1013,3 +1013,23 @@ not identified with an empty EVM revert. These kernel-checked theorems add no
 axioms, source-loop lowering, EVM correspondence, gas guarantee or assumption
 of callback correctness. Concrete smoke proofs cover storage writes and exact
 panic propagation; they do not prove Midnight's whole-contract invariants.
+
+### Stateful source ABI identity and ordinary blocks
+
+The Solidity import sequence adapter checks that canonical source calldata words
+and the four-byte selector agree with transaction metadata. It resolves selectors
+from complete model signatures, rejects ambiguous dispatch, and uses the public
+external-parameter decoder with the full transaction context. A malformed ABI
+payload produces the contract's empty revert; inconsistent harness metadata is
+a harness error. Traced status and successful return bytes are checked against
+public Denote execution; exact revert bytes, touched slots, rollback and events
+are compared through the A/B/C harness. These executable checks do not constitute
+a general proof of importer or decoder correctness.
+
+Ordinary root blocks flatten into existing ordered model statements. The importer
+restores lexical lookup maps while retaining globally fresh binding names and
+propagates unconditional returns; it still rejects unsupported nested constructs.
+This introduces no new Denote primitive or trusted axiom. Composition fixtures
+exercise dynamic ABI decoding, lexical scopes, writes and indexed events, including
+rollback and aliased ABI offsets. The block-effect deletion mutant must produce
+a reproduced deletion-minimal runtime divergence.

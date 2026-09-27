@@ -1338,23 +1338,21 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
           values := e.values.insert id (.localVar binding) }
   pure out
 
-private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
-  let rootId ← mNat (← mField fn "id")
-  modify fun e => { e with stack := [rootId] }
-  if optStr fn "stateMutability" == some "payable" then
-    failAt fn "payable entry points require value-transfer semantics and are unsupported"
-  let srcParams ← bindRoot fn
-  if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
-    failAt fn "virtual dispatch is outside this slice"
-  let mods ← mArr (← mField fn "modifiers")
-  unless mods.isEmpty do failAt fn "modifiers are outside this slice"
-  let some _ := field? fn "body" | failAt fn "function has no body"
-  let stmts ← mArr (← mField (← mField fn "body") "statements")
+private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × Bool) := do
   let mut out : Array Stmt := #[]
   let mut returned := false
   for s in stmts do
     if returned then failAt s "statement after root return"
     match ← mKind s with
+    | "Block" =>
+        let saved ← get
+        let (nested, nestedReturned) ← lowerRootStatements (← mArr (← mField s "statements"))
+        -- Restore lexical lookup maps, but retain fresh names and discovered dependencies.
+        modify fun e =>
+          { e with values := saved.values, paths := saved.paths,
+                   mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        out := out ++ nested
+        returned := nestedReturned
     | "VariableDeclarationStatement" =>
         out := out ++ (← lowerLocal s)
     | "ExpressionStatement" =>
@@ -1382,6 +1380,22 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
           let v ← atom (← lowerExpr expr)
           out := out ++ v.pre |>.push (.returnValues [v.expr])
     | kind => failAt s s!"unsupported statement {kind}"
+  pure (out, returned)
+
+private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
+  let rootId ← mNat (← mField fn "id")
+  modify fun e => { e with stack := [rootId] }
+  if optStr fn "stateMutability" == some "payable" then
+    failAt fn "payable entry points require value-transfer semantics and are unsupported"
+  let srcParams ← bindRoot fn
+  if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
+    failAt fn "virtual dispatch is outside this slice"
+  let mods ← mArr (← mField fn "modifiers")
+  unless mods.isEmpty do failAt fn "modifiers are outside this slice"
+  let some _ := field? fn "body" | failAt fn "function has no body"
+  let stmts ← mArr (← mField (← mField fn "body") "statements")
+  let (out, returned) ← lowerRootStatements stmts
+  let mut out := out
   unless returned do
     let returns ← mArr (← mField (← mField fn "returnParameters") "parameters")
     unless returns.isEmpty do failAt fn "an explicit root return is required"
