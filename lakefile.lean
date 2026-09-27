@@ -63,6 +63,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.StaticAbiChecks,
     .one `Contracts.SolidityImportSmoke.StructValidationOrderModel,
     .one `Contracts.SolidityImportSmoke.EntryPointInvariantChecks,
+    .one `Contracts.SolidityImportSmoke.SymbolicExecutionChecks,
     .one `Contracts.SolidityImportSmoke.Transactions,
     .one `Contracts.SolidityImportSmoke.SequenceModel,
     .one `Contracts.SolidityImportSmoke.EventSequenceModel,
