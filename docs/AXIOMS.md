@@ -471,3 +471,8 @@ semantics must update this file and [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md)
 If this file is stale, trust analysis is stale.
 
 **Last Updated**: 2026-05 (intrinsics addition)
+
+The bounded-loop invariant rule and its concrete storage/panic checks in
+`Compiler/SolidityImport/LoopInvariants.lean` and
+`Contracts/SolidityImportSmoke/LoopInvariantChecks.lean` are included in the
+generated axiom inventory. They introduce no project axioms.

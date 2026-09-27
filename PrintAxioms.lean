@@ -11,6 +11,8 @@ import Contracts.SolidityImportSmoke.Smoke
 import Contracts.SolidityImportSmoke.StaticAbiChecks
 import Compiler.SolidityImport.EntryPointInvariants
 import Contracts.SolidityImportSmoke.EntryPointInvariantChecks
+import Compiler.SolidityImport.LoopInvariants
+import Contracts.SolidityImportSmoke.LoopInvariantChecks
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -339,6 +341,14 @@ end Verity.AxiomAudit
   SolidityImportSmoke.EntryPointInvariantChecks.failed_exec
   SolidityImportSmoke.EntryPointInvariantChecks.every_entry_preserves
   SolidityImportSmoke.EntryPointInvariantChecks.arbitrary_sequence_preserves
+
+  -- Compiler/SolidityImport/LoopInvariants.lean
+  Compiler.CompilationModel.Denote.execForEachLoop_invariant
+  Compiler.CompilationModel.Denote.forEach_invariant
+
+  -- Contracts/SolidityImportSmoke/LoopInvariantChecks.lean
+  SolidityImportSmoke.LoopInvariantChecks.write_loop_preserves
+  SolidityImportSmoke.LoopInvariantChecks.loop_panic_bytes
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -7631,4 +7641,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7039 theorems/lemmas (5026 public, 2013 private, 0 sorry'd)
+-- Total: 7043 theorems/lemmas (5030 public, 2013 private, 0 sorry'd)

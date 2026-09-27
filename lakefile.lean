@@ -76,6 +76,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.StorageVoidSequenceModel,
     .one `Contracts.SolidityImportSmoke.StorageBytesSequenceModel,
     .one `Contracts.SolidityImportSmoke.StorageTraceChecks,
+    .one `Contracts.SolidityImportSmoke.LoopInvariantChecks,
     .one `Contracts.SolidityImportSmoke.EventRejections,
     .one `Contracts.SolidityImportSmoke.ErrorPayloads,
     .one `Contracts.SolidityImportSmoke.ErrorSequenceModel,

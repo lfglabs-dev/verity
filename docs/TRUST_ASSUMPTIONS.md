@@ -972,3 +972,15 @@ with Keccak of the canonical event signature. This observer encoding is tested,
 not a proof that Denote's legacy event representation is already EVM log bytes.
 Anonymous/dynamic event encodings and arguments with guards or effects fail
 closed. Existing backend restrictions on direct narrow parameters remain intact.
+
+### Solidity importer bounded-loop proofs
+
+The indexed invariant rule in `Compiler/SolidityImport/LoopInvariants.lean`
+is proved by induction over Denote's actual bounded-loop executor. It requires
+body preservation after index binding, initial-state validity, and an explicit
+postcondition for every early-exit outcome. Its `.forEach` corollary also
+requires successful count evaluation. Unclassified interpreter failure is
+not identified with an empty EVM revert. These kernel-checked theorems add no
+axioms, source-loop lowering, EVM correspondence, gas guarantee or assumption
+of callback correctness. Concrete smoke proofs cover storage writes and exact
+panic propagation; they do not prove Midnight's whole-contract invariants.

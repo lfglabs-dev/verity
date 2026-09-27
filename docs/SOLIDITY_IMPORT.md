@@ -386,3 +386,19 @@ a local narrow value remains a located rejection under the compiler's existing
 narrow event check. Generated renamed/binding/order variants preserve the exact
 ordered event sequence. `--argument-bits` generates canonical narrow ABI words;
 it does not claim malformed-calldata equivalence.
+
+### Bounded-loop proof rule
+
+`Compiler/SolidityImport/LoopInvariants.lean` proves an indexed-invariant rule
+for Denote's actual `execForEachLoop`, and lifts it to `.forEach` after successful
+count evaluation. The step obligation includes the normalized index binding;
+the initial obligation includes the binding installed even when the bound is
+zero. Normal completion establishes the invariant at the final index. Stop,
+return, unclassified revert and byte-carrying revert have a separate explicit
+postcondition, retaining their complete outcomes.
+
+`LoopInvariantChecks.lean` applies the rule to a storage-writing loop for any
+evaluated bound, and proves exact propagation of panic bytes on the first
+iteration. This is model proof infrastructure: it adds no Solidity lowering
+and does not establish a source-loop correspondence, gas bound, reentrancy
+property or invariant of Midnight.
