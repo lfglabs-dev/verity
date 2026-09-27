@@ -77,14 +77,18 @@ def storage_words(layout, recipes, values):
 def materialize(config, metadata, abi, layout, values, name):
     from eth_abi import encode
     arguments = {path: values[var] for path, var in config["arguments"].items()}
-    model_args = []
-    projected = {p["modelParam"]: p["parameter"] + "." + p["member"] for p in metadata["projections"]}
-    for param in metadata["params"]:
-        model_args.append(arguments[projected.get(param, param)])
+    if metadata["projections"]:
+        raise ValueError("projected ABI metadata is incompatible with full-calldata execution")
+    if metadata["params"] != [item["name"] for item in abi["inputs"]]:
+        raise ValueError("model/source parameter identities differ")
     signature = abi["name"] + "(" + ",".join(map(canonical, abi["inputs"])) + ")"
     source_data = keccak(signature.encode())[:4] + encode(
         [canonical(x) for x in abi["inputs"]], [abi_value(x, x["name"], arguments, name.encode()) for x in abi["inputs"]])
-    compiled_data = bytes.fromhex("12345678") + b"".join(n.to_bytes(32, "big") for n in model_args)
+    payload = source_data[4:]
+    if len(payload) % 32:
+        raise ValueError("ABI payload is not composed of complete words")
+    model_args = [int.from_bytes(payload[i:i + 32], "big") for i in range(0, len(payload), 32)]
+    compiled_data = bytes.fromhex("12345678") + payload
     storage = storage_words(layout, config.get("storage", []), values)
     # Adjacent slots and unrelated words detect offsets / accidental reads.
     for slot in list(storage):
