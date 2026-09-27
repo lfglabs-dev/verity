@@ -7,6 +7,13 @@ import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
 import Compiler.SolidityImport.TransactionAccess
+import Compiler.SolidityImport.Coverage
+import Contracts.SolidityImportSmoke.Smoke
+import Contracts.SolidityImportSmoke.StaticAbiChecks
+import Contracts.SolidityImportSmoke.SolidityAbiPrimitiveChecks
+import Contracts.SolidityImportSmoke.AbiLoweringChecks
+import Contracts.SolidityImportSmoke.AbiCoverageChecks
+import Contracts.SolidityImportSmoke.ExplicitAbiChecks
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -307,6 +314,152 @@ end Verity.AxiomAudit
 
   -- Compiler/SolidityImport/TransactionAccess.lean
   Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
+
+  -- Compiler/SolidityImport/Coverage.lean
+  Compiler.CompilationModel.SolidityImport.evalExpr_calldataload_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_calldatasize_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_mload_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_slt_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_sgt_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_mstore_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_panicCode_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_forEach_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_revertReturndata_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_stop_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_setStorage_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_require_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_requireError_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_storage_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_literal_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_param_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_localVar_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_blockTimestamp_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_blockNumber_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_chainid_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_caller_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_contractAddress_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_add_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_sub_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_mul_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_div_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_lt_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_gt_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_le_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_ge_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_eq_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_bitAnd_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_bitXor_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_logicalNot_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_structMember_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_structMember2_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_setStructMember_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_setStructMember2_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_letVar_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_assignVar_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_ite_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_panic_arm
+  Compiler.CompilationModel.SolidityImport.execStmtList_panic_stops
+  Compiler.CompilationModel.SolidityImport.execForEachLoop_preserves_revert_bytes
+  Compiler.CompilationModel.SolidityImport.execStmt_returnValues_arm
+  Compiler.CompilationModel.SolidityImport.execStmtList_returnValues_stop_arm
+  -- Compiler.CompilationModel.SolidityImport.boolAnd2  -- private
+  -- Compiler.CompilationModel.SolidityImport.boolAnd3  -- private
+  Compiler.CompilationModel.SolidityImport.execStmt_slice_world
+  Compiler.CompilationModel.SolidityImport.execStmtList_slice_world
+  Compiler.CompilationModel.SolidityImport.execStmtList_slice_storageWords
+
+  -- Contracts/SolidityImportSmoke/Smoke.lean
+  smokeBody_peel
+  string_beq_kernel
+  -- abi_step_0  -- private
+  -- abi_step_1  -- private
+  -- abi_step_2  -- private
+  -- abi_step_3  -- private
+  -- abi_step_4  -- private
+  -- abi_step_5  -- private
+  -- abi_step_6  -- private
+  -- abi_step_7  -- private
+  -- abi_step_8  -- private
+  -- abi_step_9  -- private
+  -- abi_step_10  -- private
+  -- abi_step_11  -- private
+  -- abi_step_12  -- private
+  -- abi_step_13  -- private
+  -- abi_step_14  -- private
+  -- abi_step_15  -- private
+  -- abi_step_16  -- private
+  -- abi_step_17  -- private
+  -- abi_step_18  -- private
+  -- abi_step_19  -- private
+  -- abi_step_20  -- private
+  -- abi_step_21  -- private
+  -- abi_step_22  -- private
+  -- abi_step_23  -- private
+  -- abi_step_24  -- private
+  -- abi_step_25  -- private
+  -- abi_step_26  -- private
+  -- abi_step_27  -- private
+  -- abi_step_28  -- private
+  -- abi_step_29  -- private
+  -- decoded_state_eq  -- private
+  -- exec_cons_continue  -- private
+  -- smoke_prelude_shape  -- private
+  smoke_entry_guard
+  smoke_credit_statement
+  smoke_step_credit
+
+  -- Contracts/SolidityImportSmoke/StaticAbiChecks.lean
+  SolidityImportSmoke.StaticAbiChecks.flat_tuple_followed_by_scalar
+  SolidityImportSmoke.StaticAbiChecks.nested_tuple_offsets
+  SolidityImportSmoke.StaticAbiChecks.truncated_tuple_rejected
+  SolidityImportSmoke.StaticAbiChecks.dynamic_leaf_rejected
+  SolidityImportSmoke.StaticAbiChecks.fixed_array_leaf_rejected
+
+  -- Contracts/SolidityImportSmoke/SolidityAbiPrimitiveChecks.lean
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.prefix_load
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.nonwrapping_load
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.root_control
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.array_control
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.backwards_array_control
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.truncated_array_control
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.memory_array_control
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.memory_backwards_rejected
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.memory_allocation_before_truncation
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.memory_truncation
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.memory_element_control
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.memory_unused_oracle_rejected
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.calldata_unused_oracle_not_read
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.scalar_bool_rejected
+  Compiler.CompilationModel.SolidityImport.SolidityAbi.scalar_uint8_rejected
+
+  -- Contracts/SolidityImportSmoke/AbiLoweringChecks.lean
+  SolidityImportSmoke.AbiLoweringChecks.overlapping_head_exec
+  SolidityImportSmoke.AbiLoweringChecks.unaligned_head_exec
+  SolidityImportSmoke.AbiLoweringChecks.truncated_head_exec
+  SolidityImportSmoke.AbiLoweringChecks.overflowing_offset_exec
+  SolidityImportSmoke.AbiLoweringChecks.backwards_array_exec
+  SolidityImportSmoke.AbiLoweringChecks.canonical_array_exec
+  SolidityImportSmoke.AbiLoweringChecks.truncated_array_exec
+  SolidityImportSmoke.AbiLoweringChecks.excessive_array_length_exec
+  SolidityImportSmoke.AbiLoweringChecks.memory_array_allocation_exec
+  SolidityImportSmoke.AbiLoweringChecks.memory_backwards_array_exec
+  SolidityImportSmoke.AbiLoweringChecks.memory_truncated_array_exec
+  SolidityImportSmoke.AbiLoweringChecks.memory_allocation_before_truncation_exec
+  SolidityImportSmoke.AbiLoweringChecks.materialized_struct_array_exec
+  -- SolidityImportSmoke.AbiLoweringChecks.emptyRevert_of_observation  -- private
+  SolidityImportSmoke.AbiLoweringChecks.materialized_unused_oracle_rejected
+
+  -- Contracts/SolidityImportSmoke/AbiCoverageChecks.lean
+  SolidityImportSmoke.AbiCoverageChecks.memory_root_is_executable
+  SolidityImportSmoke.AbiCoverageChecks.calldata_root_is_executable
+  SolidityImportSmoke.AbiCoverageChecks.memory_write_is_not_read_only
+  SolidityImportSmoke.AbiCoverageChecks.loop_is_not_read_only
+
+  -- Contracts/SolidityImportSmoke/ExplicitAbiChecks.lean
+  SolidityImportSmoke.ExplicitAbiChecks.declared_signature_retained
+  SolidityImportSmoke.ExplicitAbiChecks.explicit_loader_has_no_automatic_bindings
+  SolidityImportSmoke.ExplicitAbiChecks.public_denote_accepts_overlap
+  SolidityImportSmoke.ExplicitAbiChecks.standard_loader_still_rejects_overlap
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -3361,6 +3514,8 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/IRGeneration/FunctionShape.lean
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components_with_internals
+  Compiler.Proofs.IRGeneration.FunctionShape.compiledFunctionIR_standard_body
+  Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components_standard
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Calls.lean
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
@@ -7599,4 +7754,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7019 theorems/lemmas (5006 public, 2013 private, 0 sorry'd)
+-- Total: 7153 theorems/lemmas (5104 public, 2049 private, 0 sorry'd)

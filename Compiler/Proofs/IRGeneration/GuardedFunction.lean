@@ -67,6 +67,7 @@ acquired bound state. -/
 theorem exec_compiledGuardedFunctionIR_of_body_fallthrough
     (fields : List Field) (state : IRState) (selector : Nat)
     (spec : FunctionSpec) (returns : List ParamType)
+    {habi : spec.abiDecoding = .standard}
     (bodyStmts : List YulStmt) (bindings : List (String × Nat))
     (tailResult : IRExecResult) (guardedFn : IRFunction)
     (lockField : String) (field : Field) (slot : Nat)
@@ -117,7 +118,7 @@ theorem exec_compiledGuardedFunctionIR_of_body_fallthrough
         (guardPrologueStmts slot ++
           applyLockReleaseOnExits (lockReleaseStmt slot) bodyStmts) := by
     have := congrArg IRFunction.body (Except.ok.inj hshape)
-    simpa [compiledFunctionIR, List.take_left, List.drop_left,
+    simpa [compiledFunctionIR, FunctionSpec.bindingParams, habi, List.take_left, List.drop_left,
       List.append_assoc] using this
   have hparamsEq : guardedFn.params = spec.params.map Param.toIRParam := by
     have := congrArg IRFunction.params (Except.ok.inj hshape)
@@ -159,6 +160,7 @@ theorem exec_compiledGuardedFunctionIR_of_body_fallthrough
 theorem exec_compiledGuardedFunctionIR_of_body_halting
     (fields : List Field) (state : IRState) (selector : Nat)
     (spec : FunctionSpec) (returns : List ParamType)
+    {habi : spec.abiDecoding = .standard}
     (ys : List YulStmt) (h : YulStmt) (bindings : List (String × Nat))
     (tailResult : IRExecResult) (guardedFn : IRFunction)
     (lockField : String) (field : Field) (slot : Nat)
@@ -208,7 +210,7 @@ theorem exec_compiledGuardedFunctionIR_of_body_halting
         (guardPrologueStmts slot ++
           applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])) := by
     have := congrArg IRFunction.body (Except.ok.inj hshape)
-    simpa [compiledFunctionIR, List.take_left, List.drop_left,
+    simpa [compiledFunctionIR, FunctionSpec.bindingParams, habi, List.take_left, List.drop_left,
       List.append_assoc] using this
   have hparamsEq : guardedFn.params = spec.params.map Param.toIRParam := by
     have := congrArg IRFunction.params (Except.ok.inj hshape)

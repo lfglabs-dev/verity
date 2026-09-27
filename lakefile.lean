@@ -59,6 +59,16 @@ input_dir solidityImportSmokeSources where
 
 lean_lib «SolidityImportSmoke» where
   globs := #[.one `Contracts.SolidityImportSmoke.Smoke,
+    .one `Contracts.SolidityImportSmoke.AbiCanonicalityModel,
+    .one `Contracts.SolidityImportSmoke.StaticAbiChecks,
+    .one `Contracts.SolidityImportSmoke.SolidityAbiPrimitiveChecks,
+    .one `Contracts.SolidityImportSmoke.AbiLoweringChecks,
+    .one `Contracts.SolidityImportSmoke.AbiCoverageChecks,
+    .one `Contracts.SolidityImportSmoke.ExplicitAbiChecks,
+    .one `Contracts.SolidityImportSmoke.ScalarArrayAbiModel,
+    .one `Contracts.SolidityImportSmoke.MarketAbiModel,
+    .one `Contracts.SolidityImportSmoke.MultipleDynamicAbiModel,
+    .one `Contracts.SolidityImportSmoke.StructValidationOrderModel,
     .one `Contracts.SolidityImportSmoke.Transactions,
     .one `Contracts.SolidityImportSmoke.SequenceModel,
     .one `Contracts.SolidityImportSmoke.EventSequenceModel,

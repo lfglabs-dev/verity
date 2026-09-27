@@ -33,15 +33,17 @@ private def mappingMemberKeys (oracle : DenoteOracle) (fields : List Field)
 def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) : Expr → Except String (List Verity.StorageKey)
   | .literal _ | .param _ | .localVar _ => .ok []
-  | .caller | .contractAddress | .blockTimestamp | .blockNumber | .chainid => .ok []
+  | .caller | .contractAddress | .blockTimestamp | .blockNumber | .chainid | .calldatasize => .ok []
   | .storage name => do
       let some (field, slot) := findFieldWithResolvedSlot fields name
         | throw s!"unknown observed field {name}"
       return [fieldKey field slot]
   | .add left right | .sub left right | .mul left right | .div left right
   | .bitAnd left right | .bitXor left right | .eq left right | .lt left right
-  | .gt left right | .le left right | .ge left right => do
+  | .gt left right | .le left right | .ge left right
+  | .slt left right | .sgt left right => do
       return (← expressionAccesses oracle fields state left) ++ (← expressionAccesses oracle fields state right)
+  | .calldataload value | .mload value => expressionAccesses oracle fields state value
   | .logicalNot value => expressionAccesses oracle fields state value
   | .structMember name key member => do
       let reads ← expressionAccesses oracle fields state key
@@ -58,7 +60,10 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
   match statement with
   | .letVar _ value | .assignVar _ value | .return value | .panicCode value =>
       expressionAccesses oracle fields state value
-  | .stop => pure []
+  | .mstore address value => do
+      return (← expressionAccesses oracle fields state address) ++
+        (← expressionAccesses oracle fields state value)
+  | .revertReturndata | .stop => pure []
   | .returnValues values => do
       return (← values.mapM (expressionAccesses oracle fields state)).flatten
   | .panic _ => .ok []
@@ -94,6 +99,23 @@ structure AccessResult where
   outcome : StmtOutcome
   touched : List Verity.StorageKey
 
+/-- Observe the same executed iterations as `Denote.execForEachLoop`. The body
+outcome and state advancement come from Denote itself; unsupported observation
+is an error. Accesses before early return or revert remain in the trace. -/
+def forEachAccesses (varName : String)
+    (observeBody : DenoteState → Except String (List Verity.StorageKey))
+    (runBody : DenoteState → StmtOutcome) :
+    DenoteState → Nat → Nat → Except String (List Verity.StorageKey)
+  | _, _, 0 => pure []
+  | state, index, remaining + 1 => do
+      let loopState :=
+        { state with bindings := bindValue state.bindings varName (wordNormalize index) }
+      let accesses ← observeBody loopState
+      match runBody loopState with
+      | .continue next =>
+          return accesses ++ (← forEachAccesses varName observeBody runBody next (index + 1) remaining)
+      | _ => return accesses
+
 mutual
 
 /-- Error arguments are evaluated only on the failing Denote branch. Observe
@@ -112,6 +134,15 @@ def observedStatementAccesses (oracle : DenoteOracle) (fields : List Field)
             return reads ++ (← observedBodyAccesses oracle fields state yes events)
           else
             return reads ++ (← observedBodyAccesses oracle fields state no events)
+  | .forEach varName count body => do
+      let reads ← expressionAccesses oracle fields state count
+      let some bound := evalExpr oracle fields state count
+        | throw "loop observation could not evaluate the count"
+      let initial := { state with bindings := bindValue state.bindings varName (wordNormalize 0) }
+      let accesses ← forEachAccesses varName
+        (fun loopState => observedBodyAccesses oracle fields loopState body events)
+        (fun loopState => execStmtList oracle fields loopState body) initial 0 bound
+      return reads ++ accesses
   | .require condition _ => expressionAccesses oracle fields state condition
   | .requireError condition _ arguments =>
       let reads ← expressionAccesses oracle fields state condition

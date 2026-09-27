@@ -22,6 +22,7 @@ open Compiler.Proofs.IRGeneration.Dispatch
 the guarded pipeline. -/
 theorem interpretContract_correct_of_compiled_guarded_functions
     (model : CompilationModel) (selectors : List Nat)
+    {habi : ∀ fn ∈ selectorDispatchedFunctions model, fn.abiDecoding = .standard}
     (internalFunctions : List FunctionSpec)
     (irFns : List IRFunction) (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
@@ -47,7 +48,7 @@ theorem interpretContract_correct_of_compiled_guarded_functions
       (SourceSemantics.interpretContract model selectors tx initialWorld)
       (interpretIR (runtimeContractOfFunctions model.name irFns) tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
-  interpretContract_correct_of_functions_generic
+  interpretContract_correct_of_functions_generic (habi := habi)
     (fun fn sel irFn =>
       compileGuardedFunctionSpec model.fields model.events model.errors []
         internalFunctions sel fn = Except.ok irFn)

@@ -65,6 +65,7 @@ the statement is non-vacuous at `bytes`. -/
 theorem interpretContract_correct_of_functions_bytes_param
     (P : FunctionSpec → Nat → IRFunction → Prop)
     (model : CompilationModel) (selectors : List Nat)
+    {habi : ∀ fn ∈ selectorDispatchedFunctions model, fn.abiDecoding = .standard}
     (irFns : List IRFunction) (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
     (name : String) (value : AbiBytes)
@@ -92,7 +93,7 @@ theorem interpretContract_correct_of_functions_bytes_param
       (SourceSemantics.interpretContract model selectors tx initialWorld)
       (interpretIR (runtimeContractOfFunctions model.name irFns) tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
-  interpretContract_correct_of_functions_generic_external P model selectors irFns tx
+  interpretContract_correct_of_functions_generic_external (habi := habi) P model selectors irFns tx
     initialWorld hmeta hcompiled
     (bindExternalParams_total_of_bytes_calldata model tx name value hwf hargs hsize hparams)
     hfunction

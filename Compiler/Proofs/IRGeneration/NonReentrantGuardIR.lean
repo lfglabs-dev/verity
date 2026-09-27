@@ -309,10 +309,10 @@ theorem attachNonReentrantGuard_some_shape (fields : List Field)
     (hfield : findFieldWithResolvedSlot fields lockField = some (field, slot)) :
     attachNonReentrantGuard fields spec irFn = .ok { irFn with
       body :=
-        irFn.body.take (genParamLoads spec.params).length ++
+        irFn.body.take (genParamLoads spec.bindingParams).length ++
           guardPrologueStmts slot ++
           applyLockReleaseOnExits (lockReleaseStmt slot)
-            (irFn.body.drop (genParamLoads spec.params).length) } := by
+            (irFn.body.drop (genParamLoads spec.bindingParams).length) } := by
   simp only [attachNonReentrantGuard, hlock,
     nonReentrantGuardPrologue_eq fields lockField field slot hfield,
     hfield, lockReleaseStmt, List.splitAt_eq]

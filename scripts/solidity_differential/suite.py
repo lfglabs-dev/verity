@@ -25,6 +25,9 @@ def stateful_campaign(output, transactions, seed):
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/StorageTraceChecks.lean'],
             log=output / 'storage-trace-checks.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/ExplicitAbiChecks.lean'],
+            log=output / 'explicit-abi-checks.log')
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
@@ -58,6 +61,22 @@ def stateful_campaign(output, transactions, seed):
         '--source-fixture', 'Contracts/SolidityImportSmoke/MappingDirtySequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/MappingDirtySequenceModel.lean',
         '--output', str(output / 'mapping-dirty')]))
+    checks.append(('abi', ['-m', 'solidity_differential.check_abi_programs',
+        '--output', str(output / 'abi')]))
+    checks.append(('abi-rejections', ['-m', 'solidity_differential.check_abi_rejections']))
+    checks.append(('struct-abi', ['-m', 'solidity_differential.check_struct_abi_programs',
+        '--output', str(output / 'struct-abi')]))
+    checks.append(('struct-abi-rejections', ['-m', 'solidity_differential.check_struct_abi_rejections']))
+    checks.append(('scalar-array-abi', ['-m', 'solidity_differential.check_scalar_array_abi_programs',
+        '--output', str(output / 'scalar-array-abi')]))
+    checks.append(('scalar-array-abi-rejections', ['-m', 'solidity_differential.check_scalar_array_abi_rejections',
+        '--output', str(output / 'scalar-array-abi-rejections')]))
+    checks.append(('market-abi', ['-m', 'solidity_differential.check_market_abi_programs',
+        '--output', str(output / 'market-abi')]))
+    checks.append(('market-abi-rejections', ['-m', 'solidity_differential.check_market_abi_rejections',
+        '--output', str(output / 'market-abi-rejections')]))
+    checks.append(('multiple-dynamic-abi', ['-m', 'solidity_differential.check_multiple_dynamic_abi_programs',
+        '--output', str(output / 'multiple-dynamic-abi')]))
     completed = []
     checks.append(('errors', ['-m', 'solidity_differential.check_stateful',
         '--transactions', str(transactions), '--seed', str(seed),

@@ -22,7 +22,7 @@ theorem compileFunctionSpec_body_shape (fields : List Field)
     (irFn : IRFunction)
     (h : compileFunctionSpec fields events errors adtTypes selector spec
       targetFork internalFunctions = .ok irFn) :
-    ∃ bodyStmts, irFn.body = genParamLoads spec.params ++ bodyStmts := by
+    ∃ bodyStmts, irFn.body = genParamLoads spec.bindingParams ++ bodyStmts := by
   unfold compileFunctionSpec at h
   cases hv : validateFunctionSpec spec with
   | error e => rw [hv] at h; cases h
@@ -33,7 +33,7 @@ theorem compileFunctionSpec_body_shape (fields : List Field)
       | ok returns =>
           rw [hr] at h
           cases hb : compileStmtListWithFork fields events errors .calldata [] false
-              (spec.params.map (·.name)) adtTypes targetFork spec.body
+              (spec.bindingParams.map (·.name)) adtTypes targetFork spec.body
               internalFunctions with
           | error e => rw [hb] at h; cases h
           | ok bodyStmts =>

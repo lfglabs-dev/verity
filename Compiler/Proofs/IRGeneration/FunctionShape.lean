@@ -18,7 +18,7 @@ def compiledFunctionIR
       | [single] => single.toIRType
       | _ => IRType.unit
     payable := spec.isPayable
-    body := genParamLoads spec.params ++ bodyStmts }
+    body := genParamLoads spec.bindingParams ++ bodyStmts }
 
 theorem compileFunctionSpec_ok_components
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -28,7 +28,7 @@ theorem compileFunctionSpec_ok_components
       validateFunctionSpec spec = Except.ok () ∧
       functionReturns spec = Except.ok returns ∧
       compileStmtList fields events errors .calldata [] false
-        (spec.params.map (·.name)) [] spec.body = Except.ok bodyStmts ∧
+        (spec.bindingParams.map (·.name)) [] spec.body = Except.ok bodyStmts ∧
       irFn = compiledFunctionIR selector spec returns bodyStmts := by
   unfold CompilationModel.compileFunctionSpec at hcompile
   cases hvalidate : validateFunctionSpec spec
@@ -41,7 +41,7 @@ theorem compileFunctionSpec_ok_components
     case ok returns =>
       cases hbody :
           compileStmtListWithFork fields events errors .calldata [] false
-            (spec.params.map (·.name)) [] .cancun spec.body
+            (spec.bindingParams.map (·.name)) [] .cancun spec.body
       · rw [hvalidate, hreturns, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
@@ -65,7 +65,7 @@ theorem compileFunctionSpec_ok_components_with_internals
       validateFunctionSpec spec = Except.ok () ∧
       functionReturns spec = Except.ok returns ∧
       compileStmtList fields events errors .calldata [] false
-        (spec.params.map (·.name)) adtTypes spec.body internalFunctions =
+        (spec.bindingParams.map (·.name)) adtTypes spec.body internalFunctions =
           Except.ok bodyStmts ∧
       irFn = compiledFunctionIR selector spec returns bodyStmts := by
   unfold CompilationModel.compileFunctionSpec at hcompile
@@ -79,7 +79,7 @@ theorem compileFunctionSpec_ok_components_with_internals
     case ok returns =>
       cases hbody :
           compileStmtListWithFork fields events errors .calldata [] false
-            (spec.params.map (·.name)) adtTypes .cancun spec.body internalFunctions
+            (spec.bindingParams.map (·.name)) adtTypes .cancun spec.body internalFunctions
       · rw [hvalidate, hreturns, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
@@ -87,6 +87,30 @@ theorem compileFunctionSpec_ok_components_with_internals
         injection hcompile with hEq
         refine ⟨returns, bodyStmts, ?_⟩
         exact ⟨by simp, by simp, by simpa [compileStmtList] using hbody, hEq.symm⟩
+
+/-- Standard ABI decoding preserves the pre-existing parameter-load shape. -/
+theorem compiledFunctionIR_standard_body
+    (selector : Nat) (spec : FunctionSpec) (returns : List ParamType)
+    (bodyStmts : List YulStmt) (habi : spec.abiDecoding = .standard) :
+    (compiledFunctionIR selector spec returns bodyStmts).body =
+      genParamLoads spec.params ++ bodyStmts := by
+  simp [compiledFunctionIR, FunctionSpec.bindingParams, habi]
+
+/-- Legacy standard-decoder clients retain the original body compile scope.
+The new explicit-prelude branch is not silently admitted to that statement. -/
+theorem compileFunctionSpec_ok_components_standard
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (habi : spec.abiDecoding = .standard)
+    (hcompile : compileFunctionSpec fields events errors [] selector spec = Except.ok irFn) :
+    ∃ returns bodyStmts,
+      validateFunctionSpec spec = Except.ok () ∧
+      functionReturns spec = Except.ok returns ∧
+      compileStmtList fields events errors .calldata [] false
+        (spec.params.map (·.name)) [] spec.body = Except.ok bodyStmts ∧
+      irFn = compiledFunctionIR selector spec returns bodyStmts := by
+  simpa [FunctionSpec.bindingParams, habi] using
+    compileFunctionSpec_ok_components fields events errors selector spec irFn hcompile
 
 end FunctionShape
 

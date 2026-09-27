@@ -42,9 +42,11 @@ reviewed inventory), `example.sourceDigest`, and the kernel theorem
 It also defines typed accessors for specifications, with Solidity types
 (`UIntN n`, `Uint256`, `Address`, `BytesN 32`, `Bool`):
 
-- `example.f oracle world m_maturity id user : Option (UIntN 128 × UIntN 128 × UIntN 128)`
-  calls the imported function `f` in `world` (block timestamp included);
-  `none` means it reverts.
+- Function accessors are generated only when every parameter and return type
+  has a scalar Lean representation. Tuple and array signatures do not receive
+  these accessors; use the full model with the public Denote entry point and
+  matching raw calldata for composite ABI execution. No synthetic
+  `m_maturity` argument is generated.
 - `example.position.credit oracle world id user : UIntN 128` reads
   `position[id][user].credit` with the imported layout (solc's slot, word
   offset and packing); `example.position.credit_val` states that its value is
@@ -101,8 +103,10 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | One/two-key mappings to structs | solc slots, word offsets, and packed uint offsets |
 | One/two-key scalar mappings | address/uint256/bytes32 keys; uint8–uint256, address, bytes32 and bool values; root assignment and `delete`, with masked narrow writes |
 | Short-circuit boolean expressions | `&&` and `||` evaluate the left operand once; the right operand, including guards and helper preludes, executes only in its selected branch. Unsupported constructs still reject even in unreachable operands. |
+| Scalar ABI canonicality | Raw `uintN`, address and bool words are checked before source execution, including unused parameters. Noncanonical words revert with empty bytes. Complete-word A/B/C checks exercise mixed parameter positions; dynamic struct and partial-byte ABI validation remain outside this instrument. |
 | Boolean literals | Resolved `true`/`false`; canonical 1/0 values |
-| Scalar member of a memory/calldata struct parameter | Explicit scalar projection; no ABI decoder |
+| Flat static memory/calldata struct parameters | Full tuple ABI including unused scalar members; indexed field bindings and complete head sizes. Memory members are validated at entry; calldata members are validated when read, preserving competing reverts. |
+| Dynamic memory/calldata structs (experimental) | Complete unsigned-scalar roots with dynamic scalar arrays or arrays of flat scalar structs. Full ABI signature, eager memory materialization and lazy calldata reads; direct element indices only. No legacy member projection. Mixed static/dynamic struct parameters and computed element indices reject precisely. Permanent fixtures cover pinned `Market` (340 A/B/C controls, four variants), scalar arrays (96 controls, three variants), and two dynamic roots (132 controls, four variants). Twenty dynamic ABI mutations are detected and minimized. Generated-name collision is checked against the actual decoder binding. Whole-library proof compatibility passes; exact-head campaign gates remain pending. |
 | Unsigned `+`, `-`, `*`, `/` | Word arithmetic with overflow/underflow/zero-divisor panics |
 | Unsigned comparisons, equality | Scalar conditions |
 | `require(condition, "message")` | Exact `Error(string)` bytes; UTF-8 literal messages, including empty strings, in roots and inlined helpers |
@@ -256,8 +260,9 @@ private helper cannot stand in for an inherited implementation.
 Fallback/receive bodies remain counted and are rejected as unnamed roots.
 Midnight is reported both in full and with only `multicall` removed for the
 milestone. This is function-import coverage, not whole-contract ABI or EVM
-coverage; in particular an import using scalar struct projections still counts
-as importable until that importer limitation is removed.
+coverage. Historical reports made before removal of scalar struct projections
+may count projected imports; rerun the instrument on the current importer
+before using those reports to assess complete ABI support.
 
 Inventory uses the source project's pinned solc, preserving its original
 pragmas. Each named declaration then goes through the actual Lean importer

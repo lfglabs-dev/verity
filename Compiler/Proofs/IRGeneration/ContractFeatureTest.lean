@@ -51,6 +51,7 @@ private def literalMappingWrite_supported_function :
   rcases hfn with rfl
   exact
     { nonInternal := rfl
+      standardAbi := rfl
       nonSpecialEntrypoint := rfl
       noNonReentrant := rfl
       params :=
@@ -1118,6 +1119,7 @@ example :
         stopOnly_calldataFits
   exact
     Function.interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
+      (habi := rfl)
       (model := stopOnlySpec)
       (fn := stopOnlyFunction)
       (helperFuel := 1)
@@ -1300,6 +1302,7 @@ private def scalarEventSmoke_supported_function :
   rcases hfn with rfl
   exact
     { nonInternal := rfl
+      standardAbi := rfl
       nonSpecialEntrypoint := rfl
       noNonReentrant := rfl
       params :=
