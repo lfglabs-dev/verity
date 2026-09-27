@@ -385,3 +385,72 @@ def stateful_imported_event_source(original, variant, narrow=False):
             raise ValueError('missing event binding anchor')
         return original.replace(before, 'address owner = address(this);\n        emit Detail(low, middle, value, owner, accepted, bytes32(value));')
     raise ValueError(variant)
+
+
+def scalar_array_abi_source(source, variant):
+    """Equivalent full-ABI programs; preserve selectors and validation order."""
+    if variant == 'baseline':
+        return source
+    if variant == 'renamed':
+        import re
+        if len(re.findall(r'\bvalues\b', source)) != 5:
+            raise ValueError('scalar-array rename requires one field and four reads')
+        return re.sub(r'\bvalues\b', 'payload', source)
+    if variant == 'bindings':
+        import re
+        source, count = re.subn(r'return (box\.values\[[01]\]);',
+            lambda m: 'uint256 copied = ' + m[1] + '; return copied;', source)
+        if count != 4:
+            raise ValueError('scalar-array bindings require four reads')
+        return source
+    raise ValueError(f'unknown scalar-array ABI variant: {variant}')
+
+
+def market_abi_source(source, variant):
+    """Equivalent Market wrappers, retaining the pinned interface verbatim."""
+    if variant == 'baseline':
+        return source
+    if variant == 'condition':
+        anchor = 'require(flag != 0, "first");'
+        if source.count(anchor) != 10:
+            raise ValueError('Market variant requires all ten source guards')
+        return source.replace(anchor, 'require(0 != flag, "first");')
+    if variant == 'collision':
+        anchor = 'require(flag != 0, "first");'
+        if source.count(anchor) != 10:
+            raise ValueError('Market collision variant requires ten source guards')
+        return source.replace(anchor,
+            'uint256 _verity_slice_tmp_0_memory = flag; '
+            'require(_verity_slice_tmp_0_memory != 0, "first");')
+    if variant == 'bindings':
+        anchors = [('market.midnight', 'address'), ('market.maturity', 'uint256'),
+                   ('market.collateralParams[0].token', 'address'),
+                   ('market.collateralParams[1].token', 'address')]
+        for expression, ty in anchors:
+            anchor = 'return ' + expression + ';'
+            if source.count(anchor) != 2:
+                raise ValueError('Market binding variant requires two roots per expression')
+            source = source.replace(anchor, ty + ' copied = ' + expression + '; return copied;')
+        return source
+    raise ValueError(f'unknown Market ABI variant: {variant}')
+
+
+def multiple_dynamic_abi_source(source, variant):
+    """Equivalent programs with two independent ABI roots."""
+    if variant == 'baseline':
+        return source
+    if variant == 'members':
+        return source.replace('values', 'payload').replace('tag', 'marker')
+    if variant == 'bindings':
+        for side in ('left', 'right'):
+            anchor = f'return {side}.values[0];'
+            if source.count(anchor) != 2:
+                raise ValueError('multiple-root binding anchor must occur in both locations')
+            source = source.replace(anchor, f'uint256 result = {side}.values[0]; return result;')
+        return source
+    if variant == 'condition':
+        anchor = 'require(flag != 0, "first");'
+        if source.count(anchor) != 4:
+            raise ValueError('four multiple-root guards required')
+        return source.replace(anchor, 'require(0 != flag, "first");')
+    raise ValueError(f'unknown multiple-root variant: {variant}')

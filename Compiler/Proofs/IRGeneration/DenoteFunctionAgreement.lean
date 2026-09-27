@@ -201,7 +201,7 @@ theorem denoteFunction_eq
   simp only [hnoEvents, SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList,
     withTransactionContext_eq, effectiveFields_eq, Denote.bindExternalParams,
     SourceSemantics.bindExternalParams, ofIRTransaction_args, ofIRTransaction_functionSelector]
-  cases hbind : DynamicAbi.bindExternalParams tx.functionSelector fn.params tx.args with
+  cases hbind : DynamicAbi.bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none =>
       simp only [toSourceResult_revertedResult]
   | some bindings =>

@@ -934,36 +934,65 @@ These finite checks are not a general solc ABI-decoder equivalence proof.
 
 The importer currently lowers only flat scalar structs through this full ABI
 path. Nested structs, arrays, dynamic `Market` parameters and partial-byte
-calldata remain outside it. The inherited dynamic-struct projection has not
-been validated as a complete source ABI and must still be replaced before
-claiming full-contract import. Read-time guards use the empty returndata buffer
+calldata remain outside it. Dynamic structs use the experimental explicit-prelude boundary described
+below; historical scalar projections are no longer an import fallback. Read-time guards use the empty returndata buffer
 within the present fragment, which has no external calls; adding external calls
 requires an explicit empty-revert lowering that cannot inherit stale returndata.
 
-The smoke witness executes the ABI guard followed by the original credit read
-with calldata consistent with its bound parameters. Its expected credit result
-is unchanged. All named smoke theorems are registered in the generated axiom
-audit. The inherited golden update is documented below; the static-struct
-family changes only its obligation wording, as described below. Pilot provenance
-is unchanged.
+### Experimental explicit source ABI preludes
 
-The scalar-ABI change updates the smoke `model.golden` only by prepending the
-raw address-word guard at calldata byte offset 68 (strict bound 2^160, empty
-revert on failure) and recording its unchecked local obligation. Removing
-those two additions reproduces the previous golden byte-for-byte. The prior
-body and storage model are unchanged; the runtime mutation suite checks that
-removing or corrupting this validation is detected. Pilot provenance is not
-changed by this golden update.
+`FunctionSpec.abiDecoding` now distinguishes the default generic decoder from
+an explicit source-compatible prelude. `params` remains the complete ABI
+signature in both modes; `bindingParams` is empty only for an explicit prelude.
+The compiler and Denote therefore execute the body's raw-calldata checks before
+any conflicting generic dynamic-tuple check. SourceSemantics uses the same
+binding policy. This is an explicit trust boundary, not a solc equivalence proof.
 
-The five named static-tuple decoder checks in `StaticAbiChecks.lean` are
-registered in the generated axiom inventory.
+Compilation requires a `solidity_explicit_abi` local obligation, rejects internal
+functions and automatic locks in this mode, and checks the body against an empty
+parameter scope as well as the ordinary signature scope. Body locals cannot
+silently refer to unloaded parameters or shadow declared signature parameters.
+The generic SupportedFunction profiles now require the standard ABI policy;
+explicit-prelude compiler correctness needs a separate decoder proof. Updating
+the consumers preserves the existing standard-policy theorem conclusions.
+The complete `Verity Contracts SolidityImportSmoke` library build now passes in
+this experimental checkout. That establishes elaboration compatibility, not
+correctness of the explicit decoder or completion of its validation gates.
 
-The static-struct golden update changes only the local obligation description:
-it distinguishes eager scalar/memory validation from lazy calldata-field validation.
-The generated model is otherwise byte-for-byte identical to the scalar-ABI golden,
-including its executable body, storage layout, and unchecked proof status.
-The recursive tuple quotation adds one `partial def` to the generated trust inventory;
-quotation is importer metaprogramming, not a logical axiom or equivalence proof.
+The experimental importer now uses the checked AST schema and explicit ABI
+prelude for dynamic struct roots, retaining every member in the declared ABI.
+The legacy scalar projection fallback has been removed: an unsupported schema
+fails at its original AST node. Complete memory structs, scalar arrays and flat struct arrays are
+materialized before source statements; calldata scalar members and array
+headers are checked at reads. Computed array indices and mixed static/dynamic
+struct parameter lists remain rejected until their ordering/loading is covered.
+The imported ten-function pinned Market fixture passes 340 A/B/C controls,
+including eager/lazy address checks and malformed array payloads. Scalar-array
+and two-dynamic-root fixtures pass 96 and 132 controls respectively. Their
+three, four and four equivalent variants pass strict observation comparisons;
+the corrected Market generated-name collision additionally checks that all five
+memory decoders rename the colliding temporary. Twenty runtime lowering mutants
+have successful positive controls and reproduced deletion-minimal divergences.
+The permanent axiom audit includes the bounded full-state smoke proofs, which
+use only `propext` and `Quot.sound`. These are working-tree preflight results,
+not exact-head merge receipts. They do not establish arbitrary nested types,
+partial-byte Denote inputs, whole Midnight support, general decoder correctness
+or completion of the required publication gates.
+
+The legacy function-correctness lemmas explicitly require the standard decoder
+when their statements assume automatic binding of declared parameters. Supported
+function profiles supply this fact; it is not inferred from the ABI signature.
+Structural metadata lemmas continue to retain the full signature under either
+policy, while guarded body-shape lemmas use the parameters actually loaded.
+The same standard-policy prerequisite is explicit in the generic dispatch and
+contract-correctness wrappers. Their supported-profile callers derive it from
+the function inventory. Native body-shape lemmas use the actual loaded parameter
+list; an empty declared list remains empty under either policy. Whole-library
+compilation passes, including the end-to-end native examples. The bounded smoke
+proof checks every decoder instruction and the entire resulting state, avoiding
+a single large kernel reduction. These results do not establish a general
+correctness theorem for the explicit decoder, which remains a separate proof
+obligation.
 
 Imported scalar event declarations feed both compilation and the stateful
 observer. Denote retains source-order event arguments; `SequenceRunner` performs

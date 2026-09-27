@@ -37,7 +37,8 @@ constructor (including `paramDynamicMember*`, `paramDynamicStaticComposite`,
 `mulDiv512*`, raw calls, `internalCall`, `intrinsic`, `forkIfAtLeast`, ADTs,
 `arrayElementWord`, `mappingChain`, and any future constructor) is rejected. -/
 def exprCovered : Expr → Bool
-  | .calldataload offset => exprCovered offset
+  | .calldataload offset | .mload offset => exprCovered offset
+  | .calldatasize => true
   | .literal _ => true
   | .param _ => true
   | .storage _ => true
@@ -47,6 +48,7 @@ def exprCovered : Expr → Bool
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
   | .add a b | .sub a b | .mul a b | .div a b
+  | .slt a b | .sgt a b
   | .lt a b | .gt a b | .le a b | .ge a b | .eq a b
   | .bitAnd a b | .bitXor a b => exprCovered a && exprCovered b
   | .logicalNot a => exprCovered a
@@ -86,8 +88,10 @@ end
 meaning and its original world-preservation theorems. -/
 mutual
   def executableStmtCovered : Stmt → Bool
+    | .mstore offset value => exprCovered offset && exprCovered value
+    | .panicCode code => exprCovered code
+    | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertReturndata => true
-
     | .emit _ args => exprListCovered args
     | .stop => true
     | .setStorage _ value => exprCovered value
@@ -107,6 +111,58 @@ theorem evalExpr_calldataload_arm (oracle : DenoteOracle) (fields : List Field)
     evalExpr oracle fields state (.calldataload offset) = (do
       let resolvedOffset ← evalExpr oracle fields state offset
       some (calldataloadWord state.selector state.world.calldata resolvedOffset)) := rfl
+
+theorem evalExpr_calldatasize_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    evalExpr oracle fields state .calldatasize = some state.world.calldataSize.val := rfl
+
+theorem evalExpr_mload_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset : Expr) :
+    evalExpr oracle fields state (.mload offset) = (do
+      let resolved ← evalExpr oracle fields state offset
+      some (state.world.memory resolved).val) := rfl
+
+theorem evalExpr_slt_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.slt a b) = (do
+      let lhs ← evalExpr oracle fields state a
+      let rhs ← evalExpr oracle fields state b
+      pure (boolWord (decide (
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs) : Int) <
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs) : Int))))) := rfl
+
+theorem evalExpr_sgt_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.sgt a b) = (do
+      let lhs ← evalExpr oracle fields state a
+      let rhs ← evalExpr oracle fields state b
+      pure (boolWord (decide (
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs) : Int) <
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs) : Int))))) := rfl
+
+theorem execStmt_mstore_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset value : Expr) :
+    execStmt oracle fields state (.mstore offset value) =
+      (match evalExpr oracle fields state offset, evalExpr oracle fields state value with
+       | some address, some resolved => .continue { state with world := { state.world with
+           memory := fun o => if o = address then resolved else state.world.memory o } }
+       | _, _ => .revert) := rfl
+
+theorem execStmt_panicCode_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (code : Expr) :
+    execStmt oracle fields state (.panicCode code) =
+      (match evalExpr oracle fields state code with
+       | some value => .revertWithData (panicBytes value)
+       | none => .revert) := rfl
+
+theorem execStmt_forEach_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name : String) (count : Expr) (body : List Stmt) :
+    execStmt oracle fields state (.forEach name count body) =
+      (match evalExpr oracle fields state count with
+       | some bound => execForEachLoop name
+           (fun next => execStmtList oracle fields next body)
+           { state with bindings := bindValue state.bindings name (wordNormalize 0) } 0 bound
+       | none => .revert) := rfl
 
 theorem execStmt_revertReturndata_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :

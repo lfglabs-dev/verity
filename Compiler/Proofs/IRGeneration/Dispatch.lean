@@ -31,6 +31,7 @@ theorem runtimeContractOfFunctions_disjoint
 
 theorem interpretContract_correct_of_compiled_functions
     (model : CompilationModel)
+    {habi : ∀ fn ∈ selectorDispatchedFunctions model, fn.abiDecoding = .standard}
     (selectors : List Nat)
     (irFns : List IRFunction)
     (tx : IRTransaction)
@@ -55,7 +56,7 @@ theorem interpretContract_correct_of_compiled_functions
       (SourceSemantics.interpretContract model selectors tx initialWorld)
       (interpretIR (runtimeContractOfFunctions model.name irFns) tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
-  interpretContract_correct_of_functions_generic
+  interpretContract_correct_of_functions_generic (habi := habi)
     (fun fn sel irFn =>
       compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
     model selectors irFns tx initialWorld
@@ -67,6 +68,7 @@ theorem interpretContract_correct_of_compiled_functions
 
 theorem interpretContractWithInternals_correct_of_compiled_functions
     (model : CompilationModel)
+    {habi : ∀ fn ∈ selectorDispatchedFunctions model, fn.abiDecoding = .standard}
     (selectors : List Nat)
     (runtimeContract : IRContract)
     (irFuelSlack : Nat)
@@ -139,7 +141,9 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
         model.fields model.events model.errors sel fn irFn [] hP
       exact ⟨hp, hs, hpay⟩)
     (fun fn hmem hbindNone => interpretFunction_eq_reverted_of_bind_none
-      model fn tx initialWorld (hparamsSupported fn hmem) hbindNone)
+      model fn tx initialWorld
+        (by simpa [FunctionSpec.bindingParams, habi fn hmem] using hparamsSupported fn hmem)
+        (by simpa [FunctionSpec.bindingParams, habi fn hmem] using hbindNone))
     hcompiled hparamsSupported hinterp hfunction
 
 /-- Helper-aware dispatch skeleton.  This is the populated-runtime analogue of
@@ -148,6 +152,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
 through and therefore does not reduce helper callers to legacy semantics. -/
 theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
     (model : CompilationModel)
+    {habi : ∀ fn ∈ selectorDispatchedFunctions model, fn.abiDecoding = .standard}
     (selectors : List Nat)
     (helperFuel : Nat)
     (runtimeContract : IRContract)
@@ -226,7 +231,9 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
         (model.functions.filter (·.isInternal)) hP
       exact ⟨hp, hs, hpay⟩)
     (fun fn hmem hbindNone => interpretFunctionWithHelpers_eq_reverted_of_bind_none
-      model helperFuel fn tx initialWorld (hparamsSupported fn hmem) hbindNone)
+      model helperFuel fn tx initialWorld
+        (by simpa [FunctionSpec.bindingParams, habi fn hmem] using hparamsSupported fn hmem)
+        (by simpa [FunctionSpec.bindingParams, habi fn hmem] using hbindNone))
     hcompiled hparamsSupported hinterp hfunction
 
 /-- Dispatch consumer specialized to the new helper-rich support inventory. -/
@@ -262,6 +269,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
       (interpretIRWithInternals runtimeContract irFuelSlack tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   exact interpretContractWithHelpersWithInternals_correct_of_compiled_functions
+    (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
     model selectors hSupported.helperFuel runtimeContract irFuelSlack irFns tx initialWorld
     hfunctions hcompiled (fun fn hfn => hSupported.selectorFunctionParamsSupported hfn) (by
       intro fn sel irFn bindings hfn hcompile hbind
@@ -316,6 +324,7 @@ theorem interpretContract_correct_of_compiled_functions_with_helper_proofs
       hfunction fn sel irFn bindings hfn hcompileFn hbind
   have hlegacy :=
     interpretContract_correct_of_compiled_functions
+      (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
       (model := model)
       (selectors := selectors)
       (irFns := irFns)
@@ -363,6 +372,7 @@ theorem interpretContractWithInternals_correct_of_compiled_functions_with_helper
       (interpretIRWithInternals runtimeContract irFuelSlack tx
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   have hlegacy := interpretContractWithInternals_correct_of_compiled_functions
+    (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
     model selectors runtimeContract irFuelSlack irFns tx initialWorld hfunctions
     hcompiled hparamsSupported (by
       intro fn sel irFn bindings hfn hcompileFn hbind
@@ -431,6 +441,7 @@ theorem interpretContract_correct_of_compiled_functions_except_mapping_writes
   simpa [supportedSourceContractSemanticsExceptMappingWrites_eq_sourceContractSemantics
     (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using
     (interpretContract_correct_of_compiled_functions
+      (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
       (model := model)
       (selectors := selectors)
       (irFns := irFns)

@@ -55,7 +55,28 @@ def mutation_campaign(output, selected=None):
     from .check_abi_mutations import mutation_campaign as abi_campaign
     from .check_struct_abi_mutations import MUTANTS as STRUCT_ABI_MUTANTS
     from .check_struct_abi_mutations import mutation_campaign as struct_abi_campaign
-    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS, *STRUCT_ABI_MUTANTS]:
+    from .check_scalar_array_abi_mutations import MUTANTS as SCALAR_ARRAY_MUTANTS
+    from .check_scalar_array_abi_mutations import mutation_campaign as scalar_array_campaign
+    from .check_market_abi_mutations import MUTANTS as MARKET_ABI_MUTANTS
+    from .check_market_abi_mutations import mutation_campaign as market_abi_campaign
+    from .check_multiple_dynamic_abi_mutations import MUTANTS as MULTIPLE_ABI_MUTANTS
+    from .check_multiple_dynamic_abi_mutations import mutation_campaign as multiple_abi_campaign
+    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS, *STRUCT_ABI_MUTANTS, *SCALAR_ARRAY_MUTANTS, *MARKET_ABI_MUTANTS, *MULTIPLE_ABI_MUTANTS]:
+        if name in MULTIPLE_ABI_MUTANTS:
+            result = multiple_abi_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
+        if name in MARKET_ABI_MUTANTS:
+            result = market_abi_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
+        if name in SCALAR_ARRAY_MUTANTS:
+            result = scalar_array_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
         if name in STRUCT_ABI_MUTANTS:
             result = struct_abi_campaign(output, [name])
             reports.extend(result['mutants'])

@@ -4,6 +4,7 @@ import Compiler.SolidityImport.Access
 import Compiler.SolidityImport.Profile
 import Compiler.SolidityImport.Quote
 import Compiler.SolidityImport.Report
+import Compiler.SolidityImport.AbiRootLowering
 
 /-!
 Solidity importer. Pinned `solc --standard-json` supplies the AST, declaration
@@ -110,6 +111,8 @@ private inductive Ref where
   | expr (v : Val)
   | path (pre : Array Stmt) (p : SPath)
   | mem (id : Nat) (pre : Array Stmt)
+  | abiArray (id memberIndex : Nat) (pre : Array Stmt)
+  | abiElement (id memberIndex : Nat) (pointer : Expr) (pre : Array Stmt)
   | state (name : String) (pre : Array Stmt)
 
 private structure MemParam where
@@ -119,6 +122,8 @@ private structure MemParam where
   staticTypes : Option (List ParamType) := none
   calldataLocation : Bool := false
   headBinding : String := ""
+  schema : Option (List AbiSchema.Member) := none
+  abiStem : String := ""
 
 private structure FieldInfo where
   slot : Nat
@@ -176,6 +181,8 @@ private structure Env where
   opaqueMembers : Array OpaqRec
   referenced : Array String
   scalarTy : RBMap Nat ParamType compare
+  rawBindings : RBMap Nat String compare := RBMap.empty
+  explicitAbi : Bool := false
   next : Nat
   /-- Every binding name allocated in the current root, including its parameters. -/
   bound : List String
@@ -302,6 +309,18 @@ private def freshFor (name : String) : M String := do
   modify fun e => { e with bound := binding :: e.bound }
   pure binding
 
+/-- Reserve every generated ABI name, not just the root prefix. -/
+private def freshAbiStem (schema : List AbiSchema.Member) (inMemory : Bool) : M String := do
+  let budget := (← get).sourceNames.length + (← get).bound.length + 1
+  for _ in [:budget] do
+    let stem ← fresh
+    let names := (AbiRootLowering.root stem 0 0 schema inMemory).names
+    let reserved := (← get).sourceNames ++ (← get).bound
+    unless names.any reserved.contains do
+      modify fun e => { e with bound := names ++ e.bound }
+      return stem
+  throwError "unable to allocate hygienic ABI bindings"
+
 private def isAtom : Expr → Bool
   | .literal _ | .localVar _ | .param _ | .blockTimestamp | .blockNumber
   | .caller | .contractAddress | .chainid => true
@@ -365,11 +384,6 @@ private def markField (name : String) : M Unit := do
   let env ← get
   unless env.referenced.contains name do
     modify fun e => { e with referenced := e.referenced.push name }
-
-private def noteProjection (p : ProjRec) : M Unit := do
-  let env ← get
-  unless env.projections.any (fun q => q.parameter == p.parameter && q.member == p.member) do
-    modify fun e => { e with projections := e.projections.push p }
 
 private def mappingKey (ty : String) : MetaM MappingKeyType :=
   match ty with
@@ -642,7 +656,50 @@ private partial def lowerRef (j : Json) : M Ref := do
             pure (.path (pre ++ key.pre) (.one name key.expr))
       | .path pre (.outer field k1) =>
           pure (.path (pre ++ key.pre) (.two field k1 key.expr))
-      | _ => failAt j "index of a non-mapping"
+      | .abiArray id memberIndex pre =>
+          unless key.pre.isEmpty do
+            failAt j "computed struct-array indices require explicit evaluation-order lowering"
+          let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
+          let some schema := mem.schema | failAt j "missing ABI schema"
+          if let some (.scalarArray field) := schema[memberIndex]? then
+            if mem.calldataLocation then
+              let header ← fresh
+              let length ← fresh
+              let data ← fresh
+              let checks := AbiLowering.staticArrayHead (.localVar (mem.abiStem ++ "_calldata"))
+                memberIndex 1 header length data
+              let pre := pre ++ checks.toArray ++ #[.ite (.lt key.expr (.localVar length))
+                [] [.panicCode (.literal 0x32)]]
+              let value := Expr.calldataload (.add (.localVar data) (.mul key.expr (.literal 32)))
+              let bound := SolidityAbi.scalarBound field.kind
+              let pre := if bound < 2^256 then
+                pre.push (AbiLowering.guard (.lt value (.literal bound))) else pre
+              return .expr { pre, expr := value }
+            else
+              let array := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
+                (.literal (32*memberIndex)))
+              let pre := pre.push (.ite (.lt key.expr (.mload array)) [] [.panicCode (.literal 0x32)])
+              let value := Expr.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal 32)))
+              return .expr { pre, expr := value }
+          let some (.structArray _ fields) := schema[memberIndex]?
+            | failAt j "index requires a struct-array member"
+          if mem.calldataLocation then
+            let header ← fresh
+            let length ← fresh
+            let data ← fresh
+            let checks := AbiLowering.staticArrayHead (.localVar (mem.abiStem ++ "_calldata"))
+              memberIndex fields.length header length data
+            let pre := pre ++ checks.toArray ++ #[.ite (.lt key.expr (.localVar length))
+              [] [.panicCode (.literal 0x32)]]
+            pure (.abiElement id memberIndex
+              (.add (.localVar data) (.mul key.expr (.literal (32*fields.length)))) pre)
+          else
+            let array := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
+              (.literal (32*memberIndex)))
+            let pre := pre.push (.ite (.lt key.expr (.mload array)) [] [.panicCode (.literal 0x32)])
+            pure (.abiElement id memberIndex
+              (.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal 32)))) pre)
+      | _ => failAt j "index of a non-mapping or unsupported ABI value"
   | "MemberAccess" =>
       let member ← mStr (← mField j "memberName")
       let base ← mField j "expression"
@@ -668,7 +725,28 @@ private partial def lowerRef (j : Json) : M Ref := do
         | .path pre path =>
             pure (.expr (← memberRead pre path member j))
         | .mem id pre =>
-            pure (.expr (← projectMember id pre member j))
+            let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
+            if let some schema := mem.schema then
+              if let some i := mem.members.findIdx? (fun p => p.1 == member) then
+                if let some (.structArray _ _) := schema[i]? then
+                  return .abiArray id i pre
+                if let some (.scalarArray _) := schema[i]? then
+                  return .abiArray id i pre
+            pure (.expr (← readAbiMember id pre member j))
+        | .abiElement id memberIndex pointer pre =>
+            let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
+            let some schema := mem.schema | failAt j "missing ABI schema"
+            let some (.structArray _ fields) := schema[memberIndex]?
+              | failAt j "expected a struct-array element"
+            let some i := fields.findIdx? (fun f => f.name == member)
+              | failAt j s!"unknown struct-array member {member}"
+            let some field := fields[i]? | failAt j "missing struct-array field"
+            let offset := Expr.add pointer (.literal (32*i))
+            let value := if mem.calldataLocation then Expr.calldataload offset else Expr.mload offset
+            let bound := SolidityAbi.scalarBound field.kind
+            let pre := if mem.calldataLocation && bound < 2^256 then
+              pre.push (AbiLowering.guard (.lt value (.literal bound))) else pre
+            pure (.expr { pre, expr := value })
         | _ => failAt j s!"unsupported member {member}"
   | kind => failAt j s!"unsupported reference {kind}"
 
@@ -687,19 +765,15 @@ private partial def lowerTypeMax (at_ base : Json) : M Ref := do
   let some bits := bitsOf tname | failAt at_ s!"unsupported type().max {tname}"
   pure (.expr { pre := #[], expr := .literal (2 ^ bits - 1) })
 
-private partial def projectMember (id : Nat) (pre : Array Stmt) (member : String) (at_ : Json) : M Val := do
+private partial def readAbiMember (id : Nat) (pre : Array Stmt) (member : String) (at_ : Json) : M Val := do
   let some mem := (← get).mems.find? id | failAt at_ "unknown memory parameter"
   let some idx := mem.members.findIdx? (fun p => p.1 == member)
     | failAt at_ s!"{member} is not a member of {mem.structName}"
-  let mut head : Nat := 0
-  for i in [:idx] do
-    let ty := mem.members[i]!.2
-    if ty.endsWith "[]" then
-      head := head + 1
-    else if ty.startsWith "struct " || ty.any (· == '[') then
-      failAt at_ s!"cannot place {member}; earlier member {mem.members[i]!.1} is {ty}"
-    else
-      head := head + 1
+  if let some schema := mem.schema then
+    let some (.scalar field) := schema[idx]? | failAt at_ "struct array used as a scalar"
+    let plan := AbiRootLowering.root mem.abiStem 0 0 schema (!mem.calldataLocation)
+    let (checks, expr) := AbiRootLowering.scalarRead plan (!mem.calldataLocation) idx field.kind
+    return { pre := pre ++ checks.toArray, expr }
   if let some types := mem.staticTypes then
     let modelParam := s!"{mem.param}_{idx}"
     let some ty := types[idx]? | failAt at_ "missing static tuple member type"
@@ -715,11 +789,7 @@ private partial def projectMember (id : Nat) (pre : Array Stmt) (member : String
           (.lt (.calldataload (.add (.localVar mem.headBinding) (.literal (32*idx))))
             (.literal bound)) [] [.revertReturndata])
     return { pre, expr := .param modelParam }
-  let modelParam := s!"{mem.param}_{member}"
-  noteProjection {
-    parameter := mem.param, member := member, structName := mem.structName,
-    headWord := head, modelParam := modelParam }
-  pure { pre, expr := .param modelParam }
+  failAt at_ "struct member has no supported complete ABI schema"
 
 private partial def lowerBinary (j : Json) : M Val := do
   let op ← mStr (← mField j "operator")
@@ -1219,6 +1289,14 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       let members ← structMemberList decl
       let sname ← mStr (← mField decl "name")
       let staticTypes := members.toList.mapM (fun (_, ty) => paramType ty)
+      let schema ← if staticTypes.isSome then pure none else do
+        let structs := (← get).structs
+        match AbiSchema.root (fun id => structs.find? id) decl with
+        | .ok schema => pure (some schema)
+        | .error failure => failAt failure.node failure.message
+      let abiStem ← match schema with
+        | none => pure ""
+        | some schema => freshAbiStem schema (loc == "memory")
       let headBinding ← if staticTypes.isSome then fresh else pure ""
       if staticTypes.isSome then
         for i in [:members.size] do
@@ -1233,7 +1311,9 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
             members := members
             staticTypes := staticTypes
             calldataLocation := loc == "calldata"
-            headBinding := headBinding }
+            headBinding := headBinding
+            schema := schema
+            abiStem := abiStem }
         { e with mems := e.mems.insert id bound }
     else if ty.startsWith "struct " then
       failAt p s!"unsupported location {loc} for {ty}"
@@ -1243,6 +1323,19 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
         let values := e.values.insert id (.param name)
         let scalarTy := e.scalarTy.insert id pty
         { e with values, scalarTy }
+  let explicitAbi := (← get).mems.toList.any (fun (_, mem) => mem.schema.isSome)
+  modify fun e => { e with explicitAbi }
+  if explicitAbi then
+    for p in params do
+      let id ← mNat (← mField p "id")
+      if let some mem := (← get).mems.find? id then
+        if mem.staticTypes.isSome then
+          failAt p "mixed static and dynamic struct parameters require explicit static-root lowering"
+      else
+        let binding ← fresh
+        modify fun e => { e with
+          rawBindings := e.rawBindings.insert id binding
+          values := e.values.insert id (.localVar binding) }
   pure out
 
 private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
@@ -1552,7 +1645,7 @@ private def importSlice
     -- do not leak between functions. Field layouts and the closure are shared.
     env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       mems := RBMap.empty, scalarTy := RBMap.empty, yulNames := RBMap.empty,
-                      projections := #[] }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]
@@ -1560,23 +1653,19 @@ private def importSlice
     for p in srcParams do
       if env.mems.contains p.id then
         let some mem := env.mems.find? p.id | throwError "missing memory parameter {p.name}"
+        if let some schema := mem.schema then
+          if modelParamNames.contains p.name then
+            (failAt fn s!"parameter name collision: {p.name}").run' env
+          modelParamNames := modelParamNames.push p.name
+          modelParams := modelParams.push { name := p.name, ty := AbiSchema.paramType schema }
+          continue
         if let some types := mem.staticTypes then
           if modelParamNames.contains p.name then
             (failAt fn s!"parameter name collision: {p.name}").run' env
           modelParamNames := modelParamNames.push p.name
           modelParams := modelParams.push { name := p.name, ty := .tuple types }
           continue
-        let mut seen := false
-        for (member, ty) in mem.members do
-          if let some proj := env.projections.find? (fun q => q.parameter == p.name && q.member == member) then
-            let some pty := paramType ty
-              | (failAt fn s!"unsupported projected type {ty}").run' env
-            if modelParamNames.contains proj.modelParam then
-              (failAt fn s!"projected parameter name collision: {proj.modelParam}").run' env
-            modelParamNames := modelParamNames.push proj.modelParam
-            modelParams := modelParams.push { name := proj.modelParam, ty := pty }
-            seen := true
-        unless seen do (failAt fn s!"struct parameter {p.name} was not read").run' env
+        (failAt fn s!"struct parameter {p.name} has no supported complete ABI schema").run' env
       else
         let some pty := env.scalarTy.find? p.id | throwError "missing parameter type"
         if modelParamNames.contains p.name then (failAt fn s!"projected parameter name collision: {p.name}").run' env
@@ -1585,9 +1674,16 @@ private def importSlice
     -- ABI cleanup is not validation: Solidity rejects noncanonical scalar
     -- words before executing the function. Inspect the original calldata word,
     -- since the model parameter loader has already masked/normalized it.
-    let mut abiGuards : Array Stmt := #[]
+    let mut abiGuards : Array Stmt := if env.explicitAbi then #[.mstore (.literal 64) (.literal 128)] else #[]
+    let rootHeadWords := (modelParams.toList.foldl (fun n p => n + paramHeadSize p.ty) 0) / 32
     for p in srcParams do
       if let some mem := env.mems.find? p.id then
+        if let some schema := mem.schema then
+          let some i := modelParamNames.findIdx? (· == p.name)
+            | throwError "missing full struct parameter"
+          let headWord := (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0 / 32
+          let plan := AbiRootLowering.root mem.abiStem rootHeadWords headWord schema (!mem.calldataLocation)
+          abiGuards := abiGuards ++ plan.body.toArray
         if let some types := mem.staticTypes then
           let some i := modelParamNames.findIdx? (· == p.name)
             | throwError "missing tuple model parameter {p.name}"
@@ -1605,10 +1701,8 @@ private def importSlice
                   (.lt (.calldataload (.literal (offset + 32*j))) (.literal bound))
                   [] [.revertReturndata])
       if let some ty := env.scalarTy.find? p.id then
-        -- The legacy projection ABI expands each read struct member into a
-        -- separate scalar model parameter. Use that model position, not the
-        -- source parameter ordinal; projected members themselves retain their
-        -- existing boundary until full struct decoding replaces projections.
+        -- Static tuples occupy their complete inline head; dynamic tuples
+        -- occupy one offset word. Compute scalar offsets from the full ABI.
         let some i := modelParamNames.findIdx? (· == p.name)
           | throwError "missing scalar model parameter {p.name}"
         let limit := match ty with
@@ -1624,6 +1718,10 @@ private def importSlice
           abiGuards := abiGuards.push (.ite
             (.lt (.calldataload (.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0))) (.literal bound))
             [] [.revertReturndata])
+        if let some binding := env.rawBindings.find? p.id then
+          let some i := modelParamNames.findIdx? (· == p.name) | throwError "missing raw scalar parameter"
+          let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+          abiGuards := abiGuards.push (.letVar binding (.calldataload (.literal offset)))
     let body := abiGuards ++ body
     let returns ← (do
       let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
@@ -1638,8 +1736,9 @@ private def importSlice
     specs := specs.push
       { name := functionName, params := modelParams.toList, returnType := none,
         returns := returns.toList, isView, body := body.toList,
+        abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
         localObligations := if abiGuards.isEmpty then [] else [{
-          name := "solidity_scalar_abi_entry"
+          name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
           obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Within this fragment without external calls the fresh EIP-211 returndata buffer stays empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved."
           proofStatus := .unchecked }] }
     for proj in env.projections do

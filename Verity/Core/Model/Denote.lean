@@ -1746,7 +1746,7 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
     (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindExternalParams tx.functionSelector fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none => revertedResult oracle spec worldWithTx
   | some bindings =>
       match execStmtList oracle fields

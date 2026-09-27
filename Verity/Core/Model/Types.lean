@@ -1470,11 +1470,22 @@ def metadataListDeep (stmts : List Stmt) : StmtMetadata :=
 
 end Stmt
 
+/-- External calldata binding strategy. Explicit source decoders retain the
+complete ABI signature in `params`, but bind locals in the body itself. They
+require an audited local obligation and are outside generic ABI-load proofs. -/
+inductive ExternalAbiDecoding where
+  | standard
+  | explicitPrelude
+  deriving Repr, DecidableEq, BEq
+
 structure FunctionSpec where
   name : String
   params : List Param
   returnType : Option FieldType  -- None for unit/void
   returns : List ParamType := []  -- preferred ABI return model; falls back to returnType when empty
+  /-- Explicit source ABI preludes may accept encodings rejected by the generic
+      decoder. This flag never changes the declared signature. -/
+  abiDecoding : ExternalAbiDecoding := .standard
   /-- Whether this entrypoint accepts non-zero msg.value. -/
   isPayable : Bool := false
   /-- Whether this entrypoint is ABI-marked as `view` (read-only intent). -/
@@ -1523,6 +1534,17 @@ structure FunctionSpec where
       boundaries to this function rather than the entire contract. -/
   localObligations : List LocalObligation := []
   deriving Repr
+
+/-- Parameters loaded automatically at external entry. An explicit prelude
+uses only raw calldata and local bindings; `params` still describes the ABI. -/
+def FunctionSpec.bindingParams (fn : FunctionSpec) : List Param :=
+  match fn.abiDecoding with
+  | .standard => fn.params
+  | .explicitPrelude => []
+
+@[simp] theorem FunctionSpec.bindingParams_standard (fn : FunctionSpec)
+    (h : fn.abiDecoding = .standard) : fn.bindingParams = fn.params := by
+  simp [FunctionSpec.bindingParams, h]
 
 structure ConstructorSpec where
   params : List Param  -- Constructor parameters (passed at deployment)

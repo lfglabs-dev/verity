@@ -3242,6 +3242,8 @@ structure SupportedFunction (spec : CompilationModel) (fn : FunctionSpec) where
       modelled by the source semantics. This makes the documented boundary
       (docs/TRUST_ASSUMPTIONS.md) machine-checked instead of prose-only. -/
   noNonReentrant : fn.nonReentrantLock = none
+  /-- Explicit source ABI preludes need their own decoder equivalence proof. -/
+  standardAbi : fn.abiDecoding = .standard
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterface spec fn
@@ -3264,6 +3266,8 @@ structure SupportedFunctionWithHelpers
     (spec : CompilationModel) (fn : FunctionSpec) where
   nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
   noNonReentrant : fn.nonReentrantLock = none
+  /-- Explicit source ABI preludes need their own decoder equivalence proof. -/
+  standardAbi : fn.abiDecoding = .standard
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedFunctionBodyWithHelpers spec fn
@@ -3274,6 +3278,8 @@ structure SupportedFunctionWithScalarEvents
   nonInternal : fn.isInternal = false
   nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
   noNonReentrant : fn.nonReentrantLock = none
+  /-- Explicit source ABI preludes need their own decoder equivalence proof. -/
+  standardAbi : fn.abiDecoding = .standard
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterfaceWithScalarEvents spec fn
@@ -3285,6 +3291,8 @@ structure SupportedFunctionExceptMappingWrites
   nonInternal : fn.isInternal = false
   nonSpecialEntrypoint : isInteropEntrypointName fn.name = false
   noNonReentrant : fn.nonReentrantLock = none
+  /-- Explicit source ABI preludes need their own decoder equivalence proof. -/
+  standardAbi : fn.abiDecoding = .standard
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterfaceExceptMappingWrites spec fn
@@ -3469,6 +3477,7 @@ def SupportedFunction.exceptMappingWrites
     SupportedFunctionExceptMappingWrites spec fn :=
   { nonInternal := hSupported.nonInternal
     nonSpecialEntrypoint := hSupported.nonSpecialEntrypoint
+    standardAbi := hSupported.standardAbi
     noNonReentrant := hSupported.noNonReentrant
     params := hSupported.params
     returns := hSupported.returns
@@ -3589,6 +3598,7 @@ def SupportedFunction.withHelpers
     {spec : CompilationModel} {fn : FunctionSpec}
     (hSupported : SupportedFunction spec fn) : SupportedFunctionWithHelpers spec fn :=
   { nonSpecialEntrypoint := hSupported.nonSpecialEntrypoint
+    standardAbi := hSupported.standardAbi
     noNonReentrant := hSupported.noNonReentrant
     params := hSupported.params
     returns := hSupported.returns
@@ -8377,6 +8387,7 @@ private def counter_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
+      standardAbi := rfl
       noNonReentrant := rfl
       params :=
         { namesNodup := by decide
@@ -8476,6 +8487,7 @@ private def simpleStorage_supported_function :
   exact
     { nonInternal := rfl
       nonSpecialEntrypoint := rfl
+      standardAbi := rfl
       noNonReentrant := rfl
       params :=
         { namesNodup := by decide
