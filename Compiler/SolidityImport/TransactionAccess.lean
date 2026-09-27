@@ -193,10 +193,10 @@ structure TracedFrameResult where
 world is suitable as the persistent input to the next transaction. -/
 def executeTracedBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
-    (events : List EventDef := []) (errors : List ErrorDef := []) :
+    (events : List EventDef := []) (errors : List ErrorDef := []) (selector : Nat := 0) :
     Except String TracedFrameResult := do
   let initial := beginTransaction world
-  let traced ← traceStraightLine oracle fields { world := initial, bindings, errors } body events
+  let traced ← traceStraightLine oracle fields { world := initial, bindings, errors, selector } body events
   let frame ← finishFrame initial traced.outcome
   return ⟨frame, traced.touched⟩
 

@@ -15,6 +15,21 @@ def _uint(value):
     return str(value)
 
 
+def _calldata(tx):
+    """Require one identical complete payload for EVM and Denote execution."""
+    data = tx.get('data')
+    if not isinstance(data, str) or not re.fullmatch(r'0x[0-9a-f]*', data):
+        raise HarnessError('canonical source calldata required')
+    raw = bytes.fromhex(data[2:]) if len(data) % 2 == 0 else b''
+    if len(raw) < 4 or (len(raw) - 4) % 32:
+        raise HarnessError('stateful Denote requires word-aligned source calldata')
+    words = [int.from_bytes(raw[i:i+32], 'big') for i in range(4, len(raw), 32)]
+    args = tx.get('args')
+    if not isinstance(args, list) or any(type(arg) is not int for arg in args) or words != args:
+        raise HarnessError('source calldata differs from model argument words')
+    return str(int.from_bytes(raw[:4], 'big'))
+
+
 class SequenceAdapter:
     def __init__(self, directory, driver, account, initial_storage=(), identity=None):
         self.directory = Path(directory).resolve()
@@ -49,7 +64,7 @@ class SequenceAdapter:
             if not isinstance(tx['value'], str) or not re.fullmatch(r'0x(?:0|[1-9a-f][0-9a-f]*)', tx['value']):
                 raise HarnessError('canonical transaction value quantity required')
             converted.append({'id': tx['id'], 'function': tx['function'],
-                'args': [_uint(arg) for arg in tx['args']],
+                'args': [_uint(arg) for arg in tx['args']], 'selector': _calldata(tx),
                 'sender': str(int(_bytes(tx['sender'], 20), 16)),
                 'target': str(int(_bytes(tx['target'], 20), 16)),
                 'value': _uint(int(tx['value'], 16)),

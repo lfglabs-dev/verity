@@ -2,10 +2,11 @@ import Compiler.SolidityImport.TransactionAccess
 import Compiler.Hex
 import Compiler.Keccak.Sponge
 import Compiler.CompilationModel.AbiHelpers
+import Compiler.CompilationModel.SelectorInteropHelpers
 import Lean.Data.Json
 
-/-! JSON bridge for the scalar Denote sequence adapter. Input ABI arguments are
-explicit model words; decoding source calldata remains the campaign's job.
+/-! JSON bridge for the Denote sequence adapter. Input arguments are complete
+word-aligned source ABI payloads, decoded using the function binding policy.
 Unsupported observations fail instead of supplying synthetic values. -/
 namespace Compiler.CompilationModel.SolidityImport.SequenceRunner
 open Lean Denote Transactions Verity.Core
@@ -74,6 +75,12 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
     match key with
     | .slot slot => Uint256.ofNat ((storage.find? (·.1 == slot)).map Prod.snd |>.getD 0)
     | _ => 0
+  let externalFns := model.functions.filter fun fn =>
+    !fn.isInternal && !isInteropEntrypointName fn.name
+  let dispatch := externalFns.map fun fn =>
+    (fn, (KeccakEngine.keccak256_selector (functionSignature fn)).toNat)
+  unless (dispatch.map Prod.snd).eraseDups.length == dispatch.length do
+    throw "ambiguous model function selectors"
   let transactions ← (← input.getObjVal? "transactions").getArr?
   let mut rows := #[]
   let mut ids : List String := []
@@ -82,10 +89,15 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
     if ident.isEmpty || ids.contains ident then throw "nonempty unique model transaction ids required"
     ids := ident :: ids
     let name ← transaction.getObjValAs? String "function"
-    let candidates := model.functions.filter (·.name == name)
+    let candidates := externalFns.filter (·.name == name)
     let [fn] := candidates | throw s!"model function must resolve uniquely: {name}"
     let args ← (← (← transaction.getObjVal? "args").getArr?).toList.mapM word
-    unless args.length == fn.params.length do throw "model argument count differs"
+    let selector ← getWord transaction "selector"
+    unless selector < 2^32 do throw "model selector exceeds four bytes"
+    let [selected] := dispatch.filter (fun entry => entry.2 == selector)
+      | throw "source calldata selector does not resolve to a model function"
+    unless selected.1.name == name do
+      throw "source calldata selector differs from model function"
     let sender ← getWord transaction "sender"
     unless sender < 2^160 do throw "model sender exceeds address width"
     let target ← getWord transaction "target"
@@ -97,18 +109,25 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
     let observed ← (← (← transaction.getObjVal? "observe").getArr?).toList.mapM pair
     unless observed.all (fun p => p.1 == account) do
       throw "foreign storage observation not supported by scalar adapter"
-    world := { world with
-      sender := Address.ofNat sender
-      txOrigin := Address.ofNat sender
-      thisAddress := Address.ofNat account
-      msgValue := 0
-      blockTimestamp := Uint256.ofNat timestamp
-      blockNumber := Uint256.ofNat number
-      chainId := 31337
-      calldata := args
-      returndata := [] }
-    let result ← executeTracedBody oracle (effectiveFields model) world
-      ((fn.params.map (·.name)).zip args) fn.body model.events model.errors
+    let tx : DenoteTransaction :=
+      { sender, txOrigin := sender, thisAddress := account, msgValue := value,
+        blockTimestamp := timestamp, blockNumber := number, chainId := 31337,
+        functionSelector := selector, args }
+    let initial := beginTransaction (withTransactionContext world tx)
+    let publicResult := denoteFunction oracle model fn tx initial
+    let result : TracedFrameResult ←
+      match bindExternalParams selector fn.bindingParams args with
+      | none => pure ⟨⟨false, [], initial⟩, []⟩
+      | some bindings =>
+          executeTracedBody oracle (effectiveFields model) initial
+            bindings fn.body model.events model.errors selector
+    unless result.frame.success == publicResult.success do
+      throw "traced execution status differs from public Denote"
+    if publicResult.success then
+      let returned := if publicResult.returnWords.isEmpty then publicResult.returnValue.toList
+        else publicResult.returnWords
+      unless result.frame.data == returned.flatMap wordBytes do
+        throw "traced return data differs from public Denote"
     let emitted ← result.frame.world.events.mapM (encodeEvent account model.events)
     let touched ← result.touched.filterMapM fun key =>
       match key with
