@@ -374,3 +374,24 @@ evaluated bound, and proves exact propagation of panic bytes on the first
 iteration. This is model proof infrastructure: it adds no Solidity lowering
 and does not establish a source-loop correspondence, gas bound, reentrancy
 property or invariant of Midnight.
+
+### Bounded symbolic execution
+
+`Compiler/SolidityImport/SymbolicExecution.lean` composes already-established
+Denote transitions. `denote_step using h` consumes one continuing statement;
+`denote_prefix using h` composes an explicitly delimited prefix. Each uses the
+provided equality proof and preserves the complete state. Neither tactic
+unfolds expression evaluation or asks the kernel to reduce a whole imported
+body. If the supplied theorem does not describe a matching continuing step,
+the tactic fails rather than silently skipping it.
+
+The terminal composition rule retains the entire outcome: final state for stop
+or return, and exact byte list for a byte-carrying revert. The suffix is then
+unreachable. These rules extend the generic list-composition lemmas ported
+from the pinned Midnight pilot; they do not prove Solidity/model equivalence
+or discharge the semantic obligations of an instruction. For loops, use the
+indexed rule above to establish a bounded block theorem before composing it.
+
+The check module exercises arbitrary-state step/prefix composition, early stop,
+exact revert bytes, rejection of an incompatible step proof, and a concrete
+bind-then-stop sequence whose unreachable suffix is arbitrary.

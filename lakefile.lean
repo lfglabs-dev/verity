@@ -59,6 +59,7 @@ input_dir solidityImportSmokeSources where
 
 lean_lib «SolidityImportSmoke» where
   globs := #[.one `Contracts.SolidityImportSmoke.Smoke,
+    .one `Contracts.SolidityImportSmoke.SymbolicExecutionChecks,
     .one `Contracts.SolidityImportSmoke.Transactions,
     .one `Contracts.SolidityImportSmoke.SequenceModel,
     .one `Contracts.SolidityImportSmoke.EventSequenceModel,

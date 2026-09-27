@@ -8,6 +8,8 @@ import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
 import Compiler.SolidityImport.TransactionAccess
 import Compiler.SolidityImport.LoopInvariants
+import Compiler.SolidityImport.SymbolicExecution
+import Contracts.SolidityImportSmoke.SymbolicExecutionChecks
 import Contracts.SolidityImportSmoke.LoopInvariantChecks
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
@@ -313,6 +315,19 @@ end Verity.AxiomAudit
   -- Compiler/SolidityImport/LoopInvariants.lean
   Compiler.CompilationModel.Denote.execForEachLoop_invariant
   Compiler.CompilationModel.Denote.forEach_invariant
+
+  -- Compiler/SolidityImport/SymbolicExecution.lean
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.step_continue
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.step_terminal
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.prefix_continue
+
+  -- Contracts/SolidityImportSmoke/SymbolicExecutionChecks.lean
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.Checks.two_steps
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.Checks.prefix_then_step
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.Checks.stop_skips_suffix
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.Checks.revert_keeps_payload
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.Checks.rejects_terminal_step
+  Compiler.CompilationModel.SolidityImport.SymbolicExecution.Checks.bind_then_stop
 
   -- Contracts/SolidityImportSmoke/LoopInvariantChecks.lean
   SolidityImportSmoke.LoopInvariantChecks.write_loop_preserves
@@ -7609,4 +7624,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7023 theorems/lemmas (5010 public, 2013 private, 0 sorry'd)
+-- Total: 7032 theorems/lemmas (5019 public, 2013 private, 0 sorry'd)

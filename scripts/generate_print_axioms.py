@@ -25,6 +25,8 @@ TRUST_BOUNDARY_FILES = [
     ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",
     ROOT / "Compiler" / "SolidityImport" / "TransactionAccess.lean",
     ROOT / "Compiler" / "SolidityImport" / "LoopInvariants.lean",
+    ROOT / "Compiler" / "SolidityImport" / "SymbolicExecution.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "SymbolicExecutionChecks.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "LoopInvariantChecks.lean",
 ]
 
