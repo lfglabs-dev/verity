@@ -1056,3 +1056,41 @@ names mask caller scalar Yul bindings; raw pointer use remains unsupported.
 Mutations removing this masking, the external-call guard and the location guard
 must first admit the unsupported source, then fail the located rejection suite.
 A compiler or harness error never counts as mutation detection.
+
+
+### ABI encoding and packed Keccak buffers (experimental)
+
+The new encoding lowering consumes complete admitted schemas; it does not
+recognize IdLib names or substitute a market-member projection. A dynamic root
+is encoded with its top-level offset, tuple heads and inline array element
+words. Memory arrays of structs contain pointers on input and inline words in
+the encoded output. Calldata fields are checked when consumed; memory fields
+were checked when the root was materialized.
+
+Keccak uses the existing DenoteOracle.keccakMemorySlice boundary. The concrete
+A/B/C adapter hashes bytes reconstructed from word chunks. Packed lowering
+therefore allocates separate buffers, initializes output words to zero, and
+inserts each byte with aligned mload/mstore and shifts. It never assumes the
+word-memory model implements overlapping unaligned EVM stores. The arithmetic
+lemmas in AbiByteLanes prove that insertion into a zero byte lane preserves
+all other byte lanes, yields the selected byte, and stays within the EVM word
+bound. AbiMemory proves the complete actual copyBytes statement for local buffer
+pointers and start/index bindings, including all iterations, empty copies and
+source preservation under disjointness. It proves the complete packedBuffer
+reserve-and-clear sequence for a stable local size binding, with exact memory
+including the free-pointer write at64. Both proofs require explicit freshness,
+alignment and allocation bounds. The proof extracts the actual emitted copy
+body rather than maintaining a second lowering. The oversized nonwrapping
+reserve case also proves exact Panic(0x41) bytes. The wrapped-addition reserve case proves the same exact panic payload.
+Integration of these local obligations across the full importer remains a
+separate obligation; no solc equivalence proof is claimed.
+
+The focused differential compares exact outputs to independent eth_abi and
+eth_hash calculations as well as all three execution routes, including the
+85-byte IdLib outer preimage and prefixes spanning word boundaries. The two
+vendored hashing dependencies are exact files from Midnight96d31343, recorded
+in hashing-provenance.json. No pilot golden or pilot provenance is changed.
+These focused results are not full Midnight import coverage or release gates;
+the focused mutation, generated-equivalent and rejection campaigns have local
+receipts, but complete representation proof obligations and exact-head release
+validation remain pending for this family.

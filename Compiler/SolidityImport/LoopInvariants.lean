@@ -57,4 +57,31 @@ theorem forEach_invariant (oracle : DenoteOracle) (fields : List Field)
     invariant exit step bound 0 _ initial
   simpa only [execStmt, evaluated, Nat.zero_add] using result
 
+/-- Bounded indexed induction only requires a body proof for iterations that
+can execute. Exit outcomes retain the same explicit postcondition as above. -/
+theorem execForEachLoop_bounded_invariant
+    (varName : String) (runBody : DenoteState → StmtOutcome)
+    (limit : Nat) (invariant : Nat → DenoteState → Prop) (exit : StmtOutcome → Prop)
+    (step : ∀ index state, index < limit → invariant index state →
+      LoopOutcomePost (invariant (index + 1)) exit
+        (runBody { state with bindings := bindValue state.bindings varName (wordNormalize index) }))
+    (remaining index : Nat) (state : DenoteState)
+    (bounded : index + remaining ≤ limit) (initial : invariant index state) :
+    LoopOutcomePost (invariant (index + remaining)) exit
+      (execForEachLoop varName runBody state index remaining) := by
+  induction remaining generalizing index state with
+  | zero => simpa [execForEachLoop, LoopOutcomePost] using initial
+  | succ remaining ih =>
+      have next := step index state (by omega) initial
+      simp only [execForEachLoop]
+      cases result : runBody { state with bindings := bindValue state.bindings varName (wordNormalize index) } with
+      | «continue» after =>
+          rw [result] at next
+          have preserved := ih (index + 1) after (by omega) next
+          simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using preserved
+      | stop after => simpa [result, LoopOutcomePost] using next
+      | «return» value after => simpa [result, LoopOutcomePost] using next
+      | revert => simpa [result, LoopOutcomePost] using next
+      | revertWithData bytes => simpa [result, LoopOutcomePost] using next
+
 end Compiler.CompilationModel.Denote

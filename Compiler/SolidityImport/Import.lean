@@ -1,10 +1,12 @@
 import Lean
 import Compiler.Sha256.Engine
+import Compiler.Hex
 import Compiler.SolidityImport.Access
 import Compiler.SolidityImport.Profile
 import Compiler.SolidityImport.Quote
 import Compiler.SolidityImport.Report
 import Compiler.SolidityImport.AbiRootLowering
+import Compiler.SolidityImport.AbiEncoding
 
 /-!
 Solidity importer. Pinned `solc --standard-json` supplies the AST, declaration
@@ -102,6 +104,11 @@ private structure Val where
   pre : Array Stmt
   expr : Expr
 
+private structure EncodedBytes where
+  pre : Array Stmt
+  pointer : Expr
+  size : Expr
+
 private inductive SPath where
   | one (field : String) (key : Expr)
   | two (field : String) (k1 k2 : Expr)
@@ -187,6 +194,7 @@ private structure Env where
   referenced : Array String
   scalarTy : RBMap Nat ParamType compare
   rawBindings : RBMap Nat String compare := RBMap.empty
+  encodingMemory : Bool := false
   explicitAbi : Bool := false
   next : Nat
   /-- Every binding name allocated in the current root, including its parameters. -/
@@ -602,7 +610,7 @@ private partial def lowerExpr (j : Json) : M Val := do
       unless optStr j "kind" == some "number" do failAt j "unsupported non-numeric literal"
       if let some denomination := optStr j "subdenomination" then
         failAt j s!"unsupported literal denomination {denomination}"
-      let some n := raw.toNat? | failAt j s!"unsupported literal {raw}"
+      let some n := raw.toNat? <|> Compiler.Hex.parseHexNat? raw | failAt j s!"unsupported literal {raw}"
       pure { pre := #[], expr := .literal n }
   | "TupleExpression" =>
       if ← mBool (← mField j "isInlineArray") then failAt j "inline arrays are outside this slice"
@@ -912,6 +920,224 @@ private partial def lowerCast (j : Json) : M Val := do
   else
     pure v
 
+/-- Restrict the entire argument tree, not merely its outer cast. This keeps
+custom reverts or effects hidden beneath a cast out of the admitted fragment. -/
+private partial def checkEncodingScalar (j : Json) : M Unit := do
+  match ← mKind j with
+  | "Identifier" | "Literal" => pure ()
+  | "MemberAccess" => checkEncodingScalar (← mField j "expression")
+  | "FunctionCall" =>
+      unless optStr j "kind" == some "typeConversion" do
+        failAt j "effectful ABI encoding argument is unsupported"
+      for arg in (← mArr (← mField j "arguments")) do checkEncodingScalar arg
+  | _ => failAt j "effectful ABI encoding argument is unsupported"
+
+/-- Encode one root tuple from its complete declaration schema. Array
+payloads contain inline scalar words, even when source memory holds pointers
+to the array's struct elements. Calldata is validated as it is consumed. -/
+private partial def lowerEncodedRoot (arg : Json) : M EncodedBytes := do
+  let .mem id effects ← lowerRef arg
+    | failAt arg "ABI encoding requires a root struct reference"
+  let some mem := (← get).mems.find? id | failAt arg "unknown encoding root"
+  let pointer ← fresh
+  let finish ← fresh
+  modify fun env => { env with encodingMemory := true }
+  if let some types := mem.staticTypes then
+    let mut pre := effects
+    let mut values := []
+    for (name, _) in mem.members do
+      let value ← atom (← readAbiMember id #[] name arg)
+      pre := pre ++ value.pre
+      values := values ++ [value.expr]
+    unless values.length == types.length do failAt arg "static encoding schema mismatch"
+    pre := pre ++ (AbiEncoding.staticWords pointer finish values).toArray
+    return { pre, pointer := .localVar pointer, size := .literal (32 * values.length) }
+  let some schema := mem.schema | failAt arg "missing full ABI encoding schema"
+  let base := Expr.localVar pointer
+  let tuple := Expr.add base (.literal 32)
+  let mut pre := effects ++ (AbiEncoding.reserve pointer finish
+    (.literal (32 * (schema.length + 1)))).toArray
+  pre := pre.push (.mstore base (.literal 32))
+  for (member, memberIndex) in schema.zipIdx do
+    let destination := Expr.add tuple (.literal (32 * memberIndex))
+    match member with
+    | .scalar field =>
+        let value ← atom (← readAbiMember id #[] field.name arg)
+        pre := pre ++ value.pre
+        pre := pre.push (.mstore destination value.expr)
+    | .scalarArray _ | .structArray _ _ =>
+        let kinds : List SolidityAbi.ScalarKind := match member with
+          | .scalarArray field => [field.kind]
+          | .structArray _ fields => fields.map (fun (field : AbiSchema.ScalarField) => field.kind)
+          | .scalar _ => []
+        let scalarArray := match member with
+          | .scalarArray _ => true
+          | _ => false
+        let header ← fresh
+        let length ← fresh
+        let data ← fresh
+        if mem.calldataLocation then
+          pre := pre ++ (AbiLowering.staticArrayHead
+            (.localVar (mem.abiStem ++ "_calldata")) memberIndex kinds.length
+            header length data).toArray
+        else
+          pre := pre ++ #[
+            .letVar header (.mload (.add (.localVar (mem.abiStem ++ "_memory"))
+              (.literal (32 * memberIndex)))),
+            .letVar length (.mload (.localVar header)),
+            .letVar data (.add (.localVar header) (.literal 32))]
+        let tail ← fresh
+        let tailEnd ← fresh
+        let payloadSize := Expr.mul (.localVar length) (.literal (32 * kinds.length))
+        pre := pre ++ (AbiEncoding.reserve tail tailEnd
+          (.add (.literal 32) payloadSize)).toArray
+        pre := pre ++ #[.mstore destination (.sub (.localVar tail) tuple),
+          .mstore (.localVar tail) (.localVar length)]
+        let index ← fresh
+        let source ← fresh
+        let sourceAddress := if mem.calldataLocation || scalarArray then
+          Expr.add (.localVar data) (.mul (.localVar index) (.literal (32 * kinds.length)))
+          else Expr.mload (.add (.localVar data) (.mul (.localVar index) (.literal 32)))
+        let mut body : List Stmt := [.letVar source sourceAddress]
+        for (kind, fieldIndex) in kinds.zipIdx do
+          let address := Expr.add (.localVar source) (.literal (32 * fieldIndex))
+          let value := if mem.calldataLocation then Expr.calldataload address else Expr.mload address
+          let bound := SolidityAbi.scalarBound kind
+          if mem.calldataLocation && bound < 2^256 then
+            body := body ++ [AbiLowering.guard (.lt value (.literal bound))]
+          let offset := Expr.add (.literal (32 * fieldIndex))
+            (.mul (.localVar index) (.literal (32 * kinds.length)))
+          body := body ++ [.mstore (.add (.add (.localVar tail) (.literal 32)) offset) value]
+        pre := pre.push (.forEach index (.localVar length) body)
+  let size ← fresh
+  pre := pre.push (.letVar size (.sub (.mload (.literal 64)) base))
+  return { pre, pointer := base, size := .localVar size }
+
+/-- Literal bytes are stored as right-zero-padded words; their logical size
+excludes that padding. `hexValue` is solc's byte spelling, including UTF-8. -/
+private partial def lowerLiteralBytes (j : Json) : M EncodedBytes := do
+  let some hex := optStr j "hexValue" | failAt j "missing literal byte spelling"
+  unless hex.length % 2 == 0 do failAt j "invalid literal byte spelling"
+  let chars := hex.toList.toArray
+  let mut words : List Expr := []
+  let mut word := 0
+  for index in [:chars.size] do
+    let some digit := Compiler.Hex.hexCharToNat? chars[index]!
+      | failAt j "invalid literal hex digit"
+    word := word * 16 + digit
+    if index % 64 == 63 then
+      words := words ++ [.literal word]
+      word := 0
+  if chars.size % 64 != 0 then
+    words := words ++ [.literal (word * 16^(64 - chars.size % 64))]
+  let pointer ← fresh
+  let finish ← fresh
+  modify fun env => { env with encodingMemory := true }
+  return { pre := (AbiEncoding.staticWords pointer finish words).toArray,
+           pointer := .localVar pointer, size := .literal (hex.length / 2) }
+
+private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
+  let ty ← mType j
+  if let some _ := paramType ty then
+    -- Hash builtins consume only admitted byte buffers; other function calls
+    -- remain rejected even if hidden beneath a scalar cast.
+    let mut hashCall := false
+    if (← mKind j) == "FunctionCall" then
+      let callee ← mField j "expression"
+      if (← mKind callee) == "Identifier" then
+        hashCall := (← refInt callee) == -8
+    unless hashCall do checkEncodingScalar j
+    let value ← atom (← lowerExpr j)
+    let size := if ty == "bool" then 1 else (bitsOf ty).getD 256 / 8
+    let pointer ← fresh
+    let finish ← fresh
+    modify fun env => { env with encodingMemory := true }
+    let padded := Expr.mul value.expr (.literal (2^(8*(32-size))))
+    let pre := value.pre ++ (AbiEncoding.staticWords pointer finish [padded]).toArray
+    return { pre, pointer := .localVar pointer, size := .literal size }
+  lowerEncodedBytes j
+
+private partial def lowerPacked (args : Array Json) : M EncodedBytes := do
+  let mut buffers : List EncodedBytes := []
+  let mut pre := #[]
+  -- Pinned solc via-IR evaluates nested ABI arguments from right to left.
+  -- Bind every input buffer before allocating or writing the output buffer.
+  for arg in args.reverse do
+    let buffer ← lowerPackedArgument arg
+    pre := pre ++ buffer.pre
+    buffers := buffer :: buffers
+  let sizeName ← fresh
+  let size := Expr.localVar sizeName
+  let length := buffers.foldl (fun total buffer => Expr.add total buffer.size) (.literal 0)
+  pre := pre.push (.letVar sizeName length)
+  let pointer ← fresh
+  let finish ← fresh
+  let clearIndex ← fresh
+  pre := pre ++ (AbiEncoding.packedBuffer pointer finish clearIndex size).toArray
+  let start ← fresh
+  pre := pre.push (.letVar start (.literal 0))
+  for buffer in buffers do
+    let index ← fresh
+    let byteName ← fresh
+    let address ← fresh
+    pre := pre.push (AbiEncoding.copyBytes buffer.pointer (.localVar pointer)
+      (.localVar start) buffer.size index byteName address)
+    pre := pre.push (.assignVar start (.add (.localVar start) buffer.size))
+  modify fun env => { env with encodingMemory := true }
+  return { pre, pointer := .localVar pointer, size }
+
+/-- Encode complete admitted byte schemas, without name-based library rules. -/
+private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
+  if (← mKind j) == "Literal" then
+    unless optStr j "kind" == some "hexString" || optStr j "kind" == some "string" ||
+        optStr j "kind" == some "unicodeString" do
+      failAt j "unsupported literal byte buffer"
+    return ← lowerLiteralBytes j
+  if (← mKind j) == "Identifier" then
+    let id ← refInt j
+    let some decl := (← get).stateVars.find? id.toNat
+      | failAt j "only literal constants are supported as named byte buffers"
+    unless (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true do
+      failAt j "mutable byte buffers are unsupported"
+    let value ← mField decl "value"
+    unless (← mKind value) == "Literal" do
+      failAt value "byte constant must have a literal initializer"
+    return ← lowerEncodedBytes value
+  unless (← mKind j) == "FunctionCall" do
+    failAt j "hash input must be a supported ABI encoding"
+  let callee ← mField j "expression"
+  unless (← mKind callee) == "MemberAccess" do
+    failAt callee "hash input must be a supported ABI encoding"
+  let base ← mField callee "expression"
+  unless (← mKind base) == "Identifier" && optStr base "name" == some "abi" &&
+      (← refInt base) == -1 do
+    failAt callee "encoding does not resolve to the abi builtin"
+  let args ← mArr (← mField j "arguments")
+  if optStr callee "memberName" == some "encodePacked" then
+    return ← lowerPacked args
+  unless optStr callee "memberName" == some "encode" do
+    failAt callee "unsupported ABI encoding builtin"
+  if args.size == 1 then
+    if (← mType args[0]!).startsWith "struct " then
+      return ← lowerEncodedRoot args[0]!
+  let mut pre := #[]
+  let mut words := []
+  for arg in args do
+    let ty ← mType arg
+    unless (paramType ty).isSome do
+      failAt arg s!"unsupported ABI encoding argument type {ty}"
+    -- Avoid assigning an evaluation order to multiple effectful arguments.
+    -- Scalar paths and casts have no source-level writes or custom reverts.
+    checkEncodingScalar arg
+    let value ← atom (← lowerExpr arg)
+    pre := pre ++ value.pre
+    words := words ++ [value.expr]
+  let pointer ← fresh
+  let finish ← fresh
+  modify fun env => { env with encodingMemory := true }
+  pre := pre ++ (AbiEncoding.staticWords pointer finish words).toArray
+  return { pre, pointer := .localVar pointer, size := .literal (32 * words.length) }
+
 private partial def lowerCall (j : Json) : M Val := do
   let names ← mArr (← mField j "names")
   unless names.isEmpty do failAt j "named call arguments are outside this slice"
@@ -926,6 +1152,11 @@ private partial def lowerCall (j : Json) : M Val := do
     lowerCast j
   else if kind == "functionCall" then
     let callee ← mField j "expression"
+    if (← mKind callee) == "Identifier" && (← refInt callee) == -8 then
+      let args ← mArr (← mField j "arguments")
+      unless args.size == 1 do failAt j "keccak256 requires one byte buffer"
+      let bytes ← lowerEncodedBytes args[0]!
+      return { pre := bytes.pre, expr := .keccak256 bytes.pointer bytes.size }
     let (fnId, receiver?) ← match ← mKind callee with
       | "MemberAccess" =>
           let id ← refInt callee
@@ -1697,7 +1928,7 @@ private def importSlice
     -- do not leak between functions. Field layouts and the closure are shared.
     env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       mems := RBMap.empty, scalarTy := RBMap.empty, yulNames := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]
@@ -1726,7 +1957,7 @@ private def importSlice
     -- ABI cleanup is not validation: Solidity rejects noncanonical scalar
     -- words before executing the function. Inspect the original calldata word,
     -- since the model parameter loader has already masked/normalized it.
-    let mut abiGuards : Array Stmt := if env.explicitAbi then #[.mstore (.literal 64) (.literal 128)] else #[]
+    let mut abiGuards : Array Stmt := if env.explicitAbi || env.encodingMemory then #[.mstore (.literal 64) (.literal 128)] else #[]
     let rootHeadWords := (modelParams.toList.foldl (fun n p => n + paramHeadSize p.ty) 0) / 32
     for p in srcParams do
       if let some mem := env.mems.find? p.id then

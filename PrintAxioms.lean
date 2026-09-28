@@ -16,6 +16,9 @@ import Compiler.SolidityImport.SymbolicExecution
 import Contracts.SolidityImportSmoke.SymbolicExecutionChecks
 import Contracts.SolidityImportSmoke.LoopInvariantChecks
 import Compiler.SolidityImport.Coverage
+import Compiler.SolidityImport.AbiEncoding
+import Compiler.SolidityImport.AbiByteLanes
+import Compiler.SolidityImport.AbiMemory
 import Contracts.SolidityImportSmoke.SolidityAbiPrimitiveChecks
 import Contracts.SolidityImportSmoke.AbiLoweringChecks
 import Contracts.SolidityImportSmoke.AbiCoverageChecks
@@ -385,6 +388,7 @@ end Verity.AxiomAudit
   -- Compiler/SolidityImport/LoopInvariants.lean
   Compiler.CompilationModel.Denote.execForEachLoop_invariant
   Compiler.CompilationModel.Denote.forEach_invariant
+  Compiler.CompilationModel.Denote.execForEachLoop_bounded_invariant
 
   -- Compiler/SolidityImport/SymbolicExecution.lean
   Compiler.CompilationModel.SolidityImport.SymbolicExecution.step_continue
@@ -407,6 +411,9 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.evalExpr_calldataload_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_calldatasize_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_mload_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_shl_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_shr_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_keccak256_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_slt_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_sgt_arm
   Compiler.CompilationModel.SolidityImport.execStmt_mstore_arm
@@ -456,6 +463,76 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.execStmt_slice_world
   Compiler.CompilationModel.SolidityImport.execStmtList_slice_world
   Compiler.CompilationModel.SolidityImport.execStmtList_slice_storageWords
+
+  -- Compiler/SolidityImport/AbiEncoding.lean
+  Compiler.CompilationModel.SolidityImport.AbiEncoding.byte_word_address_aligned
+  Compiler.CompilationModel.SolidityImport.AbiEncoding.wordStores_length
+  Compiler.CompilationModel.SolidityImport.AbiEncoding.staticWords_length
+
+  -- Compiler/SolidityImport/AbiByteLanes.lean
+  Compiler.CompilationModel.SolidityImport.AbiByteLanes.inserted_byte
+  Compiler.CompilationModel.SolidityImport.AbiByteLanes.lower_bytes_preserved
+  Compiler.CompilationModel.SolidityImport.AbiByteLanes.higher_bytes_preserved
+  Compiler.CompilationModel.SolidityImport.AbiByteLanes.insertion_bounded
+  Compiler.CompilationModel.SolidityImport.AbiByteLanes.insertion_modulus
+  Compiler.CompilationModel.SolidityImport.AbiByteLanes.other_byte_preserved
+  Compiler.CompilationModel.SolidityImport.AbiByteLanes.shift_mask_byte
+  Compiler.CompilationModel.SolidityImport.AbiByteLanes.shift_byte
+
+  -- Compiler/SolidityImport/AbiMemory.lean
+  Compiler.CompilationModel.Denote.execStmt_mstore_memory_frame
+  Compiler.CompilationModel.Denote.execStmt_mstore_byte_frame
+  Compiler.CompilationModel.Denote.fresh_allocation_byte_frame
+  Compiler.CompilationModel.Denote.abiInsertByte_word
+  Compiler.CompilationModel.Denote.abiInsertByte_read
+  Compiler.CompilationModel.Denote.abiInsertByte_frame
+  Compiler.CompilationModel.Denote.abiCopyPrefix_zero
+  Compiler.CompilationModel.Denote.abiCopyPrefix_step
+  Compiler.CompilationModel.Denote.abiCopyBytes_correct
+  Compiler.CompilationModel.Denote.execStmt_mstore_abiInsertByte
+  Compiler.CompilationModel.Denote.execStmt_mstore_abiCopyPrefix
+  Compiler.CompilationModel.Denote.evalExpr_byteWordOffset
+  Compiler.CompilationModel.Denote.evalExpr_byteLane
+  Compiler.CompilationModel.Denote.evalExpr_byteShift
+  Compiler.CompilationModel.Denote.evalExpr_extractByte
+  Compiler.CompilationModel.Denote.evalExpr_insertByte
+  Compiler.CompilationModel.Denote.execStmt_copyStore
+  Compiler.CompilationModel.Denote.evalExpr_add_bounded
+  Compiler.CompilationModel.Denote.abi_word_grid
+  Compiler.CompilationModel.Denote.evalExpr_byteAddress
+  Compiler.CompilationModel.Denote.evalExpr_copySourceByte
+  Compiler.CompilationModel.Denote.execStmt_relativeCopyStore
+  Compiler.CompilationModel.Denote.execStmtList_copyTemporaries
+  Compiler.CompilationModel.Denote.evalExpr_local_copyTemporaries
+  Compiler.CompilationModel.Denote.evalExpr_position_copyTemporaries
+  Compiler.CompilationModel.Denote.evalExpr_address_afterByte
+  Compiler.CompilationModel.Denote.execStmtList_generatedCopyBody
+  Compiler.CompilationModel.Denote.abiCopyPrefix_source
+  Compiler.CompilationModel.Denote.abiCopyPrefix_live_step
+  Compiler.CompilationModel.Denote.abiCopyInputs_bind
+  Compiler.CompilationModel.Denote.abiCopyLoopInvariant_bind
+  Compiler.CompilationModel.Denote.abiCopyInputs_afterStore
+  Compiler.CompilationModel.Denote.abiCopyLoopInvariant_step
+  Compiler.CompilationModel.Denote.execForEachLoop_copy
+  Compiler.CompilationModel.Denote.execStmt_copyBytes
+  Compiler.CompilationModel.Denote.abiZeroWords_byte
+  Compiler.CompilationModel.Denote.abiZeroWords_frame
+  Compiler.CompilationModel.Denote.abiZeroWords_zero
+  Compiler.CompilationModel.Denote.abiZeroWords_succ
+  Compiler.CompilationModel.Denote.execStmt_zeroWord
+  Compiler.CompilationModel.Denote.evalExpr_wordStride
+  Compiler.CompilationModel.Denote.execStmt_zeroWordBody
+  Compiler.CompilationModel.Denote.execForEachLoop_clear
+  Compiler.CompilationModel.Denote.execStmt_clearWords
+  Compiler.CompilationModel.Denote.abiRoundedSize_bounds
+  Compiler.CompilationModel.Denote.evalExpr_roundedCount
+  Compiler.CompilationModel.Denote.evalExpr_roundedSize
+  Compiler.CompilationModel.Denote.execStmt_clearPackedBytes
+  Compiler.CompilationModel.Denote.execStmtList_reserve
+  Compiler.CompilationModel.Denote.execStmtList_reserve_oversized
+  Compiler.CompilationModel.Denote.execStmtList_packedBuffer
+  Compiler.CompilationModel.Denote.abiReserve_wrapBelow
+  Compiler.CompilationModel.Denote.execStmtList_reserve_wrapped
 
   -- Contracts/SolidityImportSmoke/SolidityAbiPrimitiveChecks.lean
   Compiler.CompilationModel.SolidityImport.SolidityAbi.prefix_load
@@ -7796,4 +7873,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7177 theorems/lemmas (5128 public, 2049 private, 0 sorry'd)
+-- Total: 7245 theorems/lemmas (5196 public, 2049 private, 0 sorry'd)

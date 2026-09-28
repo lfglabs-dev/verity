@@ -488,3 +488,22 @@ def reference_argument_variants(original):
     guarded = original.replace(guard, 'require(0 != flag, "first");')
     return [('baseline', original), ('renamed', renamed),
             ('explicit', explicit), ('guarded', guarded)]
+
+
+def abi_hashing_variants(original):
+    """Equivalent ABI hashing sources; pinned IdLib remains unchanged."""
+    import re
+    renamed = original
+    for old, new in [('market', 'inputMarket'), ('value', 'inputValue'),
+                     ('left', 'first'), ('right', 'second')]:
+        renamed = re.sub(r'\b' + old + r'\b', new, renamed)
+    call = 'return IdLib.toId(market);'
+    if original.count(call) != 1:
+        raise ValueError('IdLib call anchor must be unique')
+    receiver = original.replace('contract AbiHashing {',
+        'contract AbiHashing {\n    using IdLib for Market;').replace(call, 'return market.toId();')
+    bound, count = re.subn(r'return (keccak256\([^\n]+\));',
+        r'bytes32 digest = \1; return digest;', original)
+    if count < 10:
+        raise ValueError('hash binding variant omitted source expressions')
+    return [('baseline', original), ('renamed', renamed), ('receiver', receiver), ('bound', bound)]

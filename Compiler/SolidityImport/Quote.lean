@@ -26,6 +26,10 @@ private def optNat : Option Nat → m Term
 
 partial def quoteExpr : Expr → m Term
   | .calldatasize => `(Compiler.CompilationModel.Expr.calldatasize)
+  | .shl shift value => do `(Compiler.CompilationModel.Expr.shl $(← quoteExpr shift) $(← quoteExpr value))
+  | .shr shift value => do `(Compiler.CompilationModel.Expr.shr $(← quoteExpr shift) $(← quoteExpr value))
+  | .keccak256 offset size => do
+      `(Compiler.CompilationModel.Expr.keccak256 $(← quoteExpr offset) $(← quoteExpr size))
   | .mload offset => do `(Compiler.CompilationModel.Expr.mload $(← quoteExpr offset))
   | .slt a b => do `(Compiler.CompilationModel.Expr.slt $(← quoteExpr a) $(← quoteExpr b))
   | .sgt a b => do `(Compiler.CompilationModel.Expr.sgt $(← quoteExpr a) $(← quoteExpr b))

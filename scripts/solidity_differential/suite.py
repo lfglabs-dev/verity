@@ -40,6 +40,10 @@ def stateful_campaign(output, transactions, seed):
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
         ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
     ]
+    checks.append(('hashing-programs', ['-m', 'solidity_differential.check_hashing_programs',
+        '--output', str(output / 'hashing-programs')]))
+    checks.append(('hashing-rejections', ['-m', 'solidity_differential.check_hashing_rejections',
+        '--output', str(output / 'hashing-rejections')]))
     checks.append(('reference-arguments', ['-m', 'solidity_differential.check_reference_arguments',
         '--output', str(output / 'reference-arguments')]))
     checks.append(('reference-rejections', ['-m', 'solidity_differential.check_reference_argument_rejections',

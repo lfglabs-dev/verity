@@ -50,7 +50,7 @@ def exprCovered : Expr → Bool
   | .add a b | .sub a b | .mul a b | .div a b
   | .slt a b | .sgt a b
   | .lt a b | .gt a b | .le a b | .ge a b | .eq a b
-  | .bitAnd a b | .bitXor a b => exprCovered a && exprCovered b
+  | .shl a b | .shr a b | .keccak256 a b | .bitAnd a b | .bitXor a b => exprCovered a && exprCovered b
   | .logicalNot a => exprCovered a
   | _ => false
 
@@ -121,6 +121,27 @@ theorem evalExpr_mload_arm (oracle : DenoteOracle) (fields : List Field)
     evalExpr oracle fields state (.mload offset) = (do
       let resolved ← evalExpr oracle fields state offset
       some (state.world.memory resolved).val) := rfl
+
+theorem evalExpr_shl_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (shift value : Expr) :
+    evalExpr oracle fields state (.shl shift value) = (do
+      let shiftValue ← evalExpr oracle fields state shift
+      let word ← evalExpr oracle fields state value
+      pure (Verity.Core.Uint256.shl shiftValue word).val) := rfl
+
+theorem evalExpr_shr_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (shift value : Expr) :
+    evalExpr oracle fields state (.shr shift value) = (do
+      let shiftValue ← evalExpr oracle fields state shift
+      let word ← evalExpr oracle fields state value
+      pure (Verity.Core.Uint256.shr shiftValue word).val) := rfl
+
+theorem evalExpr_keccak256_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset size : Expr) :
+    evalExpr oracle fields state (.keccak256 offset size) = (do
+      let address ← evalExpr oracle fields state offset
+      let length ← evalExpr oracle fields state size
+      some (oracle.keccakMemorySlice state.world.memory address length)) := rfl
 
 theorem evalExpr_slt_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (a b : Expr) :

@@ -553,6 +553,24 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
               or not result["baselinePassed"] or not result["unsupportedCopyImported"]):
             raise SystemExit("reference location mutant requires actual unsupported copy admission")
         print("pass " + label)
+    output = Path(tempfile.mkdtemp(prefix="hashing-mutations-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_hashing_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=7200)
+    hashing = json.loads((output / "complete.json").read_text())
+    expected_hashing_mutants = {
+        "hash-word-stride", "hash-root-offset", "hash-root-field", "hash-static-root-field",
+        "hash-array-length", "hash-array-destination-stride", "hash-literal-value",
+        "hash-literal-length", "hash-packed-address-width", "hash-packed-scalar-value",
+        "hash-copy-byte-shift", "hash-copy-zero-fill", "hash-buffer-identity",
+        "hash-keccak-length", "hash-hex-number"}
+    if hashing["exit"] != 0 or {r["mutant"] for r in hashing["results"]} != expected_hashing_mutants:
+        raise SystemExit("hashing mutation coverage incomplete")
+    if not all(r["detected"] and r["baselinePassed"] and r["witness"]["deletion_minimal"]
+               and r["witness"]["transactions"] for r in hashing["results"]):
+        raise SystemExit("hashing mutants require minimal reproduced runtime witnesses")
+    print("pass ABI hashing mutations")
     print("import mutations passed")
 
 
