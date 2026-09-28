@@ -153,6 +153,53 @@ theorem burnFrom_revert_bubbles :
     (RtVault.burnFrom ExecutableCallContext.stub bbAddr 6 trancheState).getState.readContractSlot bbAddr.toNat 0 = 5 := by
   decide
 
+/-! ## Inherited call sites
+
+The parent declares the interface and calls it through a parameter; the child
+adds the two same-callee bindings. Inherited functions are re-elaborated in
+the child with the merged bindings, so the child's copy dispatches at the
+runtime target while the parent's own copy stays on the ABI path. -/
+
+verity_contract InhParent where
+  storage
+    last : Uint256 := slot 0
+
+  interfaces
+    interface ITrancheP where
+      function mint(Address, Uint256)
+      function totalSupply() view returns (Uint256)
+    end
+
+  function internal reentrancy_trusted _trancheMint (_tranche : ITrancheP, _to : Address, _shares : Uint256) : Unit := do
+    _tranche.mint _to _shares
+
+  function internal _trancheSupply (_tranche : ITrancheP) : Uint256 := do
+    let supply ← _tranche.totalSupply
+    return supply
+
+verity_contract InhChild is InhParent where
+  storage
+    x : Uint256 := slot 1
+
+  linked_contracts
+    AATranche : ITrancheP := RtToken
+    BBTranche : ITrancheP := RtToken
+
+  function reentrancy_trusted mintIt (_t : ITrancheP, _to : Address, _s : Uint256) : Uint256 := do
+    _trancheMint _t _to _s
+    let v ← _trancheSupply _t
+    return v
+
+#check_contract InhChild
+
+theorem child_trancheMint_is_hopCall (ctx : ExecutableCallContext) (t r : Address) (n : Uint256) :
+    InhChild._trancheMint ctx t r n = Contract.hopCall t (RtToken.mint r n) := rfl
+
+theorem child_mintIt_reads_real_supply :
+    (InhChild.mintIt ExecutableCallContext.stub aaAddr holder 7 trancheState).getValue? =
+      some (107 : Uint256) := by
+  decide
+
 /-! ## G25: bindings to different callees fail closed -/
 
 verity_contract RtOtherToken where
