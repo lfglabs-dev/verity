@@ -229,7 +229,8 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   `Contract.hopCallView`: every word-valued storage channel is namespaced
   per contract across a distinct-address hop — scalar slots move through
   `StorageKey.contractSlot`, and address slots, transient slots and all
-  mappings (`addr` / `transient` / `map` / `mapUint` / `map2`) through
+  mappings (`addr` / `transient` / `map` / `mapUint` / `map2` /
+  `mapChain` / `transientMapChain`) through
   `StorageKey.scoped` (G24, #2440; `ContractState.switchSlotWorld`,
   `enterHop_readAddrSlot` / `enterHop_readMap` / …,
   `exitHop_enterHop_storageWords_plain`). A callee never sees or clobbers the
@@ -597,21 +598,31 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
   call observability must use the monadic primitives.
 - **`callExternal name(args)` surface** remains an unmodeled no-op at this
   plane.
-- **Hashed mapping accessors are executable, on the `.slot` channel.**
+- **Hashed mapping accessors are executable, on a symbolic channel.**
   `getMappingN`/`setMappingN`, `getMappingWord`/`setMappingWord` and the
   generated `structMember`/`setStructMember` family read and write
-  `ContractState.storage` at the Solidity keccak slot
-  (`Compiler.Proofs.abstractMappingSlot`, folded left over the key path, plus
-  the member word offset modulo `2^256`); `transient` mapping chains use the
-  `.transient` channel. `structMembers`/`structMembers2` destructuring lowers
-  to those reads. This channel is disjoint from the constructor-keyed
-  `storageMap`/`storageMapUint`/`storageMap2` channels behind
-  `getMapping`/`getMappingUint`/`getMapping2`; a field is accessed through
-  exactly one family, fixed by its declared storage type. Distinctness of two
-  hashed slots with different keys rests on the existing
-  `solidityMappingSlot_injective` axiom; adjacent struct words are distinct
-  without it (`Contracts.structSlot_ne_succ`). The pure expression form
-  `structMembers` outside `let (..) :=` / `return` still yields `default`.
+  `StorageKey.mapChain baseSlot keyWords wordOffset`
+  (`ContractState.readMapChain`/`writeMapChain`); `transient` mapping chains
+  use `StorageKey.transientMapChain baseSlot keyWords`
+  (`readTransientMapChain`/`writeTransientMapChain`).
+  `structMembers`/`structMembers2` destructuring lowers to those reads.
+  Entries with different `(baseSlot, keyWords, wordOffset)` are independent
+  by constructor injectivity, and the channel is disjoint from the scalar
+  `.slot` channel and from the `storageMap`/`storageMapUint`/`storageMap2`
+  channels behind `getMapping`/`getMappingUint`/`getMapping2`, so executable
+  plane non-aliasing (key vs key, member vs member, mapping entry vs scalar
+  slot) uses no axiom. The Solidity keccak slot
+  (`Compiler.Proofs.mappingChainSlotLocation`: keccak folded over the key
+  path plus the word offset modulo `2^256`) is an interpretation: the
+  executable channel agrees with the flat `.slot` channel the model plane
+  reads under `Compiler.Proofs.Storage.HashedMappingLayout.HashedCoherentOn`,
+  preserved by aligned writes given a finite layout non-alias certificate
+  (a hypothesis, not `solidityMappingSlot_injective`). A field is accessed
+  through exactly one family, fixed by its declared storage type. Hops
+  namespace both hashed keys per contract (`StorageKey.scoped`), and
+  `Contract.run` rollback restores them with the rest of `storageWords`. The
+  pure expression form `structMembers` outside `let (..) :=` / `return` still
+  yields `default`.
 - **`externalCallBindTo` journals target and value and debits ETH
   on success.** It is still a stub for the callee return word
   (`externalCallStubWord`). Real callee state is the model-plane
