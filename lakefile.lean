@@ -68,6 +68,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.AbiLoweringChecks,
     .one `Contracts.SolidityImportSmoke.AbiCoverageChecks,
     .one `Contracts.SolidityImportSmoke.ExplicitAbiChecks,
+    .one `Contracts.SolidityImportSmoke.SelectorIdentityChecks,
     .one `Contracts.SolidityImportSmoke.ScalarArrayAbiModel,
     .one `Contracts.SolidityImportSmoke.MarketAbiModel,
     .one `Contracts.SolidityImportSmoke.MultipleDynamicAbiModel,

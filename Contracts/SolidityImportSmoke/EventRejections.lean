@@ -13,7 +13,7 @@ private def model (events : List EventDef) (values : List Expr) : CompilationMod
   { name := "EventRejections", fields := [], constructor := none, events, functions := [
     { name := "f", params := [], returnType := none, body := [.emit "Changed" values, .returnValues []] }] }
 private def input : String :=
-  "{\"account\":\"1\",\"storage\":[],\"transactions\":[{\"id\":\"0\",\"function\":\"f\",\"args\":[],\"sender\":\"2\",\"target\":\"1\",\"value\":\"0\",\"timestamp\":\"100\",\"blockNumber\":\"2\",\"observe\":[]}]}"
+  "{\"account\":\"1\",\"storage\":[],\"transactions\":[{\"id\":\"0\",\"function\":\"f\",\"args\":[],\"selector\":\"638722032\",\"sender\":\"2\",\"target\":\"1\",\"value\":\"0\",\"timestamp\":\"100\",\"blockNumber\":\"2\",\"observe\":[]}]}"
 
 def runChecks : IO Unit := do
   let request ← IO.ofExcept (Lean.Json.parse input)

@@ -28,6 +28,9 @@ def stateful_campaign(output, transactions, seed):
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/ExplicitAbiChecks.lean'],
             log=output / 'explicit-abi-checks.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/SelectorIdentityChecks.lean'],
+            log=output / 'selector-identity-checks.log')
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
