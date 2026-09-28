@@ -116,6 +116,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Narrowing casts | Bit masks, not overflow checks |
 | Ternaries | Lazy `ite` branches |
 | Resolved acyclic helper calls | Inlined bodies with separate local scopes |
+| Internal struct reference arguments | Root memory-to-memory and calldata-to-calldata references retain the exact ABI descriptor and nominal struct declaration identity across acyclic single-return helpers, including internal library receivers. External reference helper calls and raw Yul pointer access reject. Static and dynamic roots preserve eager memory/lazy calldata validation. Cross-location copies, storage references and unsupported reference expressions reject with source locations. Twenty A/B/C cases across four equivalent variants and a wrong-root mutation cover this rule; located rejection mutations cover external-call boundaries, location conversions and Yul name shadowing. |
 | Single assignment to a named assembly return | `xor`, `mul`, `lt`, as in `UtilsLib.min` |
 
 Value-returning roots must return explicitly. Payable roots are rejected until value-transfer

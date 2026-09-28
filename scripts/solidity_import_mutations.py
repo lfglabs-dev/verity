@@ -523,6 +523,36 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
             or not block_result["baselinePassed"] or not block_result["witness"]["deletion_minimal"]):
         raise SystemExit("block mutation requires detected minimal runtime witness")
     print("pass import-block-drop")
+    output = Path(tempfile.mkdtemp(prefix="reference-mutations-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_reference_argument_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=1800)
+    reference = json.loads((output / "complete.json").read_text())
+    if (reference["mutant"] != "import-reference-wrong-root" or not reference["detected"]
+            or not reference["baselinePassed"] or not reference["witness"]["deletion_minimal"]):
+        raise SystemExit("reference mutation requires detected minimal runtime witness")
+    print("pass import-reference-wrong-root")
+    for module, label in [
+        ("check_reference_boundary_mutations", "reference-boundary"),
+        ("check_reference_location_mutation", "reference-location"),
+    ]:
+        output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
+        launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                    f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
+        subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                       cwd=ROOT, check=True, timeout=2400)
+        result = json.loads((output / "complete.json").read_text())
+        if label == "reference-boundary":
+            controls = result["results"]
+            if result["exit"] != 0 or {c["mutant"] for c in controls} != {"external-library", "yul-shadow"}:
+                raise SystemExit("reference boundary mutation coverage incomplete")
+            if not all(c["detected"] and c["baselinePassed"] and c["unsupportedInputImported"] for c in controls):
+                raise SystemExit("reference boundary mutants require actual unsupported admission")
+        elif (result["mutant"] != "import-reference-location-guard" or not result["detected"]
+              or not result["baselinePassed"] or not result["unsupportedCopyImported"]):
+            raise SystemExit("reference location mutant requires actual unsupported copy admission")
+        print("pass " + label)
     print("import mutations passed")
 
 

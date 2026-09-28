@@ -40,6 +40,10 @@ def stateful_campaign(output, transactions, seed):
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
         ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
     ]
+    checks.append(('reference-arguments', ['-m', 'solidity_differential.check_reference_arguments',
+        '--output', str(output / 'reference-arguments')]))
+    checks.append(('reference-rejections', ['-m', 'solidity_differential.check_reference_argument_rejections',
+        '--output', str(output / 'reference-rejections')]))
     for variant in ('baseline', 'scoped', 'early-return'):
         checks.append((variant, ['-m', 'solidity_differential.check_stateful',
             '--transactions', str(transactions), '--seed', str(seed), '--variant', variant,

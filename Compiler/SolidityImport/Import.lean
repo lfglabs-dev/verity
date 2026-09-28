@@ -116,6 +116,7 @@ private inductive Ref where
   | state (name : String) (pre : Array Stmt)
 
 private structure MemParam where
+  structId : Nat
   param : String
   structName : String
   members : Array (String × String)
@@ -124,6 +125,10 @@ private structure MemParam where
   headBinding : String := ""
   schema : Option (List AbiSchema.Member) := none
   abiStem : String := ""
+
+private inductive CallArg where
+  | scalar (value : Val)
+  | memory (descriptor : MemParam) (pre : Array Stmt)
 
 private structure FieldInfo where
   slot : Nat
@@ -937,18 +942,34 @@ private partial def lowerCall (j : Json) : M Val := do
           pure (id.toNat, none)
       | _ => failAt callee "unsupported callee"
     let args ← mArr (← mField j "arguments")
-    let mut vals : Array Val := #[]
-    if let some recv := receiver? then
-      vals := vals.push (← lowerExpr recv)
-    for arg in args do
-      vals := vals.push (← lowerExpr arg)
+    let nodes := match receiver? with
+      | some recv => #[recv] ++ args
+      | none => args
+    let mut vals : Array CallArg := #[]
+    for arg in nodes do
+      if (← mType arg).startsWith "struct " then
+        match ← lowerRef arg with
+        | .mem id pre =>
+            let some descriptor := (← get).mems.find? id
+              | failAt arg "unknown reference argument"
+            vals := vals.push (.memory descriptor pre)
+        | _ => failAt arg "only root memory/calldata struct arguments are supported"
+      else
+        vals := vals.push (.scalar (← lowerExpr arg))
     inlineFn fnId vals j
   else
     failAt j s!"unsupported call kind {kind}"
 
-private partial def inlineFn (fnId : Nat) (args : Array Val) (at_ : Json) : M Val := do
+private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M Val := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
+  -- External library calls cross an ABI/delegatecall boundary. A root
+  -- descriptor may only be shared with helpers in the same call frame.
+  if optStr fn "visibility" == some "external" then
+    for arg in args do
+      match arg with
+      | .memory _ _ => failAt at_ "external reference helper calls are unsupported"
+      | .scalar _ => pure ()
   let saved := ← get
   let savedYul := saved.yulNames
   let savedFile := (← get).currentFile
@@ -975,12 +996,28 @@ private partial def inlineFn (fnId : Nat) (args : Array Val) (at_ : Json) : M Va
     let argNode ← argumentAt at_ i
     let argTy ← mType argNode
     let some arg := args[i]? | failAt at_ s!"missing argument {i}"
-    let converted ← convert pty argTy arg at_
-    let bound ← atom converted
-    pre := pre ++ bound.pre
-    modify fun e => { e with values := e.values.insert pid bound.expr }
-    if pname != "" then
-      yul := yul.insert pname bound.expr
+    match arg with
+    | .scalar value =>
+        let converted ← convert pty argTy value at_
+        let bound ← atom converted
+        pre := pre ++ bound.pre
+        modify fun e => { e with values := e.values.insert pid bound.expr }
+        if pname != "" then
+          yul := yul.insert pname bound.expr
+    | .memory descriptor effects =>
+        unless pty.startsWith "struct " do
+          failAt p "reference argument requires a struct parameter"
+        let sid ← refInt (← mField p "typeName")
+        unless sid >= 0 && sid.toNat == descriptor.structId do
+          failAt p "reference argument struct declaration differs"
+        let location := optStr p "storageLocation" |>.getD "default"
+        let expected := if descriptor.calldataLocation then "calldata" else "memory"
+        unless location == expected do
+          failAt p "reference argument location conversion is unsupported"
+        pre := pre ++ effects
+        modify fun e => { e with mems := e.mems.insert pid descriptor }
+        if pname != "" then
+          yul := yul.erase pname
   modify fun e => { e with yulNames := yul }
   noteFn fn
   let body ← mField fn "body"
@@ -1306,7 +1343,8 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
           modify fun e => { e with bound := binding :: e.bound }
       modify fun e =>
         let bound : MemParam :=
-          { param := name
+          { structId := sid.toNat
+            param := name
             structName := sname
             members := members
             staticTypes := staticTypes

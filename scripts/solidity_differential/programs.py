@@ -469,3 +469,22 @@ def abi_event_variants(original):
         '        { uint256 value = box.values[0]; { stored = value; } }').replace(
         '        return value;', '        { { return value; } }')
     return [('baseline', original), ('renamed', renamed), ('scoped', scoped), ('lexical', lexical)]
+
+
+def reference_argument_variants(original):
+    """Equivalent internal reference calls, preserving the external ABI."""
+    import re
+    renamed = original
+    for old, new in [('box', 'argument'), ('nested', 'relay'),
+                     ('readCalldata', 'borrowedRead'), ('readStatic', 'fixedRead')]:
+        renamed = re.sub(r'\b' + old + r'\b', new, renamed)
+    anchor = 'return box.first();'
+    if original.count(anchor) != 1:
+        raise ValueError('reference receiver anchor must be unique')
+    explicit = original.replace(anchor, 'return ReferenceReaders.first(box);')
+    guard = 'require(flag != 0, "first");'
+    if original.count(guard) != 1:
+        raise ValueError('reference guard anchor must be unique')
+    guarded = original.replace(guard, 'require(0 != flag, "first");')
+    return [('baseline', original), ('renamed', renamed),
+            ('explicit', explicit), ('guarded', guarded)]

@@ -1033,3 +1033,26 @@ This introduces no new Denote primitive or trusted axiom. Composition fixtures
 exercise dynamic ABI decoding, lexical scopes, writes and indexed events, including
 rollback and aliased ABI offsets. The block-effect deletion mutant must produce
 a reproduced deletion-minimal runtime divergence.
+
+
+### Internal root-struct reference arguments
+
+The importer distinguishes scalar helper arguments from root memory/calldata
+references. Same-declaration, same-location helper parameters reuse the source
+root descriptor (including ABI head and memory stem); they do not allocate a
+copy or synthesize a projected scalar. Helper exit restores caller bindings.
+Cross-location copies, storage references and unsupported subobjects remain
+located rejections. Existing restrictions on helper effects and single returns
+remain in force. No Denote semantics or proof axiom is added by this lowering.
+The source-EVM-first corpus checks eager/lazy validation, dirty unused members,
+independent and aliased roots, nested/library calls, storage, events and revert
+bytes. The wrong-root mutation must compile, diverge and produce a minimal
+transaction witness. These differential checks do not constitute a general
+proof of Solidity memory aliasing or a full-Midnight equivalence theorem.
+
+External library reference calls are rejected before helper inlining: their ABI/
+delegatecall boundary cannot share a caller descriptor. Memory helper parameter
+names mask caller scalar Yul bindings; raw pointer use remains unsupported.
+Mutations removing this masking, the external-call guard and the location guard
+must first admit the unsupported source, then fail the located rejection suite.
+A compiler or harness error never counts as mutation detection.

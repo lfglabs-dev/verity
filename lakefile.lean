@@ -76,6 +76,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.SequenceModel,
     .one `Contracts.SolidityImportSmoke.EventSequenceModel,
     .one `Contracts.SolidityImportSmoke.AbiEventCompositionModel,
+    .one `Contracts.SolidityImportSmoke.ReferenceArgumentsModel,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,
     .one `Contracts.SolidityImportSmoke.StorageSequenceModel,
     .one `Contracts.SolidityImportSmoke.MappingSequenceModel,
