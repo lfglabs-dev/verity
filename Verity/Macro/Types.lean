@@ -280,6 +280,11 @@ structure LinkedContractDecl where
       the threaded `ExecutableCallContext`, so the proof chooses the responder
       (e.g. `AdversaryModel.withViewLinks`). -/
   isDeferred : Bool := false
+  /-- Registry key of the resolved callee contract (`.anonymous` for deferred
+      bindings). Two bindings of one interface to the same resolved callee
+      are interchangeable: a typed call on a receiver not named after either
+      binding runs that callee's body at the runtime target address. -/
+  calleeResolvedName : Name := .anonymous
   /-- Storage fields of the resolved callee (flattened across `is` parents),
       used to lower public state-variable getters (G23). -/
   calleeFields : Array StorageFieldDecl := #[]

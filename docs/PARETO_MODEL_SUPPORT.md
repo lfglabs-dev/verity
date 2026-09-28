@@ -103,15 +103,41 @@ fixed stub word; `ctx.withViewLinks links` answers static sites
 `links "IFace.method" target = some body` by running `body` (e.g.
 `viewLinkWord Callee.method`) in `Contract.hopCallView`, with
 `Contracts.externalStaticCallContractWordsTo_withViewLinks` as the fidelity
-lemma. A contract literally named `deferred` must be bound by a qualified
+lemma. `ctx.withLinks links` also answers **state-changing** sites: a linked
+`.call` site runs `body` in `Contract.hopCall` at the call-site target (commit
+on success with one journal entry for the site; a reverting body makes the
+typed call revert with `"external call failed"` and the caller state
+restored); static sites behave as under `withViewLinks`. Adapters:
+`linkUnit Callee.m` (no results), `linkWord`, `viewLinkWord`; for arguments
+decode the calldata words, e.g.
+`| [to, amt] => linkUnit (Token.mint (wordToAddress to) amt) []`. Fidelity
+lemmas (namespace `Contracts`): `externalCallContractWordsTo_withLinks`,
+`externalCallEffectWordsTo_withLinks`,
+`externalStaticCallContractWordsTo_withLinks`, each with a `_revert`
+variant. A contract literally named `deferred` must be bound by a qualified
 name.
 
-**One interface, several contracts (G25).** A named binding dispatches by
-interface (and receiver name), not by the runtime target address. If one
-interface is called on addresses holding different contracts, a named binding
-would run the bound callee's body for all of them. Bind such interfaces as
-`deferred` and answer them with `withViewLinks`, whose `links` function is
-keyed by target address.
+**Runtime-target dispatch.** A bound typed call always runs the callee body
+at the call's runtime target address (`Contract.hopCall target body` /
+`hopCallView`), so storage is namespaced per target. Binding resolution:
+
+1. a receiver named after a binding of the interface uses that binding;
+2. otherwise, if the interface has one binding, or several bindings that all
+   resolve to the same callee contract (e.g. `AATranche` and `BBTranche :
+   IdleCDOTranche := IdleCDOTranche`), that callee's body runs at the
+   runtime target, so `_tranche.mint _to _shares` on a parameter lowers to
+   `Contract.hopCall _tranche (IdleCDOTranche.mint _to _shares)` and two
+   tranches stay distinct tokens (previously: the fixed stub);
+3. several bindings that are all `deferred`: the deferred lowering (answered
+   per target by `withLinks` / `withViewLinks`);
+4. bindings to different callees, or a mix of named and `deferred` bindings
+   (G25): elaboration fails closed with an "ambiguous" error.
+
+**One interface, several contracts (G25).** If one interface is called on
+addresses holding different contracts, bind it as `deferred` and answer the
+calls with `withLinks` (mutable and static) or `withViewLinks` (static
+only), whose `links` function is keyed by target address. A single named
+binding still runs its callee's body for every target of that interface.
 
 **Context forwarding (G26).** A bound call into a callee function that takes
 the call context (it reaches a `deferred` link or opens a reentrancy window)
@@ -142,7 +168,7 @@ through `StorageKey.scoped` (G24). `storageArray` (dynamic arrays) is still
 global across hops. Generated bound
 calls run the callee body; they do not go through the adversary-oracle
 stub. Unbound interfaces keep the stub; deferred bindings use the threaded
-call context. Same-contract `this.f(...)` uses
+call context (`withLinks` / `withViewLinks` responders). Same-contract `this.f(...)` uses
 `Contract.selfCall` (new frame, sender replaced) so try/catch can wrap it.
 That is distinct from DELEGATECALL `selfDelegateEntry`.
 
@@ -293,6 +319,7 @@ already did; this feature extends it to chains and words.
 5. Use `addPanic` / `subPanic` / `Int256` storage for signed price math.
 
 See `Contracts/Smoke/Arithmetic.lean` (`Int256CheckedSmoke`) for Feature 1,
-`Contracts/Smoke/ModeledCall.lean` for Feature 2,
+`Contracts/Smoke/ModeledCall.lean` and `Contracts/Smoke/LinkedRuntimeTarget.lean`
+(runtime-target dispatch, mutable deferred links) for Feature 2,
 `Contracts/Smoke/TryCatch.lean` for Feature 3, and
 `Contracts/Smoke/MultiParent.lean` (`ParetoChild`) for Feature 4.
