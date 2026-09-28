@@ -49,13 +49,19 @@ contract PropertyHashedMappingExecSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
-    // Property 5: setReceipt has no unexpected revert
+    // Property 5: setWithdrawn has no unexpected revert
+    function testAuto_SetWithdrawn_NoUnexpectedRevert() public {
+        vm.prank(alice);
+        (bool ok,) = target.call(abi.encodeWithSignature("setWithdrawn(uint256)", uint256(1)));
+        require(ok, "setWithdrawn reverted unexpectedly");
+    }
+    // Property 6: setReceipt has no unexpected revert
     function testAuto_SetReceipt_NoUnexpectedRevert() public {
         vm.prank(alice);
         (bool ok,) = target.call(abi.encodeWithSignature("setReceipt(address,uint256,uint256)", alice, uint256(1), uint256(1)));
         require(ok, "setReceipt reverted unexpectedly");
     }
-    // Property 6: TODO decode and assert `receiptOf` result
+    // Property 7: TODO decode and assert `receiptOf` result
     function testTODO_ReceiptOf_DecodeAndAssert() public {
         vm.prank(alice);
         (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("receiptOf(address)", alice));

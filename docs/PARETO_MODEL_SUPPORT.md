@@ -254,55 +254,74 @@ the executable plane read `0` from every `getMappingN` and dropped every
 A mixed key list (`[user, epoch]` with an `Address` and a `Uint256`) did not
 even typecheck.
 
-**Slot model.** `Contracts.getMappingN` / `setMappingN` /
-`getMappingWord` / `setMappingWord` now read and write
-`ContractState.storage` at the Solidity slot, sharing the proof model's
+**Storage model.** `Contracts.getMappingN` / `setMappingN` /
+`getMappingWord` / `setMappingWord` and the struct-mapping accessors read and
+write a dedicated symbolic channel of `ContractState`,
+`StorageKey.mapChain baseSlot keyWords wordOffset`
+(`ContractState.readMapChain` / `writeMapChain`). Separation is constructor
+injectivity: different keys, different struct members, different fields, and
+a mapping entry vs a plain scalar slot never alias, with no keccak
+assumption (G2 residual, follow-up to #2432). The Solidity slot below is the
+*interpretation* of each entry, shared with the proof model's
 `Compiler.Proofs.abstractMappingSlot` (`keccak256(key ‖ slot)`):
 
-| Solidity | Executable slot |
-|----------|-----------------|
-| `m[k]` at `p` | `keccak256(k ‖ p)` (`mappingChainSlot p [k]`) |
-| `m[k₁][k₂]` at `p` | `keccak256(k₂ ‖ keccak256(k₁ ‖ p))` (`mappingChainSlot p [k₁, k₂]`) |
-| `m[k].member` at `p`, word `w` | `(keccak256(k ‖ p) + w) mod 2²⁵⁶` (`structSlot p k w`) |
-| `m[k₁][k₂].member` | `(keccak256(k₂ ‖ keccak256(k₁ ‖ p)) + w) mod 2²⁵⁶` (`structSlot2`) |
+| Solidity | Symbolic entry | Solidity slot (interpretation) |
+|----------|----------------|--------------------------------|
+| `m[k]` at `p` | `mapChain p [k] 0` | `keccak256(k ‖ p)` (`mappingChainSlot p [k]`) |
+| `m[k₁][k₂]` at `p` | `mapChain p [k₁, k₂] 0` | `keccak256(k₂ ‖ keccak256(k₁ ‖ p))` |
+| `m[k].member` at `p`, word `w` | `mapChain p [k] w` | `(keccak256(k ‖ p) + w) mod 2²⁵⁶` (`structSlot p k w`) |
+| `m[k₁][k₂].member` | `mapChain p [k₁, k₂] w` | `(keccak256(k₂ ‖ keccak256(k₁ ‖ p)) + w) mod 2²⁵⁶` (`structSlot2`) |
 
-`mappingChainSlot_single` / `_pair`, `structSlot_eq_mappingSlotLocation` and
+All rows are `Compiler.Proofs.mappingChainSlotLocation p keys w`
+(`mappingChainSlot_eq_location`, `structSlot_eq_location`,
+`structSlot2_eq_location`), and `mappingChainSlot_single` / `_pair`,
+`structSlot_eq_mappingSlotLocation` and
 `structSlot2_eq_nestedMappingSlotLocation` are `rfl` against the compiler's
-`MappingSlot` definitions, so the executable plane, the model plane
-(`DenoteOracle.mappingSlot`) and the Yul lowering derive the same slot.
+`MappingSlot` definitions. `Compiler.Proofs.Storage.HashedMappingLayout`
+relates the executable channel to the flat `.slot` channel the model plane
+reads (`HashedCoherentOn`, preserved by aligned writes under a finite
+`LayoutNonAlias` certificate), without `solidityMappingSlot_injective`.
 
 **Keys.** `getMappingN` / `setMappingN` take a `List MappingKeyWord`;
 `Address`, `Uint256` and `Bytes32` coerce through `StorageKey.toWord`, so
 `getMappingN withdrawsRequestsByEpoch [user, epoch]` typechecks.
 
 **Transient chains.** A `transient` mapping chain routes to
-`getTransientMappingN` / `setTransientMappingN` (EIP-1153 channel); the
-macro inserts the rewrite, matching `readFieldWord` in the model plane.
+`getTransientMappingN` / `setTransientMappingN`, which use
+`StorageKey.transientMapChain baseSlot keyWords` (EIP-1153; cleared by the
+import harness' `beginTransaction` like `.transient`); the macro inserts the
+rewrite, matching `readFieldWord` in the model plane.
 
 **`structMembers`.** `let (a, b) := structMembers f k [m₁, m₂]` and
 `return structMembers f k [..]` lower to one generated `structMember` read
 per member in the executable plane. The pure expression form elsewhere is
 still the `default` stub.
 
-**Channels.** This hashed channel is disjoint from the constructor-keyed
-`storageMap` / `storageMapUint` / `storageMap2` channels behind
-`getMapping` / `getMappingUint` / `getMapping2`. A field is accessed through
-exactly one family, chosen by its declared storage type, so no contract
-observes both channels for one slot.
+**Channels.** The hashed channel is disjoint from the scalar `.slot`
+channel and from the constructor-keyed `storageMap` / `storageMapUint` /
+`storageMap2` channels behind `getMapping` / `getMappingUint` /
+`getMapping2`. A field is accessed through exactly one family, chosen by its
+declared storage type, so no contract observes two channels for one slot.
+Both hashed keys are plain non-slot keys: distinct-address hops
+(`enterHop` / `exitHop`, `hopCall`, `hopCallView`) park and load them per
+contract via `StorageKey.scoped`, and revert rollback restores them.
 
 **Proofs.** `Contracts/Smoke/HashedMappings.lean` proves, through the
-generated functions, that a nested-mapping write is read back at the same
-keys, that a struct receipt destructures to the written words, that a
-transient lock is read back and leaves persistent storage untouched, and
-that the slots are the Solidity slots. Adjacent struct words are distinct
-without keccak reasoning (`structSlot_ne_succ`); distinct keys rely on the
-existing `solidityMappingSlot_injective` axiom. No new axioms.
+generated functions and using only `propext` / `Classical.choice` /
+`Quot.sound`, that a nested-mapping write is read back at the same keys,
+that other keys are unchanged (key inequality), that nested-mapping writes
+leave a plain scalar slot untouched and vice versa, that a struct receipt
+destructures to the written words, that a transient lock is read back and
+leaves persistent storage untouched, and that a callee's write in a hop does
+not reach the caller's entries. Lens laws: `ContractState.readMapChain_writeMapChain(_same)`,
+`readMapChain_writeMapChain_keys_ne` / `_offset_ne` / `_slot_ne`,
+`readMapChain_writeSlot`, `storage_writeMapChain`,
+`readMapChain_exitHop_enterHop_of_frame`.
 
-**Alternative considered.** A new `StorageKey.hashed` constructor would keep
-keys symbolic but breaks every exhaustive match on `StorageKey` (EVMYulLean
-bridges, lens laws) and still needs a keccak-parity story for the compiler.
-Reusing the `.slot` channel is what the generated struct-mapping accessors
-already did; this feature extends it to chains and words.
+**History.** #2432 first stored these words in the `.slot` channel at the
+keccak slot. That made key-vs-key separation depend on
+`solidityMappingSlot_injective` and mapping-vs-scalar separation unprovable;
+the symbolic `mapChain` channel replaces it.
 
 ## How to translate an OpenZeppelin-style contract chain
 
