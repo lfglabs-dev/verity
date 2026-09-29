@@ -3835,9 +3835,12 @@ private partial def threadAdversaryThroughExecutableSyntax
       -- form above; everything else keeps the generic hoisting path.
       let helperApp? ← match rhs with
         | `(term| $fn:ident $args:term*) =>
-            threadHelperApp? adversarialHelpers fn (args.map fun arg => (⟨arg.raw⟩ : Term)) adv
+            threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn
+              (args.map fun arg => (⟨arg.raw⟩ : Term)) adv
         | `(term| $fn:ident($[$args:term],*)) =>
-            threadHelperApp? adversarialHelpers fn args adv
+            threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
         | _ => pure none
       match helperApp? with
       | some app =>
