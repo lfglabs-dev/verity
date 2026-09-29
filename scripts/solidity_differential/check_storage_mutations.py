@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 from solidity_differential.engine import HarnessError, command, write_json
-from solidity_differential.mutations import snapshot
+from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
     'import-void-fallthrough': ('out := out.push .stop', 'out := out.push (.require (.literal 0) "mutated void return") |>.push .stop'),
@@ -62,23 +62,26 @@ def mutation_campaign(output, selected=None):
         before, after = MUTANTS[name]
         directory = output / name
         snapshot(directory)
-        baseline_code, baseline = run(directory, directory / '.lake/baseline', name)
-        if baseline_code or not baseline['transactions'] or baseline['divergences']:
-            raise HarnessError(f'{name}: unmodified positive control failed')
-        source = directory / ('Verity/Core/Model/Denote.lean' if name.startswith('denote-') else 'Compiler/SolidityImport/Import.lean')
-        text = source.read_text()
-        if text.count(before) != 1:
-            raise HarnessError(f'{name}: nonunique mutation anchor')
-        source.write_text(text.replace(before, after))
-        command(['lake', 'build', 'Compiler.SolidityImport.Import', 'Compiler.SolidityImport.SequenceRunner'], cwd=directory,
-                timeout=600, log=directory / 'build.log')
-        campaign = directory / '.lake/mutated'
-        code, result = run(directory, campaign, name)
-        if code == 0 or not result['divergences']:
-            raise HarnessError(f'{name}: mutation survived')
-        reduced = json.loads((campaign / 'reduced.json').read_text())
-        if not reduced['deletion_minimal'] or not reduced['transactions'] or not reduced['signature']:
-            raise HarnessError(f'{name}: unexpected or unreproduced minimal witness: {reduced}')
+        try:
+            baseline_code, baseline = run(directory, directory / '.lake/baseline', name)
+            if baseline_code or not baseline['transactions'] or baseline['divergences']:
+                raise HarnessError(f'{name}: unmodified positive control failed')
+            source = directory / ('Verity/Core/Model/Denote.lean' if name.startswith('denote-') else 'Compiler/SolidityImport/Import.lean')
+            text = source.read_text()
+            if text.count(before) != 1:
+                raise HarnessError(f'{name}: nonunique mutation anchor')
+            source.write_text(text.replace(before, after))
+            command(['lake', 'build', 'Compiler.SolidityImport.Import', 'Compiler.SolidityImport.SequenceRunner'], cwd=directory,
+                    timeout=600, log=directory / 'build.log')
+            campaign = directory / '.lake/mutated'
+            code, result = run(directory, campaign, name)
+            if code == 0 or not result['divergences']:
+                raise HarnessError(f'{name}: mutation survived')
+            reduced = json.loads((campaign / 'reduced.json').read_text())
+            if not reduced['deletion_minimal'] or not reduced['transactions'] or not reduced['signature']:
+                raise HarnessError(f'{name}: unexpected or unreproduced minimal witness: {reduced}')
+        finally:
+            release(directory)
         reports.append({'mutant': name, 'status': 'detected', 'detected': True, 'baselinePassed': True,
                         'witness': reduced, 'campaign': str(campaign)})
         write_json(output / 'mutation-results.json', reports)

@@ -18,6 +18,7 @@ class SolidityDifferentialTests(unittest.TestCase):
         def fake_snapshot(directory):
             directory.mkdir(parents=True)
             (directory / "Example.lean").write_text("original")
+            (directory / ".lake/build").mkdir(parents=True)
 
         def failing_baseline(argv, **kwargs):
             directory = Path(argv[argv.index("--output") + 1])
@@ -35,6 +36,8 @@ class SolidityDifferentialTests(unittest.TestCase):
                     mutation_campaign(output)
             self.assertEqual((Path(output) / "probe/Example.lean").read_text(), "original")
             self.assertFalse((Path(output) / "mutation-results.json").exists())
+            # The private build copy is released even when the campaign aborts.
+            self.assertFalse((Path(output) / "probe/.lake/build").exists())
 
     def test_seed_reproduces_every_input(self):
         config = {"variables": {"a": 8, "b": 16}, "ordered_pairs": []}

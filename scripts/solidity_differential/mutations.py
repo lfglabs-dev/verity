@@ -43,6 +43,15 @@ def snapshot(destination):
     shutil.copy2(WORKSPACE / ".lake/solidity-import/solc-0.8.34", cache / "solidity-import/solc-0.8.34")
 
 
+def release(destination):
+    """Drop the private build copy once a mutant is scored; sources, logs and reports stay.
+
+    Without reflinks (ext4) every snapshot is a full copy of `.lake/build`, so
+    campaigns otherwise leak ~1.4 GiB per mutant.
+    """
+    shutil.rmtree(destination / ".lake/build", ignore_errors=True)
+
+
 def mutation_campaign(output, selected=None):
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -67,42 +76,45 @@ def mutation_campaign(output, selected=None):
         if directory.exists():
             raise HarnessError("mutation output already exists; choose a fresh output: " + str(directory))
         snapshot(directory)
-        source = directory / relative
-        text = source.read_text()
-        if text.count(before) != 1:
-            raise HarnessError("mutation anchor drifted: " + name)
-        config = "differential-require.json" if "require" in name else "differential.json"
-        if "custom-require" in name:
-            config = "differential-require-custom.json"
-        argv = [sys.executable, str(directory / "scripts/solidity_import_differential.py"),
-                "--config", str(directory / "Contracts/SolidityImportSmoke" / config),
-                "--output", str(directory / ".lake/campaign"), "--cases", "8"]
-        # A pre-existing fixture divergence is not evidence that a mutation was
-        # detected. Run the identical inputs in the private snapshot first.
-        baseline_argv = [str(directory / ".lake/baseline") if arg == str(directory / ".lake/campaign")
-                         else arg for arg in argv]
-        baseline = subprocess.run(baseline_argv, cwd=directory, text=True,
-                                  capture_output=True, timeout=600)
-        (directory / "baseline.log").write_text(baseline.stdout + baseline.stderr)
-        baseline_file = directory / ".lake/baseline/results.json"
-        baseline_report = json.loads(baseline_file.read_text()) if baseline_file.exists() else {}
-        if (baseline.returncode != 0 or baseline_report.get("divergences") != [] or
-                baseline_report.get("cases", 0) <= 0):
-            raise HarnessError("mutation positive control failed: " + name)
-        source.write_text(text.replace(before, after))
         try:
-            result = subprocess.run(argv, cwd=directory, text=True, capture_output=True, timeout=600)
-            (directory / "mutation.log").write_text(result.stdout + result.stderr)
-            report_file = directory / ".lake/campaign/results.json"
-            report = json.loads(report_file.read_text()) if report_file.exists() else {}
-            if result.returncode == 1 and report.get("divergences"):
-                status = "detected"
-            elif result.returncode == 0:
-                status = "survived"
-            else:
-                status = "invalid"  # compilation/tool failure does not kill a mutant
-        except subprocess.TimeoutExpired:
-            status = "invalid"
+            source = directory / relative
+            text = source.read_text()
+            if text.count(before) != 1:
+                raise HarnessError("mutation anchor drifted: " + name)
+            config = "differential-require.json" if "require" in name else "differential.json"
+            if "custom-require" in name:
+                config = "differential-require-custom.json"
+            argv = [sys.executable, str(directory / "scripts/solidity_import_differential.py"),
+                    "--config", str(directory / "Contracts/SolidityImportSmoke" / config),
+                    "--output", str(directory / ".lake/campaign"), "--cases", "8"]
+            # A pre-existing fixture divergence is not evidence that a mutation was
+            # detected. Run the identical inputs in the private snapshot first.
+            baseline_argv = [str(directory / ".lake/baseline") if arg == str(directory / ".lake/campaign")
+                             else arg for arg in argv]
+            baseline = subprocess.run(baseline_argv, cwd=directory, text=True,
+                                      capture_output=True, timeout=600)
+            (directory / "baseline.log").write_text(baseline.stdout + baseline.stderr)
+            baseline_file = directory / ".lake/baseline/results.json"
+            baseline_report = json.loads(baseline_file.read_text()) if baseline_file.exists() else {}
+            if (baseline.returncode != 0 or baseline_report.get("divergences") != [] or
+                    baseline_report.get("cases", 0) <= 0):
+                raise HarnessError("mutation positive control failed: " + name)
+            source.write_text(text.replace(before, after))
+            try:
+                result = subprocess.run(argv, cwd=directory, text=True, capture_output=True, timeout=600)
+                (directory / "mutation.log").write_text(result.stdout + result.stderr)
+                report_file = directory / ".lake/campaign/results.json"
+                report = json.loads(report_file.read_text()) if report_file.exists() else {}
+                if result.returncode == 1 and report.get("divergences"):
+                    status = "detected"
+                elif result.returncode == 0:
+                    status = "survived"
+                else:
+                    status = "invalid"  # compilation/tool failure does not kill a mutant
+            except subprocess.TimeoutExpired:
+                status = "invalid"
+        finally:
+            release(directory)
         reports.append({"mutant": name, "status": status, "path": relative, "output": str(directory)})
         write_json(output / "mutation-results.json", reports)
         print(f"{name}: {status}", flush=True)
