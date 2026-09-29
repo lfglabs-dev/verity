@@ -133,6 +133,14 @@ def MappingCoherentAllKeys (fields : List Field) (s : ContractState) : Prop :=
 def MappingBasesNotDerived (fields : List Field) : Prop :=
   ∀ n : Nat, (fieldMapKindAt fields n).isSome → ∀ b k : Nat, solidityMappingSlot b k ≠ n
 
+/-- Layout certificate: every declared mapping base slot is an in-range EVM
+    storage key (`< 2^256`). Needed because `solidityMappingSlot_injective`
+    only separates in-range base slots: the ABI encoding reduces base slots
+    modulo `2^256` (`solidityMappingSlot_mod`). Not an axiom; discharged per
+    contract. -/
+def MappingBasesInRange (fields : List Field) : Prop :=
+  ∀ n : Nat, (fieldMapKindAt fields n).isSome → n < Compiler.Constants.evmModulus
+
 /-- `n` is not the flat image of any layout-derived mapping entry. -/
 def DerivedMappingSlotsAvoid (fields : List Field) (n : Nat) : Prop :=
   ∀ (k : StorageKey) (ch : Channel) (m : Nat),
@@ -233,6 +241,7 @@ theorem storageKeySlot_map2_of_kind {fields : List Field} {m : Nat} (k1 k2 : Add
 /-- The all-keys invariant follows from the three per-channel globals for
     **any** field layout: the non-mapping channels are definitional. -/
 theorem mappingCoherentAllKeys_of_globals (fields : List Field) (s : ContractState)
+    (hrange : MappingBasesInRange fields)
     (h1 : MappingCoherent s) (h2 : MappingCoherentUint s) (h3 : MappingCoherentMap2 s) :
     MappingCoherentAllKeys fields s := by
   intro k ch n h
@@ -249,14 +258,14 @@ theorem mappingCoherentAllKeys_of_globals (fields : List Field) (s : ContractSta
   | mapChain _ _ _ => simp [storageKeySlot] at h
   | transientMapChain _ _ => simp [storageKeySlot] at h
   | map m key =>
-      obtain ⟨_, rfl, rfl⟩ := storageKeySlot_map_eq h
-      exact h1 m key
+      obtain ⟨hk, rfl, rfl⟩ := storageKeySlot_map_eq h
+      exact h1 m key (hrange m (by rw [hk]; rfl))
   | mapUint m key =>
-      obtain ⟨_, rfl, rfl⟩ := storageKeySlot_mapUint_eq h
-      exact h2 m key
+      obtain ⟨hk, rfl, rfl⟩ := storageKeySlot_mapUint_eq h
+      exact h2 m key (hrange m (by rw [hk]; rfl))
   | map2 m k1 k2 =>
-      obtain ⟨_, rfl, rfl⟩ := storageKeySlot_map2_eq h
-      exact h3 m k1 k2
+      obtain ⟨hk, rfl, rfl⟩ := storageKeySlot_map2_eq h
+      exact h3 m k1 k2 (hrange m (by rw [hk]; rfl))
 
 /-- Instantiation at a declared address-keyed mapping. -/
 theorem mappingCoherentAllKeys_map {fields : List Field} {s : ContractState} {m : Nat}
@@ -279,10 +288,9 @@ theorem mappingCoherentAllKeys_map2 {fields : List Field} {s : ContractState} {m
   h (.map2 m k1 k2) _ _ (storageKeySlot_map2_of_kind k1 k2 hkind)
 
 theorem defaultState_mappingCoherentAllKeys (fields : List Field) :
-    MappingCoherentAllKeys fields defaultState :=
-  mappingCoherentAllKeys_of_globals fields defaultState
-    defaultState_mappingCoherent defaultState_mappingCoherentUint
-    defaultState_mappingCoherentMap2
+    MappingCoherentAllKeys fields defaultState := by
+  intro _ ch _ _
+  cases ch <;> rfl
 
 /-! ### Off-key write laws at the `storageWords` level
 
@@ -361,15 +369,20 @@ base slot is not itself keccak-derived (`MappingBasesNotDerived`). -/
 
 theorem nested_ne_simple {fields : List Field} {m b : Nat} {a k2 c : Nat}
     (hbases : MappingBasesNotDerived fields)
-    (hkind : (fieldMapKindAt fields b).isSome = true) :
+    (hkind : (fieldMapKindAt fields b).isSome = true)
+    (hb : b < Compiler.Constants.evmModulus) (hk2 : k2 < Compiler.Constants.evmModulus) (hc : c < Compiler.Constants.evmModulus) :
     abstractNestedMappingSlot m a k2 ≠ solidityMappingSlot b c := by
   intro heq
   simp only [abstractNestedMappingSlot, abstractMappingSlot] at heq
-  exact (hbases b hkind m a) (solidityMappingSlot_injective _ _ _ _ heq).1
+  exact (hbases b hkind m a)
+    (solidityMappingSlot_injective _ _ _ _
+      (solidityMappingSlot_lt_evmModulus m a) hk2 hb hc heq).1
 
-theorem simple_ne_of_base_ne {m b : Nat} {a c : Nat} (hb : m ≠ b) :
+theorem simple_ne_of_base_ne {m b : Nat} {a c : Nat}
+    (hm : m < Compiler.Constants.evmModulus) (ha : a < Compiler.Constants.evmModulus) (hb' : b < Compiler.Constants.evmModulus) (hc : c < Compiler.Constants.evmModulus)
+    (hb : m ≠ b) :
     solidityMappingSlot m a ≠ solidityMappingSlot b c := fun heq =>
-  hb (solidityMappingSlot_injective _ _ _ _ heq).1
+  hb (solidityMappingSlot_injective _ _ _ _ hm ha hb' hc heq).1
 
 /-! ### Preservation by the in-tree write helpers -/
 
@@ -379,6 +392,7 @@ theorem simple_ne_of_base_ne {m b : Nat} {a c : Nat} (hb : m ≠ b) :
 theorem writeMap_aligned_map_case (fields : List Field) (s : ContractState)
     (slot : Nat) (key : Address) (v : Uint256) (m : Nat) (key' : Address)
     (hkind' : fieldMapKindAt fields m = some (.simple .address))
+    (hslot : slot < Compiler.Constants.evmModulus) (hmlt : m < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherentAllKeys fields s) :
     ((s.writeMap slot key v).writeSlot
       (solidityMappingSlot slot (addressToWord key).val) v).storageMap m key' =
@@ -394,17 +408,18 @@ theorem writeMap_aligned_map_case (fields : List Field) (s : ContractState)
         intro heq; injection heq with _ hk'; exact hk hk'
       exact writeMap_aligned_other s m key v m key'
         (mappingCoherentAllKeys_map hcoh hkind' key') hne
-        (mappingAddrSlot_ne_of_map_ne hne)
+        (mappingAddrSlot_ne_of_map_ne hmlt hslot hne)
   · have hne : StorageKey.map m key' ≠ StorageKey.map slot key := by
       intro heq; injection heq with hm' _; exact hm hm'
     exact writeMap_aligned_other s slot key v m key'
       (mappingCoherentAllKeys_map hcoh hkind' key') hne
-      (mappingAddrSlot_ne_of_map_ne hne)
+      (mappingAddrSlot_ne_of_map_ne hmlt hslot hne)
 
 /-- The diagonal case of aligned `writeMapUint`. -/
 theorem writeMapUint_aligned_mapUint_case (fields : List Field) (s : ContractState)
     (slot : Nat) (key v : Uint256) (m : Nat) (key' : Uint256)
     (hkind' : fieldMapKindAt fields m = some (.simple .uint256))
+    (hslot : slot < Compiler.Constants.evmModulus) (hmlt : m < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherentAllKeys fields s) :
     ((s.writeMapUint slot key v).writeSlot
       (solidityMappingSlot slot key.val) v).storageMapUint m key' =
@@ -420,17 +435,18 @@ theorem writeMapUint_aligned_mapUint_case (fields : List Field) (s : ContractSta
         intro heq; injection heq with _ hk'; exact hk hk'
       exact writeMapUint_aligned_other s m key v m key'
         (mappingCoherentAllKeys_mapUint hcoh hkind' key') hne
-        (mappingUintSlot_ne_of_mapUint_ne hne)
+        (mappingUintSlot_ne_of_mapUint_ne hmlt hslot hne)
   · have hne : StorageKey.mapUint m key' ≠ StorageKey.mapUint slot key := by
       intro heq; injection heq with hm' _; exact hm hm'
     exact writeMapUint_aligned_other s slot key v m key'
       (mappingCoherentAllKeys_mapUint hcoh hkind' key') hne
-      (mappingUintSlot_ne_of_mapUint_ne hne)
+      (mappingUintSlot_ne_of_mapUint_ne hmlt hslot hne)
 
 /-- The diagonal case of aligned `writeMap2`. -/
 theorem writeMap2_aligned_map2_case (fields : List Field) (s : ContractState)
     (slot : Nat) (k1 k2 : Address) (v : Uint256) (m : Nat) (j1 j2 : Address)
     (hkind' : fieldMapKindAt fields m = some (.nested .address .address))
+    (hslot : slot < Compiler.Constants.evmModulus) (hmlt : m < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherentAllKeys fields s) :
     ((s.writeMap2 slot k1 k2 v).writeSlot
       (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val)
@@ -449,17 +465,17 @@ theorem writeMap2_aligned_map2_case (fields : List Field) (s : ContractState)
           intro heq; injection heq with _ _ hj2; exact h2 hj2
         exact writeMap2_aligned_other s m k1 k2 v m j1 j2
           (mappingCoherentAllKeys_map2 hcoh hkind' j1 j2) hne
-          (mappingMap2Slot_ne_of_map2_ne hne)
+          (mappingMap2Slot_ne_of_map2_ne hmlt hslot hne)
     · have hne : StorageKey.map2 m j1 j2 ≠ StorageKey.map2 m k1 k2 := by
         intro heq; injection heq with _ hj1 _; exact h1 hj1
       exact writeMap2_aligned_other s m k1 k2 v m j1 j2
         (mappingCoherentAllKeys_map2 hcoh hkind' j1 j2) hne
-        (mappingMap2Slot_ne_of_map2_ne hne)
+        (mappingMap2Slot_ne_of_map2_ne hmlt hslot hne)
   · have hne : StorageKey.map2 m j1 j2 ≠ StorageKey.map2 slot k1 k2 := by
       intro heq; injection heq with hm' _ _; exact hm hm'
     exact writeMap2_aligned_other s slot k1 k2 v m j1 j2
       (mappingCoherentAllKeys_map2 hcoh hkind' j1 j2) hne
-      (mappingMap2Slot_ne_of_map2_ne hne)
+      (mappingMap2Slot_ne_of_map2_ne hmlt hslot hne)
 
 /-- Aligned `writeMap` + `writeSlot` preserves the global all-keys invariant.
     Cross-channel separation comes from the declared layout plus
@@ -469,11 +485,13 @@ theorem writeMap_aligned_preserves_mappingCoherentAllKeys
     (fields : List Field) (s : ContractState) (slot : Nat) (key : Address) (v : Uint256)
     (hkind : fieldMapKindAt fields slot = some (.simple .address))
     (hbases : MappingBasesNotDerived fields)
+    (hrange : MappingBasesInRange fields)
     (hcoh : MappingCoherentAllKeys fields s) :
     MappingCoherentAllKeys fields
       ((s.writeMap slot key v).writeSlot
         (solidityMappingSlot slot (addressToWord key).val) v) := by
   have hsome : (fieldMapKindAt fields slot).isSome = true := by rw [hkind]; rfl
+  have hslotlt := hrange slot hsome
   intro k ch n h
   cases k with
   | slot m => obtain ⟨rfl, rfl⟩ := storageKeySlot_slot_eq h; rfl
@@ -485,12 +503,14 @@ theorem writeMap_aligned_preserves_mappingCoherentAllKeys
   | transientMapChain _ _ => simp [storageKeySlot] at h
   | map m key' =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map_eq h
-      exact writeMap_aligned_map_case fields s slot key v m key' hkind' hcoh
+      exact writeMap_aligned_map_case fields s slot key v m key' hkind' hslotlt
+        (hrange m (by rw [hkind']; rfl)) hcoh
   | mapUint m key' =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_mapUint_eq h
       have hm : m ≠ slot := base_ne_of_kind_ne hkind' hkind (by simp)
       have hslot : solidityMappingSlot m key'.val ≠
-          solidityMappingSlot slot (addressToWord key).val := simple_ne_of_base_ne hm
+          solidityMappingSlot slot (addressToWord key).val := simple_ne_of_base_ne
+            (hrange m (by rw [hkind']; rfl)) (Core.Uint256.isLt _) hslotlt (Core.Uint256.isLt _) hm
       have hcoh' := mappingCoherentAllKeys_mapUint hcoh hkind' key'
       simp only [channelRead_persistent, writeSlot_mapUint, writeMap_mapUint,
         writeSlot_slot_of_ne _ _ _ hslot, writeMap_slot]
@@ -500,7 +520,7 @@ theorem writeMap_aligned_preserves_mappingCoherentAllKeys
       have hslot :
           abstractNestedMappingSlot m (addressToWord k1).val (addressToWord k2).val ≠
             solidityMappingSlot slot (addressToWord key).val :=
-        nested_ne_simple hbases hsome
+        nested_ne_simple hbases hsome hslotlt (Core.Uint256.isLt _) (Core.Uint256.isLt _)
       have hcoh' := mappingCoherentAllKeys_map2 hcoh hkind' k1 k2
       simp only [channelRead_persistent, writeSlot_map2, writeMap_map2,
         writeSlot_slot_of_ne _ _ _ hslot, writeMap_slot]
@@ -510,10 +530,12 @@ theorem writeMapUint_aligned_preserves_mappingCoherentAllKeys
     (fields : List Field) (s : ContractState) (slot : Nat) (key v : Uint256)
     (hkind : fieldMapKindAt fields slot = some (.simple .uint256))
     (hbases : MappingBasesNotDerived fields)
+    (hrange : MappingBasesInRange fields)
     (hcoh : MappingCoherentAllKeys fields s) :
     MappingCoherentAllKeys fields
       ((s.writeMapUint slot key v).writeSlot (solidityMappingSlot slot key.val) v) := by
   have hsome : (fieldMapKindAt fields slot).isSome = true := by rw [hkind]; rfl
+  have hslotlt := hrange slot hsome
   intro k ch n h
   cases k with
   | slot m => obtain ⟨rfl, rfl⟩ := storageKeySlot_slot_eq h; rfl
@@ -527,19 +549,22 @@ theorem writeMapUint_aligned_preserves_mappingCoherentAllKeys
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map_eq h
       have hm : m ≠ slot := base_ne_of_kind_ne hkind' hkind (by simp)
       have hslot : solidityMappingSlot m (addressToWord key').val ≠
-          solidityMappingSlot slot key.val := simple_ne_of_base_ne hm
+          solidityMappingSlot slot key.val := simple_ne_of_base_ne
+            (hrange m (by rw [hkind']; rfl)) (Core.Uint256.isLt _) hslotlt (Core.Uint256.isLt _) hm
       have hcoh' := mappingCoherentAllKeys_map hcoh hkind' key'
       simp only [channelRead_persistent, writeSlot_map, writeMapUint_map,
         writeSlot_slot_of_ne _ _ _ hslot, writeMapUint_slot]
       exact hcoh'
   | mapUint m key' =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_mapUint_eq h
-      exact writeMapUint_aligned_mapUint_case fields s slot key v m key' hkind' hcoh
+      exact writeMapUint_aligned_mapUint_case fields s slot key v m key' hkind' hslotlt
+        (hrange m (by rw [hkind']; rfl)) hcoh
   | map2 m k1 k2 =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map2_eq h
       have hslot :
           abstractNestedMappingSlot m (addressToWord k1).val (addressToWord k2).val ≠
-            solidityMappingSlot slot key.val := nested_ne_simple hbases hsome
+            solidityMappingSlot slot key.val :=
+              nested_ne_simple hbases hsome hslotlt (Core.Uint256.isLt _) (Core.Uint256.isLt _)
       have hcoh' := mappingCoherentAllKeys_map2 hcoh hkind' k1 k2
       simp only [channelRead_persistent, writeSlot_map2, writeMapUint_map2,
         writeSlot_slot_of_ne _ _ _ hslot, writeMapUint_slot]
@@ -548,7 +573,9 @@ theorem writeMapUint_aligned_preserves_mappingCoherentAllKeys
 set_option maxHeartbeats 1600000 in
 theorem writeMap2_aligned_preserves_mappingCoherentAllKeys
     (fields : List Field) (s : ContractState) (slot : Nat) (k1 k2 : Address) (v : Uint256)
+    (hslotlt : slot < Compiler.Constants.evmModulus)
     (hbases : MappingBasesNotDerived fields)
+    (hrange : MappingBasesInRange fields)
     (hcoh : MappingCoherentAllKeys fields s) :
     MappingCoherentAllKeys fields
       ((s.writeMap2 slot k1 k2 v).writeSlot
@@ -567,7 +594,8 @@ theorem writeMap2_aligned_preserves_mappingCoherentAllKeys
       have hsome' : (fieldMapKindAt fields m).isSome = true := by rw [hkind']; rfl
       have hslot : solidityMappingSlot m (addressToWord key').val ≠
           abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val :=
-        fun heq => nested_ne_simple hbases hsome' heq.symm
+        fun heq => nested_ne_simple hbases hsome'
+          (hrange m hsome') (Core.Uint256.isLt _) (Core.Uint256.isLt _) heq.symm
       have hcoh' := mappingCoherentAllKeys_map hcoh hkind' key'
       simp only [channelRead_persistent, writeSlot_map, writeMap2_map,
         writeSlot_slot_of_ne _ _ _ hslot, writeMap2_slot]
@@ -577,14 +605,16 @@ theorem writeMap2_aligned_preserves_mappingCoherentAllKeys
       have hsome' : (fieldMapKindAt fields m).isSome = true := by rw [hkind']; rfl
       have hslot : solidityMappingSlot m key'.val ≠
           abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val :=
-        fun heq => nested_ne_simple hbases hsome' heq.symm
+        fun heq => nested_ne_simple hbases hsome'
+          (hrange m hsome') (Core.Uint256.isLt _) (Core.Uint256.isLt _) heq.symm
       have hcoh' := mappingCoherentAllKeys_mapUint hcoh hkind' key'
       simp only [channelRead_persistent, writeSlot_mapUint, writeMap2_mapUint,
         writeSlot_slot_of_ne _ _ _ hslot, writeMap2_slot]
       exact hcoh'
   | map2 m j1 j2 =>
       obtain ⟨hkind', rfl, rfl⟩ := storageKeySlot_map2_eq h
-      exact writeMap2_aligned_map2_case fields s slot k1 k2 v m j1 j2 hkind' hcoh
+      exact writeMap2_aligned_map2_case fields s slot k1 k2 v m j1 j2 hkind' hslotlt
+        (hrange m (by rw [hkind']; rfl)) hcoh
 
 /-- A lone flat `writeSlot` keeps the global invariant when the written word is
     not the image of any layout-derived mapping entry. Same image-avoidance
