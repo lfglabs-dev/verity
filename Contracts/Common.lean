@@ -393,6 +393,20 @@ def tryCatchWord (attempt : Uint256) (handler : String → Contract Unit) : Cont
 def calldatasize : Uint256 := 0
 def returndataSize : Uint256 := 0
 def calldataload (offset : Uint256) : Uint256 := offset
+/-- Registry-mode executable calldata. Public `calldatasize`/`calldataload`
+remain deterministic stubs; generated `*_registry` bodies use these so a
+callback that branches on live calldata is registered. Byte offset 0 of the
+word-list data region is `calldataload 4`, matching compiled dispatch.
+`calldataload 0` (and unaligned loads overlapping the first four bytes)
+observe `state.selector`, not a hard-coded 0. -/
+def calldatasizeLive : Contract Uint256 := fun state =>
+  ContractResult.success state.calldataSize state
+def calldataloadLive (offset : Uint256) : Contract Uint256 := fun state =>
+  ContractResult.success
+    (Verity.Core.Uint256.ofNat
+      (Compiler.CompilationModel.Denote.calldataloadWord
+        state.selector state.calldata offset.val))
+    state
 def mload (offset : Uint256) : Uint256 := offset
 def tload (offset : Uint256) : Contract Uint256 := fun state =>
   ContractResult.success (state.transientStorage (offset : Nat)) state
@@ -687,6 +701,11 @@ structure ExecutableCallContext where
   adversary : AdversaryModel
   resolve : String → Nat → Option Compiler.CompilationModel.DenoteFunctionCalls.LinkedExternal
 
+/-- Bind an explicit adversary while pinning every resolved linked call to
+`target = 0` and `value = 0`. This is the registry/executable convenience
+boundary: the adversary is live, but link-time callee address and ETH value
+are the zero defaults. Callers that need a real target or nonzero value must
+supply `resolve` themselves (`ofCallEnv` or a custom context). -/
 def ExecutableCallContext.ofAdversary (adv : AdversaryModel) : ExecutableCallContext :=
   { adversary := adv
     resolve := fun _ fallbackSiteId =>
