@@ -21,35 +21,38 @@ open Compiler.Proofs
 theorem fieldMapKey_coherent_storageKeySlot
     {s : ContractState} {f : Field} {slot : Nat} {key : Address}
     (hcoh : MappingCoherent s)
+    (hslot : slot < Compiler.Constants.evmModulus)
     (htr : f.isTransient = false)
     (hty : f.ty = .mappingTyped (.simple .address)) :
     (fieldMapKey f slot key).bind (fun sk =>
       (storageKeySlot sk).map (fun n => s.storage n)) =
       some (s.storageMap slot key) := by
   simp [fieldMapKey, htr, hty, storageKeySlot]
-  exact (hcoh slot key).symm
+  exact (hcoh slot key hslot).symm
 
 theorem fieldMapUintKey_coherent_storageKeySlot
     {s : ContractState} {f : Field} {slot : Nat} {key : Uint256}
     (hcoh : MappingCoherentUint s)
+    (hslot : slot < Compiler.Constants.evmModulus)
     (htr : f.isTransient = false)
     (hty : f.ty = .mappingTyped (.simple .uint256)) :
     (fieldMapUintKey f slot key).bind (fun sk =>
       (storageKeySlot sk).map (fun n => s.storage n)) =
       some (s.storageMapUint slot key) := by
   simp [fieldMapUintKey, htr, hty, storageKeySlot]
-  exact (hcoh slot key).symm
+  exact (hcoh slot key hslot).symm
 
 theorem fieldMap2Key_coherent_storageKeySlot
     {s : ContractState} {f : Field} {slot : Nat} {k1 k2 : Address}
     (hcoh : MappingCoherentMap2 s)
+    (hslot : slot < Compiler.Constants.evmModulus)
     (htr : f.isTransient = false)
     (hty : f.ty = .mappingTyped (.nested .address .address)) :
     (fieldMap2Key f slot k1 k2).bind (fun sk =>
       (storageKeySlot sk).map (fun n => s.storage n)) =
       some (s.storageMap2 slot k1 k2) := by
   simp [fieldMap2Key, htr, hty, storageKeySlot]
-  exact (hcoh slot k1 k2).symm
+  exact (hcoh slot k1 k2 hslot).symm
 
 theorem fieldMapKey_coherentOn_storageKeySlot
     {s : ContractState} {f : Field} {slot : Nat} {key : Address}

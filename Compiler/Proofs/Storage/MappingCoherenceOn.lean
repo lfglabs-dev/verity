@@ -49,13 +49,14 @@ def DerivedAddrSlotsDistinct (pairs : List (Nat × Address)) : Prop :=
 
 theorem mappingCoherentOn_of_mappingCoherent
     (s : ContractState) (pairs : List (Nat × Address))
+    (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (h : MappingCoherent s) : MappingCoherentOn s pairs := by
   intro p hp
-  exact h p.1 p.2
+  exact h p.1 p.2 (hrange p hp)
 
 theorem defaultState_mappingCoherentOn (pairs : List (Nat × Address)) :
     MappingCoherentOn defaultState pairs :=
-  mappingCoherentOn_of_mappingCoherent _ _ defaultState_mappingCoherent
+  fun _ _ => by simp [MappingCoherentAt, mappingAddrSlot, storageMap, storage, defaultState]
 
 theorem writeMap_aligned_preserves_at_same
     (s : ContractState) (slot : Nat) (key : Address) (v : Uint256) :
@@ -117,13 +118,15 @@ def DerivedUintSlotsDistinct (pairs : List (Nat × Uint256)) : Prop :=
 
 theorem mappingCoherentUintOn_of_mappingCoherentUint
     (s : ContractState) (pairs : List (Nat × Uint256))
+    (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (h : MappingCoherentUint s) : MappingCoherentUintOn s pairs := by
   intro p hp
-  exact h p.1 p.2
+  exact h p.1 p.2 (hrange p hp)
 
 theorem defaultState_mappingCoherentUintOn (pairs : List (Nat × Uint256)) :
     MappingCoherentUintOn defaultState pairs :=
-  mappingCoherentUintOn_of_mappingCoherentUint _ _ defaultState_mappingCoherentUint
+  fun _ _ => by
+    simp [MappingCoherentUintAt, mappingUintSlot, storageMapUint, storage, defaultState]
 
 theorem writeMapUint_aligned_preserves_at_same
     (s : ContractState) (slot : Nat) (key v : Uint256) :
@@ -185,13 +188,15 @@ def DerivedMap2SlotsDistinct (pairs : List (Nat × Address × Address)) : Prop :
 
 theorem mappingCoherentMap2On_of_mappingCoherentMap2
     (s : ContractState) (pairs : List (Nat × Address × Address))
+    (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (h : MappingCoherentMap2 s) : MappingCoherentMap2On s pairs := by
   intro p hp
-  exact h p.1 p.2.1 p.2.2
+  exact h p.1 p.2.1 p.2.2 (hrange p hp)
 
 theorem defaultState_mappingCoherentMap2On (pairs : List (Nat × Address × Address)) :
     MappingCoherentMap2On defaultState pairs :=
-  mappingCoherentMap2On_of_mappingCoherentMap2 _ _ defaultState_mappingCoherentMap2
+  fun _ _ => by
+    simp [MappingCoherentMap2At, mappingMap2Slot, storageMap2, storage, defaultState]
 
 theorem writeMap2_aligned_preserves_at_same
     (s : ContractState) (slot : Nat) (k1 k2 : Address) (v : Uint256) :
@@ -556,31 +561,37 @@ theorem writeArray_preserves_mappingCoherentMap2On
 theorem writeMap_aligned_preserves_on_of_mappingCoherent
     (s : ContractState) (pairs : List (Nat × Address))
     (slot : Nat) (key : Address) (v : Uint256)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherent s) :
     MappingCoherentOn
       ((s.writeMap slot key v).writeSlot (mappingAddrSlot slot key) v)
       pairs :=
-  mappingCoherentOn_of_mappingCoherent _ _
-    (writeMap_aligned_preserves_mappingCoherent s slot key v hcoh)
+  mappingCoherentOn_of_mappingCoherent _ _ hrange
+    (writeMap_aligned_preserves_mappingCoherent s slot key v hslot hcoh)
 
 theorem writeMapUint_aligned_preserves_uintOn_of_mappingCoherentUint
     (s : ContractState) (pairs : List (Nat × Uint256))
     (slot : Nat) (key v : Uint256)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherentUint s) :
     MappingCoherentUintOn
       ((s.writeMapUint slot key v).writeSlot (mappingUintSlot slot key) v)
       pairs :=
-  mappingCoherentUintOn_of_mappingCoherentUint _ _
-    (writeMapUint_aligned_preserves_mappingCoherentUint s slot key v hcoh)
+  mappingCoherentUintOn_of_mappingCoherentUint _ _ hrange
+    (writeMapUint_aligned_preserves_mappingCoherentUint s slot key v hslot hcoh)
 
 theorem writeMap2_aligned_preserves_map2On_of_mappingCoherentMap2
     (s : ContractState) (pairs : List (Nat × Address × Address))
     (slot : Nat) (k1 k2 : Address) (v : Uint256)
+    (hslot : slot < Compiler.Constants.evmModulus)
+    (hrange : ∀ p ∈ pairs, p.1 < Compiler.Constants.evmModulus)
     (hcoh : MappingCoherentMap2 s) :
     MappingCoherentMap2On
       ((s.writeMap2 slot k1 k2 v).writeSlot (mappingMap2Slot slot k1 k2) v)
       pairs :=
-  mappingCoherentMap2On_of_mappingCoherentMap2 _ _
-    (writeMap2_aligned_preserves_mappingCoherentMap2 s slot k1 k2 v hcoh)
+  mappingCoherentMap2On_of_mappingCoherentMap2 _ _ hrange
+    (writeMap2_aligned_preserves_mappingCoherentMap2 s slot k1 k2 v hslot hcoh)
 
 end Compiler.Proofs.Storage.MappingCoherenceOn

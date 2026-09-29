@@ -34,7 +34,8 @@ mapping-chain constructors `StorageKey.mapChain` / `transientMapChain`
 separation a constructor fact.
 
 C5 step 4 is complete under `solidityMappingSlot_injective` below —
-collision-resistance of the 64-byte ABI mapping preimage, **not**
+collision-resistance of the 64-byte ABI mapping preimage (range-restricted
+to base slots and keys `< 2^256`), **not**
 injectivity of keccak256 on arbitrary byte strings. Finite-set
 slices remain valid without the axiom. Global aligned `writeMap*`
 preservation uses the axiom; lone `writeSlot` still takes an
@@ -63,7 +64,8 @@ separation is the declared layout (`fieldMapKindAt` is a function of
 the base slot, so distinct mapping shapes force distinct base slots)
 plus the same `solidityMappingSlot_injective`. The simple-vs-nested
 cross case takes an explicit `MappingBasesNotDerived` layout
-certificate and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
+certificate (together with `MappingBasesInRange`, the < 2^256 range of
+the declared mapping bases required by the bounded axiom) and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
 both are hypotheses of the existing image-avoidance shape, discharged
 per contract. Dynamic-array element slots are **not** covered: the
 source and Yul derivations diverge and the collapse returns `none` at
@@ -79,12 +81,16 @@ assumed transition.
 
 ### 1. `solidityMappingSlot_injective`
 
-**Location**: `Compiler/Proofs/MappingSlot.lean:65`
+**Location**: `Compiler/Proofs/MappingSlot.lean:96`
 
 **Statement**:
 ```lean
 axiom solidityMappingSlot_injective
     (base₁ key₁ base₂ key₂ : Nat) :
+    base₁ < Compiler.Constants.evmModulus →
+    key₁ < Compiler.Constants.evmModulus →
+    base₂ < Compiler.Constants.evmModulus →
+    key₂ < Compiler.Constants.evmModulus →
     solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →
     base₁ = base₂ ∧ key₁ = key₂
 ```
@@ -96,6 +102,26 @@ alias two Solidity mapping entries onto one EVM word. Solidity's
 layout makes the same collision-resistance assumption. This is **not**
 a claim that keccak256 is injective on all `ByteArray`s (256-bit
 output, infinite domain).
+
+**Why the range hypotheses (`< 2^256`) are required**: the ABI encoding
+`abiEncodeMappingSlot` passes both arguments through
+`EvmYul.UInt256.ofNat`, i.e. reduces them modulo `2^256`
+(proved as `solidityMappingSlot_mod`). An unrestricted statement over
+all `Nat` is therefore refutable: `solidityMappingSlot 0 (2^256) =
+solidityMappingSlot 0 0` holds by computation, and the old unbounded
+axiom yielded `2^256 = 0`, i.e. `False`. With the bounds, distinct
+`(base, key)` pairs give distinct 64-byte preimages, so the axiom is
+exactly collision-resistance on the hashed words. The bound-free
+consequence `solidityMappingSlot_injective_mod` gives equality modulo
+`2^256`.
+
+Consequences for callers: keys come from `Uint256.val` / `addressToWord`
+and are in range by construction; nested inner slots are keccak outputs
+(`solidityMappingSlot_lt_evmModulus`). Base slots are raw `Nat`s, so
+`MappingCoherent*` quantify only over base slots `< 2^256`, the aligned
+`writeMap*` preservation theorems take `slot < 2^256`, and the all-keys
+layer takes a `MappingBasesInRange` layout certificate (discharged per
+contract, like `MappingBasesNotDerived`).
 
 **Risk**: Medium. A keccak collision on this preimage family would
 make the global `MappingCoherent` preservation theorem false. Finite

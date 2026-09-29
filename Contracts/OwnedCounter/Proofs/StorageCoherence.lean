@@ -137,6 +137,12 @@ theorem mappingBasesNotDerived : MappingBasesNotDerived ownedCounterFields := by
   rw [fieldMapKindAt_eq_none] at hn
   exact absurd hn (by simp)
 
+/-- Declared mapping base slots are in range — vacuous here as well. -/
+theorem mappingBasesInRange : MappingBasesInRange ownedCounterFields := by
+  intro n hn
+  rw [fieldMapKindAt_eq_none] at hn
+  exact absurd hn (by simp)
+
 /-- **Certificate 2.** No flat slot is the image of a derived mapping entry.
     Holds at *every* slot, so no `OwnedCounter` word write needs a side
     condition. -/

@@ -98,6 +98,7 @@ theorem encodeStorageAt_of_unresolved
 theorem encodeStorageAt_fieldMapKey
     {fields : List Field} {s : ContractState} {slot : Nat} {key : Address}
     (hcoh : MappingCoherent s)
+    (hslot : slot < Compiler.Constants.evmModulus)
     (hresolved :
       findResolvedFieldAtSlot fields
         (solidityMappingSlot slot (addressToWord key).val) = none)
@@ -106,22 +107,24 @@ theorem encodeStorageAt_fieldMapKey
         (solidityMappingSlot slot (addressToWord key).val) = none) :
     encodeStorageAt fields s (solidityMappingSlot slot (addressToWord key).val) =
       (s.storageMap slot key).val := by
-  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot key]
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot key hslot]
 
 theorem encodeStorageAt_fieldMapUintKey
     {fields : List Field} {s : ContractState} {slot : Nat} {key : Uint256}
     (hcoh : MappingCoherentUint s)
+    (hslot : slot < Compiler.Constants.evmModulus)
     (hresolved :
       findResolvedFieldAtSlot fields (solidityMappingSlot slot key.val) = none)
     (hdyn :
       findDynamicArrayElementAtSlot fields s (solidityMappingSlot slot key.val) = none) :
     encodeStorageAt fields s (solidityMappingSlot slot key.val) =
       (s.storageMapUint slot key).val := by
-  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot key]
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot key hslot]
 
 theorem encodeStorageAt_fieldMap2Key
     {fields : List Field} {s : ContractState} {slot : Nat} {k1 k2 : Address}
     (hcoh : MappingCoherentMap2 s)
+    (hslot : slot < Compiler.Constants.evmModulus)
     (hresolved :
       findResolvedFieldAtSlot fields
         (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) = none)
@@ -131,7 +134,7 @@ theorem encodeStorageAt_fieldMap2Key
     encodeStorageAt fields s
         (abstractNestedMappingSlot slot (addressToWord k1).val (addressToWord k2).val) =
       (s.storageMap2 slot k1 k2).val := by
-  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot k1 k2]
+  rw [encodeStorageAt_of_unresolved hresolved hdyn, hcoh slot k1 k2 hslot]
 
 theorem encodeStorageAt_fieldMapKey_on
     {fields : List Field} {s : ContractState} {slot : Nat} {key : Address}
