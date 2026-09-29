@@ -28,7 +28,9 @@ def storageKeySlot : StorageKey → Option Nat
   | .mapUint n key => some (solidityMappingSlot n key.val)
   | .map2 n k1 k2 =>
       some (abstractNestedMappingSlot n (addressToWord k1).val (addressToWord k2).val)
+  | .mapChain n keys offset => some (mappingChainSlotLocation n keys offset)
   | .transient _ => none
+  | .transientMapChain _ _ => none
   | .contractSlot c n => if c = 0 then some n else none
   | .scoped _ _ => none
 
@@ -192,6 +194,14 @@ theorem writeMap2_aligned_other (s : ContractState) (slot : Nat) (k1 k2 : Addres
 
 theorem storageKeySlot_mapUint (slot : Nat) (key : Uint256) :
     storageKeySlot (.mapUint slot key) = some (solidityMappingSlot slot key.val) := rfl
+
+/-- `storageKeySlot` on a hashed mapping-chain key is its Solidity location. -/
+theorem storageKeySlot_mapChain (slot : Nat) (keys : List Nat) (offset : Nat) :
+    storageKeySlot (.mapChain slot keys offset) =
+      some (mappingChainSlotLocation slot keys offset) := rfl
+
+theorem storageKeySlot_transientMapChain (slot : Nat) (keys : List Nat) :
+    storageKeySlot (.transientMapChain slot keys) = none := rfl
 
 theorem storageKeySlot_map2 (slot : Nat) (k1 k2 : Address) :
     storageKeySlot (.map2 slot k1 k2) =

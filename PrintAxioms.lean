@@ -130,6 +130,7 @@ import Compiler.Proofs.Storage.FieldCoherence
 import Compiler.Proofs.Storage.FieldEncode
 import Compiler.Proofs.Storage.FieldPackedCompile
 import Compiler.Proofs.Storage.FieldStorageKey
+import Compiler.Proofs.Storage.HashedMappingLayout
 import Compiler.Proofs.Storage.MappingCoherence
 import Compiler.Proofs.Storage.MappingCoherenceOn
 import Compiler.Proofs.Storage.MappingCoherentAllKeys
@@ -5136,6 +5137,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.abstractNestedMappingSlot_ne
   Compiler.Proofs.solidityMappingSlot_add_lt_evmModulus
   Compiler.Proofs.solidityMappingSlot_add_wordOffset_lt_evmModulus
+  Compiler.Proofs.mappingChainSlotLocation_single
+  Compiler.Proofs.mappingChainSlotLocation_pair
+  Compiler.Proofs.foldl_solidityMappingSlot_lt_evmModulus
+  Compiler.Proofs.mappingChainSlotLocation_zero
 
   -- Compiler/Proofs/Storage/FieldCoherence.lean
   Compiler.Proofs.Storage.FieldCoherence.fieldMapKey_coherent_storageKeySlot
@@ -5199,6 +5204,19 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.FieldStorageKey.packedExtract_eq_mod
   Compiler.Proofs.Storage.FieldStorageKey.fieldPackedExtract_eq_mod
 
+  -- Compiler/Proofs/Storage/HashedMappingLayout.lean
+  Compiler.Proofs.Storage.HashedMappingLayout.Entry.key_injective
+  Compiler.Proofs.Storage.HashedMappingLayout.layoutNonAlias_of_certificate
+  Compiler.Proofs.Storage.HashedMappingLayout.defaultState_hashedCoherentOn
+  Compiler.Proofs.Storage.HashedMappingLayout.read_eq_storage_location
+  Compiler.Proofs.Storage.HashedMappingLayout.alignedWrite_same
+  Compiler.Proofs.Storage.HashedMappingLayout.alignedWrite_preserves
+  Compiler.Proofs.Storage.HashedMappingLayout.writeSlot_preserves
+  Compiler.Proofs.Storage.HashedMappingLayout.writeTransient_preserves
+  Compiler.Proofs.Storage.HashedMappingLayout.writeTransientMapChain_preserves
+  Compiler.Proofs.Storage.HashedMappingLayout.writeAddrSlot_preserves
+  Compiler.Proofs.Storage.HashedMappingLayout.alignedTransientWrite_preserves
+
   -- Compiler/Proofs/Storage/MappingCoherence.lean
   Compiler.Proofs.Storage.MappingCoherence.defaultState_mappingCoherent
   Compiler.Proofs.Storage.MappingCoherence.writeMap_aligned_same
@@ -5216,6 +5234,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherence.writeMap2_aligned_same
   Compiler.Proofs.Storage.MappingCoherence.writeMap2_aligned_other
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_mapUint
+  Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_mapChain
+  Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_transientMapChain
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_map2
   Compiler.Proofs.Storage.MappingCoherence.addressToWord_injective
   Compiler.Proofs.Storage.MappingCoherence.mappingAddrSlot_ne_of_map_ne
@@ -7611,4 +7631,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7019 theorems/lemmas (5006 public, 2013 private, 0 sorry'd)
+-- Total: 7036 theorems/lemmas (5023 public, 2013 private, 0 sorry'd)

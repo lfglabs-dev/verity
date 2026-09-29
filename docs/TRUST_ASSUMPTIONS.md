@@ -229,7 +229,8 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   `Contract.hopCallView`: every word-valued storage channel is namespaced
   per contract across a distinct-address hop — scalar slots move through
   `StorageKey.contractSlot`, and address slots, transient slots and all
-  mappings (`addr` / `transient` / `map` / `mapUint` / `map2`) through
+  mappings (`addr` / `transient` / `map` / `mapUint` / `map2` /
+  `mapChain` / `transientMapChain`) through
   `StorageKey.scoped` (G24, #2440; `ContractState.switchSlotWorld`,
   `enterHop_readAddrSlot` / `enterHop_readMap` / …,
   `exitHop_enterHop_storageWords_plain`). A callee never sees or clobbers the
@@ -268,9 +269,17 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   target address) by running a linked Verity body in `Contract.hopCallView`;
   `Contracts.externalStaticCallContractWordsTo_withViewLinks` proves the call
   then returns exactly the decoded hop words and leaves caller storage
-  unchanged. Mutable deferred calls have no faithful responder combinator
-  yet (they are answered by the instantiated adversary). Compilation-model
-  lowering is unchanged.
+  unchanged. `AdversaryModel.withLinks` / `ExecutableCallContext.withLinks`
+  extends this to state-changing sites: a linked `.call` site runs the body
+  in `Contract.hopCall` at the target (success commits the post-hop state,
+  with one caller-controlled journal entry; a reverting body answers
+  `.revert []`, so the typed call reverts with the caller state restored).
+  Fidelity: `Contracts.externalCallContractWordsTo_withLinks`,
+  `Contracts.externalCallEffectWordsTo_withLinks`,
+  `Contracts.externalStaticCallContractWordsTo_withLinks` (each with
+  `_revert`). The hop installs `msgValue := 0` (typed interface calls carry
+  no value). Unlinked mutable sites are still answered by the base
+  adversary. Compilation-model lowering is unchanged.
 - **Context forwarding into bound callees (G26)**: a bound hop into a callee
   function that takes the `ExecutableCallContext` (it reaches a `deferred`
   link or opens a reentrancy window) forwards the caller's context. The
@@ -288,13 +297,20 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   `returndatasize >= 32 * n`, binds word `i` to result `i`; trust surface
   `abiBoundary`, assumption `external_call_abi_interface`). View tuple calls
   keep the static oracle-summary ECM.
-- **Author rule — one interface, several runtime contracts (G25)**: a named
-  binding dispatches by interface (and receiver/parameter name), **not** by
-  the runtime target address. If one interface is called on addresses that
-  hold different contracts, a named binding runs the bound callee's body for
-  every target, which is unfaithful for the other targets. Use `deferred` for
-  such interfaces and instantiate the context with `withViewLinks` keyed by
-  target address (`links "IFace.method" target`).
+- **Runtime-target dispatch and G25 (one interface, several runtime
+  contracts)**: a bound hop always runs at the call's runtime target
+  address. A receiver named after a binding selects it; otherwise the
+  interface's bindings decide: one binding, or several bindings that all
+  resolve to the same callee contract, run that callee's body at the
+  runtime target (two tokens of one contract type stay distinct through
+  per-address namespacing); several `deferred` bindings use the deferred
+  lowering; bindings to different callees, or a mix of named and `deferred`
+  bindings, **fail closed** at elaboration. **Trust boundary (author rule)**:
+  a named binding asserts that every target of that interface holds the
+  named contract. If one interface is called on addresses that hold
+  different contracts, use `deferred` and instantiate the context with
+  `withLinks` (or `withViewLinks`) keyed by target address
+  (`links "IFace.method" target`).
 
 ### 7. External Call Modules (ECMs)
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).
@@ -616,21 +632,31 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
   call observability must use the monadic primitives.
 - **`callExternal name(args)` surface** remains an unmodeled no-op at this
   plane.
-- **Hashed mapping accessors are executable, on the `.slot` channel.**
+- **Hashed mapping accessors are executable, on a symbolic channel.**
   `getMappingN`/`setMappingN`, `getMappingWord`/`setMappingWord` and the
   generated `structMember`/`setStructMember` family read and write
-  `ContractState.storage` at the Solidity keccak slot
-  (`Compiler.Proofs.abstractMappingSlot`, folded left over the key path, plus
-  the member word offset modulo `2^256`); `transient` mapping chains use the
-  `.transient` channel. `structMembers`/`structMembers2` destructuring lowers
-  to those reads. This channel is disjoint from the constructor-keyed
-  `storageMap`/`storageMapUint`/`storageMap2` channels behind
-  `getMapping`/`getMappingUint`/`getMapping2`; a field is accessed through
-  exactly one family, fixed by its declared storage type. Distinctness of two
-  hashed slots with different keys rests on the existing
-  `solidityMappingSlot_injective` axiom; adjacent struct words are distinct
-  without it (`Contracts.structSlot_ne_succ`). The pure expression form
-  `structMembers` outside `let (..) :=` / `return` still yields `default`.
+  `StorageKey.mapChain baseSlot keyWords wordOffset`
+  (`ContractState.readMapChain`/`writeMapChain`); `transient` mapping chains
+  use `StorageKey.transientMapChain baseSlot keyWords`
+  (`readTransientMapChain`/`writeTransientMapChain`).
+  `structMembers`/`structMembers2` destructuring lowers to those reads.
+  Entries with different `(baseSlot, keyWords, wordOffset)` are independent
+  by constructor injectivity, and the channel is disjoint from the scalar
+  `.slot` channel and from the `storageMap`/`storageMapUint`/`storageMap2`
+  channels behind `getMapping`/`getMappingUint`/`getMapping2`, so executable
+  plane non-aliasing (key vs key, member vs member, mapping entry vs scalar
+  slot) uses no axiom. The Solidity keccak slot
+  (`Compiler.Proofs.mappingChainSlotLocation`: keccak folded over the key
+  path plus the word offset modulo `2^256`) is an interpretation: the
+  executable channel agrees with the flat `.slot` channel the model plane
+  reads under `Compiler.Proofs.Storage.HashedMappingLayout.HashedCoherentOn`,
+  preserved by aligned writes given a finite layout non-alias certificate
+  (a hypothesis, not `solidityMappingSlot_injective`). A field is accessed
+  through exactly one family, fixed by its declared storage type. Hops
+  namespace both hashed keys per contract (`StorageKey.scoped`), and
+  `Contract.run` rollback restores them with the rest of `storageWords`. The
+  pure expression form `structMembers` outside `let (..) :=` / `return` still
+  yields `default`.
 - **`externalCallBindTo` journals target and value and debits ETH
   on success.** It is still a stub for the callee return word
   (`externalCallStubWord`). Real callee state is the model-plane

@@ -9,6 +9,7 @@ open Denote Verity.Core
 /-- Transient keys can be parked under another account during external calls. -/
 def isTransientKey : Verity.StorageKey → Bool
   | .transient _ => true
+  | .transientMapChain _ _ => true
   | .scoped _ key => isTransientKey key
   | _ => false
 
