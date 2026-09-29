@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 from .engine import command, write_json
-from .programs import stateful_storage_source, stateful_storage_word_source, stateful_mapping_source, stateful_short_circuit_source, stateful_imported_event_source, stateful_if_else_source, stateful_constants_sources, stateful_arithmetic_source, stateful_member_write_source, stateful_loop_source
+from .programs import stateful_storage_source, stateful_storage_word_source, stateful_mapping_source, stateful_short_circuit_source, stateful_imported_event_source, stateful_if_else_source, stateful_constants_sources, stateful_arithmetic_source, stateful_member_write_source, stateful_loop_source, stateful_unchecked_source
 from .stateful import validate_observation
 
 
@@ -25,7 +25,7 @@ def canonical_observations(observations):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'constants', 'arithmetic', 'member-write', 'loop'), default='packed')
+    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'constants', 'arithmetic', 'member-write', 'loop', 'unchecked'), default='packed')
     parser.add_argument('--narrow-bits', type=int, choices=range(8, 257, 8), default=128)
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--seed', type=int, default=2453)
@@ -33,7 +33,7 @@ def main():
     args = parser.parse_args()
     output = args.output.resolve() if args.output else Path(tempfile.mkdtemp(prefix='storage-', dir='.lake')).resolve()
     output.mkdir(parents=True, exist_ok=args.output is None)
-    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence', 'short-circuit': 'ShortCircuitSequence', 'imported-event': 'ImportedEventSequence', 'narrow-event': 'NarrowEventSequence', 'if-else': 'IfElseSequence', 'constants': 'ConstantSequence', 'arithmetic': 'ArithmeticSequence', 'member-write': 'MemberWriteSequence', 'loop': 'LoopSequence'}[args.fixture]
+    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence', 'short-circuit': 'ShortCircuitSequence', 'imported-event': 'ImportedEventSequence', 'narrow-event': 'NarrowEventSequence', 'if-else': 'IfElseSequence', 'constants': 'ConstantSequence', 'arithmetic': 'ArithmeticSequence', 'member-write': 'MemberWriteSequence', 'loop': 'LoopSequence', 'unchecked': 'UncheckedSequence'}[args.fixture]
     fixture = Path(f'Contracts/SolidityImportSmoke/{name}.sol').read_text()
     template = Path(f'Contracts/SolidityImportSmoke/{name}Model.lean').read_text()
     if args.fixture == 'narrow-event':
@@ -59,6 +59,8 @@ def main():
         variants = ('baseline', 'direct', 'expanded')
     if args.fixture == 'loop':
         variants = ('baseline', 'prefix', 'expanded')
+    if args.fixture == 'unchecked':
+        variants = ('baseline', 'split', 'explicit')
     for variant in variants:
         directory = output / variant
         directory.mkdir()
@@ -71,6 +73,7 @@ def main():
                           else stateful_imported_event_source(fixture, variant, args.fixture == "narrow-event") if args.fixture in ("imported-event", "narrow-event")
                           else stateful_member_write_source(fixture, variant) if args.fixture == "member-write"
                           else stateful_loop_source(fixture, variant) if args.fixture == "loop"
+                          else stateful_unchecked_source(fixture, variant) if args.fixture == "unchecked"
                           else stateful_arithmetic_source(fixture, variant) if args.fixture == "arithmetic"
                           else stateful_if_else_source(fixture, variant) if args.fixture == "if-else"
                           else stateful_short_circuit_source(fixture, variant) if args.fixture == "short-circuit"

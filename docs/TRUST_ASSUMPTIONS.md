@@ -53,6 +53,11 @@ member writes (`m[k].f op= e`) follow the same order, and a packed member write
 is a read-modify-write of its slot that preserves neighbouring members; this is
 covered by the packed `setStructMember` semantics and differential evidence.
 
+`unchecked` arithmetic is lowered as the EVM operation masked to the operand
+width. The unchecked context is tracked lexically by the importer; whether an
+operation is inside an `unchecked` block is established by the solc AST and the
+differential evidence, not by a proof.
+
 Counted `for` loops are lowered to `forEach`, which evaluates its count once.
 This matches solc only because the importer admits a bound that no loop
 iteration can change (a literal, a parameter or a local that is never assigned)

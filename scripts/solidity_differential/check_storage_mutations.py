@@ -112,6 +112,18 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-unchecked-wrap': ('if bits == 256 then raw else .bitAnd raw (.literal (2 ^ bits - 1))', 'raw'),
+    'import-unchecked-root': ('if (← mKind s) == "UncheckedBlock" then modify fun e => { e with unchecked := true }',
+                              'if (← mKind s) == "UncheckedBlock" then pure ()'),
+    'import-unchecked-helper': ('currentFile := frameFile, unchecked := false }', 'currentFile := frameFile }'),
+    'import-unchecked-helper-block': ('        modify fun e => { e with unchecked := true }\n        if ← helperListReturns inner then',
+                                      '        if ← helperListReturns inner then'),
+    'import-unchecked-end': ('    | "VerityUncheckedEnd" =>\n        modify fun e => { e with unchecked := false }\n',
+                             '    | "VerityUncheckedEnd" =>\n'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
@@ -128,6 +140,8 @@ def run(directory, output, name):
         fixture = 'MemberWriteSequence'
     if name.startswith(('import-loop-', 'import-local-')):
         fixture = 'LoopSequence'
+    if name.startswith('import-unchecked-'):
+        fixture = 'UncheckedSequence'
     if name.startswith(('import-event-', 'observe-event-')):
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',

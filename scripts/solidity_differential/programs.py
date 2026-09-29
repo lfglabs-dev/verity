@@ -712,3 +712,29 @@ def stateful_loop_source(original, variant):
             raise ValueError(f'missing loop source anchor: {before}')
         original = original.replace(before, after)
     return original
+
+
+def stateful_unchecked_source(original, variant):
+    """Wrapping arithmetic in split blocks or explicit assignments."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'split': {
+            '            total += value;\n': '            total += value;\n        }\n        unchecked {\n',
+            '            wrapped = value * 3 - 10;\n': '            wrapped = value * 3 - 10;\n        }\n        unchecked {\n',
+        },
+        'explicit': {
+            'total += value;': 'total = total + value;',
+            'small += uint8(value % 256) + 250;': 'small = small + (uint8(value % 256) + 250);',
+            'mid -= uint64(value % 5) + 1;': 'mid = mid - (uint64(value % 5) + 1);',
+            'credit[msg.sender]--;': 'credit[msg.sender] -= 1;',
+            'return x - 10 + 3;': 'uint256 y = x - 10;\n            return y + 3;',
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(variant)
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing unchecked source anchor: {before}')
+        original = original.replace(before, after)
+    return original

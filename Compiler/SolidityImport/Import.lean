@@ -200,6 +200,8 @@ private structure Env where
   assigned : List Nat := []
   /-- Reassignable locals of the current root: declaration id to binding. -/
   mutables : RBMap Nat String compare := RBMap.empty
+  /-- Inside an `unchecked` block of the function being lowered. -/
+  unchecked : Bool := false
   encodingMemory : Bool := false
   explicitAbi : Bool := false
   next : Nat
@@ -370,6 +372,9 @@ private partial def assignedIds (j : Json) : List Nat :=
         if kind == some "ForStatement" && k == "loopExpression" then acc
         else acc ++ assignedIds v) own
   | _ => []
+
+/-- Synthetic statement closing an `unchecked` block in a helper continuation. -/
+private def uncheckedEnd : Json := Json.mkObj [("nodeType", Json.str "VerityUncheckedEnd")]
 
 private def atom (v : Val) : M Val := do
   if v.pre.isEmpty && isAtom v.expr then
@@ -1001,6 +1006,17 @@ binary operators and compound assignments, which solc lowers identically. -/
 private partial def checkedArith (op common : String) (left right : Val) (j : Json) : M Val := do
   let some bits := bitsOf common | failAt j s!"unsupported arithmetic type {common}"
   unless common.startsWith "uint" do failAt j s!"unsupported arithmetic type {common}"
+  if (← get).unchecked then
+    -- `unchecked` wraps `+ - *` modulo 2^bits; `/` and `%` still panic on zero.
+    let wrap (raw : Expr) : Expr :=
+      if bits == 256 then raw else .bitAnd raw (.literal (2 ^ bits - 1))
+    let a ← atom left
+    let b ← atom right
+    match op with
+    | "+" => return { pre := a.pre ++ b.pre, expr := wrap (.add a.expr b.expr) }
+    | "-" => return { pre := a.pre ++ b.pre, expr := wrap (.sub a.expr b.expr) }
+    | "*" => return { pre := a.pre ++ b.pre, expr := wrap (.mul a.expr b.expr) }
+    | _ => pure ()
   match op with
   | "+" => checkedAdd bits left right
   | "-" => checkedSub left right
@@ -1374,7 +1390,8 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let savedFile := (← get).currentFile
   let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
   let frame := fnId :: (← get).stack
-  modify fun e => { e with stack := frame, currentFile := frameFile }
+  -- `unchecked` is lexical: an inlined body is checked again.
+  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false }
   if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
     failAt fn "virtual dispatch is outside this slice"
   let mods ← mArr (← mField fn "modifiers")
@@ -1424,7 +1441,8 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let result ← lowerHelper stmts retName
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
-             values := saved.values, paths := saved.paths, mems := saved.mems }
+             values := saved.values, paths := saved.paths, mems := saved.mems,
+             unchecked := saved.unchecked }
   pure { pre := pre ++ result.pre, expr := result.expr }
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
@@ -1476,7 +1494,8 @@ private partial def ifParts (s : Json) : M (Val × Array Json × Array Json) := 
 private partial def helperReturns (s : Json) : M Bool := do
   match ← mKind s with
   | "Return" | "InlineAssembly" => pure true
-  | "Block" => ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
+  | "Block" | "UncheckedBlock" =>
+      ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
   | "IfStatement" =>
       let yes ← helperReturns (← mField s "trueBody")
       let no ← match field? s "falseBody" with
@@ -1515,6 +1534,21 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         if let some next := rest.head? then failAt next "statement after helper result"
         let v ← lowerAssembly s retName
         pure (v.pre, some v.expr)
+    | "UncheckedBlock" =>
+        let inner ← mArr (← mField s "statements")
+        modify fun e => { e with unchecked := true }
+        if ← helperListReturns inner then
+          if let some next := rest.head? then failAt next "statement after helper result"
+          let result ← lowerHelperFrom inner.toList retName
+          modify fun e => { e with unchecked := false }
+          pure result
+        else
+          -- The continuation may be copied into `if` branches, so the end of
+          -- the block travels with it as a marker.
+          lowerHelperFrom (inner.toList ++ uncheckedEnd :: rest) retName
+    | "VerityUncheckedEnd" =>
+        modify fun e => { e with unchecked := false }
+        lowerHelperFrom rest retName
     | "IfStatement" =>
         let (condition, yes, no) ← ifParts s
         let yesReturns ← helperListReturns yes
@@ -1524,7 +1558,8 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let saved ← get
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, paths := saved.paths, mems := saved.mems,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames,
+                   unchecked := saved.unchecked }
         if !yesReturns && !noReturns then
           -- Neither branch returns: branch-local declarations stay scoped and
           -- the continuation is lowered once after the conditional.
@@ -1955,13 +1990,15 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
   for s in stmts do
     if returned then failAt s "statement after root return"
     match ← mKind s with
-    | "Block" =>
+    | "Block" | "UncheckedBlock" =>
         let saved ← get
+        if (← mKind s) == "UncheckedBlock" then modify fun e => { e with unchecked := true }
         let (nested, nestedReturned) ← lowerRootStatements (← mArr (← mField s "statements"))
         -- Restore lexical lookup maps, but retain fresh names and discovered dependencies.
         modify fun e =>
           { e with values := saved.values, paths := saved.paths,
-                   mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+                   mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames,
+                   unchecked := saved.unchecked }
         out := out ++ nested
         returned := nestedReturned
     | "VariableDeclarationStatement" =>
@@ -2032,7 +2069,8 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         let saved ← get
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, paths := saved.paths, mems := saved.mems,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames,
+                   unchecked := saved.unchecked }
         -- A root return inside a branch stops execution, so the continuation
         -- stays after the conditional and runs only on fallthrough.
         let (yesOut, yesReturned) ← lowerRootStatements yes
