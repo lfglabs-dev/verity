@@ -1341,6 +1341,14 @@ private partial def lowerCall (j : Json) : M Val := do
       unless args.size == 1 do failAt j "keccak256 requires one byte buffer"
       let bytes ← lowerEncodedBytes args[0]!
       return { pre := bytes.pre, expr := .keccak256 bytes.pointer bytes.size }
+    let (pre, values) ← lowerHelperCall j 1
+    pure { pre, expr := values[0]! }
+  else
+    failAt j s!"unsupported call kind {kind}"
+
+/-- Inlines an internal or library call returning `want` values. -/
+private partial def lowerHelperCall (j : Json) (want : Nat) : M (Array Stmt × Array Expr) := do
+    let callee ← mField j "expression"
     let (fnId, receiver?) ← match ← mKind callee with
       | "MemberAccess" =>
           let id ← refInt callee
@@ -1371,11 +1379,10 @@ private partial def lowerCall (j : Json) : M Val := do
         | _ => failAt arg "only root memory/calldata struct arguments are supported"
       else
         vals := vals.push (.scalar (← lowerExpr arg))
-    inlineFn fnId vals j
-  else
-    failAt j s!"unsupported call kind {kind}"
+    inlineFn fnId vals j want
 
-private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M Val := do
+private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) (want : Nat) :
+    M (Array Stmt × Array Expr) := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
   -- External library calls cross an ABI/delegatecall boundary. A root
@@ -1400,7 +1407,11 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   unless params.size == args.size do
     failAt at_ s!"call arity {args.size} does not match declaration {params.size}"
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
-  unless rets.size == 1 do failAt fn "only single-value helpers are inlined"
+  if want == 1 then
+    unless rets.size == 1 do failAt fn "only single-value helpers are inlined"
+  else
+    unless rets.size == want do
+      failAt at_ s!"helper returns {rets.size} values where {want} are expected"
   let retName ← mStr (← mField rets[0]! "name")
   let mut pre : Array Stmt := #[]
   let mut yul := savedYul
@@ -1438,12 +1449,12 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   noteFn fn
   let body ← mField fn "body"
   let stmts ← mArr (← mField body "statements")
-  let result ← lowerHelper stmts retName
+  let (resultPre, results) ← lowerHelper stmts retName want
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
              values := saved.values, paths := saved.paths, mems := saved.mems,
              unchecked := saved.unchecked }
-  pure { pre := pre ++ result.pre, expr := result.expr }
+  pure (pre ++ resultPre, results)
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
   -- `i` counts the receiver plus explicit arguments. The receiver is not in
@@ -1469,10 +1480,11 @@ private partial def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M 
       if argTy.startsWith "int_const" || argTy == paramTy then pure v
       else failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
 
-private partial def lowerHelper (stmts : Array Json) (retName : String) : M Val := do
-  let (pre, result) ← lowerHelperFrom stmts.toList retName
+private partial def lowerHelper (stmts : Array Json) (retName : String) (want : Nat) :
+    M (Array Stmt × Array Expr) := do
+  let (pre, result) ← lowerHelperFrom stmts.toList retName want
   match result with
-  | some expr => pure { pre, expr }
+  | some exprs => pure (pre, exprs)
   | none => throwError "inlined helper did not return"
 
 /-- Splits an `if` into its lowered boolean condition and branch statements.
@@ -1512,43 +1524,49 @@ private partial def helperListReturns (stmts : Array Json) : M Bool := do
 /-- Lowers helper statements to a prelude and, when the list returns, its
     result. A returning `if` branch ends the list; the continuation after the
     `if` is lowered once, inside the branch that falls through. -/
-private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
-    M (Array Stmt × Option Expr) := do
+private partial def lowerHelperFrom (stmts : List Json) (retName : String) (want : Nat) :
+    M (Array Stmt × Option (Array Expr)) := do
   match stmts with
   | [] => pure (#[], none)
   | s :: rest =>
     match ← mKind s with
     | "VariableDeclarationStatement" =>
         let pre ← lowerLocal s
-        let (tail, result) ← lowerHelperFrom rest retName
+        let (tail, result) ← lowerHelperFrom rest retName want
         pure (pre ++ tail, result)
     | "ExpressionStatement" =>
         let pre ← lowerRequire s
-        let (tail, result) ← lowerHelperFrom rest retName
+        let (tail, result) ← lowerHelperFrom rest retName want
         pure (pre ++ tail, result)
     | "Return" =>
         if let some next := rest.head? then failAt next "statement after helper result"
-        let v ← lowerExpr (← mField s "expression")
-        pure (v.pre, some v.expr)
+        let returned ← mField s "expression"
+        if want == 1 then
+          let v ← lowerExpr returned
+          pure (v.pre, some #[v.expr])
+        else
+          let (pre, values) ← lowerTuple returned want
+          pure (pre, some values)
     | "InlineAssembly" =>
         if let some next := rest.head? then failAt next "statement after helper result"
+        unless want == 1 do failAt s "assembly results of multi-value helpers are outside this slice"
         let v ← lowerAssembly s retName
-        pure (v.pre, some v.expr)
+        pure (v.pre, some #[v.expr])
     | "UncheckedBlock" =>
         let inner ← mArr (← mField s "statements")
         modify fun e => { e with unchecked := true }
         if ← helperListReturns inner then
           if let some next := rest.head? then failAt next "statement after helper result"
-          let result ← lowerHelperFrom inner.toList retName
+          let result ← lowerHelperFrom inner.toList retName want
           modify fun e => { e with unchecked := false }
           pure result
         else
           -- The continuation may be copied into `if` branches, so the end of
           -- the block travels with it as a marker.
-          lowerHelperFrom (inner.toList ++ uncheckedEnd :: rest) retName
+          lowerHelperFrom (inner.toList ++ uncheckedEnd :: rest) retName want
     | "VerityUncheckedEnd" =>
         modify fun e => { e with unchecked := false }
-        lowerHelperFrom rest retName
+        lowerHelperFrom rest retName want
     | "IfStatement" =>
         let (condition, yes, no) ← ifParts s
         let yesReturns ← helperListReturns yes
@@ -1563,30 +1581,32 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         if !yesReturns && !noReturns then
           -- Neither branch returns: branch-local declarations stay scoped and
           -- the continuation is lowered once after the conditional.
-          let (yesPre, _) ← lowerHelperFrom yes.toList retName
+          let (yesPre, _) ← lowerHelperFrom yes.toList retName want
           restore
-          let (noPre, _) ← lowerHelperFrom no.toList retName
+          let (noPre, _) ← lowerHelperFrom no.toList retName want
           restore
-          let (tail, result) ← lowerHelperFrom rest retName
+          let (tail, result) ← lowerHelperFrom rest retName want
           pure (condition.pre.push (.ite condition.expr yesPre.toList noPre.toList) ++ tail, result)
         else
           let yesList := if yesReturns then yes.toList else yes.toList ++ rest
           let noList := if noReturns then no.toList else no.toList ++ rest
-          let (yesPre, yesResult) ← lowerHelperFrom yesList retName
+          let (yesPre, yesResult) ← lowerHelperFrom yesList retName want
           restore
-          let (noPre, noResult) ← lowerHelperFrom noList retName
+          let (noPre, noResult) ← lowerHelperFrom noList retName want
           restore
-          let dest ← fresh
-          let assign (pre : Array Stmt) (result : Option Expr) : Array Stmt :=
+          let mut dests : Array String := #[]
+          for _ in [:want] do
+            dests := dests.push (← fresh)
+          let assign (pre : Array Stmt) (result : Option (Array Expr)) : Array Stmt :=
             match result with
-            | some expr => pre.push (.assignVar dest expr)
+            | some exprs => pre ++ (dests.zip exprs).map fun (d, e) => Stmt.assignVar d e
             | none => pre
           let branch := Stmt.ite condition.expr (assign yesPre yesResult).toList
             (assign noPre noResult).toList
           match yesResult, noResult with
           | some _, some _ =>
-              pure (condition.pre.push (.letVar dest (.literal 0)) |>.push branch,
-                some (.localVar dest))
+              pure (condition.pre ++ dests.map (fun d => Stmt.letVar d (.literal 0)) |>.push branch,
+                some (dests.map Expr.localVar))
           | _, _ => failAt s "inlined helper does not return on every path"
     | kind => failAt s s!"unsupported helper statement {kind}"
 
