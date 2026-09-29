@@ -54,12 +54,25 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-if-root-swap': ('.push (.ite condition.expr yesOut.toList noOut.toList)',
+                            '.push (.ite condition.expr noOut.toList yesOut.toList)'),
+    'import-if-root-else-drop': ('let (noOut, noReturned) ← lowerRootStatements no',
+                                 'let (noOut, noReturned) ← lowerRootStatements #[]'),
+    'import-if-helper-swap': ('let branch := Stmt.ite condition.expr (assign yesPre yesResult).toList\n            (assign noPre noResult).toList',
+                              'let branch := Stmt.ite condition.expr (assign noPre noResult).toList\n            (assign yesPre yesResult).toList'),
+    'import-if-helper-guard-swap': ('(.ite condition.expr yesPre.toList noPre.toList) ++ tail',
+                                    '(.ite condition.expr noPre.toList yesPre.toList) ++ tail'),
+})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
         fixture = "MappingSequence"
     if name.startswith("import-logical-"):
         fixture = "ShortCircuitSequence"
+    if name.startswith('import-if-'):
+        fixture = 'IfElseSequence'
     if name.startswith(('import-event-', 'observe-event-')):
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',

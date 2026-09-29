@@ -1284,23 +1284,108 @@ private partial def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M 
       else failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
 
 private partial def lowerHelper (stmts : Array Json) (retName : String) : M Val := do
-  let mut pre : Array Stmt := #[]
-  let mut result : Option Val := none
-  for s in stmts do
-    if result.isSome then failAt s "statement after helper result"
+  let (pre, result) ← lowerHelperFrom stmts.toList retName
+  match result with
+  | some expr => pure { pre, expr }
+  | none => throwError "inlined helper did not return"
+
+/-- Splits an `if` into its lowered boolean condition and branch statements.
+    A branch that is not a block is a single statement. -/
+private partial def ifParts (s : Json) : M (Val × Array Json × Array Json) := do
+  let conditionNode ← mField s "condition"
+  unless (← mType conditionNode) == "bool" do failAt conditionNode "if condition must be bool"
+  let condition ← atom (← lowerExpr conditionNode)
+  let branch (j : Json) : M (Array Json) := do
+    if (← mKind j) == "Block" then mArr (← mField j "statements") else pure #[j]
+  let yes ← branch (← mField s "trueBody")
+  let no ← match field? s "falseBody" with
+    | some j => if j.isNull then pure #[] else branch j
+    | none => pure #[]
+  pure (condition, yes, no)
+
+/-- Syntactic definite return: every path through `s` ends in a helper result.
+    Assembly results count because `lowerHelperFrom` treats them as results. -/
+private partial def helperReturns (s : Json) : M Bool := do
+  match ← mKind s with
+  | "Return" | "InlineAssembly" => pure true
+  | "Block" => ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
+  | "IfStatement" =>
+      let yes ← helperReturns (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else helperReturns j
+        | none => pure false
+      pure (yes && no)
+  | _ => pure false
+
+private partial def helperListReturns (stmts : Array Json) : M Bool := do
+  match stmts.back? with
+  | some s => helperReturns s
+  | none => pure false
+
+/-- Lowers helper statements to a prelude and, when the list returns, its
+    result. A returning `if` branch ends the list; the continuation after the
+    `if` is lowered once, inside the branch that falls through. -/
+private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
+    M (Array Stmt × Option Expr) := do
+  match stmts with
+  | [] => pure (#[], none)
+  | s :: rest =>
     match ← mKind s with
     | "VariableDeclarationStatement" =>
-        pre := pre ++ (← lowerLocal s)
+        let pre ← lowerLocal s
+        let (tail, result) ← lowerHelperFrom rest retName
+        pure (pre ++ tail, result)
     | "ExpressionStatement" =>
-        pre := pre ++ (← lowerRequire s)
+        let pre ← lowerRequire s
+        let (tail, result) ← lowerHelperFrom rest retName
+        pure (pre ++ tail, result)
     | "Return" =>
-        result := some (← lowerExpr (← mField s "expression"))
+        if let some next := rest.head? then failAt next "statement after helper result"
+        let v ← lowerExpr (← mField s "expression")
+        pure (v.pre, some v.expr)
     | "InlineAssembly" =>
-        result := some (← lowerAssembly s retName)
+        if let some next := rest.head? then failAt next "statement after helper result"
+        let v ← lowerAssembly s retName
+        pure (v.pre, some v.expr)
+    | "IfStatement" =>
+        let (condition, yes, no) ← ifParts s
+        let yesReturns ← helperListReturns yes
+        let noReturns ← helperListReturns no
+        if yesReturns && noReturns then
+          if let some next := rest.head? then failAt next "statement after helper result"
+        let saved ← get
+        let restore : M Unit := modify fun e =>
+          { e with values := saved.values, paths := saved.paths, mems := saved.mems,
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        if !yesReturns && !noReturns then
+          -- Neither branch returns: branch-local declarations stay scoped and
+          -- the continuation is lowered once after the conditional.
+          let (yesPre, _) ← lowerHelperFrom yes.toList retName
+          restore
+          let (noPre, _) ← lowerHelperFrom no.toList retName
+          restore
+          let (tail, result) ← lowerHelperFrom rest retName
+          pure (condition.pre.push (.ite condition.expr yesPre.toList noPre.toList) ++ tail, result)
+        else
+          let yesList := if yesReturns then yes.toList else yes.toList ++ rest
+          let noList := if noReturns then no.toList else no.toList ++ rest
+          let (yesPre, yesResult) ← lowerHelperFrom yesList retName
+          restore
+          let (noPre, noResult) ← lowerHelperFrom noList retName
+          restore
+          let dest ← fresh
+          let assign (pre : Array Stmt) (result : Option Expr) : Array Stmt :=
+            match result with
+            | some expr => pre.push (.assignVar dest expr)
+            | none => pre
+          let branch := Stmt.ite condition.expr (assign yesPre yesResult).toList
+            (assign noPre noResult).toList
+          match yesResult, noResult with
+          | some _, some _ =>
+              pure (condition.pre.push (.letVar dest (.literal 0)) |>.push branch,
+                some (.localVar dest))
+          | _, _ => failAt s "inlined helper does not return on every path"
     | kind => failAt s s!"unsupported helper statement {kind}"
-  match result with
-  | some v => pure { pre := pre ++ v.pre, expr := v.expr }
-  | none => throwError "inlined helper did not return"
 
 private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   let expression ← mField statement "expression"
@@ -1628,6 +1713,20 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         out := out ++ (← lowerEffect s)
     | "EmitStatement" =>
         out := out ++ (← lowerEmit s)
+    | "IfStatement" =>
+        let (condition, yes, no) ← ifParts s
+        let saved ← get
+        let restore : M Unit := modify fun e =>
+          { e with values := saved.values, paths := saved.paths, mems := saved.mems,
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        -- A root return inside a branch stops execution, so the continuation
+        -- stays after the conditional and runs only on fallthrough.
+        let (yesOut, yesReturned) ← lowerRootStatements yes
+        restore
+        let (noOut, noReturned) ← lowerRootStatements no
+        restore
+        out := out ++ condition.pre |>.push (.ite condition.expr yesOut.toList noOut.toList)
+        returned := yesReturned && noReturned
     | "Return" =>
         returned := true
         let some expr := field? s "expression"

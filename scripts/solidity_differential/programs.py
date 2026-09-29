@@ -507,3 +507,56 @@ def abi_hashing_variants(original):
     if count < 10:
         raise ValueError('hash binding variant omitted source expressions')
     return [('baseline', original), ('renamed', renamed), ('receiver', receiver), ('bound', bound)]
+
+
+def stateful_if_else_source(original, variant):
+    """Same control flow with inverted conditions and swapped branches, or ternaries."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'inverted': {
+            'if (top >= 192) return 3;': 'if ((top >= 192) == false) {} else return 3;',
+            'if (low / 2 * 2 != low) {\n'
+            '            require(low > 1, "small odd");\n'
+            '        } else {\n'
+            '            require(low > 7 || low == 0, "small even");\n'
+            '        }':
+            'if (low / 2 * 2 == low) {\n'
+            '            require(low > 7 || low == 0, "small even");\n'
+            '        } else {\n'
+            '            require(low > 1, "small odd");\n'
+            '        }',
+            'if (top >= 128) {\n'
+            '            credit[msg.sender] = credit[msg.sender] + top;\n'
+            '        } else {\n'
+            '            credit[msg.sender] = top;\n'
+            '            counter = counter + 1;\n'
+            '        }':
+            'if (top < 128) {\n'
+            '            credit[msg.sender] = top;\n'
+            '            counter = counter + 1;\n'
+            '        } else {\n'
+            '            credit[msg.sender] = credit[msg.sender] + top;\n'
+            '        }',
+            'if (counter > last) {': 'if ((counter <= last) == false) {',
+            'if (counter > 3) return (counter, last, credit[msg.sender]);\n'
+            '        return (last, counter, 0);':
+            'if (counter <= 3) return (last, counter, 0);\n'
+            '        return (counter, last, credit[msg.sender]);',
+        },
+        'ternary': {
+            'if (half > 50) {\n'
+            '            uint256 capped = half - 50;\n'
+            '            return capped;\n'
+            '        }\n'
+            '        return half;': 'return half > 50 ? half - 50 : half;',
+            'last = tier(top);': 'last = top >= 192 ? 3 : top >= 64 ? 2 : top == 0 ? 0 : 1;',
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(variant)
+    for before, after in replacements[variant].items():
+        if before not in original:
+            raise ValueError(f'missing if/else source anchor: {before}')
+        original = original.replace(before, after)
+    return original
