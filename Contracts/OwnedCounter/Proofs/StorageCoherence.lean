@@ -115,6 +115,8 @@ theorem storageKeySlot_not_mappingEntry {k : Verity.StorageKey} {ch : Channel} {
   | «transient» _ => simp [isMappingEntryKey] at hmap
   | contractSlot _ _ => simp [isMappingEntryKey] at hmap
   | «scoped» _ _ => simp [isMappingEntryKey] at hmap
+  | mapChain _ _ _ => simp [isMappingEntryKey] at hmap
+  | transientMapChain _ _ => simp [isMappingEntryKey] at hmap
   | map b key =>
       obtain ⟨hkind, _, _⟩ := storageKeySlot_map_eq hk
       rw [fieldMapKindAt_eq_none] at hkind

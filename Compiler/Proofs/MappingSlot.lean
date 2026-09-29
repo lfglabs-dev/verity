@@ -310,4 +310,41 @@ theorem solidityMappingSlot_add_wordOffset_lt_evmModulus
     solidityMappingSlot baseSlot key + wordOffset < Compiler.Constants.evmModulus := by
   exact solidityMappingSlot_add_lt_evmModulus baseSlot key wordOffset h
 
+/-! ### Hashed mapping-chain layout (interpretation of `StorageKey.mapChain`)
+
+The executable plane keeps nested / struct mapping words under the symbolic
+key `Verity.StorageKey.mapChain baseSlot keys wordOffset`. Their Solidity
+storage location folds `keccak256(key ‖ acc)` left-to-right over the key path
+and adds the word offset modulo `2^256`. None of the facts below use
+`solidityMappingSlot_injective`. -/
+
+/-- Solidity storage location of word `wordOffset` of the value stored under
+    the key path `keys` of the mapping rooted at `baseSlot`. -/
+def mappingChainSlotLocation (baseSlot : Nat) (keys : List Nat) (wordOffset : Nat) : Nat :=
+  (keys.foldl solidityMappingSlot baseSlot + wordOffset) % Compiler.Constants.evmModulus
+
+theorem mappingChainSlotLocation_single (baseSlot key wordOffset : Nat) :
+    mappingChainSlotLocation baseSlot [key] wordOffset =
+      mappingSlotLocation baseSlot key wordOffset := rfl
+
+theorem mappingChainSlotLocation_pair (baseSlot key1 key2 wordOffset : Nat) :
+    mappingChainSlotLocation baseSlot [key1, key2] wordOffset =
+      nestedMappingSlotLocation baseSlot key1 key2 wordOffset := rfl
+
+theorem foldl_solidityMappingSlot_lt_evmModulus (acc : Nat) (keys : List Nat)
+    (h : acc < Compiler.Constants.evmModulus) :
+    keys.foldl solidityMappingSlot acc < Compiler.Constants.evmModulus := by
+  induction keys generalizing acc with
+  | nil => exact h
+  | cons key keys ih => exact ih _ (solidityMappingSlot_lt_evmModulus acc key)
+
+/-- A non-empty key path at word offset `0` is exactly the folded keccak slot. -/
+theorem mappingChainSlotLocation_zero (baseSlot key : Nat) (keys : List Nat) :
+    mappingChainSlotLocation baseSlot (key :: keys) 0 =
+      (key :: keys).foldl solidityMappingSlot baseSlot := by
+  unfold mappingChainSlotLocation
+  rw [Nat.add_zero]
+  exact Nat.mod_eq_of_lt
+    (foldl_solidityMappingSlot_lt_evmModulus _ keys (solidityMappingSlot_lt_evmModulus _ _))
+
 end Compiler.Proofs

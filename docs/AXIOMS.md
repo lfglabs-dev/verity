@@ -28,7 +28,10 @@ C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
 not add a keccak-injectivity axiom. Source lens laws use constructor
 injectivity; Solidity slot derivation remains compiler-side. The G24 hop
 namespace constructor `StorageKey.scoped` (#2440) likewise adds no axiom:
-its hop lemmas are definitional or constructor case splits.
+its hop lemmas are definitional or constructor case splits. The hashed
+mapping-chain constructors `StorageKey.mapChain` / `transientMapChain`
+(G2 residual) likewise add no axiom and make nested / struct mapping
+separation a constructor fact.
 
 C5 step 4 is complete under `solidityMappingSlot_injective` below —
 collision-resistance of the 64-byte ABI mapping preimage, **not**
@@ -102,6 +105,13 @@ listed-pair certificates remain valid without the axiom.
 - `scripts/check_axioms.py` location + count check
 - `DOCUMENTED_AXIOMS` in that script
 - Kernel Keccak output is already cross-checked against FFI/EVM keccak
+
+**Not used by hashed mapping chains**: nested / word-offset / struct
+mappings (`getMappingN`, `getMappingWord`, `structMember*`) execute on the
+symbolic `StorageKey.mapChain` channel, so their executable-plane separation is
+constructor injectivity. Their Solidity-layout interpretation
+(`Compiler/Proofs/Storage/HashedMappingLayout.lean`) takes a finite
+`LayoutNonAlias` certificate as a hypothesis instead of this axiom.
 
 **Elimination path**:
 Replace with a theorem if a restricted-domain injectivity proof
