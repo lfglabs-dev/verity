@@ -32,8 +32,11 @@ class SolidityDifferentialTests(unittest.TestCase):
                     "probe": ("Example.lean", "original", "mutated")}), \
                  patch("solidity_differential.mutations.snapshot", fake_snapshot), \
                  patch("solidity_differential.mutations.subprocess.run", failing_baseline):
-                with self.assertRaisesRegex(HarnessError, "positive control failed"):
+                with self.assertRaisesRegex(HarnessError, "positive control failed") as failure:
                     mutation_campaign(output)
+                self.assertIn("exit 1", str(failure.exception))
+                self.assertIn("baseline.log", str(failure.exception))
+                self.assertIn("baseline diverged", str(failure.exception))
             self.assertEqual((Path(output) / "probe/Example.lean").read_text(), "original")
             self.assertFalse((Path(output) / "mutation-results.json").exists())
             # The private build copy is released even when the campaign aborts.

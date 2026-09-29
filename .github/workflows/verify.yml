@@ -438,6 +438,13 @@ jobs:
             exit "${build_status}"
           fi
 
+      # The differential controls execute EVM bytecode via forge in this job,
+      # before the downstream Foundry jobs can provision their own toolchains.
+      - name: Setup Foundry for Solidity differential controls
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.5.0
+
       - name: Check Solidity slice imports and mutation regressions
         run: |
           python3 scripts/setup_solc_import.py
