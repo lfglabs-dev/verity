@@ -638,3 +638,46 @@ def stateful_arithmetic_source(original, variant):
             raise ValueError(f'missing arithmetic source anchor: {before}')
         original = original.replace(before, after)
     return original
+
+
+def stateful_member_write_source(original, variant):
+    """Struct member writes through aliases, direct paths, or expanded compounds."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'direct': {
+            '        State storage s = states[id];\n': '',
+            's.spacing = uint8(value % 200);': 'states[id].spacing = uint8(value % 200);',
+            's.fee0 = uint16(value % 1000);': 'states[id].fee0 = uint16(value % 1000);',
+            's.fee1 += 3;': 'states[id].fee1 += 3;',
+            's.fee1++;': 'states[id].fee1++;',
+            '        State storage p = positions[id][msg.sender];\n': '',
+            'p.credit = uint128(value % 1000) + p.credit;':
+            'positions[id][msg.sender].credit = uint128(value % 1000) + positions[id][msg.sender].credit;',
+            'return (s.spacing + s.fee0, p.credit);':
+            'return (states[id].spacing + states[id].fee0, positions[id][msg.sender].credit);',
+        },
+        'expanded': {
+            's.fee1 += 3;': 's.fee1 = s.fee1 + 3;',
+            's.fee1++;': 's.fee1 = s.fee1 + 1;',
+            'states[id].units += uint128(value % 1000000);':
+            'states[id].units = states[id].units + uint128(value % 1000000);',
+            'positions[id][msg.sender].wide += value % 1000 + 1;':
+            'positions[id][msg.sender].wide = positions[id][msg.sender].wide + (value % 1000 + 1);',
+            # Keep solc's order: the divisor is evaluated before the key.
+            'states[bytes32(total - 9)].wide -= 100 / (total % 4);':
+            'uint256 cut = 100 / (total % 4);\n'
+            '        states[bytes32(total - 9)].wide = states[bytes32(total - 9)].wide - cut;',
+            's.wide -= total;': 's.wide = s.wide - total;',
+            's.fee0 /= uint16(total % 3);': 's.fee0 = s.fee0 / uint16(total % 3);',
+            'delete positions[bytes32(total % 4)][msg.sender].credit;':
+            'positions[bytes32(total % 4)][msg.sender].credit = 0;',
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(variant)
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing member-write source anchor: {before}')
+        original = original.replace(before, after)
+    return original

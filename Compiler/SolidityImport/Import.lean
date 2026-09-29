@@ -1586,6 +1586,26 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     let value ← update rhs read
     let expr := if info.booleanMapping then Expr.logicalNot (.logicalNot value.expr) else value.expr
     return (rhs.pre ++ pre ++ value.pre).push (write expr)
+  if (← mKind target) == "MemberAccess" then
+    let member ← mStr (← mField target "memberName")
+    let .path pre path ← lowerRef (← mField target "expression")
+      | failAt target "only a member of a mapping-to-struct value is writable"
+    let (name, read, write) ← match path with
+      | .one field key => pure (field, Expr.structMember field key member,
+          fun (value : Expr) => Stmt.setStructMember field key member value)
+      | .two field key1 key2 => pure (field, Expr.structMember2 field key1 key2 member,
+          fun (value : Expr) => Stmt.setStructMember2 field key1 key2 member value)
+      | .outer _ _ => failAt target "member access on an incomplete mapping"
+    let info ← resolveField name target
+    if info.scalarMapping then failAt target "member access on a scalar mapping value"
+    if info.opaqueNames.contains member then
+      failAt target s!"member {member} is opaque in this slice"
+    unless info.memberNames.contains member do
+      failAt target s!"member {member} is not a layout member of {name}"
+    markField name
+    let rhs ← lowerRhs
+    let value ← update rhs read
+    return (rhs.pre ++ pre ++ value.pre).push (write value.expr)
   unless (← mKind target) == "Identifier" do
     failAt target "only a resolved scalar storage identifier is writable"
   let .state name pre ← lowerRef target

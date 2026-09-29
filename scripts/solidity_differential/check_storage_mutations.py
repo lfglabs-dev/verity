@@ -86,6 +86,18 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-member-write-one': ('fun (value : Expr) => Stmt.setStructMember field key member value)',
+                                'fun (_ : Expr) => Stmt.setStructMember field key member (.literal 0))'),
+    'import-member-write-two': ('fun (value : Expr) => Stmt.setStructMember2 field key1 key2 member value)',
+                                'fun (_ : Expr) => Stmt.setStructMember2 field key1 key2 member (.literal 0))'),
+    'import-member-write-old': ('| .one field key => pure (field, Expr.structMember field key member,',
+                                '| .one field key => pure (field, Expr.literal 0,'),
+    'import-member-write-order': ('return (rhs.pre ++ pre ++ value.pre).push (write value.expr)',
+                                  'return (pre ++ rhs.pre ++ value.pre).push (write value.expr)'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
@@ -98,6 +110,8 @@ def run(directory, output, name):
         fixture = 'ConstantSequence'
     if name.startswith('import-arith-'):
         fixture = 'ArithmeticSequence'
+    if name.startswith('import-member-'):
+        fixture = 'MemberWriteSequence'
     if name.startswith(('import-event-', 'observe-event-')):
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',

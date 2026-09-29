@@ -48,7 +48,10 @@ Storage assignments follow solc's evaluation order as observed on the pinned
 compiler (`viaIR`, 0.8.34): right-hand side first, then the target's key
 expressions, then (for compound assignments and `++`/`--`) the old value. This
 order is fixed by differential evidence rather than by a proved model of solc's
-code generator; it matters only when more than one operand can revert.
+code generator; it matters only when more than one operand can revert. Struct
+member writes (`m[k].f op= e`) follow the same order, and a packed member write
+is a read-modify-write of its slot that preserves neighbouring members; this is
+covered by the packed `setStructMember` semantics and differential evidence.
 
 The entry-point invariant infrastructure in
 `Compiler/SolidityImport/EntryPointInvariants.lean` composes actual
