@@ -372,7 +372,9 @@ jobs:
 
   build:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    timeout-minutes: ${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '60' || '35') }}
+    # The 26 isolated mutation campaigns run after the proof/audit prebuilds.
+    # Keep their per-command limits, but budget for the complete sequential step.
+    timeout-minutes: 90
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
     env:
