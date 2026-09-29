@@ -1096,6 +1096,241 @@ theorem externalStaticCallContractWordsTo_withViewLinks_revert {α : Type} [Exte
       (linkedCallSite_proj ..).2.2, hlink, address_ofNat_toNat, hhop]
   simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres]
 
+/-! ### Mutable linked responders for `deferred` bindings
+
+`withLinks` extends `withViewLinks` to state-changing typed calls. A selected
+`.call` site runs the linked body in `Contract.hopCall` at the call-site
+target (CALL-shaped frame: `sender := caller`, `thisAddress := target`,
+`msgValue := 0`; storage namespaced per target). On success the site answers
+`.success words` and the committed transition is the post-hop state (callee
+writes parked under the target's namespace, caller context restored); the
+journaled call boundary then appends exactly one entry for the site. A
+reverting body answers `.revert []`, so the caller rolls back to the pre-call
+state and the typed call reverts with `"external call failed"` (the ABI path
+treats a callee revert as a failed call). Selected `.staticcall` sites behave
+exactly as under `withViewLinks`. -/
+
+/-- Answer selected typed call sites (`links site.name target = some body`) by
+running `body` at the runtime target: `.staticcall` in `Contract.hopCallView`,
+`.call` in `Contract.hopCall` (commit on success, rollback on revert). Every
+other site (delegatecalls, unlinked names/targets) is answered by `base`. -/
+def _root_.Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withLinks
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256))) : AdversaryModel :=
+  { base with
+    stateTransition := fun site state =>
+      match site.kind, links site.name (Verity.Core.Address.ofNat site.target) with
+      | .call, some body =>
+          match Contract.hopCall (Verity.Core.Address.ofNat site.target)
+              (body (site.calldata.map Core.Uint256.ofNat)) state with
+          | .success _ post => post
+          | .revert _ _ => state
+      | _, _ => base.stateTransition site state
+    result := fun site state =>
+      match site.kind, links site.name (Verity.Core.Address.ofNat site.target) with
+      | .staticcall, some body =>
+          match Contract.hopCallView (Verity.Core.Address.ofNat site.target)
+              (body (site.calldata.map Core.Uint256.ofNat)) state with
+          | .success words _ => .success (words.map Core.Uint256.val)
+          | .revert _ _ => .revert []
+      | .call, some body =>
+          match Contract.hopCall (Verity.Core.Address.ofNat site.target)
+              (body (site.calldata.map Core.Uint256.ofNat)) state with
+          | .success words _ => .success (words.map Core.Uint256.val)
+          | .revert _ _ => .revert []
+      | _, _ => base.result site state }
+
+/-- Context-level `withLinks`: link resolution is unchanged. -/
+def ExecutableCallContext.withLinks (ctx : ExecutableCallContext)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256))) :
+    ExecutableCallContext :=
+  { ctx with adversary := ctx.adversary.withLinks links }
+
+@[simp] theorem ExecutableCallContext.withLinks_adversary (ctx : ExecutableCallContext)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256))) :
+    (ctx.withLinks links).adversary = ctx.adversary.withLinks links := rfl
+
+/-- Adapt a state-changing body without return values (e.g. a generated
+`Token.mint to amount`) to a link answering no words. -/
+def linkUnit (body : Contract Unit) : List Uint256 → Contract (List Uint256) :=
+  fun _ => Verity.bind body fun _ => Verity.pure []
+
+/-- Adapt a single-word state-changing body to a link. -/
+def linkWord (body : Contract Uint256) : List Uint256 → Contract (List Uint256) :=
+  viewLinkWord body
+
+private theorem withLinks_call_result
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (hlink : links name target = some body) :
+    (base.withLinks links).result (linkedCallSite name args arity .call target.toNat 0 [] siteId) s =
+        (match Contract.hopCall target (body args) s with
+          | .success words _ => .success (words.map Core.Uint256.val)
+          | .revert _ _ => .revert []) ∧
+    (base.withLinks links).stateTransition
+        (linkedCallSite name args arity .call target.toNat 0 [] siteId) s =
+        (match Contract.hopCall target (body args) s with
+          | .success _ post => post
+          | .revert _ _ => s) := by
+  constructor <;>
+    simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withLinks,
+      linkedCallSite_calldata_ofNat, (linkedCallSite_proj ..).1, (linkedCallSite_proj ..).2.1,
+      (linkedCallSite_proj ..).2.2, hlink, address_ofNat_toNat]
+
+/-- Fidelity of `withLinks` for a state-changing typed call with results. If
+the call is linked to `body` and the hop of `body args` into `target`
+succeeds with `words` and post-hop state `s'`, the typed call returns the
+decoding of the first `arity` words and commits `s'` (callee writes under the
+target's namespace), with exactly one journal entry appended to the caller's
+pre-call journal and the hop words as returndata. -/
+theorem externalCallContractWordsTo_withLinks {α : Type} [ExternalResult α]
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (words : List Uint256) (s' : ContractState)
+    (hlink : links name target = some body)
+    (hhop : Contract.hopCall target (body args) s = ContractResult.success words s')
+    (harity : arity ≤ words.length) :
+    (externalCallContractWordsTo (α := α) name target args
+        (base.withLinks links) arity siteId).run s =
+      ContractResult.success (ExternalResult.fromWords (words.take arity))
+        { s' with
+          calls := s.calls ++
+            [Compiler.CompilationModel.DenoteExternalCalls.journalEntry
+              (linkedCallSite name args arity .call target.toNat 0 [] siteId)
+              (.success (words.map Core.Uint256.val))]
+          returndata := (words.map Core.Uint256.val).map
+            Compiler.CompilationModel.Denote.wordNormalize } := by
+  obtain ⟨hres, htr⟩ := withLinks_call_result base links name target args arity siteId s body hlink
+  simp only [hhop] at hres htr
+  have hlen : arity ≤ (words.map Core.Uint256.val).length := by simpa using harity
+  simp only [externalCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
+    if_pos hlen, ← List.map_take, map_ofNat_val,
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1, htr]
+  rfl
+
+/-- A reverting linked mutable body makes the typed call revert with the
+caller state restored (callee writes rolled back). -/
+theorem externalCallContractWordsTo_withLinks_revert {α : Type} [ExternalResult α]
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (msg : String) (s' : ContractState)
+    (hlink : links name target = some body)
+    (hhop : Contract.hopCall target (body args) s = ContractResult.revert msg s') :
+    (externalCallContractWordsTo (α := α) name target args
+        (base.withLinks links) arity siteId).run s =
+      ContractResult.revert "external call failed" s := by
+  obtain ⟨hres, _⟩ := withLinks_call_result base links name target args arity siteId s body hlink
+  simp only [hhop] at hres
+  simp only [externalCallContractWordsTo, Contract.run, commonExternalCall_apply, hres]
+
+/-- Fidelity of `withLinks` for a state-changing typed call without results
+(`t.mint to amount`): a successful linked hop commits its post state `s'`
+with one journal entry appended. -/
+theorem externalCallEffectWordsTo_withLinks
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (words : List Uint256) (s' : ContractState)
+    (hlink : links name target = some body)
+    (hhop : Contract.hopCall target (body args) s = ContractResult.success words s') :
+    (externalCallEffectWordsTo name target args (base.withLinks links) siteId).run s =
+      ContractResult.success ()
+        { s' with
+          calls := s.calls ++
+            [Compiler.CompilationModel.DenoteExternalCalls.journalEntry
+              (linkedCallSite name args 0 .call target.toNat 0 [] siteId)
+              (.success (words.map Core.Uint256.val))]
+          returndata := (words.map Core.Uint256.val).map
+            Compiler.CompilationModel.Denote.wordNormalize } := by
+  obtain ⟨hres, htr⟩ := withLinks_call_result base links name target args 0 siteId s body hlink
+  simp only [hhop] at hres htr
+  simp only [externalCallEffectWordsTo, Contract.run, Verity.bind, commonExternalCall_apply, hres,
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1, htr]
+  rfl
+
+/-- A reverting linked mutable effect body makes the typed call revert with
+the caller state restored. -/
+theorem externalCallEffectWordsTo_withLinks_revert
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (msg : String) (s' : ContractState)
+    (hlink : links name target = some body)
+    (hhop : Contract.hopCall target (body args) s = ContractResult.revert msg s') :
+    (externalCallEffectWordsTo name target args (base.withLinks links) siteId).run s =
+      ContractResult.revert "external call failed" s := by
+  obtain ⟨hres, _⟩ := withLinks_call_result base links name target args 0 siteId s body hlink
+  simp only [hhop] at hres
+  simp only [externalCallEffectWordsTo, Contract.run, Verity.bind, commonExternalCall_apply, hres]
+
+/-- On static sites `withLinks` answers exactly as `withViewLinks`. -/
+theorem withLinks_result_staticcall
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (site : Compiler.CompilationModel.DenoteExternalCalls.CallSite) (s : ContractState)
+    (hkind : site.kind = .staticcall) :
+    (base.withLinks links).result site s = (base.withViewLinks links).result site s := by
+  simp only [Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withLinks,
+    Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel.withViewLinks, hkind]
+  cases links site.name (Verity.Core.Address.ofNat site.target) <;> rfl
+
+/-- Fidelity of `withLinks` for static typed calls (same as
+`externalStaticCallContractWordsTo_withViewLinks`). -/
+theorem externalStaticCallContractWordsTo_withLinks {α : Type} [ExternalResult α]
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (words : List Uint256) (s' : ContractState)
+    (hlink : links name target = some body)
+    (hhop : Contract.hopCallView target (body args) s = ContractResult.success words s')
+    (harity : arity ≤ words.length) :
+    ∃ post,
+      (externalStaticCallContractWordsTo (α := α) name target args
+          (base.withLinks links) arity siteId).run s =
+        ContractResult.success (ExternalResult.fromWords (words.take arity)) post ∧
+      post.storageWords = s.storageWords := by
+  have hres := withLinks_result_staticcall base links
+    (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s rfl
+  obtain ⟨post, hrun, hpost⟩ := externalStaticCallContractWordsTo_withViewLinks (α := α) base links
+    name target args arity siteId s body words s' hlink hhop harity
+  refine ⟨post, ?_, hpost⟩
+  rw [← hrun]
+  simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1]
+
+/-- A reverting linked view body makes the typed static call revert with the
+caller state restored. -/
+theorem externalStaticCallContractWordsTo_withLinks_revert {α : Type} [ExternalResult α]
+    (base : AdversaryModel)
+    (links : String → Address → Option (List Uint256 → Contract (List Uint256)))
+    (name : String) (target : Address) (args : List Uint256) (arity siteId : Nat)
+    (s : ContractState) (body : List Uint256 → Contract (List Uint256))
+    (msg : String) (s' : ContractState)
+    (hlink : links name target = some body)
+    (hhop : Contract.hopCallView target (body args) s = ContractResult.revert msg s') :
+    (externalStaticCallContractWordsTo (α := α) name target args
+        (base.withLinks links) arity siteId).run s =
+      ContractResult.revert "external call failed" s := by
+  have hres := withLinks_result_staticcall base links
+    (linkedCallSite name args arity .staticcall target.toNat 0 [] siteId) s rfl
+  rw [← externalStaticCallContractWordsTo_withViewLinks_revert (α := α) base links name target
+    args arity siteId s body msg s' hlink hhop]
+  simp only [externalStaticCallContractWordsTo, Contract.run, commonExternalCall_apply, hres,
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
+    Compiler.CompilationModel.DenoteExternalCalls.denoteCall, (linkedCallSite_proj ..).1]
+
 def failedExternalResult {α : Type} [ExternalResult α] [Inhabited α] : List Nat → α
   | [] => Inhabited.default
   | words => ExternalResult.fromWords (words.map Core.Uint256.ofNat)

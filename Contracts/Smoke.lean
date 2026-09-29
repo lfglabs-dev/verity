@@ -29,3 +29,4 @@ import Contracts.Smoke.HashedMappings
 import Contracts.Smoke.ParetoSmallFidelityGaps
 import Contracts.Smoke.LinkedGettersAndDeferred
 import Contracts.Smoke.HopContextAndMutableTuples
+import Contracts.Smoke.LinkedRuntimeTarget

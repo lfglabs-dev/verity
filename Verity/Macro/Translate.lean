@@ -2641,18 +2641,41 @@ private def threadHelperApp?
   | none => pure none
 
 /-- Resolve a `linked_contracts` binding for an executable typed call.
-    Prefer a receiver whose name matches the binding; otherwise, if this
-    interface has exactly one binding, use that (unbound interfaces stay
-    on the adversary-oracle path). -/
+    1. A receiver whose name matches a binding of this interface uses it.
+    2. Otherwise the interface's bindings decide (runtime-target dispatch):
+       - one binding, or several bindings that all resolve to the same callee
+         contract: that callee's body runs in `Contract.hopCall` /
+         `hopCallView` at the call's runtime target address, so storage is
+         namespaced per target (two tokens of one contract type stay
+         distinct);
+       - several bindings that are all `deferred`: the deferred lowering
+         (ABI call answered by the threaded context, whose `withLinks` /
+         `withViewLinks` responders are keyed by the runtime target);
+       - several bindings to different callees, or a mix of named and
+         `deferred` bindings (G25): elaboration fails closed. Name the
+         receiver after a binding, or bind every such interface as
+         `deferred` and dispatch per target in the proof.
+    Unbound interfaces return `none` (adversary-oracle path). -/
 private def lookupLinkedBinding?
     (linked : Array LinkedContractDecl) (targetName : String) (extName : String) :
-    Option LinkedContractDecl :=
+    CommandElabM (Option LinkedContractDecl) := do
   match extName.splitOn "." with
-  | [] => none
+  | [] => return none
   | iface :: _ =>
-      let byName := linked.find? (fun b => b.name == targetName && b.interfaceName == iface)
+      if let some b := linked.find? (fun b => b.name == targetName && b.interfaceName == iface) then
+        return some b
       let ifaceBindings := linked.filter (fun b => b.interfaceName == iface)
-      byName <|> (if ifaceBindings.size == 1 then ifaceBindings[0]? else none)
+      let some first := ifaceBindings[0]? | return none
+      if ifaceBindings.size == 1 then return some first
+      if ifaceBindings.all (·.isDeferred) then return some first
+      let calleeKey (b : LinkedContractDecl) : Name :=
+        if b.calleeResolvedName.isAnonymous then b.calleeIdent.getId else b.calleeResolvedName
+      if ifaceBindings.all (fun b => !b.isDeferred && calleeKey b == calleeKey first) then
+        return some first
+      let described := ifaceBindings.toList.map fun b =>
+        if b.isDeferred then s!"{b.name} := deferred" else s!"{b.name} := {b.calleeName}"
+      let receiver := if targetName.isEmpty then "a computed receiver" else s!"receiver '{targetName}'"
+      throwError s!"linked_contracts: typed call '{extName}' on {receiver} is ambiguous: interface '{iface}' is bound to different contracts ({", ".intercalate described}). Name the receiver after one binding, or bind every '{iface}' binding as `deferred` and answer the calls per runtime target with `ExecutableCallContext.withLinks` (G25)"
 
 private partial def exprIsExecutableCallContext (ty : Expr) : Bool :=
   match ty.consumeMData with
@@ -2827,7 +2850,7 @@ private def hopBoundCallTerm?
     (extName : String) (args : Array Term) (isView : Bool) (adv : Term)
     (returnTys : Array ValueType := #[]) :
     CommandElabM (Option Term) := do
-  let some binding := lookupLinkedBinding? linked targetName extName | return none
+  let some binding ← lookupLinkedBinding? linked targetName extName | return none
   if binding.isDeferred then
     -- G15: keep the ABI external-call lowering, answered by the threaded
     -- context. The enclosing function takes the context (see
@@ -2863,7 +2886,7 @@ private partial def bodyNeedsLinkedCallContext
   if linked.isEmpty then return false
   let deferredFor (targetName extName : String) : CommandElabM Bool := do
     unless externalDecls.any (fun ext => ext.name == extName) do return false
-    match lookupLinkedBinding? linked targetName extName with
+    match ← lookupLinkedBinding? linked targetName extName with
     | some binding =>
         if binding.isDeferred then
           pure true
@@ -5678,16 +5701,19 @@ partial def parseContractSyntax
           continue
         let calleeCandidates := [currentNs ++ binding.calleeIdent.getId, binding.calleeIdent.getId]
         let mut calleeSyntax? : Option ParsedContractSyntax := none
+        let mut calleeResolved : Name := .anonymous
         for candidate in calleeCandidates do
           if calleeSyntax?.isNone then
             calleeSyntax? ← lookupContractSyntax candidate
+            if calleeSyntax?.isSome then
+              calleeResolved := candidate
         let some calleeSyntax := calleeSyntax?
           | throwErrorAt binding.calleeIdent
               s!"linked_contracts '{binding.name}' refers to unknown contract '{binding.calleeName}'; declare the callee before the caller"
         -- Registered callee syntax is already flattened across `is` parents,
         -- so inherited public fields are visible to getter lowering (G23).
         resolvedLinkedContracts := resolvedLinkedContracts.push
-          { binding with calleeFields := calleeSyntax.fields }
+          { binding with calleeFields := calleeSyntax.fields, calleeResolvedName := calleeResolved }
       let parsedLinkedContracts := resolvedLinkedContracts
       let inheritedInterfaceNames := parent?.map (fun p =>
         p.interfaceDecls.map (·.name)) |>.getD #[]
