@@ -1,0 +1,467 @@
+# Axioms in Verity
+
+This file is the authoritative registry of axioms used by Verity proof code.
+
+## Solidity import
+
+`smoke.covered` and `smoke_step_credit` are ordinary theorems. The import
+path adds no project axiom, `sorry`, or `native_decide`. `covered` is
+`decide` on the whitelist. `smoke_step_credit` is `simp` plus `decide` on the
+concrete packed read. Interpreter `#eval` checks are not theorems. The frontend that
+builds the model from solc JSON remains a trust assumption; see
+`TRUST_ASSUMPTIONS.md`.
+
+## Policy
+
+Axioms are exceptional. When an axiom exists, it must have:
+
+1. Explicit documentation in this file.
+2. Source comment marking it as an axiom and linking to this file.
+3. CI checks that validate usage assumptions.
+4. A clear elimination path, when practical.
+
+## Current Axioms
+
+- Active axioms: 1
+
+C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
+not add a keccak-injectivity axiom. Source lens laws use constructor
+injectivity; Solidity slot derivation remains compiler-side. The G24 hop
+namespace constructor `StorageKey.scoped` (#2440) likewise adds no axiom:
+its hop lemmas are definitional or constructor case splits.
+
+C5 step 4 is complete under `solidityMappingSlot_injective` below —
+collision-resistance of the 64-byte ABI mapping preimage, **not**
+injectivity of keccak256 on arbitrary byte strings. Finite-set
+slices remain valid without the axiom. Global aligned `writeMap*`
+preservation uses the axiom; lone `writeSlot` still takes an
+image-avoidance `∀`. `writeAddrSlot` and `writeArray` discharge
+that `∀` (they never write `StorageKey.slot`) and add no axiom.
+`FieldStorageKey` is a
+constructor match on `FieldType` / `isTransient`; struct-member
+slots add `wordOffset` via `mappingSlotLocation`. Compatibility
+`aliasSlots` are extra compiler slots, not extra source keys.
+bytes32-keyed maps use the same keccak preimage as uint256 keys
+and do not add a `StorageKey` constructor. Remaining `MappingType.nested` pairs likewise add no constructor. Packed extract is a shift and
+mask on that word, not a new axiom. Equality with `compiledPackedRead`
+is a `width < 256` calculation. `FieldCoherence` adds no axiom:
+it instantiates `MappingCoherent*` / `MappingCoherentOn*` at the
+named field's derived slot. `encodeStorageAt` on an unoccupied
+mapping slot is the same shadow, still under an explicit
+non-occupation hypothesis. Lone `writeSlot` preservation of a
+finite list is the same explicit slot inequality. Lone
+`writeTransient` preservation adds no axiom: constructor
+injectivity separates transient from persistent keys.
+`FieldEncode` adds no axiom: `findResolvedFieldAtSlot` is derived
+from no write-slot conflict plus constructor facts.
+The all-keys global (`MappingCoherentGlobal.MappingCoherentAllKeys`,
+final slice of C5 step 4) adds no axiom either: cross-channel
+separation is the declared layout (`fieldMapKindAt` is a function of
+the base slot, so distinct mapping shapes force distinct base slots)
+plus the same `solidityMappingSlot_injective`. The simple-vs-nested
+cross case takes an explicit `MappingBasesNotDerived` layout
+certificate and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
+both are hypotheses of the existing image-avoidance shape, discharged
+per contract. Dynamic-array element slots are **not** covered: the
+source and Yul derivations diverge and the collapse returns `none` at
+dynamic-array roots rather than claiming an equality — see the
+`unsupported` row in `TRUST_ASSUMPTIONS.md` and
+`docs/VERIFICATION_STATUS.md`.
+
+FunctionSpec call denotation (`DenoteFunctionCalls`), ETH-valued
+`externalCallBindTo`, `withPayableCallContext` crediting
+`selfBalance`, and `MultiContract` add no axiom: callee behaviour
+is an explicit `AdversaryModel` / `calleeStep` parameter, not an
+assumed transition.
+
+### 1. `solidityMappingSlot_injective`
+
+**Location**: `Compiler/Proofs/MappingSlot.lean:65`
+
+**Statement**:
+```lean
+axiom solidityMappingSlot_injective
+    (base₁ key₁ base₂ key₂ : Nat) :
+    solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →
+    base₁ = base₂ ∧ key₁ = key₂
+```
+
+**Justification**:
+`solidityMappingSlot base key` is `keccak256(abi.encode(key, base))` —
+a 64-byte ABI preimage. Distinct `(base, key)` pairs colliding would
+alias two Solidity mapping entries onto one EVM word. Solidity's
+layout makes the same collision-resistance assumption. This is **not**
+a claim that keccak256 is injective on all `ByteArray`s (256-bit
+output, infinite domain).
+
+**Risk**: Medium. A keccak collision on this preimage family would
+make the global `MappingCoherent` preservation theorem false. Finite
+listed-pair certificates remain valid without the axiom.
+
+**CI validation**:
+- `scripts/check_axioms.py` location + count check
+- `DOCUMENTED_AXIOMS` in that script
+- Kernel Keccak output is already cross-checked against FFI/EVM keccak
+
+**Elimination path**:
+Replace with a theorem if a restricted-domain injectivity proof
+becomes available, or keep as an explicit cryptographic assumption
+and stop calling C5 step 4 axiom-free.
+
+## Eliminated Axioms
+
+### 1. `solidityMappingSlot_lt_evmModulus` (eliminated)
+
+**Former location**: `Compiler/Proofs/MappingSlot.lean:125`
+
+**Former statement**:
+```lean
+axiom solidityMappingSlot_lt_evmModulus (baseSlot key : Nat) :
+    solidityMappingSlot baseSlot key < Compiler.Constants.evmModulus
+```
+
+**How it was eliminated**:
+1. `solidityMappingSlot` was redefined to use `KeccakEngine.keccak256` (kernel-computable)
+   instead of `ffi.KEC` (opaque FFI).
+2. `squeeze256_size` proves the output is always exactly 32 bytes.
+3. `fromByteArrayBigEndian_lt_of_size` proves a ≤32-byte big-endian value is < 2^256.
+4. The axiom became a theorem: `solidityMappingSlot_lt_evmModulus` is now proved,
+   not assumed.
+
+**Runtime performance**: An `@[implemented_by]` annotation optionally redirects to
+the FFI version at runtime for speed, without affecting proof soundness.
+
+## Trusted Reduction and Codegen Surface (Non-Axiom)
+
+Verity currently has zero project-level Lean axioms, but some proofs and tests
+intentionally rely on Lean mechanisms that sit outside ordinary kernel
+elaboration:
+
+- `native_decide` proofs depend on Lean's native code generation. Depending on
+  the generated proof shape, `#print axioms` reports either the builtin
+  `Lean.ofReduceBool` or a Lean 4.31 generated per-proof constant whose name has
+  the form `…._native.native_decide.ax_<digits>`. Both forms rely on the native
+  compiler trust boundary (`Lean.trustCompiler`); the generated constants are
+  not Verity project axioms. They are acceptable for executable smoke tests,
+  concrete bridge checks, and explicitly documented reduction witnesses, and
+  are tracked as trusted reduction surface.
+  Lean 4.31 exposes `String.startsWith_string_iff` and
+  `String.startsWith_string_eq_false_iff`. The closed compatibility scratch-name
+  facts in `Compiler/CompilationModel/ReservedScratchNames.lean` now use those
+  lemmas and kernel `decide`; their former Lean 4.24 native-code trust boundary
+  has been eliminated.
+- `@[implemented_by ...]` may redirect runtime execution to a faster
+  implementation. The proof term still sees the kernel-computable definition,
+  so this is a runtime/codegen trust boundary rather than a Lean axiom.
+- `partial def` marks recursive executable helpers whose termination is not
+  kernel-proved. These helpers are allowed in macro, codegen, reporting, and
+  native-test infrastructure, and their presence is registry-gated.
+
+CI runs `scripts/check_trust_surface_registry.py` to ensure these mechanisms and
+all explicit ECM assumptions (`axioms := [...]`) remain documented when their
+source footprint changes.
+
+### 2. Selector computation (eliminated earlier)
+
+Function selector derivation (`bytes4(keccak256(signature))`) was previously
+axiomatic. It is now kernel-computable via the vendored unrolled Keccak engine
+in `Compiler/Keccak/` and `Compiler/Selectors.lean`.
+
+### 3. Layer 2 body-simulation axiom (eliminated earlier)
+
+The generic body-simulation axiom in Layer 2 was eliminated through explicit
+proof work (issue #1618). `supported_function_correct` is now a real theorem.
+
+### 4. Layer 3 dispatch bridge (eliminated earlier)
+
+The dispatch bridge in Layer 3 was converted from a Lean axiom to an explicit
+theorem hypothesis (in the former `Compiler/Proofs/YulGeneration/Preservation.lean`, since removed).
+
+## Trusted Cryptographic Primitives (Non-Axiom)
+
+### Kernel-computable selector Keccak-256
+
+**Location**: `Compiler/Selectors.lean`, `Compiler/Keccak/*.lean`
+
+**Role**:
+Computes function selectors (`bytes4(keccak256(signature))`) inside Lean's
+kernel using a vendored unrolled Keccak-256 engine. This is now a definitional
+computation, not a Lean axiom.
+
+**Soundness controls**:
+- Fixed selector examples in `Compiler/Selectors.lean`.
+- CI cross-checks selectors against `solc --hashes`.
+- Selector fixture checks still run as defense in depth.
+
+### Kernel-computable mapping-slot Keccak-256
+
+**Location**: `Compiler/Proofs/MappingSlot.lean`, `Compiler/Keccak/*.lean`
+
+**Role**:
+Computes mapping storage slots as `keccak256(abi.encode(key, baseSlot))` using
+the same kernel-computable Keccak engine. The output-length bound is proved
+structurally via `Compiler/Keccak/SpongeProperties.lean`.
+
+**What we trust**:
+- The kernel Keccak implementation matches the EVM's keccak256 (CI cross-checked).
+- Two different inputs won't hash to the same slot (standard cryptographic
+  assumption — Solidity makes the same one).
+
+**Soundness controls**:
+- Mapping-slot abstraction boundary checks in CI.
+- End-to-end regression suites that exercise mapping reads/writes.
+- CI cross-checks kernel Keccak output against FFI Keccak output.
+
+### Kernel-computable source-semantics `keccak256(offset, size)`
+
+**Location**: `Compiler/Proofs/IRGeneration/SourceSemantics.lean`
+(`keccakMemorySlice`, `memorySliceBytesBE`, and the `.keccak256` arms of
+`evalExpr` / `evalExprWithHelpers`).
+
+**Role**:
+The executable source semantics evaluates `Expr.keccak256 offset size` by reading
+the `RuntimeState` memory as 256-bit words at `offset, offset+32, …`,
+concatenating them big-endian, truncating the result to `size` bytes, and hashing
+with the in-tree `KeccakEngine.keccak256`. Previously this expression evaluated to
+`none` (modeled as a revert), so any contract performing a native `keccak256` fell
+outside the modeled fragment; it is now executably modeled.
+
+**What we trust** (`keccak256_memory_slice_matches_evm`):
+Verity's compiled output writes scratch memory in whole 32-byte words (`mstore`),
+so reading whole words and truncating the big-endian concatenation to `size` bytes
+reproduces the EVM's byte-addressed `keccak256(offset, size)` preimage exactly. The
+`RuntimeState` memory is word-keyed, so sub-word / byte-granular aliasing is not
+modeled; this is faithful for the word-aligned access shape Verity emits and is the
+same assumption already surfaced in `--trust-report` for `Expr.keccak256`.
+
+**Soundness controls**:
+- Reuses the same kernel-computable `KeccakEngine.keccak256` that CI cross-checks
+  against FFI/EVM keccak; no new hash implementation is introduced.
+- `keccakMemorySlice` is an ordinary computable definition, not an axiom: it adds
+  no `axiom`/`sorry` to the trust surface.
+
+## EVMYulLean Runtime Semantics (Non-Axiom)
+
+**Location**:
+`Compiler/Proofs/YulGeneration/Backends/EvmYulLean*.lean`,
+`lake-manifest.json`, `artifacts/evmyullean_fork_audit.json`
+
+**Role**:
+EVMYulLean is the authoritative Yul runtime target for the safe-body EndToEnd
+retargeting path. This is not a Lean axiom: Verity proves the adapter, builtin
+bridge, recursive target equality, safe-body closure, and public EndToEnd
+wrappers in Lean, then trusts that the pinned EVMYulLean execution model matches
+the EVM.
+
+**What we trust**:
+- The pinned `lfglabs-dev/EVMYulLean` fork matches the intended EVM/Yul
+  semantics inherited from upstream `NethermindEth/EVMYulLean`.
+- The audited fork delta remains non-semantic unless explicitly reviewed.
+
+**Soundness controls**:
+- `make check` validates the fork-audit artifact against `lake-manifest.json`.
+- `make test-evmyullean-fork` rechecks the fork audit, checks the adapter
+  report, rebuilds the native transition harness, the public EndToEnd
+  EVMYulLean target, and the concrete `native_decide` bridge-equivalence
+  tests.
+- `.github/workflows/evmyullean-fork-conformance.yml` runs the conformance probe
+  weekly; scheduled or manual failures fail the workflow and
+  open or update a GitHub issue for drift triage.
+
+## External Call Module (ECM) Assumptions
+
+When your contract calls an external contract (like an ERC-20 token), Verity
+can't prove that the *other* contract works correctly. Instead, it documents
+the assumption: "we assume this address implements the expected interface."
+
+These are **not** proof-system axioms — they are interface assumptions scoped
+to contracts that use the module. The compiler lists all of them at compile
+time in `--verbose` output. Use `--deny-unchecked-dependencies` to make
+compilation fail if any assumption hasn't been reviewed.
+
+### Caller-frame preservation theorems
+
+Independently of the ECM interface assumptions above, the *EVM frame
+condition* that an external `CALL` cannot mutate the caller's storage,
+transient storage, or memory outside the declared output buffer is now a
+**theorem** of `Verity.EVM.Frame`, no longer an assumption. The relevant
+results are:
+
+- `Verity.EVM.Frame.external_call_preserves_caller_storage`
+- `Verity.EVM.Frame.external_call_preserves_caller_transient_storage`
+- `Verity.EVM.Frame.external_call_preserves_caller_memory_outside_output_buffer`
+- `Verity.EVM.Frame.external_call_preserves_caller_memory` (disjoint-region form)
+- their iterated-CALL variants `Verity.EVM.Frame.external_calls_preserve_*`
+
+The theorems quantify universally over `Verity.EVM.Frame.CalleeResult`,
+which is the observational interface of any EVM callee program. Downstream
+contract proofs can consume these theorems directly to discharge the EVM
+frame condition without re-stating it.
+
+The abstract memory model on which these theorems compose lives at
+`Verity.EVM.MemoryModel`; the standard solc memory-layout schema and the
+call-buffer-disjoint-from-heap theorem live at `Verity.EVM.Layout`.
+
+### Standard Module Assumptions
+
+| Module | Assumption | Meaning |
+|--------|------------|---------|
+| `ERC20.safeTransfer` | `erc20_transfer_interface` | Target implements ERC-20 `transfer(address,uint256)` |
+| `ERC20.safeTransferFrom` | `erc20_transferFrom_interface` | Target implements ERC-20 `transferFrom(address,address,uint256)` |
+| `ERC20.safeApprove` | `erc20_approve_interface` | Target implements ERC-20 `approve(address,uint256)` |
+| `ERC20.solmateSafeTransfer` | `erc20_solmate_safe_transfer_interface` | Target implements ERC-20 `transfer(address,uint256)`; optional-return acceptance follows Solmate SafeTransferLib |
+| `ERC20.solmateSafeTransferFrom` | `erc20_solmate_safe_transferFrom_interface` | Target implements ERC-20 `transferFrom(address,address,uint256)`; optional-return acceptance follows Solmate SafeTransferLib |
+| `ERC20.legacyStringSafeTransfer` | `erc20_legacy_string_safe_transfer_interface` | Target implements ERC-20 `transfer(address,uint256)`; uses legacy string `Error("...")` reverts + extcodesize check (Morpho-style) |
+| `ERC20.legacyStringSafeTransferFrom` | `erc20_legacy_string_safe_transferFrom_interface` | Target implements ERC-20 `transferFrom(address,address,uint256)`; uses legacy string `Error("...")` reverts + extcodesize check (Morpho-style) |
+| `ERC20.balanceOf` | `erc20_balanceOf_interface` | Target implements `balanceOf(address)` and returns a `uint256` |
+| `ERC20.allowance` | `erc20_allowance_interface` | Target implements `allowance(address,address)` and returns a `uint256` |
+| `ERC20.totalSupply` | `erc20_totalSupply_interface` | Target implements `totalSupply()` and returns a `uint256` |
+| `ERC4626.previewDeposit` | `erc4626_previewDeposit_interface` | Target implements `previewDeposit(uint256)` and returns a `uint256` |
+| `ERC4626.previewMint` | `erc4626_previewMint_interface` | Target implements `previewMint(uint256)` and returns a `uint256` |
+| `ERC4626.previewWithdraw` | `erc4626_previewWithdraw_interface` | Target implements `previewWithdraw(uint256)` and returns a `uint256` |
+| `ERC4626.previewRedeem` | `erc4626_previewRedeem_interface` | Target implements `previewRedeem(uint256)` and returns a `uint256` |
+| `ERC4626.convertToAssets` | `erc4626_convertToAssets_interface` | Target implements `convertToAssets(uint256)` and returns a `uint256` |
+| `ERC4626.convertToShares` | `erc4626_convertToShares_interface` | Target implements `convertToShares(uint256)` and returns a `uint256` |
+| `ERC4626.totalAssets` | `erc4626_totalAssets_interface` | Target implements `totalAssets()` and returns a `uint256` |
+| `ERC4626.asset` | `erc4626_asset_interface` | Target implements `asset()` and returns an `address` |
+| `ERC4626.maxDeposit` | `erc4626_maxDeposit_interface` | Target implements `maxDeposit(address)` and returns a `uint256` |
+| `ERC4626.maxMint` | `erc4626_maxMint_interface` | Target implements `maxMint(address)` and returns a `uint256` |
+| `ERC4626.maxWithdraw` | `erc4626_maxWithdraw_interface` | Target implements `maxWithdraw(address)` and returns a `uint256` |
+| `ERC4626.maxRedeem` | `erc4626_maxRedeem_interface` | Target implements `maxRedeem(address)` and returns a `uint256` |
+| `ERC4626.deposit` | `erc4626_deposit_interface` | Target implements `deposit(uint256,address)` and returns a `uint256` |
+| `Oracle.oracleReadUint256` | `oracle_read_uint256_interface` | Target implements the selected oracle read interface and returns a `uint256` |
+| `Precompiles.ecrecover` | `evm_ecrecover_precompile` | EVM precompile at address 0x01 behaves per Yellow Paper |
+| `Precompiles.sha256Memory` / `Precompiles.sha256` | `evm_sha256_precompile` | EVM precompile at address 0x02 behaves per Yellow Paper |
+| `Precompiles.bn256Add` | `evm_bn256_add_precompile` | EVM precompile at address 0x06 behaves per EIP-196 (BN254 point addition) |
+| `Precompiles.bn256ScalarMul` | `evm_bn256_scalar_mul_precompile` | EVM precompile at address 0x07 behaves per EIP-196 (BN254 scalar multiplication) |
+| `Precompiles.bn256Pairing` | `evm_bn256_pairing_precompile` | EVM precompile at address 0x08 behaves per EIP-197 (BN254 optimal-Ate pairing) |
+| `Callbacks.callback` | `callback_target_interface` | Callback target processes ABI-encoded arguments correctly |
+| `Calls.withReturn` | `external_call_abi_interface` | Target contract function matches declared selector and ABI |
+| `Calls.callWithValue` / `Calls.callWithValueBytes` | `generic_call_with_value_interface` | Target accepts caller-provided calldata and ETH value; failures bubble returndata |
+| `Calls.bubblingValueCall` / `Calls.bubblingValueCallNoOutput` | `generic_low_level_value_call_interface` | Generic low-level `call` mechanics are emitted; calldata and successful returndata meaning remain package assumptions |
+| `Calls.selfDelegateMulticallBytes` | `self_delegate_multicall_bytes_revert_bubbling` | Trusted ECM boundary for Solidity-style `multicall(bytes[])`: generated Yul is audited to reject malformed/wrapping offsets, self-`delegatecall` each calldata payload, and bubble revert returndata exactly; full non-empty multicall semantics remain assumed. First-class `denoteSelfDelegateCalls` is a separate Lean denotation (no new axiom). |
+| `Hashing.abiEncodeStaticWords` | `keccak256_memory_slice_matches_evm`, `abi_standard_static_word_layout` | Static ABI words are laid out contiguously before Keccak |
+| `Hashing.abiEncodePackedWords` / `Hashing.abiEncodePacked` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_word_layout` | Static packed words are laid out contiguously before Keccak |
+| `Hashing.abiEncodeStaticArray` | `keccak256_memory_slice_matches_evm`, `abi_standard_dynamic_array_static_element_layout` | Single dynamic-array ABI encoding with static-width elements is laid out before Keccak |
+| `Hashing.abiEncodePackedStaticSegments` | `keccak256_memory_slice_matches_evm`, `abi_packed_static_segment_layout` | Static packed byte-width segments are laid out before Keccak |
+| `Hashing.eip712Digest` | `keccak256_memory_slice_matches_evm`, `eip712_digest_layout` | Final EIP-712 typed-data preimage is laid out as `0x1901 || domainSeparator || structHash` before Keccak |
+| `Hashing.sha256PackedWords` / `Hashing.sha256Packed` | `evm_sha256_precompile`, `abi_packed_static_word_layout` | Static packed words are laid out before SHA-256 precompile call |
+| `Hashing.sha256PackedStaticSegments` | `evm_sha256_precompile`, `abi_packed_static_segment_layout` | Static packed byte-width segments are laid out before SHA-256 precompile call |
+
+### Test-Only ECM Assumptions
+
+| Fixture | Assumption | Meaning |
+|---------|------------|---------|
+| `Compiler.CompileDriverTest` | `test_call_interface` | Synthetic compile-driver fixture for ECM trust reporting |
+| `Compiler.CompileDriverTest` | `ctor_hook_interface` | Synthetic constructor fixture for ECM trust reporting |
+
+### Third-Party Module Assumptions
+
+Third-party ECMs (external Lean packages) document their assumptions in their own
+`AXIOMS.md`. All assumptions — standard and third-party — are listed at compile
+time. See `docs/EXTERNAL_CALL_MODULES.md` for details.
+
+**Risk**: Low. These are interface assumptions (not proof-system extensions)
+scoped to contracts that use the module.
+
+## Non-Axiom: Arithmetic
+
+All 25 pure EVM arithmetic builtins have universal bridge equivalence lemmas
+(all 25 fully proven).
+The proofs show that Verity's arithmetic matches EVM arithmetic (wrapping at
+2^256) for *all* possible inputs, not just test cases. The EVMYulLean bridge
+currently has universal equivalence lemmas for 25 of them (`add`, `sub`, `mul`,
+`div`, `mod`, `addmod`, `mulmod`, `exp`, `sdiv`, `smod`, `lt`, `gt`, `slt`, `sgt`, `eq`, `iszero`, `and`, `or`,
+`xor`, `not`, `shl`, `shr`, `sar`, `signextend`, `byte`),
+with no remaining pure builtins relying only on concrete bridge checks.
+
+Additionally, 8 higher-level expression operators have proven compilation
+correctness in the `ExprCompileCore` fragment: `min`, `max`, `ceilDiv`, `ite`
+(conditional), `wMulDown`, `wDivUp`, `mulDivDown`, and `mulDivUp`. See
+[`docs/ARITHMETIC_PROFILE.md`](ARITHMETIC_PROFILE.md) for the full
+specification.
+
+The structured checked-arithmetic panic migration adds **no project-level
+axiom**. The closed `Verity.Core.PanicCode` type maps `.arithmeticOverflow` to
+`0x11` and `.divisionByZero` to `0x12`; unsigned checked arithmetic carries those
+constructors through `Stmt.panic` and typed IR before converting explicitly at
+canonical `Panic(uint256)` payload lowering. General runtime panic expressions
+and generated `0x21` enum guards remain on the raw `Stmt.panicCode Expr`
+compatibility path. The abstract IR memory/revert result has the general theorem
+`Compiler.Proofs.IRGeneration.execIRStmts_solidityPanicPayload` in `PanicPayloadIR`
+and typed specializations for both constructors. That result does not observe
+the returned bytes. The byte-level theorem
+`Compiler.Proofs.YulGeneration.observePanicPayloadBytes_solidityPanicPayload`
+and its `_size` companion in `PanicPayloadBytes` prove the emitted AST returns
+the exact 36-byte payload. They use
+`Compiler.Proofs.YulGeneration.Backends.Panic.machineState_panicPayload_bytes`
+to establish the byte-addressed memory and revert result for arbitrary initial
+memory. These proofs use kernel-checked reduction, add no project-level axiom,
+and do not use `native_decide`. They cover the local panic sequence, not a
+whole-contract or solc-bytecode preservation theorem.
+The checked-arithmetic rewrite admits only numeric-literal and variable-reference
+operands; this executable safety check adds no axiom or preservation theorem.
+ECM output is automatically eligible under that operand check and exact-pattern
+matching, provided each emitted section has all six canonical helper definitions
+without duplicate or shadowing bindings. Explicit unsafe-Yul stays opaque;
+malformed markers disable rewriting and reserved ECM marker text forces opacity.
+The ECM wrapper's bridge-support lemma is kernel-checked but establishes only
+syntactic support, not semantic preservation of the optimizer. No ECM opt-in or
+additional project axiom is introduced.
+The `compiler-regressions` CI job explicitly builds `Compiler.PanicCodeRegressionTest`;
+its required workflow step is enforced by the synchronized specification. This
+adds regression enforcement, not a new axiom or semantic-preservation proof.
+The macro-shape and post-codegen rewrite regression tests use `native_decide`;
+that mechanism is reported in `artifacts/trust_surface_report.json` under the
+documented native-code trust boundary above and does not change the active
+axiom set. Unsafe-Yul fragments are marked as optimizer-opaque at the lowering
+boundary, so this provenance guard also introduces no axiom. `solidityMappingSlot_injective`
+therefore remains the single active project-level axiom.
+
+## Consumer Intrinsic Obligations (from verity_intrinsic)
+
+Intrinsics do not add project-level Verity axioms. Each `verity_intrinsic`
+declaration names a consumer-owned obligation in its `obligation [...]` clause
+and records that obligation next to the generated consumer semantic wrapper.
+While that obligation is `assumed`, the consumer repository must document it in
+its own `AXIOMS.md` or equivalent trust-boundary document.
+
+For example, a Tamago CLZ intrinsic should document the consumer-side
+`clz_matches_eip7939` assumption: the Lean `semantics` function used by Tamago
+proofs matches the EIP-7939 opcode emitted as `verbatim_1i_1o(hex"1e", x)` on
+chains that support Osaka-or-later execution semantics.
+
+These obligations are outside this registry because they are not axioms in the
+Verity project. Future consumer trust reports should surface them
+machine-readably; until that integration exists, review them by grepping
+consumer code for `verity_intrinsic`.
+
+The Verity-side proof module `Compiler.Proofs.IRGeneration.IntrinsicProofs`
+proves only compiler-owned plumbing around the generic intrinsic path:
+argument scope accounting, verbatim/builtin lowering shape, fork-order facts,
+arity rejection, and the fail-closed `min_fork` predicate used by the compiler
+fork gate. It adds no axiom asserting that any emitted opcode implements the
+declared consumer semantics. The current end-to-end proven fragment remains
+fail-closed over intrinsics: `SupportedSpec` and helper-aware source semantics
+classify `Expr.intrinsic` as unsupported/unmodeled until an opcode semantics
+proof exists.
+
+## Trust Summary
+
+- Active project-level axioms: 1
+- Production blockers from project-level axioms: 0
+- Consumer intrinsic obligations: owned and documented by consumer packages
+- Enforcement: `scripts/check_axioms.py` ensures this file tracks exact source locations.
+- All internal compiler functions are proven to terminate (no axioms involved).
+- The macro front-end and typed-IR pipeline do not use any
+  axioms. The typed-IR compiler has zero `sorry`.
+
+## Maintenance Rule
+
+Any commit that adds, removes, renames, or moves a project-level axiom must
+update this file in the same commit. Any commit that changes intrinsic trust
+semantics must update this file and [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md).
+
+If this file is stale, trust analysis is stale.
+
+**Last Updated**: 2026-05 (intrinsics addition)

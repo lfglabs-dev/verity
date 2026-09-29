@@ -3240,7 +3240,7 @@ structure SupportedFunction (spec : CompilationModel) (fn : FunctionSpec) where
   /-- `nonreentrant(lockField)` guards sit outside the proven fragment: the
       TLOAD/TSTORE prologue injected by `attachNonReentrantGuard` is not yet
       modelled by the source semantics. This makes the documented boundary
-      (TRUST_ASSUMPTIONS.md) machine-checked instead of prose-only. -/
+      (docs/TRUST_ASSUMPTIONS.md) machine-checked instead of prose-only. -/
   noNonReentrant : fn.nonReentrantLock = none
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn

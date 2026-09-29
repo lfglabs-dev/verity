@@ -107,7 +107,7 @@ theorem externalCallWords_eq_stub_result {α : Type} [ExternalResult α]
     simp [externalCallWords, commonExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
       denoteCallJournaled, denoteCall, chargedGas, linkedCallSite,
-      AdversaryModel.stub, externalCallResultWord, externalCallStubWord, h]
+      AdversaryModel.stub,  externalCallStubWord, h]
 
 theorem callResultWords_eq_stub {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (state : ContractState) :
@@ -118,7 +118,7 @@ theorem callResultWords_eq_stub {α : Type} [ExternalResult α] [Inhabited α]
       Compiler.CompilationModel.DenoteExternalCalls.externalCall, denoteCallJournaled,
       denoteCall, chargedGas, journalEntry, CallKind.toJournal, CallControl.toJournal,
       ExternalCallResult.control, ExternalCallResult.returndata, Contract.run,
-      linkedCallSite, AdversaryModel.stub, legacyPost, externalCallStubWord, h]
+      linkedCallSite, AdversaryModel.stub, legacyPost,  h]
 
 theorem tryExternalCallWords_eq_stub {α : Type} [ExternalResult α] [Inhabited α]
     (name : String) (args : List Uint256) (state : ContractState) :
@@ -129,7 +129,7 @@ theorem tryExternalCallWords_eq_stub {α : Type} [ExternalResult α] [Inhabited 
       Compiler.CompilationModel.DenoteExternalCalls.externalCall, denoteCallJournaled,
       denoteCall, chargedGas, journalEntry, CallKind.toJournal, CallControl.toJournal,
       ExternalCallResult.control, ExternalCallResult.returndata, Contract.run,
-      linkedCallSite, AdversaryModel.stub, legacyPost, externalCallStubWord, h]
+      linkedCallSite, AdversaryModel.stub, legacyPost,  h]
 
 theorem externalCallBind_eq_stub {α : Type} [ExternalArg α]
     (names : List String) (name : String) (args : List α) (state : ContractState) :
@@ -141,14 +141,13 @@ theorem externalCallBind_eq_stub {α : Type} [ExternalArg α]
       denoteCallJournaled, denoteCall, chargedGas, journalEntry,
       CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
       ExternalCallResult.returndata, Contract.run, linkedCallSite,
-      AdversaryModel.stub, externalCallStubSuccess, h]
+      AdversaryModel.stub,  h]
   · simp [externalCallBind, stubExternalCallBind, commonExternalCall, modelExternalCall,
       Compiler.CompilationModel.DenoteExternalCalls.externalCall,
       denoteCallJournaled, denoteCall, chargedGas, journalEntry,
       CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
       ExternalCallResult.returndata, Contract.run, linkedCallSite,
-      AdversaryModel.stub, legacyPost, externalCallStubSuccess, h, linkedCallEntry,
-      externalCallStubWord]
+      AdversaryModel.stub, legacyPost,  h, ]
 
 theorem externalCallBindTo_eq_stub {α : Type} [ExternalArg α]
     (target : Address) (value : Uint256)
@@ -162,14 +161,14 @@ theorem externalCallBindTo_eq_stub {α : Type} [ExternalArg α]
         denoteCallJournaled, denoteCall, chargedGas, journalEntry,
         CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
         ExternalCallResult.returndata, Contract.run, linkedCallSite,
-        AdversaryModel.stub, externalCallStubSuccess, hbal, h]
+        AdversaryModel.stub,  hbal, h]
     · simp [externalCallBindTo, stubExternalCallBindTo, commonExternalCall,
         modelExternalCall, Compiler.CompilationModel.DenoteExternalCalls.externalCall,
         denoteCallJournaled, denoteCall, chargedGas, journalEntry,
         CallKind.toJournal, CallControl.toJournal, ExternalCallResult.control,
         ExternalCallResult.returndata, Contract.run, linkedCallSite,
-        AdversaryModel.stub, legacyPost, externalCallStubSuccess, hbal, h,
-        linkedCallEntryTo, linkedCallEntry, externalCallStubWord]
+        AdversaryModel.stub, legacyPost,  hbal, h,
+         ]
   · simp [externalCallBindTo, stubExternalCallBindTo, Contract.run, hbal]
 
 theorem balanceOf_eq_stub (token owner : Address) (state : ContractState) :
@@ -198,19 +197,19 @@ theorem erc20Write_eq_stub (name : String) (token : Address)
     AdversaryModel.stub, legacyPost, h, hcode]
 
 theorem safeTransfer_eq_stub (token toAddr : Address) (amount : Uint256)
-    (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
+    (state : ContractState) (_hcode : state.codeSize token.toNat ≠ 0) :
     (safeTransfer token toAddr amount .stub).run state =
       (stubErc20Write "safeTransfer" token
         [Verity.addressToWord toAddr, amount]).run state := rfl
 
 theorem safeTransferFrom_eq_stub (token fromAddr toAddr : Address) (amount : Uint256)
-    (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
+    (state : ContractState) (_hcode : state.codeSize token.toNat ≠ 0) :
     (safeTransferFrom token fromAddr toAddr amount .stub).run state =
       (stubErc20Write "safeTransferFrom" token
         [Verity.addressToWord fromAddr, Verity.addressToWord toAddr, amount]).run state := rfl
 
 theorem safeApprove_eq_stub (token spender : Address) (amount : Uint256)
-    (state : ContractState) (hcode : state.codeSize token.toNat ≠ 0) :
+    (state : ContractState) (_hcode : state.codeSize token.toNat ≠ 0) :
     (safeApprove token spender amount .stub).run state =
       (stubErc20Write "safeApprove" token
         [Verity.addressToWord spender, amount]).run state := rfl
@@ -227,7 +226,7 @@ theorem legacyStringSafeTransfer_eq_stub (token toAddr : Address) (amount : Uint
     denoteCall, chargedGas, journalEntry, CallKind.toJournal, CallControl.toJournal,
     ExternalCallResult.control, ExternalCallResult.returndata, Contract.run,
     linkedCallSite, AdversaryModel.stub, legacyPost, stubErc20Write,
-    externalCallStubSuccess, hcode]
+     hcode]
 
 theorem legacyStringSafeTransferFrom_eq_stub
     (token fromAddr toAddr : Address) (amount : Uint256) (state : ContractState)
@@ -242,6 +241,6 @@ theorem legacyStringSafeTransferFrom_eq_stub
     denoteCall, chargedGas, journalEntry, CallKind.toJournal, CallControl.toJournal,
     ExternalCallResult.control, ExternalCallResult.returndata, Contract.run,
     linkedCallSite, AdversaryModel.stub, legacyPost, stubErc20Write,
-    externalCallStubSuccess, hcode]
+     hcode]
 
 end Contracts

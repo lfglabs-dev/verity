@@ -157,9 +157,6 @@ This runs `make check`, full `lake build`, PrintAxioms/audit checks, and
 compiler-core validation. On ARM64 it skips x64-only `solc` validation and runs
 portable generated-Yul checks instead.
 
-The latest benchmark report is in
-[`docs/CI_RUNNER_BENCHMARK_REPORT.md`](CI_RUNNER_BENCHMARK_REPORT.md).
-
 ## Maintenance Expectations
 
 Each CI host should have the daily Verity maintenance timer installed. It

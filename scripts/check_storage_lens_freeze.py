@@ -65,7 +65,6 @@ BASELINE = {
     # raw sites here; they are lens metatheory, not storage bypasses.
     "Verity/Core.lean": 33,
     # IRState fixture literals (field-name collision false positives).
-    "Contracts/TypedIRTests.lean": 3,
 }
 
 RECORD_UPDATE_RE = re.compile(

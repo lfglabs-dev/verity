@@ -1,0 +1,20 @@
+{
+  "accepted_solc_sha256": [
+    "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746",
+    "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39"
+  ],
+  "artifacts_sha256": {
+    "MulDivDown.optimized-ast.json": "60059226825f5eea534dad2f8a705fa81bd1924011a308f428181dc694d9f92c",
+    "MulDivDown.optimized.yul": "42533dc6d3b36a3aac988012250647bf21fa1be3908e0b104524cd6636913851",
+    "input.json": "5579a967002c55ffb453e435d69a984d762836ce7ce0e67576a517775a6827c1",
+    "sources/MulDivDown.sol": "f9d15bfa7f658b89d705166a087fada0feb297030930855ffbadc346621c3c55",
+    "sources/src/libraries/UtilsLib.sol": "0c33e0537fc1bfca2f43c2a7440bbc919202b5f6548310252f35843cc11afb14"
+  },
+  "evmyul_revision": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
+  "midnight_commit": "96d31343e993329e7a593dde46516a2c0cbcd142",
+  "solc": "0.8.34+commit.80d5c536",
+  "source_git_blob": "da30b5f2ae048eabdab031d6b4fac9caee442e0b",
+  "source_path": "src/libraries/UtilsLib.sol",
+  "source_sha256": "0c33e0537fc1bfca2f43c2a7440bbc919202b5f6548310252f35843cc11afb14",
+  "status": "compiler-output-capture-only; no equivalence theorem"
+}

@@ -4879,8 +4879,6 @@ def tupleExternalCallBindStmt?
   | _ =>
       match ← resolveTypedInterfaceCallEarly? fields constDecls immutableDecls externalDecls params locals rhs with
       | some (ext, target, args, some _, selector) =>
-          unless ext.isView do
-            throwErrorAt rhs s!"typed interface tuple call '{ext.name}' must be view"
           unless names.size == ext.returnTys.size do
             throwErrorAt rhs s!"tuple destructuring binds {names.size} names, but typed interface call '{ext.name}' returns {ext.returnTys.size} values"
           for ty in ext.returnTys do
@@ -4906,13 +4904,25 @@ def tupleExternalCallBindStmt?
           let resultNameTerms := resultNames.toArray.map strTerm
           let typedLocals := (names.zip ext.returnTys).filterMap fun (name?, ty) =>
             name?.map (fun localName => mkTypedLocal localName ty)
-          let stmt ← `(Compiler.CompilationModel.Stmt.ecm
-            (Compiler.Modules.Oracle.typedReadWordsSummaryModule
-              [ $[$resultNameTerms],* ]
-              $(strTerm ext.name)
-              $(natTerm selector)
-              $(natTerm argExprs.size))
-            [ $targetExpr, $[$argExprs],* ])
+          -- View methods keep the static oracle-summary ECM; state-changing
+          -- methods (Solidity allows multi-return mutable external calls) use
+          -- the generic ABI `call` with several return words.
+          let stmt ← if ext.isView then
+              `(Compiler.CompilationModel.Stmt.ecm
+                (Compiler.Modules.Oracle.typedReadWordsSummaryModule
+                  [ $[$resultNameTerms],* ]
+                  $(strTerm ext.name)
+                  $(natTerm selector)
+                  $(natTerm argExprs.size))
+                [ $targetExpr, $[$argExprs],* ])
+            else
+              `(Compiler.CompilationModel.Stmt.ecm
+                (Compiler.Modules.Calls.withReturnsModule
+                  [ $[$resultNameTerms],* ]
+                  $(natTerm selector)
+                  $(natTerm argExprs.size)
+                  false)
+                [ $targetExpr, $[$argExprs],* ])
           pure (some (stmt, typedLocals))
       | _ => pure none
 

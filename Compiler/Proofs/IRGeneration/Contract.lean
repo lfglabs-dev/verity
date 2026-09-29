@@ -2046,7 +2046,7 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
 /-- Primary whole-contract Layer 2 theorem: compilation preserves semantics
 for any supported `CompilationModel`. No contract-specific bridge premise.
 Layer 2 itself is axiom-free; the remaining documented project axiom is the
-mapping-slot range assumption tracked in `AXIOMS.md`. -/
+mapping-slot range assumption tracked in `docs/AXIOMS.md`. -/
 theorem compile_preserves_semantics
     (model : CompilationModel)
     (selectors : List Nat)

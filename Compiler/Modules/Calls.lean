@@ -4,6 +4,8 @@
   Standard ECM for ABI-encoded external calls with a single uint256 return:
   - `withReturn`: call/staticcall with selector + args, revert-forward on failure,
     validate return data, bind result variable
+  - `withReturnsModule`: same, binding several static return words (typed
+    interface tuple calls on non-view methods)
   - `callWithValue`: generic ETH-aware call over an already prepared calldata
     slice, revert-forward on failure
   - `callWithValueBytes`: generic ETH-aware call over a bytes parameter,
@@ -209,6 +211,78 @@ def withReturnModule (resultVar : String) (selector : Nat) (numArgs : Nat) (isSt
     let assignResult := YulStmt.assign resultVar (YulExpr.call "mload" [ptrExpr])
     let callBlock := YulStmt.block ([loadPtr, storeSelector] ++ storeArgs ++ [advancePtr, letSuccess, revertBlock, sizeCheck, assignResult])
     pure [bindResult, callBlock]
+
+/-- Generic external call with several static ABI-word returns (G14, mutable
+    typed-interface tuple calls such as `let (a, b) ← s.prepare x`).
+    ABI-encodes `selector(args...)`, calls/staticcalls target, forwards revert
+    returndata on failure, requires `returndatasize >= 32 * resultVars.length`,
+    and binds word `i` of the return frame to `resultVars[i]`.
+
+    Arguments passed to compile: [target] ++ argExprs -/
+def withReturnsModule (resultVars : List String) (selector : Nat) (numArgs : Nat)
+    (isStatic : Bool) : ExternalCallModule where
+  name := "externalCallWithReturns"
+  numArgs := 1 + numArgs  -- target + args
+  resultVars := resultVars
+  writesState := !isStatic
+  readsState := true
+  axioms := ["external_call_abi_interface"]
+  compile := fun _ctx args => do
+    let targetExpr ← match args.head? with
+      | some t => pure t
+      | none => throw "externalCallWithReturns expects at least 1 argument (target)"
+    if resultVars.isEmpty then
+      throw "externalCallWithReturns expects at least one result variable"
+    let argExprs := args.drop 1
+    let selectorExpr := YulExpr.call "shl" [YulExpr.lit 224, YulExpr.hex selector]
+    let ptrName := "__ecwrs_ptr"
+    let ptrExpr := YulExpr.ident ptrName
+    let storeSelector := YulStmt.exprStmt (YulExpr.call "mstore" [ptrExpr, selectorExpr])
+    let storeArgs := argExprs.zipIdx.map fun (argExpr, i) =>
+      YulStmt.exprStmt (YulExpr.call "mstore" [
+        YulExpr.call "add" [ptrExpr, YulExpr.lit (4 + i * 32)],
+        argExpr
+      ])
+    let calldataSize := 4 + numArgs * 32
+    let returndataSize := resultVars.length * 32
+    let frameSize := ((Nat.max calldataSize returndataSize + 31) / 32) * 32
+    let loadPtr := YulStmt.let_ ptrName (YulExpr.call "mload" [YulExpr.lit freeMemoryPointer])
+    let advancePtr := YulStmt.exprStmt (YulExpr.call "mstore" [
+      YulExpr.lit freeMemoryPointer,
+      YulExpr.call "add" [ptrExpr, YulExpr.lit frameSize]
+    ])
+    let callExpr :=
+      if isStatic then
+        YulExpr.call "staticcall" [
+          YulExpr.call "gas" [],
+          targetExpr,
+          ptrExpr, YulExpr.lit calldataSize,
+          ptrExpr, YulExpr.lit returndataSize
+        ]
+      else
+        YulExpr.call "call" [
+          YulExpr.call "gas" [],
+          targetExpr,
+          YulExpr.lit 0,
+          ptrExpr, YulExpr.lit calldataSize,
+          ptrExpr, YulExpr.lit returndataSize
+        ]
+    let letSuccess := YulStmt.let_ "__ecwrs_success" callExpr
+    let revertBlock := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident "__ecwrs_success"]) [
+      YulStmt.let_ "__ecwrs_rds" (YulExpr.call "returndatasize" []),
+      YulStmt.exprStmt (YulExpr.call "returndatacopy" [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__ecwrs_rds"]),
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.ident "__ecwrs_rds"])
+    ]
+    let sizeCheck := YulStmt.if_ (YulExpr.call "lt" [YulExpr.call "returndatasize" [], YulExpr.lit returndataSize]) [
+      YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])
+    ]
+    let bindResults := resultVars.map fun resultVar => YulStmt.let_ resultVar (YulExpr.lit 0)
+    let assignResults := resultVars.zipIdx.map fun (resultVar, idx) =>
+      YulStmt.assign resultVar (YulExpr.call "mload" [
+        YulExpr.call "add" [ptrExpr, YulExpr.lit (idx * 32)]])
+    let callBlock := YulStmt.block ([loadPtr, storeSelector] ++ storeArgs ++
+      [advancePtr, letSuccess, revertBlock, sizeCheck] ++ assignResults)
+    pure (bindResults ++ [callBlock])
 
 /-- Convenience: create a `Stmt.ecm` for an external call with return.
     Replaces the former `Stmt.externalCallWithReturn` variant. -/

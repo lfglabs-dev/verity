@@ -179,8 +179,9 @@ theorem findDynamicArrayElementAtSlot_go_eq
   simp [toSourceResult, Denote.revertedResult, SourceSemantics.revertedResult]
 
 @[simp] theorem toSourceResult_successResult
-    (spec : CompilationModel) (world : Verity.ContractState) (ret : Option Nat) :
-    toSourceResult (Denote.successResult sourceOracle spec world ret) =
+    (spec : CompilationModel) (world : Verity.ContractState) (ret : Option Nat)
+    (returnWords : List Nat) :
+    toSourceResult (Denote.successResult sourceOracle spec world ret returnWords) =
       SourceSemantics.successResult spec world ret := by
   simp [toSourceResult, Denote.successResult, SourceSemantics.successResult]
 
@@ -207,14 +208,14 @@ theorem denoteFunction_eq
       have hexec := execStmtList_eq (SourceSemantics.effectiveFields spec)
         { world := SourceSemantics.withTransactionContext initialWorld tx,
           immutable := fun _ => 0, bindings := bindings,
-          selector := tx.functionSelector } fn.body
+          selector := tx.functionSelector, errors := spec.errors } fn.body
       simp only [toRuntimeState] at hexec
       simp only
       rw [← hexec]
       cases Denote.execStmtList sourceOracle (SourceSemantics.effectiveFields spec)
           { world := SourceSemantics.withTransactionContext initialWorld tx,
             immutable := fun _ => 0, bindings := bindings,
-            selector := tx.functionSelector } fn.body <;>
+            selector := tx.functionSelector, errors := spec.errors } fn.body <;>
         simp [toStmtResult, toRuntimeState]
 
 end DenoteAgreement

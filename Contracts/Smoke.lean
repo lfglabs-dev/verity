@@ -19,6 +19,7 @@ import Contracts.Smoke.SecurityCombos
 import Contracts.Smoke.InternalInterfaceSmoke
 import Contracts.Smoke.ModeledCall
 import Contracts.Smoke.ModeledCallCtx
+import Contracts.Smoke.HopNamespace
 import Contracts.Smoke.TryCatch
 import Contracts.Smoke.MultiParent
 import Contracts.Smoke.KeccakStringSmoke
@@ -26,3 +27,5 @@ import Contracts.Smoke.MultiArgIntrinsicSmoke
 import Contracts.Smoke.EIP712StaticSmoke
 import Contracts.Smoke.HashedMappings
 import Contracts.Smoke.ParetoSmallFidelityGaps
+import Contracts.Smoke.LinkedGettersAndDeferred
+import Contracts.Smoke.HopContextAndMutableTuples

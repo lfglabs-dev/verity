@@ -6,8 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "evmyullean-fork-conformance.yml"
-TRUST_ASSUMPTIONS = ROOT / "TRUST_ASSUMPTIONS.md"
-AXIOMS = ROOT / "AXIOMS.md"
+TRUST_ASSUMPTIONS = ROOT / "docs" / "TRUST_ASSUMPTIONS.md"
+AXIOMS = ROOT / "docs" / "AXIOMS.md"
 MAKEFILE = ROOT / "Makefile"
 NATIVE_LOWERING_REPORT = ROOT / "artifacts" / "evmyullean_native_lowering_report.json"
 ROADMAP = ROOT / "docs" / "ROADMAP.md"

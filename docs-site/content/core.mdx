@@ -21,7 +21,7 @@ structure StorageSlot (α : Type) where
 
 `Uint256` is a dedicated 256-bit modular integer type, so `+`, `-`, `*`, `/`, and `%` wrap exactly like the EVM.
 
-> **Note**: This matches EVM wrapping semantics, not Solidity's default checked arithmetic (^0.8). Use `require` guards to match Solidity behavior. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/TRUST_ASSUMPTIONS.md#8-arithmetic-semantics-wrapping-vs-checked) for details.
+> **Note**: This matches EVM wrapping semantics, not Solidity's default checked arithmetic (^0.8). Use `require` guards to match Solidity behavior. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md#8-arithmetic-semantics-wrapping-vs-checked) for details.
 
 ## ContractState
 
@@ -63,7 +63,7 @@ inductive ContractResult (α : Type) where
 
 Every contract operation returns either `success` with a value and updated state, or `revert` with an error message and the state at the point of failure.
 
-> **Important**: On revert, the returned state may include mutations from operations that executed *before* the revert. This differs from EVM semantics where REVERT discards all state changes. Contracts must follow the **checks-before-effects pattern**, all `require` guards before any `setStorage`/`setMapping` calls, to ensure the revert state equals the original input state. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/TRUST_ASSUMPTIONS.md) and [#254](https://github.com/lfglabs-dev/verity/issues/254) for details.
+> **Important**: On revert, the returned state may include mutations from operations that executed *before* the revert. This differs from EVM semantics where REVERT discards all state changes. Contracts must follow the **checks-before-effects pattern**, all `require` guards before any `setStorage`/`setMapping` calls, to ensure the revert state equals the original input state. See [TRUST_ASSUMPTIONS.md](https://github.com/lfglabs-dev/verity/blob/main/docs/TRUST_ASSUMPTIONS.md) and [#254](https://github.com/lfglabs-dev/verity/issues/254) for details.
 
 ## Contract monad
 

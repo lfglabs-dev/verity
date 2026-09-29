@@ -1534,7 +1534,7 @@ theorem compileStmt_terminal_ite_ok_inv
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false inScopeNames [] elseBranch = Except.ok elseIR ∧
       tempName =
-        CompilationModel.pickFreshName "__ite_cond"
+        CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
           (inScopeNames ++ collectExprNames cond ++
             collectStmtListNames thenBranch ++ collectStmtListNames elseBranch) ∧
       bodyIR =
@@ -1563,7 +1563,7 @@ theorem compileStmt_terminal_ite_ok_inv
               simp [hcond, compileStmtListWithFork_cancun_eq_compileStmtList, hthen, helse,
                 helseNonempty] at hcompile
               refine ⟨condIR, thenIR, elseIR,
-                CompilationModel.pickFreshName "__ite_cond"
+                CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
                   (inScopeNames ++ collectExprNames cond ++
                     collectStmtListNames thenBranch ++ collectStmtListNames elseBranch),
                 ?_, ?_, ?_, rfl, ?_⟩
@@ -1595,7 +1595,7 @@ theorem compileStmtList_terminal_ite_ok_inv
           (collectStmtBindNames (.ite cond thenBranch elseBranch) ++ inScopeNames) [] rest =
           Except.ok tailIR ∧
       tempName =
-        CompilationModel.pickFreshName "__ite_cond"
+        CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
           (inScopeNames ++ collectExprNames cond ++
             collectStmtListNames thenBranch ++ collectStmtListNames elseBranch) ∧
       bodyIR =
@@ -1770,20 +1770,20 @@ theorem compileStmtList_terminal_core_ok
       refine
         ⟨[YulStmt.block [
             YulStmt.let_
-              (CompilationModel.pickFreshName "__ite_cond"
+              (CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
                 (inScopeNames ++ collectExprNames cond ++
                   collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))
               condIR,
             YulStmt.if_
               (YulExpr.ident
-                (CompilationModel.pickFreshName "__ite_cond"
+                (CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
                   (inScopeNames ++ collectExprNames cond ++
                     collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)))
               thenIR,
             YulStmt.if_
               (YulExpr.call "iszero"
                 [YulExpr.ident
-                  (CompilationModel.pickFreshName "__ite_cond"
+                  (CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
                     (inScopeNames ++ collectExprNames cond ++
                       collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))])
               elseIR
@@ -7412,7 +7412,7 @@ theorem compiled_terminal_ite_temp_not_mem_scope
     {cond : Expr}
     {thenBranch elseBranch : List Stmt}
     (hincluded : scopeNamesIncluded scope inScopeNames) :
-    CompilationModel.pickFreshName "__ite_cond"
+    CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
       (inScopeNames ++ collectExprNames cond ++
         collectStmtListNames thenBranch ++ collectStmtListNames elseBranch) ∉ scope := by
   apply pickFreshName_not_mem_scope_of_subset
@@ -7430,7 +7430,7 @@ theorem bindingsExactlyMatchIRVarsOnScope_setCompiledTerminalIteTemp_irrelevant
     (hincluded : scopeNamesIncluded scope inScopeNames) :
     bindingsExactlyMatchIRVarsOnScope scope bindings
       (state.setVar
-        (CompilationModel.pickFreshName "__ite_cond"
+        (CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
           (inScopeNames ++ collectExprNames cond ++
             collectStmtListNames thenBranch ++ collectStmtListNames elseBranch))
         value) := by
@@ -7862,7 +7862,7 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
         | nil => exfalso; exact stmtListTerminalCore_ne_nil helse rfl
         | cons => simp
       let tempName :=
-        CompilationModel.pickFreshName "__ite_cond"
+        CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
           (inScopeNames ++ collectExprNames cond ++
             collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)
       refine ⟨[YulStmt.block

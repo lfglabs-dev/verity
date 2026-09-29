@@ -114,6 +114,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Validate trusted OCR tooling
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/test-ocr-routing.js"
+          node "$GITHUB_WORKSPACE/ocr-trusted/.github/scripts/test-ocr-packet-review.js"
+
       - name: Route OCR review
         if: steps.pr.outputs.skip != 'true'
         id: route

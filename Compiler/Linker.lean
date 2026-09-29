@@ -177,7 +177,7 @@ def loadLibrary (path : String) : IO (List LibraryFunction) := do
 **Note**: Library functions are injected at text level, not AST level.
 This is a known limitation (see issue #173). The formal proofs do not
 cover linked library code - this is a trust assumption documented in
-`TRUST_ASSUMPTIONS.md`.
+`docs/TRUST_ASSUMPTIONS.md`.
 -/
 
 -- Indentation level for library functions in runtime code (3 levels × 4 spaces = 12 spaces)

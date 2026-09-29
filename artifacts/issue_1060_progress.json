@@ -1924,8 +1924,8 @@
         "AXIOMS.md and TRUST_ASSUMPTIONS.md accurately reflect zero-sorry state"
       ],
       "files_changed": [
-        "AXIOMS.md",
-        "TRUST_ASSUMPTIONS.md"
+        "docs/AXIOMS.md",
+        "docs/TRUST_ASSUMPTIONS.md"
       ],
       "verification_commands": [
         "lake build",

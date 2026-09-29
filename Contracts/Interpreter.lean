@@ -1,4 +1,4 @@
-/- 
+/-
   Contracts.Interpreter: EDSL Interpreter for Differential Testing
 
   This module provides an interpreter that executes EDSL contracts on abstract state,
@@ -697,10 +697,10 @@ def parseStorage (storageStr : String) : Nat → Uint256 :=
   parseSlotPairs storageStr (fun s => (parseArgNat? s).map (fun n => (n : Uint256))) 0
 
 private def looksLikeStorage (s : String) : Bool :=
-  s.data.any (fun c => c == ':' || c == ',')
+  s.toList.any (fun c => c == ':' || c == ',')
 
 private def looksLikeConfig (s : String) : Bool :=
-  s.data.any (fun c => c == '=')
+  s.toList.any (fun c => c == '=')
 
 private def storageConfigPrefix (s : String) : Option (String × String) :=
   match s.splitOn "=" with

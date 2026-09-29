@@ -1,0 +1,34 @@
+{
+  "project": ".",
+  "entry": "RequireCustom.sol",
+  "contract": "RequireCustomFixture",
+  "function": "checked",
+  "param_types": [
+    "uint256",
+    "address",
+    "bool",
+    "bytes32",
+    "uint8",
+    "uint16",
+    "uint128"
+  ],
+  "variables": {
+    "value": 256,
+    "account": 160,
+    "enabled": 1,
+    "tag": 256,
+    "small": 8,
+    "medium": 16,
+    "wide": 128
+  },
+  "arguments": {
+    "value": "value",
+    "account": "account",
+    "enabled": "enabled",
+    "tag": "tag",
+    "small": "small",
+    "medium": "medium",
+    "wide": "wide"
+  },
+  "corpus": "require-custom-cases.json"
+}

@@ -66,7 +66,7 @@ private theorem account_updateStorage_get?_self_of_nonzero
     change (value == EvmYul.UInt256.ofNat 0) = true at hZero
     rw [hValueNonzero] at hZero
     contradiction
-  · simp [treeMap_get?_insert_self]
+  · simp []
 
 private theorem account_updateStorage_storage_of_nonzero
     {τ : EvmYul.OperationType} (account : EvmYul.Account τ)
@@ -106,7 +106,7 @@ private theorem account_updateStorage_get?_self_of_zero
   unfold EvmYul.Account.updateStorage
   change (value == EvmYul.UInt256.ofNat 0) = true at hValueZero
   split
-  · simp [Std.TreeMap.get?_eq_getElem?, Std.TreeMap.getElem?_erase]
+  · simp [Std.TreeMap.get?_eq_getElem?]
   · next hNonzero =>
     simp only [Bool.not_eq_true] at hNonzero
     change (value == EvmYul.UInt256.ofNat 0) = false at hNonzero
@@ -884,7 +884,7 @@ private theorem listByteArrayWordNoMod_eq_fromBytes'_take_reverse
       rw [List.range_succ, List.foldl_append]
       simp only [List.foldl_cons, List.foldl_nil]
       rw [ih hn']
-      rw [List.take_succ]
+      rw [List.take_add_one]
       rw [List.getElem?_eq_getElem hlt]
       simp only [Option.getD_some, Option.toList_some]
       rw [fromBytes'_reverse_append_single]
@@ -987,8 +987,7 @@ theorem byteArrayWord_uint256_toByteArray
   rw [byteArrayWord_eq_fromBytes'_reverse_of_size
     value.toByteArray (uint256_toByteArray_size value)]
   unfold EvmYul.UInt256.toByteArray BE
-  simp [ByteArray.data_append, ffi.ByteArray.zeroes,
-    list_toByteArray_data_toList]
+  simp [ByteArray.data_append, ffi.ByteArray.zeroes]
   simp [EvmYul.toBytesBigEndian]
 
 /-- Decode the word-granular payload used by Verity's proof-side log model. -/
@@ -1277,7 +1276,7 @@ theorem contractDispatcherExecResult_block_dispatcher_eq_exec_block
     simp [nativeSwitchInitialOkState, initialState, EvmYul.Yul.State.initcall,
       EvmYul.Yul.State.setStore, EvmYul.Yul.State.multifill,
       EvmYul.Yul.State.mkOk]
-    constructor <;> rfl
+    constructor
   unfold contractDispatcherExecResult
   change
     EvmYul.Yul.exec (Nat.succ (Nat.succ fuel)) (.Block [.Block body])
@@ -1729,7 +1728,7 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot
       (natToUInt256 slot) (natToUInt256 value) hValueNonzero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [treeMap_get?_insert_self]
+    simp []
 
 /-- Native primitive execution of `sstore(slot, 0)` on a word-canonical
     initial runtime slot, lifted through Verity's projected native result
@@ -1774,7 +1773,7 @@ theorem primCall_sstore_initialState_wordSlot_projectResult_slot_zero_of_erase
       (natToUInt256 slot) (natToUInt256 value) hValueZero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [Std.TreeMap.get?_eq_getElem?, Std.TreeMap.getElem?_erase_self]
+    simp [Std.TreeMap.get?_eq_getElem?]
 
 /-- Native primitive execution of `sstore(slot, 0)` on a word-canonical
     initial runtime slot with no observable slots materialized. The zero-write
@@ -1845,7 +1844,7 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot
       (natToUInt256 slot) (natToUInt256 value) hValueNonzero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [treeMap_get?_insert_self]
+    simp []
 
 /-- Native primitive execution of `sstore(slot, 0)` from an initial runtime
     shared state and arbitrary local-variable store, lifted through Verity's
@@ -1890,7 +1889,7 @@ theorem primCall_sstore_initialState_wordSlot_withStore_projectResult_slot_zero_
       (natToUInt256 slot) (natToUInt256 value) hValueZero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [Std.TreeMap.get?_eq_getElem?, Std.TreeMap.getElem?_erase_self]
+    simp [Std.TreeMap.get?_eq_getElem?]
 
 /-- Native primitive execution of `sstore(slot, 0)` from an arbitrary local
     store when no observable storage (IRStorageSlot.ofNat slot)s were materialized. -/
@@ -2256,7 +2255,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
       (EvmYul.UInt256.ofNat 0) (natToUInt256 arg) hValueNonzero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [treeMap_get?_insert_self]
+    simp []
 
 /-- Zero-write storage projection for the full generated `store(uint256)`
     selected body from an arbitrary local store, through the terminating
@@ -2304,7 +2303,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_pro
       (EvmYul.UInt256.ofNat 0) (natToUInt256 arg) hValueZero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [Std.TreeMap.get?_eq_getElem?, Std.TreeMap.getElem?_erase_self]
+    simp [Std.TreeMap.get?_eq_getElem?]
 
 /-- Zero-write storage projection for the full generated `store(uint256)`
     selected body from an arbitrary local store when no observable slots were
@@ -2409,7 +2408,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
       (EvmYul.UInt256.ofNat 0) (natToUInt256 arg) hValueNonzero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [treeMap_get?_insert_self]
+    simp []
 
 /-- Zero-write storage projection for the full generated `store(uint256)` selected
     body through the terminating `STOP`, with the remaining RBMap erasure fact
@@ -2454,7 +2453,7 @@ theorem primCall_calldataload4_then_sstore0_stop_initialState_arg0_projectResult
       (EvmYul.UInt256.ofNat 0) (natToUInt256 arg) hValueZero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [Std.TreeMap.get?_eq_getElem?, Std.TreeMap.getElem?_erase_self]
+    simp [Std.TreeMap.get?_eq_getElem?]
 
 /-- Zero-write storage projection for the full generated `store(uint256)` selected
     body through `STOP` when no observable slots were materialized. -/
@@ -2528,7 +2527,7 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
       (EvmYul.UInt256.ofNat 0) (natToUInt256 arg) hValueNonzero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [treeMap_get?_insert_self]
+    simp []
 
 /-- Zero `sstore` projection, with the remaining RBMap erasure fact isolated. -/
 theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot0_zero_of_erase
@@ -2574,7 +2573,7 @@ theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot
       (EvmYul.UInt256.ofNat 0) (natToUInt256 arg) hValueZero
     simp only [Option.option, treeMap_get?_insert_self]
     rw [hUpdate]
-    simp [Std.TreeMap.get?_eq_getElem?, Std.TreeMap.getElem?_erase_self]
+    simp [Std.TreeMap.get?_eq_getElem?]
 
 /-- Zero `sstore` projection with empty observable-slot materialization. -/
 theorem primCall_calldataload4_then_sstore0_initialState_arg0_projectResult_slot0_zero_emptyObservable

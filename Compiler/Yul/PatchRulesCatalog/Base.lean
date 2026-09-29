@@ -452,7 +452,7 @@ private def dispatchLabelFunctionName? (label : String) : Option String :=
   if label = "fallback()" || label = "receive()" then
     none
   else if label.endsWith "()" then
-    let raw := label.dropRight 2
+    let raw := (label.dropEnd 2).toString
     if raw.isEmpty then none else some raw
   else
     none

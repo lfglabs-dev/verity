@@ -1,0 +1,27 @@
+{
+  "project": ".",
+  "entry": "Slice.sol",
+  "contract": "C",
+  "function": "lossOf",
+  "param_types": [
+    "bytes32"
+  ],
+  "variables": {
+    "market": 256,
+    "lossFactor": 128
+  },
+  "arguments": {
+    "market": "market"
+  },
+  "storage": [
+    {
+      "field": "marketState",
+      "keys": [
+        "market"
+      ],
+      "members": {
+        "lossFactor": "lossFactor"
+      }
+    }
+  ]
+}

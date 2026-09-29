@@ -1,0 +1,293 @@
+"""Small typed source programs; solc/EVM supplies the expected behavior."""
+import copy
+import json
+from pathlib import Path
+import random
+
+from .engine import campaign, write_json
+
+
+def expression(rng, depth, bits):
+    if depth == 0 or rng.randrange(4) == 0:
+        return {"kind": rng.choice(["x", "y", "literal"]), "value": rng.choice([0, 1, 2, (1 << bits) - 1])}
+    return {"kind": "binary", "op": rng.choice(["+", "-", "*", "/"]),
+            "left": expression(rng, depth - 1, bits), "right": expression(rng, depth - 1, bits)}
+
+
+def render_expr(node, bits, x="x", y="y"):
+    ty = f"uint{bits}"
+    if node["kind"] == "binary":
+        return f'({render_expr(node["left"], bits, x, y)} {node["op"]} {render_expr(node["right"], bits, x, y)})'
+    if node["kind"] == "literal":
+        return f'{ty}({node["value"]})'
+    return f'{ty}({x if node["kind"] == "x" else y})'
+
+
+def source(spec):
+    bits = spec["bits"]
+    x = "_verity_slice_tmp_0" if spec["renamed"] else "x"
+    member = "tmp_0" if spec.get("projection_collision") else "maturity"
+    market = "_verity_slice" if spec.get("projection_collision") else "m"
+    expr = render_expr(spec["expression"], bits, x)
+    guard = ""
+    error_declaration = ""
+    def guard_call(left, right):
+        if "require_error" in spec:
+            name = spec["require_error"]
+            arguments = f"{left}, {right}" if spec["error_arguments"] else ""
+            return f'require({left} > {right}, {name}({arguments}));'
+        message = json.dumps(spec["require_message"], ensure_ascii=False)
+        return f'require({left} > {right}, unicode{message});'
+    has_guard = spec.get("require_message") is not None or "require_error" in spec
+    if "require_error" in spec:
+        parameters = "uint256 left, uint256 right" if spec["error_arguments"] else ""
+        error_declaration = f'error {spec["require_error"]}({parameters});'
+    if has_guard:
+        guard = guard_call(x, "y")
+    helper = ""
+    if spec["helper"]:
+        guard_helper = ""
+        if has_guard:
+            guard_helper = f'''function check(uint256 x, uint256 y) internal pure returns (uint256) {{
+        {guard_call("x", "y")}
+        return x;
+    }}'''
+            guard = f'uint256 checked = L.check({x}, y);'
+        helper = f'''library L {{
+    {guard_helper}
+    function work(uint{bits} x, uint{bits} y) internal pure returns (uint{bits}) {{
+        return {render_expr(spec['expression'], bits)};
+    }}
+}}'''
+        expr = f"L.work(uint{bits}({x}), uint{bits}(y))"
+    return f'''// SPDX-License-Identifier: MIT
+pragma solidity 0.8.34;
+struct Mkt {{ uint256 ignored; uint128[] ignoredArray; uint256 {member}; }}
+{error_declaration}
+{helper}
+contract C {{
+    function f(Mkt memory {market}, uint256 {x}, uint256 y) external pure returns (uint256, uint256, uint256) {{
+        {guard}
+        uint256 stamp = {market}.{member};
+        uint{bits} a = {expr};
+        uint{bits} b = stamp < {x} ? a : uint{bits}(y);
+        return (uint256(a), uint256(b), stamp);
+    }}
+}}
+'''
+
+
+def write_program(directory, spec):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "Slice.sol").write_text(source(spec))
+    write_json(directory / "program.json", spec)
+    config = {"project": ".", "entry": "Slice.sol", "contract": "C", "function": "f",
+              "param_types": ["struct Mkt", "uint256", "uint256"],
+              "variables": {"x": 256, "y": 256, "maturity": 256},
+              "arguments": {"_verity_slice.tmp_0" if spec.get("projection_collision") else "m.maturity": "maturity", "_verity_slice_tmp_0" if spec["renamed"] else "x": "x", "y": "y"},
+              "storage": [], "corpus": "corpus.json"}
+    write_json(directory / "fixture.json", config)
+    write_json(directory / "corpus.json", [{"name": "zero", "x": "0", "y": "0", "maturity": "0"},
+               {"name": "small", "x": "3", "y": "2", "maturity": "7"},
+               {"name": "wrap-product", "x": str(1 << 128), "y": str(1 << 128), "maturity": "1"}])
+    return directory / "fixture.json"
+
+
+def smaller_expressions(node):
+    if node["kind"] == "binary":
+        yield node["left"]
+        yield node["right"]
+        for field in ("left", "right"):
+            for replacement in smaller_expressions(node[field]):
+                result = copy.deepcopy(node)
+                result[field] = replacement
+                yield result
+    if node != {"kind": "literal", "value": 0}:
+        yield {"kind": "literal", "value": 0}
+
+
+def generated_campaign(output, count, cases, seed):
+    output = Path(output).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    rng = random.Random(seed)
+    reports = []
+    # Preserve every original arithmetic program, then add guarded programs.
+    # Each guarded program retains all three equivalent extraction/name forms.
+    for i in range(3 * count):
+        bits = [8, 16, 128, 248, 256][i % 5]
+        tree = expression(rng, 2, bits)
+        # First five explicitly exercise each checked width, especially uint248.
+        if i < 5:
+            tree = {"kind": "binary", "op": "*", "left": {"kind": "x"}, "right": {"kind": "y"}}
+        reference = None
+        for variant in (0, 1, 2):
+            spec = {"bits": bits, "expression": tree, "renamed": variant == 1, "helper": variant != 0, "projection_collision": variant == 2}
+            if count <= i < 2 * count:
+                spec["require_message"] = ["", "échec", "x" * 33][(i - count) % 3]
+            elif i >= 2 * count:
+                kind = (i - 2 * count) % 3
+                spec["require_error"] = ["EmptyFailure", "Failure", "AnErrorWhoseSignatureCrossesAThirtyTwoByteWordBoundary"][kind]
+                spec["error_arguments"] = kind != 0
+            directory = output / f"program-{i}-{variant}"
+            fixture = write_program(directory, spec)
+            report = campaign(fixture, directory / "run", cases, seed + i)
+            reports.append({"program": i, "variant": variant, **{k: v for k, v in report.items() if k != "divergences"}})
+            write_json(output / "program-results.json", reports)
+            if report["divergences"]:
+                return {"programs": len(reports), "divergences": report["divergences"]}
+            # Renaming + helper extraction must preserve the observed behavior.
+            rows = (directory / "run/out/source.txt").read_text()
+            if reference is not None and reference != rows:
+                divergence = {"metamorphic": str(directory), "reference": str(reference_dir),
+                              "rows": [{"line": k, "reference": a, "variant": b} for k, (a, b)
+                                       in enumerate(zip(reference.splitlines(), rows.splitlines())) if a != b]}
+                write_json(output / "metamorphic-divergence.json", divergence)
+                return {"programs": len(reports), "divergences": [divergence]}
+            reference, reference_dir = rows, directory
+    return {"programs": len(reports), "cases": sum(r["cases"] for r in reports), "divergences": []}
+
+
+def stateful_scalar_source(original, variant):
+    """Equivalent source forms for the handwritten scalar sequence instrument.
+
+    These are not accepted-import claims. Each form is compiled by solc and
+    compared to the same model on identical generated transaction sequences.
+    """
+    if variant == 'baseline':
+        return original
+    event_line = '        emit Changed(old, value);\n'
+    if event_line in original:
+        if original.count(event_line) != 1:
+            raise ValueError('nonunique event source anchor')
+        plain = original.replace(event_line, '')
+        return stateful_scalar_source(plain, variant).replace(
+            'return old;', 'emit Changed(old, value); return old;')
+    before = '''        old = stored;
+        stored = value;
+        return old;'''
+    replacements = {
+        'scoped': '''        { uint256 previous = stored; old = previous; }
+        { uint256 next = value; stored = next; }
+        return old;''',
+        'early-return': '''        old = stored;
+        if (value == 0) { stored = 0; return old; }
+        stored = value;
+        return old;''',
+    }
+    if variant not in replacements or original.count(before) != 1:
+        raise ValueError('unknown stateful variant or nonunique source anchor')
+    return original.replace(before, replacements[variant])
+
+
+def stateful_environment_source(original, variant):
+    """Equivalent context reads, each imported from its own generated source."""
+    if variant == 'baseline':
+        return original
+    before = 'return (msg.sender, address(this), block.timestamp, block.number, block.chainid);'
+    if original.count(before) != 1:
+        raise ValueError('nonunique environment return anchor')
+    if variant == 'bindings':
+        return original.replace(before, '''address sender = msg.sender;
+        address self = address(this);
+        uint256 timestamp = block.timestamp;
+        uint256 number = block.number;
+        uint256 chain = block.chainid;
+        return (sender, self, timestamp, number, chain);''')
+    if variant == 'helpers':
+        library = '''library EnvironmentContext {
+    function sender() internal view returns (address) { return msg.sender; }
+    function self() internal view returns (address) { return address(this); }
+    function timestamp() internal view returns (uint256) { return block.timestamp; }
+    function number() internal view returns (uint256) { return block.number; }
+    function chain() internal view returns (uint256) { return block.chainid; }
+}
+'''
+        return original.replace('contract SequenceFixture {', library + 'contract SequenceFixture {').replace(
+            before, 'return (EnvironmentContext.sender(), EnvironmentContext.self(), EnvironmentContext.timestamp(), EnvironmentContext.number(), EnvironmentContext.chain());')
+    raise ValueError('unknown environment variant: ' + variant)
+
+
+def stateful_storage_source(original, variant):
+    """Equivalent packed scalar writes/deletes, imported independently per variant."""
+    if variant == 'baseline':
+        return original
+    writes = """low = uint128(value);
+        high = uint128(value / 2);
+        owner = msg.sender;
+        tag = uint96(value);
+        stored = value;"""
+    deletes = """delete low;
+        delete stored;"""
+    if original.count(writes) != 1 or original.count(deletes) != 1:
+        raise ValueError('nonunique storage source anchors')
+    if variant == 'bindings':
+        return original.replace(writes, """uint128 nextLow = uint128(value);
+        uint128 nextHigh = uint128(value / 2);
+        address nextOwner = msg.sender;
+        uint96 nextTag = uint96(value);
+        low = nextLow;
+        high = nextHigh;
+        owner = nextOwner;
+        tag = nextTag;
+        stored = value;""")
+    if variant == 'reordered':
+        # Disjoint fields, including siblings sharing a physical word: reordering
+        # must preserve exactly the same resulting bytes and observations.
+        return original.replace(writes, """stored = value;
+        tag = uint96(value);
+        owner = msg.sender;
+        high = uint128(value / 2);
+        low = uint128(value);""").replace(deletes, """delete stored;
+        delete low;""")
+    raise ValueError('unknown storage variant: ' + variant)
+
+
+def stateful_storage_word_source(original, variant, kind):
+    """Equivalent void/bytes32 assignments, preserving each fixture's ABI."""
+    if kind not in ('void', 'bytes'):
+        raise ValueError('unknown storage word fixture: ' + kind)
+    if variant == 'baseline':
+        return original
+    expression = 'value' if kind == 'void' else 'bytes32(value)'
+    before = 'stored = ' + expression + ';'
+    if original.count(before) != 1:
+        raise ValueError('nonunique storage word assignment anchor')
+    if variant == 'bindings':
+        ty = 'uint256' if kind == 'void' else 'bytes32'
+        after = ty + ' next = ' + expression + ';\n        stored = next;'
+    elif variant == 'expression':
+        after = 'stored = ' + ('value + 0' if kind == 'void' else 'bytes32(value + 0)') + ';'
+    else:
+        raise ValueError('unknown storage word variant: ' + variant)
+    return original.replace(before, after)
+
+
+def stateful_mapping_source(original, variant):
+    """Equivalent mapping assignments with separately imported source variants."""
+    if variant == 'baseline':
+        return original
+    writes = """balances[msg.sender] = uint128(value);
+        authorized[msg.sender][address(this)] = true;
+        consumed[msg.sender][bytes32(value)] = uint128(value);
+        words[value] = bytes32(value);"""
+    if original.count(writes) != 1:
+        raise ValueError('nonunique mapping assignment anchor')
+    if variant == 'bindings':
+        replacement = """address sender = msg.sender;
+        address self = address(this);
+        uint128 narrow = uint128(value);
+        bytes32 word = bytes32(value);
+        bool allowed = true;
+        balances[sender] = narrow;
+        authorized[sender][self] = allowed;
+        consumed[sender][word] = narrow;
+        words[value] = word;"""
+    elif variant == 'reordered':
+        replacement = """words[value] = bytes32(value);
+        consumed[msg.sender][bytes32(value)] = uint128(value);
+        authorized[msg.sender][address(this)] = true;
+        balances[msg.sender] = uint128(value);"""
+    else:
+        raise ValueError('unknown mapping variant: ' + variant)
+    return original.replace(writes, replacement)

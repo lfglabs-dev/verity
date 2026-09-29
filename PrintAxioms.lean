@@ -4,7 +4,9 @@
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Compiler.CompilationModel.ReservedScratchNames
-import Contracts.SolidityImportSmoke.Inheritance.Proofs
+import Compiler.SolidityImport.Transactions
+import Compiler.SolidityImport.StorageFrames
+import Compiler.SolidityImport.TransactionAccess
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -36,7 +38,6 @@ import Contracts.SimpleToken.Proofs.Isolation
 import Contracts.SimpleToken.Proofs.Supply
 import Contracts.Vault.Proofs.Correctness
 import Contracts.Vault.Proofs.Native
-import Contracts.VaultFromSolidity.Proofs.ExecutionProof
 import Verity.Proofs.CheckedExternalCallConsumer
 import Verity.Proofs.LoopSimulationResultAware
 import Verity.Proofs.Model.CommonExternalCallEquivalence
@@ -46,7 +47,6 @@ import Verity.Proofs.Stdlib.Int256
 import Verity.Proofs.Stdlib.ListSum
 import Verity.Proofs.Stdlib.MappingAutomation
 import Verity.Proofs.Stdlib.Math
-import Verity.Proofs.Stdlib.SolidityImport
 import Compiler.Proofs.AbiDynamicEventObservable
 import Compiler.Proofs.AbiEncoding
 import Compiler.Proofs.AbiEventObservable
@@ -295,16 +295,19 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.compatScratch_startsWith_reserved
   Compiler.CompilationModel.compatScratch_not_internalImmutable
 
-  -- Contracts/SolidityImportSmoke/Inheritance/Proofs.lean
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.pause_success_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.go_success_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.bump_success_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.dispatch_is_child
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.super_runs_parent
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.pause_meets_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.go_meets_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.bump_meets_spec
-  Contracts.SolidityImportSmoke.Inheritance.Proofs.paused_invariant
+  -- Compiler/SolidityImport/Transactions.lean
+  Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_storage
+  Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_foreignStorage
+  Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_transient
+  Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_parkedTransient
+  Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_revert
+
+  -- Compiler/SolidityImport/StorageFrames.lean
+  Compiler.CompilationModel.Denote.writeUintFieldSlots_storage_frame
+  Compiler.CompilationModel.Denote.execStmt_setStorage_storage_frame
+
+  -- Compiler/SolidityImport/TransactionAccess.lean
+  Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -704,15 +707,6 @@ end Verity.AxiomAudit
   Contracts.Vault.Proofs.Native.vaultMinimal_functions_bridged
   Contracts.Vault.Proofs.Native.vaultMinimal_runtime_lowers_native
   Contracts.Vault.Proofs.Native.vaultMinimal_totalAssets_nativeResultsMatchOn_revert_of_nonzero_value
-
-  -- Contracts/VaultFromSolidity/Proofs/ExecutionProof.lean
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_success_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_success_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_success_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.balance_meets_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.deposit_meets_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.withdraw_meets_spec
-  Contracts.VaultFromSolidity.Proofs.ExecutionProof.solvent_invariant
 
   -- Verity/Proofs/CheckedExternalCallConsumer.lean
   Verity.Proofs.CheckedExternalCallConsumer.lido_submit_entry_installs_caller_context
@@ -1184,10 +1178,6 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Math.safeDiv_self
   Verity.Proofs.Stdlib.Math.safeMul_result_bounded
   Verity.Proofs.Stdlib.Math.safeDiv_result_le_numerator
-
-  -- Verity/Proofs/Stdlib/SolidityImport.lean
-  Verity.Proofs.Stdlib.SolidityImport.run_snd_cases
-  Verity.Proofs.Stdlib.SolidityImport.uint256_eq_zero_iff
 
   -- Compiler/Proofs/AbiDynamicEventObservable.lean
   Compiler.Proofs.AbiDynamicEventObservable.evalIRExprs_append
@@ -7621,4 +7611,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7038 theorems/lemmas (5025 public, 2013 private, 0 sorry'd)
+-- Total: 7019 theorems/lemmas (5006 public, 2013 private, 0 sorry'd)

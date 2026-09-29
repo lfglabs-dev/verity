@@ -190,7 +190,7 @@ External libraries are **outside the formal verification boundary**. Your Lean p
 
 1. Use audited, battle-tested library implementations
 2. Add Foundry tests that exercise linked contracts end-to-end
-3. Document the trust assumption (see [TRUST_ASSUMPTIONS.md](../../TRUST_ASSUMPTIONS.md#5-external-library-code-linker))
+3. Document the trust assumption (see [TRUST_ASSUMPTIONS.md](../../docs/TRUST_ASSUMPTIONS.md#5-external-library-code-linker))
 
 ## Related Files
 

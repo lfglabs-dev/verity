@@ -1800,6 +1800,7 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMapping_letStorage_setMapping_
     | addr slot => simp
     | mapUint slot mapKey => simp
     | map2 slot key1 key2 => simp
+    | «scoped» contract key => simp
   · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get]
 
 /-- Semantic-preservation for the Morpho enableIrm pattern. -/
@@ -6351,9 +6352,7 @@ theorem witness_abiHeadParamShapes_compile :
 /-!
 `getApproved` and `approve` depend on the live `ownersSlot = 4` /
 `tokenApprovalsSlot = 5` layout and include multi-step owner guards. They do
-not fit the older single-fragment witness surface used above. Likewise, the
-broader ABI-head roundtrip/lowering regressions for tuple/bytes/array/string
-params live in `Contracts/TypedIRTests.lean`.
+not fit the older single-fragment witness surface used above.
 -/
 
 -- ============================================================================

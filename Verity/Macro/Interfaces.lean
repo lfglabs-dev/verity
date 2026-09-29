@@ -118,7 +118,17 @@ def parseLinkedContract (stx : Syntax) : CommandElabM LinkedContractDecl := do
         calleeName := toString callee.getId
         calleeIdent := callee
       }
-  | _ => throwErrorAt stx "invalid linked_contracts binding; expected `name : IFace := Callee`"
+  | `(verityLinkedContract| $name:ident : $iface:ident := deferred) =>
+      pure {
+        ident := name
+        name := toString name.getId
+        interfaceName := toString iface.getId
+        interfaceIdent := iface
+        calleeName := ""
+        calleeIdent := name
+        isDeferred := true
+      }
+  | _ => throwErrorAt stx "invalid linked_contracts binding; expected `name : IFace := Callee` or `name : IFace := deferred`"
 
 def parseInterface
     (newtypes : Array NewtypeDecl)

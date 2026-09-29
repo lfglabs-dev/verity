@@ -21,7 +21,9 @@ ROOT = Path(__file__).resolve().parent.parent
 PROOF_DIRS = [ROOT / "Verity" / "Proofs", ROOT / "Compiler" / "Proofs"]
 TRUST_BOUNDARY_FILES = [
     ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
-    ROOT / "Contracts" / "SolidityImportSmoke" / "Inheritance" / "Proofs.lean",
+    ROOT / "Compiler" / "SolidityImport" / "Transactions.lean",
+    ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",
+    ROOT / "Compiler" / "SolidityImport" / "TransactionAccess.lean",
 ]
 
 def _collect_contract_proof_dirs() -> list[Path]:
@@ -151,12 +153,7 @@ def generate() -> str:
     # as the proof files are brought fully in sync.
     EXCLUDED_PATHS = {
         # Pre-existing proof failures (simp/tactic issues, API changes)
-        "Compiler/Proofs/YulGeneration/Lemmas.lean",              # unsolved goals in selector proof
-        "Compiler/Proofs/YulGeneration/StatementEquivalence.lean", # switch keyword + unfold failures
         "Compiler/Proofs/IRGeneration/Expr.lean",                  # deep API mismatches (.setMapping, evmModulus)
-        # Transitive dependents of the above
-        "Compiler/Proofs/YulGeneration/Codegen.lean",              # imports Lemmas
-        "Compiler/Proofs/YulGeneration/Preservation.lean",         # imports Codegen + StatementEquivalence
     }
     all_files = [
         f for f in all_files

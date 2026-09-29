@@ -675,7 +675,7 @@ def compileSpecsWithOptions
         IO.println s!"  {spec.name}: {String.intercalate ", " primitives}"
     if !anyAxiomatized then
       IO.println "  (no axiomatized primitives used)"
-    IO.println "  Proof boundary: these primitives compile through explicit trusted boundaries (for example, keccak-backed hashing) and should be audited alongside AXIOMS.md/TRUST_ASSUMPTIONS.md."
+    IO.println "  Proof boundary: these primitives compile through explicit trusted boundaries (for example, keccak-backed hashing) and should be audited alongside docs/AXIOMS.md and docs/TRUST_ASSUMPTIONS.md."
     IO.println ""
     IO.println "Local obligation report:"
     let mut anyLocalObligations := false

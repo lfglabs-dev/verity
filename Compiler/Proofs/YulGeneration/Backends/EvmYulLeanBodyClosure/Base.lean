@@ -5786,8 +5786,7 @@ private theorem zip_assigns_bridgedStmts (names : List String) :
         ((names.zip compiled).map (fun p => YulStmt.assign p.1 p.2)) := by
   induction names with
   | nil =>
-      intro compiled _
-      intro stmt hMem
+      intro compiled _ stmt hMem
       simp at hMem
   | cons n ns ih =>
       intro compiled hCompiled
@@ -5951,8 +5950,7 @@ private theorem zipIdx_mstores_bridgedStmts :
   intro compiled
   induction compiled with
   | nil =>
-      intro _ _
-      intro stmt hMem
+      intro _ _ stmt hMem
       simp at hMem
   | cons c cs ih =>
       intro startIdx hCompiled

@@ -1393,8 +1393,7 @@ theorem exec_initFreeMemoryPointer_head_ok
       (some contract)
       Compiler.Constants.freeMemoryPointer 128 using 1 <;>
     simp [nativeSwitchInitialOkState, nativeSwitchPostInitFreeMemoryState,
-      nativeSwitchPostInitFreeMemorySharedState, EvmYul.SharedState.toState,
-      EvmYul.Yul.State.toMachineState]
+      nativeSwitchPostInitFreeMemorySharedState, ]
 
 /-- Peel the exact generated `initFreeMemoryPointer` head from a dispatcher
     block, exposing the residual dispatcher execution on the concrete
@@ -2029,7 +2028,7 @@ theorem exec_if_lowerExprNative_ident_one_take_fuel
         codeOverride state =
       EvmYul.Yul.exec (fuel + 1) (.Block body) codeOverride state := by
   have hNe : (EvmYul.UInt256.ofNat 1 : EvmYul.UInt256) ≠ ⟨0⟩ := by decide
-  simp [EvmYul.Yul.exec, Backends.lowerExprNative, EvmYul.Yul.eval, hVal, hNe]
+  simp [EvmYul.Yul.exec, Backends.lowerExprNative, EvmYul.Yul.eval, ]
   intro hZero
   exact (hNe (hVal.symm.trans hZero)).elim
 
@@ -3304,11 +3303,9 @@ theorem NativePrimCallPreservesWord_balance
       cases hExec
       cases state with
       | Ok shared store =>
-          change ((EvmYul.Yul.State.Ok shared store).setSharedState _)[name]! = expected
           rw [state_getElem_setSharedState]
           exact hLookup
       | OutOfFuel =>
-          change ((EvmYul.Yul.State.OutOfFuel).setSharedState _)[name]! = expected
           rw [state_getElem_setSharedState]
           exact hLookup
       | Checkpoint jump =>

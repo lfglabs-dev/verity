@@ -16,10 +16,8 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                       'docs/**',
                       'docs-site/**',
                       'Makefile',
-                      'AXIOMS.md',
                       'PrintAxioms.lean',
-                      'README.md',
-                      'TRUST_ASSUMPTIONS.md'],
+                      'README.md'],
  'build_paths': ['.github/actions/**',
                  '.github/workflows/verify.yml',
                  'Verity/**',
@@ -702,15 +700,16 @@ SPEC = {'check_only_paths': ['.github/workflows/**',
                                       '--check',
                                       'python3 scripts/generate_evmyullean_native_lowering_report.py '
                                       '--check',
-                                       'python3 scripts/generate_print_axioms.py --check',
-                                       'python3 scripts/generate_trust_surface_report.py --check',
-                                       'python3 scripts/lean_lint.py --only proof_length',
-                                      'python3 scripts/lean_lint.py --only spec_named_storage',
+                                      'python3 scripts/generate_print_axioms.py --check',
+                                      'python3 scripts/generate_trust_surface_report.py --check',
+                                      'python3 scripts/lean_lint.py --only proof_length',
                                       'python3 scripts/check_issue_1060_integrity.py',
                                       "python3 -m unittest discover -s scripts -p 'test_*.py' -v"],
  'expected_checks_other_commands': [],
- 'expected_build_commands': ['check_lean_warning_regression.py --log lake-build.log'],
- 'required_build_run_commands': ['lake build PrintAxioms'],
+ 'expected_build_commands': ['check_lean_warning_regression.py --log lake-build.log',
+                             'setup_solc_import.py',
+                             'solidity_import_mutations.py'],
+ 'required_build_run_commands': ['lake build PrintAxioms', 'lake build SolidityImportSmoke'],
  'expected_build_audit_commands': ['check_split_package_builds.py',
                                    'check_axioms.py',
                                    'check_proof_length.py --format=markdown >> '
@@ -933,3 +932,12 @@ SPEC['expected_downloaded_artifact_paths'] = {
 
 def build_spec() -> dict:
     return copy.deepcopy(SPEC)
+
+# Solidity slice differential changes require the compiled-model validation lane.
+for _lane in ("build_paths", "compiler_paths"):
+    SPEC[_lane][SPEC[_lane].index("lean-toolchain"):SPEC[_lane].index("lean-toolchain")] = ['scripts/solidity_differential/**', 'scripts/solidity_import_differential.py', 'scripts/check_solidity_differential.sh', 'scripts/solidity_import_mutations.py', 'scripts/test_solidity_stateful*.py', 'scripts/setup_solc_import.py', 'scripts/solidity_import_coverage.py', 'scripts/solidity_import_corpus/**', 'scripts/test_solidity_import_coverage.py']
+SPEC["expected_uploaded_artifacts"]["compiler-regressions"] = ["solidity-import-differential", "solidity-import-coverage"]
+SPEC["expected_uploaded_artifact_paths"]["compiler-regressions"] = [".lake/import-differential/**\n.lake/stateful-*/**\n.lake/denote-rejections-*/**\n!.lake/import-differential/**/.lake/build/**\n!.lake/import-differential/**/.lake/packages/**", ".lake/solidity-import-coverage/**"]
+for _key in ("expected_uploaded_artifacts", "expected_uploaded_artifact_paths"):
+    _profile = SPEC[_key].pop("lean-profile")
+    SPEC[_key]["lean-profile"] = _profile

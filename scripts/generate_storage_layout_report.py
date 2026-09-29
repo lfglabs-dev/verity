@@ -123,7 +123,7 @@ def render_summary(report: dict) -> str:
         "the generator after any change to a production storage layout._",
         "",
         "Source of truth: `Compiler.Specs.allSpecs` (canonical production",
-        "contract surface). See `AUDIT.md` for the audit-artifact registry",
+        "contract surface). See `docs/TRUST_ASSUMPTIONS.md` for the audit-artifact registry",
         "and issue #1897 for the migration-review motivation.",
         "",
         "## Non-alias certificate justifications (#1966)",

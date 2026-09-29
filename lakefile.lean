@@ -22,53 +22,6 @@ lean_lib «Verity» where
     .one `Verity.Proofs.LoopSimulationResultAware
   ]
 
-input_file vaultSolidity where
-  path := "Contracts/VaultFromSolidity/Vault.sol"
-  text := false
-
-input_file vaultLeanImporter where
-  path := "Contracts/VaultFromSolidity/Importer/Importer.lean"
-  text := false
-
-input_file vaultLeanSyntax where
-  path := "Contracts/VaultFromSolidity/Importer/Syntax.lean"
-  text := false
-
-input_file vaultLeanSemantics where
-  path := "Contracts/VaultFromSolidity/Importer/Semantics.lean"
-  text := false
-
-input_file vaultSolc where
-  path := ".lake/solidity-import/solc"
-  text := false
-
-input_file vaultBuildPolicy where
-  path := "lakefile.lean"
-  text := false
-
-lean_lib «VaultSolidityImporter» where
-  globs := #[.one `Contracts.VaultFromSolidity.Importer.Syntax,
-    .one `Contracts.VaultFromSolidity.Importer.Semantics,
-    .one `Contracts.VaultFromSolidity.Importer.Importer]
-
-lean_lib «VaultFromSolidity» where
-  globs := #[.one `Contracts.VaultFromSolidity.VaultFromSolidity,
-    .one `Contracts.VaultFromSolidity.Spec,
-    .one `Contracts.VaultFromSolidity.Proofs.ExecutionProof]
-  needs := #[vaultSolidity, vaultLeanImporter, vaultLeanSyntax, vaultLeanSemantics, vaultSolc,
-    vaultBuildPolicy]
-
-input_file inheritanceSolidity where
-  path := "Contracts/SolidityImportSmoke/Inheritance/Inheritance.sol"
-  text := false
-
-lean_lib «SolidityImportSmokeInheritance» where
-  globs := #[.one `Contracts.SolidityImportSmoke.Inheritance.Inheritance,
-    .one `Contracts.SolidityImportSmoke.Inheritance.Spec,
-    .one `Contracts.SolidityImportSmoke.Inheritance.Proofs]
-  needs := #[inheritanceSolidity, vaultLeanImporter, vaultLeanSyntax, vaultLeanSemantics, vaultSolc,
-    vaultBuildPolicy]
-
 lean_lib «Contracts» where
   globs := #[
     .one `Contracts,
@@ -97,6 +50,31 @@ lean_lib «Contracts» where
     .andSubmodules `Contracts.ReentrancyExample,
     .andSubmodules `Contracts.ReentrancyRelyGuarantee
   ]
+
+/-- Solidity read by `solidity_import`: editing it rebuilds the import. -/
+input_dir solidityImportSmokeSources where
+  path := "Contracts/SolidityImportSmoke"
+  filter := .extension "sol"
+  text := true
+
+lean_lib «SolidityImportSmoke» where
+  globs := #[.one `Contracts.SolidityImportSmoke.Smoke,
+    .one `Contracts.SolidityImportSmoke.Transactions,
+    .one `Contracts.SolidityImportSmoke.SequenceModel,
+    .one `Contracts.SolidityImportSmoke.EventSequenceModel,
+    .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,
+    .one `Contracts.SolidityImportSmoke.StorageSequenceModel,
+    .one `Contracts.SolidityImportSmoke.MappingSequenceModel,
+    .one `Contracts.SolidityImportSmoke.MappingDirtySequenceModel,
+    .one `Contracts.SolidityImportSmoke.StorageVoidSequenceModel,
+    .one `Contracts.SolidityImportSmoke.StorageBytesSequenceModel,
+    .one `Contracts.SolidityImportSmoke.StorageTraceChecks,
+    .one `Contracts.SolidityImportSmoke.EventRejections,
+    .one `Contracts.SolidityImportSmoke.ErrorPayloads,
+    .one `Contracts.SolidityImportSmoke.ErrorSequenceModel,
+    .one `Contracts.SolidityImportSmoke.Require,
+    .one `Contracts.SolidityImportSmoke.RequireCustom]
+  needs := #[solidityImportSmokeSources]
 
 lean_lib «Compiler» where
   globs := #[.andSubmodules `Compiler]

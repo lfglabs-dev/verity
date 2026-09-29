@@ -42,8 +42,8 @@ verity_contract ParetoSmallFidelityGapsSmoke where
     let v ← getStorage p
     require (v == 0) "paused"
 
-  function internal view sup (x : IT) : Uint256 := do
-    let value ← x.totalSupply
+  function internal view sup (_x : IT) : Uint256 := do
+    let value ← _x.totalSupply
     return value
 
   function view viewer () : Uint256 := do
@@ -55,8 +55,8 @@ verity_contract ParetoSmallFidelityGapsSmoke where
     let (first, second) ← callExternal pair(seed)
     return (first, second)
 
-  function g14_typed (oracle : IPrices, seed : Uint256) : Tuple [Uint256, Uint256] := do
-    let (lo, hi) ← oracle.bounds seed
+  function g14_typed (_oracle : IPrices, seed : Uint256) : Tuple [Uint256, Uint256] := do
+    let (lo, hi) ← _oracle.bounds seed
     return (lo, hi)
 
 end Contracts.Smoke

@@ -58,8 +58,12 @@ semantic definition.
 ## Outside the initial denotation fragment
 
 Exactly the constructs `SourceSemantics` itself maps to `none`/`.revert`, apart
-from the memory-backed word arrays intentionally widened here:
-`arrayElementDynamic*`, `paramDynamic*`, `forkIfAtLeast`, `mappingChain`
+from the memory-backed word arrays intentionally widened here and
+`Stmt.returnValues` (multi-word return recorded in
+`DenoteState.observedReturnWords`, finished with `.stop`, and surfaced by
+`denoteFunction` as `DenoteResult.returnWords` in source order).
+Still outside: `arrayElementDynamic*`, `paramDynamic*`,
+`forkIfAtLeast`, `mappingChain`
 reads with zero or three-plus keys (one/two-key reads and writes are
 supported), and every `Expr`/`Stmt` constructor not listed
 in the arms below (raw calls, ABI re-encoding returns, ECM, unsafe Yul,
@@ -265,6 +269,16 @@ structure DenoteState where
   externalCallReturnValues : Nat → List Nat := fun _ => []
   externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none
   externalCallIndex : Nat := 0
+  /-- Words produced by `Stmt.returnValues`, in source order.
+      `none` means this frame has not executed a multi-value return.
+      The proof semantics records the words here and finishes with `.stop`;
+      panic payloads are carried separately by `StmtOutcome.revertWithData`. -/
+  observedReturnWords : Option (List Nat) := none
+  /-- The current frame executed `Stmt.stop`, whose EVM response is empty.
+      Kept separate from the legacy return-word projection. -/
+  observedStop : Bool := false
+  /-- Declarations needed for exact custom-error ABI encoding. -/
+  errors : List ErrorDef := []
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
 inductive StmtOutcome where
@@ -272,6 +286,73 @@ inductive StmtOutcome where
   | stop (state : DenoteState)
   | return (value : Nat) (state : DenoteState)
   | revert
+  /-- An explicitly observed EVM revert payload. The legacy `revert` arm also
+      represents unsupported evaluation, so differential tests must not invent
+      bytes for it. -/
+  | revertWithData (data : List UInt8)
+
+/-- Canonical big-endian ABI word bytes. -/
+def wordBytes (value : Nat) : List UInt8 :=
+  (List.range 32).map fun i => UInt8.ofNat (value / 2^(8*(31-i)) % 256)
+
+/-- Exact Solidity `Panic(uint256)` revert encoding. -/
+def panicBytes (code : Nat) : List UInt8 :=
+  [0x4e, 0x48, 0x7b, 0x71] ++ wordBytes code
+
+/-- Exact ABI Error(string) bytes for a UTF-8 model message. -/
+def errorStringBytes (message : String) : List UInt8 :=
+  let bytes := message.toUTF8.data.toList
+  [0x08, 0xc3, 0x79, 0xa0] ++ wordBytes 32 ++ wordBytes bytes.length ++ bytes ++
+    List.replicate ((32 - bytes.length % 32) % 32) 0
+
+/-- Canonical signatures for the scalar custom-error fragment. Unsupported
+ABI types return none rather than being approximated as words. -/
+def errorScalarType : ParamType → Option String
+  | .uint256 => some "uint256"
+  | .uint8 => some "uint8"
+  | .uint16 => some "uint16"
+  | .uintN bits => if 0 < bits && bits ≤ 256 && bits % 8 == 0 then some s!"uint{bits}" else none
+  | .address => some "address"
+  | .bool => some "bool"
+  | .bytes32 => some "bytes32"
+  | _ => none
+
+/-- Reject noncanonical narrow ABI words instead of truncating error arguments. -/
+def errorScalarValueValid (ty : ParamType) (value : Nat) : Bool :=
+  match ty with
+  | .uint256 | .bytes32 => value < 2^256
+  | .uint8 => value < 2^8
+  | .uint16 => value < 2^16
+  | .uintN bits => 0 < bits && bits ≤ 256 && bits % 8 == 0 && value < 2^bits
+  | .address => value < 2^160
+  | .bool => value ≤ 1
+  | _ => false
+
+/-- Reconstruct a byte slice as word-addressed EVM memory for the existing hash
+oracle. The temporary buffer is not a mutation of the contract world. -/
+def signatureMemory (bytes : List UInt8) (offset : Nat) : Verity.Core.Uint256 :=
+  Verity.Core.Uint256.ofNat ((List.range 32).foldl
+    (fun word index => word * 256 + ((bytes[offset + index]?).getD 0).toNat) 0)
+
+/-- Exact selector and argument words for a uniquely resolved scalar error.
+Hash faithfulness has the same explicit oracle boundary as model keccak256. -/
+def customErrorBytes (oracle : DenoteOracle) (errors : List ErrorDef)
+    (name : String) (values : List Nat) : Option (List UInt8) := do
+  let [definition] := errors.filter (·.name == name) | none
+  if definition.params.length != values.length then none else do
+    if !(definition.params.zip values).all (fun pair => errorScalarValueValid pair.1 pair.2) then none else do
+      let types ← definition.params.mapM errorScalarType
+      let signature := name ++ "(" ++ String.intercalate "," types ++ ")"
+      let bytes := signature.toUTF8.data.toList
+      let hash := oracle.keccakMemorySlice (signatureMemory bytes) 0 bytes.length
+      let selector := (wordBytes hash).take 4
+      return selector ++ values.flatMap wordBytes
+
+theorem wordBytes_length (value : Nat) : (wordBytes value).length = 32 := by
+  simp [wordBytes]
+
+theorem panicBytes_length (code : Nat) : (panicBytes code).length = 36 := by
+  simp [panicBytes, wordBytes_length]
 
 /-! ## Storage read helpers (mirroring `SourceSemantics`) -/
 
@@ -1112,6 +1193,7 @@ def execForEachLoop
       | .stop next => .stop next
       | .return value next => .return value next
       | .revert => .revert
+      | .revertWithData data => .revertWithData data
 
 def msbIndex (bitmap : Nat) : Nat :=
   if bitmap = 0 then 0 else Nat.log2 bitmap
@@ -1137,6 +1219,7 @@ def execForEachSetBitLoop
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
 
 mutual
   def execStmt (oracle : DenoteOracle) (fields : List Field) :
@@ -1389,28 +1472,36 @@ mutual
               }
             else .revert
         | _, _, _ => .revert
-    | state, .require cond _ =>
+    | state, .require cond message =>
         match evalExpr oracle fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
+            if resolved != 0 then .continue state else .revertWithData (errorStringBytes message)
         | none => .revert
-    | state, .requireError cond _ args =>
+    | state, .requireError cond name args =>
         match evalExpr oracle fields state cond with
         | some resolved =>
             if resolved != 0 then
               .continue state
             else
               match evalExprList oracle fields state args with
-              | _ => .revert
+              | none => .revert
+              | some values =>
+                  match customErrorBytes oracle state.errors name values with
+                  | some bytes => .revertWithData bytes
+                  | none => .revert
         | none => .revert
-    | state, .revertError _ args =>
+    | state, .revertError name args =>
         match evalExprList oracle fields state args with
-        | _ => .revert
+        | none => .revert
+        | some values =>
+            match customErrorBytes oracle state.errors name values with
+            | some bytes => .revertWithData bytes
+            | none => .revert
     | state, .panicCode code =>
         match evalExpr oracle fields state code with
-        | some _ => .revert
+        | some value => .revertWithData (panicBytes value)
         | none => .revert
-    | _, .panic _ => .revert
+    | _, .panic code => .revertWithData (panicBytes code.toNat)
     | state, .return value =>
         match evalExpr oracle fields state value with
         | some resolved => .return resolved
@@ -1418,7 +1509,7 @@ mutual
                 world := { state.world with
                   memory := fun o => if o = 0 then resolved else state.world.memory o } }
         | none => .revert
-    | state, .stop => .stop state
+    | state, .stop => .stop { state with observedStop := true }
     | state, .ite cond thenBranch elseBranch =>
         match evalExpr oracle fields state cond with
         | some resolved =>
@@ -1515,6 +1606,11 @@ mutual
             else .revert
         | none => .revert
     | _, .revertReturndata => .revert
+    | state, .returnValues values =>
+        match evalExprList oracle fields state values with
+        | some resolved =>
+            .stop { state with observedReturnWords := some (resolved.map wordNormalize), observedStop := false }
+        | none => .revert
     | _, _ => .revert
 
   def execStmtList (oracle : DenoteOracle) (fields : List Field) :
@@ -1526,6 +1622,7 @@ mutual
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
 end
 
 /-! ## Function denotation (mirrors `SourceSemantics.interpretFunction`) -/
@@ -1548,6 +1645,10 @@ structure DenoteTransaction where
 structure DenoteResult where
   success : Bool
   returnValue : Option Nat
+  /-- Multi-word return observed from `Stmt.returnValues`.
+      Empty when the frame returned a single word or no word.
+      Order is the source order of the return expressions. -/
+  returnWords : List Nat := []
   finalStorage : Nat → Nat
   events : List (List Nat)
 
@@ -1565,9 +1666,11 @@ def revertedResult (oracle : DenoteOracle) (spec : CompilationModel)
     events := encodeEvents initialWorld.events }
 
 def successResult (oracle : DenoteOracle) (spec : CompilationModel)
-    (world : Verity.ContractState) (ret : Option Nat) : DenoteResult :=
+    (world : Verity.ContractState) (ret : Option Nat) (returnWords : List Nat := []) :
+    DenoteResult :=
   { success := true
     returnValue := ret
+    returnWords := returnWords
     finalStorage := encodeStorage oracle spec world
     events := encodeEvents world.events }
 
@@ -1648,14 +1751,24 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
   | some bindings =>
       match execStmtList oracle fields
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            errors := spec.errors,
             externalCallSucceeded := externalCallSucceeded,
             externalCallReturnValues := externalCallReturnValues,
             externalCallPostWorld := externalCallPostWorld }
           fn.body with
       | .continue state => successResult oracle spec state.world none
-      | .stop state => successResult oracle spec state.world none
+      | .stop state =>
+          -- Multi-word returns (`Stmt.returnValues`) are observable in
+          -- `returnWords` (source order).  `returnValue` stays `none` so that
+          -- `toSourceResult` — whose target type has no multi-word field —
+          -- still agrees with `SourceSemantics.interpretFunction`, which does
+          -- not surface `Stmt.returnValues` payloads.  No `match` on
+          -- `observedReturnWords` here: keeping the arm match-free lets the
+          -- `denoteFunction_eq` agreement proof close by `simp`.
+          successResult oracle spec state.world none
+            (returnWords := state.observedReturnWords.getD [])
       | .return value state => successResult oracle spec state.world (some value)
-      | .revert => revertedResult oracle spec worldWithTx
+      | .revert | .revertWithData _ => revertedResult oracle spec worldWithTx
 
 /-! ## Smoke checks (oracle-independent scenarios) -/
 

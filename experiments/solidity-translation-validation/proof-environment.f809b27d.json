@@ -1,0 +1,90 @@
+{
+  "initial_survey_verity_revision": "9934dd6cefb84cf3a51dc598fa7a89f3cae8e21b",
+  "proof_worktree_verity_revision": "f809b27dcde780e3a8420563d27aa09c28c0fdd3",
+  "tracked_diff": "",
+  "prototype_sources_status": "untracked experiment additions; hashes below",
+  "lean_toolchain": "leanprover/lean4:v4.31.0",
+  "lean_banner": "Lean (version 4.31.0, arm64-apple-darwin24.6.0, commit 68218e876d2a38b1985b8590fff244a83c321783, Release)",
+  "lake_manifest_sha256": "ae4b6d9fc8f787005515ba1e20c85e2f80fe0446795489fac1641c4ecbc7eff6",
+  "dependencies": [
+    {
+      "name": "evmyul",
+      "manifest_revision": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
+      "checkout_revision": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9"
+    },
+    {
+      "name": "mathlib",
+      "manifest_revision": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f",
+      "checkout_revision": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
+    },
+    {
+      "name": "plausible",
+      "manifest_revision": "63045536fe95024e6c18fc7b48e03f506701c5bc",
+      "checkout_revision": "63045536fe95024e6c18fc7b48e03f506701c5bc"
+    },
+    {
+      "name": "LeanSearchClient",
+      "manifest_revision": "c5d5b8fe6e5158def25cd28eb94e4141ad97c843",
+      "checkout_revision": "c5d5b8fe6e5158def25cd28eb94e4141ad97c843"
+    },
+    {
+      "name": "importGraph",
+      "manifest_revision": "5c7542ed018c78194f1e2b903eaf6a792b74c03d",
+      "checkout_revision": "5c7542ed018c78194f1e2b903eaf6a792b74c03d"
+    },
+    {
+      "name": "proofwidgets",
+      "manifest_revision": "24b0d9dc081c5423f8eec7e866c441e5184f29d9",
+      "checkout_revision": "24b0d9dc081c5423f8eec7e866c441e5184f29d9"
+    },
+    {
+      "name": "aesop",
+      "manifest_revision": "e3cb2f741431ce31bf73549fb52316a57368b06f",
+      "checkout_revision": "e3cb2f741431ce31bf73549fb52316a57368b06f"
+    },
+    {
+      "name": "Qq",
+      "manifest_revision": "f46324995fca5f0483b742e4eb4daec7f4ee50d2",
+      "checkout_revision": "f46324995fca5f0483b742e4eb4daec7f4ee50d2"
+    },
+    {
+      "name": "batteries",
+      "manifest_revision": "fa08db58b30eb033edcdab331bba000827f9f785",
+      "checkout_revision": "fa08db58b30eb033edcdab331bba000827f9f785"
+    },
+    {
+      "name": "Cli",
+      "manifest_revision": "92564e5770e4d09f2d86dfbf8ada1e9c715b384c",
+      "checkout_revision": "92564e5770e4d09f2d86dfbf8ada1e9c715b384c"
+    }
+  ],
+  "prototype_source_sha256": {
+    "Arithmetic.lean": "c0974374e1ec49878145f285fbd1f18b0df03494e4ff2b720165ec586a4b8a12",
+    "AstDecoder.lean": "af3e852cf471772942d6624f3b16793e381016f87b2745ac15241f71c3ae29e2",
+    "CapturedExecution.lean": "aa69202856f6ad60a816c73f0fa09e4e9dbfbdf86c413036fe9b4139efe6791e",
+    "CapturedNodes.lean": "cd1adc0f9b7aa06245959dcf8891860688a7610920dea14d9d7b670374893b6a",
+    "DispatcherBoundary.lean": "3f1fe90d4a2d18bd1faa22bd39d2094247730b932ec82feec880067523234d2c",
+    "GuardedExecution.lean": "b493b40261195852db84be3b015626c4c094f2d6f554c3b2a2c49c238f00a92a",
+    "Imported.lean": "bedc6b1d9250473773977f27dc111250ee2cc33c393877d6bdaf4e40bfcc28b2",
+    "ReturnObservation.lean": "6d570eed6539c62baa1f2fb5167b78850d92ea79ae67a0218e41d5b2503133f2",
+    "capture.py": "bc4e4fc71d5a4ffef92eeffa0af191f8c41e26e867672930f616af2eb654a626",
+    "check_arithmetic.py": "2b8f706e8ff8216905dc0d0313c08010118f29ad9132c8944d47c50f6222dc24",
+    "check_ast_bridge.py": "a5dc9f5f60901e759539d1b27bc13bafe21e92ec9e8f904c25ebd6ecdd9f06b7",
+    "check_dispatcher_boundary.py": "8b462b14645123697b4a17aefeb380a2b218ddb7d30fc635e0db20afc5341e0f",
+    "check_return_observation.py": "1f94ba685cb55ba974473d9b8676a63aa21ebafd11b0c7ab4f86658b7c639024",
+    "generate_ast_bridge.py": "3ca4f877854385a60a614954930c197cfaf4fc4589ac4834e2569832ca3ec864"
+  },
+  "cache_boundary": "Focused Lean checks reuse existing library oleans; not a fresh full dependency build. Rebuild normal prerequisites and rerun on any new integration head.",
+  "commands": [
+    "python3 experiments/solidity-translation-validation/check_return_observation.py",
+    "python3 experiments/solidity-translation-validation/check_dispatcher_boundary.py",
+    "python3 experiments/solidity-translation-validation/generate_ast_bridge.py --check"
+  ],
+  "capture_check_command": "python3 experiments/solidity-translation-validation/capture.py --midnight-repo /Users/thomas/work/morpho-midnight-verity/vendor/midnight --solc /Users/thomas/work/morpho-pilot/bin/solc-0.8.34 --check",
+  "recorded_command_exit_codes": {
+    "python3 experiments/solidity-translation-validation/check_return_observation.py": 0,
+    "python3 experiments/solidity-translation-validation/check_dispatcher_boundary.py": 0,
+    "python3 experiments/solidity-translation-validation/generate_ast_bridge.py --check": 0,
+    "python3 experiments/solidity-translation-validation/capture.py --midnight-repo /Users/thomas/work/morpho-midnight-verity/vendor/midnight --solc /Users/thomas/work/morpho-pilot/bin/solc-0.8.34 --check": 0
+  }
+}

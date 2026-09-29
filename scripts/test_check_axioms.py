@@ -80,7 +80,8 @@ class CheckAxiomsLocationTests(unittest.TestCase):
                 "axiom documented_axiom : True\naxiom missing_axiom : True\n",
                 encoding="utf-8",
             )
-            (root / "AXIOMS.md").write_text(
+            (root / "docs").mkdir(parents=True, exist_ok=True)
+            (root / "docs" / "AXIOMS.md").write_text(
                 "\n".join(
                     [
                         "### 1. `documented_axiom`",

@@ -254,7 +254,7 @@ The arithmetic model is invariant across profiles. See [`docs/SOLIDITY_PARITY_PR
   the guard/panic/arithmetic sequence) to a checked helper call is protected by
   structural matching and regression tests, not an end-to-end preservation
   theorem.
-- **Cryptographic primitives**: keccak256 is axiomatized (see [`AXIOMS.md`](../AXIOMS.md)).
+- **Cryptographic primitives**: keccak256 is axiomatized (see [`AXIOMS.md`](AXIOMS.md)).
 - **Universal bridge equivalence**: 25/25 pure EVMYulLean-backed builtins have universal bridge lemmas. All 25 also have context-lifted native bridge theorems. All 8 higher-level expression operators also have proven compilation correctness.
 
 ## Auditor Checklist
@@ -271,7 +271,7 @@ The arithmetic model is invariant across profiles. See [`docs/SOLIDITY_PARITY_PR
 
 ## Related Documents
 
-- [`TRUST_ASSUMPTIONS.md`](../TRUST_ASSUMPTIONS.md): trust boundaries and semantic caveats
-- [`AXIOMS.md`](../AXIOMS.md): documented axioms (arithmetic is NOT an axiom)
+- [`TRUST_ASSUMPTIONS.md`](TRUST_ASSUMPTIONS.md): trust boundaries and semantic caveats
+- [`AXIOMS.md`](AXIOMS.md): documented axioms (arithmetic is NOT an axiom)
 - [`docs/SOLIDITY_PARITY_PROFILE.md`](SOLIDITY_PARITY_PROFILE.md): backend profile specification
 - [`Compiler/Proofs/ArithmeticProfile.lean`](../Compiler/Proofs/ArithmeticProfile.lean): formal proofs

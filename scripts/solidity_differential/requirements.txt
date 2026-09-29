@@ -1,0 +1,2 @@
+eth-abi==5.2.0
+eth-hash[pycryptodome]==0.7.1

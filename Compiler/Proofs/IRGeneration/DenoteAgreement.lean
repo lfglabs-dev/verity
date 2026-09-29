@@ -36,7 +36,8 @@ def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
   { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector,
     externalCallOracle := fun n =>
       ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩,
-    externalCallIndex := s.externalCallIndex }
+    externalCallIndex := s.externalCallIndex,
+    observedReturnWords := s.observedReturnWords }
 
 @[simp] theorem toRuntimeState_world (s : DenoteState) :
     (toRuntimeState s).world = s.world := rfl
@@ -152,6 +153,7 @@ def toStmtResult : StmtOutcome → SourceSemantics.StmtResult
   | .stop st => .stop (toRuntimeState st)
   | .return v st => .return v (toRuntimeState st)
   | .revert => .revert
+  | .revertWithData _ => .revert
 
 theorem storageArraySetAt_eq :
     ∀ (xs : List Verity.Core.Uint256) (idx : Nat) (v : Verity.Core.Uint256),
@@ -493,7 +495,8 @@ theorem execForEachLoop_agree {varName : String}
             | .continue next => Denote.execForEachLoop varName runBody next (index + 1) remaining
             | .stop next => .stop next
             | .return value next => .return value next
-            | .revert => .revert) = _
+            | .revert => .revert
+            | .revertWithData data => .revertWithData data) = _
       cases runBody ls <;>
         first
           | rfl
@@ -523,7 +526,8 @@ theorem execForEachSetBitLoop_agree {varName : String}
                   (SourceSemantics.clearMsb bitmap)
             | .stop next => .stop next
             | .return value next => .return value next
-            | .revert => .revert) = _
+            | .revert => .revert
+            | .revertWithData data => .revertWithData data) = _
         cases runBody ls <;>
           first
             | rfl
@@ -545,6 +549,8 @@ theorem execStmt_forEachSetBit_eq (fields : List Field)
         (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
         hbody 256 st bits
 
+section StatementTactics
+
 /-- Generic discharge tactic for the non-recursive `execStmt` arms: align the
 expression evaluators, split every residual match/ite, then close each leaf
 definitionally or by the mapping-write/array bridges. -/
@@ -552,7 +558,7 @@ macro "denote_stmt_arm" : tactic =>
   `(tactic|
     (simp only [Denote.execStmt, SourceSemantics.execStmt,
        ← denote_evalExpr_eq, ← denote_evalExprList_eq]
-     repeat' (split <;>
+     repeat' (split at * <;>
          try simp_all [toStmtResult, toRuntimeState,
          Verity.ContractState.readArray, Verity.ContractState.writeArray,
          writeAddressKeyedMappingSlots_eq, writeUintKeyedMappingSlots_eq,
@@ -575,7 +581,10 @@ macro "denote_stmt_arm" : tactic =>
              storageArrayDropLast?_eq,
              writeFixedUint128ArrayElementSlots_eq,
              SourceSemantics.eventFromResolvedArgs?,
-             SourceSemantics.eventScratchMemoryAfterEmit?]))
+             SourceSemantics.eventScratchMemoryAfterEmit?]
+         | (simp_all only [Option.bind_eq_some_iff]; aesop)))
+
+end StatementTactics
 
 mutual
 
@@ -672,7 +681,8 @@ theorem execStmt_eq (fields : List Field) :
             · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq,
                 SourceSemantics.returndataAfterCall]
           · simp [toStmtResult, toRuntimeState, h]
-  | _, .returnValues .. | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
+  | _, .returnValues _ => by denote_stmt_arm
+  | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
   | _, .internalCallAssign .. | _, .rawLog ..
   | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl

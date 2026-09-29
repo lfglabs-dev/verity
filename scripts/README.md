@@ -1,6 +1,6 @@
 # Scripts Quickstart
 
-Use this file for day-to-day operation. Detailed script inventory lives in [REFERENCE.md](REFERENCE.md).
+Use this file for day-to-day operation. Each script's docstring describes what it checks.
 
 ## High-signal commands
 

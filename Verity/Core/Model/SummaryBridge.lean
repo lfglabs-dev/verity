@@ -27,8 +27,11 @@ namespace Compiler.CompilationModel.DenoteExternalCalls
 
 open Compiler.ECM.StatefulExternal
 
-/-- Externally visible projection of the caller-threaded world: the modeled
-storage of explicitly identified foreign contracts. -/
+/-- Storage projection observed by call summaries. Includes contract namespace
+zero, which aliases caller-local storage, as well as positive contract IDs.
+Keeping zero visible makes a summary's frame condition constrain callback and
+delegatecall writes to the caller; excluding it would hide those effects.
+This projection does not observe the other `ContractState` channels. -/
 def externalWorldOf (w : Verity.ContractState) : ExternalWorld :=
   { accountState := fun account slot => (w.contractStorage account slot).val }
 

@@ -91,9 +91,4 @@ def foundation_patch_pack_obligations (eval : EvalExpr) : Prop :=
   div_one_right_preserves eval ∧
   mod_one_right_preserves eval
 
-/-- Placeholder object-level proof hook until object semantics preservation is stated directly.
-    External parity packs define their own object-rule obligations using this hook. -/
-def ObjectPatchPreserves (_rule : ObjectPatchRule) : Prop :=
-  True
-
 end Compiler.Proofs.YulGeneration.PatchRulesProofs

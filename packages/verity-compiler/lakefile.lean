@@ -21,7 +21,3 @@ lean_lib «Compiler» where
 lean_exe «verity-compiler» where
   srcDir := "../.."
   root := `Compiler.Main
-
-lean_exe «verity-compiler-patched» where
-  srcDir := "../.."
-  root := `Compiler.MainPatched

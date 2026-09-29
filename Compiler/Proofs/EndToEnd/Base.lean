@@ -1214,7 +1214,7 @@ private theorem nativeIRRuntimeMatchesIR_of_generated_lowered_dispatcherExec_pos
       hNoFallback hNoReceive)
     hLower hEnv]
   unfold nativeDispatcherExecMatchesIRPositive at hMatch
-  convert hMatch using 1 <;> rfl
+  convert hMatch using 1 ; rfl
 
 theorem nativeDispatcherExecMatchesIRPositive_of_project_eq_match
     {fuel' : Nat} {contract : IRContract} {tx : IRTransaction}
@@ -1430,7 +1430,7 @@ theorem nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFal
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hFunctionSelectorsRange :
       ∀ fn, fn ∈ irContract.functions → fn.selector < EvmYul.UInt256.size)
-    (hEnv :
+    (_hEnv :
       Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
         (Compiler.emitYul irContract).runtimeCode (YulTransaction.ofIR tx) =
           .ok ()) :
@@ -1492,7 +1492,7 @@ theorem nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFal
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hFunctionSelectorsRange :
       ∀ fn, fn ∈ irContract.functions → fn.selector < EvmYul.UInt256.size)
-    (hEnv : Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
+    (_hEnv : Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
       (Compiler.emitYul irContract).runtimeCode (YulTransaction.ofIR tx) =
         .ok ()) :
     ∃ (switchStart : Nat)
@@ -1550,7 +1550,7 @@ theorem nativeDispatcherExecMatchesIRPositive_of_buildSwitch_selector_miss_noFal
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hFunctionSelectorsRange :
       ∀ fn, fn ∈ irContract.functions → fn.selector < EvmYul.UInt256.size)
-    (hEnv : Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
+    (_hEnv : Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
       (Compiler.emitYul irContract).runtimeCode (YulTransaction.ofIR tx) =
         .ok ()) :
     ∃ (switchStart : Nat)
@@ -1609,7 +1609,7 @@ theorem nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwit
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hFunctionSelectorsRange :
       ∀ fn, fn ∈ irContract.functions → fn.selector < EvmYul.UInt256.size)
-    (hEnv :
+    (_hEnv :
       Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
         (Compiler.emitYul irContract).runtimeCode (YulTransaction.ofIR tx) =
           .ok ()) :
@@ -1732,7 +1732,7 @@ theorem nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwit
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hFunctionSelectorsRange :
       ∀ fn, fn ∈ irContract.functions → fn.selector < EvmYul.UInt256.size)
-    (hEnv :
+    (_hEnv :
       Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
         (Compiler.emitYul irContract).runtimeCode (YulTransaction.ofIR tx) =
           .ok ()) :
@@ -12084,7 +12084,7 @@ theorem nativeGeneratedCallDispatcherResult_selector_miss_matchesIR_exists_of_co
       ∀ selector, selector ∈ selectors →
         selector < Compiler.Constants.selectorModulus)
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
-    (hEnv : Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
+    (_hEnv : Compiler.Proofs.YulGeneration.Backends.Native.validateNativeRuntimeEnvironment
       (Compiler.emitYul irContract).runtimeCode (YulTransaction.ofIR tx) =
         .ok ()) :
     ∃ nativeContract : EvmYul.Yul.Ast.YulContract,
@@ -29237,10 +29237,23 @@ private theorem compile_preserves_native_evmYulLean_callDispatcher_selector_hit_
     hCase, hBodyLower, ?_⟩
   intro hBody hPreservesMatched hProject hMatch
   have hSource := hDispatcherContinuation hBody hPreservesMatched hProject hMatch
-  rw [callDispatcherResult_eq_nativeRuntime_supported_local
-    tx initialState observableSlots
-    (nativeContractOfInitPrefixedDispatcherWithMapping [.Block inner])
-    hcompile hSupported hLowerRuntime hEnv]
+  have hCanonical :
+      nativeGeneratedCallDispatcherResultOf irContract tx initialState observableSlots
+          (nativeContractOfInitPrefixedDispatcherWithMapping [.Block inner]) =
+        Compiler.Proofs.YulGeneration.Backends.Native.interpretIRRuntimeNative
+          (Nat.succ (sizeOf (Compiler.emitYul irContract).runtimeCode))
+          irContract tx initialState observableSlots := by
+    have hInterp :=
+      Compiler.Proofs.YulGeneration.Backends.Native.interpretIRRuntimeNative_eq_callDispatcher_of_lowerRuntimeContractNative
+        (Nat.succ (sizeOf (Compiler.emitYul irContract).runtimeCode))
+        irContract tx initialState observableSlots
+        (nativeContractOfInitPrefixedDispatcherWithMapping [.Block inner])
+        (generatedRuntimeNativeFragment_of_compile_ok_supported hcompile hSupported)
+        hLowerRuntime hEnv
+    simp [nativeGeneratedCallDispatcherResultOf, Compiler.emitYul,
+      Compiler.runtimeCode, Compiler.CodegenCommon.emitYul]
+    exact hInterp.symm
+  rw [hCanonical]
   simpa [nativeRuntimeFuel, initialState] using hSource
 
 /-- Direct `callDispatcher` selector-hit success theorem from successful

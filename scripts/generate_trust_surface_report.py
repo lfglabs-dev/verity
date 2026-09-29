@@ -52,7 +52,7 @@ def build_report() -> dict:
         "notes": (
             "native_decide trusts Lean.ofReduceBool or Lean 4.31 generated "
             "per-proof native_decide axioms + Lean.trustCompiler. Prose "
-            "registry: AXIOMS.md, TRUST_ASSUMPTIONS.md (enforced by "
+            "registry: docs/AXIOMS.md, docs/TRUST_ASSUMPTIONS.md (enforced by "
             "scripts/check_trust_surface_registry.py)."
         ),
     }

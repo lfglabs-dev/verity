@@ -14,7 +14,7 @@
   inside `Compiler/`. `PrintAxioms.lean` uses the same root-level
   placement for the same reason.
 
-  See AUDIT.md for the audit-artifact registry.
+  See docs/TRUST_ASSUMPTIONS.md for the trust boundary.
 -/
 import Compiler.CompilationModel
 import Compiler.CompilationModel.LayoutReport
