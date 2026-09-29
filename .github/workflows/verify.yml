@@ -372,9 +372,10 @@ jobs:
 
   build:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    # The 26 isolated mutation campaigns run after the proof/audit prebuilds.
-    # Keep their per-command limits, but budget for the complete sequential step.
-    timeout-minutes: 90
+    # The 26 isolated mutation campaigns run after the proof/audit prebuilds
+    # (~16 min). On the CI runner the full mutation step takes ~76 min
+    # (run 36599239119 was cut at 90 min two cases before the end).
+    timeout-minutes: 120
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
     env:

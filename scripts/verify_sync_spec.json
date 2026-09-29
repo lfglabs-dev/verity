@@ -217,7 +217,7 @@
     "changes": 5,
     "checks": 45,
     "timeout-watchdog": 5,
-    "build": 90,
+    "build": 120,
     "build-audits": 20,
     "build-compiler-binaries": 360,
     "compiler-audits": 45,
