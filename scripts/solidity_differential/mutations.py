@@ -35,10 +35,13 @@ def snapshot(destination):
     cache.mkdir(exist_ok=True)
     (cache / "packages").symlink_to(WORKSPACE / ".lake/packages", target_is_directory=True)
     # Private copy-on-write cache: no hardlinks/symlinks to mutable parent oleans.
+    # CI attaches its persistent build cache through a symlink. Copy the target
+    # directory, not that link, or mutants overwrite the parent's compiled code.
+    build = (WORKSPACE / ".lake/build").resolve(strict=True)
     if sys.platform == "darwin":
-        command(["/bin/cp", "-cR", WORKSPACE / ".lake/build", cache / "build"], timeout=300)
+        command(["/bin/cp", "-cR", build, cache / "build"], timeout=300)
     else:
-        command(["cp", "-a", "--reflink=auto", WORKSPACE / ".lake/build", cache / "build"], timeout=300)
+        command(["cp", "-a", "--reflink=auto", build, cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
     shutil.copy2(WORKSPACE / ".lake/solidity-import/solc-0.8.34", cache / "solidity-import/solc-0.8.34")
 
