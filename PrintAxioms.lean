@@ -545,6 +545,7 @@ end Verity.AxiomAudit
   Contracts.OwnedCounter.Proofs.StorageCoherence.fieldMapKindAt_eq_none
   Contracts.OwnedCounter.Proofs.StorageCoherence.storageKeySlot_not_mappingEntry
   Contracts.OwnedCounter.Proofs.StorageCoherence.mappingBasesNotDerived
+  Contracts.OwnedCounter.Proofs.StorageCoherence.mappingBasesInRange
   Contracts.OwnedCounter.Proofs.StorageCoherence.derivedMappingSlotsAvoid
   Contracts.OwnedCounter.Proofs.StorageCoherence.constructor_preservesCoherence
   Contracts.OwnedCounter.Proofs.StorageCoherence.increment_preservesCoherence
@@ -5114,6 +5115,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.LoopSimulation.forEach_sum_over_array
 
   -- Compiler/Proofs/MappingSlot.lean
+  Compiler.Proofs.evmYul_uint256_ofNat_mod
+  Compiler.Proofs.abiEncodeMappingSlot_mod
+  Compiler.Proofs.solidityMappingSlot_mod
+  Compiler.Proofs.solidityMappingSlot_injective_mod
   Compiler.Proofs.solidityMappingSlot_ne
   Compiler.Proofs.abstractMappingSlot_eq_solidity
   Compiler.Proofs.abstractMappingTag_eq_zero
@@ -5238,6 +5243,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_transientMapChain
   Compiler.Proofs.Storage.MappingCoherence.storageKeySlot_map2
   Compiler.Proofs.Storage.MappingCoherence.addressToWord_injective
+  Compiler.Proofs.Storage.MappingCoherence.addressToWord_val_lt
   Compiler.Proofs.Storage.MappingCoherence.mappingAddrSlot_ne_of_map_ne
   Compiler.Proofs.Storage.MappingCoherence.mappingUintSlot_ne_of_mapUint_ne
   Compiler.Proofs.Storage.MappingCoherence.mappingMap2Slot_ne_of_map2_ne
@@ -7631,4 +7637,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7045 theorems/lemmas (5032 public, 2013 private, 0 sorry'd)
+-- Total: 7051 theorems/lemmas (5038 public, 2013 private, 0 sorry'd)

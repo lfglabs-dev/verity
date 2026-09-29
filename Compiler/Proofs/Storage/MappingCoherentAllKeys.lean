@@ -370,7 +370,8 @@ base slot is not itself keccak-derived (`MappingBasesNotDerived`). -/
 theorem nested_ne_simple {fields : List Field} {m b : Nat} {a k2 c : Nat}
     (hbases : MappingBasesNotDerived fields)
     (hkind : (fieldMapKindAt fields b).isSome = true)
-    (hb : b < Compiler.Constants.evmModulus) (hk2 : k2 < Compiler.Constants.evmModulus) (hc : c < Compiler.Constants.evmModulus) :
+    (hb : b < Compiler.Constants.evmModulus) (hk2 : k2 < Compiler.Constants.evmModulus)
+    (hc : c < Compiler.Constants.evmModulus) :
     abstractNestedMappingSlot m a k2 ≠ solidityMappingSlot b c := by
   intro heq
   simp only [abstractNestedMappingSlot, abstractMappingSlot] at heq
@@ -379,7 +380,8 @@ theorem nested_ne_simple {fields : List Field} {m b : Nat} {a k2 c : Nat}
       (solidityMappingSlot_lt_evmModulus m a) hk2 hb hc heq).1
 
 theorem simple_ne_of_base_ne {m b : Nat} {a c : Nat}
-    (hm : m < Compiler.Constants.evmModulus) (ha : a < Compiler.Constants.evmModulus) (hb' : b < Compiler.Constants.evmModulus) (hc : c < Compiler.Constants.evmModulus)
+    (hm : m < Compiler.Constants.evmModulus) (ha : a < Compiler.Constants.evmModulus)
+    (hb' : b < Compiler.Constants.evmModulus) (hc : c < Compiler.Constants.evmModulus)
     (hb : m ≠ b) :
     solidityMappingSlot m a ≠ solidityMappingSlot b c := fun heq =>
   hb (solidityMappingSlot_injective _ _ _ _ hm ha hb' hc heq).1
