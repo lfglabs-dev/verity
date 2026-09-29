@@ -53,6 +53,12 @@ member writes (`m[k].f op= e`) follow the same order, and a packed member write
 is a read-modify-write of its slot that preserves neighbouring members; this is
 covered by the packed `setStructMember` semantics and differential evidence.
 
+Counted `for` loops are lowered to `forEach`, which evaluates its count once.
+This matches solc only because the importer admits a bound that no loop
+iteration can change (a literal, a parameter or a local that is never assigned)
+and a counter the body never assigns; the admission check is syntactic and is
+exercised by rejection tests, not proved.
+
 The entry-point invariant infrastructure in
 `Compiler/SolidityImport/EntryPointInvariants.lean` composes actual
 `Transactions.executeBody` steps with explicit bindings, effective model

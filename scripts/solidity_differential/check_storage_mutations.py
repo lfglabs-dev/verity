@@ -98,6 +98,20 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-loop-count': ('out := out.push (.forEach binding bound.expr bodyOut.toList)',
+                          'out := out.push (.forEach binding (.literal 0) bodyOut.toList)'),
+    'import-loop-counter': ('{ e with values := e.values.insert counter (.localVar binding),',
+                            '{ e with values := e.values.insert counter (.literal 0),'),
+    'import-local-assign': ('return (rhs.pre ++ value.pre).push (.assignVar binding value.expr)',
+                            'return rhs.pre ++ value.pre'),
+    'import-local-old': ('let value ← update rhs (.localVar binding)', 'let value ← update rhs (.literal 0)'),
+    'import-local-zero': ('          pure { pre := #[], expr := .literal 0 }',
+                          '          pure { pre := #[], expr := .literal 1 }'),
+    'import-local-alias': ('if (← get).mutables.toList.any (·.2 == b) then', 'if false then'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
@@ -112,6 +126,8 @@ def run(directory, output, name):
         fixture = 'ArithmeticSequence'
     if name.startswith('import-member-'):
         fixture = 'MemberWriteSequence'
+    if name.startswith(('import-loop-', 'import-local-')):
+        fixture = 'LoopSequence'
     if name.startswith(('import-event-', 'observe-event-')):
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',

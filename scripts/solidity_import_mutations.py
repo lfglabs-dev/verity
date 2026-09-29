@@ -462,6 +462,8 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-arith-increment', 'import-arith-order',
                    'import-member-write-one', 'import-member-write-two',
                    'import-member-write-old', 'import-member-write-order',
+                   'import-loop-count', 'import-loop-counter', 'import-local-assign',
+                   'import-local-old', 'import-local-zero', 'import-local-alias',
                    'import-abi-source-offset', 'import-abi-drop', 'import-abi-offset', 'import-abi-uint-bound',
                    'import-abi-address-bound', 'import-abi-bool-bound',
                    'import-abi-inclusive', 'import-abi-revert',

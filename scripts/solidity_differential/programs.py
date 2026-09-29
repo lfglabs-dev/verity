@@ -681,3 +681,34 @@ def stateful_member_write_source(original, variant):
             raise ValueError(f'missing member-write source anchor: {before}')
         original = original.replace(before, after)
     return original
+
+
+def stateful_loop_source(original, variant):
+    """Counted loops and reassigned locals in equivalent spellings."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'prefix': {
+            'for (uint256 i = 0; i < n; i++) {': 'for (uint256 i; i < n; ++i) {',
+            'for (uint256 j; j < 3; ++j) {': 'for (uint256 j = 0; j < 3; j += 1) {',
+            'for (uint256 i = 0; i < 4; i += 1) {': 'for (uint256 i; i < 4; i++) {',
+            'for (uint256 i = 0; i < 6; i++) {': 'for (uint256 i = 0; i < 6; ++i) {',
+        },
+        'expanded': {
+            'uint256 acc;\n': 'uint256 acc = 0;\n',
+            'acc += i * 3 + 1;': 'acc = acc + (i * 3 + 1);',
+            'total += j;': 'total = total + j;',
+            'key += 1;': 'key = key + 1;',
+            'k -= n / 2;': 'k = k - n / 2;',
+            'acc -= i;': 'acc = acc - i;',
+            'uint256 sum;': 'uint256 sum = 0;',
+            'sum += slots[i]': 'sum = sum + slots[i]',
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(variant)
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing loop source anchor: {before}')
+        original = original.replace(before, after)
+    return original

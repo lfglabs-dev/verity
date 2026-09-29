@@ -196,6 +196,10 @@ private structure Env where
   referenced : Array String
   scalarTy : RBMap Nat ParamType compare
   rawBindings : RBMap Nat String compare := RBMap.empty
+  /-- Declaration ids that the current root assigns (`assignedIds`). -/
+  assigned : List Nat := []
+  /-- Reassignable locals of the current root: declaration id to binding. -/
+  mutables : RBMap Nat String compare := RBMap.empty
   encodingMemory : Bool := false
   explicitAbi : Bool := false
   next : Nat
@@ -340,6 +344,32 @@ private def isAtom : Expr → Bool
   | .literal _ | .localVar _ | .param _ | .blockTimestamp | .blockNumber
   | .caller | .contractAddress | .chainid => true
   | _ => false
+
+/-- Declaration ids assigned by `=`, compound assignment, `++`/`--` or `delete`
+of an identifier anywhere in `j`, except in `for` loop expressions. -/
+private partial def assignedIds (j : Json) : List Nat :=
+  match j with
+  | .arr xs => xs.toList.flatMap assignedIds
+  | .obj o =>
+      let kind := optStr j "nodeType"
+      let operator := optStr j "operator" |>.getD ""
+      let target :=
+        if kind == some "Assignment" then field? j "leftHandSide"
+        else if kind == some "UnaryOperation" && ["++", "--", "delete"].contains operator then
+          field? j "subExpression"
+        else none
+      let own := match target with
+        | some t =>
+            if optStr t "nodeType" == some "Identifier" then
+              match (field? t "referencedDeclaration").bind (fun v => v.getNat?.toOption) with
+              | some n => [n]
+              | none => []
+            else []
+        | none => []
+      o.foldl (fun acc k v =>
+        if kind == some "ForStatement" && k == "loopExpression" then acc
+        else acc ++ assignedIds v) own
+  | _ => []
 
 private def atom (v : Val) : M Val := do
   if v.pre.isEmpty && isAtom v.expr then
@@ -1608,6 +1638,12 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     return (rhs.pre ++ pre ++ value.pre).push (write value.expr)
   unless (← mKind target) == "Identifier" do
     failAt target "only a resolved scalar storage identifier is writable"
+  let targetId ← refInt target
+  if let some binding := (← get).mutables.find? targetId.toNat then
+    if targetId >= 0 then
+      let rhs ← lowerRhs
+      let value ← update rhs (.localVar binding)
+      return (rhs.pre ++ value.pre).push (.assignVar binding value.expr)
   let .state name pre ← lowerRef target
     | failAt target "assignment target is not scalar storage"
   let info ← resolveField name target
@@ -1788,22 +1824,51 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     failAt d s!"unsupported local name {name}"
   let id ← mNat (← mField d "id")
   let loc := optStr d "storageLocation" |>.getD "default"
-  let some init := field? s "initialValue"
-    | failAt s "local declarations without an initializer are outside this slice"
-  if init.isNull then
-    failAt s "local declarations without an initializer are outside this slice"
+  let init? := (field? s "initialValue").filter (!·.isNull)
   if loc == "storage" then
+    let some init := init?
+      | failAt s "storage locals without an initializer are outside this slice"
+    if (← get).assigned.contains id then failAt d "storage local reassignment is outside this slice"
     match ← lowerRef init with
     | .path pre path =>
+        -- The alias keeps its keys: a reassignable local key is copied.
+        let freeze (key : Expr) : M (Array Stmt × Expr) := do
+          match key with
+          | .localVar b =>
+              if (← get).mutables.toList.any (·.2 == b) then
+                let n ← fresh
+                pure (#[.letVar n key], .localVar n)
+              else pure (#[], key)
+          | _ => pure (#[], key)
+        let (copies, path) ← match path with
+          | .one field key => do
+              let (c, k) ← freeze key
+              pure (c, SPath.one field k)
+          | .two field key1 key2 => do
+              let (c1, k1) ← freeze key1
+              let (c2, k2) ← freeze key2
+              pure (c1 ++ c2, SPath.two field k1 k2)
+          | .outer field key => do
+              let (c, k) ← freeze key
+              pure (c, SPath.outer field k)
         modify fun e => { e with paths := e.paths.insert id path }
-        pure pre
+        pure (pre ++ copies)
     | _ => failAt s "storage local is not a resolved read path"
   else
-    let v ← lowerExpr init
+    let v ← match init? with
+      | some init => lowerExpr init
+      | none =>
+          -- Solidity zero-initializes value-type locals.
+          let ty ← mType d
+          unless (bitsOf ty).isSome || ty == "bool" do
+            failAt d s!"uninitialized local of type {ty} is outside this slice"
+          pure { pre := #[], expr := .literal 0 }
     let binding ← freshFor name
     let expr := Expr.localVar binding
     modify fun e =>
       { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr }
+    if (← get).assigned.contains id then
+      modify fun e => { e with mutables := e.mutables.insert id binding }
     pure (v.pre.push (.letVar binding v.expr))
 
 end
@@ -1905,6 +1970,63 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         out := out ++ (← lowerEffect s)
     | "EmitStatement" =>
         out := out ++ (← lowerEmit s)
+    | "ForStatement" =>
+        -- Only `for (uint256 i = 0; i < n; i++)` with an invariant `n` and a
+        -- counter the body never assigns: then solc's per-iteration `i < n`
+        -- test is exactly `forEach i n`, and `i++` cannot overflow.
+        let init ← mField s "initializationExpression"
+        unless (← mKind init) == "VariableDeclarationStatement" do
+          failAt s "a for loop must declare its counter"
+        let decls ← mArr (← mField init "declarations")
+        unless decls.size == 1 && !decls[0]!.isNull do
+          failAt init "a for loop must declare exactly one counter"
+        let d := decls[0]!
+        let counter ← mNat (← mField d "id")
+        let counterName ← mStr (← mField d "name")
+        unless (← mType d) == "uint256" do failAt d "a for loop counter must be uint256"
+        if let some start := (field? init "initialValue").filter (!·.isNull) then
+          unless (← mType start) == "int_const 0" do failAt start "a for loop counter must start at 0"
+        if (← get).assigned.contains counter then
+          failAt d "a for loop counter must not be assigned in the loop body"
+        let isCounter (j : Json) : M Bool := do
+          if (← mKind j) != "Identifier" then return false
+          pure ((← refInt j) == counter)
+        let step ← mField (← mField s "loopExpression") "expression"
+        let stepOk ← match ← mKind step with
+          | "UnaryOperation" =>
+              pure (optStr step "operator" == some "++" && (← isCounter (← mField step "subExpression")))
+          | "Assignment" =>
+              pure (optStr step "operator" == some "+=" && (← isCounter (← mField step "leftHandSide")) &&
+                (← mType (← mField step "rightHandSide")) == "int_const 1")
+          | _ => pure false
+        unless stepOk do failAt step "a for loop must increment its counter by one"
+        let cond ← mField s "condition"
+        unless (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" do
+          failAt cond "a for loop condition must be counter < bound"
+        unless ← isCounter (← mField cond "leftExpression") do
+          failAt cond "a for loop condition must be counter < bound"
+        let boundNode ← mField cond "rightExpression"
+        let bound ← lowerExpr boundNode
+        let mutables := (← get).mutables
+        let invariant := match bound.expr with
+          | .literal _ | .param _ => true
+          | .localVar b => !(mutables.toList.any (·.2 == b))
+          | _ => false
+        unless bound.pre.isEmpty && invariant do
+          failAt boundNode "a for loop bound must be a literal, a parameter or an unassigned local"
+        let binding ← freshFor counterName
+        let saved ← get
+        modify fun e =>
+          { e with values := e.values.insert counter (.localVar binding),
+                   yulNames := e.yulNames.insert counterName (.localVar binding) }
+        let body ← mField s "body"
+        let stmts ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
+        -- A return in the body leaves the loop; zero iterations fall through.
+        let (bodyOut, _) ← lowerRootStatements stmts
+        modify fun e =>
+          { e with values := saved.values, paths := saved.paths,
+                   mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        out := out.push (.forEach binding bound.expr bodyOut.toList)
     | "IfStatement" =>
         let (condition, yes, no) ← ifParts s
         let saved ← get
@@ -1954,6 +2076,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   unless mods.isEmpty do failAt fn "modifiers are outside this slice"
   let some _ := field? fn "body" | failAt fn "function has no body"
   let stmts ← mArr (← mField (← mField fn "body") "statements")
+  let assigned := assignedIds (← mField fn "body")
+  modify fun e => { e with assigned, mutables := RBMap.empty }
   let (out, returned) ← lowerRootStatements stmts
   let mut out := out
   unless returned do
