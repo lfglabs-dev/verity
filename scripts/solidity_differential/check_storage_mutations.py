@@ -74,6 +74,18 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-arith-mod-op': ('| "%" => checkedDiv .mod left right', '| "%" => checkedDiv .div left right'),
+    'import-arith-div-guard': ('let ite := iteStmt (.eq b.expr (.literal 0)) divPanic ok', 'let ite := ok'),
+    'import-arith-compound-sub': ('| "-=" => pure (some "-")', '| "-=" => pure (some "+")'),
+    'import-arith-compound-old': ('| some op => checkedArith op targetTy { pre := #[], expr := old }',
+                                  '| some op => checkedArith op targetTy { pre := #[], expr := .literal 0 }'),
+    'import-arith-increment': ('| "++" => pure (some "+")', '| "++" => pure none'),
+    'import-arith-order': ('return (rhs.pre ++ pre ++ value.pre).push (write expr)',
+                           'return (pre ++ rhs.pre ++ value.pre).push (write expr)'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
@@ -84,6 +96,8 @@ def run(directory, output, name):
         fixture = 'IfElseSequence'
     if name.startswith('import-const-'):
         fixture = 'ConstantSequence'
+    if name.startswith('import-arith-'):
+        fixture = 'ArithmeticSequence'
     if name.startswith(('import-event-', 'observe-event-')):
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',

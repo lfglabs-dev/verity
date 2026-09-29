@@ -44,6 +44,12 @@ re-lowered at every use from its initializer, so its runtime lowering (checked
 arithmetic, `keccak256` over a literal buffer) is exactly that of an inline
 expression; no cross-use caching or storage slot is assumed.
 
+Storage assignments follow solc's evaluation order as observed on the pinned
+compiler (`viaIR`, 0.8.34): right-hand side first, then the target's key
+expressions, then (for compound assignments and `++`/`--`) the old value. This
+order is fixed by differential evidence rather than by a proved model of solc's
+code generator; it matters only when more than one operand can revert.
+
 The entry-point invariant infrastructure in
 `Compiler/SolidityImport/EntryPointInvariants.lean` composes actual
 `Transactions.executeBody` steps with explicit bindings, effective model

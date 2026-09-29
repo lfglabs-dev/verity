@@ -595,3 +595,46 @@ def stateful_constants_sources(original, constants, variant):
             anchor, anchor + ''.join(f'    {line}\n' for line in declarations))
         return scoped, 'pragma solidity 0.8.34;\n'
     raise ValueError(variant)
+
+
+def stateful_arithmetic_source(original, variant):
+    """Compound assignments and `%` spelled out as plain checked arithmetic."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'expanded': {
+            'total += low + 10;': 'total = total + (low + 10);',
+            'credit[msg.sender] += low % 7 + 1;': 'credit[msg.sender] = credit[msg.sender] + (low % 7 + 1);',
+            'shares[low % 3][msg.sender] += low;': 'shares[low % 3][msg.sender] = shares[low % 3][msg.sender] + low;',
+            'shares[low % 3][msg.sender] *= 3;': 'shares[low % 3][msg.sender] = shares[low % 3][msg.sender] * 3;',
+            'shares[low % 3][msg.sender] -= 4;': 'shares[low % 3][msg.sender] = shares[low % 3][msg.sender] - 4;',
+            'total /= low % 4 + 1;': 'total = total / (low % 4 + 1);',
+            'total %= 1000;': 'total = total % 1000;',
+            'ticks += 50;': 'ticks = ticks + 50;',
+            'ticks--;': 'ticks = ticks - 1;',
+            'last++;': 'last = last + 1;',
+            # Keep solc's order: the divisor is evaluated before the key.
+            'shares[total - last - 4][msg.sender] -= 100 / (total % 4);':
+            'uint256 cut = 100 / (total % 4);\n'
+            '        shares[total - last - 4][msg.sender] = shares[total - last - 4][msg.sender] - cut;',
+            'ticks -= 1;': 'ticks = ticks - 1;',
+            '--last;': 'last = last - 1;',
+            'total %= last;': 'total = total % last;',
+        },
+        'division': {
+            'uint256 low = value % 1000;': 'uint256 low = value - value / 1000 * 1000;',
+            'total %= 1000;': 'total = total - total / 1000 * 1000;',
+            'return (total % 97, value % (last + 1));':
+            'return (total - total / 97 * 97, value - value / (last + 1) * (last + 1));',
+            'total %= last;': 'total = total - total / last * last;',
+            'return (credit[msg.sender] % 1000, shares[1][msg.sender], ticks);':
+            'return (credit[msg.sender] - credit[msg.sender] / 1000 * 1000, shares[1][msg.sender], ticks);',
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(variant)
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing arithmetic source anchor: {before}')
+        original = original.replace(before, after)
+    return original

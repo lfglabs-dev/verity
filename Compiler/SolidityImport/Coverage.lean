@@ -47,7 +47,7 @@ def exprCovered : Expr → Bool
   | .blockNumber | .chainid | .caller | .contractAddress => true
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
-  | .add a b | .sub a b | .mul a b | .div a b
+  | .add a b | .sub a b | .mul a b | .div a b | .mod a b
   | .slt a b | .sgt a b
   | .lt a b | .gt a b | .le a b | .ge a b | .eq a b
   | .shl a b | .shr a b | .keccak256 a b | .bitAnd a b | .bitXor a b => exprCovered a && exprCovered b
@@ -303,6 +303,14 @@ theorem evalExpr_div_arm (oracle : DenoteOracle) (fields : List Field)
         let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields s a
         let rhs : Verity.Core.Uint256 := ← evalExpr oracle fields s b
         pure (lhs / rhs).val) := rfl
+
+theorem evalExpr_mod_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (a b : Expr) :
+    evalExpr oracle fields s (.mod a b) =
+      (do
+        let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields s a
+        let rhs : Verity.Core.Uint256 := ← evalExpr oracle fields s b
+        pure (lhs % rhs).val) := rfl
 
 theorem evalExpr_lt_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (a b : Expr) :

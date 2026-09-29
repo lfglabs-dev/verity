@@ -955,14 +955,7 @@ private partial def lowerBinary (j : Json) : M Val := do
         else Stmt.ite a.expr [] rhs.toList
       pure { pre := a.pre.push (.letVar dest a.expr) |>.push branch,
              expr := .localVar dest }
-  | "+" =>
-      let some bits := bitsOf common | failAt j s!"unsupported add type {common}"
-      checkedAdd bits left right
-  | "-" => checkedSub left right
-  | "*" =>
-      let some bits := bitsOf common | failAt j s!"unsupported mul type {common}"
-      checkedMul bits left right
-  | "/" => checkedDiv left right
+  | "+" | "-" | "*" | "/" | "%" => checkedArith op common left right j
   | "<" => cmp .lt left right
   | ">" => cmp .gt left right
   | "<=" => cmp .le left right
@@ -973,6 +966,19 @@ private partial def lowerBinary (j : Json) : M Val := do
       pure { v with expr := .logicalNot v.expr }
   | _ => failAt j s!"unsupported operator {op}"
 
+/-- Checked unsigned arithmetic at the Solidity width of `common`. Shared by
+binary operators and compound assignments, which solc lowers identically. -/
+private partial def checkedArith (op common : String) (left right : Val) (j : Json) : M Val := do
+  let some bits := bitsOf common | failAt j s!"unsupported arithmetic type {common}"
+  unless common.startsWith "uint" do failAt j s!"unsupported arithmetic type {common}"
+  match op with
+  | "+" => checkedAdd bits left right
+  | "-" => checkedSub left right
+  | "*" => checkedMul bits left right
+  | "/" => checkedDiv .div left right
+  | "%" => checkedDiv .mod left right
+  | _ => failAt j s!"unsupported arithmetic operator {op}"
+
 private partial def checkedSub (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
@@ -981,11 +987,13 @@ private partial def checkedSub (left right : Val) : M Val := do
   let ite := iteStmt (.lt a.expr b.expr) overflowPanic ok
   pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
 
-private partial def checkedDiv (left right : Val) : M Val := do
+/-- `/` and `%` share solc's `checked_div`/`checked_mod` shape: Panic(0x12)
+on a zero divisor, otherwise the EVM operation. -/
+private partial def checkedDiv (op : Expr → Expr → Expr) (left right : Val) : M Val := do
   let a ← atom left
   let b ← atom right
   let dest ← fresh
-  let ok := Stmt.assignVar dest (.div a.expr b.expr)
+  let ok := Stmt.assignVar dest (op a.expr b.expr)
   let ite := iteStmt (.eq b.expr (.literal 0)) divPanic ok
   pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
 
@@ -1522,27 +1530,62 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   let kind ← mKind expression
   if kind != "Assignment" && kind != "UnaryOperation" then
     return ← lowerRequire statement
-  let deleting := kind == "UnaryOperation"
+  let unary := kind == "UnaryOperation"
   let operator ← mStr (← mField expression "operator")
-  unless (deleting && operator == "delete") || (!deleting && operator == "=") do
-    failAt expression "only scalar storage assignment and delete are supported"
-  let target ← mField expression (if deleting then "subExpression" else "leftHandSide")
+  -- `arith = some op` means `target = target op rhs` at the target's width:
+  -- compound assignment, or `++`/`--` with an implicit `1`.
+  let arith : Option String ←
+    if unary then
+      match operator with
+      | "delete" => pure none
+      | "++" => pure (some "+")
+      | "--" => pure (some "-")
+      | _ => failAt expression s!"unsupported effect operator {operator}"
+    else
+      match operator with
+      | "=" => pure none
+      | "+=" => pure (some "+")
+      | "-=" => pure (some "-")
+      | "*=" => pure (some "*")
+      | "/=" => pure (some "/")
+      | "%=" => pure (some "%")
+      | _ => failAt expression s!"unsupported assignment operator {operator}"
+  let deleting := unary && operator == "delete"
+  let target ← mField expression (if unary then "subExpression" else "leftHandSide")
+  let targetTy ← mType target
+  -- The target is resolved first so layout diagnostics come first, but solc
+  -- evaluates the right-hand side before the target's index expressions and
+  -- reads the old value after both (`m[k] -= x` panics on `x` first): the
+  -- emitted order is `rhs.pre ++ pre ++ value.pre`.
+  let lowerRhs : M Val := do
+    if unary then
+      pure ({ pre := #[], expr := .literal (if deleting then 0 else 1) } : Val)
+    else
+      let right ← mField expression "rightHandSide"
+      atom (← convert targetTy (← mType right) (← lowerExpr right) right)
+  let update (rhs : Val) (old : Expr) : M Val := do
+    match arith with
+    | none => pure { rhs with pre := #[] }
+    | some op => checkedArith op targetTy { pre := #[], expr := old } { rhs with pre := #[] } expression
   if (← mKind target) == "IndexAccess" then
     let .path pre path ← lowerRef target
       | failAt target "mapping assignment target is not a storage path"
-    let (name, count, write) ← match path with
-      | .one field key => pure (field, 1, fun (value : Expr) => Stmt.setStructMember field key "__solidity_value" value)
-      | .two field key1 key2 => pure (field, 2, fun (value : Expr) => Stmt.setStructMember2 field key1 key2 "__solidity_value" value)
+    let (name, count, read, write) ← match path with
+      | .one field key => pure (field, 1, Expr.structMember field key "__solidity_value",
+          fun (value : Expr) => Stmt.setStructMember field key "__solidity_value" value)
+      | .two field key1 key2 => pure (field, 2, Expr.structMember2 field key1 key2 "__solidity_value",
+          fun (value : Expr) => Stmt.setStructMember2 field key1 key2 "__solidity_value" value)
       | .outer _ _ => failAt target "mapping assignment requires both keys"
     let info ← resolveField name target
     unless info.scalarMapping && info.keyCount == count do
       failAt target "only scalar mapping values are writable"
+    if arith.isSome && info.booleanMapping then
+      failAt target "arithmetic on a bool mapping value"
     markField name
-    let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
-      let right ← mField expression "rightHandSide"
-      atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+    let rhs ← lowerRhs
+    let value ← update rhs read
     let expr := if info.booleanMapping then Expr.logicalNot (.logicalNot value.expr) else value.expr
-    return (pre ++ value.pre).push (write expr)
+    return (rhs.pre ++ pre ++ value.pre).push (write expr)
   unless (← mKind target) == "Identifier" do
     failAt target "only a resolved scalar storage identifier is writable"
   let .state name pre ← lowerRef target
@@ -1550,10 +1593,9 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   let info ← resolveField name target
   unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
   markField name
-  let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
-    let right ← mField expression "rightHandSide"
-    atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
-  return (pre ++ value.pre).push (.setStorage name value.expr)
+  let rhs ← lowerRhs
+  let value ← update rhs (.storage name)
+  return (rhs.pre ++ pre ++ value.pre).push (.setStorage name value.expr)
 
 private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "expression"
