@@ -191,6 +191,7 @@
     "increment_survives_transfer",
     "increment_unfold",
     "isOwner_correct",
+    "mappingBasesInRange",
     "mappingBasesNotDerived",
     "run_preservesCoherence",
     "storageKeySlot_not_mappingEntry",
