@@ -64,7 +64,8 @@ separation is the declared layout (`fieldMapKindAt` is a function of
 the base slot, so distinct mapping shapes force distinct base slots)
 plus the same `solidityMappingSlot_injective`. The simple-vs-nested
 cross case takes an explicit `MappingBasesNotDerived` layout
-certificate and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
+certificate (together with `MappingBasesInRange`, the < 2^256 range of
+the declared mapping bases required by the bounded axiom) and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
 both are hypotheses of the existing image-avoidance shape, discharged
 per contract. Dynamic-array element slots are **not** covered: the
 source and Yul derivations diverge and the collapse returns `none` at

@@ -537,8 +537,10 @@ Aligned `writeMap` / `writeMapUint` / `writeMap2` + `writeSlot`,
 takes the same image-avoidance `∀` (`DerivedMappingSlotsAvoid`). The
 simple-vs-nested cross case additionally takes an explicit per-contract
 layout certificate `MappingBasesNotDerived` (a declared mapping base
-slot is not itself keccak-derived) — a hypothesis discharged per
-contract, not an axiom. Under that invariant the lens read equals the
+slot is not itself keccak-derived) and `MappingBasesInRange` (declared
+mapping base slots are below 2^256, as the bounded
+`solidityMappingSlot_injective` requires) — hypotheses discharged per
+contract, not axioms. Under that invariant the lens read equals the
 flat `encodeStorageAt` read at the derived slot
 (`readMap_eq_encodeStorageAt_of_coherent` and the `mapUint` / `map2`
 variants), reusing the same non-occupation hypotheses `FieldEncode`
