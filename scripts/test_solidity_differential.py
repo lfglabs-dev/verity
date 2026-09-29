@@ -11,6 +11,7 @@ from solidity_differential.engine import HarnessError, parse_evm, execute, comma
 from solidity_differential.programs import generated_campaign, source, smaller_expressions
 from solidity_differential.reduce import reduce_failure, signature
 from solidity_differential.mutations import mutation_campaign, snapshot, release
+from solidity_differential.suite import run_checks
 
 
 class SolidityDifferentialTests(unittest.TestCase):
@@ -160,6 +161,30 @@ class SolidityDifferentialTests(unittest.TestCase):
             (Path(directory) / "results.json").write_text(json.dumps(report))
             with self.assertRaisesRegex(ValueError, "metamorphic"):
                 reduce_failure(directory)
+
+    def test_stateful_checks_print_progress_before_each_command(self):
+        seen = []
+
+        def fake_command(argv, **kwargs):
+            seen.append(argv)
+            return ""
+
+        checks = [("protocol", ["-m", "unittest"]), ("errors", ["-m", "check_stateful"])]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with patch("solidity_differential.suite.command", fake_command), \
+                 patch("builtins.print") as printed:
+                report = run_checks(output, checks, 64, 2449)
+            self.assertEqual(report["checks"], ["protocol", "errors"])
+            self.assertEqual(json.loads((output / "completed.json").read_text()), ["protocol", "errors"])
+            messages = [call.args[0] for call in printed.call_args_list]
+            protocol_at = messages.index("stateful check 1/2: protocol")
+            errors_at = messages.index("stateful check 2/2: errors")
+            self.assertLess(protocol_at, errors_at)
+            self.assertTrue(all(call.kwargs.get("flush") for call in printed.call_args_list))
+            self.assertEqual(len(seen), 2)
+            self.assertIn("unittest", seen[0])
+            self.assertIn("check_stateful", seen[1])
 
 
 if __name__ == "__main__":

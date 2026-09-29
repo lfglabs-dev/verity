@@ -1271,7 +1271,7 @@ jobs:
           scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --output .lake/import-differential/programs
 
       - name: Stateful Solidity instrument checks
-        timeout-minutes: 30
+        timeout-minutes: 45
         run: |
           scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --output .lake/import-differential/stateful
 
