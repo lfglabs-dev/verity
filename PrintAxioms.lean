@@ -7631,4 +7631,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7036 theorems/lemmas (5023 public, 2013 private, 0 sorry'd)
+-- Total: 7045 theorems/lemmas (5032 public, 2013 private, 0 sorry'd)
