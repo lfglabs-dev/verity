@@ -98,7 +98,10 @@ def mutation_campaign(output, selected=None):
             baseline_report = json.loads(baseline_file.read_text()) if baseline_file.exists() else {}
             if (baseline.returncode != 0 or baseline_report.get("divergences") != [] or
                     baseline_report.get("cases", 0) <= 0):
-                raise HarnessError("mutation positive control failed: " + name)
+                raise HarnessError(
+                    f"mutation positive control failed: {name} (exit {baseline.returncode}); "
+                    f"inspect {directory / 'baseline.log'}\n"
+                    + (baseline.stdout + baseline.stderr)[-4000:])
             source.write_text(text.replace(before, after))
             try:
                 result = subprocess.run(argv, cwd=directory, text=True, capture_output=True, timeout=600)
