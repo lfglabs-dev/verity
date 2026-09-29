@@ -7,13 +7,53 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from solidity_differential.cases import generate, canonical
-from solidity_differential.engine import HarnessError, parse_evm, execute
+from solidity_differential.engine import HarnessError, parse_evm, execute, command
 from solidity_differential.programs import generated_campaign, source, smaller_expressions
 from solidity_differential.reduce import reduce_failure, signature
-from solidity_differential.mutations import mutation_campaign
+from solidity_differential.mutations import mutation_campaign, snapshot, release
 
 
 class SolidityDifferentialTests(unittest.TestCase):
+    def test_mutant_build_is_private_with_a_sticky_cache(self):
+        for sticky in (False, True):
+            with self.subTest(sticky=sticky), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / 'workspace'
+                lake = root / '.lake'
+                (lake / 'packages').mkdir(parents=True)
+                (lake / 'solidity-import').mkdir()
+                (lake / 'solidity-import/solc-0.8.34').write_text('compiler')
+                (root / 'Example.lean').write_text('original')
+                build = Path(temporary) / 'persistent-build' if sticky else lake / 'build'
+                build.mkdir()
+                artifact = build / 'Example.olean'
+                artifact.write_text('pristine')
+                if sticky:
+                    (lake / 'build').symlink_to(build, target_is_directory=True)
+
+                def snapshot_command(argv, **kwargs):
+                    if argv[0] == 'git':
+                        return 'Example.lean\0'
+                    return command(argv, **kwargs)
+
+                with patch('solidity_differential.mutations.ROOT', root), \
+                     patch('solidity_differential.mutations.WORKSPACE', root), \
+                     patch('solidity_differential.mutations.command', snapshot_command):
+                    first = Path(temporary) / 'first'
+                    snapshot(first)
+                    self.assertFalse((first / '.lake/build').is_symlink())
+                    (first / '.lake/build/Example.olean').write_text('mutated')
+                    self.assertEqual(artifact.read_text(), 'pristine')
+                    (first / 'baseline.log').write_text('baseline evidence')
+                    release(first)
+                    self.assertFalse((first / '.lake/build').exists())
+                    self.assertEqual((first / 'baseline.log').read_text(), 'baseline evidence')
+                    self.assertEqual((first / 'Example.lean').read_text(), 'original')
+                    second = Path(temporary) / 'second'
+                    snapshot(second)
+                    self.assertEqual((second / '.lake/build/Example.olean').read_text(), 'pristine')
+                    release(second)
+                    self.assertEqual(artifact.read_text(), 'pristine')
+
     def test_existing_divergence_does_not_kill_a_mutant(self):
         def fake_snapshot(directory):
             directory.mkdir(parents=True)
@@ -32,8 +72,11 @@ class SolidityDifferentialTests(unittest.TestCase):
                     "probe": ("Example.lean", "original", "mutated")}), \
                  patch("solidity_differential.mutations.snapshot", fake_snapshot), \
                  patch("solidity_differential.mutations.subprocess.run", failing_baseline):
-                with self.assertRaisesRegex(HarnessError, "positive control failed"):
+                with self.assertRaisesRegex(HarnessError, "positive control failed") as failure:
                     mutation_campaign(output)
+                self.assertIn("exit 1", str(failure.exception))
+                self.assertIn("baseline.log", str(failure.exception))
+                self.assertIn("baseline diverged", str(failure.exception))
             self.assertEqual((Path(output) / "probe/Example.lean").read_text(), "original")
             self.assertFalse((Path(output) / "mutation-results.json").exists())
             # The private build copy is released even when the campaign aborts.

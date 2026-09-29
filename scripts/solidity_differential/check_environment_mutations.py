@@ -42,7 +42,11 @@ def mutation_campaign(output, selected=None):
         try:
             baseline_code, baseline = run(directory, directory / '.lake/baseline')
             if baseline_code or not baseline['transactions'] or baseline['divergences']:
-                raise HarnessError(f'{name}: unmodified positive control failed')
+                log = directory / '.lake/baseline.log'
+                raise HarnessError(
+                    f'{name}: unmodified positive control failed (exit {baseline_code}); '
+                    f'inspect {log}\n{log.read_text()[-4000:]}\n'
+                    f'First divergence: {json.dumps(baseline["divergences"][:1])}')
             source = directory / 'Compiler/SolidityImport/Import.lean'
             text = source.read_text()
             if text.count(before) != 1:

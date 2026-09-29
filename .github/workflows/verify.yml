@@ -372,7 +372,10 @@ jobs:
 
   build:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    timeout-minutes: ${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '60' || '35') }}
+    # The 26 isolated mutation campaigns run after the proof/audit prebuilds
+    # (~16 min). On the CI runner the full mutation step takes ~76 min
+    # (run 36599239119 was cut at 90 min two cases before the end).
+    timeout-minutes: 120
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
     env:
@@ -437,6 +440,13 @@ jobs:
             echo "::error title=PrintAxioms prebuild diagnostics::${diagnostics}"
             exit "${build_status}"
           fi
+
+      # The differential controls execute EVM bytecode via forge in this job,
+      # before the downstream Foundry jobs can provision their own toolchains.
+      - name: Setup Foundry for Solidity differential controls
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.5.0
 
       - name: Check Solidity slice imports and mutation regressions
         run: |
