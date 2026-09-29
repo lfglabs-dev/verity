@@ -36,6 +36,14 @@ signature Keccak over a temporary word-chunk memory buffer; this does not
 establish general Solidity memory or ABI-decoder correctness. The legacy
 agreement projection continues to erase rich revert bytes.
 
+Compile-time constants are folded by the importer's own exact rational
+evaluator, not by solc. When solc prints the full `int_const` value in the
+node's type, the importer rejects any disagreement; for values solc abbreviates
+(long decimal expansions), the evaluator alone is trusted. A `constant` is
+re-lowered at every use from its initializer, so its runtime lowering (checked
+arithmetic, `keccak256` over a literal buffer) is exactly that of an inline
+expression; no cross-use caching or storage slot is assumed.
+
 The entry-point invariant infrastructure in
 `Compiler/SolidityImport/EntryPointInvariants.lean` composes actual
 `Transactions.executeBody` steps with explicit bindings, effective model

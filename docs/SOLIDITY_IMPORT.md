@@ -108,6 +108,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | `if` / `else` statements | Root statements lower to `Stmt.ite` on a boolean condition evaluated once; a branch `return` stops execution and the continuation runs only on fallthrough. In inlined single-value helpers, the continuation after a returning branch is lowered once into the other branch and both results assign one fresh local; a helper that can fall off its end without a result rejects. Unsupported constructs still reject in unreachable branches. |
 | Scalar ABI canonicality | Raw `uintN`, address and bool words are checked before source execution, including unused parameters. Noncanonical words revert with empty bytes. Complete-word A/B/C checks exercise mixed parameter positions; dynamic struct and partial-byte ABI validation remain outside this instrument. |
 | Boolean literals | Resolved `true`/`false`; canonical 1/0 values |
+| Compile-time constants | Every `int_const` literal or operator tree (`_` separators, decimals, `e` exponents, `wei`/`gwei`/`ether` and time units, `+ - * / **`, unary `-` and rational intermediates) is evaluated exactly, must be a non-negative integer below 2^256, and is checked against the value solc prints in its type when solc does not abbreviate it. `constant` declarations at contract or file level, including imported ones, inline their initializer at each use and convert it implicitly to the declared unsigned, address or `bytes32` type, as solc does; typed initializer arithmetic and `keccak256` of string literals keep their checked runtime lowering. Signed, boolean and dynamic constants, `%`, shifts and bitwise constant operators reject with source locations. |
 | Flat static memory/calldata struct parameters | Full tuple ABI including unused scalar members; indexed field bindings and complete head sizes. Memory members are validated at entry; calldata members are validated when read, preserving competing reverts. |
 | Dynamic memory/calldata structs (experimental) | Complete unsigned-scalar roots with dynamic scalar arrays or arrays of flat scalar structs. Full ABI signature, eager memory materialization and lazy calldata reads; direct element indices only. No legacy member projection. Mixed static/dynamic struct parameters and computed element indices reject precisely. Permanent fixtures cover pinned `Market` (340 A/B/C controls, four variants), scalar arrays (96 controls, three variants), and two dynamic roots (132 controls, four variants). Twenty dynamic ABI mutations are detected and minimized. Generated-name collision is checked against the actual decoder binding. Whole-library proof compatibility passes; exact-head campaign gates remain pending. |
 | Unsigned `+`, `-`, `*`, `/` | Word arithmetic with overflow/underflow/zero-divisor panics |
@@ -377,8 +378,9 @@ Mapping slot observations evaluate keys in the current Denote state and use
 the supplied Keccak oracle, including both hashes for nested mappings. Reached
 key/value reads and writes before rollback remain observable. More than two
 keys, signed/narrow/dynamic key types, unsupported value types, and compound
-assignments remain rejected with source locations. Decimal numeric literals
-with denominations and string literals used as numbers are rejected explicitly.
+assignments remain rejected with source locations. String literals used as
+numbers are rejected explicitly; numeric literals follow the compile-time
+constant rules above.
 
 The mapping dirty-slot campaign seeds identical independently hashed slots in all
 three routes. Its fixed prefix reads a noncanonical true byte, deletes it while

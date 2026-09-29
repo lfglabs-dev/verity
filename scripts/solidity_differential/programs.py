@@ -560,3 +560,38 @@ def stateful_if_else_source(original, variant):
             raise ValueError(f'missing if/else source anchor: {before}')
         original = original.replace(before, after)
     return original
+def stateful_constants_sources(original, constants, variant):
+    """Equivalent constant programs: returns the contract and its constants file."""
+    if variant == 'baseline':
+        return original, constants
+    if variant == 'folded':
+        # Every compile-time spelling replaced by its plain decimal value.
+        folds = [
+            ('constants', '= 1e18;', '= 1000000000000000000;'),
+            ('constants', '= 0.000014e18;', '= 14000000000000;'),
+            ('constants', '= 1_000_000;', '= 1000000;'),
+            ('constants', 'uint256(0.01e18) / uint256(365 days)', 'uint256(10000000000000000) / uint256(31536000)'),
+            ('constants', '= 2 hours + 30 minutes;', '= 9000;'),
+            ('constants', '= 0xff_ff;', '= 65535;'),
+            ('constants', '= 2 ** 255 + (7 - 3) * 10 ** 3 / 8;',
+             '= 57896044618658097711785492504343953926634992332820282019728792003956564820468;'),
+            ('original', '7 weeks - 1 ether / 1e18', '4233599'),
+            ('original', '+ 1 days;', '+ 86400;'),
+        ]
+        texts = {'constants': constants, 'original': original}
+        for key, before, after in folds:
+            if texts[key].count(before) != 1:
+                raise ValueError(f'missing constants source anchor: {before}')
+            texts[key] = texts[key].replace(before, after)
+        return texts['original'], texts['constants']
+    if variant == 'contract-scoped':
+        # File-level constants become contract constants in a single file.
+        declarations = [line for line in constants.splitlines() if ' constant ' in line]
+        import_line = next(line for line in original.splitlines() if line.startswith('import '))
+        anchor = 'contract SequenceFixture {\n'
+        if original.count(anchor) != 1:
+            raise ValueError('missing constants contract anchor')
+        scoped = original.replace(import_line + '\n', '').replace(
+            anchor, anchor + ''.join(f'    {line}\n' for line in declarations))
+        return scoped, 'pragma solidity 0.8.34;\n'
+    raise ValueError(variant)

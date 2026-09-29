@@ -65,6 +65,15 @@ MUTANTS.update({
                                     '(.ite condition.expr noPre.toList yesPre.toList) ++ tail'),
 })
 
+
+MUTANTS.update({
+    'import-const-identifier': ('pure (.expr (← lowerConstant decl j))', 'pure (.expr { pre := #[], expr := .literal 0 })'),
+    'import-const-declared': ('return { pre := #[], expr := .literal n }', 'return { pre := #[], expr := .literal (n + 1) }'),
+    'import-const-folded': ('return { pre := #[], expr := .literal folded }', 'return { pre := #[], expr := .literal (folded / 2) }'),
+    'import-const-conversion': ('convert declTy valueTy (← lowerExpr value) use', 'pure { pre := #[], expr := .literal 1 }'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
@@ -73,6 +82,8 @@ def run(directory, output, name):
         fixture = "ShortCircuitSequence"
     if name.startswith('import-if-'):
         fixture = 'IfElseSequence'
+    if name.startswith('import-const-'):
+        fixture = 'ConstantSequence'
     if name.startswith(('import-event-', 'observe-event-')):
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',

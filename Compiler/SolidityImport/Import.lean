@@ -182,6 +182,8 @@ private structure Env where
   errorDecls : RBMap Nat Json compare
   usedErrors : List ErrorDef
   stateVars : RBMap Nat Json compare
+  /-- `constant` declarations at contract or file level, keyed by declaration id. -/
+  constants : RBMap Nat Json compare := RBMap.empty
   values : RBMap Nat Expr compare
   paths : RBMap Nat SPath compare
   mems : RBMap Nat MemParam compare
@@ -574,6 +576,106 @@ private def overflowPanic : Stmt := .panic .arithmeticOverflow
 
 private def divPanic : Stmt := .panic .divisionByZero
 
+/-- Solidity number-literal units. Removed 0.8 units (`finney`, `years`, ...)
+fall through to a rejection. -/
+private def denominationFactor : String → Option Nat
+  | "wei" | "seconds" => some 1
+  | "gwei" => some (10 ^ 9)
+  | "ether" => some (10 ^ 18)
+  | "minutes" => some 60
+  | "hours" => some 3600
+  | "days" => some 86400
+  | "weeks" => some 604800
+  | _ => none
+
+/-- Exact value of a decimal or hexadecimal Solidity number literal: digits
+with `_` separators, optional fraction and optional (signed) `e` exponent. -/
+private def literalRat (raw : String) : Option Rat := do
+  let s := raw.replace "_" ""
+  if s.startsWith "0x" || s.startsWith "0X" then
+    return ((← Compiler.Hex.parseHexNat? s : Nat) : Rat)
+  let (mantissa, exponent) ← match (s.replace "E" "e").splitOn "e" with
+    | [m] => some (m, (0 : Int))
+    | [m, e] =>
+        let e' ← if e.startsWith "-" then (e.drop 1).toNat?.map (fun n => -(n : Int))
+          else e.toNat?.map (fun n => (n : Int))
+        some (m, e')
+    | _ => none
+  let (whole, frac) ← match mantissa.splitOn "." with
+    | [w] => some (w, "")
+    | [w, f] => some (w, f)
+    | _ => none
+  if whole.isEmpty && frac.isEmpty then none
+  let digits := whole ++ frac
+  unless digits.all Char.isDigit do none
+  unless exponent.natAbs ≤ 4096 do none
+  let n := digits.toNat?.getD 0
+  let scale : Int := exponent - frac.length
+  if scale ≥ 0 then some ((n * 10 ^ scale.toNat : Nat) : Rat)
+  else some ((n : Rat) / ((10 ^ scale.natAbs : Nat) : Rat))
+
+/-- solc evaluates `int_const`/`rational_const` trees exactly at compile time.
+Mirror that evaluation over the admitted operator subset; anything else is a
+precise rejection, never an approximation. -/
+private partial def constRat (j : Json) : M Rat := do
+  let bounded (v : Rat) : M Rat := do
+    unless v.num.natAbs < 2 ^ 4096 && v.den < 2 ^ 4096 do
+      failAt j "compile-time constant exceeds 4096 bits"
+    pure v
+  match ← mKind j with
+  | "Literal" =>
+      unless optStr j "kind" == some "number" do failAt j "unsupported non-numeric constant"
+      let raw := optStr j "value" |>.getD ""
+      let some v := literalRat raw | failAt j s!"unsupported literal {raw}"
+      match optStr j "subdenomination" with
+      | none => pure v
+      | some unit =>
+          let some factor := denominationFactor unit
+            | failAt j s!"unsupported literal denomination {unit}"
+          bounded (v * (factor : Rat))
+  | "TupleExpression" =>
+      if ← mBool (← mField j "isInlineArray") then failAt j "inline arrays are outside this slice"
+      let cs ← mArr (← mField j "components")
+      unless cs.size == 1 && !cs[0]!.isNull do failAt j "unsupported constant tuple"
+      constRat cs[0]!
+  | "UnaryOperation" =>
+      unless optStr j "operator" == some "-" do
+        failAt j s!"unsupported constant operator {optStr j "operator" |>.getD "?"}"
+      pure (-(← constRat (← mField j "subExpression")))
+  | "BinaryOperation" =>
+      let op ← mStr (← mField j "operator")
+      let a ← constRat (← mField j "leftExpression")
+      let b ← constRat (← mField j "rightExpression")
+      match op with
+      | "+" => bounded (a + b)
+      | "-" => bounded (a - b)
+      | "*" => bounded (a * b)
+      | "/" =>
+          if b == 0 then failAt j "constant division by zero"
+          bounded (a / b)
+      | "**" =>
+          unless b.isInt && 0 ≤ b.num && b.num ≤ 4096 do
+            failAt j "constant exponent must be an integer in [0, 4096]"
+          bounded (a ^ b.num.toNat)
+      | _ => failAt j s!"unsupported constant operator {op}"
+  | kind => failAt j s!"unsupported constant expression {kind}"
+
+/-- A compile-time `int_const` value as a model literal, cross-checked against
+the value solc printed in the node's type when solc did not abbreviate it. -/
+private def lowerIntConst (j : Json) : M Nat := do
+  let ty ← mType j
+  let v ← constRat j
+  unless v.isInt do failAt j "rational constants are outside this slice"
+  unless 0 ≤ v.num do failAt j "negative constants are outside this slice"
+  let n := v.num.toNat
+  unless n < 2 ^ 256 do failAt j "constant does not fit in 256 bits"
+  let printed := ty.drop "int_const ".length
+  if let some solcValue := printed.toNat? then
+    unless solcValue == n do failAt j s!"constant evaluates to {n} but solc reports {printed}"
+  else unless printed.contains '.' do
+    failAt j s!"unrecognized solc constant type {ty}"
+  pure n
+
 mutual
 
 private partial def lowerYul (j : Json) : M Expr := do
@@ -597,7 +699,15 @@ private partial def lowerYul (j : Json) : M Expr := do
   | kind => failAt j s!"unsupported Yul node {kind}"
 
 private partial def lowerExpr (j : Json) : M Val := do
-  match ← mKind j with
+  let kind ← mKind j
+  if kind == "BinaryOperation" || kind == "UnaryOperation" || kind == "TupleExpression" then
+    let ty := (field? j "typeDescriptions").bind (optStr · "typeString") |>.getD ""
+    if ty.startsWith "int_const " then
+      let folded ← lowerIntConst j
+      return { pre := #[], expr := .literal folded }
+    if ty.startsWith "rational_const " then
+      failAt j "rational constants are outside this slice"
+  match kind with
   | "Literal" =>
       let raw := optStr j "value" |>.getD ""
       if optStr j "kind" == some "bool" then
@@ -608,9 +718,13 @@ private partial def lowerExpr (j : Json) : M Val := do
           | _ => failAt j "invalid boolean literal"
         return { pre := #[], expr := .literal value }
       unless optStr j "kind" == some "number" do failAt j "unsupported non-numeric literal"
+      let ty ← mType j
+      if ty.startsWith "int_const " then
+        return { pre := #[], expr := .literal (← lowerIntConst j) }
+      unless ty == "address" do failAt j s!"unsupported literal type {ty}"
       if let some denomination := optStr j "subdenomination" then
         failAt j s!"unsupported literal denomination {denomination}"
-      let some n := raw.toNat? <|> Compiler.Hex.parseHexNat? raw | failAt j s!"unsupported literal {raw}"
+      let some n := Compiler.Hex.parseHexNat? raw | failAt j s!"unsupported literal {raw}"
       pure { pre := #[], expr := .literal n }
   | "TupleExpression" =>
       if ← mBool (← mField j "isInlineArray") then failAt j "inline arrays are outside this slice"
@@ -635,6 +749,22 @@ private partial def lowerExpr (j : Json) : M Val := do
       | _ => failAt j "storage or memory path used as a value"
   | kind => failAt j s!"unsupported expression {kind}"
 
+/-- A `constant` is its initializer, evaluated at the use site exactly as solc
+inlines it, then implicitly converted to the declared type. -/
+private partial def lowerConstant (decl use : Json) : M Val := do
+  let some value := field? decl "value"
+    | failAt use "constant declaration has no initializer"
+  if value.isNull then failAt use "constant declaration has no initializer"
+  let declTy ← mType decl
+  let valueTy ← mType value
+  let some bits := bitsOf declTy
+    | failAt use s!"constant of type {declTy} is outside this slice"
+  if valueTy.startsWith "int_const " then
+    let n ← lowerIntConst value
+    unless n < 2 ^ bits do failAt use s!"constant {n} does not fit {declTy}"
+    return { pre := #[], expr := .literal n }
+  convert declTy valueTy (← lowerExpr value) use
+
 private partial def lowerRef (j : Json) : M Ref := do
   match ← mKind j with
   | "Identifier" =>
@@ -648,6 +778,8 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.path #[] path)
       else if env.mems.contains n then
         pure (.mem n #[])
+      else if let some decl := env.constants.find? n then
+        pure (.expr (← lowerConstant decl j))
       else if let some decl := env.stateVars.find? n then
         let name ← mStr (← mField decl "name")
         if let some item := env.layoutItems.find? name then
@@ -1095,10 +1227,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     return ← lowerLiteralBytes j
   if (← mKind j) == "Identifier" then
     let id ← refInt j
-    let some decl := (← get).stateVars.find? id.toNat
+    let some decl := (← get).constants.find? id.toNat
       | failAt j "only literal constants are supported as named byte buffers"
-    unless (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true do
-      failAt j "mutable byte buffers are unsupported"
     let value ← mField decl "value"
     unless (← mKind value) == "Literal" do
       failAt value "byte constant must have a literal initializer"
@@ -1797,6 +1927,8 @@ private partial def index (file : String) (contract? : Option String) (j : Json)
                 | none => false
               if isState then
                 modify fun e => { e with stateVars := e.stateVars.insert id j }
+              if (field? j "constant").bind (fun b => b.getBool?.toOption) == some true then
+                modify fun e => { e with constants := e.constants.insert id j }
           | _ => pure ()
       let next ← do
         if (field? j "nodeType") == some (Json.str "ContractDefinition") then
