@@ -58,13 +58,24 @@ def stateful_campaign(output, transactions, seed):
         '--source-fixture', 'Contracts/SolidityImportSmoke/MappingDirtySequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/MappingDirtySequenceModel.lean',
         '--output', str(output / 'mapping-dirty')]))
-    completed = []
     checks.append(('errors', ['-m', 'solidity_differential.check_stateful',
         '--transactions', str(transactions), '--seed', str(seed),
         '--source-fixture', 'scripts/solidity_differential/fixtures/ErrorSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/ErrorSequenceModel.lean',
         '--output', str(output / 'errors')]))
-    for name, args in checks:
+    return run_checks(output, checks, transactions, seed)
+
+
+def run_checks(output, checks, transactions, seed):
+    """Run named checks in order, printing each one before it starts.
+
+    ``command`` captures subprocess output until the process exits, so a
+    multi-check campaign otherwise looks idle for its whole wall time.
+    """
+    completed = []
+    total = len(checks)
+    for index, (name, args) in enumerate(checks, start=1):
+        print(f'stateful check {index}/{total}: {name}', flush=True)
         # The primary script installs scripts/ on sys.path, but subprocess modules
         # need it explicitly; use a small launcher without altering caller state.
         launcher = ('import os,runpy,sys; sys.path.insert(0,"scripts"); '
@@ -74,5 +85,6 @@ def stateful_campaign(output, transactions, seed):
         command(argv, timeout=1800, log=output / f'{name}.log')
         completed.append(name)
         write_json(output / 'completed.json', completed)
+        print(f'stateful check {index}/{total}: {name} done', flush=True)
     return {'checks': completed, 'transactionsPerVariant': transactions, 'seed': seed,
             'divergences': []}
