@@ -426,7 +426,7 @@ class VerifySyncTests(unittest.TestCase):
               changes:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                   - id: filter
                     uses: dorny/paths-filter@v3
                     with:
@@ -471,7 +471,7 @@ class VerifySyncTests(unittest.TestCase):
               changes:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                   - id: filter
                     uses: dorny/paths-filter@v3
                     with:
@@ -513,7 +513,7 @@ class VerifySyncTests(unittest.TestCase):
               changes:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                   - id: filter
                     uses: dorny/paths-filter@v3
                     with:
@@ -880,19 +880,19 @@ class VerifySyncTests(unittest.TestCase):
               changes:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                   - id: changed-filter
                     uses: dorny/paths-filter@v3
               checks:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                   - name: Run all checks
                     run: make verify
               build:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                     with:
                       submodules: false
                   - name: Setup Lean
@@ -909,7 +909,7 @@ class VerifySyncTests(unittest.TestCase):
                 runs-on: ubuntu-latest
                 steps:
                   - name: Post CI failure hints
-                    uses: actions/github-script@v7
+                    uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
                     env:
                       NEEDS_JSON: stale
                     with:
@@ -922,7 +922,7 @@ class VerifySyncTests(unittest.TestCase):
             expected_step_contracts={
                 "changes": [
                     {
-                        "uses": "actions/checkout@v4",
+                        "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
                     },
                     {
                         "id": "filter",
@@ -931,7 +931,7 @@ class VerifySyncTests(unittest.TestCase):
                 ],
                 "checks": [
                     {
-                        "uses": "actions/checkout@v4",
+                        "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
                     },
                     {
                         "name": "Run all checks",
@@ -940,7 +940,7 @@ class VerifySyncTests(unittest.TestCase):
                 ],
                 "build": [
                     {
-                        "uses": "actions/checkout@v4",
+                        "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
                         "with": {"submodules": "recursive"},
                     },
                     {
@@ -964,7 +964,7 @@ class VerifySyncTests(unittest.TestCase):
                 "failure-hints": [
                     {
                         "name": "Post CI failure hints",
-                        "uses": "actions/github-script@v7",
+                        "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
                         "env": {"NEEDS_JSON": "${{ toJson(needs) }}"},
                         "with": {"script": FAILURE_HINTS_SCRIPT},
                     }
@@ -990,11 +990,11 @@ class VerifySyncTests(unittest.TestCase):
             err,
         )
         self.assertIn(
-            "failure-hints step name='Post CI failure hints', uses='actions/github-script@v7' has env.NEEDS_JSON='stale', expected '${{ toJson(needs) }}'",
+            "failure-hints step name='Post CI failure hints', uses='actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b' has env.NEEDS_JSON='stale', expected '${{ toJson(needs) }}'",
             err,
         )
         self.assertIn(
-            "failure-hints step name='Post CI failure hints', uses='actions/github-script@v7' has with.script='core.info(\"stale\")', expected",
+            "failure-hints step name='Post CI failure hints', uses='actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b' has with.script='core.info(\"stale\")', expected",
             err,
         )
 
@@ -1006,19 +1006,19 @@ class VerifySyncTests(unittest.TestCase):
               changes:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                   - id: filter
                     uses: dorny/paths-filter@v3
               checks:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                   - name: Run all checks
                     run: make check
               build:
                 runs-on: ubuntu-latest
                 steps:
-                  - uses: actions/checkout@v4
+                  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
                     with:
                       submodules: recursive
                   - name: Setup Lean
@@ -1041,7 +1041,7 @@ class VerifySyncTests(unittest.TestCase):
                 runs-on: ubuntu-latest
                 steps:
                   - name: Post CI failure hints
-                    uses: actions/github-script@v7
+                    uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
                     env:
                       NEEDS_JSON: ${{ toJson(needs) }}
                     with:
@@ -1104,7 +1104,7 @@ class VerifySyncTests(unittest.TestCase):
             expected_step_contracts={
                 "changes": [
                     {
-                        "uses": "actions/checkout@v4",
+                        "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
                     },
                     {
                         "id": "filter",
@@ -1113,7 +1113,7 @@ class VerifySyncTests(unittest.TestCase):
                 ],
                 "checks": [
                     {
-                        "uses": "actions/checkout@v4",
+                        "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
                     },
                     {
                         "name": "Run all checks",
@@ -1122,7 +1122,7 @@ class VerifySyncTests(unittest.TestCase):
                 ],
                 "build": [
                     {
-                        "uses": "actions/checkout@v4",
+                        "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
                         "with": {"submodules": "recursive"},
                     },
                     {
@@ -1146,7 +1146,7 @@ class VerifySyncTests(unittest.TestCase):
                 "failure-hints": [
                     {
                         "name": "Post CI failure hints",
-                        "uses": "actions/github-script@v7",
+                        "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
                         "env": {"NEEDS_JSON": "${{ toJson(needs) }}"},
                         "with": {"script": FAILURE_HINTS_SCRIPT},
                     }
@@ -1165,7 +1165,7 @@ class VerifySyncTests(unittest.TestCase):
                 runs-on: ubuntu-latest
                 steps:
                   - name: Post CI failure hints
-                    uses: actions/github-script@v7
+                    uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
                     with:
                       script: >-
                         const marker = "<!-- ci-failure-hints -->";
@@ -1179,7 +1179,7 @@ class VerifySyncTests(unittest.TestCase):
                 "failure-hints": [
                     {
                         "name": "Post CI failure hints",
-                        "uses": "actions/github-script@v7",
+                        "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
                         "with": {
                             "script": 'const marker = "<!-- ci-failure-hints -->";\ncore.info(marker);'
                         },
@@ -1898,13 +1898,13 @@ class VerifySyncTests(unittest.TestCase):
           build-audits:
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: axiom-dependency-report
           build-compiler:
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: generated-yul
           foundry:
@@ -1939,7 +1939,7 @@ class VerifySyncTests(unittest.TestCase):
             """
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name:
             """
@@ -1956,7 +1956,7 @@ class VerifySyncTests(unittest.TestCase):
           build-audits:
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: axiom-dependency-report
                   path: |
@@ -1990,10 +1990,10 @@ class VerifySyncTests(unittest.TestCase):
           build-compiler:
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: static-gas-report
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: generated-yul
           foundry-gas-calibration:
@@ -2029,7 +2029,7 @@ class VerifySyncTests(unittest.TestCase):
           build-compiler:
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: generated-yul
                   path: compiler/yul
@@ -2072,7 +2072,7 @@ class VerifySyncTests(unittest.TestCase):
           build-audits:
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: axiom-dependency-report
                   path: |
@@ -2081,18 +2081,18 @@ class VerifySyncTests(unittest.TestCase):
           build-compiler:
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: generated-yul
                   path: compiler/yul
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: static-gas-report
                   path: gas-report-static.tsv
           lean-profile:
             runs-on: ubuntu-latest
             steps:
-              - uses: actions/upload-artifact@v4
+              - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
                 with:
                   name: lean-perf-queue
                   path: lean-perf-queue.md

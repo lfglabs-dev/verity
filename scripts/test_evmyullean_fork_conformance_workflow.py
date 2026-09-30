@@ -92,7 +92,7 @@ class EvmYulLeanForkConformanceWorkflowTests(unittest.TestCase):
         self.assertNotIn("github.event_name == 'pull_request'", issue_job_body)
         self.assertNotIn("github.event_name == 'push'", issue_job_body)
         self.assertIn("issues: write", issue_job_body)
-        self.assertIn("uses: actions/github-script@v7", text)
+        self.assertIn("uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b", text)
         self.assertIn("const title = \"EVMYulLean fork conformance probe failed\";", text)
         self.assertIn("github.rest.issues.createComment", text)
         self.assertIn("github.rest.issues.create({", text)
