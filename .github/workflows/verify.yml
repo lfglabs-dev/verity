@@ -116,7 +116,7 @@ jobs:
       # branches, close dependents, or drop artifacts while the closed PR/branch
       # is a stack member/base or has open dependent PRs. Uses Stacks REST API
       # plus a direct open-PR base-ref fallback (beta/API lag safe).
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           # Never execute a guard supplied or modified by the closing PR.
           ref: ${{ github.event.pull_request.base.sha }}
@@ -195,9 +195,9 @@ jobs:
       build: ${{ steps.effective.outputs.build }}
       compiler: ${{ steps.effective.outputs.compiler }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         with:
           filters: |
@@ -310,7 +310,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
@@ -357,7 +357,7 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           path: watchdog-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -381,7 +381,7 @@ jobs:
     env:
       LEAN_NUM_THREADS: 8
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -444,7 +444,7 @@ jobs:
       # The differential controls execute EVM bytecode via forge in this job,
       # before the downstream Foundry jobs can provision their own toolchains.
       - name: Setup Foundry for Solidity differential controls
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.5.0
 
@@ -468,21 +468,21 @@ jobs:
             --path lean-workspace-build.tar
 
       - name: Upload prepared Lean workspace build
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-workspace-build
           path: lean-workspace-build.tar
 
       - name: Save current run Lake cache
         if: success() && needs.changes.outputs.build == 'true' && steps.setup-lean.outputs.using-sticky-disks != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .lake
           key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}
 
       - name: Save Lake packages cache
         if: success() && needs.changes.outputs.build == 'true' && steps.setup-lean.outputs.using-sticky-disks != 'true' && steps.setup-lean.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .lake
           key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
@@ -496,7 +496,7 @@ jobs:
     env:
       LEAN_NUM_THREADS: 4
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -522,7 +522,7 @@ jobs:
 
       - name: Download prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lean-workspace-build
 
@@ -555,7 +555,7 @@ jobs:
         run: python3 scripts/check_storage_layout.py --format=markdown >> $GITHUB_STEP_SUMMARY
 
       - name: Upload axiom dependency report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: axiom-dependency-report
           path: |
@@ -577,7 +577,7 @@ jobs:
       CCACHE_COMPILERCHECK: content
       CCACHE_MAXSIZE: 2G
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -628,7 +628,7 @@ jobs:
 
       - name: Restore compiler ccache fallback cache
         if: env.VERIFY_CLEAN_BUILD != 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}/compiler-ccache-cache
           key: compiler-ccache-cache-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}
@@ -667,7 +667,7 @@ jobs:
 
       - name: Download prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lean-workspace-build
 
@@ -740,7 +740,7 @@ jobs:
       - name: Save compiler ccache fallback cache
         if: always() && (failure() || steps.setup-lean.outputs.using-sticky-disks != 'true')
         continue-on-error: true
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ github.workspace }}/.cache/ccache
           key: compiler-ccache-cache-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}
@@ -918,14 +918,14 @@ jobs:
 
       - name: Upload difftest interpreter
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: difftest-interpreter
           path: .lake/build/bin/difftest-interpreter
 
       - name: Upload compiler binaries
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: verity-compiler-binaries
           path: compiler/bin
@@ -933,7 +933,7 @@ jobs:
 
       - name: Upload compiler workspace build
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-workspace-compiler-build
           path: lean-workspace-compiler-build.tar
@@ -941,49 +941,49 @@ jobs:
 
       - name: Upload generated Yul
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: generated-yul
           path: compiler/yul
 
       - name: Upload patched Yul
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: generated-yul-patched
           path: compiler/yul-patched
 
       - name: Upload smoke Yul
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: generated-yul-smoke
           path: compiler/yul-smoke
 
       - name: Upload patched smoke Yul
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: generated-yul-patched-smoke
           path: compiler/yul-patched-smoke
 
       - name: Upload patch coverage report
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: patch-coverage-report
           path: compiler/patch-report.tsv
 
       - name: Upload static gas report
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: static-gas-report
           path: gas-report-static.tsv
 
       - name: Upload patched static gas report
         if: '!cancelled()'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: static-gas-report-patched
           path: gas-report-static-patched.tsv
@@ -994,7 +994,7 @@ jobs:
     needs: [changes, checks, build, build-compiler-binaries]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.build-compiler-binaries.result == 'success' && needs.changes.outputs.compiler == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -1022,7 +1022,7 @@ jobs:
 
       - name: Download prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lean-workspace-build
 
@@ -1041,7 +1041,7 @@ jobs:
 
       - name: Download compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lean-workspace-compiler-build
 
@@ -1064,7 +1064,7 @@ jobs:
 
       - name: Download generated Yul (fallback)
         if: steps.local-restore-yul.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: generated-yul
           path: compiler/yul
@@ -1084,23 +1084,23 @@ jobs:
 
       - name: Download patched Yul (fallback)
         if: steps.local-restore-yul-patched.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: generated-yul-patched
           path: compiler/yul-patched
 
       - name: Download static gas report
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: static-gas-report
 
       - name: Download patched static gas report
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: static-gas-report-patched
 
       - name: Download patch coverage report
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: patch-coverage-report
           path: compiler
@@ -1120,7 +1120,7 @@ jobs:
 
       - name: Download compiler binaries
         if: steps.local-restore-compiler-binaries.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: verity-compiler-binaries
           path: compiler/bin
@@ -1203,7 +1203,7 @@ jobs:
     env:
       LEAN_NUM_THREADS: 4
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -1231,7 +1231,7 @@ jobs:
 
       - name: Download prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lean-workspace-build
 
@@ -1250,7 +1250,7 @@ jobs:
 
       - name: Download compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lean-workspace-compiler-build
 
@@ -1259,7 +1259,7 @@ jobs:
         run: tar -xf lean-workspace-compiler-build.tar
 
       - name: Install Foundry for Solidity slice comparisons
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.5.0
 
@@ -1285,7 +1285,7 @@ jobs:
 
       - name: Archive Solidity slice comparison evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: solidity-import-differential
           path: |
@@ -1316,7 +1316,7 @@ jobs:
       - name: Archive Solidity import coverage
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: solidity-import-coverage
           path: .lake/solidity-import-coverage/**
@@ -1356,7 +1356,7 @@ jobs:
     continue-on-error: true
     if: github.event_name == 'workflow_dispatch' && inputs.lean_profile && needs.changes.outputs.build == 'true' && needs.build.result == 'success'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup Lean
         uses: ./.github/actions/setup-lean
@@ -1374,7 +1374,7 @@ jobs:
         run: cat lean-perf-queue.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Lean perf queue
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: lean-perf-queue
           path: lean-perf-queue.md
@@ -1385,12 +1385,12 @@ jobs:
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
       - name: Download static gas report
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: static-gas-report
 
@@ -1447,7 +1447,7 @@ jobs:
       matrix:
         shard_index: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -1466,7 +1466,7 @@ jobs:
 
       - name: Download compiler binaries
         if: steps.local-restore-compiler-binaries.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: verity-compiler-binaries
           path: compiler/bin
@@ -1496,7 +1496,7 @@ jobs:
 
       - name: Download smoke Yul (fallback)
         if: steps.local-restore-yul-smoke.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: generated-yul-smoke
           path: compiler/yul-smoke
@@ -1556,7 +1556,7 @@ jobs:
     needs: [changes, build-compiler-binaries]
     if: needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -1571,7 +1571,7 @@ jobs:
 
       - name: Download prepared Lean workspace build
         if: steps.local-restore-lean-workspace.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lean-workspace-build
 
@@ -1590,7 +1590,7 @@ jobs:
 
       - name: Download compiler workspace build
         if: steps.local-restore-compiler-workspace.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: lean-workspace-compiler-build
 
@@ -1620,7 +1620,7 @@ jobs:
 
       - name: Download patched smoke Yul (fallback)
         if: steps.local-restore-yul-patched-smoke.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: generated-yul-patched-smoke
           path: compiler/yul-patched-smoke
@@ -1687,7 +1687,7 @@ jobs:
       matrix:
         seed: [0, 1, 42, 123, 999, 12345, 67890]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
 
@@ -1706,7 +1706,7 @@ jobs:
 
       - name: Download compiler binaries
         if: steps.local-restore-compiler-binaries.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: verity-compiler-binaries
           path: compiler/bin
@@ -1736,7 +1736,7 @@ jobs:
 
       - name: Download smoke Yul (fallback)
         if: steps.local-restore-yul-smoke.outcome != 'success'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: generated-yul-smoke
           path: compiler/yul-smoke
@@ -1808,7 +1808,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Post CI failure hints
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
         with:

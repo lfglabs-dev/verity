@@ -47,7 +47,7 @@ runs:
 
     - name: Download generated Yul
       if: inputs.download-yul == 'true' && steps.local-restore-yul.outcome != 'success'
-      uses: actions/download-artifact@v7
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
       with:
         name: ${{ inputs.yul-artifact-name }}
         path: ${{ inputs.yul-artifact-path }}
@@ -102,7 +102,7 @@ runs:
 
     - name: Download difftest interpreter
       if: steps.local-restore-difftest.outcome != 'success'
-      uses: actions/download-artifact@v7
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
       with:
         name: difftest-interpreter
         path: .lake/build/bin
@@ -131,7 +131,7 @@ runs:
 
     - name: Cache Foundry binaries
       id: cache-foundry
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: ~/.foundry/bin
         key: foundry-v1.5.0-linux-amd64
@@ -140,7 +140,7 @@ runs:
       if: steps.cache-foundry.outputs.cache-hit != 'true'
       id: install_foundry_primary
       continue-on-error: true
-      uses: foundry-rs/foundry-toolchain@v1
+      uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
       with:
         version: v1.5.0
 

@@ -163,7 +163,7 @@ body:
             encoding="utf-8",
         )
         (self.templates / "config.yaml").write_text(
-            "blank_issues_enabled: false\n##[group]Run actions/checkout@v4\n",
+            "blank_issues_enabled: false\n##[group]Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n",
             encoding="utf-8",
         )
 
@@ -187,7 +187,7 @@ labels: [cleanup]
 body:
   - type: markdown
     attributes:
-      value: "##[group]Run actions/checkout@v4"
+      value: "##[group]Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
 """.strip()
             + "\n",
             encoding="utf-8",

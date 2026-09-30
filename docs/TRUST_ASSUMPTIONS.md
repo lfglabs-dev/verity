@@ -145,6 +145,21 @@ is not part of this change. Solidity sources are Lake inputs only when the
 consumer declares them (`input_dir` + `needs`); consumers should also
 re-elaborate in CI to verify freshness against a compiled import.
 
+## CI execution and Action supply chain
+
+GitHub Actions and the machines that execute them are operational trust
+boundaries, not part of the Lean proof kernel. Every external Action reference
+under `.github/` is pinned to a full commit SHA; local composite Actions remain
+reviewed repository code. Repository policy rejects mutable external Action
+tags, gives workflows read-only default token permissions, and requires manual
+approval before workflows from every external fork contributor may run.
+
+Self-hosted runners remain trusted infrastructure. Pull-request code is
+untrusted even after approval and must not share credentials, writable data, or
+network reachability with production services. These controls reduce Action
+supply-chain drift and accidental execution; they do not make a persistent
+self-hosted runner a security boundary.
+
 ## Compilation Pipeline
 
 ```

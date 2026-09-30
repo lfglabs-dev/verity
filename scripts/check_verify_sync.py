@@ -657,7 +657,12 @@ def _step_uses_action(step_block: str, action: str) -> bool:
     if uses_value is None:
         return False
     uses_clean = unquote_yaml_scalar(strip_yaml_inline_comment(uses_value))
-    return bool(re.fullmatch(rf"actions/{re.escape(action)}@v\d+", uses_clean))
+    return bool(
+        re.fullmatch(
+            rf"actions/{re.escape(action)}@(?:v\d+|[0-9a-fA-F]{{40}})",
+            uses_clean,
+        )
+    )
 
 
 def _extract_artifact_names(job_body: str, *, action: str) -> list[str]:

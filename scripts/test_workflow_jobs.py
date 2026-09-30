@@ -68,7 +68,7 @@ class WorkflowJobsTests(unittest.TestCase):
         body = "\n".join(
             [
                 "    steps:",
-                "      - uses: actions/upload-artifact@v4",
+                "      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
                 "        with:",
                 '          DIFFTEST_RANDOM_SEED: "999"',
                 "      - name: run tests",

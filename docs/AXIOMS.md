@@ -20,6 +20,11 @@ Axioms are exceptional. When an axiom exists, it must have:
 3. CI checks that validate usage assumptions.
 4. A clear elimination path, when practical.
 
+CI itself is an operational trust boundary rather than a Lean axiom. External
+GitHub Actions are full-SHA pinned and repository policy rejects mutable Action
+references; see `TRUST_ASSUMPTIONS.md` under “CI execution and Action supply
+chain.”
+
 ## Current Axioms
 
 - Active axioms: 1
