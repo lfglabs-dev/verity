@@ -697,7 +697,7 @@ private partial def lowerRef (j : Json) : M Ref := do
       else if let some decl := env.numericConstants.find? n then
         if env.constantStack.contains n then failAt j "cyclic constant initializer"
         let declared ← mType decl
-        unless (bitsOf declared).isSome || declared == "bool" do
+        unless (declared.startsWith "uint" && (bitsOf declared).isSome) || declared == "bool" do
           failAt j s!"unsupported numeric constant type {declared}"
         let initializer ← mField decl "value"
         modify fun e => { e with constantStack := n :: e.constantStack }
