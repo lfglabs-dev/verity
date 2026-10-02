@@ -65,7 +65,9 @@ MUTANTS.update({
                                     '(.ite condition.expr noPre.toList yesPre.toList) ++ tail'),
 })
 
-MUTANTS.update({'import-numeric-decimal-scale': ('let scale := 10 ^ fraction.length',
+MUTANTS.update({'import-numeric-separators': ('let raw := raw.replace "_" ""', 'let raw := raw.replace "_" "0"'),
+ 'import-numeric-leading-dot': ('if whole.isEmpty then some 0 else whole.toNat?', 'if whole.isEmpty then some 1 else whole.toNat?'),
+ 'import-numeric-decimal-scale': ('let scale := 10 ^ fraction.length',
                                   'let scale := 10 ^ (fraction.length + 1)'),
  'import-numeric-positive-exponent': ('numerator * 10 ^ exponent, denominator',
                                       'numerator * 10 ^ (exponent + 1), denominator'),

@@ -1108,7 +1108,8 @@ variants. This is tested lowering, not a Solidity semantics proof.
 ### Numeric literals and units (development)
 
 Decimal, hexadecimal and scientific literals are parsed into exact natural
-numerator/denominator pairs. Time/currency scaling occurs before the integral
+numerator/denominator pairs; digit separators are removed and a missing whole
+part in leading-dot fractions means zero. Time/currency scaling occurs before the integral
 check, so fractional amounts such as 0.5 hours retain their exact value. No
 floating-point arithmetic is used. Nonintegral results, oversized runtime words
 and unsupported constant expressions reject with source locations. Named unsigned/bool constants resolve by declaration ID and their initializers

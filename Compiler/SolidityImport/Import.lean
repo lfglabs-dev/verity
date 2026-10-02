@@ -578,6 +578,7 @@ private def divPanic : Stmt := .panic .divisionByZero
 
 /-- Decimal/scientific literal value as an exact natural rational. -/
 private def numericLiteralRatio (raw : String) : Option (Nat × Nat) := do
+  let raw := raw.replace "_" ""
   if let some n := Compiler.Hex.parseHexNat? raw then return (n, 1)
   let (mantissa, exponent, negative) ← match (raw.replace "E" "e").splitOn "e" with
     | [m] => some (m, 0, false)
@@ -592,7 +593,7 @@ private def numericLiteralRatio (raw : String) : Option (Nat × Nat) := do
         let n ← digits.toNat?
         some (n, 1)
     | [whole, fraction] => do
-        let w ← whole.toNat?
+        let w ← if whole.isEmpty then some 0 else whole.toNat?
         let f ← fraction.toNat?
         let scale := 10 ^ fraction.length
         some (w * scale + f, scale)
