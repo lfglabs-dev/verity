@@ -20,7 +20,7 @@ contract SequenceFixture {
 
     function change(uint256 x) external returns (uint256) {
         value = duration(x) + WAD + 7 wei + 8 gwei + 9 ether
-            + 0.01e18 + 0.000014e18 + 1e-3 ether + 2E+3 + 0x20;
+            + 0.01e18 + 0.000014e18 + 1e-3 ether + 2E3 + 0x20;
         emit Changed(value);
         return value;
     }
