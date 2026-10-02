@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 from .engine import write_json
 
 p=argparse.ArgumentParser(description=__doc__)
@@ -30,8 +31,11 @@ variants.append(('computed-index',interface,computed,'f(Market, uint256)','compu
 mixed=contract.replace('contract C','struct Tiny { uint256 value; }\ncontract C').replace('Market memory market','Market memory market, Tiny memory other')
 variants.append(('mixed-structs',interface,mixed,'f(Market, Tiny)','mixed static and dynamic struct parameters'))
 results=[]
+project_parent=repo/'.lake/imported-market-rejections'
+project_parent.mkdir(parents=True,exist_ok=True)
+project_root=Path(tempfile.mkdtemp(prefix=out.name+'-',dir=project_parent))
 for name,interface_text,source,signature,message in variants:
-    project=repo/'.lake/imported-market-rejections'/out.name/name
+    project=project_root/name
     project.mkdir(parents=True,exist_ok=False)
     dest=project/interface_path
     dest.parent.mkdir(parents=True)
