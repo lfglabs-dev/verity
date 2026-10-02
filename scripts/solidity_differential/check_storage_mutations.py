@@ -65,8 +65,30 @@ MUTANTS.update({
                                     '(.ite condition.expr noPre.toList yesPre.toList) ++ tail'),
 })
 
+MUTANTS.update({'import-numeric-decimal-scale': ('let scale := 10 ^ fraction.length',
+                                  'let scale := 10 ^ (fraction.length + 1)'),
+ 'import-numeric-positive-exponent': ('numerator * 10 ^ exponent, denominator',
+                                      'numerator * 10 ^ (exponent + 1), denominator'),
+ 'import-numeric-negative-exponent': ('denominator * 10 ^ exponent',
+                                      'denominator * 10 ^ (exponent - 1)'),
+ 'import-numeric-hex-value': ('then return (n, 1)', 'then return (n + 1, 1)'),
+ 'import-numeric-integral-value': ('let n := scaled / denominator',
+                                   'let n := scaled / denominator + 1'),
+ 'import-numeric-unit-minutes': ('| "minutes" => some 60', '| "minutes" => some (60 + 1)'),
+ 'import-numeric-unit-hours': ('| "hours" => some 3600', '| "hours" => some (3600 + 2)'),
+ 'import-numeric-unit-days': ('| "days" => some 86400', '| "days" => some (86400 + 4)'),
+ 'import-numeric-unit-weeks': ('| "weeks" => some 604800', '| "weeks" => some (604800 + 1)'),
+ 'import-numeric-unit-gwei': ('| "gwei" => some (10 ^ 9)', '| "gwei" => some ((10 ^ 9) + 1)'),
+ 'import-numeric-unit-ether': ('| "ether" => some (10 ^ 18)', '| "ether" => some ((10 ^ 18) + 1000)'),
+ 'import-numeric-unit-one': ('| "seconds" | "wei" => some 1', '| "seconds" | "wei" => some 2')})
+
+MUTANTS.update({'import-numeric-constant-value': ('pure (.expr value)',
+                                   'pure (.expr { value with expr := .literal 0 })')})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-numeric-"):
+        fixture = "NumericLiteralSequence"
     if name.startswith("import-mapping-"):
         fixture = "MappingSequence"
     if name.startswith("import-logical-"):
