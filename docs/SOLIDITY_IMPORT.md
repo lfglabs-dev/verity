@@ -378,8 +378,9 @@ Mapping slot observations evaluate keys in the current Denote state and use
 the supplied Keccak oracle, including both hashes for nested mappings. Reached
 key/value reads and writes before rollback remain observable. More than two
 keys, signed/narrow/dynamic key types, unsupported value types, and compound
-assignments remain rejected with source locations. Decimal numeric literals
-with denominations and string literals used as numbers are rejected explicitly.
+assignments remain rejected with source locations. Numeric literals with supported
+denominations use the exact integral lowering described above; nonintegral
+results and string literals used as numbers are rejected explicitly.
 
 The mapping dirty-slot campaign seeds identical independently hashed slots in all
 three routes. Its fixed prefix reads a noncanonical true byte, deletes it while
