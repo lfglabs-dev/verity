@@ -1120,3 +1120,13 @@ The frontend parser remains trusted; no solc-equivalence theorem is claimed.
 The focused development campaign passed 96 A/B/C transactions across three
 equivalent variants, 56 acceptance/rejection controls and 16 semantic mutants
 with positive controls and minimal witnesses. Exact-head release gates remain pending.
+
+
+### Exact natural constant products (development)
+
+Constant multiplication is admitted only for `int_const` operands that lower
+to exact natural literals without preludes. Multiplication uses unbounded Lean
+naturals and rejects results outside uint256. This adds no runtime wraparound
+or floating-point approximation. Fractional operands and other rational
+operations remain unsupported. The solc frontend is still trusted; validation
+is pending and no Solidity-equivalence theorem is claimed.

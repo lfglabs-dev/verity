@@ -15,7 +15,7 @@ contract SequenceFixture {
 
     function duration(uint256 x) internal pure returns (uint256) {
         return shadow(x) + DOUBLE_DAY + 1 seconds + 2 minutes + 3 hours + 4 days + 5 weeks
-            + 0.5 hours + .5 hours + 1.25 days;
+            + 0.5 hours + .5 hours + 1.25 days + 100 * 365 days;
     }
 
     function change(uint256 x) external returns (uint256) {
