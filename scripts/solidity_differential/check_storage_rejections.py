@@ -9,6 +9,10 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('modulo-unsigned', '', 'return x % 7;', 'uint256', None),
+        ('modulo-narrow', '', 'return uint8(x) % uint8(7);', 'uint256', None),
+        ('modulo-signed', '', 'return uint256(int256(x) % int256(7));', 'uint256', 'unsupported operand type int256'),
+        ('modulo-rational-constant', '', 'return x + (7 % 2);', 'uint256', 'unsupported operand type'),
         ('inline-constant-array', 'uint256 constant A = 3;', 'return [A, 7][x];', 'uint256', None),
         ('inline-constant-array-narrow', 'uint8 constant A = 255; uint8 constant B = 0;', 'return [A, B][x];', 'uint256', None),
         ('inline-array-variable', '', 'return [x, 7][x];', 'uint256', 'inline array elements must be exact natural constants'),
@@ -20,7 +24,8 @@ def main():
         ('if-early-return', 'uint256 value;', 'if (x == 0) return 0; value = x; return value;', 'uint256', None),
         ('if-helper-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) return 1; require(y == 0, "one"); return 0; }', 'return h(x);', 'uint256', None),
         ('if-bare-return', 'uint256 value;', 'if (x == 0) return; value = x;', '', 'bare return requires'),
-        ('if-dead-remainder', '', 'if (false) { return x % 2; } return x;', 'uint256', 'unsupported operator %'),
+        ('if-dead-remainder', '', 'if (false) { return x % 2; } return x;', 'uint256', None),
+        ('if-dead-rational-remainder', '', 'if (false) { return x % (6 / 3); } return x;', 'uint256', 'unsupported operand type'),
         ('if-after-both-return', 'uint256 value;', 'if (x > 1) { return 1; } else { return 2; } value = x;', 'uint256', 'statement after root return'),
         ('if-helper-missing-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) return 1; }', 'return h(x);', 'uint256', 'does not return on every path'),
         ('if-helper-after-both-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) { return 1; } else { return 2; } require(y > 0, "dead"); }', 'return h(x);', 'uint256', 'statement after helper result'),
@@ -29,7 +34,8 @@ def main():
         ('logical-or', '', 'return x == 0 || 100 / x > 1;', 'bool', None),
         ('logical-and', '', 'return x != 0 && 100 / x > 1;', 'bool', None),
         ('logical-dead-effect', 'uint256 value; function bump() internal returns (bool) { value = 1; return true; }', 'return true || bump();', 'bool', 'only builtin require calls'),
-        ('logical-dead-remainder', '', 'return false && x % 2 == 0;', 'bool', 'unsupported operator %'),
+        ('logical-dead-remainder', '', 'return false && x % 2 == 0;', 'bool', None),
+        ('logical-dead-rational-remainder', '', 'return false && x % (6 / 3) == 0;', 'bool', 'unsupported operand type'),
         ('logical-external', 'function probe() external pure returns (bool) { return true; }', 'return true || this.probe();', 'bool', 'unresolved builtin identifier'),
 
         ('effectful-helper', 'uint256 value; function bump() internal returns (uint256) { value = value + 1; return value; }', 'return bump() + bump();', 'uint256', 'only builtin require calls'),

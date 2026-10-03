@@ -1147,3 +1147,15 @@ escape or participate in observable memory operations. Nonconstant elements,
 guarded initializers and unsupported types reject rather than choosing an
 evaluation order for their effects. Differential and mutation validation is
 pending; this is not a Solidity semantics proof.
+
+
+### Unsigned modulo (development)
+
+Typed unsigned modulo lowers to the existing Denote/EVM remainder arm with
+an explicit zero-divisor arithmetic panic (0x12), preserving operand preludes
+and bindings. This differs from the raw EVM MOD zero-divisor result, which
+must not replace Solidity's panic. Narrow unsigned operands use their
+canonical values; signed and general constant-expression modulo remain
+unsupported. Quotient-identity variants cover the same defined values and
+zero-divisor panic. The coverage arm has a reflexive semantics lemma;
+differential and mutation validation remains pending.

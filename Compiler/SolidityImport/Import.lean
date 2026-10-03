@@ -937,6 +937,9 @@ private partial def lowerBinary (j : Json) : M Val := do
       let some bits := bitsOf common | failAt j s!"unsupported mul type {common}"
       checkedMul bits left right
   | "/" => checkedDiv left right
+  | "%" =>
+      unless common.startsWith "uint" do failAt j "modulo requires unsigned scalar operands"
+      checkedModulo left right
   | "<" => cmp .lt left right
   | ">" => cmp .gt left right
   | "<=" => cmp .le left right
@@ -962,6 +965,15 @@ private partial def checkedDiv (left right : Val) : M Val := do
   let ok := Stmt.assignVar dest (.div a.expr b.expr)
   let ite := iteStmt (.eq b.expr (.literal 0)) divPanic ok
   pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
+
+private partial def checkedModulo (left right : Val) : M Val := do
+  let a ← atom left
+  let b ← atom right
+  let dest ← fresh
+  let moduloResult := Stmt.assignVar dest (.mod a.expr b.expr)
+  let moduloGuard := iteStmt (.eq b.expr (.literal 0)) divPanic moduloResult
+  pure { pre := a.pre ++ b.pre |>.push (.letVar dest (.literal 0)) |>.push moduloGuard,
+         expr := .localVar dest }
 
 private partial def checkedAdd (bits : Nat) (left right : Val) : M Val := do
   let a ← atom left

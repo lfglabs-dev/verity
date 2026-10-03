@@ -611,3 +611,24 @@ def stateful_constant_array_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown constant array variant: {variant}')
+
+
+def stateful_modulo_source(fixture: str, variant: str) -> str:
+    """Compare unsigned remainder with its exact quotient identity."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        return re.sub(r'\bx\b', 'amount', fixture)
+    if variant == 'quotient':
+        replacements = {
+            'x % 10': '(x - (x / 10) * 10)',
+            'uint8(x) % uint8(7)': '(uint8(x) - (uint8(x) / uint8(7)) * uint8(7))',
+            '7 % (value - value)': '(7 - (7 / (value - value)) * (value - value))',
+        }
+        for before, after in replacements.items():
+            if before not in fixture:
+                raise ValueError(f'missing modulo fixture anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown modulo variant: {variant}')
