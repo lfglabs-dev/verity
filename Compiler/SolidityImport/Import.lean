@@ -182,6 +182,8 @@ private structure Env where
   errorDecls : RBMap Nat Json compare
   usedErrors : List ErrorDef
   stateVars : RBMap Nat Json compare
+  numericConstants : RBMap Nat Json compare := RBMap.empty
+  constantStack : List Nat := []
   values : RBMap Nat Expr compare
   paths : RBMap Nat SPath compare
   mems : RBMap Nat MemParam compare
@@ -574,6 +576,41 @@ private def overflowPanic : Stmt := .panic .arithmeticOverflow
 
 private def divPanic : Stmt := .panic .divisionByZero
 
+/-- Decimal/scientific literal value as an exact natural rational. -/
+private def numericLiteralRatio (raw : String) : Option (Nat × Nat) := do
+  let raw := raw.replace "_" ""
+  if let some n := Compiler.Hex.parseHexNat? raw then return (n, 1)
+  let (mantissa, exponent, negative) ← match (raw.replace "E" "e").splitOn "e" with
+    | [m] => some (m, 0, false)
+    | [m, e] => do
+        let negative := e.startsWith "-"
+        let digits := if negative || e.startsWith "+" then (e.drop 1).toString else e
+        let exponent ← digits.toNat?
+        some (m, exponent, negative)
+    | _ => none
+  let (numerator, denominator) ← match mantissa.splitOn "." with
+    | [digits] => do
+        let n ← digits.toNat?
+        some (n, 1)
+    | [whole, fraction] => do
+        let w ← if whole.isEmpty then some 0 else whole.toNat?
+        let f ← fraction.toNat?
+        let scale := 10 ^ fraction.length
+        some (w * scale + f, scale)
+    | _ => none
+  if negative then return (numerator, denominator * 10 ^ exponent)
+  else return (numerator * 10 ^ exponent, denominator)
+
+private def literalUnitScale : String → Option Nat
+  | "seconds" | "wei" => some 1
+  | "minutes" => some 60
+  | "hours" => some 3600
+  | "days" => some 86400
+  | "weeks" => some 604800
+  | "gwei" => some (10 ^ 9)
+  | "ether" => some (10 ^ 18)
+  | _ => none
+
 mutual
 
 private partial def lowerYul (j : Json) : M Expr := do
@@ -608,9 +645,19 @@ private partial def lowerExpr (j : Json) : M Val := do
           | _ => failAt j "invalid boolean literal"
         return { pre := #[], expr := .literal value }
       unless optStr j "kind" == some "number" do failAt j "unsupported non-numeric literal"
-      if let some denomination := optStr j "subdenomination" then
-        failAt j s!"unsupported literal denomination {denomination}"
-      let some n := raw.toNat? <|> Compiler.Hex.parseHexNat? raw | failAt j s!"unsupported literal {raw}"
+      let multiplier ← match optStr j "subdenomination" with
+        | none => pure 1
+        | some denomination =>
+            let some scale := literalUnitScale denomination
+              | failAt j s!"unsupported literal denomination {denomination}"
+            pure scale
+      let some (numerator, denominator) := numericLiteralRatio raw
+        | failAt j s!"unsupported literal {raw}"
+      let scaled := numerator * multiplier
+      unless scaled % denominator == 0 do
+        failAt j "fractional numeric literal requires exact constant-expression lowering"
+      let n := scaled / denominator
+      unless n < 2 ^ 256 do failAt j "numeric literal exceeds an EVM word"
       pure { pre := #[], expr := .literal n }
   | "TupleExpression" =>
       if ← mBool (← mField j "isInlineArray") then failAt j "inline arrays are outside this slice"
@@ -648,6 +695,16 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.path #[] path)
       else if env.mems.contains n then
         pure (.mem n #[])
+      else if let some decl := env.numericConstants.find? n then
+        if env.constantStack.contains n then failAt j "cyclic constant initializer"
+        let declared ← mType decl
+        unless (declared.startsWith "uint" && (bitsOf declared).isSome) || declared == "bool" do
+          failAt j s!"unsupported numeric constant type {declared}"
+        let initializer ← mField decl "value"
+        modify fun e => { e with constantStack := n :: e.constantStack }
+        let value ← lowerExpr initializer
+        modify fun e => { e with constantStack := env.constantStack }
+        pure (.expr value)
       else if let some decl := env.stateVars.find? n then
         let name ← mStr (← mField decl "name")
         if let some item := env.layoutItems.find? name then
@@ -809,6 +866,15 @@ private partial def lowerBinary (j : Json) : M Val := do
   let left ← lowerExpr (← mField j "leftExpression")
   let right ← lowerExpr (← mField j "rightExpression")
   let common ← mStr (← mField (← mField j "commonType") "typeString")
+  -- Solidity folds literal sums in unbounded integer arithmetic. Admit only
+  -- exact natural literals whose sum remains representable as an EVM word.
+  if common.startsWith "int_const" && op == "+" then
+    if left.pre.isEmpty && right.pre.isEmpty then
+      if let .literal a := left.expr then
+        if let .literal b := right.expr then
+          let sum := a + b
+          if sum < 2 ^ 256 then return { pre := #[], expr := .literal sum }
+    failAt j "unsupported integer constant sum"
   unless (bitsOf common).isSome || common == "bool" do
     failAt j s!"unsupported operand type {common}"
   match op with
@@ -1797,6 +1863,9 @@ private partial def index (file : String) (contract? : Option String) (j : Json)
                 | none => false
               if isState then
                 modify fun e => { e with stateVars := e.stateVars.insert id j }
+              let isConstant := (field? j "constant").bind (fun v => v.getBool?.toOption)
+              if isConstant == some true then
+                modify fun e => { e with numericConstants := e.numericConstants.insert id j }
           | _ => pure ()
       let next ← do
         if (field? j "nodeType") == some (Json.str "ContractDefinition") then

@@ -106,6 +106,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Events | Resolved non-anonymous scalar events, including qualified library declarations, up to three indexed arguments and exact source-order data. Arguments must have total scalar preludes. Narrow unsigned event arguments require a direct parameter of exactly the declared type; anonymous/dynamic events, named arguments and conflicting declarations reject with source locations. |
 | Short-circuit boolean expressions | `&&` and `||` evaluate the left operand once; the right operand, including guards and helper preludes, executes only in its selected branch. Unsupported constructs still reject even in unreachable operands. |
 | `if` / `else` statements | Root statements lower to `Stmt.ite` on a boolean condition evaluated once; a branch `return` stops execution and the continuation runs only on fallthrough. In inlined single-value helpers, the continuation after a returning branch is lowered once into the other branch and both results assign one fresh local; a helper that can fall off its end without a result rejects. Unsupported constructs still reject in unreachable branches. |
+| Numeric literals and units (development) | Exact integral decimal/scientific/hex literals, including leading-dot fractions and digit separators, unsigned/bool named constants, and bounded sums of exact natural constant operands; seconds, minutes, hours, days, weeks, wei, gwei, ether. Fractional results, oversized words and general rational constant expressions reject. Focused checks pass 96 A/B/C transactions, 56 acceptance/rejection controls and 16 semantic mutants with minimal witnesses; exact-head release gates pending. |
 | Scalar ABI canonicality | Raw `uintN`, address and bool words are checked before source execution, including unused parameters. Noncanonical words revert with empty bytes. Complete-word A/B/C checks exercise mixed parameter positions; dynamic struct and partial-byte ABI validation remain outside this instrument. |
 | Boolean literals | Resolved `true`/`false`; canonical 1/0 values |
 | Flat static memory/calldata struct parameters | Full tuple ABI including unused scalar members; indexed field bindings and complete head sizes. Memory members are validated at entry; calldata members are validated when read, preserving competing reverts. |
@@ -377,8 +378,9 @@ Mapping slot observations evaluate keys in the current Denote state and use
 the supplied Keccak oracle, including both hashes for nested mappings. Reached
 key/value reads and writes before rollback remain observable. More than two
 keys, signed/narrow/dynamic key types, unsupported value types, and compound
-assignments remain rejected with source locations. Decimal numeric literals
-with denominations and string literals used as numbers are rejected explicitly.
+assignments remain rejected with source locations. Numeric literals with supported
+denominations use the exact integral lowering described above; nonintegral
+results and string literals used as numbers are rejected explicitly.
 
 The mapping dirty-slot campaign seeds identical independently hashed slots in all
 three routes. Its fixed prefix reads a noncanonical true byte, deletes it while

@@ -560,3 +560,32 @@ def stateful_if_else_source(original, variant):
             raise ValueError(f'missing if/else source anchor: {before}')
         original = original.replace(before, after)
     return original
+
+
+def stateful_numeric_literal_source(fixture: str, variant: str) -> str:
+    """Keep exact unit/rational values while varying their source spellings."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        source = re.sub(r'\bx\b', 'amount', fixture)
+        for old, new in [('WAD', 'UNIT'), ('DAY', 'DAY_UNIT'), ('DOUBLE_DAY', 'PAIR_DAYS')]:
+            source = re.sub(r'\b' + old + r'\b', new, source)
+        return source
+    if variant == 'normalized':
+        replacements = {
+            '1 seconds': '1', '2 minutes': '120', '3 hours': '10800',
+            '4 days': '345600', '5 weeks': '3024000', '0.5 hours': '1800',
+            '.5 hours': '1800', '1.25 days': '108000', '7 wei': '7', '8 gwei': '8000000000',
+            '9 ether': '9000000000000000000', '0.01e18': '10000000000000000',
+            '0.000014e18': '14000000000000', '1e-3 ether': '1000000000000000',
+            '2E3': '2000', '0x20': '32', '1_000': '1000', '0x2_0': '32', '1 weeks': '604800',
+            '1 days': '86400', '1e18': '1000000000000000000',
+        }
+        source = fixture
+        for old, new in replacements.items():
+            if old not in source:
+                raise RuntimeError(f'missing numeric fixture anchor: {old}')
+            source = source.replace(old, new)
+        return source
+    raise ValueError(f'unknown numeric literal variant: {variant}')

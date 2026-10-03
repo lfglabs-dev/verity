@@ -1104,3 +1104,19 @@ branch can update state visible to the other. Differential fixtures compare
 early returns, nested and chained conditionals, branch-local guards and
 storage/mapping effects against solc, plus inverted-branch and ternary
 variants. This is tested lowering, not a Solidity semantics proof.
+
+### Numeric literals and units (development)
+
+Decimal, hexadecimal and scientific literals are parsed into exact natural
+numerator/denominator pairs; digit separators are removed and a missing whole
+part in leading-dot fractions means zero. Time/currency scaling occurs before the integral
+check, so fractional amounts such as 0.5 hours retain their exact value. No
+floating-point arithmetic is used. Nonintegral results, oversized runtime words
+and unsupported constant expressions reject with source locations. Named unsigned/bool constants resolve by declaration ID and their initializers
+use the same exact lowering. General rational constant-expression evaluation
+remains unsupported. Sums of exact natural constant operands are evaluated with
+unbounded natural arithmetic and admitted only when the result fits uint256.
+The frontend parser remains trusted; no solc-equivalence theorem is claimed.
+The focused development campaign passed 96 A/B/C transactions across three
+equivalent variants, 56 acceptance/rejection controls and 16 semantic mutants
+with positive controls and minimal witnesses. Exact-head release gates remain pending.
