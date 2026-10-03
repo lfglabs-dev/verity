@@ -91,8 +91,17 @@ MUTANTS.update({'import-numeric-constant-sum': ('let sum := a + b', 'let sum := 
 MUTANTS.update({'import-numeric-constant-value': ('pure (.expr value)',
                                    'pure (.expr { value with expr := .literal 0 })')})
 
+MUTANTS.update({
+    'import-constant-array-element': ('constants := constants.push n', 'constants := constants.push (n + 1)'),
+    'import-constant-array-selection': ('(.eq key.expr (.literal index))', '(.eq key.expr (.literal (index + 1)))'),
+    'import-constant-array-bound': ('(.lt key.expr (.literal constants.size))', '(.lt key.expr (.literal (constants.size + 1)))'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-constant-array-"):
+        fixture = "ConstantArraySequence"
     if name.startswith("import-numeric-"):
         fixture = "NumericLiteralSequence"
     if name.startswith("import-mapping-"):

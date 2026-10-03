@@ -1135,3 +1135,15 @@ passed 96 A/B/C transactions across three equivalent variants, 60
 acceptance/rejection controls (including an oversized intermediate), and a
 product mutant detected after a positive control and reduced to a replayed
 single-call deletion-minimal witness. Full exact-head gates remain pending.
+
+
+### Inline constant array reads (development)
+
+Direct unsigned fixed-array reads require each element to lower to an exact
+natural literal without a prelude and to fit the array element width. The
+index is lowered once; an out-of-bounds access panics with code 0x32 before
+value selection. This slice materializes no memory array, so the array cannot
+escape or participate in observable memory operations. Nonconstant elements,
+guarded initializers and unsupported types reject rather than choosing an
+evaluation order for their effects. Differential and mutation validation is
+pending; this is not a Solidity semantics proof.

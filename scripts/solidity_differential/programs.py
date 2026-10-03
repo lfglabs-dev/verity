@@ -590,3 +590,24 @@ def stateful_numeric_literal_source(fixture: str, variant: str) -> str:
             source = source.replace(old, new)
         return source
     raise ValueError(f'unknown numeric literal variant: {variant}')
+
+
+def stateful_constant_array_source(fixture: str, variant: str) -> str:
+    """Preserve array constants, index and panic while varying source spelling."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        for old, new in [('FIRST', 'START'), ('LAST', 'END'), ('x', 'index')]:
+            fixture = re.sub(r'\b' + old + r'\b', new, fixture)
+        return fixture
+    if variant == 'normalized':
+        replacements = {'uint256 constant FIRST = 1;': 'uint256 constant FIRST = 0x1;',
+                        'uint256 constant LAST = 8;': 'uint256 constant LAST = 0x8;',
+                        '[FIRST, 2, 3, 4, 5, 6, 7, LAST]': '[FIRST, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, LAST]'}
+        for before, after in replacements.items():
+            if before not in fixture:
+                raise ValueError(f'missing constant-array anchor: {before}')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown constant array variant: {variant}')

@@ -9,6 +9,13 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('inline-constant-array', 'uint256 constant A = 3;', 'return [A, 7][x];', 'uint256', None),
+        ('inline-constant-array-narrow', 'uint8 constant A = 255; uint8 constant B = 0;', 'return [A, B][x];', 'uint256', None),
+        ('inline-array-variable', '', 'return [x, 7][x];', 'uint256', 'inline array elements must be exact natural constants'),
+        ('inline-array-guarded-element', '', 'return [uint256(1), 100 / x][x];', 'uint256', 'inline array elements must be exact natural constants'),
+        ('inline-array-bool', '', 'return [true, false][x];', 'bool', 'inline constant arrays require unsigned scalar elements'),
+        ('inline-array-signed', '', 'return [int256(-1), int256(2)][x];', 'int256', 'inline constant arrays require unsigned scalar elements'),
+        ('inline-array-escape', '', 'uint256[2] memory a = [uint256(1), 2]; return a[x];', 'uint256', 'inline arrays are outside this slice'),
         ('if-else', '', 'if (x > 1) { return 1; } else { return 2; }', 'uint256', None),
         ('if-early-return', 'uint256 value;', 'if (x == 0) return 0; value = x; return value;', 'uint256', None),
         ('if-helper-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) return 1; require(y == 0, "one"); return 0; }', 'return h(x);', 'uint256', None),
