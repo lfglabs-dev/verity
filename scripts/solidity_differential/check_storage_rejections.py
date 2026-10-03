@@ -51,6 +51,7 @@ def main():
         ('literal-constant-product-units', '', 'return x + (100 * 365 days);', 'uint256', None),
         ('literal-fractional-product', '', 'return x + (.5 * 2);', 'uint256', 'fractional numeric literal'),
         ('literal-rational-division', '', 'return x + (6 / 3);', 'uint256', 'unsupported operand type'),
+        ('literal-product-oversized-intermediate', '', 'return x + (57896044618658097711785492504343953926634992332820282019728792003956564819968 * 2 / 2);', 'uint256', 'unsupported integer constant product'),
         ('literal-leading-dot', '', 'return .5 hours;', 'uint256', None),
         ('literal-separators', '', 'return 1_000 + 0x2_0;', 'uint256', None),
         ('literal-fractional-result', '', 'return x + (.5 / .5);', 'uint256', 'fractional numeric literal'),
