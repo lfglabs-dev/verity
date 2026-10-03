@@ -1094,3 +1094,13 @@ These focused results are not full Midnight import coverage or release gates;
 the focused mutation, generated-equivalent and rejection campaigns have local
 receipts, but complete representation proof obligations and exact-head release
 validation remain pending for this family.
+
+Solidity `if`/`else` imports use `Stmt.ite`, whose selected-branch semantics
+is pinned in `SolidityImport.Coverage`; root returns inside a branch rely on
+`Stmt.returnValues` stopping execution in both Denote and compiled Yul.
+Helper conditionals are restructured so that exactly one branch computes the
+inlined result; locals remain immutable single-assignment bindings, so no
+branch can update state visible to the other. Differential fixtures compare
+early returns, nested and chained conditionals, branch-local guards and
+storage/mapping effects against solc, plus inverted-branch and ternary
+variants. This is tested lowering, not a Solidity semantics proof.

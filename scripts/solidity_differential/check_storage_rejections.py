@@ -9,6 +9,16 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('if-else', '', 'if (x > 1) { return 1; } else { return 2; }', 'uint256', None),
+        ('if-early-return', 'uint256 value;', 'if (x == 0) return 0; value = x; return value;', 'uint256', None),
+        ('if-helper-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) return 1; require(y == 0, "one"); return 0; }', 'return h(x);', 'uint256', None),
+        ('if-bare-return', 'uint256 value;', 'if (x == 0) return; value = x;', '', 'bare return requires'),
+        ('if-dead-remainder', '', 'if (false) { return x % 2; } return x;', 'uint256', 'unsupported operator %'),
+        ('if-after-both-return', 'uint256 value;', 'if (x > 1) { return 1; } else { return 2; } value = x;', 'uint256', 'statement after root return'),
+        ('if-helper-missing-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) return 1; }', 'return h(x);', 'uint256', 'does not return on every path'),
+        ('if-helper-after-both-return', 'function h(uint256 y) internal pure returns (uint256) { if (y > 1) { return 1; } else { return 2; } require(y > 0, "dead"); }', 'return h(x);', 'uint256', 'statement after helper result'),
+        ('if-helper-effect', 'uint256 value; function h(uint256 y) internal returns (uint256) { if (y > 1) { value = y; } return y; }', 'return h(x);', 'uint256', 'only builtin require calls'),
+        ('if-unchecked-branch', '', 'if (x > 1) { unchecked { return x - 2; } } return x;', 'uint256', 'unsupported statement UncheckedBlock'),
         ('logical-or', '', 'return x == 0 || 100 / x > 1;', 'bool', None),
         ('logical-and', '', 'return x != 0 && 100 / x > 1;', 'bool', None),
         ('logical-dead-effect', 'uint256 value; function bump() internal returns (bool) { value = 1; return true; }', 'return true || bump();', 'bool', 'only builtin require calls'),

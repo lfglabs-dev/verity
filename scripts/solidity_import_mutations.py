@@ -453,6 +453,8 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-mapping-bool-literal',
                    'import-mapping-bool-read', 'import-logical-and-branch',
                    'import-logical-or-branch', 'import-logical-initial-value',
+                   'import-if-root-swap', 'import-if-root-else-drop',
+                   'import-if-helper-swap', 'import-if-helper-guard-swap',
                    'import-abi-source-offset', 'import-abi-drop', 'import-abi-offset', 'import-abi-uint-bound',
                    'import-abi-address-bound', 'import-abi-bool-bound',
                    'import-abi-inclusive', 'import-abi-revert',
