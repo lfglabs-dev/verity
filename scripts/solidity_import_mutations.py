@@ -453,7 +453,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-mapping-bool-literal',
                    'import-mapping-bool-read', 'import-logical-and-branch',
                    'import-logical-or-branch', 'import-logical-initial-value',
-                   'import-numeric-constant-value', 'import-numeric-decimal-scale',
+                   'import-numeric-constant-sum', 'import-numeric-constant-value', 'import-numeric-decimal-scale',
                    'import-numeric-positive-exponent', 'import-numeric-negative-exponent',
                    'import-numeric-hex-value', 'import-numeric-integral-value',
                    'import-numeric-unit-minutes', 'import-numeric-unit-hours',

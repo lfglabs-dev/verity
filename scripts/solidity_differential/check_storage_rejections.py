@@ -47,6 +47,7 @@ def main():
         ('mapping-narrow-key', 'mapping(uint128 => uint256) value;', 'return value[uint128(x)];', 'uint256', 'unsupported mapping key'),
         ('mapping-dynamic-value', 'mapping(uint256 => bytes) value;', 'delete value[x]; return x;', 'uint256', 'unsupported mapping value encoding'),
         ('mapping-compound', 'mapping(uint256 => uint256) value;', 'value[x] += x; return value[x];', 'uint256', 'only scalar storage assignment'),
+        ('literal-constant-product', '', 'return x + (2 * 3);', 'uint256', 'unsupported operand type'),
         ('literal-leading-dot', '', 'return .5 hours;', 'uint256', None),
         ('literal-separators', '', 'return 1_000 + 0x2_0;', 'uint256', None),
         ('literal-fractional-result', '', 'return x + (.5 / .5);', 'uint256', 'fractional numeric literal'),

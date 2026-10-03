@@ -84,6 +84,8 @@ MUTANTS.update({'import-numeric-separators': ('let raw := raw.replace "_" ""', '
  'import-numeric-unit-ether': ('| "ether" => some (10 ^ 18)', '| "ether" => some ((10 ^ 18) + 1000)'),
  'import-numeric-unit-one': ('| "seconds" | "wei" => some 1', '| "seconds" | "wei" => some 2')})
 
+MUTANTS.update({'import-numeric-constant-sum': ('let sum := a + b', 'let sum := a + b + 1')})
+
 MUTANTS.update({'import-numeric-constant-value': ('pure (.expr value)',
                                    'pure (.expr { value with expr := .literal 0 })')})
 

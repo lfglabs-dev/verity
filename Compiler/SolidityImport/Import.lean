@@ -866,6 +866,15 @@ private partial def lowerBinary (j : Json) : M Val := do
   let left ← lowerExpr (← mField j "leftExpression")
   let right ← lowerExpr (← mField j "rightExpression")
   let common ← mStr (← mField (← mField j "commonType") "typeString")
+  -- Solidity folds literal sums in unbounded integer arithmetic. Admit only
+  -- exact natural literals whose sum remains representable as an EVM word.
+  if common.startsWith "int_const" && op == "+" then
+    if left.pre.isEmpty && right.pre.isEmpty then
+      if let .literal a := left.expr then
+        if let .literal b := right.expr then
+          let sum := a + b
+          if sum < 2 ^ 256 then return { expr := .literal sum }
+    failAt j "unsupported integer constant sum"
   unless (bitsOf common).isSome || common == "bool" do
     failAt j s!"unsupported operand type {common}"
   match op with
