@@ -715,37 +715,37 @@ private partial def lowerRef (j : Json) : M Ref := do
         failAt j s!"unresolved identifier {id}"
   | "IndexAccess" =>
       let baseExpression ← mField j "baseExpression"
-      if (← mKind baseExpression) == "TupleExpression" &&
-          (← mBool (← mField baseExpression "isInlineArray")) then
-        let components ← mArr (← mField baseExpression "components")
-        unless components.size > 0 do failAt baseExpression "empty inline constant array"
-        let arrayType ← mType baseExpression
-        let elementType := (arrayType.splitOn "[").head!
-        unless elementType.startsWith "uint" do
-          failAt baseExpression "inline constant arrays require unsigned scalar elements"
-        let some bits := bitsOf elementType
-          | failAt baseExpression "unsupported inline constant array element type"
-        let mut constants : Array Nat := #[]
-        for component in components do
-          let value ← lowerExpr component
-          unless value.pre.isEmpty do
-            failAt component "inline array elements must be exact natural constants"
-          let .literal n := value.expr
-            | failAt component "inline array elements must be exact natural constants"
-          unless n < 2 ^ bits do failAt component "inline array constant exceeds element width"
-          constants := constants.push n
-        let indexExpression ← mField j "indexExpression"
-        let indexType ← mType indexExpression
-        unless indexType.startsWith "uint" || indexType.startsWith "int_const" do
-          failAt indexExpression "inline constant array index must be unsigned"
-        let key ← atom (← lowerExpr indexExpression)
-        let dest ← fresh
-        let mut pre := key.pre.push (.ite (.lt key.expr (.literal constants.size))
-          [] [.panicCode (.literal 0x32)]) |>.push (.letVar dest (.literal 0))
-        for index in [:constants.size] do
-          pre := pre.push (.ite (.eq key.expr (.literal index))
-            [.assignVar dest (.literal constants[index]!)] [])
-        return .expr { pre, expr := .localVar dest }
+      if (← mKind baseExpression) == "TupleExpression" then
+        if ← mBool (← mField baseExpression "isInlineArray") then
+          let components ← mArr (← mField baseExpression "components")
+          unless components.size > 0 do failAt baseExpression "empty inline constant array"
+          let arrayType ← mType baseExpression
+          let elementType := (arrayType.splitOn "[").head!
+          unless elementType.startsWith "uint" do
+            failAt baseExpression "inline constant arrays require unsigned scalar elements"
+          let some bits := bitsOf elementType
+            | failAt baseExpression "unsupported inline constant array element type"
+          let mut constants : Array Nat := #[]
+          for component in components do
+            let value ← lowerExpr component
+            unless value.pre.isEmpty do
+              failAt component "inline array elements must be exact natural constants"
+            let .literal n := value.expr
+              | failAt component "inline array elements must be exact natural constants"
+            unless n < 2 ^ bits do failAt component "inline array constant exceeds element width"
+            constants := constants.push n
+          let indexExpression ← mField j "indexExpression"
+          let indexType ← mType indexExpression
+          unless indexType.startsWith "uint" || indexType.startsWith "int_const" do
+            failAt indexExpression "inline constant array index must be unsigned"
+          let key ← atom (← lowerExpr indexExpression)
+          let dest ← fresh
+          let mut pre := key.pre.push (.ite (.lt key.expr (.literal constants.size))
+            [] [.panicCode (.literal 0x32)]) |>.push (.letVar dest (.literal 0))
+          for index in [:constants.size] do
+            pre := pre.push (.ite (.eq key.expr (.literal index))
+              [.assignVar dest (.literal constants[index]!)] [])
+          return .expr { pre, expr := .localVar dest }
       let base ← lowerRef baseExpression
       let key ← atom (← lowerExpr (← mField j "indexExpression"))
       match base with
