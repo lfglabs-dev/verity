@@ -966,3 +966,9 @@ chains. These do not become accepted `solidity_import` compiler versions.
 Importability is measured by the actual Lean importer; coverage percentages
 and first-blocker histograms neither establish EVM equivalence nor expand any
 compiler proof boundary. Missing or failed measurements are reported explicitly.
+
+Solidity logical `&&`/`||` imports use `Stmt.ite`, whose selected-branch
+semantics is pinned in `SolidityImport.Coverage`. They do not use the eager
+model logical operators. Differential fixtures compare skipped and executed
+guards, mapping accesses and helper calls against solc, plus conditional and
+De Morgan variants. This is tested lowering, not a Solidity semantics proof.

@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 from .engine import command, write_json
-from .programs import stateful_storage_source, stateful_storage_word_source, stateful_mapping_source
+from .programs import stateful_storage_source, stateful_storage_word_source, stateful_mapping_source, stateful_short_circuit_source
 from .stateful import validate_observation
 
 
@@ -25,14 +25,14 @@ def canonical_observations(observations):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping'), default='packed')
+    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit'), default='packed')
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--seed', type=int, default=2453)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     output = args.output.resolve() if args.output else Path(tempfile.mkdtemp(prefix='storage-', dir='.lake')).resolve()
     output.mkdir(parents=True, exist_ok=args.output is None)
-    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence'}[args.fixture]
+    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence', 'short-circuit': 'ShortCircuitSequence'}[args.fixture]
     fixture = Path(f'Contracts/SolidityImportSmoke/{name}.sol').read_text()
     template = Path(f'Contracts/SolidityImportSmoke/{name}Model.lean').read_text()
     anchor = f'from "Contracts/SolidityImportSmoke" entry "{name}.sol"'
@@ -41,11 +41,14 @@ def main():
     completed = []
     baseline = None
     variants = ('baseline', 'bindings', 'reordered' if args.fixture in ('packed', 'mapping') else 'expression')
+    if args.fixture == 'short-circuit':
+        variants = ('baseline', 'conditional', 'de-morgan')
     for variant in variants:
         directory = output / variant
         directory.mkdir()
         source = directory / 'Sequence.sol'
-        source.write_text(stateful_mapping_source(fixture, variant) if args.fixture == "mapping"
+        source.write_text(stateful_short_circuit_source(fixture, variant) if args.fixture == "short-circuit"
+                          else stateful_mapping_source(fixture, variant) if args.fixture == "mapping"
                           else stateful_storage_source(fixture, variant) if args.fixture == "packed"
                           else stateful_storage_word_source(fixture, variant, args.fixture))
         driver = directory / 'Driver.lean'

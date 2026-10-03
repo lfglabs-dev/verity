@@ -33,10 +33,19 @@ MUTANTS.update({'import-mapping-layout': ('if width == 256 then none else some {
  'import-mapping-bool-read': ('Expr.logicalNot (.logicalNot read)', 'Expr.logicalNot read')})
 
 
+MUTANTS.update({
+    'import-logical-and-branch': ('then Stmt.ite a.expr rhs.toList []', 'then Stmt.ite a.expr [] rhs.toList'),
+    'import-logical-or-branch': ('else Stmt.ite a.expr [] rhs.toList', 'else Stmt.ite a.expr rhs.toList []'),
+    'import-logical-initial-value': ('a.pre.push (.letVar dest a.expr)', 'a.pre.push (.letVar dest (.logicalNot a.expr))'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
         fixture = "MappingSequence"
+    if name.startswith("import-logical-"):
+        fixture = "ShortCircuitSequence"
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',

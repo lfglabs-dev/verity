@@ -291,3 +291,37 @@ def stateful_mapping_source(original, variant):
     else:
         raise ValueError('unknown mapping variant: ' + variant)
     return original.replace(writes, replacement)
+
+
+def stateful_short_circuit_source(original, variant):
+    """Same Solidity evaluations expressed with lazy conditionals or De Morgan laws."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'conditional': {
+            'value == 0 || 100 / value > 1': 'value == 0 ? true : 100 / value > 1',
+            'value != 0 && 100 / value > 1': 'value != 0 ? 100 / value > 1 : false',
+            'value == 7 || guarded(value)': 'value == 7 ? true : guarded(value)',
+            '(value == 0 || accepted[msg.sender]) && (value == 7 ? true : guarded(value))':
+                '(value == 0 ? true : accepted[msg.sender]) ? (value == 7 ? true : guarded(value)) : false',
+            'false || 100 / divisor > 1': 'false ? true : 100 / divisor > 1',
+            'true || 100 / divisor > 1': 'true ? true : 100 / divisor > 1',
+            'false && accepted[msg.sender]': 'false ? accepted[msg.sender] : false',
+        },
+        'de-morgan': {
+            'value == 0 || 100 / value > 1': '(((value == 0) == false) && ((100 / value > 1) == false)) == false',
+            'value != 0 && 100 / value > 1': '(((value != 0) == false) || ((100 / value > 1) == false)) == false',
+            'value == 7 || guarded(value)': '(((value == 7) == false) && (guarded(value) == false)) == false',
+            'value == 0 || accepted[msg.sender]': '(((value == 0) == false) && (accepted[msg.sender] == false)) == false',
+            'false || 100 / divisor > 1': '((false == false) && ((100 / divisor > 1) == false)) == false',
+            'true || 100 / divisor > 1': '((true == false) && ((100 / divisor > 1) == false)) == false',
+            'false && accepted[msg.sender]': '((false == false) || (accepted[msg.sender] == false)) == false',
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(variant)
+    for before, after in replacements[variant].items():
+        if before not in original:
+            raise ValueError(f'missing short-circuit source anchor: {before}')
+        original = original.replace(before, after)
+    return original
