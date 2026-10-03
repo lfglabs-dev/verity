@@ -11,7 +11,7 @@ def main():
     cases = [
         ('modulo-unsigned', '', 'return x % 7;', 'uint256', None),
         ('modulo-narrow', '', 'return uint8(x) % uint8(7);', 'uint256', None),
-        ('modulo-signed', '', 'return uint256(int256(x) % int256(7));', 'uint256', 'unsupported operand type int256'),
+        ('modulo-signed', '', 'return uint256(int256(x) % int256(7));', 'uint256', 'unsupported cast target int256'),
         ('modulo-rational-constant', '', 'return x + (7 % 2);', 'uint256', 'unsupported operand type'),
         ('inline-constant-array', 'uint256 constant A = 3;', 'return [A, 7][x];', 'uint256', None),
         ('inline-constant-array-narrow', 'uint8 constant A = 255; uint8 constant B = 0;', 'return [A, B][x];', 'uint256', None),
