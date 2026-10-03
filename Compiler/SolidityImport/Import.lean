@@ -873,7 +873,7 @@ private partial def lowerBinary (j : Json) : M Val := do
       if let .literal a := left.expr then
         if let .literal b := right.expr then
           let sum := a + b
-          if sum < 2 ^ 256 then return { expr := .literal sum }
+          if sum < 2 ^ 256 then return { pre := #[], expr := .literal sum }
     failAt j "unsupported integer constant sum"
   unless (bitsOf common).isSome || common == "bool" do
     failAt j s!"unsupported operand type {common}"
