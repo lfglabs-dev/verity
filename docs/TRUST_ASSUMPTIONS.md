@@ -1114,5 +1114,9 @@ check, so fractional amounts such as 0.5 hours retain their exact value. No
 floating-point arithmetic is used. Nonintegral results, oversized runtime words
 and unsupported constant expressions reject with source locations. Named unsigned/bool constants resolve by declaration ID and their initializers
 use the same exact lowering. General rational constant-expression evaluation
-remains unsupported. The frontend parser remains trusted; no solc-equivalence theorem
-or successful differential campaign is claimed for this development work.
+remains unsupported. Sums of exact natural constant operands are evaluated with
+unbounded natural arithmetic and admitted only when the result fits uint256.
+The frontend parser remains trusted; no solc-equivalence theorem is claimed.
+The focused development campaign passed 96 A/B/C transactions across three
+equivalent variants, 56 acceptance/rejection controls and 16 semantic mutants
+with positive controls and minimal witnesses. Exact-head release gates remain pending.
