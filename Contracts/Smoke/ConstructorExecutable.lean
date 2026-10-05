@@ -30,7 +30,7 @@ verity_contract CtorExec where
     let m ← getStorageAddr minter
     return m
 
-#check (CtorExec.constructor : Uint256 → Contract Unit)
+example : Uint256 → Contract Unit := CtorExec.constructor
 
 private def deployer : Address := (0x1234 : Address)
 
@@ -49,7 +49,7 @@ verity_contract CtorWithStrings where
   constructor (_name : String, _symbol : String) := do
     setStorage decimalsSlot 18
 
-#check (CtorWithStrings.constructor : String → String → Contract Unit)
+example : String → String → Contract Unit := CtorWithStrings.constructor
 
 example :
     (((CtorWithStrings.constructor "AA" "AA_T").run Verity.defaultState).getState).readSlot 0 = 18 := by
