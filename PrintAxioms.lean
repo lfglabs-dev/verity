@@ -389,6 +389,9 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.execForEachLoop_invariant
   Compiler.CompilationModel.Denote.forEach_invariant
   Compiler.CompilationModel.Denote.execForEachLoop_bounded_invariant
+  Compiler.CompilationModel.Denote.solidityFor_increment_fits
+  Compiler.CompilationModel.Denote.solidityFor_live_index
+  Compiler.CompilationModel.Denote.solidityFor_terminal_index
 
   -- Compiler/SolidityImport/SymbolicExecution.lean
   Compiler.CompilationModel.SolidityImport.SymbolicExecution.step_continue
@@ -7874,4 +7877,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7246 theorems/lemmas (5197 public, 2049 private, 0 sorry'd)
+-- Total: 7249 theorems/lemmas (5200 public, 2049 private, 0 sorry'd)

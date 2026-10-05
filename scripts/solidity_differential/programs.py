@@ -674,3 +674,21 @@ def stateful_local_write_source(fixture: str, variant: str) -> str:
             raise ValueError('local delete anchor changed')
         return fixture.replace(anchor, 'current = 0;')
     raise ValueError(f'unknown local-write variant: {variant}')
+
+
+def stateful_invariant_for_source(fixture: str, variant: str) -> str:
+    """Preserve loop bounds, checked increments and early-return behavior."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        for old in ('total', 'bound', 'i', 'j'):
+            fixture = re.sub(r'\b' + old + r'\b', old + '_renamed', fixture)
+        return fixture
+    if variant == 'assignment-step':
+        for old, new in (('i++)', 'i += 1)'), ('j++)', 'j += 1)')):
+            if fixture.count(old) != 1:
+                raise ValueError(f'loop step anchor changed: {old}')
+            fixture = fixture.replace(old, new)
+        return fixture
+    raise ValueError(f'unknown invariant-for variant: {variant}')

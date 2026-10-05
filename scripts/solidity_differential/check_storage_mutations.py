@@ -112,8 +112,18 @@ MUTANTS.update({'import-modulo-quote': ('| .mod a b => do `(Compiler.Compilation
 
 MUTANTS.update({"import-local-write-delete": ('let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          atom (← convert ty (← mType right) (← lowerExpr right) right)', 'let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          atom (← convert ty (← mType right) (← lowerExpr right) right)')})
 
+MUTANTS.update({'import-invariant-for-bound':
+    ('out := out.push (.forEach binding bound.expr bodyOut.toList)',
+     'out := out.push (.forEach binding (.add bound.expr (.literal 1)) bodyOut.toList)')})
+
+MUTANTS.update({'import-invariant-for-counter':
+    ('{ e with values := e.values.insert counter (.localVar binding),',
+     '{ e with values := e.values.insert counter (.literal 0),')})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-invariant-for-"):
+        fixture = "InvariantForSequence"
     if name.startswith("import-local-write-"):
         fixture = "LocalWriteSequence"
     if name.startswith("import-default-local-"):

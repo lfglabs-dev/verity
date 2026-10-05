@@ -9,6 +9,15 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('for-scalar', '', 'uint256 total; for (uint256 i = 0; i < 3; i++) { total = total + i; } return total;', 'uint256', None),
+        ('for-nonzero', '', 'for (uint256 i = 1; i < 3; i++) {} return x;', 'uint256', 'counter must start at 0'),
+        ('for-inclusive', '', 'for (uint256 i = 0; i <= 3; i++) {} return x;', 'uint256', 'condition must be counter < bound'),
+        ('for-variable-step', '', 'for (uint256 i = 0; i < 3; i += 2) {} return x;', 'uint256', 'increment its counter by one'),
+        ('for-counter-write', '', 'for (uint256 i = 0; i < 3; i++) { i = 2; } return x;', 'uint256', 'counter must not be assigned'),
+        ('for-bound-write', '', 'uint256 n = x; for (uint256 i = 0; i < n; i++) { n = 0; } return x;', 'uint256', 'bound must be a literal'),
+        ('for-nested-bound-step', '', 'uint256 n = x; for (uint256 i = 0; i < n; i++) { for (uint256 j = 0; j < 1; n++) {} } return x;', 'uint256', 'bound must be a literal'),
+        ('for-break', '', 'for (uint256 i = 0; i < 3; i++) { break; } return x;', 'uint256', 'unsupported statement Break'),
+        ('for-continue', '', 'for (uint256 i = 0; i < 3; i++) { continue; } return x;', 'uint256', 'unsupported statement Continue'),
         ('default-uint', '', 'uint256 zero; return x + zero;', 'uint256', None),
         ('default-narrow', '', 'uint8 zero; return uint256(zero);', 'uint256', None),
         ('default-address', '', 'address zero; return zero;', 'address', None),

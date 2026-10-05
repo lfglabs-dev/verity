@@ -1204,3 +1204,13 @@ Assignment and deletion of materialized scalar locals use the existing
 The RHS prelude executes before assignment; deleting assigns zero. Parameter
 expressions and aggregate/reference targets are not treated as writable locals.
 No new oracle or axiom is introduced. Focused differential validation is pending.
+
+### Invariant scalar loops (development)
+
+A Solidity loop is lowered to existing `forEach` only with a zero uint256
+counter, strict counter < bound condition and unit increment. Structural
+analysis traverses all nested steps and rejects writes to the counter or
+source local bound. Since iteration i satisfies i < bound <= 2^256-1, the
+post-body increment is representable. Supported bodies cannot modify
+parameters indirectly. Array-length hoisting, break and continue remain
+outside this rule. Native differential and proof checks are still pending.

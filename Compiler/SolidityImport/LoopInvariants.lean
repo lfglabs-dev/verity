@@ -84,4 +84,24 @@ theorem execForEachLoop_bounded_invariant
       | revert => simpa [result, LoopOutcomePost] using next
       | revertWithData bytes => simpa [result, LoopOutcomePost] using next
 
+/-- The strict loop condition makes the checked uint256 unit increment safe,
+even when the bound is the largest representable word. -/
+theorem solidityFor_increment_fits (index bound modulus : Nat)
+    (condition : index < bound) (boundFits : bound < modulus) :
+    index + 1 < modulus := by
+  omega
+
+/-- The implicit forEach index is the same mathematical induction variable:
+a live iteration stays below the invariant bound. -/
+theorem solidityFor_live_index (index remaining bound : Nat)
+    (remainingPositive : 0 < remaining) (bounded : index + remaining ≤ bound) :
+    index < bound := by
+  omega
+
+/-- A zero remainder reaches the false strict Solidity condition exactly at
+its fixed bound. This excludes an extra body execution at the boundary. -/
+theorem solidityFor_terminal_index (index bound : Nat)
+    (atBound : index = bound) : ¬ index < bound := by
+  omega
+
 end Compiler.CompilationModel.Denote
