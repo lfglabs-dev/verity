@@ -1165,7 +1165,11 @@ unsupported. Quotient-identity variants transform the defined-value arithmetic
 and retain the zero-divisor probe verbatim. Expanding that probe to a quotient
 produced identical panic bytes but different actual EVM storage reads under
 solc optimization, so it is not an equivalent variant for this instrument.
-The strict touched-slot comparison remains enabled. The coverage arm has a reflexive semantics lemma;
+The strict touched-slot comparison remains enabled. The fixture additionally
+checks the reachable-state invariant `value <= 15` before the original
+zero-divisor probe, preserving an actual storage read across global solc
+optimization of each variant. This strengthens the fixture; the original
+zero-divisor assertion and all observation comparisons remain intact. The coverage arm has a reflexive semantics lemma;
 differential and mutation validation remains pending.
 
 
