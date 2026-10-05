@@ -89,7 +89,13 @@ def main():
         ('struct-target', 'struct Pair { uint128 a; uint128 b; } Pair value;', 'value.a = uint128(x); return x;', 'uint256', 'only a resolved scalar storage identifier'),
         ('compound', 'uint256 value;', 'value += x; return value;', 'uint256', 'only scalar storage assignment'),
         ('increment', 'uint256 value;', 'value++; return value;', 'uint256', 'only scalar storage assignment'),
-        ('local', '', 'uint256 value = 0; value = x; return value;', 'uint256', 'assignment target is not scalar storage'),
+        ('local', '', 'uint256 value = 0; value = x; return value;', 'uint256', None),
+        ('local-delete', '', 'uint256 value = x; delete value; return value;', 'uint256', None),
+        ('local-compound', '', 'uint256 value = 0; value += x; return value;', 'uint256', 'only scalar storage assignment'),
+        ('local-increment', '', 'uint256 value = 0; value++; return value;', 'uint256', 'only scalar storage assignment'),
+        ('parameter-write', '', 'x = 0; return x;', 'uint256', 'only materialized scalar locals are writable'),
+        ('helper-parameter-write', 'function h(uint256 y) internal pure returns (uint256) { y = 0; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only builtin require calls'),
+        ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', 'uninitialized reference locals'),
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', 'return'),
     ]
     for name, fields, body, returns, expected in cases:

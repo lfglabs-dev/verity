@@ -657,3 +657,20 @@ def stateful_default_local_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(declaration, declaration[:-1] + ' = ' + value + ';')
         return fixture
     raise ValueError(f'unknown default-local variant: {variant}')
+
+
+def stateful_local_write_source(fixture: str, variant: str) -> str:
+    """Keep local assignment, shadowing and deletion semantics unchanged."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        for old in ('current', 'small', 'previousCollateralToken', 'enabled', 'digest', 'local'):
+            fixture = re.sub(r'\b' + old + r'\b', old + '_renamed', fixture)
+        return fixture
+    if variant == 'explicit-zero':
+        anchor = 'delete current;'
+        if fixture.count(anchor) != 1:
+            raise ValueError('local delete anchor changed')
+        return fixture.replace(anchor, 'current = 0;')
+    raise ValueError(f'unknown local-write variant: {variant}')

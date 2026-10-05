@@ -1196,3 +1196,11 @@ existing local-binding semantics and does not add an oracle or proof axiom.
 Uninitialized memory/storage references and unsupported scalar types reject
 at the declaration. Differential fixtures, explicit-initializer variants and
 a nonzero-default mutation are added; validation remains pending.
+
+### Scalar local writes (development)
+
+Assignment and deletion of materialized scalar locals use the existing
+`assignVar` semantics, preserving declaration identities and conversions.
+The RHS prelude executes before assignment; deleting assigns zero. Parameter
+expressions and aggregate/reference targets are not treated as writable locals.
+No new oracle or axiom is introduced. Focused differential validation is pending.

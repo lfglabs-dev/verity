@@ -461,7 +461,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-mapping-bool-literal',
                    'import-mapping-bool-read', 'import-logical-and-branch',
                    'import-logical-or-branch', 'import-logical-initial-value',
-                   'import-default-local-zero', 'import-modulo-value', 'import-modulo-zero', 'import-constant-array-element', 'import-constant-array-selection',
+                   'import-local-write-value', 'import-local-write-delete', 'import-default-local-zero', 'import-modulo-value', 'import-modulo-zero', 'import-constant-array-element', 'import-constant-array-selection',
                    'import-constant-array-bound', 'import-numeric-leading-dot', 'import-numeric-separators',
                    'import-numeric-constant-product', 'import-numeric-constant-sum', 'import-numeric-constant-value', 'import-numeric-decimal-scale',
                    'import-numeric-positive-exponent', 'import-numeric-negative-exponent',

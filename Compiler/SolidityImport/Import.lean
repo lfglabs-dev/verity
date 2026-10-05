@@ -195,6 +195,7 @@ private structure Env where
   opaqueMembers : Array OpaqRec
   referenced : Array String
   scalarTy : RBMap Nat ParamType compare
+  writableLocals : RBMap Nat String compare := RBMap.empty
   rawBindings : RBMap Nat String compare := RBMap.empty
   encodingMemory : Bool := false
   explicitAbi : Bool := false
@@ -1393,7 +1394,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let result ← lowerHelper stmts retName
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
-             values := saved.values, paths := saved.paths, mems := saved.mems }
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems }
   pure { pre := pre ++ result.pre, expr := result.expr }
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
@@ -1492,7 +1493,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           if let some next := rest.head? then failAt next "statement after helper result"
         let saved ← get
         let restore : M Unit := modify fun e =>
-          { e with values := saved.values, paths := saved.paths, mems := saved.mems,
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems,
                    scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         if !yesReturns && !noReturns then
           -- Neither branch returns: branch-local declarations stay scoped and
@@ -1534,6 +1535,21 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   unless (deleting && operator == "delete") || (!deleting && operator == "=") do
     failAt expression "only scalar storage assignment and delete are supported"
   let target ← mField expression (if deleting then "subExpression" else "leftHandSide")
+  if (← mKind target) == "Identifier" then
+    let id ← refInt target
+    if id ≥ 0 then
+      if let some bound := (← get).values.find? id.toNat then
+        let .localVar binding := bound
+          | failAt target "only materialized scalar locals are writable"
+        unless (← get).writableLocals.find? id.toNat == some binding do
+          failAt target "only declaration-bound scalar locals are writable"
+        let ty ← mType target
+        unless (paramType ty).isSome do
+          failAt target s!"unsupported scalar local assignment type {ty}"
+        let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
+          let right ← mField expression "rightHandSide"
+          atom (← convert ty (← mType right) (← lowerExpr right) right)
+        return value.pre.push (.assignVar binding value.expr)
   if (← mKind target) == "IndexAccess" then
     let .path pre path ← lowerRef target
       | failAt target "mapping assignment target is not a storage path"
@@ -1745,7 +1761,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     modify fun e =>
       { e with values := e.values.insert id expr,
                scalarTy := e.scalarTy.insert id scalarType,
-               yulNames := e.yulNames.insert name expr }
+               yulNames := e.yulNames.insert name expr,
+               writableLocals := e.writableLocals.insert id binding }
     return #[.letVar binding (.literal 0)]
   if loc == "storage" then
     match ← lowerRef init with
@@ -1758,7 +1775,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     let binding ← freshFor name
     let expr := Expr.localVar binding
     modify fun e =>
-      { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr }
+      { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr,
+               writableLocals := e.writableLocals.insert id binding }
     pure (v.pre.push (.letVar binding v.expr))
 
 end
@@ -1850,7 +1868,7 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         let (nested, nestedReturned) ← lowerRootStatements (← mArr (← mField s "statements"))
         -- Restore lexical lookup maps, but retain fresh names and discovered dependencies.
         modify fun e =>
-          { e with values := saved.values, paths := saved.paths,
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
                    mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         out := out ++ nested
         returned := nestedReturned
@@ -1864,7 +1882,7 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         let (condition, yes, no) ← ifParts s
         let saved ← get
         let restore : M Unit := modify fun e =>
-          { e with values := saved.values, paths := saved.paths, mems := saved.mems,
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems,
                    scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         -- A root return inside a branch stops execution, so the continuation
         -- stays after the conditional and runs only on fallthrough.
@@ -2176,7 +2194,7 @@ private def importSlice
     -- Each root is lowered on its own: bindings, generated names and projections
     -- do not leak between functions. Field layouts and the closure are shared.
     env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                      mems := RBMap.empty, scalarTy := RBMap.empty, yulNames := RBMap.empty,
+                      mems := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
                       projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
