@@ -1145,5 +1145,10 @@ index is lowered once; an out-of-bounds access panics with code 0x32 before
 value selection. This slice materializes no memory array, so the array cannot
 escape or participate in observable memory operations. Nonconstant elements,
 guarded initializers and unsupported types reject rather than choosing an
-evaluation order for their effects. Differential and mutation validation is
-pending; this is not a Solidity semantics proof.
+evaluation order for their effects. Focused validation at `674cd89cd` passed
+96 A/B/C transactions across three generated variants and 67 acceptance/rejection
+controls. Element, selection and bounds mutants each passed an unmodified
+positive control, diverged and were reduced to replayed deletion-minimal
+witnesses; the bound witness retains `change(7)` followed by `fail()`, exercising
+the index-eight panic. Full exact-head release gates remain pending; this is
+not a Solidity semantics proof.
