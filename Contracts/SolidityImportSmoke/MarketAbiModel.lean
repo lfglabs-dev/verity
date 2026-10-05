@@ -19,6 +19,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "MarketAbi.s
   function calldataTokenLate(Market,uint256)
   function calldataTokenSecond(Market,uint256)
   function calldataMidnight(Market,uint256)
+  function memoryLength(Market,uint256)
+  function calldataLength(Market,uint256)
 def model : CompilationModel := imported.model
 end SolidityImportSmoke.MarketAbiModel
 

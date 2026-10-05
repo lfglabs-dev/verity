@@ -23,7 +23,7 @@ def main():
             'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}},
         fixture.parent, output / 'source')['contracts'][fixture.name]['ScalarArrayAbi']['evm']
     names = [location + suffix + '((uint128[]),uint256)'
-             for location in ('memory', 'calldata') for suffix in ('Unused', 'Element', 'Second')]
+             for location in ('memory', 'calldata') for suffix in ('Unused', 'Element', 'Second', 'Length')]
     selectors = {name.split('(')[0]: int(source['methodIdentifiers'][name], 16) for name in names}
     write_json(output / 'selectors.json', list(selectors.values()))
     identity = ImplementationIdentity(driver, extra_inputs=[fixture])
@@ -82,8 +82,9 @@ def main():
                 memory = name.startswith('memory')
                 unused = name.endswith('Unused')
                 second = name.endswith('Second')
+                length = name.endswith('Length')
                 error = None
-                returned = 8 if second else 7
+                returned = template[3] if length else 8 if second else 7
                 if memory and variant in ('dirty', 'truncated', 'oversized', 'dirty-second'):
                     error = panic(0x41) if variant == 'oversized' else '0x'
                 elif flag == 0:
@@ -91,9 +92,9 @@ def main():
                 elif not unused:
                     if variant in ('truncated', 'oversized'):
                         error = '0x'
-                    elif variant == 'empty' or (second and variant not in ('two', 'dirty-second')):
+                    elif not length and (variant == 'empty' or (second and variant not in ('two', 'dirty-second'))):
                         error = panic(0x32)
-                    elif variant == 'dirty' or (second and variant == 'dirty-second'):
+                    elif not length and (variant == 'dirty' or (second and variant == 'dirty-second')):
                         error = '0x'
                 add(name, values, error is None, [returned])
                 expected_reverts.append(error or '0x')

@@ -37,7 +37,7 @@ def main():
     market = '(uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address)'
     names = [location + suffix + '(' + market + ',uint256)'
              for location in ('memory', 'calldata')
-             for suffix in ('Unused', 'Maturity', 'TokenLate', 'TokenSecond', 'Midnight')]
+             for suffix in ('Unused', 'Maturity', 'TokenLate', 'TokenSecond', 'Midnight', 'Length')]
     selectors = {name.split('(')[0]: int(source['methodIdentifiers'][name], 16) for name in names}
     write_json(output / 'selectors.json', list(selectors.values()))
     identity = ImplementationIdentity(driver, extra_inputs=[fixture, interface, interface.parent / "provenance.json"])
@@ -125,6 +125,10 @@ def main():
                     error = error_first
                 elif name.endswith('Midnight') and variant == 'dirty-midnight':
                     error = '0x'
+                elif name.endswith('Length'):
+                    returned = 0 if variant == 'empty-array' else 2 if variant in ('two', 'dirty-second-oracle', 'dirty-second-token') else 1
+                    if oversized or variant in ('invalid-array-offset', 'truncated-array'):
+                        error = '0x'
                 elif token:
                     if oversized or variant in ('invalid-array-offset', 'truncated-array'):
                         error = '0x'

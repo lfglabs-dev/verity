@@ -835,6 +835,25 @@ private partial def lowerRef (j : Json) : M Ref := do
                 if let some (.scalarArray _) := schema[i]? then
                   return .abiArray id i pre
             pure (.expr (← readAbiMember id pre member j))
+        | .abiArray id memberIndex pre =>
+            unless member == "length" do failAt j s!"unsupported array member {member}"
+            let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
+            let some schema := mem.schema | failAt j "missing ABI schema"
+            let elementWords ← match schema[memberIndex]? with
+              | some (.scalarArray _) => pure 1
+              | some (.structArray _ fields) => pure fields.length
+              | _ => failAt j "length requires a schema-checked ABI array"
+            if mem.calldataLocation then
+              let header ← fresh
+              let length ← fresh
+              let data ← fresh
+              let checks := AbiLowering.staticArrayHead
+                (.localVar (mem.abiStem ++ "_calldata")) memberIndex elementWords header length data
+              return .expr { pre := pre ++ checks.toArray, expr := .localVar length }
+            else
+              let array := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
+                (.literal (32*memberIndex)))
+              return .expr { pre, expr := .mload array }
         | .abiElement id memberIndex pointer pre =>
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
             let some schema := mem.schema | failAt j "missing ABI schema"

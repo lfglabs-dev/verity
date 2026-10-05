@@ -15,6 +15,8 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "ScalarArray
   function calldataUnused(Box,uint256)
   function calldataElement(Box,uint256)
   function calldataSecond(Box,uint256)
+  function memoryLength(Box,uint256)
+  function calldataLength(Box,uint256)
 def model : CompilationModel := imported.model
 end SolidityImportSmoke.ScalarArrayAbiModel
 

@@ -9,6 +9,15 @@ from .mutations import snapshot
 
 MUTANTS = {'import-scalar-array-source-stride': ('Compiler/SolidityImport/AbiLowering.lean', 'let value := Expr.calldataload (.add data (.mul (.localVar index) (.literal 32)))', 'let value := Expr.calldataload (.add data (.mul (.add (.localVar index) (.literal 1)) (.literal 32)))'), 'import-scalar-array-memory-stride': ('Compiler/SolidityImport/AbiLowering.lean', '(.mul (.localVar index) (.literal 32))) value])]', '(.mul (.localVar index) (.literal 64))) value])]'), 'import-scalar-array-validation': ('Compiler/SolidityImport/AbiLowering.lean', 'let checks := if bound = 2^256 then [] else [guard (.lt value (.literal bound))]\n  [.mstore', 'let checks := if bound = 2^256 then [] else [guard (.literal 1)]\n  [.mstore'), 'import-scalar-array-length': ('Compiler/SolidityImport/AbiLowering.lean', '[.mstore arrayPointer length,\n   .mstore', '[.mstore arrayPointer (.literal 0),\n   .mstore')}
 
+MUTANTS.update({
+    'import-abi-array-length-calldata': ('Compiler/SolidityImport/Import.lean',
+        'return .expr { pre := pre ++ checks.toArray, expr := .localVar length }',
+        'return .expr { pre := pre ++ checks.toArray, expr := .add (.localVar length) (.literal 1) }'),
+    'import-abi-array-length-memory': ('Compiler/SolidityImport/Import.lean',
+        'return .expr { pre, expr := .mload array }',
+        'return .expr { pre, expr := array }'),
+})
+
 def run(directory, output):
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts')

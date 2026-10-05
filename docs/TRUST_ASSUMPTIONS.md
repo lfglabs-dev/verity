@@ -1159,3 +1159,13 @@ canonical values; signed and general constant-expression modulo remain
 unsupported. Quotient-identity variants cover the same defined values and
 zero-divisor panic. The coverage arm has a reflexive semantics lemma;
 differential and mutation validation remains pending.
+
+
+### ABI array length (development, unvalidated)
+
+The candidate lowering reuses the existing schema and memory materialization.
+Calldata accesses invoke the lazy static-array header with the schema-derived
+element stride. Correct validation and revert ordering for length-only accesses
+remain to be established against pinned solc; no new verified support or
+Solidity-equivalence theorem is claimed. Both memory and calldata fixtures
+retain all existing controls and add length probes and semantic mutations.

@@ -42,4 +42,12 @@ contract MarketAbi {
         require(flag != 0, "first");
         return market.midnight;
     }
+    function memoryLength(Market memory market, uint256 flag) external pure returns (uint256) {
+        require(flag != 0, "first");
+        return market.collateralParams.length;
+    }
+    function calldataLength(Market calldata market, uint256 flag) external pure returns (uint256) {
+        require(flag != 0, "first");
+        return market.collateralParams.length;
+    }
 }

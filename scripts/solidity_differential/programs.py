@@ -393,15 +393,15 @@ def scalar_array_abi_source(source, variant):
         return source
     if variant == 'renamed':
         import re
-        if len(re.findall(r'\bvalues\b', source)) != 5:
-            raise ValueError('scalar-array rename requires one field and four reads')
+        if len(re.findall(r'\bvalues\b', source)) != 7:
+            raise ValueError('scalar-array rename requires one field and six reads')
         return re.sub(r'\bvalues\b', 'payload', source)
     if variant == 'bindings':
         import re
-        source, count = re.subn(r'return (box\.values\[[01]\]);',
+        source, count = re.subn(r'return (box\.values(?:\[[01]\]|\.length));',
             lambda m: 'uint256 copied = ' + m[1] + '; return copied;', source)
-        if count != 4:
-            raise ValueError('scalar-array bindings require four reads')
+        if count != 6:
+            raise ValueError('scalar-array bindings require six reads')
         return source
     raise ValueError(f'unknown scalar-array ABI variant: {variant}')
 
@@ -412,20 +412,20 @@ def market_abi_source(source, variant):
         return source
     if variant == 'condition':
         anchor = 'require(flag != 0, "first");'
-        if source.count(anchor) != 10:
-            raise ValueError('Market variant requires all ten source guards')
+        if source.count(anchor) != 12:
+            raise ValueError('Market variant requires all twelve source guards')
         return source.replace(anchor, 'require(0 != flag, "first");')
     if variant == 'collision':
         anchor = 'require(flag != 0, "first");'
-        if source.count(anchor) != 10:
-            raise ValueError('Market collision variant requires ten source guards')
+        if source.count(anchor) != 12:
+            raise ValueError('Market collision variant requires twelve source guards')
         return source.replace(anchor,
             'uint256 _verity_slice_tmp_0_memory = flag; '
             'require(_verity_slice_tmp_0_memory != 0, "first");')
     if variant == 'bindings':
         anchors = [('market.midnight', 'address'), ('market.maturity', 'uint256'),
                    ('market.collateralParams[0].token', 'address'),
-                   ('market.collateralParams[1].token', 'address')]
+                   ('market.collateralParams[1].token', 'address'), ('market.collateralParams.length', 'uint256')]
         for expression, ty in anchors:
             anchor = 'return ' + expression + ';'
             if source.count(anchor) != 2:
