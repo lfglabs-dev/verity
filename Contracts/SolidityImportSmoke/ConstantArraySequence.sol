@@ -6,7 +6,7 @@ contract SequenceFixture {
     uint256 private value;
     event Changed(uint256 value);
     function change(uint256 x) external returns (uint256) {
-        value = [FIRST, 2, 3, 4, 5, 6, 7, LAST][x & 7];
+        value = [FIRST, 2, 3, 4, 5, 6, 7, LAST][x - (x / 8) * 8];
         emit Changed(value);
         return value;
     }
