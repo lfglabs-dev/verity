@@ -6,8 +6,8 @@ import Contracts.Common
 An ordinary `verity_contract` constructor now has an executable
 `.constructor` definition (previously only mixins and include hosts did), so a
 deployment boundary can run the generated constructor body. Constructors
-whose body has no executable lowering (here: `String` parameters) still
-elaborate and keep only the compilation-model constructor.
+whose body has no executable lowering still elaborate and keep only the
+compilation-model constructor.
 -/
 
 namespace Contracts.Smoke.ConstructorExecutable
@@ -40,7 +40,8 @@ private def deployed : ContractState :=
 example : deployed.readAddrSlot 5 = deployer ∧ deployed.readSlot 0 = 77 := by
   decide +kernel
 
--- A constructor with metadata `String` parameters still elaborates.
+-- Tranche-shaped constructor with metadata `String` parameters (the strings
+-- are accepted as executable parameters; `String` storage stays unsupported).
 verity_contract CtorWithStrings where
   storage
     decimalsSlot : Uint256 := slot 0
@@ -48,6 +49,10 @@ verity_contract CtorWithStrings where
   constructor (_name : String, _symbol : String) := do
     setStorage decimalsSlot 18
 
-example : CtorWithStrings.spec.constructor.isSome = true := by decide
+#check (CtorWithStrings.constructor : String → String → Contract Unit)
+
+example :
+    (((CtorWithStrings.constructor "AA" "AA_T").run Verity.defaultState).getState).readSlot 0 = 18 := by
+  decide +kernel
 
 end Contracts.Smoke.ConstructorExecutable
