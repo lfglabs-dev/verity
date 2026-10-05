@@ -104,6 +104,8 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({'import-modulo-quote': ('| .mod a b => do `(Compiler.CompilationModel.Expr.mod $(← quoteExpr a) $(← quoteExpr b))', '| .mod a b => do `(Compiler.CompilationModel.Expr.div $(← quoteExpr a) $(← quoteExpr b))')})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-modulo-"):
@@ -150,6 +152,7 @@ def mutation_campaign(output, selected=None):
         if baseline_code or not baseline['transactions'] or baseline['divergences']:
             raise HarnessError(f'{name}: unmodified positive control failed')
         source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')
+                              else 'Compiler/SolidityImport/Quote.lean' if name == 'import-modulo-quote'
                               else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
                               else 'Compiler/SolidityImport/Import.lean')
         text = source.read_text()
