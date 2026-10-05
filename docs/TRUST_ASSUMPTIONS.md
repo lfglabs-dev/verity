@@ -1171,3 +1171,9 @@ zero-divisor probe, preserving an actual storage read across global solc
 optimization of each variant. This strengthens the fixture; the original
 zero-divisor assertion and all observation comparisons remain intact. The coverage arm has a reflexive semantics lemma;
 differential and mutation validation remains pending.
+
+Modulo quotation corruption is tested as an exact model-integrity rejection
+after a successful unmodified A/B/C control: it cannot produce an executable
+model because the importer compares the reified model with the original.
+Generic compilation failures do not count. Value and zero-guard mutations
+remain runtime differential tests requiring replayed minimal witnesses.

@@ -161,6 +161,25 @@ def mutation_campaign(output, selected=None):
         source.write_text(text.replace(before, after))
         command(['lake', 'build', 'Compiler.SolidityImport.Import', 'Compiler.SolidityImport.SequenceRunner'], cwd=directory,
                 timeout=600, log=directory / 'build.log')
+        if name == 'import-modulo-quote':
+            # Quotation is independently checked against the original model.
+            # This mutation must fail that exact invariant, before execution.
+            artifact = directory / '.lake/quote-mutated.olean'
+            result = subprocess.run(['lake', 'env', 'lean', '-j1',
+                'Contracts/SolidityImportSmoke/ModuloSequenceModel.lean', '-o', str(artifact)],
+                cwd=directory, text=True, capture_output=True, timeout=600)
+            diagnostic = 'internal: the elaborated model differs from the imported value'
+            log = result.stdout + result.stderr
+            log_path = directory / 'quote-integrity.log'
+            log_path.write_text(log)
+            if result.returncode == 0 or artifact.exists() or diagnostic not in log:
+                raise HarnessError('quote mutation did not trigger the exact model-integrity check')
+            reports.append({'mutant': name, 'status': 'detected', 'detected': True,
+                'baselinePassed': True, 'kind': 'model-integrity-rejection',
+                'diagnostic': diagnostic, 'log': str(log_path)})
+            write_json(output / 'mutation-results.json', reports)
+            print(f'{name}: rejected by exact model-integrity check', flush=True)
+            continue
         campaign = directory / '.lake/mutated'
         code, result = run(directory, campaign, name)
         if code == 0 or not result['divergences']:
