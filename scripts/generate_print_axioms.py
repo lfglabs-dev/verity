@@ -23,6 +23,7 @@ TRUST_BOUNDARY_FILES = [
     ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
     ROOT / "Compiler" / "SolidityImport" / "Transactions.lean",
     ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AbiLoopFrames.lean",
     ROOT / "Compiler" / "SolidityImport" / "TransactionAccess.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "Smoke.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "StaticAbiChecks.lean",

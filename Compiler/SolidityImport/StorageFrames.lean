@@ -196,4 +196,31 @@ theorem writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame (oracle : Den
   split <;> simp [writeAddressKeyedMapping2PackedWordSlots,
     Verity.ContractState.modifySlots, Verity.ContractState.modifyTransientSlots]
 
+/-- Memory frame for the one-key member-write statement, including packed
+writes and failure to resolve a field, member or argument. -/
+theorem execStmt_setStructMember_memory_frame (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name member : String) (key value : Expr) :
+    preservesMemory state (execStmt oracle fields state (.setStructMember name key member value)) := by
+  simp only [execStmt]
+  split
+  all_goals try exact True.intro
+  all_goals split
+  all_goals simp only [preservesMemory]
+  all_goals try split
+  all_goals simp_all only [writeAddressKeyedMappingWordFieldSlots_memory_frame,
+    writeAddressKeyedMappingPackedWordFieldSlots_memory_frame, preservesMemory]
+
+/-- The same memory frame for the two-key member-write statement. -/
+theorem execStmt_setStructMember2_memory_frame (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name member : String) (key1 key2 value : Expr) :
+    preservesMemory state (execStmt oracle fields state (.setStructMember2 name key1 key2 member value)) := by
+  simp only [execStmt]
+  split
+  all_goals try exact True.intro
+  all_goals split
+  all_goals simp only [preservesMemory]
+  all_goals try split
+  all_goals simp_all only [writeAddressKeyedMapping2WordFieldSlots_memory_frame,
+    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame, preservesMemory]
+
 end Compiler.CompilationModel.Denote

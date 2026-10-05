@@ -6,6 +6,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
+import Compiler.SolidityImport.AbiLoopFrames
 import Compiler.SolidityImport.TransactionAccess
 import Contracts.SolidityImportSmoke.Smoke
 import Contracts.SolidityImportSmoke.StaticAbiChecks
@@ -332,6 +333,14 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.writeAddressKeyedMapping2WordFieldSlots_memory_frame
   Compiler.CompilationModel.Denote.writeAddressKeyedMappingPackedWordFieldSlots_memory_frame
   Compiler.CompilationModel.Denote.writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame
+  Compiler.CompilationModel.Denote.execStmt_setStructMember_memory_frame
+  Compiler.CompilationModel.Denote.execStmt_setStructMember2_memory_frame
+
+  -- Compiler/SolidityImport/AbiLoopFrames.lean
+  -- Compiler.CompilationModel.Denote.worldFrame_memory  -- private
+  -- Compiler.CompilationModel.Denote.scalarWrite_memory  -- private
+  Compiler.CompilationModel.Denote.abiHeaderPreservingStmt_memory
+  Compiler.CompilationModel.Denote.abiHeaderPreservingList_memory
 
   -- Compiler/SolidityImport/TransactionAccess.lean
   Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
@@ -7890,4 +7899,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7262 theorems/lemmas (5213 public, 2049 private, 0 sorry'd)
+-- Total: 7268 theorems/lemmas (5217 public, 2051 private, 0 sorry'd)
