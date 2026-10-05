@@ -9,6 +9,7 @@ contract SequenceFixture {
         return value;
     }
     function fail() external view {
+        require(value <= 15, "range");
         require(7 % (value - value) == 1, "unreachable");
     }
     function read() external view returns (uint256) { return value; }
