@@ -694,3 +694,20 @@ def stateful_invariant_for_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(old, new)
         return fixture
     raise ValueError(f'unknown invariant-for variant: {variant}')
+
+
+def abi_length_for_source(source: str, variant: str) -> str:
+    """Equivalent ABI-length loops with the complete original malformed matrix."""
+    if variant == 'baseline':
+        return source
+    if variant == 'renamed':
+        import re
+        for name in ('box', 'total', 'index'):
+            source = re.sub(r'\b' + name + r'\b', name + '_renamed', source)
+        return source
+    if variant == 'assignment-step':
+        anchor = 'index++)'
+        if source.count(anchor) != 2:
+            raise ValueError('ABI-length loop requires both location steps')
+        return source.replace(anchor, 'index += 1)')
+    raise ValueError(f'unknown ABI-length for variant: {variant}')

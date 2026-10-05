@@ -1939,6 +1939,12 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         unless ← isCounter (← mField cond "leftExpression") do
           failAt cond "a for loop condition must be counter < bound"
         let boundNode ← mField cond "rightExpression"
+        let abiLength ← if (← mKind boundNode) == "MemberAccess" &&
+            optStr boundNode "memberName" == some "length" then do
+          match ← lowerRef (← mField boundNode "expression") with
+          | .abiArray _ _ pre => pure pre.isEmpty
+          | _ => pure false
+        else pure false
         let bound ← lowerExpr boundNode
         let invariant ← match bound.expr with
           | .literal _ | .param _ => pure true
@@ -1947,7 +1953,7 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
                 pure (!writes.contains (← refInt boundNode).toNat)
               else pure false
           | _ => pure false
-        unless bound.pre.isEmpty && invariant do
+        unless abiLength || (bound.pre.isEmpty && invariant) do
           failAt boundNode "a for loop bound must be a literal, a parameter or an unassigned local"
         let binding ← freshFor counterName
         let saved ← get
@@ -1957,11 +1963,18 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         let stmts ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
         -- A return in the body leaves the loop; zero iterations fall through.
         let (bodyOut, _) ← lowerRootStatements stmts
+        if abiLength && !abiHeaderPreservingList bodyOut.toList then
+          failAt body "ABI-length loop body may write memory or call external code"
         modify fun e =>
           { e with values := saved.values, paths := saved.paths,
                    mems := saved.mems, scalarTy := saved.scalarTy,
                    writableLocals := saved.writableLocals, yulNames := saved.yulNames }
-        out := out.push (.forEach binding bound.expr bodyOut.toList)
+        if abiLength then
+          let captured ← fresh
+          out := out ++ bound.pre |>.push (.letVar captured bound.expr)
+          out := out.push (.forEach binding (.localVar captured) bodyOut.toList)
+        else
+          out := out.push (.forEach binding bound.expr bodyOut.toList)
     | "IfStatement" =>
         let (condition, yes, no) ← ifParts s
         let saved ← get

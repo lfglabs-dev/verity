@@ -1214,3 +1214,12 @@ source local bound. Since iteration i satisfies i < bound <= 2^256-1, the
 post-body increment is representable. Supported bodies cannot modify
 parameters indirectly. Array-length hoisting, break and continue remain
 outside this rule. Native differential and proof checks are still pending.
+
+### ABI array-length loops (development)
+
+Hoisting is admitted only for a schema-resolved ABI array and a body whose
+recursive statement whitelist excludes memory writes and external calls. The
+length decoder still executes at the first condition even for zero iterations.
+This relies on preservation of the decoded header and calldata; memory-frame
+proofs and native differential validation remain pending. No new oracle or
+axiom is introduced. Future memory/call support must preserve this check.

@@ -494,7 +494,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-scalar-array-memory-stride',
                    'import-scalar-array-validation',
                    'import-scalar-array-length',
-                   'import-abi-array-length-calldata', 'import-abi-array-length-memory',
+                   'import-abi-length-for-capture', 'import-abi-length-for-zero', 'import-abi-array-length-calldata', 'import-abi-array-length-memory',
                    'import-market-root-offset',
                    'import-market-root-size',
                    'import-market-calldata-array-size',

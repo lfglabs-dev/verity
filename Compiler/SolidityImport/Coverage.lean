@@ -84,6 +84,26 @@ def stmtListCovered : List Stmt → Bool
 
 end
 
+/-- Statements admitted in a loop whose ABI memory header is hoisted.
+Explicit memory writes and unknown/call constructors are excluded, recursively. -/
+mutual
+  def abiHeaderPreservingStmt : Stmt → Bool
+    | .forEach _ count body => exprCovered count && abiHeaderPreservingList body
+    | .ite condition yes no =>
+        exprCovered condition && abiHeaderPreservingList yes && abiHeaderPreservingList no
+    | .panicCode code => exprCovered code
+    | .revertReturndata | .stop => true
+    | .emit _ args => exprListCovered args
+    | .setStorage _ value => exprCovered value
+    | .setStructMember _ key _ value => exprCovered key && exprCovered value
+    | .setStructMember2 _ key1 key2 _ value =>
+        exprCovered key1 && exprCovered key2 && exprCovered value
+    | statement => stmtCovered statement
+  def abiHeaderPreservingList : List Stmt → Bool
+    | [] => true
+    | head :: tail => abiHeaderPreservingStmt head && abiHeaderPreservingList tail
+end
+
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
 meaning and its original world-preservation theorems. -/
 mutual

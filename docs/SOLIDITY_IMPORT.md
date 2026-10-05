@@ -101,6 +101,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Default scalar locals (development; validation pending) | Uninitialized unsigned integers, address, bool and bytes32 bind a fresh local to zero; reference and unsupported scalar defaults reject at the declaration |
 | Scalar local writes (development; validation pending) | `=` and `delete` on materialized scalar locals; converted RHS evaluated before assignment; lexical shadowing retains declaration identity; compound writes and parameter writes reject |
 | Invariant scalar `for` (development; validation pending) | uint256 counter from zero, strict `<`, increment by one; literal/parameter/unwritten-local bounds; body return/revert preserved; body counter writes, mutable bounds, break/continue reject |
+| Schema ABI array-length `for` (development; validation pending) | Memory/calldata array length captured after its exact initial decoder; recursively checked body preserves memory headers; memory writes and external calls reject |
 | Local declarations and storage aliases | Bindings named after the Solidity local (suffixed `_1`, `_2`, ... on collision), or resolved read paths |
 | Scalar storage reads, `=`, and `delete` | Resolved uint8–uint256, address, and bytes32 fields; exact solc slots and packed offsets; masked writes preserve neighboring bits |
 | Void root fallthrough | Explicit `stop` with empty return bytes; named/value-returning roots still require an explicit return |

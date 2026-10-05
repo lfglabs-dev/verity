@@ -104,4 +104,22 @@ theorem solidityFor_terminal_index (index bound : Nat)
     (atBound : index = bound) : ¬ index < bound := by
   omega
 
+/-- Reusable frame rule for a hoisted ABI header. Normal iterations preserve
+its cell and every early state-carrying exit retains the same observation.
+Revert observations are chosen separately by the caller. -/
+theorem forEach_memory_cell_frame (oracle : DenoteOracle) (fields : List Field)
+    (varName : String) (count : Expr) (body : List Stmt)
+    (state : DenoteState) (bound address : Nat) (exit : StmtOutcome → Prop)
+    (evaluated : evalExpr oracle fields state count = some bound)
+    (step : ∀ index before,
+      before.world.memory address = state.world.memory address →
+      LoopOutcomePost (fun after => after.world.memory address = state.world.memory address) exit
+        (execStmtList oracle fields
+          { before with bindings := bindValue before.bindings varName (wordNormalize index) } body)) :
+    LoopOutcomePost (fun after => after.world.memory address = state.world.memory address) exit
+      (execStmt oracle fields state (.forEach varName count body)) := by
+  exact forEach_invariant oracle fields varName count body
+    (fun _ after => after.world.memory address = state.world.memory address)
+    exit state bound evaluated rfl step
+
 end Compiler.CompilationModel.Denote
