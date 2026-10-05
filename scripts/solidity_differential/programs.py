@@ -665,9 +665,11 @@ def stateful_local_write_source(fixture: str, variant: str) -> str:
         return fixture
     if variant == 'renamed':
         import re
-        for old in ('current', 'small', 'previousCollateralToken', 'enabled', 'digest', 'local'):
-            fixture = re.sub(r'\b' + old + r'\b', old + '_renamed', fixture)
-        return fixture
+        names = ('current', 'small', 'previousCollateralToken', 'enabled', 'digest', 'local')
+        # Preserve strings (especially revert bytes) and comments verbatim.
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda match: match.group(0) + '_renamed'
+                      if match.group(0) in names else match.group(0), fixture)
     if variant == 'explicit-zero':
         anchor = 'delete current;'
         if fixture.count(anchor) != 1:
