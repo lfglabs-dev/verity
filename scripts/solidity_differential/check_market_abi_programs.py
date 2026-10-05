@@ -39,6 +39,8 @@ def main():
             if yul.count('let _verity_slice_tmp_1_memory := mload(64)') != 5:
                 raise HarnessError('all five memory decoders must avoid the colliding source name')
         report = json.loads((directory / 'campaign/campaign.json').read_text())
+        if len(report['transactions']) != 408:
+            raise HarnessError('incomplete ABI variant control matrix')
         observable = {'transactions': report['transactions'],
             'observations': canonical_observations(report['observations'])}
         if baseline is None:
@@ -47,7 +49,7 @@ def main():
             write_json(output / 'metamorphic-divergence.json',
                 {'variant': variant, 'baseline': baseline, 'actual': observable})
             raise HarnessError('ABI variant changed observable behavior')
-    write_json(output / 'complete.json', {'exit': 0, 'variants': 4, 'cases': 1360})
+    write_json(output / 'complete.json', {'exit': 0, 'variants': 4, 'cases': 1632})
     print(f'All Market ABI variants agree: {output}')
 
 

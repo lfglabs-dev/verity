@@ -31,6 +31,8 @@ def main():
             '--source-fixture', fixture, '--model-driver', driver,
             '--output', directory / 'campaign'], timeout=1800, log=directory / 'check.log')
         report = json.loads((directory / 'campaign/campaign.json').read_text())
+        if len(report['transactions']) != 128:
+            raise HarnessError('incomplete ABI variant control matrix')
         observable = {'transactions': report['transactions'],
             'observations': canonical_observations(report['observations'])}
         if baseline is None:
@@ -39,7 +41,7 @@ def main():
             write_json(output / 'metamorphic-divergence.json',
                 {'variant': variant, 'baseline': baseline, 'actual': observable})
             raise HarnessError('ABI variant changed observable behavior')
-    write_json(output / 'complete.json', {'exit': 0, 'variants': 3, 'cases': 288})
+    write_json(output / 'complete.json', {'exit': 0, 'variants': 3, 'cases': 384})
     print(f'All scalar-array ABI variants agree: {output}')
 
 
