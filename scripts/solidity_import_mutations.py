@@ -300,10 +300,18 @@ def main() -> None:
     expect_success("unrelated-layout", write_project("unrelated-layout", unrelated_layout), witness=True)
     expect_failure("named-arguments", write_project("named-arguments", named_arguments), "named call arguments")
     expect_failure("implicit-return", write_project("implicit-return", implicit_return), "explicit root return")
-    diagnostic = expect_failure("uninitialized-local", write_project("uninitialized-local", uninitialized_local),
-                                "local declarations without an initializer")
-    if not re.search(r"Slice\.sol:\d+:\d+: VariableDeclarationStatement:", diagnostic):
-        raise SystemExit("uninitialized local lacks a Solidity source diagnostic")
+    # Scalar defaults are now supported; retain the original execution witness.
+    expect_success("uninitialized-local", write_project("uninitialized-local", uninitialized_local), witness=True)
+    def unsupported_default(dest: Path) -> None:
+        uninitialized_local(dest)
+        path = dest / "Slice.sol"
+        source = path.read_text()
+        assert source.count("uint128 ignored;") == 1
+        path.write_text(source.replace("uint128 ignored;", "int128 ignored;"))
+    diagnostic = expect_failure("signed-default-local", write_project("signed-default-local", unsupported_default),
+                                "unsupported default local type int128")
+    if not re.search(r"Slice\.sol:\d+:\d+: VariableDeclaration:", diagnostic):
+        raise SystemExit("unsupported default local lacks a Solidity source diagnostic")
     # The old flattened name is now legal: full tuple parameters must retain their
     # identity and the unchanged execution witness must still hold.
     expect_success("former-projection-name-hygiene",
@@ -453,7 +461,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-mapping-bool-literal',
                    'import-mapping-bool-read', 'import-logical-and-branch',
                    'import-logical-or-branch', 'import-logical-initial-value',
-                   'import-modulo-value', 'import-modulo-zero', 'import-constant-array-element', 'import-constant-array-selection',
+                   'import-default-local-zero', 'import-modulo-value', 'import-modulo-zero', 'import-constant-array-element', 'import-constant-array-selection',
                    'import-constant-array-bound', 'import-numeric-leading-dot', 'import-numeric-separators',
                    'import-numeric-constant-product', 'import-numeric-constant-sum', 'import-numeric-constant-value', 'import-numeric-decimal-scale',
                    'import-numeric-positive-exponent', 'import-numeric-negative-exponent',

@@ -104,10 +104,14 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({'import-default-local-zero': ('return #[.letVar binding (.literal 0)]', 'return #[.letVar binding (.literal 1)]')})
+
 MUTANTS.update({'import-modulo-quote': ('| .mod a b => do `(Compiler.CompilationModel.Expr.mod $(← quoteExpr a) $(← quoteExpr b))', '| .mod a b => do `(Compiler.CompilationModel.Expr.div $(← quoteExpr a) $(← quoteExpr b))')})
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-default-local-"):
+        fixture = "DefaultLocalSequence"
     if name.startswith("import-modulo-"):
         fixture = "ModuloSequence"
     if name.startswith("import-constant-array-"):

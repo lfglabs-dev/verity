@@ -19,7 +19,9 @@ def main():
         ('conditional-unchecked', '{ if (true) { unchecked { return 7; } } } return 8;', 'unchecked', 'unsupported statement UncheckedBlock'),
         ('loop', '{ while (false) {} } return 7;', 'while', 'unsupported statement WhileStatement'),
         ('after-return', '{ return 7; } return 8;', 'return 8', 'statement after root return'),
-        ('uninitialized', '{ uint256 x; } return 7;', 'uint256 x', 'local declarations without an initializer'),
+        ('uninitialized', '{ uint256 x; } return 7;', None, None),
+        ('uninitialized-signed', '{ int256 x; } return 7;', 'int256 x', 'unsupported default local type int256'),
+        ('uninitialized-memory', '{ bytes memory x; } return 7;', 'bytes memory x', 'uninitialized reference locals'),
     ]
     results = []
     for name, body, token, diagnostic in cases:

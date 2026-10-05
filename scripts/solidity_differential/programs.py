@@ -636,3 +636,24 @@ def stateful_modulo_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown modulo variant: {variant}')
+
+
+def stateful_default_local_source(fixture: str, variant: str) -> str:
+    """Compare implicit scalar defaults to explicit defaults and renamed locals."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        for old in ('initial', 'small', 'previousCollateralToken', 'enabled', 'digest'):
+            fixture = re.sub(r'\b' + old + r'\b', old + '_renamed', fixture)
+        return fixture
+    if variant == 'explicit':
+        for declaration, count, value in (
+            ('uint256 initial;', 1, '0'), ('uint8 small;', 1, '0'),
+            ('address previousCollateralToken;', 2, 'address(0)'),
+            ('bool enabled;', 1, 'false'), ('bytes32 digest;', 1, 'bytes32(0)')):
+            if fixture.count(declaration) != count:
+                raise ValueError(f'default-local anchor count changed: {declaration}')
+            fixture = fixture.replace(declaration, declaration[:-1] + ' = ' + value + ';')
+        return fixture
+    raise ValueError(f'unknown default-local variant: {variant}')

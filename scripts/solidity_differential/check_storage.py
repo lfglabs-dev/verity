@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 from .engine import command, write_json
-from .programs import stateful_storage_source, stateful_storage_word_source, stateful_mapping_source, stateful_short_circuit_source, stateful_imported_event_source, stateful_if_else_source, stateful_numeric_literal_source, stateful_constant_array_source, stateful_modulo_source
+from .programs import stateful_storage_source, stateful_storage_word_source, stateful_mapping_source, stateful_short_circuit_source, stateful_imported_event_source, stateful_if_else_source, stateful_numeric_literal_source, stateful_constant_array_source, stateful_modulo_source, stateful_default_local_source
 from .stateful import validate_observation
 
 
@@ -25,7 +25,7 @@ def canonical_observations(observations):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo'), default='packed')
+    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'default-locals'), default='packed')
     parser.add_argument('--narrow-bits', type=int, choices=range(8, 257, 8), default=128)
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--seed', type=int, default=2453)
@@ -33,7 +33,7 @@ def main():
     args = parser.parse_args()
     output = args.output.resolve() if args.output else Path(tempfile.mkdtemp(prefix='storage-', dir='.lake')).resolve()
     output.mkdir(parents=True, exist_ok=args.output is None)
-    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence', 'short-circuit': 'ShortCircuitSequence', 'imported-event': 'ImportedEventSequence', 'narrow-event': 'NarrowEventSequence', 'if-else': 'IfElseSequence', 'numeric-literals': 'NumericLiteralSequence', 'constant-arrays': 'ConstantArraySequence', 'modulo': 'ModuloSequence'}[args.fixture]
+    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence', 'short-circuit': 'ShortCircuitSequence', 'imported-event': 'ImportedEventSequence', 'narrow-event': 'NarrowEventSequence', 'if-else': 'IfElseSequence', 'numeric-literals': 'NumericLiteralSequence', 'constant-arrays': 'ConstantArraySequence', 'modulo': 'ModuloSequence', 'default-locals': 'DefaultLocalSequence'}[args.fixture]
     fixture = Path(f'Contracts/SolidityImportSmoke/{name}.sol').read_text()
     template = Path(f'Contracts/SolidityImportSmoke/{name}Model.lean').read_text()
     if args.fixture == 'narrow-event':
@@ -49,6 +49,8 @@ def main():
         variants = ('baseline', 'conditional', 'de-morgan')
     if args.fixture in ('numeric-literals', 'constant-arrays'):
         variants = ('baseline', 'renamed', 'normalized')
+    if args.fixture == 'default-locals':
+        variants = ('baseline', 'renamed', 'explicit')
     if args.fixture == 'modulo':
         variants = ('baseline', 'renamed', 'quotient')
     if args.fixture == 'if-else':
@@ -60,6 +62,7 @@ def main():
         directory.mkdir()
         source = directory / 'Sequence.sol'
         source.write_text(stateful_imported_event_source(fixture, variant, args.fixture == "narrow-event") if args.fixture in ("imported-event", "narrow-event")
+                          else stateful_default_local_source(fixture, variant) if args.fixture == "default-locals"
                           else stateful_modulo_source(fixture, variant) if args.fixture == "modulo"
                           else stateful_constant_array_source(fixture, variant) if args.fixture == "constant-arrays"
                           else stateful_numeric_literal_source(fixture, variant) if args.fixture == "numeric-literals"

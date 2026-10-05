@@ -1733,10 +1733,20 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     failAt d s!"unsupported local name {name}"
   let id ← mNat (← mField d "id")
   let loc := optStr d "storageLocation" |>.getD "default"
-  let some init := field? s "initialValue"
-    | failAt s "local declarations without an initializer are outside this slice"
+  let init := field? s "initialValue" |>.getD Json.null
   if init.isNull then
-    failAt s "local declarations without an initializer are outside this slice"
+    unless loc == "default" do
+      failAt d "uninitialized reference locals are outside this slice"
+    let ty ← mType d
+    let some scalarType := paramType ty
+      | failAt d s!"unsupported default local type {ty}"
+    let binding ← freshFor name
+    let expr := Expr.localVar binding
+    modify fun e =>
+      { e with values := e.values.insert id expr,
+               scalarTy := e.scalarTy.insert id scalarType,
+               yulNames := e.yulNames.insert name expr }
+    return #[.letVar binding (.literal 0)]
   if loc == "storage" then
     match ← lowerRef init with
     | .path pre path =>

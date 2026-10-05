@@ -1187,3 +1187,12 @@ element stride. Correct validation and revert ordering for length-only accesses
 remain to be established against pinned solc; no new verified support or
 Solidity-equivalence theorem is claimed. Both memory and calldata fixtures
 retain all existing controls and add length probes and semantic mutations.
+
+### Default scalar local initialization (development)
+
+The importer lowers Solidity default locals of supported unsigned integer,
+address, bool and bytes32 types to zero in a fresh model local. This uses the
+existing local-binding semantics and does not add an oracle or proof axiom.
+Uninitialized memory/storage references and unsupported scalar types reject
+at the declaration. Differential fixtures, explicit-initializer variants and
+a nonzero-default mutation are added; validation remains pending.

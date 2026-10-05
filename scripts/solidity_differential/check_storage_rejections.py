@@ -9,6 +9,14 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('default-uint', '', 'uint256 zero; return x + zero;', 'uint256', None),
+        ('default-narrow', '', 'uint8 zero; return uint256(zero);', 'uint256', None),
+        ('default-address', '', 'address zero; return zero;', 'address', None),
+        ('default-bool', '', 'bool zero; return zero;', 'bool', None),
+        ('default-bytes32', '', 'bytes32 zero; return zero;', 'bytes32', None),
+        ('default-signed', '', 'int256 zero; return zero;', 'int256', 'unsupported default local type int256'),
+        ('default-bytes', '', 'bytes memory zero; return x;', 'uint256', 'uninitialized reference locals'),
+        ('default-array', '', 'uint256[] memory zero; return x;', 'uint256', 'uninitialized reference locals'),
         ('modulo-unsigned', '', 'return x % 7;', 'uint256', None),
         ('modulo-narrow', '', 'return uint8(x) % uint8(7);', 'uint256', None),
         ('modulo-signed', '', 'return uint256(int256(x) % int256(7));', 'uint256', 'unsupported cast target int256'),
