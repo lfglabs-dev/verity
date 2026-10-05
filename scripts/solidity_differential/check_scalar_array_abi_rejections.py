@@ -21,6 +21,10 @@ def main():
     cases = [(ty, location, '7', message) for location in ('memory', 'calldata')
              for ty, message in types]
     cases.append(('uint128[]', 'calldata', 'box.values[flag + 1]', 'computed struct-array indices'))
+    # Keep every original case and exercise the same schema boundaries at length access.
+    cases += [(ty, location, 'box.values.length', message)
+              for location in ('memory', 'calldata') for ty, message in types]
+
     for index, (ty, location, expression, expected) in enumerate(cases):
         directory = output / str(index)
         directory.mkdir()
