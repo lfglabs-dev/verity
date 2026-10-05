@@ -208,6 +208,10 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
     if !isMixin && resolvedIncludes.isEmpty then
       match ctor with
       | some ctorDecl =>
+          -- Binders get synthetic source info: the generated `def` must not
+          -- re-report unused constructor parameters on the user's source.
+          let ctorDecl := { ctorDecl with
+            params := ctorDecl.params.map fun p => { p with ident := mkIdent p.ident.getId } }
           let saved ← get
           let hadErrors := saved.messages.hasErrors
           try
