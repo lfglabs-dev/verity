@@ -621,10 +621,14 @@ def stateful_modulo_source(fixture: str, variant: str) -> str:
         import re
         return re.sub(r'\bx\b', 'amount', fixture)
     if variant == 'quotient':
+        # Preserve the zero-divisor probe verbatim: solc can retain different
+        # SLOADs for the expanded quotient despite identical revert bytes.
+        # Metamorphic equivalence includes touched slots, not just results.
+        if fixture.count('7 % (value - value)') != 1:
+            raise ValueError('missing exact modulo zero-divisor probe')
         replacements = {
             'x % 10': '(x - (x / 10) * 10)',
             'uint8(x) % uint8(7)': '(uint8(x) - (uint8(x) / uint8(7)) * uint8(7))',
-            '7 % (value - value)': '(7 - (7 / (value - value)) * (value - value))',
         }
         for before, after in replacements.items():
             if before not in fixture:
