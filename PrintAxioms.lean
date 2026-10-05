@@ -320,6 +320,18 @@ end Verity.AxiomAudit
   -- Compiler/SolidityImport/StorageFrames.lean
   Compiler.CompilationModel.Denote.writeUintFieldSlots_storage_frame
   Compiler.CompilationModel.Denote.execStmt_setStorage_storage_frame
+  Compiler.CompilationModel.Denote.writeUintFieldSlots_memory_frame
+  Compiler.CompilationModel.Denote.execStmt_setStorage_memory_frame
+  Compiler.CompilationModel.Denote.execStmt_emit_memory_frame
+  Compiler.CompilationModel.Denote.execStmt_returnValues_memory_frame
+  Compiler.CompilationModel.Denote.execStmt_local_binding_memory_frame
+  Compiler.CompilationModel.Denote.execStmtList_memory_frame_of_steps
+  Compiler.CompilationModel.Denote.execForEachLoop_memory_frame
+  Compiler.CompilationModel.Denote.writeMappingTargets_memory_frame
+  Compiler.CompilationModel.Denote.writeAddressKeyedMappingWordFieldSlots_memory_frame
+  Compiler.CompilationModel.Denote.writeAddressKeyedMapping2WordFieldSlots_memory_frame
+  Compiler.CompilationModel.Denote.writeAddressKeyedMappingPackedWordFieldSlots_memory_frame
+  Compiler.CompilationModel.Denote.writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame
 
   -- Compiler/SolidityImport/TransactionAccess.lean
   Compiler.CompilationModel.SolidityImport.Transactions.traceStraightLine_agrees
@@ -7878,4 +7890,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7250 theorems/lemmas (5201 public, 2049 private, 0 sorry'd)
+-- Total: 7262 theorems/lemmas (5213 public, 2049 private, 0 sorry'd)
