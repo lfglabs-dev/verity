@@ -453,7 +453,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-mapping-bool-literal',
                    'import-mapping-bool-read', 'import-logical-and-branch',
                    'import-logical-or-branch', 'import-logical-initial-value',
-                   'import-modulo-value', 'import-modulo-zero', 'import-modulo-quote', 'import-constant-array-element', 'import-constant-array-selection',
+                   'import-modulo-value', 'import-modulo-zero', 'import-constant-array-element', 'import-constant-array-selection',
                    'import-constant-array-bound', 'import-numeric-leading-dot', 'import-numeric-separators',
                    'import-numeric-constant-product', 'import-numeric-constant-sum', 'import-numeric-constant-value', 'import-numeric-decimal-scale',
                    'import-numeric-positive-exponent', 'import-numeric-negative-exponent',
@@ -511,6 +511,18 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
         if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
             raise SystemExit(f"{mutant}: expected a runtime differential divergence")
         print(f"pass {mutant}")
+    # Quotation corruption is rejected before an executable model exists.
+    quote_output = Path(tempfile.mkdtemp(prefix="modulo-quote-integrity-", dir=WORK))
+    subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
+                    "--mutations", "--mutant", "import-modulo-quote", "--output", str(quote_output)],
+                   cwd=ROOT, check=True, timeout=900)
+    quote_results = json.loads((quote_output / "mutation-results.json").read_text())
+    if (len(quote_results) != 1 or quote_results[0]["mutant"] != "import-modulo-quote"
+            or not quote_results[0]["baselinePassed"]
+            or quote_results[0]["kind"] != "model-integrity-rejection"
+            or quote_results[0]["diagnostic"] != "internal: the elaborated model differs from the imported value"):
+        raise SystemExit("modulo quotation corruption escaped the exact integrity check")
+    print("pass import-modulo-quote integrity rejection")
     subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
                    cwd=ROOT, check=True, timeout=300)
     subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_storage_rejections.py")],
