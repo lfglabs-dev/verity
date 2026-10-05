@@ -30,7 +30,19 @@ def main (args : List String) : IO UInt32 := do
   match args with
   | ["compile", selectorsFile, output] =>
       let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile selectorsFile))
-      let selectors ← IO.ofExcept ((← IO.ofExcept parsed.getArr?).toList.mapM Json.getNat?)
+      let rows ← IO.ofExcept parsed.getArr?
+      let named ← rows.toList.mapM fun row => do
+        let name ← IO.ofExcept (row.getObjValAs? String "name")
+        let selector ← IO.ofExcept (row.getObjValAs? Nat "selector")
+        pure (name, selector)
+      unless named.length == model.functions.length &&
+          (named.map Prod.fst).eraseDups.length == named.length &&
+          (named.map Prod.snd).eraseDups.length == named.length do
+        throw (IO.userError "ABI selector manifest is incomplete or duplicated")
+      let selectors ← model.functions.mapM fun fn => do
+        let some entry := named.find? (fun entry => entry.1 == fn.name)
+          | throw (IO.userError s!"ABI selector manifest lacks {fn.name}")
+        pure entry.2
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile model selectors .osaka)
       IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
       return 0

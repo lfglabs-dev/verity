@@ -25,7 +25,7 @@ def main():
     names = [location + suffix + '((uint128[]),uint256)'
              for location in ('memory', 'calldata') for suffix in ('Unused', 'Element', 'Second', 'Length')]
     selectors = {name.split('(')[0]: int(source['methodIdentifiers'][name], 16) for name in names}
-    write_json(output / 'selectors.json', list(selectors.values()))
+    write_json(output / 'selectors.json', [{'name': name, 'selector': selector} for name, selector in selectors.items()])
     identity = ImplementationIdentity(driver, extra_inputs=[fixture])
     write_json(output / 'implementation.json', identity.manifest)
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json', output / 'model.yul'],
