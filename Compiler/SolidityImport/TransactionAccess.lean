@@ -38,7 +38,7 @@ def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
       let some (field, slot) := findFieldWithResolvedSlot fields name
         | throw s!"unknown observed field {name}"
       return [fieldKey field slot]
-  | .add left right | .sub left right | .mul left right | .div left right
+  | .add left right | .sub left right | .mul left right | .div left right | .mod left right
   | .shl left right | .shr left right | .keccak256 left right
   | .bitAnd left right | .bitXor left right | .eq left right | .lt left right
   | .gt left right | .le left right | .ge left right
