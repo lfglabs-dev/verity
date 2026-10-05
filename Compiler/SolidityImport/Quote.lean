@@ -51,6 +51,7 @@ partial def quoteExpr : Expr → m Term
   | .sub a b => do `(Compiler.CompilationModel.Expr.sub $(← quoteExpr a) $(← quoteExpr b))
   | .mul a b => do `(Compiler.CompilationModel.Expr.mul $(← quoteExpr a) $(← quoteExpr b))
   | .div a b => do `(Compiler.CompilationModel.Expr.div $(← quoteExpr a) $(← quoteExpr b))
+  | .mod a b => do `(Compiler.CompilationModel.Expr.mod $(← quoteExpr a) $(← quoteExpr b))
   | .bitAnd a b => do `(Compiler.CompilationModel.Expr.bitAnd $(← quoteExpr a) $(← quoteExpr b))
   | .bitXor a b => do `(Compiler.CompilationModel.Expr.bitXor $(← quoteExpr a) $(← quoteExpr b))
   | .eq a b => do `(Compiler.CompilationModel.Expr.eq $(← quoteExpr a) $(← quoteExpr b))
