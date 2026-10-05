@@ -2258,6 +2258,16 @@ private partial def rewriteForEachExecutableDoElem
               let read ←
                 `(_root_.Verity.getPackedStorage $field:ident $(natTerm offset) $(natTerm width))
               pure (#[← `(doElem| let $name:ident ← $read:term)], locals)
+          -- `Int256` fields are stored as raw words (`StorageSlot Uint256`).
+          -- Reinterpret the word as `Int256` so that later checked arithmetic
+          -- (`addPanic cur delta`, ...) resolves to the signed instance, as in
+          -- the compilation model, instead of the unsigned one through the
+          -- `Int256 → Uint256` coercion (G28).
+          | some { ty := .scalar .int256, isTransient := false, packedBits := none, .. } =>
+              pure (#[← `(doElem| let $name:ident ← do
+                let word ← _root_.Verity.getStorage $field:ident
+                pure (_root_.Verity.Core.Int256.ofUint256 word))],
+                locals.push (mkTypedLocal (toString name.getId) .int256))
           | _ => pure (#[elem], locals)
       | `(term| getMappingN $field:ident $keys:term) =>
           -- Transient mapping chains read the EIP-1153 channel in the
