@@ -1161,6 +1161,9 @@ an explicit zero-divisor arithmetic panic (0x12), preserving operand preludes
 and bindings. This differs from the raw EVM MOD zero-divisor result, which
 must not replace Solidity's panic. Narrow unsigned operands use their
 canonical values; signed and general constant-expression modulo remain
-unsupported. Quotient-identity variants cover the same defined values and
-zero-divisor panic. The coverage arm has a reflexive semantics lemma;
+unsupported. Quotient-identity variants transform the defined-value arithmetic
+and retain the zero-divisor probe verbatim. Expanding that probe to a quotient
+produced identical panic bytes but different actual EVM storage reads under
+solc optimization, so it is not an equivalent variant for this instrument.
+The strict touched-slot comparison remains enabled. The coverage arm has a reflexive semantics lemma;
 differential and mutation validation remains pending.
