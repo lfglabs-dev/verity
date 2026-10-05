@@ -27,7 +27,7 @@ def main():
         shutil.copytree(Path('Contracts/SolidityImportSmoke/pinned-midnight'), directory / 'pinned-midnight')
         fixture = directory / 'MarketAbi.sol'
         fixture.write_text(market_abi_source(source, variant))
-        if variant == 'collision' and fixture.read_text().count('_verity_slice_tmp_0_memory = flag') != 10:
+        if variant == 'collision' and fixture.read_text().count('_verity_slice_tmp_0_memory = flag') != 12:
             raise HarnessError('collision variant must use the actual first decoder name')
         driver = directory / 'Driver.lean'
         driver.write_text(template.replace(anchor, f'from "{directory}" entry "MarketAbi.sol"'))
@@ -36,8 +36,8 @@ def main():
             '--output', directory / 'campaign'], timeout=1800, log=directory / 'check.log')
         if variant == 'collision':
             yul = (directory / 'campaign/model.yul').read_text()
-            if yul.count('let _verity_slice_tmp_1_memory := mload(64)') != 5:
-                raise HarnessError('all five memory decoders must avoid the colliding source name')
+            if yul.count('let _verity_slice_tmp_1_memory := mload(64)') != 6:
+                raise HarnessError('all six memory decoders must avoid the colliding source name')
         report = json.loads((directory / 'campaign/campaign.json').read_text())
         if len(report['transactions']) != 408:
             raise HarnessError('incomplete ABI variant control matrix')
