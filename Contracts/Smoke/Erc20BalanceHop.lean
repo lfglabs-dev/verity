@@ -101,8 +101,8 @@ def userAddr : Address := (72 : Address)
 strategy and 5 for the user in the token's namespace. -/
 def s0 : ContractState :=
   ({ defaultState with thisAddress := stratAddr, sender := (1 : Address) }.withStorageWords fun k =>
-      if k == .scoped tokenAddr.toNat (.map 0 stratAddr) then 100
-      else if k == .scoped tokenAddr.toNat (.map 0 userAddr) then 5
+      if k == StorageKey.scoped tokenAddr.toNat (.map 0 stratAddr) then 100
+      else if k == StorageKey.scoped tokenAddr.toNat (.map 0 userAddr) then 5
       else 0).writeSlot 0 40
 
 theorem held_strategy_is_100 :
