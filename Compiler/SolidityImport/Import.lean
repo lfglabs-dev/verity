@@ -875,6 +875,14 @@ private partial def lowerBinary (j : Json) : M Val := do
           let sum := a + b
           if sum < 2 ^ 256 then return { pre := #[], expr := .literal sum }
     failAt j "unsupported integer constant sum"
+  -- Products of exact natural literals use Solidity's unbounded constant arithmetic.
+  if common.startsWith "int_const" && op == "*" then
+    if left.pre.isEmpty && right.pre.isEmpty then
+      if let .literal a := left.expr then
+        if let .literal b := right.expr then
+          let product := a * b
+          if product < 2 ^ 256 then return { pre := #[], expr := .literal product }
+    failAt j "unsupported integer constant product"
   unless (bitsOf common).isSome || common == "bool" do
     failAt j s!"unsupported operand type {common}"
   match op with

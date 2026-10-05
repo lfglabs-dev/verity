@@ -1119,4 +1119,19 @@ unbounded natural arithmetic and admitted only when the result fits uint256.
 The frontend parser remains trusted; no solc-equivalence theorem is claimed.
 The focused development campaign passed 96 A/B/C transactions across three
 equivalent variants, 56 acceptance/rejection controls and 16 semantic mutants
-with positive controls and minimal witnesses. Exact-head release gates remain pending.
+with positive controls and minimal witnesses. The numeric parent `b0fa7b0e2`
+subsequently passed all 12 exact-head gates.
+
+
+### Exact natural constant products (development)
+
+Constant multiplication is admitted only for `int_const` operands that lower
+to exact natural literals without preludes. Multiplication uses unbounded Lean
+naturals and rejects results outside uint256. This adds no runtime wraparound
+or floating-point approximation. Fractional operands and other rational
+operations remain unsupported. The solc frontend is still trusted; no
+Solidity-equivalence theorem is claimed. Focused validation at `bbc8fe0ad`
+passed 96 A/B/C transactions across three equivalent variants, 60
+acceptance/rejection controls (including an oversized intermediate), and a
+product mutant detected after a positive control and reduced to a replayed
+single-call deletion-minimal witness. Full exact-head gates remain pending.
