@@ -49,8 +49,10 @@ def main():
         variants = ('baseline', 'conditional', 'de-morgan')
     if args.fixture in ('numeric-literals', 'constant-arrays'):
         variants = ('baseline', 'renamed', 'normalized')
-    if args.fixture in ('invariant-for', 'helper-loops', 'packed-member-writes'):
+    if args.fixture in ('invariant-for', 'helper-loops'):
         variants = ('baseline', 'renamed', 'assignment-step')
+    if args.fixture == 'packed-member-writes':
+        variants = ('baseline', 'renamed', 'explicit-delete')
     if args.fixture == 'local-writes':
         variants = ('baseline', 'renamed', 'explicit-zero')
     if args.fixture == 'default-locals':
