@@ -120,8 +120,16 @@ MUTANTS.update({'import-invariant-for-counter':
     ('{ e with values := e.values.insert counter (.localVar binding),',
      '{ e with values := e.values.insert counter (.literal 0),')})
 
+MUTANTS.update({
+    'import-helper-loop-drop': ('let pre ← lowerFor s lowerHelperLoopBody', 'let pre : Array Stmt := #[]'),
+    'import-helper-loop-effect': ('| "ExpressionStatement" => out := out ++ (← lowerEffect statement)', '| "ExpressionStatement" => pure ()'),
+    'import-helper-loop-emit': ('| "EmitStatement" => out := out ++ (← lowerEmit statement)', '| "EmitStatement" => pure ()'),
+})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-helper-loop-"):
+        fixture = "HelperLoopSequence"
     if name.startswith("import-invariant-for-"):
         fixture = "InvariantForSequence"
     if name.startswith("import-local-write-"):

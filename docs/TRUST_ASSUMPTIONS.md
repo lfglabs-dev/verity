@@ -1223,3 +1223,7 @@ length decoder still executes at the first condition even for zero iterations.
 This relies on preservation of the decoded header and calldata; memory-frame
 proofs and native differential validation remain pending. No new oracle or
 axiom is introduced. Future memory/call support must preserve this check.
+
+### Development helper-loop lowering
+
+The helper-loop draft shares existing bounded-loop validation and ABI memory-frame requirements. Its nonreturning body dispatcher rejects helper-loop returns instead of substituting root-return semantics. Helper results continue through the existing scalar inlining mechanism. No new oracle or trusted semantics arm is introduced. Native differential, rejection and mutation validation remains pending.

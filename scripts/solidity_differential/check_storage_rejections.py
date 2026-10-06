@@ -9,6 +9,16 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('helper-for', 'function helper(uint256 n) internal pure returns (uint256) { uint256 total; for (uint256 i = 0; i < n; i++) { total = total + i; } return total; }', 'return helper(x);', 'uint256', None),
+        ('helper-for-return', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { return i; } return 0; }', 'return helper(x);', 'uint256', 'return inside an inlined helper loop'),
+        ('helper-for-conditional-return', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { if (i == 1) return i; } return 0; }', 'return helper(x);', 'uint256', 'return inside an inlined helper loop'),
+        ('helper-for-break', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { break; } return 0; }', 'return helper(x);', 'uint256', 'unsupported helper loop statement Break'),
+        ('helper-for-continue', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { continue; } return 0; }', 'return helper(x);', 'uint256', 'unsupported helper loop statement Continue'),
+        ('helper-for-step', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i += 2) {} return 0; }', 'return helper(x);', 'uint256', 'increment its counter by one'),
+        ('helper-for-inclusive', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i <= n; i++) {} return 0; }', 'return helper(x);', 'uint256', 'condition must be counter < bound'),
+        ('helper-for-counter', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { i = 2; } return 0; }', 'return helper(x);', 'uint256', 'counter must not be assigned'),
+        ('helper-for-bound', 'function helper(uint256 n) internal pure returns (uint256) { uint256 bound = n; for (uint256 i = 0; i < bound; i++) { bound = 0; } return 0; }', 'return helper(x);', 'uint256', 'bound must be a literal'),
+        ('helper-for-nested-bound', 'function helper(uint256 n) internal pure returns (uint256) { uint256 bound = n; for (uint256 i = 0; i < bound; i++) { for (uint256 j = 0; j < 1; bound++) {} } return 0; }', 'return helper(x);', 'uint256', 'bound must be a literal'),
         ('for-scalar', '', 'uint256 total; for (uint256 i = 0; i < 3; i++) { total = total + i; } return total;', 'uint256', None),
         ('for-nonzero', '', 'for (uint256 i = 1; i < 3; i++) {} return x;', 'uint256', 'counter must start at 0'),
         ('for-inclusive', '', 'for (uint256 i = 0; i <= 3; i++) {} return x;', 'uint256', 'condition must be counter < bound'),

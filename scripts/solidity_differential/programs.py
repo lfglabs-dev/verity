@@ -713,3 +713,24 @@ def abi_length_for_source(source: str, variant: str) -> str:
             raise ValueError('ABI-length loop requires both location steps')
         return source.replace(anchor, 'index += 1)')
     raise ValueError(f'unknown ABI-length for variant: {variant}')
+
+
+def stateful_helper_loop_source(fixture: str, variant: str) -> str:
+    """Keep helper returns, caller continuation and exact revert bytes unchanged."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        return _rename_helper_loop(fixture)
+    if variant == 'assignment-step':
+        if fixture.count('i++)') != 2:
+            raise ValueError('helper loop step anchors changed')
+        return fixture.replace('i++)', 'i += 1)')
+    raise ValueError(f'unknown helper-loop variant: {variant}')
+
+
+def _rename_helper_loop(fixture: str) -> str:
+    import re
+    names = ('bound', 'total', 'i', 'result')
+    token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+    return re.sub(token, lambda m: m.group(0) + '_renamed'
+                  if m.group(0) in names else m.group(0), fixture)

@@ -1483,6 +1483,111 @@ private partial def helperListReturns (stmts : Array Json) : M Bool := do
   | some s => helperReturns s
   | none => pure false
 
+/-- Shared exact loop checks; the caller supplies its own return semantics. -/
+private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : M (Array Stmt) := do
+  -- Only `for (uint256 i = 0; i < n; i++)` with an invariant `n` and a
+  -- counter the body never assigns: then solc's per-iteration `i < n`
+  -- test is exactly `forEach i n`, and `i++` cannot overflow.
+  let init ← mField s "initializationExpression"
+  unless (← mKind init) == "VariableDeclarationStatement" do
+    failAt s "a for loop must declare its counter"
+  let decls ← mArr (← mField init "declarations")
+  unless decls.size == 1 && !decls[0]!.isNull do
+    failAt init "a for loop must declare exactly one counter"
+  let d := decls[0]!
+  let counter ← mNat (← mField d "id")
+  let counterName ← mStr (← mField d "name")
+  unless (← mType d) == "uint256" do failAt d "a for loop counter must be uint256"
+  if let some start := (field? init "initialValue").filter (!·.isNull) then
+    unless (← mType start) == "int_const 0" do failAt start "a for loop counter must start at 0"
+  let body ← mField s "body"
+  let writes := bodyAssignedIds body
+  if writes.contains counter then
+    failAt d "a for loop counter must not be assigned in the loop body"
+  let isCounter (j : Json) : M Bool := do
+    if (← mKind j) != "Identifier" then return false
+    pure ((← refInt j) == counter)
+  let step ← mField (← mField s "loopExpression") "expression"
+  let stepOk ← match ← mKind step with
+    | "UnaryOperation" =>
+        pure (optStr step "operator" == some "++" && (← isCounter (← mField step "subExpression")))
+    | "Assignment" =>
+        pure (optStr step "operator" == some "+=" && (← isCounter (← mField step "leftHandSide")) &&
+          (← mType (← mField step "rightHandSide")) == "int_const 1")
+    | _ => pure false
+  unless stepOk do failAt step "a for loop must increment its counter by one"
+  let cond ← mField s "condition"
+  unless (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" do
+    failAt cond "a for loop condition must be counter < bound"
+  unless ← isCounter (← mField cond "leftExpression") do
+    failAt cond "a for loop condition must be counter < bound"
+  let boundNode ← mField cond "rightExpression"
+  let abiLength ← if (← mKind boundNode) == "MemberAccess" &&
+      optStr boundNode "memberName" == some "length" then do
+    match ← lowerRef (← mField boundNode "expression") with
+    | .abiArray _ _ pre => pure pre.isEmpty
+    | _ => pure false
+  else pure false
+  let bound ← lowerExpr boundNode
+  let invariant ← match bound.expr with
+    | .literal _ | .param _ => pure true
+    | .localVar _ =>
+        if (← mKind boundNode) == "Identifier" then
+          pure (!writes.contains (← refInt boundNode).toNat)
+        else pure false
+    | _ => pure false
+  unless abiLength || (bound.pre.isEmpty && invariant) do
+    failAt boundNode "a for loop bound must be a literal, a parameter or an unassigned local"
+  let binding ← freshFor counterName
+  let saved ← get
+  modify fun e =>
+    { e with values := e.values.insert counter (.localVar binding),
+             yulNames := e.yulNames.insert counterName (.localVar binding) }
+  let bodyOut ← lowerBody body
+  if abiLength && !abiHeaderPreservingList bodyOut.toList then
+    failAt body "ABI-length loop body may write memory or call external code"
+  modify fun e =>
+    { e with values := saved.values, paths := saved.paths,
+             mems := saved.mems, scalarTy := saved.scalarTy,
+             writableLocals := saved.writableLocals, yulNames := saved.yulNames }
+  let mut out : Array Stmt := #[]
+  if abiLength then
+    let captured ← fresh
+    out := out ++ bound.pre |>.push (.letVar captured bound.expr)
+    out := out.push (.forEach binding (.localVar captured) bodyOut.toList)
+  else
+    out := out.push (.forEach binding bound.expr bodyOut.toList)
+  pure out
+
+private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
+  let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
+  let mut out : Array Stmt := #[]
+  for statement in statements do
+    match ← mKind statement with
+    | "Block" =>
+        let saved ← get
+        out := out ++ (← lowerHelperLoopBody statement)
+        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals,
+          paths := saved.paths, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+    | "VariableDeclarationStatement" => out := out ++ (← lowerLocal statement)
+    | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
+    | "EmitStatement" => out := out ++ (← lowerEmit statement)
+    | "ForStatement" => out := out ++ (← lowerFor statement lowerHelperLoopBody)
+    | "IfStatement" =>
+        let (condition, _yes, no) ← ifParts statement
+        let saved ← get
+        let restore : M Unit := modify fun e => { e with values := saved.values,
+          writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems,
+          scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        let yesOut ← lowerHelperLoopBody (← mField statement "trueBody")
+        restore
+        let noOut ← if no.isEmpty then pure #[] else lowerHelperLoopBody (← mField statement "falseBody")
+        restore
+        out := out ++ condition.pre |>.push (.ite condition.expr yesOut.toList noOut.toList)
+    | "Return" => failAt statement "return inside an inlined helper loop is unsupported"
+    | kind => failAt statement s!"unsupported helper loop statement {kind}"
+  pure out
+
 /-- Lowers helper statements to a prelude and, when the list returns, its
     result. A returning `if` branch ends the list; the continuation after the
     `if` is lowered once, inside the branch that falls through. -/
@@ -1498,6 +1603,10 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         pure (pre ++ tail, result)
     | "ExpressionStatement" =>
         let pre ← lowerRequire s
+        let (tail, result) ← lowerHelperFrom rest retName
+        pure (pre ++ tail, result)
+    | "ForStatement" =>
+        let pre ← lowerFor s lowerHelperLoopBody
         let (tail, result) ← lowerHelperFrom rest retName
         pure (pre ++ tail, result)
     | "Return" =>
@@ -1902,79 +2011,10 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
     | "EmitStatement" =>
         out := out ++ (← lowerEmit s)
     | "ForStatement" =>
-        -- Only `for (uint256 i = 0; i < n; i++)` with an invariant `n` and a
-        -- counter the body never assigns: then solc's per-iteration `i < n`
-        -- test is exactly `forEach i n`, and `i++` cannot overflow.
-        let init ← mField s "initializationExpression"
-        unless (← mKind init) == "VariableDeclarationStatement" do
-          failAt s "a for loop must declare its counter"
-        let decls ← mArr (← mField init "declarations")
-        unless decls.size == 1 && !decls[0]!.isNull do
-          failAt init "a for loop must declare exactly one counter"
-        let d := decls[0]!
-        let counter ← mNat (← mField d "id")
-        let counterName ← mStr (← mField d "name")
-        unless (← mType d) == "uint256" do failAt d "a for loop counter must be uint256"
-        if let some start := (field? init "initialValue").filter (!·.isNull) then
-          unless (← mType start) == "int_const 0" do failAt start "a for loop counter must start at 0"
-        let body ← mField s "body"
-        let writes := bodyAssignedIds body
-        if writes.contains counter then
-          failAt d "a for loop counter must not be assigned in the loop body"
-        let isCounter (j : Json) : M Bool := do
-          if (← mKind j) != "Identifier" then return false
-          pure ((← refInt j) == counter)
-        let step ← mField (← mField s "loopExpression") "expression"
-        let stepOk ← match ← mKind step with
-          | "UnaryOperation" =>
-              pure (optStr step "operator" == some "++" && (← isCounter (← mField step "subExpression")))
-          | "Assignment" =>
-              pure (optStr step "operator" == some "+=" && (← isCounter (← mField step "leftHandSide")) &&
-                (← mType (← mField step "rightHandSide")) == "int_const 1")
-          | _ => pure false
-        unless stepOk do failAt step "a for loop must increment its counter by one"
-        let cond ← mField s "condition"
-        unless (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" do
-          failAt cond "a for loop condition must be counter < bound"
-        unless ← isCounter (← mField cond "leftExpression") do
-          failAt cond "a for loop condition must be counter < bound"
-        let boundNode ← mField cond "rightExpression"
-        let abiLength ← if (← mKind boundNode) == "MemberAccess" &&
-            optStr boundNode "memberName" == some "length" then do
-          match ← lowerRef (← mField boundNode "expression") with
-          | .abiArray _ _ pre => pure pre.isEmpty
-          | _ => pure false
-        else pure false
-        let bound ← lowerExpr boundNode
-        let invariant ← match bound.expr with
-          | .literal _ | .param _ => pure true
-          | .localVar _ =>
-              if (← mKind boundNode) == "Identifier" then
-                pure (!writes.contains (← refInt boundNode).toNat)
-              else pure false
-          | _ => pure false
-        unless abiLength || (bound.pre.isEmpty && invariant) do
-          failAt boundNode "a for loop bound must be a literal, a parameter or an unassigned local"
-        let binding ← freshFor counterName
-        let saved ← get
-        modify fun e =>
-          { e with values := e.values.insert counter (.localVar binding),
-                   yulNames := e.yulNames.insert counterName (.localVar binding) }
-        let stmts ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
-        -- A return in the body leaves the loop; zero iterations fall through.
-        let (bodyOut, _) ← lowerRootStatements stmts
-        if abiLength && !abiHeaderPreservingList bodyOut.toList then
-          failAt body "ABI-length loop body may write memory or call external code"
-        modify fun e =>
-          { e with values := saved.values, paths := saved.paths,
-                   mems := saved.mems, scalarTy := saved.scalarTy,
-                   writableLocals := saved.writableLocals, yulNames := saved.yulNames }
-        if abiLength then
-          let captured ← fresh
-          out := out ++ bound.pre |>.push (.letVar captured bound.expr)
-          out := out.push (.forEach binding (.localVar captured) bodyOut.toList)
-        else
-          out := out.push (.forEach binding bound.expr bodyOut.toList)
+        out := out ++ (← lowerFor s fun body => do
+          let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
+          let (lowered, _) ← lowerRootStatements statements
+          pure lowered)
     | "IfStatement" =>
         let (condition, yes, no) ← ifParts s
         let saved ← get

@@ -440,3 +440,13 @@ indexed rule above to establish a bounded block theorem before composing it.
 The check module exercises arbitrary-state step/prefix composition, early stop,
 exact revert bytes, rejection of an incompatible step proof, and a concrete
 bind-then-stop sequence whose unreachable suffix is arbitrary.
+
+### Development slice: loops in inlined helpers
+
+A shared loop lowering draft reuses the exact unsigned zero-start/unit-step/invariant-bound checks for root entry points and helpers. Helper loop bodies admit supported scalar locals, assignments/deletion, requires, events, conditionals and nested loops. A helper's final result resumes its caller; returns inside its loop body remain precisely rejected. `HelperLoopSequence` checks the caller continuation.
+
+| Supported Solidity (development; native validation pending) | Lowering boundary |
+| --- | --- |
+| Invariant bounded `for` in an internal scalar-result helper | Shared counter/bound/header checks; helper body has no return; unsupported effects fail with source diagnostics |
+
+No release validation or Midnight coverage improvement is claimed for this draft.
