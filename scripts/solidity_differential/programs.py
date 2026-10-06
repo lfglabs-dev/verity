@@ -754,3 +754,23 @@ def stateful_packed_member_write_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(anchor, f'{name}.middle = 0;')
         return fixture
     raise ValueError(f'unknown packed-member variant: {variant}')
+
+
+def stateful_helper_effect_source(fixture: str, variant: str) -> str:
+    """Keep helper effects, caller continuation and exact revert strings intact."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = ('scratch', 'selected', 'result', 'update')
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'explicit-delete':
+        for target in ('selected.low', 'entries[1]'):
+            anchor = f'delete {target};'
+            if fixture.count(anchor) != 1:
+                raise ValueError('helper effect delete anchor changed')
+            fixture = fixture.replace(anchor, f'{target} = 0;')
+        return fixture
+    raise ValueError(f'unknown helper-effect variant: {variant}')

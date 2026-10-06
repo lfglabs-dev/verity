@@ -1231,3 +1231,7 @@ The helper-loop draft shares existing bounded-loop validation and ABI memory-fra
 ### Development mapping-struct member writes
 
 This draft uses the existing pinned-solc storage layout and existing Denote/compiled `setStructMember`/`setStructMember2` semantics. Unsigned members must be present in the resolved layout; opaque members and key preludes at assignment are rejected. Alias keys are frozen at declaration to preserve storage-pointer identity. The alias issue is currently a source-audit concern awaiting runtime reproduction; tests, mutation witnesses and full release validation are pending.
+
+### Development internal helper expression effects
+
+The helper continuation delegates expression statements to the same exact assignment/delete/require lowering as root entry points. It introduces no new Denote instruction, oracle or trusted semantics arm. Helper scope restoration and scalar-result continuation remain unchanged. The draft fixture, generated variants, rejection controls and effect-drop mutation still require native and full release validation.

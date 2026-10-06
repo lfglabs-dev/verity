@@ -1599,7 +1599,9 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let (tail, result) ← lowerHelperFrom rest retName
         pure (pre ++ tail, result)
     | "ExpressionStatement" =>
-        let pre ← lowerRequire s
+        -- Use the same exact assignment/delete and require rules as root bodies.
+        -- The helper continuation still resumes only after these effects.
+        let pre ← lowerEffect s
         let (tail, result) ← lowerHelperFrom rest retName
         pure (pre ++ tail, result)
     | "ForStatement" =>

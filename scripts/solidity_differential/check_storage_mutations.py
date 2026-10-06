@@ -130,6 +130,7 @@ MUTANTS.update({
 })
 
 MUTANTS.update({
+    'import-helper-effect-drop': ('-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre ← lowerEffect s', '-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre : Array Stmt := #[]'),
     'import-packed-member-delete': ('markField name\n    let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n      let right ← mField expression "rightHandSide"\n      atom (← convert ty (← mType right) (← lowerExpr right) right)\n    return value.pre.push (write value.expr)', 'markField name\n    let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n      let right ← mField expression "rightHandSide"\n      atom (← convert ty (← mType right) (← lowerExpr right) right)\n    return value.pre.push (write value.expr)'),
     'import-packed-member-value': ('return value.pre.push (write value.expr)', 'return value.pre.push (write (.literal 0))'),
     'import-packed-member-target': ('Stmt.setStructMember field key member value', 'Stmt.setStructMember field key "middle" value'),
@@ -139,6 +140,8 @@ MUTANTS.update({
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-helper-effect-"):
+        fixture = "HelperEffectSequence"
     if name.startswith("import-packed-member-"):
         fixture = "PackedMemberWriteSequence"
     if name.startswith("import-helper-loop-"):

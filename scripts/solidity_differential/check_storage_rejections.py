@@ -9,6 +9,13 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('helper-effect-write', 'uint256 value; function helper(uint256 n) internal returns (uint256) { value = n; return value; }', 'return helper(x);', 'uint256', None),
+        ('helper-effect-delete', 'mapping(uint256 => uint256) value; function helper(uint256 n) internal returns (uint256) { value[1] = n; delete value[1]; return value[1]; }', 'return helper(x);', 'uint256', None),
+        ('helper-effect-compound', 'uint256 value; function helper(uint256 n) internal returns (uint256) { value += n; return value; }', 'return helper(x);', 'uint256', 'only scalar storage assignment and delete'),
+        ('helper-effect-increment', 'uint256 value; function helper(uint256 n) internal returns (uint256) { value++; return n; }', 'return helper(x);', 'uint256', 'only scalar storage assignment and delete'),
+        ('helper-effect-parameter', 'function helper(uint256 n) internal pure returns (uint256) { n = 0; return n; }', 'return helper(x);', 'uint256', 'only a resolved scalar storage identifier'),
+        ('helper-effect-root-struct', 'struct Box { uint256 low; } Box box; function helper(uint256 n) internal returns (uint256) { box.low = n; return n; }', 'return helper(x);', 'uint256', 'member assignment requires a mapping struct storage path'),
+        ('helper-effect-external', 'function helper(uint256 n) internal returns (uint256) { this.checked(n); return n; }', 'return helper(x);', 'uint256', 'only builtin require calls'),
         ('member-write', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[1].low = uint8(x); return uint256(boxes[1].low);', 'uint256', None),
         ('member-delete', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'delete boxes[1].low; return uint256(boxes[1].low);', 'uint256', None),
         ('member-key-prelude', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[x + 1].low = 7; return x;', 'uint256', 'member write key prelude'),
