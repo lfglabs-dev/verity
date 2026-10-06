@@ -90,3 +90,19 @@ Different projects may require different compat families, but the control plane 
 - [`PARITY_PACKS.md`](PARITY_PACKS.md)
 - [`REWRITE_RULES.md`](REWRITE_RULES.md)
 - [`IDENTITY_CHECKER.md`](IDENTITY_CHECKER.md)
+
+
+### Stateful sequence reduction
+
+The reducer first tries deleting contiguous chunks while preserving the original
+first mismatch category. It then checks single-transaction deletions and replays
+the final witness from the original pre-state. The chunk pass reduces repeated
+full-sequence execution for long campaigns; it does not change transaction
+inputs, observations, compiler settings, replay limits or the requirement for a
+reproduced deletion-minimal witness. Resource and instrumentation failures
+propagate. An exhausted attempt budget still reports `deletion_minimal: false`.
+
+Protocol regressions cover a 64-transaction sequence with ordered setup and
+failure dependencies, a chunk replay failure, and exhausted-budget minimality.
+A real fixed-array layout mutant campaign remains required before claiming the
+new reducer works end to end.
