@@ -15,6 +15,8 @@ from .programs import stateful_scalar_source
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cached-denote', action='store_true',
+        help='opt-in actual Lean module replay cache; archive and verify its artifacts')
     parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
     parser.add_argument('--dirty-mappings', action='store_true',
         help='seed the MappingDirtySequence layout with noncanonical low bytes and nonzero upper bits')
@@ -120,7 +122,7 @@ def main():
         'data': '0x' + source['methodIdentifiers'][name] + ''.join(format(arg, '064x') for arg in args)}
         for index, (name, args) in enumerate(calls)]
     adapters = {'source': EVMAdapter(output / 'A', [source_code], initial_storage=initial_storage),
-        'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity),
+        'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity, cached_driver=args.cached_denote),
         'compiled': EVMAdapter(output / 'C', [compiled_code], initial_storage=initial_storage)}
     write_json(output / 'provenance.json', {
         'solcSha256': hashlib.sha256(SOLC.read_bytes()).hexdigest(),
@@ -128,7 +130,7 @@ def main():
         'leanVersion': command(['lake', 'env', 'lean', '--version']).strip(),
         'sourceSha256': hashlib.sha256(source_text.encode()).hexdigest(),
         'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest(),
-        'variant': args.variant, 'seed': args.seed, 'transactionCount': args.transactions,
+        'variant': args.variant, 'cachedDenote': args.cached_denote, 'seed': args.seed, 'transactionCount': args.transactions,
         'changePrefix': args.change_prefix, 'argumentBits': args.argument_bits, 'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
         'evmVersion': 'osaka', 'optimizerRuns': 466})
     result = replay_three_routes(transactions, adapters)

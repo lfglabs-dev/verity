@@ -106,3 +106,21 @@ Protocol regressions cover a 64-transaction sequence with ordered setup and
 failure dependencies, a chunk replay failure, and exhausted-budget minimality.
 A real fixed-array layout mutant campaign remains required before claiming the
 new reducer works end to end.
+
+
+### Experimental cached Denote driver
+
+`check_stateful --cached-denote` is an opt-in prototype. The adapter elaborates
+an exact copy of the model driver once using the pinned actual Lean toolchain,
+then imports the emitted module and executes its original `main` for every
+sequence replay. It retains the ordinary implementation identity check and
+additionally records and checks cached source, wrapper and module artifacts
+before and after execution. The uncached route remains the default.
+
+Seven cache-lifecycle tests cover reuse, source/artifact/wrapper changes, added
+modules, failed compilation and missing artifacts. These tests mock the compiler
+and do **not** establish that cached Lean execution works. Native cold/cached
+A/B/C campaigns and a cached runtime mutation with final minimal-witness replay
+remain mandatory before enabling this path in release campaigns. Cached replay
+files archive all added artifact hashes; ordinary observations and reduction
+requirements are unchanged.

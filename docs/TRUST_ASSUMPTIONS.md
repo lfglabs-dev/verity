@@ -1256,3 +1256,16 @@ stamp/order, revert bytes and rollback across32transactions on the pinned
 A/B/C routes. This is fixture-scoped differential evidence, not a proof about
 all key/index expressions or other solc settings. Existing rejection controls
 and the full release gates remain required.
+
+
+### Experimental Denote driver cache
+
+The opt-in cached driver uses the same trusted Lean runtime and existing model
+semantics as `lean --run`, with driver elaboration stored as a module artifact.
+The original implementation checks remain, and cached source, wrapper and all
+module artifact identities are recorded and verified before and after replay.
+This adds executable artifacts to the recorded input boundary; it adds no Lean
+axiom or importer lowering rule. Native cold/cached observational equivalence
+and actual runtime mutation reduction have not yet been validated. The default
+release path remains uncached, and no speed or semantic-equivalence claim is made
+for this prototype.
