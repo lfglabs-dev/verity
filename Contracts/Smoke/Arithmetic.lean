@@ -284,6 +284,34 @@ verity_contract Int256CheckedSmoke where
 
 #check_contract Int256CheckedSmoke
 
+-- G28 regression: an `Int256` storage read feeds the *signed* checked add in
+-- the executable plane. Before the fix `getStorage last` bound a raw `Uint256`
+-- word, so `addPanic current delta` used unsigned `addPanic` and reverted on
+-- `-1 + 25` (the words wrap mod 2^256) while Solidity `int256 +=` succeeds.
+private def okB {α : Type} : ContractResult α → Bool
+  | .success _ _ => true
+  | .revert _ _ => false
+
+private def slot0After {α : Type} : ContractResult α → Uint256
+  | .success _ s => s.readSlot 0
+  | .revert _ s => s.readSlot 0
+
+private def int256MinusOneState : ContractState :=
+  Verity.defaultState.writeSlot 0 (Verity.Core.Uint256.ofNat (2 ^ 256 - 1))
+
+example :
+    ((Int256CheckedSmoke.applyDelta (Verity.Core.Int256.ofInt 25)).run int256MinusOneState |> okB) = true := by decide +kernel
+
+example :
+    slot0After ((Int256CheckedSmoke.applyDelta (Verity.Core.Int256.ofInt 25)).run int256MinusOneState) = 24 := by decide +kernel
+
+-- Signed overflow still panics: `maxValue + 1`.
+private def int256MaxState : ContractState :=
+  Verity.defaultState.writeSlot 0 (Verity.Core.Uint256.ofNat (2 ^ 255 - 1))
+
+example :
+    ((Int256CheckedSmoke.applyDelta (Verity.Core.Int256.ofInt 1)).run int256MaxState |> okB) = false := by decide +kernel
+
 example : Int256CheckedSmoke.spec.fields.any (fun field =>
     field.name == "last" && field.slot == some 0 &&
       match field.ty with

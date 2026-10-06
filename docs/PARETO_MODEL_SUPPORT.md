@@ -44,7 +44,13 @@ pattern is the bit-reinterpretation already provided by `toUint256`.
 `FieldType.int256` (one EVM word, layout-identical to `uint256`) so the
 field round-trips through `Storage.lean`, layout reports, and
 `#check_contract`. The executable slot remains a `Uint256` word; the DSL
-and compilation model keep the signed tag.
+and compilation model keep the signed tag. In the executable plane
+`let x ← getStorage f` on an unpacked persistent `Int256` field binds
+`Int256.ofUint256 word`, so later `addPanic`/`subPanic`/... resolve to the
+signed instances exactly as in the compilation model (G28: before, `x` was
+the raw `Uint256` word and `addPanic x delta` silently used the unsigned
+check through the `Int256 → Uint256` coercion, reverting on valid
+`int256 +=` with a negative operand and missing real signed overflow).
 
 **Compilation model.** Bound `let x ← addPanic a b` with `Int256`
 operands lowers to wrapping `add`/`sub`/`mul` plus an `slt`-based overflow

@@ -2396,6 +2396,47 @@ def setMapping (s : StorageSlot (Address → Uint256)) (key : Address) (value : 
         state.knownAddresses slot
   } := rfl
 
+/-! ### Mapping reads and writes through a distinct-address hop (G14)
+
+An ERC-20 `balanceOf(holder)` answered by a linked token body is a
+`getMapping` run inside `Contract.hopCallView token`. The callee sees its own
+mapping world (`enterHop` loads `.scoped token`), so the value read is the
+token's parked entry `.scoped token (.map slot holder)`, and the caller's
+storage is untouched. A committed mutating hop parks every plain non-slot
+write of the callee back under `.scoped callee`. -/
+
+/-- Successful distinct-address mutating hop: the result state is `exitHop`. -/
+theorem Contract.hopCall_success_of_ne {α : Type} (callee : Address) (body : Contract α)
+    (s s' : ContractState) (v : α) (h : s.thisAddress ≠ callee)
+    (hbody : body (s.enterHop s.thisAddress callee) = ContractResult.success v s') :
+    Contract.hopCall callee body s =
+      ContractResult.success v (s.exitHop s' s.thisAddress callee) := by
+  rw [Contract.hopCall_of_ne callee body s h, hbody]
+
+/-- After a successful distinct-address hop, the callee's parked word for any
+plain non-slot key (`.map`, `.map2`, `.mapUint`, `.mapChain`, `.addr`, ...) is
+the value that key had at the end of the callee body. -/
+theorem Contract.hopCall_scoped_callee {α : Type} (callee : Address) (body : Contract α)
+    (s s' : ContractState) (v : α) (h : s.thisAddress ≠ callee)
+    (hbody : body (s.enterHop s.thisAddress callee) = ContractResult.success v s')
+    (k : StorageKey) (hk : k.isPlainNonSlot = true) :
+    ((Contract.hopCall callee body s).getState).storageWords (.scoped callee.toNat k) =
+      s'.storageWords k := by
+  rw [Contract.hopCall_success_of_ne callee body s s' v h hbody]
+  exact ContractState.exitHop_scoped_callee s s' s.thisAddress callee k hk
+
+/-- `balanceOf`-shaped view hop: reading `slot[key]` inside
+`hopCallView callee` returns the callee's parked mapping entry and leaves the
+caller's state unchanged except for the cleared returndata. -/
+theorem Contract.hopCallView_getMapping (callee : Address)
+    (slot : StorageSlot (Address → Uint256)) (key : Address)
+    (s : ContractState) (h : s.thisAddress ≠ callee) :
+    Contract.hopCallView callee (getMapping slot key) s =
+      ContractResult.success (s.storageWords (.scoped callee.toNat (.map slot.slot key)))
+        { s with returndata := [] } := by
+  rw [Contract.hopCallView_of_ne callee _ s h]
+  rfl
+
 -- Typed address-valued mapping helpers on top of the word-backed storage model.
 def getMappingAddr (s : StorageSlot (Address → Uint256)) (key : Address) : Contract Address :=
   fun state => ContractResult.success (wordToAddress (state.readMap s.slot key)) state
@@ -2416,6 +2457,17 @@ def setMappingAddr (s : StorageSlot (Address → Uint256)) (key value : Address)
 -- Double mapping operations (Address → Address → Uint256) (#154)
 def getMapping2 (s : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) : Contract Uint256 :=
   fun state => ContractResult.success (state.readMap2 s.slot key1 key2) state
+
+/-- Same as `hopCallView_getMapping` for the `getMapping2` (allowance) channel. -/
+theorem Contract.hopCallView_getMapping2 (callee : Address)
+    (slot : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address)
+    (s : ContractState) (h : s.thisAddress ≠ callee) :
+    Contract.hopCallView callee (getMapping2 slot key1 key2) s =
+      ContractResult.success
+        (s.storageWords (.scoped callee.toNat (.map2 slot.slot key1 key2)))
+        { s with returndata := [] } := by
+  rw [Contract.hopCallView_of_ne callee _ s h]
+  rfl
 
 def setMapping2 (s : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) (value : Uint256) : Contract Unit :=
   fun state => ContractResult.success () (state.writeMap2 s.slot key1 key2 value)

@@ -183,4 +183,29 @@ theorem hop_setRequest_frame (s : ContractState) (callee user : Address)
   exact ContractState.readMapChain_exitHop_enterHop_of_frame _ _ _ _ _ _ _
     (ContractState.storageWords_scoped_writeMapChain _ _ _ _ _ _ _)
 
+/-! ## Kernel evaluation of generated bodies (G2 residual)
+
+No executable accessor reaches keccak: nested / struct mappings live on the
+symbolic `mapChain` channel, single-key mappings on `.map` / `.mapUint` /
+`.map2`, and selectors are hashed at elaboration time. So whole generated
+bodies over hashed storage reduce in the kernel (`decide +kernel`), with no
+`native_decide` and no keccak evaluation. Only the *interpretation* layer
+(`mappingChainSlotLocation`, `solidityMappingSlot`, `@[implemented_by]`
+over a well-founded sponge) is not kernel-reducible; it is never on an
+execution path. -/
+
+private def g2User : Address := (0xabc : Address)
+
+private def g2Run : ContractResult (Uint256 × Uint256 × Uint256) :=
+  (do
+    HashedMappingExecSmoke.setRequest g2User 7 1000
+    HashedMappingExecSmoke.setReceipt g2User 55 3
+    let r ← HashedMappingExecSmoke.requestOf g2User 7
+    let other ← HashedMappingExecSmoke.requestOf g2User 8
+    let (p, e) ← HashedMappingExecSmoke.receiptOf g2User
+    return (r, other, p + e) : Contract _).run Verity.defaultState
+
+example : g2Run.getValue? = some ((1000 : Uint256), (0 : Uint256), (58 : Uint256)) := by
+  decide +kernel
+
 end Contracts.Smoke
