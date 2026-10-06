@@ -84,9 +84,9 @@ def stmtListCovered : List Stmt → Bool
 
 end
 
-/-- Statements admitted in a loop whose ABI memory header is hoisted.
-Explicit memory writes and unknown/call constructors are excluded, recursively. -/
 mutual
+  /-- Statements admitted in a loop whose ABI memory header is hoisted.
+  Explicit memory writes and unknown/call constructors are excluded, recursively. -/
   def abiHeaderPreservingStmt : Stmt → Bool
     | .forEach _ count body => exprCovered count && abiHeaderPreservingList body
     | .ite condition yes no =>

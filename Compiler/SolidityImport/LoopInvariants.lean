@@ -111,7 +111,7 @@ theorem forEach_memory_cell_frame (oracle : DenoteOracle) (fields : List Field)
     (varName : String) (count : Expr) (body : List Stmt)
     (state : DenoteState) (bound address : Nat) (exit : StmtOutcome → Prop)
     (evaluated : evalExpr oracle fields state count = some bound)
-    (step : ∀ index before,
+    (step : ∀ (index : Nat) (before : DenoteState),
       before.world.memory address = state.world.memory address →
       LoopOutcomePost (fun after => after.world.memory address = state.world.memory address) exit
         (execStmtList oracle fields

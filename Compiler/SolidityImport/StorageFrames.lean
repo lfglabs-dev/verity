@@ -207,8 +207,14 @@ theorem execStmt_setStructMember_memory_frame (oracle : DenoteOracle) (fields : 
   all_goals split
   all_goals simp only [preservesMemory]
   all_goals try split
-  all_goals simp_all only [writeAddressKeyedMappingWordFieldSlots_memory_frame,
+  all_goals try simp_all only [writeAddressKeyedMappingWordFieldSlots_memory_frame,
     writeAddressKeyedMappingPackedWordFieldSlots_memory_frame, preservesMemory]
+  all_goals split at * <;> simp_all [StmtOutcome.continue.injEq,
+    writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
+    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
+  all_goals subst_vars
+  all_goals simp [writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
+    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
 
 /-- The same memory frame for the two-key member-write statement. -/
 theorem execStmt_setStructMember2_memory_frame (oracle : DenoteOracle) (fields : List Field)
@@ -220,7 +226,13 @@ theorem execStmt_setStructMember2_memory_frame (oracle : DenoteOracle) (fields :
   all_goals split
   all_goals simp only [preservesMemory]
   all_goals try split
-  all_goals simp_all only [writeAddressKeyedMapping2WordFieldSlots_memory_frame,
+  all_goals try simp_all only [writeAddressKeyedMapping2WordFieldSlots_memory_frame,
     writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame, preservesMemory]
+  all_goals split at * <;> simp_all [StmtOutcome.continue.injEq,
+    writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
+    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
+  all_goals subst_vars
+  all_goals simp [writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
+    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
 
 end Compiler.CompilationModel.Denote
