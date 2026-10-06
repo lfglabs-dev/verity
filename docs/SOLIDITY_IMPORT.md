@@ -492,3 +492,16 @@ on `2a448958`: two state-changing helpers produced stamp12 on success, invalid
 indices produced panic0x32, and competing helper failures produced the exact
 `first array key` revert bytes. This establishes that fixture under the pinned
 compiler settings; it is not a general Solidity evaluation-order theorem.
+
+
+### Development proof infrastructure: mapped storage frames
+
+The candidate `StorageFrames` lemmas cover full-word and packed member writes
+behind one- and two-key mappings, including the actual `setStructMember` and
+`setStructMember2` statements. Their hypotheses exclude the queried slot from
+**all normalized physical destinations**, including every resolved alias; they
+make no injectivity assumption about Keccak or the oracle. Transient writes
+preserve persistent storage. These are proof drafts awaiting kernel validation
+and the exact-head release gates. They add no importer construct or semantics
+arm and do not assert that untouched bits inside the written word are preserved;
+that property requires the separate mask reasoning.

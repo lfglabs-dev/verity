@@ -235,4 +235,139 @@ theorem execStmt_setStructMember2_memory_frame (oracle : DenoteOracle) (fields :
   all_goals simp [writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
     writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
 
+
+private theorem normalize_twice (value : Nat) :
+    wordNormalize (wordNormalize value) = wordNormalize value := Nat.mod_mod _ _
+
+/-- Physical persistent-slot frame for arbitrary mapping targets. Transient
+fields preserve every persistent slot; aliases and wrapping are explicit. -/
+theorem writeMappingTargets_storage_frame (fields : List Field) (name : String)
+    (world : Verity.ContractState) (targets : List Nat) (value slot : Nat)
+    (outside : (targets.map wordNormalize).contains slot = false) :
+    (writeMappingTargets fields name world targets value).storage slot = world.storage slot := by
+  unfold writeMappingTargets
+  split
+  · exact congrFun (Verity.ContractState.storage_writeTransientSlots world _ _) slot
+  · exact Verity.ContractState.storage_writeSlots_not_mem world _ _ outside
+
+/-- Full-word mapped member writes preserve slots outside all physical targets.
+No injectivity assumption is made about the mapping oracle. -/
+theorem writeAddressKeyedMappingWordFieldSlots_storage_frame (oracle : DenoteOracle)
+    (fields : List Field) (name : String) (world : Verity.ContractState)
+    (slots : List Nat) (key offset value slot : Nat)
+    (outside : (slots.map (fun base => wordNormalize (oracle.mappingSlot base key + offset))).contains slot = false) :
+    (writeAddressKeyedMappingWordFieldSlots oracle fields name world slots key offset value).storage slot =
+      world.storage slot := by
+  unfold writeAddressKeyedMappingWordFieldSlots
+  apply writeMappingTargets_storage_frame
+  simpa only [List.map_map, Function.comp_def, normalize_twice] using outside
+
+/-- Packed mapped member writes preserve every physical slot outside their
+word targets, independent of the mask used inside a target. -/
+theorem writeAddressKeyedMappingPackedWordFieldSlots_storage_frame (oracle : DenoteOracle)
+    (fields : List Field) (name : String) (world : Verity.ContractState)
+    (slots : List Nat) (key offset : Nat) (packed : PackedBits) (value slot : Nat)
+    (outside : (slots.map (fun base => wordNormalize (oracle.mappingSlot base key + offset))).contains slot = false) :
+    (writeAddressKeyedMappingPackedWordFieldSlots oracle fields name world slots key offset packed value).storage slot =
+      world.storage slot := by
+  unfold writeAddressKeyedMappingPackedWordFieldSlots
+  split
+  · exact congrFun (Verity.ContractState.storage_modifyTransientSlots world _ _) slot
+  · unfold writeAddressKeyedMappingPackedWordSlots
+    exact Verity.ContractState.storage_modifySlots_not_mem world _ _ outside
+
+/-- Full-word mapped member writes preserve slots outside all physical targets.
+No injectivity assumption is made about the mapping oracle. -/
+theorem writeAddressKeyedMapping2WordFieldSlots_storage_frame (oracle : DenoteOracle)
+    (fields : List Field) (name : String) (world : Verity.ContractState)
+    (slots : List Nat) (key1 key2 offset value slot : Nat)
+    (outside : (slots.map (fun base => wordNormalize (oracle.mappingSlot (oracle.mappingSlot base key1) key2 + offset))).contains slot = false) :
+    (writeAddressKeyedMapping2WordFieldSlots oracle fields name world slots key1 key2 offset value).storage slot =
+      world.storage slot := by
+  unfold writeAddressKeyedMapping2WordFieldSlots
+  apply writeMappingTargets_storage_frame
+  simpa only [List.map_map, Function.comp_def, normalize_twice] using outside
+
+/-- Packed mapped member writes preserve every physical slot outside their
+word targets, independent of the mask used inside a target. -/
+theorem writeAddressKeyedMapping2PackedWordFieldSlots_storage_frame (oracle : DenoteOracle)
+    (fields : List Field) (name : String) (world : Verity.ContractState)
+    (slots : List Nat) (key1 key2 offset : Nat) (packed : PackedBits) (value slot : Nat)
+    (outside : (slots.map (fun base => wordNormalize (oracle.mappingSlot (oracle.mappingSlot base key1) key2 + offset))).contains slot = false) :
+    (writeAddressKeyedMapping2PackedWordFieldSlots oracle fields name world slots key1 key2 offset packed value).storage slot =
+      world.storage slot := by
+  unfold writeAddressKeyedMapping2PackedWordFieldSlots
+  split
+  · exact congrFun (Verity.ContractState.storage_modifyTransientSlots world _ _) slot
+  · unfold writeAddressKeyedMapping2PackedWordSlots
+    exact Verity.ContractState.storage_modifySlots_not_mem world _ _ outside
+
+/-- Lift the physical frame to the actual one-key member-write statement.
+Successful execution supplies the packed-layout validity check. -/
+theorem execStmt_setStructMember_storage_frame (oracle : DenoteOracle)
+    (fields : List Field) (before after : DenoteState) (name memberName : String)
+    (key value : Expr) (first : Nat) (aliases : List Nat)
+    (members : List StructMember) (member : StructMember) (keyValue resolvedValue slot : Nat)
+    (resolved : findFieldWriteSlots fields name = some (first :: aliases))
+    (resolvedMembers : findStructMembers fields name = some members)
+    (resolvedMember : findStructMember members memberName = some member)
+    (evaluatedKey : evalExpr oracle fields before key = some keyValue)
+    (evaluatedValue : evalExpr oracle fields before value = some resolvedValue)
+    (outside : ((first :: aliases).map
+      (fun base => wordNormalize (oracle.mappingSlot base keyValue + member.wordOffset))).contains slot = false)
+    (executed : execStmt oracle fields before (.setStructMember name key memberName value) = .continue after) :
+    after.world.storage slot = before.world.storage slot := by
+  rcases member with ⟨memberLabel, memberType, offset, packed⟩
+  cases packed with
+  | none =>
+      simp only [execStmt, resolved, resolvedMembers, resolvedMember,
+        evaluatedKey, evaluatedValue, StmtOutcome.continue.injEq] at executed
+      cases executed
+      exact writeAddressKeyedMappingWordFieldSlots_storage_frame oracle fields name
+        before.world (first :: aliases) keyValue offset resolvedValue slot outside
+  | some packed =>
+      simp only [execStmt, resolved, resolvedMembers, resolvedMember,
+        evaluatedKey, evaluatedValue] at executed
+      split at executed
+      · simp only [StmtOutcome.continue.injEq] at executed
+        cases executed
+        exact writeAddressKeyedMappingPackedWordFieldSlots_storage_frame oracle fields name
+          before.world (first :: aliases) keyValue offset packed resolvedValue slot outside
+      · contradiction
+
+/-- Lift the physical frame to the actual two-key member-write statement.
+Successful execution supplies the packed-layout validity check. -/
+theorem execStmt_setStructMember2_storage_frame (oracle : DenoteOracle)
+    (fields : List Field) (before after : DenoteState) (name memberName : String)
+    (key1 key2 value : Expr) (first : Nat) (aliases : List Nat)
+    (members : List StructMember) (member : StructMember) (keyValue1 keyValue2 resolvedValue slot : Nat)
+    (resolved : findFieldWriteSlots fields name = some (first :: aliases))
+    (resolvedMembers : findStructMembers fields name = some members)
+    (resolvedMember : findStructMember members memberName = some member)
+    (evaluatedKey1 : evalExpr oracle fields before key1 = some keyValue1)
+    (evaluatedKey2 : evalExpr oracle fields before key2 = some keyValue2)
+    (evaluatedValue : evalExpr oracle fields before value = some resolvedValue)
+    (outside : ((first :: aliases).map
+      (fun base => wordNormalize (oracle.mappingSlot (oracle.mappingSlot base keyValue1) keyValue2 + member.wordOffset))).contains slot = false)
+    (executed : execStmt oracle fields before (.setStructMember2 name key1 key2 memberName value) = .continue after) :
+    after.world.storage slot = before.world.storage slot := by
+  rcases member with ⟨memberLabel, memberType, offset, packed⟩
+  cases packed with
+  | none =>
+      simp only [execStmt, resolved, resolvedMembers, resolvedMember,
+        evaluatedKey1, evaluatedKey2, evaluatedValue, StmtOutcome.continue.injEq] at executed
+      cases executed
+      exact writeAddressKeyedMapping2WordFieldSlots_storage_frame oracle fields name
+        before.world (first :: aliases) keyValue1 keyValue2 offset resolvedValue slot outside
+  | some packed =>
+      simp only [execStmt, resolved, resolvedMembers, resolvedMember,
+        evaluatedKey1, evaluatedKey2, evaluatedValue] at executed
+      split at executed
+      · simp only [StmtOutcome.continue.injEq] at executed
+        cases executed
+        exact writeAddressKeyedMapping2PackedWordFieldSlots_storage_frame oracle fields name
+          before.world (first :: aliases) keyValue1 keyValue2 offset packed resolvedValue slot outside
+      · contradiction
+
+
 end Compiler.CompilationModel.Denote

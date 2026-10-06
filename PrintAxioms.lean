@@ -335,6 +335,14 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame
   Compiler.CompilationModel.Denote.execStmt_setStructMember_memory_frame
   Compiler.CompilationModel.Denote.execStmt_setStructMember2_memory_frame
+  -- Compiler.CompilationModel.Denote.normalize_twice  -- private
+  Compiler.CompilationModel.Denote.writeMappingTargets_storage_frame
+  Compiler.CompilationModel.Denote.writeAddressKeyedMappingWordFieldSlots_storage_frame
+  Compiler.CompilationModel.Denote.writeAddressKeyedMappingPackedWordFieldSlots_storage_frame
+  Compiler.CompilationModel.Denote.writeAddressKeyedMapping2WordFieldSlots_storage_frame
+  Compiler.CompilationModel.Denote.writeAddressKeyedMapping2PackedWordFieldSlots_storage_frame
+  Compiler.CompilationModel.Denote.execStmt_setStructMember_storage_frame
+  Compiler.CompilationModel.Denote.execStmt_setStructMember2_storage_frame
 
   -- Compiler/SolidityImport/AbiLoopFrames.lean
   -- Compiler.CompilationModel.Denote.worldFrame_memory  -- private
@@ -7899,4 +7907,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7268 theorems/lemmas (5217 public, 2051 private, 0 sorry'd)
+-- Total: 7276 theorems/lemmas (5224 public, 2052 private, 0 sorry'd)
