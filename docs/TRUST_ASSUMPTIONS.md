@@ -1299,3 +1299,20 @@ restore descriptor bindings together with existing reference environments.
 The 64-transaction uncommitted draft fixture passed A/B/C; generated variants,
 runtime mutants and located controls await final native/exact-head validation.
 This does not establish general bytes memory equivalence or deployment semantics.
+
+### Development named-helper result contexts
+
+Named scalar helper results are lowered to fresh declaration-bound local slots
+initialized before body effects. Existing scalar-write/branch/require/event
+semantics are reused. Implicit fallthrough observes the result slot; explicit
+returns terminate the helper path. Nested helper inlining restores the caller's
+result context, lookup maps and scalar types. Existing full-word single-terminal
+assembly keeps its direct expression lowering.
+
+Assembly result assignments with a continuation clean unsigned/address widths
+and normalize booleans before Solidity reads. Yul reads of narrow named results
+are rejected rather than substituting cleaned bits for raw assembly bits. No new
+Denote arm, axiom or Yul builtin is introduced; code deployment and general raw
+memory remain unsupported. The initial draft64 A/B/C pass covers the initial
+fixture only; expanded type/scope cases, seven actual mutants, generated variants,
+located controls, exact-head release gates and the pilot check remain pending.

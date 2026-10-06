@@ -847,3 +847,37 @@ def stateful_encoded_byte_local_source(fixture: str, variant: str) -> str:
             raise ValueError('encoded byte alias anchor changed')
         return fixture.replace(anchor, 'bytes memory aliasBuffer = abi.encodePacked(prefixed, hex"");')
     raise ValueError(f'unknown encoded-byte-local variant: {variant}')
+
+
+def stateful_named_helper_return_source(fixture: str, variant: str) -> str:
+    """Equivalent named result defaults, writes, scopes and assembly continuations."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'value', 'input', 'result', 'defaultResult', 'early',
+                 'continuedAssembly', 'narrowAssembly', 'nested', 'booleanAssembly',
+                 'addressAssembly', 'branchAssembly', 'branchValue', 'zero', 'first', 'second', 'third', 'narrow',
+                 'flag', 'who', 'addressValue', 'booleanValue'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'explicit-fallthrough':
+        anchors = {
+            'function defaultResult() internal pure returns (uint256 result) { }':
+            'function defaultResult() internal pure returns (uint256 result) { return result; }',
+            '        result = result + 3;\n    }':
+            '        result = result + 3;\n        return result;\n    }',
+            '        result = result + 1;\n    }':
+            '        result = result + 1;\n        return result;\n    }',
+            '        result = result + 5;\n    }':
+            '        result = result + 5;\n        return result;\n    }',
+            '        result = result + zero;\n    }':
+            '        result = result + zero;\n        return result;\n    }',
+        }
+        for before, after in anchors.items():
+            if fixture.count(before) != 1:
+                raise ValueError('named helper fallthrough anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown named-helper-return variant: {variant}')

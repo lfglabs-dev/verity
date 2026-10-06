@@ -163,8 +163,20 @@ MUTANTS.update({
     'import-byte-local-initialize': ('let effects := buffer.pre ++ #[.letVar pointer buffer.pointer, .letVar size buffer.size]', 'let effects := buffer.pre ++ #[.mstore buffer.pointer (.literal 0), .letVar pointer buffer.pointer, .letVar size buffer.size]'),
 })
 
+MUTANTS.update({
+    'import-named-helper-default': ('pre := pre.push (.letVar binding (.literal 0))', 'pre := pre.push (.letVar binding (.literal 1))'),
+    'import-named-helper-fallthrough': ('(← get).helperResult.map fun (binding, _) => Expr.localVar binding', '(← get).helperResult.map fun (_binding, _) => Expr.literal 0'),
+    'import-named-helper-assembly': ('pure (v.pre.push (.assignVar binding cleaned) ++ tail, result)', 'pure (v.pre.push (.assignVar binding (.literal 0)) ++ tail, result)'),
+    'import-named-helper-width': ('if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr', 'if width < 256 then v.expr else v.expr'),
+    'import-named-helper-bool': ('if ty == "bool" then Expr.logicalNot (.logicalNot v.expr)', 'if ty == "bool" then v.expr'),
+    'import-named-helper-frame': ('helperResult := saved.helperResult', 'helperResult := e.helperResult'),
+    'import-named-helper-branch': ('| "InlineAssembly" => pure (← get).helperResult.isNone', '| "InlineAssembly" => pure true'),
+})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-named-helper-"):
+        fixture = "NamedHelperReturnSequence"
     if name.startswith("import-byte-local-"):
         fixture = "EncodedByteLocalSequence"
     if name.startswith("import-discarded-helper-"):
@@ -203,11 +215,14 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture == 'NamedHelperReturnSequence':
+        prefix = argv.index('--change-prefix')
+        argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 40, 50, 60, 70, 255, 256, 257, (1 << 160) - 1, 1 << 160, (1 << 160) + 1, (1 << 256) - 1])]
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     result = subprocess.run(argv, cwd=directory, env=environment,

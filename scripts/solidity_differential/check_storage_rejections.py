@@ -9,6 +9,16 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('named-helper-default', 'function h(uint256) internal pure returns(uint256 result) { }', 'return h(x);', 'uint256', None),
+        ('named-helper-write', 'function h(uint256 n) internal pure returns(uint256 result) { result = n + 1; }', 'return h(x);', 'uint256', None),
+        ('named-helper-early', 'function h(uint256 n) internal pure returns(uint256 result) { if(n == 0) return result; result = n; }', 'return h(x);', 'uint256', None),
+        ('named-helper-narrow', 'function h(uint256 n) internal pure returns(uint8 result) { assembly { result := xor(n,n) } require(n != 20); }', 'return h(x);', 'uint256', None),
+        ('named-helper-branch', 'function h(uint256 n) internal pure returns(uint256 result) { if(n == 0) { assembly { result := xor(n,n) } } else { result = n; } require(n != 20); }', 'return h(x);', 'uint256', None),
+        ('named-helper-dirty-read', 'function h(uint256 n) internal pure returns(uint8 result) { assembly { result := xor(n,n) } assembly { result := lt(result,n) } }', 'return h(x);', 'uint256', 'Yul reads of narrow named results are unsupported'),
+        ('named-helper-reference', 'struct P { uint256 a; } function h(uint256 n) internal pure returns(P memory result) { result = P(n); }', 'h(x); return x;', 'uint256', 'unsupported named helper result type'),
+        ('named-helper-tuple', 'function h(uint256 n) internal pure returns(uint256 a,uint256 b) { a = n; b = n; }', 'h(x); return x;', 'uint256', 'only single-value helpers'),
+        ('named-helper-modifier', 'modifier m() { _; } function h(uint256 n) internal pure m returns(uint256 result) { result = n; }', 'return h(x);', 'uint256', 'modifiers are outside this slice'),
+        ('named-helper-after-return', 'function h(uint256 n) internal pure returns(uint256 result) { return n; result = 0; }', 'return h(x);', 'uint256', 'statement after helper result'),
         ('byte-local-encoded', '', 'bytes memory b = abi.encode(x); return uint256(keccak256(b));', 'uint256', None),
         ('byte-local-alias', '', 'bytes memory b = abi.encode(x); bytes memory c = b; return uint256(keccak256(c));', 'uint256', None),
         ('byte-local-packed', '', 'bytes memory b = abi.encodePacked(hex"01", abi.encode(x)); return uint256(keccak256(b));', 'uint256', None),

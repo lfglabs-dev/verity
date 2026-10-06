@@ -193,6 +193,7 @@ private structure Env where
   snapshots : RBMap Nat (Array Expr) compare := RBMap.empty
   mems : RBMap Nat MemParam compare
   byteBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
+  helperResult : Option (String × String) := none
   fieldsByName : RBMap String FieldInfo compare
   layoutItems : RBMap String Json compare
   layoutTypes : Json
@@ -706,7 +707,13 @@ private partial def lowerYul (j : Json) : M Expr := do
   match ← mKind j with
   | "YulIdentifier" =>
       let name ← mStr (← mField j "name")
-      match (← get).yulNames.find? name with
+      let env ← get
+      if let some (binding, ty) := env.helperResult then
+        if ty == "bool" || (bitsOf ty).getD 256 < 256 then
+          if let some (.localVar variable) := env.yulNames.find? name then
+            if variable == binding then
+              failAt j "Yul reads of narrow named results are unsupported"
+      match env.yulNames.find? name with
       | some expr => pure expr
       | none => failAt j s!"unbound Yul identifier {name}"
   | "YulFunctionCall" =>
@@ -1534,10 +1541,31 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   noteFn fn
   let body ← mField fn "body"
   let stmts ← mArr (← mField body "statements")
+  -- Retain the existing direct-result lowering for a single terminal
+  -- assembly assignment. A named variable needed by a continuation gets a
+  -- declaration-bound slot, initialized before any source-body effect.
+  let resultType ← mType rets[0]!
+  let terminalAssembly ← if stmts.size == 1 &&
+      (resultType == "uint256" || resultType == "uint" || resultType == "bytes32") then
+    pure ((← mKind stmts[0]!) == "InlineAssembly") else pure false
+  modify fun e => { e with helperResult := none }
+  if retName != "" && !terminalAssembly then
+    let declaration := rets[0]!
+    let id ← mNat (← mField declaration "id")
+    let ty ← mType declaration
+    let some scalar := paramType ty
+      | failAt declaration s!"unsupported named helper result type {ty}"
+    let binding ← freshFor retName
+    let expr := Expr.localVar binding
+    pre := pre.push (.letVar binding (.literal 0))
+    modify fun e =>
+      { e with helperResult := some (binding, ty),
+               values := e.values.insert id expr, writableLocals := e.writableLocals.insert id binding,
+               scalarTy := e.scalarTy.insert id scalar, yulNames := e.yulNames.insert retName expr }
   let result ← lowerHelper stmts retName
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers }
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, helperResult := saved.helperResult, scalarTy := saved.scalarTy }
   pure { pre := pre ++ result.pre, expr := result.expr }
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
@@ -1588,7 +1616,8 @@ private partial def ifParts (s : Json) : M (Val × Array Json × Array Json) := 
     Assembly results count because `lowerHelperFrom` treats them as results. -/
 private partial def helperReturns (s : Json) : M Bool := do
   match ← mKind s with
-  | "Return" | "InlineAssembly" => pure true
+  | "Return" => pure true
+  | "InlineAssembly" => pure (← get).helperResult.isNone
   | "Block" => ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
   | "IfStatement" =>
       let yes ← helperReturns (← mField s "trueBody")
@@ -1711,7 +1740,8 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
 private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
     M (Array Stmt × Option Expr) := do
   match stmts with
-  | [] => pure (#[], none)
+  | [] =>
+      pure (#[], (← get).helperResult.map fun (binding, _) => Expr.localVar binding)
   | s :: rest =>
     match ← mKind s with
     | "VariableDeclarationStatement" =>
@@ -1735,12 +1765,23 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         pure (pre ++ tail, result)
     | "Return" =>
         if let some next := rest.head? then failAt next "statement after helper result"
-        let v ← lowerExpr (← mField s "expression")
+        let expression := field? s "expression" |>.getD Json.null
+        if expression.isNull then failAt s "bare helper returns are unsupported"
+        let v ← lowerExpr expression
         pure (v.pre, some v.expr)
     | "InlineAssembly" =>
-        if let some next := rest.head? then failAt next "statement after helper result"
-        let v ← lowerAssembly s retName
-        pure (v.pre, some v.expr)
+        if let some (binding, ty) := (← get).helperResult then
+          let v ← lowerAssembly s retName
+          let cleaned := if ty == "bool" then Expr.logicalNot (.logicalNot v.expr) else
+            match bitsOf ty with
+            | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
+            | none => v.expr
+          let (tail, result) ← lowerHelperFrom rest retName
+          pure (v.pre.push (.assignVar binding cleaned) ++ tail, result)
+        else
+          if let some next := rest.head? then failAt next "statement after helper result"
+          let v ← lowerAssembly s retName
+          pure (v.pre, some v.expr)
     | "IfStatement" =>
         let (condition, yes, no) ← ifParts s
         let yesReturns ← helperListReturns yes
@@ -2570,7 +2611,7 @@ private def importSlice
     -- do not leak between functions. Field layouts and the closure are shared.
     env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       snapshots := RBMap.empty, mems := RBMap.empty, byteBuffers := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]
