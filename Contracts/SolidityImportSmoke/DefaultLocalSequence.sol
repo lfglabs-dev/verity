@@ -11,7 +11,7 @@ contract SequenceFixture {
         bytes32 digest;
         require(initial == 0 && small == 0, "integer default");
         require(previousCollateralToken == address(0), "address default");
-        require(!enabled && digest == bytes32(0), "scalar default");
+        require(enabled == false && digest == bytes32(0), "scalar default");
         value = x + initial + uint256(small);
         emit Changed(value);
         return value;
