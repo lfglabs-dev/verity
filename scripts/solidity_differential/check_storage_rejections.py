@@ -9,6 +9,16 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('member-write', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[1].low = uint8(x); return uint256(boxes[1].low);', 'uint256', None),
+        ('member-delete', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'delete boxes[1].low; return uint256(boxes[1].low);', 'uint256', None),
+        ('member-key-prelude', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[x + 1].low = 7; return x;', 'uint256', 'member write key prelude'),
+        ('member-compound', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[1].low += 1; return x;', 'uint256', 'only scalar storage assignment and delete'),
+        ('member-increment', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[1].low++; return x;', 'uint256', 'only scalar storage assignment and delete'),
+        ('member-whole-struct', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[1] = Box(1, 2); return x;', 'uint256', 'only scalar mapping values are writable'),
+        ('member-memory', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'Box memory box = Box(1, 2); box.low = 7; return x;', 'uint256', 'unsupported call kind'),
+        ('member-opaque', 'struct Box { uint8 low; uint256[] values; } mapping(uint256 => Box) private boxes;', 'delete boxes[1].values; return x;', 'uint256', 'member values is opaque'),
+        ('member-address', 'struct Box { address owner; } mapping(uint256 => Box) private boxes;', 'boxes[1].owner = address(0); return x;', 'uint256', 'unsupported layout member'),
+        ('member-signed', 'struct Box { int128 low; } mapping(uint256 => Box) private boxes;', 'boxes[1].low = 1; return x;', 'uint256', 'unsupported layout member'),
         ('helper-for', 'function helper(uint256 n) internal pure returns (uint256) { uint256 total; for (uint256 i = 0; i < n; i++) { total = total + i; } return total; }', 'return helper(x);', 'uint256', None),
         ('helper-for-return', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { return i; } return 0; }', 'return helper(x);', 'uint256', 'return inside an inlined helper loop'),
         ('helper-for-conditional-return', 'function helper(uint256 n) internal pure returns (uint256) { for (uint256 i = 0; i < n; i++) { if (i == 1) return i; } return 0; }', 'return helper(x);', 'uint256', 'return inside an inlined helper loop'),

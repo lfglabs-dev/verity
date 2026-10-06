@@ -1227,3 +1227,7 @@ axiom is introduced. Future memory/call support must preserve this check.
 ### Development helper-loop lowering
 
 The helper-loop draft shares existing bounded-loop validation and ABI memory-frame requirements. Its nonreturning body dispatcher rejects helper-loop returns instead of substituting root-return semantics. Helper results continue through the existing scalar inlining mechanism. No new oracle or trusted semantics arm is introduced. Native differential, rejection and mutation validation remains pending.
+
+### Development mapping-struct member writes
+
+This draft uses the existing pinned-solc storage layout and existing Denote/compiled `setStructMember`/`setStructMember2` semantics. Unsigned members must be present in the resolved layout; opaque members and key preludes at assignment are rejected. Alias keys are frozen at declaration to preserve storage-pointer identity. The alias issue is currently a source-audit concern awaiting runtime reproduction; tests, mutation witnesses and full release validation are pending.

@@ -734,3 +734,23 @@ def _rename_helper_loop(fixture: str) -> str:
     token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
     return re.sub(token, lambda m: m.group(0) + '_renamed'
                   if m.group(0) in names else m.group(0), fixture)
+
+
+def stateful_packed_member_write_source(fixture: str, variant: str) -> str:
+    """Preserve packed sibling words, captured alias keys and rollback behavior."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = ('key', 'selected', 'left', 'right', 'pair', 'outer', 'row')
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'explicit-delete':
+        for name in ('selected', 'pair'):
+            anchor = f'delete {name}.middle;'
+            if fixture.count(anchor) != 1:
+                raise ValueError('packed member delete anchor changed')
+            fixture = fixture.replace(anchor, f'{name}.middle = 0;')
+        return fixture
+    raise ValueError(f'unknown packed-member variant: {variant}')

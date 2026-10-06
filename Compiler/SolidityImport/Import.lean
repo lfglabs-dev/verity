@@ -1679,6 +1679,28 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
           let right ← mField expression "rightHandSide"
           atom (← convert ty (← mType right) (← lowerExpr right) right)
         return value.pre.push (.assignVar binding value.expr)
+  if (← mKind target) == "MemberAccess" then
+    let member ← mStr (← mField target "memberName")
+    let .path pre path ← lowerRef (← mField target "expression")
+      | failAt target "member assignment requires a mapping struct storage path"
+    -- Ordering between effectful key and RHS evaluation needs a separate rule.
+    unless pre.isEmpty do failAt target "member write key prelude is unsupported"
+    let (name, count, write) ← match path with
+      | .one field key => pure (field, 1, fun (value : Expr) => Stmt.setStructMember field key member value)
+      | .two field key1 key2 => pure (field, 2, fun (value : Expr) => Stmt.setStructMember2 field key1 key2 member value)
+      | .outer _ _ => failAt target "member assignment requires both mapping keys"
+    let info ← resolveField name target
+    if info.opaqueNames.contains member then failAt target s!"member {member} is opaque in this slice"
+    unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains member do
+      failAt target "member assignment requires a supported layout member"
+    let ty ← mType target
+    unless ty.startsWith "uint" && (bitsOf ty).isSome do
+      failAt target "member assignment requires an unsigned scalar member"
+    markField name
+    let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
+      let right ← mField expression "rightHandSide"
+      atom (← convert ty (← mType right) (← lowerExpr right) right)
+    return value.pre.push (write value.expr)
   if (← mKind target) == "IndexAccess" then
     let .path pre path ← lowerRef target
       | failAt target "mapping assignment target is not a storage path"
@@ -1896,8 +1918,24 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
   if loc == "storage" then
     match ← lowerRef init with
     | .path pre path =>
-        modify fun e => { e with paths := e.paths.insert id path }
-        pure pre
+        -- A Solidity storage pointer fixes its address at declaration time.
+        -- Freeze even simple local keys, since subsequent assignments may change them.
+        let capture (key : Expr) : M (Array Stmt × Expr) := do
+          let binding ← fresh
+          pure (#[.letVar binding key], .localVar binding)
+        let (keys, frozen) ← match path with
+          | .one field key => do
+              let (pre, key) ← capture key
+              pure (pre, SPath.one field key)
+          | .two field key1 key2 => do
+              let (pre1, key1) ← capture key1
+              let (pre2, key2) ← capture key2
+              pure (pre1 ++ pre2, SPath.two field key1 key2)
+          | .outer field key => do
+              let (pre, key) ← capture key
+              pure (pre, SPath.outer field key)
+        modify fun e => { e with paths := e.paths.insert id frozen }
+        pure (pre ++ keys)
     | _ => failAt s "storage local is not a resolved read path"
   else
     let v ← lowerExpr init

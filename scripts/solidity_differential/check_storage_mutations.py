@@ -129,8 +129,18 @@ MUTANTS.update({
     'import-helper-loop-emit': ('| "EmitStatement" => out := out ++ (← lowerEmit statement)', '| "EmitStatement" => pure ()'),
 })
 
+MUTANTS.update({
+    'import-packed-member-delete': ('markField name\n    let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n      let right ← mField expression "rightHandSide"\n      atom (← convert ty (← mType right) (← lowerExpr right) right)\n    return value.pre.push (write value.expr)', 'markField name\n    let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n      let right ← mField expression "rightHandSide"\n      atom (← convert ty (← mType right) (← lowerExpr right) right)\n    return value.pre.push (write value.expr)'),
+    'import-packed-member-value': ('return value.pre.push (write value.expr)', 'return value.pre.push (write (.literal 0))'),
+    'import-packed-member-target': ('Stmt.setStructMember field key member value', 'Stmt.setStructMember field key "middle" value'),
+    'import-packed-member-two-keys': ('Stmt.setStructMember2 field key1 key2 member value', 'Stmt.setStructMember2 field key2 key1 member value'),
+    'import-packed-member-capture': ('pure (#[.letVar binding key], .localVar binding)', 'pure (#[], key)'),
+})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-packed-member-"):
+        fixture = "PackedMemberWriteSequence"
     if name.startswith("import-helper-loop-"):
         fixture = "HelperLoopSequence"
     if name.startswith("import-invariant-for-"):

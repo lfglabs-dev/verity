@@ -450,3 +450,12 @@ A shared loop lowering draft reuses the exact unsigned zero-start/unit-step/inva
 | Invariant bounded `for` in an internal scalar-result helper | Shared counter/bound/header checks; helper body has no return; unsupported effects fail with source diagnostics |
 
 No release validation or Midnight coverage improvement is claimed for this draft.
+
+### Development slice: unsigned mapping-struct member writes
+
+| Supported Solidity (development; native validation pending) | Lowering boundary |
+| --- | --- |
+| Assignment and `delete` of unsigned members in one/two-key mapping structs | Existing exact layout word offsets and packed masks; opaque/unsupported members reject; direct key preludes reject |
+| Storage aliases with mutable local keys | Keys are captured into fresh bindings at declaration, including the outer key of a nested mapping |
+
+`PackedMemberWriteSequence` exercises sibling fields, packed widths, full words, alias key changes, deletion, events and rollback. No native validation or Midnight coverage improvement is claimed yet.
