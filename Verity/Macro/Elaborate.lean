@@ -200,6 +200,30 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
             (linkedContracts := parsed.linkedContracts))
       | none => pure ()
 
+    -- Ordinary contracts also get an executable `constructor` (verity#2465),
+    -- so a creation boundary can run the generated constructor body instead
+    -- of a hand-extracted helper. Best effort: a constructor whose body has
+    -- no executable lowering (e.g. `String` parameters) keeps the previous
+    -- behaviour (compilation model only) instead of failing elaboration.
+    if !isMixin && resolvedIncludes.isEmpty then
+      match ctor with
+      | some ctorDecl =>
+          -- Binders get synthetic source info: the generated `def` must not
+          -- re-report unused constructor parameters on the user's source.
+          let ctorDecl := { ctorDecl with
+            params := ctorDecl.params.map fun p => { p with ident := mkIdent p.ident.getId } }
+          let saved ← get
+          let hadErrors := saved.messages.hasErrors
+          try
+            elabCommand (← mkConstructorDefCommandPublic translationFields translationErrorDecls
+              translationConstDecls translationImmutableDecls translationExternalDecls
+              translationFunctions ctorDecl (linkedContracts := parsed.linkedContracts))
+            if (← get).messages.hasErrors && !hadErrors then
+              set saved
+          catch _ =>
+            set saved
+      | none => pure ()
+
     let specName : Ident :=
       if resolvedIncludes.isEmpty then mkIdent (Name.mkSimple "spec")
       else mkIdent (Name.mkSimple "host_spec")

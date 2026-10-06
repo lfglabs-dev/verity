@@ -31,3 +31,4 @@ import Contracts.Smoke.LinkedGettersAndDeferred
 import Contracts.Smoke.HopContextAndMutableTuples
 import Contracts.Smoke.LinkedRuntimeTarget
 import Contracts.Smoke.Erc20BalanceHop
+import Contracts.Smoke.ConstructorExecutable
