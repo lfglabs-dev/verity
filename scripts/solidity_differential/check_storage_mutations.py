@@ -16,7 +16,7 @@ MUTANTS = {
     'import-scalar-slot': ('slot := some slot, packedBits }', 'slot := some (slot + 1), packedBits }'),
     'import-scalar-offset': ('some { offset, width }', 'some { offset := if width == 128 then 128 - offset else offset, width }'),
     'import-scalar-write': ('(.setStorage name value.expr)', '(.setStorage name (.literal 0))'),
-    'import-scalar-delete': ('if deleting then pure ({ pre := #[], expr := .literal 0 } : Val)', 'if deleting then pure ({ pre := #[], expr := .literal 1 } : Val)'),
+    'import-scalar-delete': ('  unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"\n  markField name\n  let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do', '  unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"\n  markField name\n  let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do'),
 }
 
 MUTANTS.update({'import-mapping-layout': ('if width == 256 then none else some { offset := 0, width }',
@@ -29,7 +29,7 @@ MUTANTS.update({'import-mapping-layout': ('if width == 256 then none else some {
                               'Stmt.setStructMember field key "__solidity_value" (.literal 0)'),
  'import-mapping-write-two': ('Stmt.setStructMember2 field key1 key2 "__solidity_value" value',
                               'Stmt.setStructMember2 field key2 key1 "__solidity_value" value'),
- 'import-mapping-delete': ('expr := (.literal 0 : Expr)', 'expr := (.literal 1 : Expr)'),
+ 'import-mapping-delete': ('    unless info.scalarMapping && info.keyCount == count do\n      failAt target "only scalar mapping values are writable"\n    markField name\n    let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do', '    unless info.scalarMapping && info.keyCount == count do\n      failAt target "only scalar mapping values are writable"\n    markField name\n    let value ← if deleting then pure ({ pre := #[], expr := (.literal 1 : Expr) } : Val) else do'),
  'import-mapping-bool-literal': ('| "true" => pure 1', '| "true" => pure 0'),
  'import-mapping-bool-read': ('Expr.logicalNot (.logicalNot read)', 'Expr.logicalNot read')})
 
@@ -56,8 +56,7 @@ MUTANTS.update({
 
 
 MUTANTS.update({
-    'import-if-root-swap': ('.push (.ite condition.expr yesOut.toList noOut.toList)',
-                            '.push (.ite condition.expr noOut.toList yesOut.toList)'),
+    'import-if-root-swap': ('        let (noOut, noReturned) ← lowerRootStatements no\n        restore\n        out := out ++ condition.pre |>.push (.ite condition.expr yesOut.toList noOut.toList)', '        let (noOut, noReturned) ← lowerRootStatements no\n        restore\n        out := out ++ condition.pre |>.push (.ite condition.expr noOut.toList yesOut.toList)'),
     'import-if-root-else-drop': ('let (noOut, noReturned) ← lowerRootStatements no',
                                  'let (noOut, noReturned) ← lowerRootStatements #[]'),
     'import-if-helper-swap': ('let branch := Stmt.ite condition.expr (assign yesPre yesResult).toList\n            (assign noPre noResult).toList',
