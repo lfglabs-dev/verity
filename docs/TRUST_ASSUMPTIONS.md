@@ -1316,3 +1316,16 @@ Denote arm, axiom or Yul builtin is introduced; code deployment and general raw
 memory remain unsupported. The initial draft64 A/B/C pass covers the initial
 fixture only; expanded type/scope cases, seven actual mutants, generated variants,
 located controls, exact-head release gates and the pilot check remain pending.
+
+### Development numeric Yul expressions
+
+Untyped decimal and hexadecimal Yul numeric literals are parsed without rounding
+or word truncation; out-of-range values reject. Two-argument Yul `add` lowers to
+the existing wrapping word addition expression. Neither rule adds a Denote arm,
+oracle, external effect or project axiom. General assembly, raw memory and
+deployment remain unsupported. In particular, accepting literals does not make
+CREATE2 executable or make an encoded-byte descriptor a Solidity object pointer.
+
+Generated variants, two runtime mutation rules and eight located controls are
+registered in the draft. Native A/B/C validation and all exact-head release gates
+remain pending; no new semantic-equivalence or Midnight-unlock claim is made.

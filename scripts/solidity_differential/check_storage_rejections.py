@@ -9,6 +9,14 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('yul-numeric-decimal', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := xor(n, 31) } }', 'return h(x);', 'uint256', None),
+        ('yul-numeric-hex', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := xor(n, 0x20) } }', 'return h(x);', 'uint256', None),
+        ('yul-numeric-word', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff } }', 'return h(x);', 'uint256', None),
+        ('yul-numeric-add', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := add(n, 1) } }', 'return h(x);', 'uint256', None),
+        ('yul-numeric-string', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := "hello" } }', 'return h(x);', 'uint256', 'only numeric Yul literals are supported'),
+        ('yul-numeric-mload', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := mload(0) } }', 'return h(x);', 'uint256', 'unsupported Yul builtin mload'),
+        ('yul-numeric-create2', 'function h(uint256 n) internal returns(uint256 r) { assembly { r := create2(0, 0, 0, 0) } }', 'return h(x);', 'uint256', 'unsupported Yul builtin create2'),
+        ('yul-numeric-block', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { let v := n r := add(v, 1) } }', 'return h(x);', 'uint256', 'only a single Yul assignment is supported'),
         ('named-helper-bare-require', 'function h(uint256 n) internal pure returns(uint256 result) { result = n; require(n != 20); }', 'return h(x);', 'uint256', 'require must resolve to a supported Solidity builtin signature'),
         ('named-helper-default', 'function h(uint256) internal pure returns(uint256 result) { }', 'return h(x);', 'uint256', None),
         ('named-helper-write', 'function h(uint256 n) internal pure returns(uint256 result) { result = n + 1; }', 'return h(x);', 'uint256', None),

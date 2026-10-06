@@ -64,6 +64,9 @@ def stateful_campaign(output, transactions, seed):
     checks.append(('storage', ['-m', 'solidity_differential.check_storage',
         '--transactions', str(transactions), '--seed', str(seed),
         '--output', str(output / 'storage')]))
+    checks.append(('storage-yul-numeric', ['-m', 'solidity_differential.check_storage',
+        '--fixture', 'yul-numeric', '--transactions', str(max(64, transactions)),
+        '--seed', str(seed), '--output', str(output / 'storage-yul-numeric')]))
     for fixture in ('void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo'):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),

@@ -568,3 +568,20 @@ fixture adds nested contexts, boolean/address cleanup and assembly branch
 continuation. Three generated variants, seven runtime mutants and eleven located
 controls await native validation on the final commit. Full release gates and
 the pinned pilot check remain pending; no golden or provenance was changed.
+
+### Development slice: numeric Yul expressions
+
+| Solidity construct | Lowering |
+| --- | --- |
+| Untyped decimal or hexadecimal Yul numeric literal fitting one EVM word | Parse the exact natural value and reject values outside `[0, 2^256)`. |
+| Two-argument Yul `add` in the existing single-assignment helper subset | Use the existing wrapping word addition expression. |
+
+This draft reuses existing literal and addition semantics in Denote and codegen.
+It does not expose byte-buffer pointers or add raw memory, deployment, additional
+assembly statements, typed literals or nonnumeric literals. These remain precise
+rejections. `YulNumericSequence` exercises decimal, hex and full-word literals,
+overflow, storage, events and rollback. Baseline, identifier-renamed and numeric
+normalization/commuted-add variants are generated; runtime literal/add mutations
+and located acceptance/rejection controls are registered. Native validation,
+exact-head release gates and the pinned pilot check are pending. This is a
+prerequisite for the measured IdLib path, not an implementation of `storeInCode`.

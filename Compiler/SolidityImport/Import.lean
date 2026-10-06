@@ -705,6 +705,17 @@ mutual
 
 private partial def lowerYul (j : Json) : M Expr := do
   match ← mKind j with
+  | "YulLiteral" =>
+      unless optStr j "kind" == some "number" do
+        failAt j "only numeric Yul literals are supported"
+      unless optStr j "type" == some "" do
+        failAt j "typed Yul literals are unsupported"
+      let raw ← mStr (← mField j "value")
+      let value ← match Compiler.Hex.parseHexNat? raw <|> raw.toNat? with
+        | some value => pure value
+        | none => failAt j "invalid numeric Yul literal"
+      unless value < 2^256 do failAt j "numeric Yul literal exceeds one EVM word"
+      pure (.literal value)
   | "YulIdentifier" =>
       let name ← mStr (← mField j "name")
       let env ← get
@@ -723,6 +734,7 @@ private partial def lowerYul (j : Json) : M Expr := do
       for arg in args do
         xs := xs.push (← lowerYul arg)
       match fname, xs with
+      | "add", #[a, b] => pure (.add a b)
       | "xor", #[a, b] => pure (.bitXor a b)
       | "mul", #[a, b] => pure (.mul a b)
       | "lt", #[a, b] => pure (.lt a b)

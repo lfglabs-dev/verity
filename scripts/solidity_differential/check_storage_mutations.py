@@ -173,8 +173,15 @@ MUTANTS.update({
     'import-named-helper-branch': ('| "InlineAssembly" => pure (← get).helperResult.isNone', '| "InlineAssembly" => pure true'),
 })
 
+MUTANTS.update({
+    'import-yul-numeric-literal': ('pure (.literal value)\n  | "YulIdentifier" =>', 'pure (.bitXor (.literal value) (.literal 1))\n  | "YulIdentifier" =>'),
+    'import-yul-numeric-add': ('| "add", #[a, b] => pure (.add a b)', '| "add", #[a, b] => pure (.sub a b)'),
+})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-yul-numeric-"):
+        fixture = "YulNumericSequence"
     if name.startswith("import-named-helper-"):
         fixture = "NamedHelperReturnSequence"
     if name.startswith("import-byte-local-"):
@@ -215,11 +222,13 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture == 'YulNumericSequence':
+        argv = argv[:argv.index('--change-prefix')] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 32, 33, 255, 256, (1 << 255) - 1, 1 << 255, (1 << 256) - 2, (1 << 256) - 1])]
     if fixture == 'NamedHelperReturnSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 40, 50, 60, 70, 255, 256, 257, (1 << 160) - 1, 1 << 160, (1 << 160) + 1, (1 << 256) - 1])]

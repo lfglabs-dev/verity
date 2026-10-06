@@ -881,3 +881,29 @@ def stateful_named_helper_return_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown named-helper-return variant: {variant}')
+
+
+def stateful_yul_numeric_source(fixture: str, variant: str) -> str:
+    """Equivalent Yul word literals and pure wrapping addition."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'value', 'input', 'result', 'literal', 'boundary', 'decimal',
+                 'hexadecimal', 'wordEdge', 'wrapping', 'combined', 'left', 'middle', 'right'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'normalized':
+        replacements = {
+            'xor(input, 31)': 'xor(input, 0x1f)',
+            'xor(input, 0x20)': 'xor(input, 32)',
+            '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff': str((1 << 256) - 1),
+            'add(input, 1)': 'add(1, input)',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('Yul numeric normalization anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown Yul numeric variant: {variant}')

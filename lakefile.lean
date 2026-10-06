@@ -78,6 +78,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.AbiEventCompositionModel,
     .one `Contracts.SolidityImportSmoke.ReferenceArgumentsModel,
     .one `Contracts.SolidityImportSmoke.AbiHashingModel,
+    .one `Contracts.SolidityImportSmoke.YulNumericSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,
