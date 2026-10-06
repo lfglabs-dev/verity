@@ -131,7 +131,7 @@ def main():
         ('local-compound', '', 'uint256 value = 0; value += x; return value;', 'uint256', 'only scalar storage assignment'),
         ('local-increment', '', 'uint256 value = 0; value++; return value;', 'uint256', 'only scalar storage assignment'),
         ('parameter-write', '', 'x = 0; return x;', 'uint256', 'only materialized scalar locals are writable'),
-        ('helper-parameter-write', 'function h(uint256 y) internal pure returns (uint256) { y = 0; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only materialized scalar locals are writable'),
+        ('helper-parameter-write', 'function h(uint256 y) internal pure returns (uint256) { y = 0; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only declaration-bound scalar locals are writable'),
         ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', 'uninitialized reference locals'),
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', 'return'),
     ]
