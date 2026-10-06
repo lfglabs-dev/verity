@@ -710,8 +710,8 @@ private partial def lowerYul (j : Json) : M Expr := do
       let env ← get
       if let some (binding, ty) := env.helperResult then
         if ty == "bool" || (bitsOf ty).getD 256 < 256 then
-          if let some (.localVar variable) := env.yulNames.find? name then
-            if variable == binding then
+          if let some (.localVar foundBinding) := env.yulNames.find? name then
+            if foundBinding == binding then
               failAt j "Yul reads of narrow named results are unsupported"
       match env.yulNames.find? name with
       | some expr => pure expr
