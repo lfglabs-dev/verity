@@ -121,6 +121,9 @@ MUTANTS.update({'import-invariant-for-counter':
      '{ e with values := e.values.insert counter (.literal 0),')})
 
 MUTANTS.update({
+    'import-helper-loop-block': ('out := out ++ (← lowerHelperLoopBody statement)', 'out := out ++ #[]'),
+    'import-helper-loop-branch': ('let yesOut ← lowerHelperLoopBody (← mField statement "trueBody")', 'let yesOut : Array Stmt := #[]'),
+    'import-helper-loop-nested': ('| "ForStatement" => out := out ++ (← lowerFor statement lowerHelperLoopBody)', '| "ForStatement" => pure ()'),
     'import-helper-loop-drop': ('let pre ← lowerFor s lowerHelperLoopBody', 'let pre : Array Stmt := #[]'),
     'import-helper-loop-effect': ('| "ExpressionStatement" => out := out ++ (← lowerEffect statement)', '| "ExpressionStatement" => pure ()'),
     'import-helper-loop-emit': ('| "EmitStatement" => out := out ++ (← lowerEmit statement)', '| "EmitStatement" => pure ()'),

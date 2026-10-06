@@ -6,7 +6,13 @@ contract SequenceFixture {
     function accumulate(uint256 bound) internal returns (uint256) {
         uint256 total;
         for (uint256 i = 0; i < bound; i++) {
-            total = total + i + 1;
+            {
+                uint256 term = i + 1;
+                for (uint256 j = 0; j < 1; j++) {
+                    if (i < bound) total = total + term;
+                    else total = total + 100;
+                }
+            }
             value = total;
             emit Changed(value);
         }

@@ -722,15 +722,15 @@ def stateful_helper_loop_source(fixture: str, variant: str) -> str:
     if variant == 'renamed':
         return _rename_helper_loop(fixture)
     if variant == 'assignment-step':
-        if fixture.count('i++)') != 2:
+        if fixture.count('i++)') != 2 or fixture.count('j++)') != 1:
             raise ValueError('helper loop step anchors changed')
-        return fixture.replace('i++)', 'i += 1)')
+        return fixture.replace('i++)', 'i += 1)').replace('j++)', 'j += 1)')
     raise ValueError(f'unknown helper-loop variant: {variant}')
 
 
 def _rename_helper_loop(fixture: str) -> str:
     import re
-    names = ('bound', 'total', 'i', 'result')
+    names = ('bound', 'total', 'i', 'j', 'term', 'result')
     token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
     return re.sub(token, lambda m: m.group(0) + '_renamed'
                   if m.group(0) in names else m.group(0), fixture)
