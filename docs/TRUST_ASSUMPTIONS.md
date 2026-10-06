@@ -1237,3 +1237,16 @@ This draft uses the existing pinned-solc storage layout and existing Denote/comp
 The helper continuation delegates expression statements to the same exact assignment/delete/require lowering as root entry points. It introduces no new Denote instruction, oracle or trusted semantics arm. Helper scope restoration and scalar-result continuation remain unchanged. The draft fixture, generated variants, rejection controls and effect-drop mutation still require native and full release validation.
 
 Stateful helper calls in ordinary binary operands or call arguments are not assigned an unverified Solidity evaluation order. A declaration-based source check precisely rejects those contexts; pure/view calls retain their existing behavior. The new guards and short-circuit write fixture are not yet kernel or runtime validated. The prior tuple-return require-helper audit establishes only its own pinned fixture's observation order.
+
+
+### Development mapping fixed arrays
+
+The importer uses pinned solc's resolved layout base/length/rounded footprint and
+the existing masked mapping-struct instructions. Element i uses word
+i / floor(256/width) and bit offset (i % floor(256/width))*width. This introduces
+no new Denote semantics or oracle. Readonly memory copies materialize element
+values at declaration; descriptors are restored at helper/block/loop scope
+boundaries and reset between entry points. Unsupported memory uses and write
+operand effects reject precisely. Preliminary recorded-hash A/B/C tests passed;
+new-head focused variants, controls, mutation detections and full release gates
+remain outstanding. No whole-contract or solc-Yul equivalence proof is claimed.

@@ -469,3 +469,20 @@ No release validation or Midnight coverage improvement is claimed for this draft
 `HelperEffectSequence` checks writes, packed siblings, conditional effects, deletion, caller continuation and rollback. Compound operations, parameter writes, unsupported reference targets and external expression calls remain rejected. This draft has not passed native validation or full release gates.
 
 The current revision also guards stateful helper calls inside ordinary binary operands and helper call arguments until their evaluation order is independently validated. Non-view declarations are conservatively classified as stateful. Short-circuit boolean branches retain their existing selected-branch evaluation; the fixture checks that a dead helper cannot write. These guards and the expanded fixture are development changes awaiting compilation and mutation controls.
+
+
+### Development slice: fixed arrays behind mappings
+
+| Supported Solidity (development; full release validation pending) | Lowering boundary |
+| --- | --- |
+| One-dimensional fixed unsigned arrays behind one/two-key mappings | Validate fixed length, unsigned base layout and exact rounded footprint; use floor(256/width) elements per slot and masked element writes/deletes |
+| Dynamic unsigned indices into those arrays | Capture the index once, select the resolved element and emit exact panic 0x32 for an out-of-range index |
+| Readonly storage-to-memory copies of those fixed arrays | Capture all elements at declaration; scoped descriptors preserve the snapshot across subsequent storage writes |
+
+Effectful or reverting write keys, indices and RHS operands reject until their
+evaluation order has dedicated validation. Dynamic/multidimensional/signed/bool
+arrays, memory writes/aliases and whole-array values remain outside this slice.
+Two preliminary 64-transaction A/B/C campaigns passed on recorded source hashes;
+the second covered indices 0–8, snapshot identity, uint24 cross-word packing,
+delete, two mapping keys and rollback. New exact-head variants, rejection and
+mutation controls and full release gates are still pending.

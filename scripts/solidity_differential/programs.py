@@ -774,3 +774,21 @@ def stateful_helper_effect_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(anchor, f'{target} = 0;')
         return fixture
     raise ValueError(f'unknown helper-effect variant: {variant}')
+
+
+def stateful_fixed_array_source(fixture: str, variant: str) -> str:
+    """Preserve fixed-array packing, snapshots, bounds and rollback bytes."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = ('index', 'beforeWrite', 'observed', 'narrow', 'crossing', 'words')
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'explicit-delete':
+        anchor = 'delete crossing[msg.sender][10];'
+        if fixture.count(anchor) != 1:
+            raise ValueError('fixed array delete anchor changed')
+        return fixture.replace(anchor, 'crossing[msg.sender][10] = 0;')
+    raise ValueError(f'unknown fixed-array variant: {variant}')

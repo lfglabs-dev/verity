@@ -117,6 +117,8 @@ private inductive SPath where
 private inductive Ref where
   | expr (v : Val)
   | path (pre : Array Stmt) (p : SPath)
+  | fixedElement (pre : Array Stmt) (path : SPath) (index : Expr)
+  | snapshot (elements : Array Expr)
   | mem (id : Nat) (pre : Array Stmt)
   | abiArray (id memberIndex : Nat) (pre : Array Stmt)
   | abiElement (id memberIndex : Nat) (pointer : Expr) (pre : Array Stmt)
@@ -145,6 +147,8 @@ private structure FieldInfo where
   opaqueNames : Array String
   scalarMapping : Bool := false
   booleanMapping : Bool := false
+  fixedArrayLength : Option Nat := none
+  fixedArrayType : String := ""
 
 private structure FnRec where
   contract : String
@@ -186,6 +190,7 @@ private structure Env where
   constantStack : List Nat := []
   values : RBMap Nat Expr compare
   paths : RBMap Nat SPath compare
+  snapshots : RBMap Nat (Array Expr) compare := RBMap.empty
   mems : RBMap Nat MemParam compare
   fieldsByName : RBMap String FieldInfo compare
   layoutItems : RBMap String Json compare
@@ -508,6 +513,46 @@ private def buildField (types item : Json) : M FieldInfo := do
       pure (none, value)
     else
       throwError "unsupported mapping value encoding {encoding} for {name}"
+  -- Fixed arrays have finite elements, not an extra mapping key. Solidity
+  -- packs floor(256/width) elements per word, leaving any remainder unused.
+  if let some baseId := optStr structTy "base" then
+    unless (← mStr (← mField structTy "encoding")) == "inplace" do
+      throwError "only fixed inplace mapping arrays are supported for {name}"
+    let label ← mStr (← mField structTy "label")
+    let [elementLabel, suffix] := label.splitOn "["
+      | throwError "mapping arrays require exactly one fixed dimension: {label}"
+    unless suffix.endsWith "]" do throwError "invalid fixed array layout {label}"
+    let some length := (suffix.dropEnd 1).toNat?
+      | throwError "mapping arrays require a resolved fixed length: {label}"
+    unless length > 0 do throwError "fixed mapping array length must be positive"
+    let base ← liftM (layoutType types baseId)
+    let baseLabel ← mStr (← mField base "label")
+    unless elementLabel == baseLabel && baseLabel.startsWith "uint" do
+      throwError "fixed mapping arrays require unsigned scalar elements: {label}"
+    let some width := bitsOf baseLabel
+      | throwError "invalid fixed mapping array element width: {baseLabel}"
+    unless width > 0 && width ≤ 256 && width % 8 == 0 do
+      throwError "invalid fixed mapping array element width: {width}"
+    unless (← mStr (← mField base "encoding")) == "inplace" &&
+        (← mNat (← mField base "numberOfBytes")) * 8 == width do
+      throwError "fixed mapping array base layout disagrees with {baseLabel}"
+    let perWord := 256 / width
+    let words := (length + perWord - 1) / perWord
+    unless (← mNat (← mField structTy "numberOfBytes")) == words * 32 do
+      throwError "fixed mapping array footprint disagrees with {label}"
+    let mut members : Array StructMember := #[]
+    for index in [:length] do
+      let offset := (index % perWord) * width
+      let packed : Option PackedBits :=
+        if width == 256 then none else some { offset := offset, width := width }
+      let member : StructMember := { name := s!"__solidity_element_{index}", ty := .uint256, wordOffset := index / perWord, packed }
+      members := members.push member
+    let ty : FieldType := match key2 with
+      | some k2 => .mappingStruct2 key1 k2 members.toList
+      | none => .mappingStruct key1 members.toList
+    return { slot, field := { name, ty, slot := some slot },
+             keyCount := if key2.isSome then 2 else 1, memberNames := #[],
+             opaqueNames := #[], fixedArrayLength := some length, fixedArrayType := label }
   -- A scalar mapping value occupies a word just like a one-member mapping
   -- struct. Keep narrow writes as read/modify/write operations, including the
   -- one-byte Solidity bool representation, rather than clearing upper bits.
@@ -722,6 +767,22 @@ private partial def lowerExpr (j : Json) : M Val := do
           markField name
           pure { pre, expr := .storage name }
       | .path pre path => scalarMappingRead pre path j
+      | .fixedElement pre path index =>
+          let (name, count, read) ← match path with
+            | .one name key => pure (name, 1, fun member => Expr.structMember name key member)
+            | .two name key1 key2 => pure (name, 2, fun member => Expr.structMember2 name key1 key2 member)
+            | .outer _ _ => failAt j "fixed array element requires both mapping keys"
+          let info ← resolveField name j
+          let some length := info.fixedArrayLength | failAt j "missing fixed array layout"
+          unless info.keyCount == count do failAt j "fixed array mapping key count differs"
+          let dest ← fresh
+          let mut pre := pre.push (.ite (.lt index (.literal length))
+            [] [.panicCode (.literal 0x32)]) |>.push (.letVar dest (.literal 0))
+          for i in [:length] do
+            pre := pre.push (.ite (.eq index (.literal i))
+              [.assignVar dest (read s!"__solidity_element_{i}")] [])
+          markField name
+          pure { pre, expr := .localVar dest }
       | _ => failAt j "storage or memory path used as a value"
   | kind => failAt j s!"unsupported expression {kind}"
 
@@ -736,6 +797,8 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.expr { pre := #[], expr })
       else if let some path := env.paths.find? n then
         pure (.path #[] path)
+      else if let some elements := env.snapshots.find? n then
+        pure (.snapshot elements)
       else if env.mems.contains n then
         pure (.mem n #[])
       else if let some decl := env.numericConstants.find? n then
@@ -801,6 +864,31 @@ private partial def lowerRef (j : Json) : M Ref := do
             pure (.path (pre ++ key.pre) (.one name key.expr))
       | .path pre (.outer field k1) =>
           pure (.path (pre ++ key.pre) (.two field k1 key.expr))
+      | .path pre path =>
+          let name ← match path with
+            | .one name _ | .two name _ _ => pure name
+            | .outer _ _ => failAt j "fixed array element requires both mapping keys"
+          let info ← resolveField name j
+          unless info.fixedArrayLength.isSome do
+            failAt j "index of a storage value requires a fixed array layout"
+          let ty ← mType (← mField j "indexExpression")
+          unless ty.startsWith "uint" || ty.startsWith "int_const" do
+            failAt j "fixed storage array index must be unsigned"
+          let captured ← fresh
+          pure (.fixedElement ((pre ++ key.pre).push (.letVar captured key.expr))
+            path (.localVar captured))
+      | .snapshot elements =>
+          let ty ← mType (← mField j "indexExpression")
+          unless ty.startsWith "uint" || ty.startsWith "int_const" do
+            failAt j "fixed memory array index must be unsigned"
+          let dest ← fresh
+          let mut pre := key.pre.push (.ite (.lt key.expr (.literal elements.size))
+            [] [.panicCode (.literal 0x32)]) |>.push (.letVar dest (.literal 0))
+          for i in [:elements.size] do
+            let some element := elements[i]? | failAt j "missing fixed array snapshot element"
+            pre := pre.push (.ite (.eq key.expr (.literal i))
+              [.assignVar dest element] [])
+          pure (.expr { pre, expr := .localVar dest })
       | .abiArray id memberIndex pre =>
           unless key.pre.isEmpty do
             failAt j "computed struct-array indices require explicit evaluation-order lowering"
@@ -1443,7 +1531,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let result ← lowerHelper stmts retName
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems }
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems }
   pure { pre := pre ++ result.pre, expr := result.expr }
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
@@ -1574,7 +1662,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
     failAt body "ABI-length loop body may write memory or call external code"
   modify fun e =>
     { e with values := saved.values, paths := saved.paths,
-             mems := saved.mems, scalarTy := saved.scalarTy,
+             snapshots := saved.snapshots, mems := saved.mems, scalarTy := saved.scalarTy,
              writableLocals := saved.writableLocals, yulNames := saved.yulNames }
   let mut out : Array Stmt := #[]
   if abiLength then
@@ -1593,7 +1681,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "Block" =>
         let saved ← get
         out := out ++ (← lowerHelperLoopBody statement)
-        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
     | "VariableDeclarationStatement" => out := out ++ (← lowerLocal statement)
     | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
     | "EmitStatement" => out := out ++ (← lowerEmit statement)
@@ -1601,7 +1689,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "IfStatement" =>
         let (condition, _yes, no) ← ifParts statement
         let saved ← get
-        let restore : M Unit := modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        let restore : M Unit := modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         let yesOut ← lowerHelperLoopBody (← mField statement "trueBody")
         restore
         let noOut ← if no.isEmpty then pure #[] else lowerHelperLoopBody (← mField statement "falseBody")
@@ -1650,7 +1738,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           if let some next := rest.head? then failAt next "statement after helper result"
         let saved ← get
         let restore : M Unit := modify fun e =>
-          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems,
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems,
                    scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         if !yesReturns && !noReturns then
           -- Neither branch returns: branch-local declarations stay scoped and
@@ -1730,7 +1818,32 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       atom (← convert ty (← mType right) (← lowerExpr right) right)
     return value.pre.push (write value.expr)
   if (← mKind target) == "IndexAccess" then
-    let .path pre path ← lowerRef target
+    let reference ← lowerRef target
+    if let .fixedElement pre path index := reference then
+      -- Total operands commute with the bounds test. Effectful or reverting
+      -- operands require their own measured evaluation-order lowering rule.
+      unless pre.all (fun | .letVar _ _ => true | _ => false) do
+        failAt target "fixed array write key/index effects require evaluation-order lowering"
+      let (name, count, write) ← match path with
+        | .one name key => pure (name, 1, fun member value => Stmt.setStructMember name key member value)
+        | .two name key1 key2 => pure (name, 2, fun member value => Stmt.setStructMember2 name key1 key2 member value)
+        | .outer _ _ => failAt target "fixed array write requires both mapping keys"
+      let info ← resolveField name target
+      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"
+      unless info.keyCount == count do failAt target "fixed array mapping key count differs"
+      let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
+        let right ← mField expression "rightHandSide"
+        atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+      unless value.pre.all (fun | .letVar _ _ => true | _ => false) do
+        failAt expression "fixed array write RHS effects require evaluation-order lowering"
+      let mut result := (pre ++ value.pre).push (.ite (.lt index (.literal length))
+        [] [.panicCode (.literal 0x32)])
+      for i in [:length] do
+        result := result.push (.ite (.eq index (.literal i))
+          [write s!"__solidity_element_{i}" value.expr] [])
+      markField name
+      return result
+    let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
     let (name, count, write) ← match path with
       | .one field key => pure (field, 1, fun (value : Expr) => Stmt.setStructMember field key "__solidity_value" value)
@@ -1943,6 +2056,27 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
                yulNames := e.yulNames.insert name expr,
                writableLocals := e.writableLocals.insert id binding }
     return #[.letVar binding (.literal 0)]
+  if loc == "memory" && (← mType d).contains '[' then
+    let .path pre path ← lowerRef init
+      | failAt d "fixed memory array initialization requires a mapping storage array"
+    let (field, count, read) ← match path with
+      | .one field key => pure (field, 1, fun member => Expr.structMember field key member)
+      | .two field key1 key2 => pure (field, 2, fun member => Expr.structMember2 field key1 key2 member)
+      | .outer _ _ => failAt init "fixed array copy requires both mapping keys"
+    let info ← resolveField field init
+    let some length := info.fixedArrayLength
+      | failAt init "fixed memory array initialization requires a fixed storage array"
+    unless info.keyCount == count && ((← mType d).splitOn " ").head! == info.fixedArrayType do
+      failAt d "fixed memory array copy type differs from storage layout"
+    let mut result := pre
+    let mut elements : Array Expr := #[]
+    for i in [:length] do
+      let binding ← fresh
+      result := result.push (.letVar binding (read s!"__solidity_element_{i}"))
+      elements := elements.push (.localVar binding)
+    modify fun e => { e with snapshots := e.snapshots.insert id elements }
+    markField field
+    return result
   if loc == "storage" then
     match ← lowerRef init with
     | .path pre path =>
@@ -2064,7 +2198,7 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         -- Restore lexical lookup maps, but retain fresh names and discovered dependencies.
         modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
-                   mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+                   snapshots := saved.snapshots, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         out := out ++ nested
         returned := nestedReturned
     | "VariableDeclarationStatement" =>
@@ -2082,7 +2216,7 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         let (condition, yes, no) ← ifParts s
         let saved ← get
         let restore : M Unit := modify fun e =>
-          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems,
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems,
                    scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         -- A root return inside a branch stops execution, so the continuation
         -- stays after the conditional and runs only on fallthrough.
@@ -2394,7 +2528,7 @@ private def importSlice
     -- Each root is lowered on its own: bindings, generated names and projections
     -- do not leak between functions. Field layouts and the closure are shared.
     env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                      mems := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
+                      snapshots := RBMap.empty, mems := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
                       projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2

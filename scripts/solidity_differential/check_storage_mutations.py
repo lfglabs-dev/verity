@@ -142,8 +142,13 @@ MUTANTS.update({
     'import-packed-member-capture': ('pure (#[.letVar binding key], .localVar binding)', 'pure (#[], key)'),
 })
 
+MUTANTS.update({'import-fixed-array-word': ('wordOffset := index / perWord, packed', 'wordOffset := 0, packed'), 'import-fixed-array-bit': ('let offset := (index % perWord) * width', 'let offset := 0'), 'import-fixed-array-capture': ('((pre ++ key.pre).push (.letVar captured key.expr))', '((pre ++ key.pre).push (.letVar captured (.literal 0)))'), 'import-fixed-array-read': ('[.assignVar dest (read s!"__solidity_element_{i}")]', '[.assignVar dest (read "__solidity_element_0")]'), 'import-fixed-array-bound': ('(pre ++ value.pre).push (.ite (.lt index (.literal length))', '(pre ++ value.pre).push (.ite (.lt index (.literal (length + 1)))'), 'import-fixed-array-write': ('[write s!"__solidity_element_{i}" value.expr]', '[write s!"__solidity_element_{i}" (.literal 0)]'), 'import-fixed-array-two-keys': ('Stmt.setStructMember2 name key1 key2 member value', 'Stmt.setStructMember2 name key2 key1 member value'), 'import-fixed-array-snapshot': ('elements := elements.push (.localVar binding)', 'elements := elements.push (read s!"__solidity_element_{i}")'), 'import-fixed-array-delete': ('let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do\n        let right ← mField expression "rightHandSide"', 'let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n        let right ← mField expression "rightHandSide"')})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-fixed-array-"):
+        fixture = "MappingFixedArraySequence"
     if name.startswith("import-helper-effect-"):
         fixture = "HelperEffectSequence"
     if name.startswith("import-packed-member-"):
@@ -174,8 +179,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '3', '--seed', '2453', '--shrink-attempts', '30',
+            '--transactions', '64' if fixture == 'MappingFixedArraySequence' else '3',
+            '--seed', '2490' if fixture == 'MappingFixedArraySequence' else '2453', '--shrink-attempts', '100' if fixture == 'MappingFixedArraySequence' else '30',
             '--output', str(output)]
+    if fixture == 'MappingFixedArraySequence':
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + [65535, 65536, (1 << 256) - 1])])
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     result = subprocess.run(argv, cwd=directory, env=environment,

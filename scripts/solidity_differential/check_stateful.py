@@ -20,6 +20,8 @@ def main():
         help='seed the MappingDirtySequence layout with noncanonical low bytes and nonzero upper bits')
     parser.add_argument('--argument-bits', type=int, default=256,
         help='unsigned width of the change argument; generates canonical ABI words')
+    parser.add_argument('--change-prefix', type=int, nargs='+', default=[],
+        help='deterministic initial change arguments before random calls')
     parser.add_argument('--seed', type=int, default=2448)
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--senders', type=int, default=1, help='number of funded transaction senders (1 to 10)')
@@ -40,6 +42,12 @@ def main():
         parser.error('at least three transactions and two shrink attempts required')
     if args.dirty_mappings and args.transactions < 5:
         parser.error('dirty mapping coverage requires at least five transactions')
+    if any(value < 0 or value >= (1 << args.argument_bits) for value in args.change_prefix):
+        parser.error('change prefix values must fit the argument width')
+    if len(args.change_prefix) > args.transactions - 3:
+        parser.error('change prefix exceeds the transaction budget')
+    if args.dirty_mappings and args.change_prefix:
+        parser.error('change prefix cannot replace the dirty mapping witness prefix')
     if args.output is None:
         output = Path(tempfile.mkdtemp(prefix='stateful-abc-', dir='.lake')).resolve()
     else:
@@ -93,7 +101,8 @@ def main():
     write_json(output / 'initial-storage.json', initial_storage)
     rng = random.Random(args.seed)
     calls = [(names[0], [7]), ('fail()', []), ('read()', [])]
-    for _ in range(args.transactions - 3):
+    calls.extend((names[0], [value]) for value in args.change_prefix)
+    for _ in range(args.transactions - 3 - len(args.change_prefix)):
         name = rng.choice(names)
         call_args = [rng.choice([0, 1, (1 << args.argument_bits) - 1, rng.getrandbits(args.argument_bits)])] if name == names[0] else []
         calls.append((name, call_args))
@@ -120,7 +129,7 @@ def main():
         'sourceSha256': hashlib.sha256(source_text.encode()).hexdigest(),
         'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest(),
         'variant': args.variant, 'seed': args.seed, 'transactionCount': args.transactions,
-        'argumentBits': args.argument_bits, 'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
+        'changePrefix': args.change_prefix, 'argumentBits': args.argument_bits, 'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
         'evmVersion': 'osaka', 'optimizerRuns': 466})
     result = replay_three_routes(transactions, adapters)
     identity.verify()

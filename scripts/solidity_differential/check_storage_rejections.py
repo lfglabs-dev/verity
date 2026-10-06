@@ -9,6 +9,21 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('fixed-array-read', 'mapping(uint256 => uint16[7]) a;', 'return a[1][x];', 'uint256', None),
+        ('fixed-array-write', 'mapping(uint256 => uint16[7]) a;', 'a[1][x] = 7; delete a[1][0]; return a[1][x];', 'uint256', None),
+        ('fixed-array-copy', 'mapping(uint256 => uint16[7]) a;', 'uint16[7] memory copy = a[1]; a[1][0] = 7; return copy[x];', 'uint256', None),
+        ('fixed-array-two', 'mapping(uint256 => mapping(address => uint24[12])) a;', 'a[1][msg.sender][x] = 7; return a[1][msg.sender][x];', 'uint256', None),
+        ('fixed-array-dynamic', 'mapping(uint256 => uint16[]) a;', 'return a[1][x];', 'uint256', 'unsupported mapping value encoding'),
+        ('fixed-array-dimension', 'mapping(uint256 => uint16[7][2]) a;', 'return a[1][0][x];', 'uint256', 'exactly one fixed dimension'),
+        ('fixed-array-signed', 'mapping(uint256 => int16[7]) a;', 'return uint256(int256(a[1][x]));', 'uint256', 'unsigned scalar elements'),
+        ('fixed-array-bool', 'mapping(uint256 => bool[7]) a;', 'return a[1][x] ? 1 : 0;', 'uint256', 'unsigned scalar elements'),
+        ('fixed-array-memory-write', 'mapping(uint256 => uint16[7]) a;', 'uint16[7] memory copy = a[1]; copy[0] = 7; return copy[0];', 'uint256', 'mapping assignment target is not a storage path'),
+        ('fixed-array-memory-alias', 'mapping(uint256 => uint16[7]) a;', 'uint16[7] memory copy = a[1]; uint16[7] memory aliasCopy = copy; return aliasCopy[0];', 'uint256', 'initialization requires a mapping storage array'),
+        ('fixed-array-key-effect', 'mapping(uint256 => uint256[7]) a;', 'a[x + 1][0] = 7; return x;', 'uint256', 'key/index effects require evaluation-order'),
+        ('fixed-array-index-effect', 'mapping(uint256 => uint256[7]) a;', 'a[1][x + 1] = 7; return x;', 'uint256', 'key/index effects require evaluation-order'),
+        ('fixed-array-rhs-effect', 'mapping(uint256 => uint256[7]) a;', 'a[1][x] = x + 1; return x;', 'uint256', 'RHS effects require evaluation-order'),
+        ('fixed-array-compound', 'mapping(uint256 => uint256[7]) a;', 'a[1][x] += 1; return x;', 'uint256', 'only scalar storage assignment and delete'),
+
         ('helper-effect-write', 'uint256 value; function helper(uint256 n) internal returns (uint256) { value = n; return value; }', 'return helper(x);', 'uint256', None),
         ('helper-effect-delete', 'mapping(uint256 => uint256) value; function helper(uint256 n) internal returns (uint256) { value[1] = n; delete value[1]; return value[1]; }', 'return helper(x);', 'uint256', None),
         ('helper-effect-compound', 'uint256 value; function helper(uint256 n) internal returns (uint256) { value += n; return value; }', 'return helper(x);', 'uint256', 'only scalar storage assignment and delete'),
