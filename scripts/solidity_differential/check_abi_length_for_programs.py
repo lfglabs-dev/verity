@@ -26,7 +26,16 @@ def main():
         fixture = directory / 'ArrayForAbi.sol'
         fixture.write_text(abi_length_for_source(source, variant))
         driver = directory / 'Driver.lean'
-        driver.write_text(template.replace(anchor, f'from "{directory}" entry "ArrayForAbi.sol"'))
+        variant_template = template
+        if variant == 'renamed':
+            # Keep the exact ABI name/type assertion aligned with this source.
+            parameter = 'name := "box", ty := .tuple [.array (.uintN 128)]'
+            if variant_template.count(parameter) != 1:
+                raise HarnessError('nonunique ABI parameter manifest anchor')
+            variant_template = variant_template.replace(parameter,
+                'name := "box_renamed", ty := .tuple [.array (.uintN 128)]')
+        driver.write_text(variant_template.replace(anchor,
+            f'from "{directory}" entry "ArrayForAbi.sol"'))
         command([sys.executable, '-m', 'solidity_differential.check_scalar_array_abi',
             '--source-fixture', fixture, '--model-driver', driver,
             '--output', directory / 'campaign'], timeout=1800, log=directory / 'check.log')
