@@ -512,3 +512,18 @@ new A/B/C campaigns and full exact-head gates are **pending**; no additional
 Midnight importability is claimed yet. The prior three key/index/RHS rejection
 controls become positive controls for the newly admitted forms; compound and
 dynamic writes and unresolved stateful binary-operand order remain rejected.
+
+
+### Development slice: discarded scalar helper calls
+
+| Supported Solidity (development; native validation pending) | Lowering boundary |
+| --- | --- |
+| Internal/private scalar-result helper calls used as expression statements, including library calls | Keep the helper prelude, materialize the final result even when unused, then resume the caller; retain recursion, dispatch, argument-order and reference-conversion guards |
+
+The fixture checks helper storage writes, events, early return, caller continuation,
+library reverts and rollback. Void/multiple-result helpers and calls to external
+or public declarations remain precisely rejected in this statement slice. This
+prerequisite does not implement `IdLib.storeInCode`: named returns, dynamic byte
+construction and CREATE2 still require independent exact lowering and observations.
+Generated variants and an effect-drop runtime mutant are registered; native and
+full release checks remain pending. Existing Denote instructions are reused.

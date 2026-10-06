@@ -1269,3 +1269,14 @@ witnesses and full release gates are pending. Existing unsupported-expression
 and storage-layout checks remain applicable; external effects/calls are not
 admitted by this change. No Denote semantics arm is added: capture, control
 flow, panics and masked storage writes use the existing model semantics.
+
+
+### Development discarded helper expression statements
+
+Resolved internal/private scalar-result calls reuse the existing inliner and its
+scope, recursion, argument-order and reference guards. The result is materialized
+before being discarded; every prelude instruction, storage read, event and revert
+remains observable. No new Denote semantics, oracle or ECM is introduced. This
+statement rule does not model CREATE2 or replace deployment effects. Differential
+fixtures, generated variants, near-miss rejections and the registered effect-drop
+mutation remain pending native validation; no whole-contract equivalence is claimed.

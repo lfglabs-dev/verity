@@ -152,8 +152,14 @@ MUTANTS.update({
     'import-array-write-capture': ('let valuePre := value.pre.push (.letVar capturedValue value.expr)', 'let valuePre := value.pre.push (.letVar capturedValue (.literal 0))'),
 })
 
+MUTANTS.update({
+    'import-discarded-helper-drop': ('let result ← atom (← lowerCall expression)\n        return result.pre', 'let _ ← atom (← lowerCall expression)\n        return #[]'),
+})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-discarded-helper-"):
+        fixture = "DiscardedHelperSequence"
     if name.startswith("import-array-write-"):
         fixture = "FixedArrayWriteOrderSequence"
     if name.startswith("import-fixed-array-"):
@@ -188,11 +194,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture == 'FixedArrayWriteOrderSequence' else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     result = subprocess.run(argv, cwd=directory, env=environment,

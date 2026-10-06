@@ -1773,6 +1773,18 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
 private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   let expression ← mField statement "expression"
   let kind ← mKind expression
+  if kind == "FunctionCall" && optStr expression "kind" == some "functionCall" then
+    let callee ← mField expression "expression"
+    let reference ← refInt callee
+    if reference ≥ 0 then
+      if let some declaration := (← get).funs.find? reference.toNat then
+        let visibility := optStr declaration "visibility" |>.getD ""
+        unless visibility == "internal" || visibility == "private" do
+          failAt callee "discarded helper calls require an internal or private declaration"
+        -- Materialize even a discarded result: the final expression can itself
+        -- read storage or fail. The helper's effect prelude remains ordered.
+        let result ← atom (← lowerCall expression)
+        return result.pre
   if kind != "Assignment" && kind != "UnaryOperation" then
     return ← lowerRequire statement
   let deleting := kind == "UnaryOperation"

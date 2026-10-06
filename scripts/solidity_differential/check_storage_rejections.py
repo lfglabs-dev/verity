@@ -9,6 +9,13 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('discarded-helper', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(x); return x;', 'uint256', None),
+        ('discarded-helper-private', 'function h(uint256 n) private pure returns (uint256) { require(n != 20, "helper"); return n; }', 'h(x); return x;', 'uint256', None),
+        ('discarded-helper-void', 'function h(uint256 n) internal { require(n != 20); }', 'h(x); return x;', 'uint256', 'only single-value helpers'),
+        ('discarded-helper-tuple', 'function h(uint256 n) internal pure returns (uint256,uint256) { return (n,n); }', 'h(x); return x;', 'uint256', 'only single-value helpers'),
+        ('discarded-helper-external', 'function h(uint256 n) external pure returns (uint256) { return n; }', 'this.h(x); return x;', 'uint256', 'discarded helper calls require an internal or private'),
+        ('discarded-helper-recursive', 'function h(uint256 n) internal returns (uint256) { h(n); return n; }', 'h(x); return x;', 'uint256', 'recursive call'),
+        ('discarded-helper-argument-order', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(h(x)); return x;', 'uint256', 'stateful helper call arguments'),
         ('fixed-array-read', 'mapping(uint256 => uint16[7]) a;', 'return a[1][x];', 'uint256', None),
         ('fixed-array-write', 'mapping(uint256 => uint16[7]) a;', 'a[1][x] = 7; delete a[1][0]; return a[1][x];', 'uint256', None),
         ('fixed-array-copy', 'mapping(uint256 => uint16[7]) a;', 'uint16[7] memory copy = a[1]; a[1][0] = 7; return copy[x];', 'uint256', None),
@@ -32,7 +39,7 @@ def main():
         ('helper-effect-increment', 'uint256 value; function helper(uint256 n) internal returns (uint256) { value++; return n; }', 'return helper(x);', 'uint256', 'only scalar storage assignment and delete'),
         ('helper-effect-parameter', 'function helper(uint256 n) internal pure returns (uint256) { n = 0; return n; }', 'return helper(x);', 'uint256', 'only materialized scalar locals are writable'),
         ('helper-effect-root-struct', 'struct Box { uint256 low; } Box box; function helper(uint256 n) internal returns (uint256) { box.low = n; return n; }', 'return helper(x);', 'uint256', 'member assignment requires a mapping struct storage path'),
-        ('helper-effect-external', 'function helper(uint256 n) internal returns (uint256) { this.checked(n); return n; }', 'return helper(x);', 'uint256', 'only builtin require calls'),
+        ('helper-effect-external', 'function helper(uint256 n) internal returns (uint256) { this.checked(n); return n; }', 'return helper(x);', 'uint256', 'discarded helper calls require an internal or private'),
         ('member-write', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[1].low = uint8(x); return uint256(boxes[1].low);', 'uint256', None),
         ('member-delete', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'delete boxes[1].low; return uint256(boxes[1].low);', 'uint256', None),
         ('member-key-prelude', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[x + 1].low = 7; return x;', 'uint256', 'member write key prelude'),

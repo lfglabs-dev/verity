@@ -810,3 +810,21 @@ def stateful_array_write_order_source(fixture: str, variant: str) -> str:
             raise ValueError('write-order RHS anchor changed')
         return fixture.replace(anchor, 'uint256 rhs = right(x); matrix[first(x)][second(x)] = rhs;')
     raise ValueError(f'unknown array write-order variant: {variant}')
+
+
+def stateful_discarded_helper_source(fixture: str, variant: str) -> str:
+    """Preserve ignored-result effects, helper returns, events and reverts."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = ('value', 'input', 'bump', 'checked', 'DiscardedHelperLib')
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'explicit-result':
+        anchor = '        bump(input);'
+        if fixture.count(anchor) != 1:
+            raise ValueError('discarded helper anchor changed')
+        return fixture.replace(anchor, '        uint256 ignored = bump(input);')
+    raise ValueError(f'unknown discarded-helper variant: {variant}')
