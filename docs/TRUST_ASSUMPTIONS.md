@@ -1280,3 +1280,8 @@ remains observable. No new Denote semantics, oracle or ECM is introduced. This
 statement rule does not model CREATE2 or replace deployment effects. Differential
 fixtures, generated variants, near-miss rejections and the registered effect-drop
 mutation remain pending native validation; no whole-contract equivalence is claimed.
+
+Helper-result continuations also reuse the exact root `emit` lowering, keeping events
+before the continuation and rollback intact. The fixture retains helper events;
+a separate event-drop runtime mutation and anonymous/dynamic event rejection
+controls are registered. Native validation remains pending.

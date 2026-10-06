@@ -153,6 +153,7 @@ MUTANTS.update({
 })
 
 MUTANTS.update({
+    'import-discarded-helper-emit': ('let emitted ← lowerEmit s', 'let emitted : Array Stmt := #[]'),
     'import-discarded-helper-drop': ('let result ← atom (← lowerCall expression)\n        return result.pre', 'let _ ← atom (← lowerCall expression)\n        return #[]'),
 })
 

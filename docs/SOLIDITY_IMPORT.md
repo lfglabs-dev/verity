@@ -527,3 +527,8 @@ prerequisite does not implement `IdLib.storeInCode`: named returns, dynamic byte
 construction and CREATE2 still require independent exact lowering and observations.
 Generated variants and an effect-drop runtime mutant are registered; native and
 full release checks remain pending. Existing Denote instructions are reused.
+
+Helper-result continuations also reuse the exact root `emit` lowering, keeping events
+before the continuation and rollback intact. The fixture retains helper events;
+a separate event-drop runtime mutation and anonymous/dynamic event rejection
+controls are registered. Native validation remains pending.

@@ -1718,6 +1718,11 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let pre ← lowerEffect s
         let (tail, result) ← lowerHelperFrom rest retName
         pure (pre ++ tail, result)
+    | "EmitStatement" =>
+        -- Preserve helper events before its scalar-result continuation.
+        let emitted ← lowerEmit s
+        let (tail, result) ← lowerHelperFrom rest retName
+        pure (emitted ++ tail, result)
     | "ForStatement" =>
         let pre ← lowerFor s lowerHelperLoopBody
         let (tail, result) ← lowerHelperFrom rest retName

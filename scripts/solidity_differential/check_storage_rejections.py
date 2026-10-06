@@ -9,6 +9,9 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('discarded-helper-emit', 'event E(uint256 v); function h(uint256 n) internal returns (uint256) { emit E(n); return n; }', 'h(x); return x;', 'uint256', None),
+        ('discarded-helper-emit-anonymous', 'event E(uint256 v) anonymous; function h(uint256 n) internal returns (uint256) { emit E(n); return n; }', 'h(x); return x;', 'uint256', 'anonymous events are unsupported'),
+        ('discarded-helper-emit-dynamic', 'event E(string v); function h(uint256 n) internal returns (uint256) { emit E("dynamic"); return n; }', 'h(x); return x;', 'uint256', 'unsupported event parameter type string'),
         ('discarded-helper', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-private', 'function h(uint256 n) private pure returns (uint256) { require(n != 20, "helper"); return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-void', 'function h(uint256 n) internal { require(n != 20); }', 'h(x); return x;', 'uint256', 'only single-value helpers'),
