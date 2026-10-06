@@ -141,14 +141,21 @@ MUTANTS.update({
     'import-packed-member-capture': ('pure (#[.letVar binding key], .localVar binding)', 'pure (#[], key)'),
 })
 
-MUTANTS.update({'import-fixed-array-word': ('wordOffset := index / perWord, packed', 'wordOffset := 0, packed'), 'import-fixed-array-bit': ('let offset := (index % perWord) * width', 'let offset := 0'), 'import-fixed-array-capture': ('((pre ++ key.pre).push (.letVar captured key.expr))', '((pre ++ key.pre).push (.letVar captured (.literal 0)))'), 'import-fixed-array-read': ('[.assignVar dest (read s!"__solidity_element_{i}")]', '[.assignVar dest (read "__solidity_element_0")]'), 'import-fixed-array-bound': ('(pre ++ value.pre).push (.ite (.lt index (.literal length))', '(pre ++ value.pre).push (.ite (.lt index (.literal (length + 1)))'), 'import-fixed-array-write': ('[write s!"__solidity_element_{i}" value.expr]', '[write s!"__solidity_element_{i}" (.literal 0)]'), 'import-fixed-array-two-keys': ('Stmt.setStructMember2 name key1 key2 member value', 'Stmt.setStructMember2 name key2 key1 member value'), 'import-fixed-array-snapshot': ('elements := elements.push (.localVar binding)', 'elements := elements.push (read s!"__solidity_element_{i}")'), 'import-fixed-array-delete': ('let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do\n        let right ← mField expression "rightHandSide"', 'let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n        let right ← mField expression "rightHandSide"')})
+MUTANTS.update({'import-fixed-array-word': ('wordOffset := index / perWord, packed', 'wordOffset := (index / perWord) * 2, packed'), 'import-fixed-array-bit': ('let offset := (index % perWord) * width', 'let offset := ((index % perWord + 1) % perWord) * width'), 'import-fixed-array-capture': ('((pre ++ key.pre).push (.letVar captured key.expr))', '((pre ++ key.pre).push (.letVar captured (.literal 0)))'), 'import-fixed-array-read': ('[.assignVar dest (read s!"__solidity_element_{i}")]', '[.assignVar dest (read "__solidity_element_0")]'), 'import-fixed-array-bound': ('(valuePre ++ pre).push (.ite (.lt index (.literal length))', '(valuePre ++ pre).push (.ite (.lt index (.literal (length + 1)))'), 'import-fixed-array-write': ('[write s!"__solidity_element_{i}" (.localVar capturedValue)]', '[write s!"__solidity_element_{i}" (.literal 0)]'), 'import-fixed-array-two-keys': ('Stmt.setStructMember2 name key1 key2 member value', 'Stmt.setStructMember2 name key2 key1 member value'), 'import-fixed-array-snapshot': ('elements := elements.push (.localVar binding)', 'elements := elements.push (read s!"__solidity_element_{i}")'), 'import-fixed-array-delete': ('let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do\n        let right ← mField expression "rightHandSide"', 'let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n        let right ← mField expression "rightHandSide"')})
 
 
 MUTANTS.update({'import-fixed-array-snapshot-read': ('[.assignVar dest element] [])', '[.assignVar dest (.literal 0)] [])'), 'import-fixed-array-read-bound': ('let mut pre := pre.push (.ite (.lt index (.literal length))', 'let mut pre := pre.push (.ite (.lt index (.literal 0))'), 'import-fixed-array-snapshot-bound': ('let mut pre := key.pre.push (.ite (.lt key.expr (.literal elements.size))', 'let mut pre := key.pre.push (.ite (.lt key.expr (.literal 0))')})
 
 
+MUTANTS.update({
+    'import-array-write-order': ('let mut result := (valuePre ++ pre).push', 'let mut result := (pre ++ valuePre).push'),
+    'import-array-write-capture': ('let valuePre := value.pre.push (.letVar capturedValue value.expr)', 'let valuePre := value.pre.push (.letVar capturedValue (.literal 0))'),
+})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-array-write-"):
+        fixture = "FixedArrayWriteOrderSequence"
     if name.startswith("import-fixed-array-"):
         fixture = "MappingFixedArraySequence"
     if name.startswith("import-helper-effect-"):
@@ -181,11 +188,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture == 'MappingFixedArraySequence' else '3',
-            '--seed', '2490' if fixture == 'MappingFixedArraySequence' else '2453', '--shrink-attempts', '100' if fixture == 'MappingFixedArraySequence' else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence'} else '30',
             '--output', str(output)]
-    if fixture == 'MappingFixedArraySequence':
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + [65535, 65536, (1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture == 'FixedArrayWriteOrderSequence' else [65535, 65536]) + [(1 << 256) - 1])])
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     result = subprocess.run(argv, cwd=directory, env=environment,

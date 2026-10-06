@@ -1820,10 +1820,9 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   if (← mKind target) == "IndexAccess" then
     let reference ← lowerRef target
     if let .fixedElement pre path index := reference then
-      -- Total operands commute with the bounds test. Effectful or reverting
-      -- operands require their own measured evaluation-order lowering rule.
-      unless pre.all (fun | .letVar _ _ => true | _ => false) do
-        failAt target "fixed array write key/index effects require evaluation-order lowering"
+      -- Under the pinned via-IR profile, assignment evaluates and captures
+      -- the RHS before the LHS mapping keys and index, then checks bounds.
+      -- lowerRef captures the keys/index in their recursive source order.
       let (name, count, write) ← match path with
         | .one name key => pure (name, 1, fun member value => Stmt.setStructMember name key member value)
         | .two name key1 key2 => pure (name, 2, fun member value => Stmt.setStructMember2 name key1 key2 member value)
@@ -1834,13 +1833,13 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
         let right ← mField expression "rightHandSide"
         atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
-      unless value.pre.all (fun | .letVar _ _ => true | _ => false) do
-        failAt expression "fixed array write RHS effects require evaluation-order lowering"
-      let mut result := (pre ++ value.pre).push (.ite (.lt index (.literal length))
+      let capturedValue ← fresh
+      let valuePre := value.pre.push (.letVar capturedValue value.expr)
+      let mut result := (valuePre ++ pre).push (.ite (.lt index (.literal length))
         [] [.panicCode (.literal 0x32)])
       for i in [:length] do
         result := result.push (.ite (.eq index (.literal i))
-          [write s!"__solidity_element_{i}" value.expr] [])
+          [write s!"__solidity_element_{i}" (.localVar capturedValue)] [])
       markField name
       return result
     let .path pre path := reference

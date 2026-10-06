@@ -492,3 +492,23 @@ on `2a448958`: two state-changing helpers produced stamp12 on success, invalid
 indices produced panic0x32, and competing helper failures produced the exact
 `first array key` revert bytes. This establishes that fixture under the pinned
 compiler settings; it is not a general Solidity evaluation-order theorem.
+
+
+### Development slice: fixed-array assignment evaluation order
+
+| Supported Solidity | Exact lowering |
+| --- | --- |
+| Checked/effectful RHS and key/index expressions of mapped fixed-array assignments | Evaluate and capture the RHS, then the mapping keys and index in recursive source order, then bounds-check and perform the masked write. Existing expression rejection boundaries remain in force. |
+
+The pinned solc 0.8.34 via-IR/Osaka/466-runs A-only audit at `3bc74c208`
+observed the stamp `312` for RHS/key/index helpers and RHS error priority over
+bounds and key errors. This is evidence for that fixture/profile, not a general
+Solidity evaluation-order theorem. `FixedArrayWriteOrderSequence` extends the
+A/B/C obligations to distinct key/index/RHS failures, checked division and
+narrowing, emitted events, bounds and rollback; baseline, identifier-renamed
+and explicitly captured-RHS variants must have identical observations. Two
+runtime mutations exchange RHS/LHS order or corrupt the captured RHS. These
+new A/B/C campaigns and full exact-head gates are **pending**; no additional
+Midnight importability is claimed yet. The prior three key/index/RHS rejection
+controls become positive controls for the newly admitted forms; compound and
+dynamic writes and unresolved stateful binary-operand order remain rejected.

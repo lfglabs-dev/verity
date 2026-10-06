@@ -1256,3 +1256,16 @@ stamp/order, revert bytes and rollback across32transactions on the pinned
 A/B/C routes. This is fixture-scoped differential evidence, not a proof about
 all key/index expressions or other solc settings. Existing rejection controls
 and the full release gates remain required.
+
+
+### Development fixed-array assignment order
+
+The candidate lowering evaluates and captures RHS values before evaluating
+mapped fixed-array key/index preludes and before bounds checks. This relies on
+the pinned solc 0.8.34 via-IR profile; the retained A-only order fixture observed
+RHS/key/index stamp `312`, exact RHS error priority and rollback. The fixture
+is not a universal compiler-order proof. Dedicated A/B/C variants, mutation
+witnesses and full release gates are pending. Existing unsupported-expression
+and storage-layout checks remain applicable; external effects/calls are not
+admitted by this change. No Denote semantics arm is added: capture, control
+flow, panics and masked storage writes use the existing model semantics.

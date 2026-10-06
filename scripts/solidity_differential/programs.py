@@ -792,3 +792,21 @@ def stateful_fixed_array_source(fixture: str, variant: str) -> str:
             raise ValueError('fixed array delete anchor changed')
         return fixture.replace(anchor, 'crossing[msg.sender][10] = 0;')
     raise ValueError(f'unknown fixed-array variant: {variant}')
+
+
+def stateful_array_write_order_source(fixture: str, variant: str) -> str:
+    """Keep RHS/key/index effects, revert priority and capture exactly equal."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = ('stamp', 'matrix', 'fees', 'first', 'second', 'right', 'trace', 'selected', 'fee')
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'captured-rhs':
+        anchor = 'matrix[first(x)][second(x)] = right(x);'
+        if fixture.count(anchor) != 1:
+            raise ValueError('write-order RHS anchor changed')
+        return fixture.replace(anchor, 'uint256 rhs = right(x); matrix[first(x)][second(x)] = rhs;')
+    raise ValueError(f'unknown array write-order variant: {variant}')
