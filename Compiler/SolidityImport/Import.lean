@@ -802,6 +802,8 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.snapshot elements)
       else if env.mems.contains n then
         pure (.mem n #[])
+      else if env.byteBuffers.contains n then
+        failAt j "encoded byte locals are limited to hash and packed encoding operands"
       else if let some decl := env.numericConstants.find? n then
         if env.constantStack.contains n then failAt j "cyclic constant initializer"
         let declared ← mType decl
