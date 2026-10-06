@@ -565,6 +565,6 @@ audit; implicit named-result fallthrough is supported.
 
 The initial draft passed 93 build jobs and 64 A/B/C transactions. The expanded
 fixture adds nested contexts, boolean/address cleanup and assembly branch
-continuation. Three generated variants, seven runtime mutants and ten located
+continuation. Three generated variants, seven runtime mutants and eleven located
 controls await native validation on the final commit. Full release gates and
 the pinned pilot check remain pending; no golden or provenance was changed.
