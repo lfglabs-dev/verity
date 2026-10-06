@@ -1250,3 +1250,9 @@ boundaries and reset between entry points. Unsupported memory uses and write
 operand effects reject precisely. Preliminary recorded-hash A/B/C tests passed;
 new-head focused variants, controls, mutation detections and full release gates
 remain outstanding. No whole-contract or solc-Yul equivalence proof is claimed.
+
+A separate fixed-array key/index helper audit on `2a448958` observed identical
+stamp/order, revert bytes and rollback across32transactions on the pinned
+A/B/C routes. This is fixture-scoped differential evidence, not a proof about
+all key/index expressions or other solc settings. Existing rejection controls
+and the full release gates remain required.

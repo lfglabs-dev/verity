@@ -2057,6 +2057,9 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
                writableLocals := e.writableLocals.insert id binding }
     return #[.letVar binding (.literal 0)]
   if loc == "memory" && (← mType d).contains '[' then
+    if (← mKind init) == "TupleExpression" then
+      if ← mBool (← mField init "isInlineArray") then
+        failAt init "inline arrays are outside this slice"
     let .path pre path ← lowerRef init
       | failAt d "fixed memory array initialization requires a mapping storage array"
     let (field, count, read) ← match path with

@@ -486,3 +486,9 @@ Two preliminary 64-transaction A/B/C campaigns passed on recorded source hashes;
 the second covered indices 0–8, snapshot identity, uint24 cross-word packing,
 delete, two mapping keys and rollback. New exact-head variants, rejection and
 mutation controls and full release gates are still pending.
+
+The fixed mapping-array key/index order audit passed 32 actual A/B/C transactions
+on `2a448958`: two state-changing helpers produced stamp12 on success, invalid
+indices produced panic0x32, and competing helper failures produced the exact
+`first array key` revert bytes. This establishes that fixture under the pinned
+compiler settings; it is not a general Solidity evaluation-order theorem.
