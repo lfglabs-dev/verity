@@ -192,6 +192,7 @@ private structure Env where
   paths : RBMap Nat SPath compare
   snapshots : RBMap Nat (Array Expr) compare := RBMap.empty
   mems : RBMap Nat MemParam compare
+  byteBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   fieldsByName : RBMap String FieldInfo compare
   layoutItems : RBMap String Json compare
   layoutTypes : Json
@@ -1368,6 +1369,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     return ← lowerLiteralBytes j
   if (← mKind j) == "Identifier" then
     let id ← refInt j
+    if id ≥ 0 then
+      if let some buffer := (← get).byteBuffers.find? id.toNat then
+        return buffer
     let some decl := (← get).stateVars.find? id.toNat
       | failAt j "only literal constants are supported as named byte buffers"
     unless (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true do
@@ -1531,7 +1535,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let result ← lowerHelper stmts retName
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems }
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers }
   pure { pre := pre ++ result.pre, expr := result.expr }
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
@@ -1662,7 +1666,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
     failAt body "ABI-length loop body may write memory or call external code"
   modify fun e =>
     { e with values := saved.values, paths := saved.paths,
-             snapshots := saved.snapshots, mems := saved.mems, scalarTy := saved.scalarTy,
+             snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy,
              writableLocals := saved.writableLocals, yulNames := saved.yulNames }
   let mut out : Array Stmt := #[]
   if abiLength then
@@ -1681,7 +1685,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "Block" =>
         let saved ← get
         out := out ++ (← lowerHelperLoopBody statement)
-        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
     | "VariableDeclarationStatement" => out := out ++ (← lowerLocal statement)
     | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
     | "EmitStatement" => out := out ++ (← lowerEmit statement)
@@ -1689,7 +1693,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "IfStatement" =>
         let (condition, _yes, no) ← ifParts statement
         let saved ← get
-        let restore : M Unit := modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        let restore : M Unit := modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         let yesOut ← lowerHelperLoopBody (← mField statement "trueBody")
         restore
         let noOut ← if no.isEmpty then pure #[] else lowerHelperLoopBody (← mField statement "falseBody")
@@ -1743,7 +1747,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           if let some next := rest.head? then failAt next "statement after helper result"
         let saved ← get
         let restore : M Unit := modify fun e =>
-          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems,
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
                    scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         if !yesReturns && !noReturns then
           -- Neither branch returns: branch-local declarations stay scoped and
@@ -2076,6 +2080,18 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
                yulNames := e.yulNames.insert name expr,
                writableLocals := e.writableLocals.insert id binding }
     return #[.letVar binding (.literal 0)]
+  if loc == "memory" && (← mType d) == "bytes" then
+    -- Evaluate allocation and encoding once, at the declaration. Only a
+    -- payload descriptor is exposed: assignment, indexing, reference calls
+    -- and Yul pointer access remain rejected until their exact rules exist.
+    let buffer ← lowerEncodedBytes init
+    let pointer ← freshFor name
+    let size ← fresh
+    let effects := buffer.pre ++ #[.letVar pointer buffer.pointer, .letVar size buffer.size]
+    let retained : EncodedBytes :=
+      { pre := #[], pointer := .localVar pointer, size := .localVar size }
+    modify fun e => { e with byteBuffers := e.byteBuffers.insert id retained }
+    return effects
   if loc == "memory" && (← mType d).contains '[' then
     if (← mKind init) == "TupleExpression" then
       if ← mBool (← mField init "isInlineArray") then
@@ -2221,7 +2237,7 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         -- Restore lexical lookup maps, but retain fresh names and discovered dependencies.
         modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
-                   snapshots := saved.snapshots, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+                   snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         out := out ++ nested
         returned := nestedReturned
     | "VariableDeclarationStatement" =>
@@ -2239,7 +2255,7 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         let (condition, yes, no) ← ifParts s
         let saved ← get
         let restore : M Unit := modify fun e =>
-          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems,
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
                    scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         -- A root return inside a branch stops execution, so the continuation
         -- stays after the conditional and runs only on fallthrough.
@@ -2551,7 +2567,7 @@ private def importSlice
     -- Each root is lowered on its own: bindings, generated names and projections
     -- do not leak between functions. Field layouts and the closure are shared.
     env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                      snapshots := RBMap.empty, mems := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
+                      snapshots := RBMap.empty, mems := RBMap.empty, byteBuffers := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
                       projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2

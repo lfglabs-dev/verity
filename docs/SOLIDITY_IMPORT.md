@@ -532,3 +532,18 @@ Helper-result continuations also reuse the exact root `emit` lowering, keeping e
 before the continuation and rollback intact. The fixture retains helper events;
 a separate event-drop runtime mutation and anonymous/dynamic event rejection
 controls are registered. Native validation remains pending.
+
+### Development slice: encoded byte locals
+
+| Supported Solidity (development; complete validation pending) | Lowering boundary |
+| --- | --- |
+| Initialized `bytes memory` locals from admitted ABI/packed encodings or literals; local aliases | Evaluate encoding once at declaration and retain a payload pointer and logical length. Hashing and packed concatenation consume those captured descriptors; branch/helper/root scope restoration preserves declaration identity. |
+
+The initial draft fixture passes 64 real A/B/C transactions with repeated reads,
+aliases, nested buffers, branch locals, storage/events and rollback. Generated
+variants, three runtime mutations and nine located controls are added but await
+native validation on the final commit. Byte assignment/index writes, length
+access, `new bytes`, byte parameters/helper reference calls, raw Yul pointers and
+deployment remain unsupported and rejected. The descriptor is a payload view,
+not a claim of general Solidity byte-object memory layout. Full exact-head release
+gates remain pending.

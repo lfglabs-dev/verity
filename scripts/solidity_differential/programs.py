@@ -828,3 +828,22 @@ def stateful_discarded_helper_source(fixture: str, variant: str) -> str:
             raise ValueError('discarded helper anchor changed')
         return fixture.replace(anchor, '        uint256 ignored = bump(input);')
     raise ValueError(f'unknown discarded-helper variant: {variant}')
+
+
+def stateful_encoded_byte_local_source(fixture: str, variant: str) -> str:
+    """Equivalent retained byte buffers, alias reads and branch scopes."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'value', 'input', 'digest', 'encoded', 'prefixed', 'aliasBuffer',
+                 'first', 'second', 'other', 'rootBytes', 'branchBytes', 'result'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'copy-alias':
+        anchor = 'bytes memory aliasBuffer = prefixed;'
+        if fixture.count(anchor) != 1:
+            raise ValueError('encoded byte alias anchor changed')
+        return fixture.replace(anchor, 'bytes memory aliasBuffer = abi.encodePacked(prefixed, hex"");')
+    raise ValueError(f'unknown encoded-byte-local variant: {variant}')

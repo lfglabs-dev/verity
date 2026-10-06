@@ -9,6 +9,15 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('byte-local-encoded', '', 'bytes memory b = abi.encode(x); return uint256(keccak256(b));', 'uint256', None),
+        ('byte-local-alias', '', 'bytes memory b = abi.encode(x); bytes memory c = b; return uint256(keccak256(c));', 'uint256', None),
+        ('byte-local-packed', '', 'bytes memory b = abi.encodePacked(hex"01", abi.encode(x)); return uint256(keccak256(b));', 'uint256', None),
+        ('byte-local-uninitialized', '', 'bytes memory b; return uint256(keccak256(b));', 'uint256', 'uninitialized reference locals'),
+        ('byte-local-reassign', '', 'bytes memory b = abi.encode(x); b = abi.encode(uint256(0)); return uint256(keccak256(b));', 'uint256', 'only materialized scalar locals are writable'),
+        ('byte-local-index-write', '', 'bytes memory b = abi.encode(x); b[0] = bytes1(0); return uint256(keccak256(b));', 'uint256', 'unresolved identifier'),
+        ('byte-local-length', '', 'bytes memory b = abi.encode(x); return b.length;', 'uint256', 'unresolved identifier'),
+        ('byte-local-new', '', 'bytes memory b = new bytes(x); return uint256(keccak256(b));', 'uint256', 'hash input must be a supported ABI encoding'),
+        ('byte-local-helper-reference', 'function h(bytes memory b) internal pure returns (uint256) { return uint256(keccak256(b)); }', 'bytes memory b = abi.encode(x); return h(b);', 'uint256', 'unresolved identifier'),
         ('discarded-helper-emit', 'event E(uint256 v); function h(uint256 n) internal returns (uint256) { emit E(n); return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-emit-anonymous', 'event E(uint256 v) anonymous; function h(uint256 n) internal returns (uint256) { emit E(n); return n; }', 'h(x); return x;', 'uint256', 'anonymous events are unsupported'),
         ('discarded-helper-emit-dynamic', 'event E(string v); function h(uint256 n) internal returns (uint256) { emit E("dynamic"); return n; }', 'h(x); return x;', 'uint256', 'unsupported event parameter type string'),

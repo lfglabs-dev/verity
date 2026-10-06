@@ -1285,3 +1285,17 @@ Helper-result continuations also reuse the exact root `emit` lowering, keeping e
 before the continuation and rollback intact. The fixture retains helper events;
 a separate event-drop runtime mutation and anonymous/dynamic event rejection
 controls are registered. Native validation remains pending.
+
+### Development encoded-byte-local descriptors
+
+The importer reuses existing ABI encoding, memory-copy and real Keccak paths.
+An initialized bytes local records a declaration-id payload pointer/length after
+evaluating its initializer once. Aliases reuse the descriptor. No new Denote
+instruction or oracle is introduced. These descriptors do not expose a Solidity
+length-header pointer, mutating byte operations, reference helper arguments or
+CREATE2; those source forms remain rejected. Branch, loop, helper and root scopes
+restore descriptor bindings together with existing reference environments.
+
+The 64-transaction uncommitted draft fixture passed A/B/C; generated variants,
+runtime mutants and located controls await final native/exact-head validation.
+This does not establish general bytes memory equivalence or deployment semantics.
