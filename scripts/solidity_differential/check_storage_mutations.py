@@ -1,6 +1,7 @@
 """Actual scalar storage importer mutations, with unmodified controls and reduced witnesses."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -130,6 +131,9 @@ MUTANTS.update({
 })
 
 MUTANTS.update({
+    'import-helper-effect-binary-guard': ('if statefulCallIn (← mField j "leftExpression") env ||\n        statefulCallIn (← mField j "rightExpression") env then', 'if false then'),
+    'import-helper-effect-argument-guard': ('if statefulCallIn arg (← get) then', 'if false then'),
+    'import-helper-effect-classifier': ('| some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")', '| some _ => false'),
     'import-helper-effect-drop': ('-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre ← lowerEffect s', '-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre : Array Stmt := #[]'),
     'import-packed-member-delete': ('markField name\n    let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n      let right ← mField expression "rightHandSide"\n      atom (← convert ty (← mType right) (← lowerExpr right) right)\n    return value.pre.push (write value.expr)', 'markField name\n    let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n      let right ← mField expression "rightHandSide"\n      atom (← convert ty (← mType right) (← lowerExpr right) right)\n    return value.pre.push (write value.expr)'),
     'import-packed-member-value': ('return value.pre.push (write value.expr)', 'return value.pre.push (write (.literal 0))'),
@@ -184,6 +188,44 @@ def run(directory, output, name):
     return result.returncode, report
 
 
+def helper_order_control(directory, name, mutated):
+    """A guard mutant must admit exactly the source that the baseline rejects."""
+    target = directory / '.lake/helper-order-control'
+    target.mkdir(exist_ok=True)
+    argument = name.endswith('argument-guard')
+    expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
+    diagnostic = ('stateful helper call arguments require explicit evaluation-order support'
+                  if argument else 'stateful helper operands require explicit evaluation-order support')
+    (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ uint256 value;
+ function bump() internal returns (uint256) { value = value + 1; return value; }
+ function add(uint256 a, uint256 b) internal pure returns (uint256) { return a + b; }
+ function checked(uint256) external returns (uint256) { return ''' + expression + '''; }
+}
+''')
+    driver = target / 'Check.lean'
+    driver.write_text(f'''import Compiler.SolidityImport.Import
+solidity_import tested from "{target}" entry "Fixture.sol"
+  using {{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }}
+  contract C
+  function checked(uint256)
+''')
+    artifact = target / ('mutated.olean' if mutated else 'baseline.olean')
+    result = subprocess.run(['lake', 'env', 'lean', str(driver), '-o', str(artifact)],
+                            cwd=directory, text=True, capture_output=True, timeout=120)
+    log = result.stdout + result.stderr
+    log_path = target / ('mutated.log' if mutated else 'baseline.log')
+    log_path.write_text(log)
+    if mutated:
+        if result.returncode or not artifact.exists():
+            raise HarnessError(f'{name}: removed guard did not admit the exact negative control; see {log_path}')
+    elif (result.returncode == 0 or artifact.exists() or diagnostic not in log
+          or not re.search(r'Fixture\.sol:\d+:\d+:', log)):
+        raise HarnessError(f'{name}: baseline did not precisely reject the order control; see {log_path}')
+    return diagnostic, str(log_path)
+
+
 def mutation_campaign(output, selected=None):
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -195,6 +237,11 @@ def mutation_campaign(output, selected=None):
         baseline_code, baseline = run(directory, directory / '.lake/baseline', name)
         if baseline_code or not baseline['transactions'] or baseline['divergences']:
             raise HarnessError(f'{name}: unmodified positive control failed')
+        order_guard = name in {'import-helper-effect-binary-guard',
+                              'import-helper-effect-argument-guard',
+                              'import-helper-effect-classifier'}
+        if order_guard:
+            helper_order_control(directory, name, False)
         source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')
                               else 'Compiler/SolidityImport/Quote.lean' if name == 'import-modulo-quote'
                               else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
@@ -205,6 +252,14 @@ def mutation_campaign(output, selected=None):
         source.write_text(text.replace(before, after))
         command(['lake', 'build', 'Compiler.SolidityImport.Import', 'Compiler.SolidityImport.SequenceRunner'], cwd=directory,
                 timeout=600, log=directory / 'build.log')
+        if order_guard:
+            diagnostic, log_path = helper_order_control(directory, name, True)
+            reports.append({'mutant': name, 'status': 'detected', 'detected': True,
+                            'baselinePassed': True, 'kind': 'unsupported-order-admission',
+                            'diagnostic': diagnostic, 'log': log_path})
+            write_json(output / 'mutation-results.json', reports)
+            print(f'{name}: exact rejection guard removal detected', flush=True)
+            continue
         if name == 'import-modulo-quote':
             # Quotation is independently checked against the original model.
             # This mutation must fail that exact invariant, before execution.

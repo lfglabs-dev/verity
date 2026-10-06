@@ -1235,3 +1235,5 @@ This draft uses the existing pinned-solc storage layout and existing Denote/comp
 ### Development internal helper expression effects
 
 The helper continuation delegates expression statements to the same exact assignment/delete/require lowering as root entry points. It introduces no new Denote instruction, oracle or trusted semantics arm. Helper scope restoration and scalar-result continuation remain unchanged. The draft fixture, generated variants, rejection controls and effect-drop mutation still require native and full release validation.
+
+Stateful helper calls in ordinary binary operands or call arguments are not assigned an unverified Solidity evaluation order. A declaration-based source check precisely rejects those contexts; pure/view calls retain their existing behavior. The new guards and short-circuit write fixture are not yet kernel or runtime validated. The prior tuple-return require-helper audit establishes only its own pinned fixture's observation order.

@@ -24,8 +24,11 @@ contract SequenceFixture {
         }
         return value;
     }
+    function never() internal returns (bool) { value = 999; return true; }
     function change(uint256 x) external returns (uint256) {
         uint256 result = update(x);
+        require(true || never(), "dead effect");
+        require(value == result, "dead helper write");
         value = result + 10;
         emit Changed(value);
         return value;

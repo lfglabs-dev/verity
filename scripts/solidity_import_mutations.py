@@ -519,6 +519,18 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
         if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
             raise SystemExit(f"{mutant}: expected a runtime differential divergence")
         print(f"pass {mutant}")
+    # Removing an order guard must change a located rejection to admission.
+    for mutant in ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier'):
+        output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
+        subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
+                        "--mutations", "--mutant", mutant, "--output", str(output)],
+                       cwd=ROOT, check=True, timeout=900)
+        results = json.loads((output / "mutation-results.json").read_text())
+        if (len(results) != 1 or results[0]['mutant'] != mutant
+                or not results[0]['detected'] or not results[0]['baselinePassed']
+                or results[0]['kind'] != 'unsupported-order-admission'):
+            raise SystemExit(f'{mutant}: exact negative control guard mutation escaped detection')
+        print(f'pass {mutant} exact rejection guard')
     # Quotation corruption is rejected before an executable model exists.
     quote_output = Path(tempfile.mkdtemp(prefix="modulo-quote-integrity-", dir=WORK))
     subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),

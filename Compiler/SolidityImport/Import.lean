@@ -365,6 +365,25 @@ private partial def bodyAssignedIds (j : Json) : List Nat :=
       o.foldl (fun acc _ v => acc ++ bodyAssignedIds v) own
   | _ => []
 
+/-- Stateful calls in sibling expressions need an independently validated order.
+    A non-view declaration is conservatively treated as stateful even when its
+    current body happens not to write. Unknown calls retain their usual rejection. -/
+private partial def statefulCallIn (j : Json) (env : Env) : Bool :=
+  match j with
+  | .arr xs => xs.any (fun child => statefulCallIn child env)
+  | .obj o =>
+      let own := if optStr j "nodeType" == some "FunctionCall" &&
+          optStr j "kind" == some "functionCall" then
+        match (field? j "expression").bind (fun callee =>
+            (field? callee "referencedDeclaration").bind (fun id => id.getNat?.toOption)) with
+        | some id => match env.funs.find? id with
+          | some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")
+          | none => false
+        | none => false
+      else false
+      o.foldl (fun found _ child => found || statefulCallIn child env) own
+  | _ => false
+
 private def atom (v : Val) : M Val := do
   if v.pre.isEmpty && isAtom v.expr then
     pure v
@@ -938,6 +957,11 @@ private partial def readAbiMember (id : Nat) (pre : Array Stmt) (member : String
 
 private partial def lowerBinary (j : Json) : M Val := do
   let op ← mStr (← mField j "operator")
+  unless op == "&&" || op == "||" do
+    let env ← get
+    if statefulCallIn (← mField j "leftExpression") env ||
+        statefulCallIn (← mField j "rightExpression") env then
+      failAt j "stateful helper operands require explicit evaluation-order support"
   let left ← lowerExpr (← mField j "leftExpression")
   let right ← lowerExpr (← mField j "rightExpression")
   let common ← mStr (← mField (← mField j "commonType") "typeString")
@@ -1339,6 +1363,8 @@ private partial def lowerCall (j : Json) : M Val := do
       | none => args
     let mut vals : Array CallArg := #[]
     for arg in nodes do
+      if statefulCallIn arg (← get) then
+        failAt arg "stateful helper call arguments require explicit evaluation-order support"
       if (← mType arg).startsWith "struct " then
         match ← lowerRef arg with
         | .mem id pre =>
