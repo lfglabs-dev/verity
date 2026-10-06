@@ -684,9 +684,11 @@ def stateful_invariant_for_source(fixture: str, variant: str) -> str:
         return fixture
     if variant == 'renamed':
         import re
-        for old in ('total', 'bound', 'i', 'j'):
-            fixture = re.sub(r'\b' + old + r'\b', old + '_renamed', fixture)
-        return fixture
+        names = ('total', 'bound', 'i', 'j')
+        # Preserve strings (especially revert bytes) and comments verbatim.
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda match: match.group(0) + '_renamed'
+                      if match.group(0) in names else match.group(0), fixture)
     if variant == 'assignment-step':
         for old, new in (('i++)', 'i += 1)'), ('j++)', 'j += 1)')):
             if fixture.count(old) != 1:
