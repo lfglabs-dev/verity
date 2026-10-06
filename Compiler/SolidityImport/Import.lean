@@ -1775,6 +1775,10 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   let kind ← mKind expression
   if kind == "FunctionCall" && optStr expression "kind" == some "functionCall" then
     let callee ← mField expression "expression"
+    -- Builtin require keeps its overload set in solc's AST; its existing
+    -- dedicated validator must run before strict user-declaration resolution.
+    if (← mKind callee) == "Identifier" && optStr callee "name" == some "require" then
+      return ← lowerRequire statement
     let reference ← refInt callee
     if reference ≥ 0 then
       if let some declaration := (← get).funs.find? reference.toNat then
