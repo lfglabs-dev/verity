@@ -1567,8 +1567,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "Block" =>
         let saved ← get
         out := out ++ (← lowerHelperLoopBody statement)
-        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals,
-          paths := saved.paths, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
     | "VariableDeclarationStatement" => out := out ++ (← lowerLocal statement)
     | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
     | "EmitStatement" => out := out ++ (← lowerEmit statement)
@@ -1576,9 +1575,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "IfStatement" =>
         let (condition, _yes, no) ← ifParts statement
         let saved ← get
-        let restore : M Unit := modify fun e => { e with values := saved.values,
-          writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems,
-          scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        let restore : M Unit := modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, mems := saved.mems, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         let yesOut ← lowerHelperLoopBody (← mField statement "trueBody")
         restore
         let noOut ← if no.isEmpty then pure #[] else lowerHelperLoopBody (← mField statement "falseBody")
