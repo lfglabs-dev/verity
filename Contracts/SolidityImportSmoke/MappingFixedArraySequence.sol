@@ -12,6 +12,8 @@ contract SequenceFixture {
         narrow[msg.sender][0] = 19;
         narrow[msg.sender][6] = 37;
         narrow[msg.sender][index] = uint16(x);
+        // A weakened write bound must become observable before any later read guard.
+        if (index >= 7) return (0, 0, 0, 0, 0);
         uint16[7] memory beforeWrite = narrow[msg.sender];
         narrow[msg.sender][index] = 42;
         crossing[msg.sender][9] = 0xabcdef;

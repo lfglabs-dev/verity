@@ -15,7 +15,7 @@ def main():
         ('fixed-array-two', 'mapping(uint256 => mapping(address => uint24[12])) a;', 'a[1][msg.sender][x] = 7; return a[1][msg.sender][x];', 'uint256', None),
         ('fixed-array-dynamic', 'mapping(uint256 => uint16[]) a;', 'return a[1][x];', 'uint256', 'unsupported mapping value encoding'),
         ('fixed-array-dimension', 'mapping(uint256 => uint16[7][2]) a;', 'return a[1][0][x];', 'uint256', 'exactly one fixed dimension'),
-        ('fixed-array-signed', 'mapping(uint256 => int16[7]) a;', 'return uint256(int256(a[1][x]));', 'uint256', 'unsigned scalar elements'),
+        ('fixed-array-signed', 'mapping(uint256 => int16[7]) a;', 'a[1][x] = 1; return x;', 'uint256', 'unsigned scalar elements'),
         ('fixed-array-bool', 'mapping(uint256 => bool[7]) a;', 'return a[1][x] ? 1 : 0;', 'uint256', 'unsigned scalar elements'),
         ('fixed-array-memory-write', 'mapping(uint256 => uint16[7]) a;', 'uint16[7] memory copy = a[1]; copy[0] = 7; return copy[0];', 'uint256', 'mapping assignment target is not a storage path'),
         ('fixed-array-memory-alias', 'mapping(uint256 => uint16[7]) a;', 'uint16[7] memory copy = a[1]; uint16[7] memory aliasCopy = copy; return aliasCopy[0];', 'uint256', 'initialization requires a mapping storage array'),
