@@ -115,7 +115,7 @@ def main():
         ('literal-oversized-intermediate', '', 'return x + (2**256 / 2);', 'uint256', 'unsupported operand type'),
         ('literal-denomination', '', 'return 1 ether;', 'uint256', None),
         ('literal-string', '', 'return bytes32("123");', 'bytes32', 'unsupported non-numeric literal'),
-        ('struct-target', 'struct Pair { uint128 a; uint128 b; } Pair value;', 'value.a = uint128(x); return x;', 'uint256', 'only a resolved scalar storage identifier'),
+        ('struct-target', 'struct Pair { uint128 a; uint128 b; } Pair value;', 'value.a = uint128(x); return x;', 'uint256', 'member assignment requires a mapping struct storage path'),
         ('compound', 'uint256 value;', 'value += x; return value;', 'uint256', 'only scalar storage assignment'),
         ('increment', 'uint256 value;', 'value++; return value;', 'uint256', 'only scalar storage assignment'),
         ('local', '', 'uint256 value = 0; value = x; return value;', 'uint256', None),
