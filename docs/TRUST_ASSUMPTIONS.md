@@ -150,12 +150,20 @@ claims are about the values `structMember` reads back.
 Checked `uint256` and narrower unsigned arithmetic is lowered to `Stmt.ite` plus
 `Stmt.panic`, not to a second interpreter. Explicit `uint128(x)` is truncation
 (`bitAnd` with `2^128-1`). Ternaries are `Stmt.ite`, so the untaken branch is
-not evaluated. Library helpers in an accepted acyclic slice are inlined.
+not evaluated. Library helpers and inherited contract helpers in an accepted
+acyclic slice are inlined: unqualified internal/private calls in the target
+contract's `linearizedBaseContracts` resolve to the most-derived implemented
+override in the same transitive `baseFunctions` family, `super.fn(...)` resolves
+across the C3 suffix after the calling contract, and explicit `Base.fn(...)`
+calls verify base membership and static declaration ownership.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
-Only reached storage fields are decoded. Namespace-qualified output names and
+Only reached storage fields are decoded; state variables whose label appears
+multiple times in `storageLayout.storage` (such as shadowed private state
+variables) are rejected when referenced, while unreferenced duplicate private
+`__gap` arrays do not block import. Namespace-qualified output names and
 framed-JSON provenance are deterministic. Implicit root returns, named call
-arguments, virtual dispatch, and unsupported signed operations are rejected.
+arguments, external contract calls, and unsupported signed operations are rejected.
 The slice makes no dynamic ABI-head claim: that unrelated denotation extension
 is not part of this change. Solidity sources are Lake inputs only when the
 consumer declares them (`input_dir` + `needs`); consumers should also

@@ -180,10 +180,15 @@ MUTANTS.update({
     'import-yul-result-id-guard': ('unless (← get).helperReturnId == some targetId do', 'unless true do'),
     'import-solc-viair-guard': ('if profile.viaIR && !release.supportsViaIR then', 'if false then'),
     'import-solc-uncollected-source-guard': ('unless sources.contains logical do', 'unless true do'),
+    'import-inheritance-virtual-dispatch': ('if env.linearizedBases.contains cid then', 'if false then'),
+    'import-inheritance-super-c3': ('let some resolvedId := resolveInContracts env superBases id.toNat', 'let some resolvedId := some id.toNat'),
+    'import-inheritance-duplicate-storage-guard': ('if env.duplicateLayoutLabels.contains name then', 'if false then'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-inheritance-"):
+        fixture = "InheritanceSequence"
     if name.startswith("import-solc-"):
         fixture = "Solc0810Sequence"
     if name.startswith("import-yul-numeric-"):
@@ -228,11 +233,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -296,6 +301,15 @@ contract C {
  function checked(uint256 x) external pure returns (uint256) { return x; }
 }
 ''')
+    elif name == 'import-inheritance-duplicate-storage-guard':
+        diagnostic = 'shadowed storage declaration dup is outside this slice'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+abstract contract Base { uint256 private dup; }
+contract C is Base {
+ uint256 private dup;
+ function checked(uint256 x) external returns (uint256) { dup = x; return dup; }
+}
+''')
     else:
         argument = name.endswith('argument-guard')
         expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
@@ -347,7 +361,8 @@ def mutation_campaign(output, selected=None):
                               'import-helper-effect-classifier',
                               'import-yul-result-id-guard',
                               'import-solc-viair-guard',
-                              'import-solc-uncollected-source-guard'}
+                              'import-solc-uncollected-source-guard',
+                              'import-inheritance-duplicate-storage-guard'}
         if order_guard:
             helper_order_control(directory, name, False)
         source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')

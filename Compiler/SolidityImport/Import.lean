@@ -217,6 +217,14 @@ private structure Env where
   files : RBMap String ByteArray compare
   funs : RBMap Nat Json compare
   funContract : RBMap Nat String compare
+  funContractId : RBMap Nat Nat compare := RBMap.empty
+  funBases : RBMap Nat (Array Nat) compare := RBMap.empty
+  contractNames : RBMap Nat String compare := RBMap.empty
+  contractKinds : RBMap Nat String compare := RBMap.empty
+  contractBases : RBMap Nat (Array Nat) compare := RBMap.empty
+  contractFuns : RBMap Nat (Array Nat) compare := RBMap.empty
+  linearizedBases : Array Nat := #[]
+  duplicateLayoutLabels : Array String := #[]
   structs : RBMap Nat Json compare
   eventDecls : RBMap Nat Json compare
   usedEvents : List (Nat × EventDef)
@@ -316,17 +324,71 @@ private def failAt (j : Json) (why : String) : M α := do
   let kind := (field? j "nodeType").bind (fun k => k.getStr?.toOption) |>.getD "node"
   throwError "{file}:{line}:{column}: {kind}: {why}\n{excerpt}"
 
+/-- Transitive closure of `fnId` under solc's `baseFunctions` relation,
+    including `fnId` itself. Bounded by the number of indexed functions. -/
+private def baseFunctionClosure (env : Env) (fnId : Nat) : Array Nat := Id.run do
+  let mut visited : Array Nat := #[fnId]
+  let mut queue : List Nat := [fnId]
+  for _ in [:env.funs.size + 1] do
+    match queue with
+    | [] => break
+    | curr :: rest =>
+        queue := rest
+        for b in env.funBases.find? curr |>.getD #[] do
+          unless visited.contains b do
+            visited := visited.push b
+            queue := queue ++ [b]
+  return visited
+
+/-- True when `candId` and `targetId` belong to the same virtual override family
+    (they share at least one declaration in their transitive `baseFunctions` closures). -/
+private def sameVirtualFamily (env : Env) (candId targetId : Nat) : Bool :=
+  let candClosure := baseFunctionClosure env candId
+  let targetClosure := baseFunctionClosure env targetId
+  candClosure.any targetClosure.contains
+
+/-- Resolve `targetFnId` across `searchContracts` (in C3 most-derived-first order),
+    preferring the first implemented declaration in the same virtual family. -/
+private def resolveInContracts (env : Env) (searchContracts : List Nat) (targetFnId : Nat) : Option Nat := Id.run do
+  for cid in searchContracts do
+    for candId in env.contractFuns.find? cid |>.getD #[] do
+      if sameVirtualFamily env candId targetFnId then
+        if let some candFn := env.funs.find? candId then
+          let implemented := (field? candFn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+          let hasBody := match field? candFn "body" with
+            | some b => !b.isNull
+            | none => false
+          if implemented && hasBody then
+            return some candId
+  for cid in searchContracts do
+    for candId in env.contractFuns.find? cid |>.getD #[] do
+      if sameVirtualFamily env candId targetFnId then
+        return some candId
+  return none
+
 private def refInt (j : Json) : M Int := do
+  let some declaration := field? j "referencedDeclaration"
+    | failAt j "expression has no supported declaration reference"
+  let i ← match declaration.getInt? with
+    | .ok i => pure i
+    | .error e => failAt j e
   match field? j "overloadedDeclarations" with
   | some over =>
       let xs ← mArr over
-      if xs.size ≠ 0 then failAt j "ambiguous declaration"
+      if xs.size ≠ 0 then
+        let env ← get
+        let sameFamily ← if i ≥ 0 && env.funs.contains i.toNat then do
+          let mut ok := true
+          for x in xs do
+            let xid ← mNat x
+            unless sameVirtualFamily env xid i.toNat do
+              ok := false
+          pure ok
+        else
+          pure false
+        unless sameFamily do failAt j "ambiguous declaration"
   | none => pure ()
-  let some declaration := field? j "referencedDeclaration"
-    | failAt j "expression has no supported declaration reference"
-  match declaration.getInt? with
-  | .ok i => pure i
-  | .error e => failAt j e
+  pure i
 
 private def fresh : M String := do
   let env ← get
@@ -421,9 +483,13 @@ private partial def statefulCallIn (j : Json) (env : Env) : Bool :=
           optStr j "kind" == some "functionCall" then
         match (field? j "expression").bind (fun callee =>
             (field? callee "referencedDeclaration").bind (fun id => id.getNat?.toOption)) with
-        | some id => match env.funs.find? id with
-          | some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")
-          | none => false
+        | some id =>
+          let isStateful (fid : Nat) : Bool :=
+            match env.funs.find? fid with
+            | some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")
+            | none => false
+          let targetId := resolveInContracts env env.linearizedBases.toList id |>.getD id
+          isStateful id || isStateful targetId
         | none => false
       else false
       o.foldl (fun found _ child => found || statefulCallIn child env) own
@@ -873,6 +939,8 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.expr value)
       else if let some decl := env.stateVars.find? n then
         let name ← mStr (← mField decl "name")
+        if env.duplicateLayoutLabels.contains name then
+          failAt j s!"shadowed storage declaration {name} is outside this slice"
         if let some item := env.layoutItems.find? name then
           unless (← mNat (← mField item "astId")) == n do
             failAt j s!"shadowed storage declaration {name} is outside this slice"
@@ -1501,12 +1569,47 @@ private partial def lowerCall (j : Json) : M Val := do
           let baseTy ← mType base
           if baseTy.startsWith "type(library " then
             pure (id.toNat, none)
+          else if baseTy.startsWith "type(contract super " then
+            unless (← mKind base) == "Identifier" && optStr base "name" == some "super" &&
+                (← refInt base) == -25 do
+              failAt base "invalid super callee"
+            let env ← get
+            let some callerFnId := env.stack.head?
+              | failAt callee "super call outside function context"
+            let some callerCid := env.funContractId.find? callerFnId
+              | failAt callee "super call outside contract function"
+            let some idx := env.linearizedBases.findIdx? (· == callerCid)
+              | failAt callee "enclosing contract is outside target inheritance chain"
+            let superBases := (env.linearizedBases.extract (idx + 1) env.linearizedBases.size).toList
+            let some resolvedId := resolveInContracts env superBases id.toNat
+              | failAt callee s!"unresolved super function {id.toNat}"
+            pure (resolvedId, none)
+          else if baseTy.startsWith "type(contract " then
+            unless (← mKind base) == "Identifier" do
+              failAt base "qualified base call requires a contract identifier"
+            let baseCid ← refInt base
+            let env ← get
+            unless baseCid ≥ 0 && env.linearizedBases.contains baseCid.toNat do
+              failAt base "qualified call contract is not a base of the target contract"
+            unless env.funContractId.find? id.toNat == some baseCid.toNat do
+              failAt callee "qualified call function is not declared in the named base contract"
+            pure (id.toNat, none)
           else
             pure (id.toNat, some base)
       | "Identifier" =>
           let id ← refInt callee
           if id < 0 then failAt callee "builtin call is outside this slice"
-          pure (id.toNat, none)
+          let env ← get
+          let resolvedId ← match env.funContractId.find? id.toNat with
+            | some cid =>
+                if env.linearizedBases.contains cid then
+                  match resolveInContracts env env.linearizedBases.toList id.toNat with
+                  | some rid => pure rid
+                  | none => failAt callee s!"unresolved inherited function {id.toNat}"
+                else
+                  pure id.toNat
+            | none => pure id.toNat
+          pure (resolvedId, none)
       | _ => failAt callee "unsupported callee"
     let args ← mArr (← mField j "arguments")
     let nodes := match receiver? with
@@ -1525,6 +1628,10 @@ private partial def lowerCall (j : Json) : M Val := do
         | _ => failAt arg "only root memory/calldata struct arguments are supported"
       else
         vals := vals.push (.scalar (← lowerExpr arg))
+    if receiver?.isSome then
+      if let some cid := (← get).funContractId.find? fnId then
+        unless (← get).contractKinds.find? cid == some "library" do
+          failAt callee "external contract calls are outside this slice"
     inlineFn fnId vals j
   else
     failAt j s!"unsupported call kind {kind}"
@@ -1545,8 +1652,10 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
   let frame := fnId :: (← get).stack
   modify fun e => { e with stack := frame, currentFile := frameFile }
-  if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
-    failAt fn "virtual dispatch is outside this slice"
+  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+  let some body := (field? fn "body").filter (!·.isNull)
+    | failAt fn "function has no body"
+  unless implemented do failAt fn "function has no body"
   let mods ← mArr (← mField fn "modifiers")
   unless mods.isEmpty do failAt fn "modifiers are outside this slice"
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
@@ -1590,7 +1699,6 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
           yul := yul.erase pname
   modify fun e => { e with yulNames := yul }
   noteFn fn
-  let body ← mField fn "body"
   let stmts ← mArr (← mField body "statements")
   -- Retain the existing direct-result lowering for a single terminal
   -- assembly assignment. A named variable needed by a continuation gets a
@@ -1627,7 +1735,8 @@ private partial def argumentAt (call : Json) (i : Nat) : M Json := do
   let hasReceiver ← match ← mKind callee with
     | "MemberAccess" =>
         let base ← mField callee "expression"
-        pure !(← mType base).startsWith "type(library "
+        let baseTy ← mType base
+        pure !(baseTy.startsWith "type(library " || baseTy.startsWith "type(contract ")
     | _ => pure false
   if hasReceiver then
     if i == 0 then mField callee "expression" else pure args[i - 1]!
@@ -2413,12 +2522,13 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   if optStr fn "stateMutability" == some "payable" then
     failAt fn "payable entry points require value-transfer semantics and are unsupported"
   let srcParams ← bindRoot fn
-  if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
-    failAt fn "virtual dispatch is outside this slice"
+  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+  let some body := (field? fn "body").filter (!·.isNull)
+    | failAt fn "function has no body"
+  unless implemented do failAt fn "function has no body"
   let mods ← mArr (← mField fn "modifiers")
   unless mods.isEmpty do failAt fn "modifiers are outside this slice"
-  let some _ := field? fn "body" | failAt fn "function has no body"
-  let stmts ← mArr (← mField (← mField fn "body") "statements")
+  let stmts ← mArr (← mField body "statements")
   let (out, returned) ← lowerRootStatements stmts
   let mut out := out
   unless returned do
@@ -2427,21 +2537,45 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     out := out.push .stop
   pure (out, srcParams)
 
-private partial def index (file : String) (contract? : Option String) (j : Json) : M Unit := do
+private partial def index (file : String) (contract? : Option (Nat × String)) (j : Json) : M Unit := do
   match j with
   | .obj o =>
       if let some name := optStr j "name" then
         modify fun e => { e with sourceNames := name :: e.sourceNames }
+      let mut next := contract?
       if (field? j "nodeType").isSome then
         if let some idj := field? j "id" then
           let id ← mNat idj
           modify fun e => { e with nodeFile := e.nodeFile.insert id file }
           match ← mKind j with
+          | "ContractDefinition" =>
+              let n ← mStr (← mField j "name")
+              let kind := optStr j "contractKind" |>.getD "contract"
+              let bases ← match field? j "linearizedBaseContracts" with
+                | some b => (← mArr b).mapM mNat
+                | none => pure #[id]
+              modify fun e =>
+                { e with contractNames := e.contractNames.insert id n,
+                         contractKinds := e.contractKinds.insert id kind,
+                         contractBases := e.contractBases.insert id bases }
+              next := some (id, n)
           | "FunctionDefinition" =>
+              let baseIds ← match field? j "baseFunctions" with
+                | some b => (← mArr b).mapM mNat
+                | none => pure #[]
               modify fun e =>
                 let funs := e.funs.insert id j
-                let funContract := e.funContract.insert id (contract?.getD "<free>")
-                { e with funs, funContract }
+                let funContract := e.funContract.insert id (contract?.map Prod.snd |>.getD "<free>")
+                let funContractId := match contract? with
+                  | some (cid, _) => e.funContractId.insert id cid
+                  | none => e.funContractId
+                let contractFuns := match contract? with
+                  | some (cid, _) =>
+                      let prev := e.contractFuns.find? cid |>.getD #[]
+                      e.contractFuns.insert cid (prev.push id)
+                  | none => e.contractFuns
+                let funBases := e.funBases.insert id baseIds
+                { e with funs, funContract, funContractId, contractFuns, funBases }
           | "StructDefinition" =>
               modify fun e => { e with structs := e.structs.insert id j }
           | "EventDefinition" =>
@@ -2458,12 +2592,6 @@ private partial def index (file : String) (contract? : Option String) (j : Json)
               if isConstant == some true then
                 modify fun e => { e with numericConstants := e.numericConstants.insert id j }
           | _ => pure ()
-      let next ← do
-        if (field? j "nodeType") == some (Json.str "ContractDefinition") then
-          let n ← mStr (← mField j "name")
-          pure (some n)
-        else
-          pure contract?
       let children := o.foldl (fun acc _ v => v :: acc) []
       for child in children do
         index file next child
@@ -2584,33 +2712,59 @@ private def typeMatches (written typeString : String) : Bool :=
   let t := sourceTypeName typeString
   t == written || t.endsWith ("." ++ written) || written.endsWith ("." ++ t)
 
-/-- Select the function; also return its solc parameter type strings. -/
+private structure CandidateFn where
+  id : Nat
+  fn : Json
+  tys : Array String
+  canonicalTys : Array String
+  implemented : Bool
+  deriving Inhabited
+
+/-- Select the function from `contract`'s C3 inheritance hierarchy; also return
+its solc parameter type strings. -/
 private def selectFunction (contract functionName : String) (written : Array String) :
     M (Json × Array String) := do
   let env ← get
-  let mut hits : Array (Json × Array String) := #[]
+  let mut effective : Array CandidateFn := #[]
+  for cid in env.linearizedBases do
+    for id in env.contractFuns.find? cid |>.getD #[] do
+      let some fn := env.funs.find? id | continue
+      if optStr fn "kind" == some "constructor" then continue
+      let name ← mStr (← mField fn "name")
+      unless name == functionName do continue
+      let params ← mArr (← mField (← mField fn "parameters") "parameters")
+      let mut tys : Array String := #[]
+      for p in params do
+        tys := tys.push (← mType p)
+      let canonicalTys := tys.map sourceTypeName
+      let implementedFlag ← match field? fn "implemented" with
+        | some b => mBool b
+        | none => pure true
+      let hasBody := match field? fn "body" with
+        | some b => !b.isNull
+        | none => false
+      let implemented := implementedFlag && hasBody
+      let matchIdx? := effective.findIdx? fun prev =>
+        sameVirtualFamily env prev.id id || prev.canonicalTys == canonicalTys
+      match matchIdx? with
+      | none =>
+          effective := effective.push { id, fn, tys, canonicalTys, implemented }
+      | some idx =>
+          if !effective[idx]!.implemented && implemented then
+            effective := effective.set! idx { id, fn, tys, canonicalTys, implemented }
+  let mut hits : Array (Json × Array String × Bool) := #[]
   let mut described : Array String := #[]
-  for (id, fn) in env.funs do
-    let name ← mStr (← mField fn "name")
-    let owner := env.funContract.find? id |>.getD "<free>"
-    let params ← mArr (← mField (← mField fn "parameters") "parameters")
-    let mut tys : Array String := #[]
-    for p in params do
-      tys := tys.push (← mType p)
-    if owner == contract && name == functionName then
-      described := described.push
-        s!"{functionName}({String.intercalate ", " (tys.map sourceTypeName).toList})"
-      if tys.size == written.size && (tys.zip written).all (fun (t, w) => typeMatches w t) then
-        hits := hits.push (fn, tys)
+  for cand in effective do
+    described := described.push
+      s!"{functionName}({String.intercalate ", " cand.canonicalTys.toList})"
+    if cand.tys.size == written.size && (cand.tys.zip written).all (fun (t, w) => typeMatches w t) then
+      hits := hits.push (cand.fn, cand.tys, cand.implemented)
   let sig := s!"{contract}.{functionName}({String.intercalate ", " written.toList})"
   if hits.size == 0 then
     throwError "no function {sig}; candidates: {described}"
   if hits.size > 1 then
     throwError "ambiguous function {sig}; qualify the parameter types"
-  let (fn, tys) := hits[0]!
-  let implemented ← match field? fn "implemented" with
-    | some b => mBool b
-    | none => pure true
+  let (fn, tys, implemented) := hits[0]!
   unless implemented do throwError "function is not implemented"
   pure (fn, tys)
 
@@ -2677,6 +2831,13 @@ private def importSlice
     let unit ← field sourcesOut logical
     let ast ← field unit "ast"
     ((), env) ← (index logical none ast).run env
+  let targetContractIds := env.contractNames.toList.filterMap fun (cid, cname) =>
+    if env.nodeFile.find? cid == some entry && cname == contract then some cid else none
+  let [targetContractId] := targetContractIds
+    | throwError "missing or ambiguous ContractDefinition {contract} in {entry}"
+  let some targetBases := env.contractBases.find? targetContractId
+    | throwError "missing linearizedBaseContracts for {contract}"
+  env := { env with linearizedBases := targetBases }
   let contracts ← field parsed "contracts"
   let entryContracts ← field contracts entry
   let chosen ← field entryContracts contract
@@ -2686,6 +2847,8 @@ private def importSlice
   env := { env with layoutTypes := types }
   for item in items do
     let label ← str (← field item "label")
+    if env.layoutItems.contains label && !env.duplicateLayoutLabels.contains label then
+      env := { env with duplicateLayoutLabels := env.duplicateLayoutLabels.push label }
     env := { env with layoutItems := env.layoutItems.insert label item }
   let mut specs : Array FunctionSpec := #[]
   let mut projections : Array ParamProjection := #[]
@@ -2700,7 +2863,8 @@ private def importSlice
       [("function", Json.str functionName), ("parameterTypes", Json.arr (paramTys.map Json.str))])
     -- Each root is lowered on its own: bindings, generated names and projections
     -- do not leak between functions. Field layouts and the closure are shared.
-    env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
+    let rootFile := env.nodeFile.find? rootId |>.getD entry
+    env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       snapshots := RBMap.empty, mems := RBMap.empty, byteBuffers := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
                       projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env

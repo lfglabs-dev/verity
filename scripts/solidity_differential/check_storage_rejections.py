@@ -1,4 +1,5 @@
 """Exact scalar storage controls and located near-miss rejections."""
+import argparse
 from pathlib import Path
 import re
 import subprocess
@@ -6,6 +7,9 @@ import tempfile
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--only', default=None)
+    args = parser.parse_args()
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
@@ -196,6 +200,8 @@ def main():
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', 'return'),
     ]
     for name, fields, body, returns, expected in cases:
+        if args.only and args.only not in name:
+            continue
         directory = output / name
         directory.mkdir()
         result_clause = f'returns ({returns})' if returns else ''
@@ -247,8 +253,45 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ solc := "0.8.10+commit.deadbeef", evmVersion := "london", viaIR := false, optimizerRuns := some 1, bytecodeHash := "none" }',
          'this importer is pinned to solc 0.8.34+commit.80d5c536 or 0.8.10+commit.fc410830, not 0.8.10+commit.deadbeef'),
+        ('inheritance-root-function',
+         "pragma solidity 0.8.10;\nimport './Dep.sol';\ncontract C is Base { }\n",
+         "pragma solidity 0.8.10;\nabstract contract Base { uint256 internal s; function checked(uint256 x) external returns (uint256) { s = x + 1; return s; } }\n",
+         '{ solc := "0.8.10+commit.fc410830", evmVersion := "london", viaIR := false, optimizerRuns := some 1, bytecodeHash := "none" }',
+         None),
+        ('inheritance-diamond-super-and-virtual',
+         "pragma solidity 0.8.34;\nimport './Dep.sol';\ncontract C is Left, Right {\n  function bonus(uint256 x) internal pure override returns (uint256) { return x * 2; }\n  function step(uint256 x) internal override(Left, Right) returns (uint256) { uint256 a = super.step(x); uint256 b = Root.step(x); return a + b + viaBonus(x); }\n  function checked(uint256 x) external returns (uint256) { return step(x); }\n}\n",
+         "pragma solidity 0.8.34;\nabstract contract Root {\n  uint256 internal v;\n  function bonus(uint256 x) internal pure virtual returns (uint256) { return x; }\n  function viaBonus(uint256 x) internal pure returns (uint256) { return bonus(x); }\n  function step(uint256 x) internal virtual returns (uint256) { v = x + 1; return v; }\n}\nabstract contract Left is Root {\n  uint256[4] private __gap;\n  function step(uint256 x) internal virtual override returns (uint256) { uint256 p = super.step(x); return p + 10; }\n}\nabstract contract Right is Root {\n  uint256[4] private __gap;\n  function step(uint256 x) internal virtual override returns (uint256) { uint256 p = super.step(x); return p + 100; }\n}\n",
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('inheritance-stateful-super-binary-rejected',
+         "pragma solidity 0.8.34;\nabstract contract Base { uint256 internal v; function step(uint256 x) internal virtual returns (uint256) { v = x + 1; return v; } }\ncontract C is Base { function checked(uint256 x) external returns (uint256) { return super.step(x) + 1; } }\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Fixture.sol:3:86: BinaryOperation: [solidity-import:unsupported] stateful helper operands require explicit evaluation-order support'),
+        ('inheritance-interface-unimplemented-rejected',
+         "pragma solidity 0.8.34;\ninterface IBase { function checked(uint256 x) external view returns (uint256); }\nabstract contract C is IBase { }\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'function is not implemented'),
+        ('inheritance-external-contract-call-rejected',
+         "pragma solidity 0.8.34;\ninterface IPeer { function ping(uint256 x) external view returns (uint256); }\ncontract C { function checked(uint256 x) external view returns (uint256) { return IPeer(msg.sender).ping(x); } }\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Fixture.sol:3:83: FunctionCall: [solidity-import:unsupported] unsupported cast'),
+        ('inheritance-duplicate-private-storage-rejected',
+         "pragma solidity 0.8.34;\nabstract contract Base { uint256 private dup; }\ncontract C is Base { uint256 private dup; function checked(uint256 x) external returns (uint256) { dup = x; return dup; } }\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Fixture.sol:3:100: Identifier: [solidity-import:unsupported] shadowed storage declaration dup is outside this slice'),
+        ('inheritance-overloaded-function-rejected',
+         "pragma solidity 0.8.34;\nabstract contract Base { function step(address a) internal pure returns (uint256) { return uint256(uint160(a)); } }\ncontract C is Base { function step(uint256 x) internal pure returns (uint256) { return x + 1; } function checked(uint256 x) external pure returns (uint256) { return step(x); } }\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Fixture.sol:3:166: Identifier: [solidity-import:unsupported] ambiguous declaration'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
+        if args.only and args.only not in name:
+            continue
         directory = output / name
         directory.mkdir()
         (directory / 'Fixture.sol').write_text(source_text)

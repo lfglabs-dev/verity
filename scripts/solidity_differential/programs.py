@@ -934,3 +934,27 @@ def stateful_solc_0810_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown solc 0.8.10 variant: {variant}')
+
+
+def stateful_inheritance_source(fixture: str, variant: str) -> str:
+    """Equivalent C3 inheritance sources with local renaming and explicit base qualification."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'input', 'seed', 'direct', 'chained', 'bonus', 'x'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'qualified-super':
+        replacements = {
+            'return super.step(x);': 'return InheritanceRight.step(x);',
+            'uint256 bonus = viaVirtual(seed);': 'uint256 bonus = InheritanceRoot.viaVirtual(seed);',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('inheritance qualified-super anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown inheritance variant: {variant}')
+
