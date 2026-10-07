@@ -259,6 +259,11 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
   | Stmt.returnValues values =>
       if expectedReturns.isEmpty then
         throw s!"Compilation error: function '{fnName}' uses Stmt.returnValues but declares no return values"
+      else if !isInternal &&
+          match values, expectedReturns with
+          | [.literal 32, .literal 0], [ty] => isCanonicalReturnArrayParam ty
+          | _, _ => false then
+        pure ()
       else if values.length != expectedReturns.length then
         throw s!"Compilation error: function '{fnName}' returnValues count mismatch: expected {expectedReturns.length}, got {values.length}"
       else

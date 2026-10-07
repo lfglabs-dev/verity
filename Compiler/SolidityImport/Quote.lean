@@ -136,6 +136,7 @@ partial def quoteParamType : ParamType → m Term
   | .int256 => `(Compiler.CompilationModel.ParamType.int256)
   | .address => `(Compiler.CompilationModel.ParamType.address)
   | .bytes32 => `(Compiler.CompilationModel.ParamType.bytes32)
+  | .bytes => `(Compiler.CompilationModel.ParamType.bytes)
   | .bool => `(Compiler.CompilationModel.ParamType.bool)
   | .uintN n => `(Compiler.CompilationModel.ParamType.uintN $(quote n))
   | .array elem => do

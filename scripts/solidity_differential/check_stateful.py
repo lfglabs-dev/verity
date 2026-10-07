@@ -68,6 +68,9 @@ def main():
         'settings': source_settings}
     source = solc_compile(request, fixture.parent, output / 'source', solc=solc_bin)['contracts']['Sequence.sol']['SequenceFixture']['evm']
     names = [f'change(uint{args.argument_bits})', 'fail()', 'read()']
+    for extra_name in ('inspectBytes(bytes,uint256)', 'redeemRewards(bytes)', 'getRewardTokens()'):
+        if extra_name in source['methodIdentifiers']:
+            names.append(extra_name)
     write_json(output / 'selectors.json', [int(source['methodIdentifiers'][name], 16) for name in names])
     driver = args.model_driver.resolve()
     extra_inputs = [fixture]
@@ -113,9 +116,34 @@ def main():
     rng = random.Random(args.seed)
     calls = [(names[0], [7]), ('fail()', []), ('read()', [])]
     calls.extend((names[0], [value]) for value in args.change_prefix)
-    for _ in range(args.transactions - 3 - len(args.change_prefix)):
+    if 'inspectBytes(bytes,uint256)' in source['methodIdentifiers']:
+        bytes_prefix = [
+            ('getRewardTokens()', []),
+            ('redeemRewards(bytes)', [32, 0]),
+            ('redeemRewards(bytes)', [32, 5, 0x1122334455 << 216]),
+            ('redeemRewards(bytes)', [32, 33, 1]),
+            ('redeemRewards(bytes)', [64, 0]),
+            ('inspectBytes(bytes,uint256)', [64, 7, 0]),
+            ('inspectBytes(bytes,uint256)', [64, 9, 5, 0xdeadbeef01 << 216]),
+            ('inspectBytes(bytes,uint256)', [64, 11, 32, (1 << 256) - 1]),
+            ('inspectBytes(bytes,uint256)', [64, 13, 33, 1]),
+            ('inspectBytes(bytes,uint256)', [64, 15, 1 << 64, 0]),
+            ('inspectBytes(bytes,uint256)', [1 << 64, 17, 0]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(bytes_prefix[:remaining_budget])
+    while len(calls) < args.transactions:
         name = rng.choice(names)
-        call_args = [rng.choice([0, 1, (1 << args.argument_bits) - 1, rng.getrandbits(args.argument_bits)])] if name == names[0] else []
+        if name == names[0]:
+            call_args = [rng.choice([0, 1, (1 << args.argument_bits) - 1, rng.getrandbits(args.argument_bits)])]
+        elif name == 'redeemRewards(bytes)':
+            call_args = rng.choice([[32, 0], [32, 5, 0x1122334455 << 216], [32, 32, (1 << 256) - 1], [32, 33, 1], [64, 0]])
+        elif name == 'inspectBytes(bytes,uint256)':
+            tag = rng.choice([0, 1, 2, 3, 7, 19])
+            call_args = rng.choice([[64, tag, 0], [64, tag, 5, 0xdeadbeef01 << 216], [64, tag, 32, (1 << 256) - 1], [64, tag, 33, 1], [64, tag, 1 << 64, 0], [1 << 64, tag, 0]])
+        else:
+            call_args = []
         calls.append((name, call_args))
     if args.dirty_mappings:
         calls = [('read()', []), ('read()', []), ('change(uint256)', [7]),

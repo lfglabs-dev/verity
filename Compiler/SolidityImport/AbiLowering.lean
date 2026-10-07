@@ -19,6 +19,20 @@ def tupleHead (binding : String) (rootHeadWords parameterIndex tupleHeadWords : 
   , .letVar binding (.add (.literal 4) rawOffset)
   , guard (.logicalNot (.slt (.sub .calldatasize (.localVar binding)) (.literal (32*tupleHeadWords)))) ]
 
+/-- Source-compatible `bytes calldata` root parameter checks as executable model
+code, matching `solc`'s `abi_decode_tuple` and `abi_decode_t_bytes_calldata_ptr`. -/
+def bytesCalldataHead (offsetBinding headerBinding lengthBinding dataBinding : String)
+    (rootHeadWords headOffset : Nat) : List Stmt :=
+  [ guard (.logicalNot (.slt (.sub .calldatasize (.literal 4)) (.literal (32*rootHeadWords))))
+  , .letVar offsetBinding (.calldataload (.literal headOffset))
+  , guard (.le (.localVar offsetBinding) (.literal (2^64-1)))
+  , .letVar headerBinding (.add (.literal 4) (.localVar offsetBinding))
+  , guard (.slt (.add (.localVar headerBinding) (.literal 31)) .calldatasize)
+  , .letVar lengthBinding (.calldataload (.localVar headerBinding))
+  , guard (.le (.localVar lengthBinding) (.literal (2^64-1)))
+  , .letVar dataBinding (.add (.localVar headerBinding) (.literal 32))
+  , guard (.le (.add (.localVar dataBinding) (.localVar lengthBinding)) .calldatasize) ]
+
 /-- Lazy calldata array header for statically sized elements. Invoke at the
 source access, not at entry: source guards may precede malformed-array errors.
 All three output names must be fresh and distinct. The schema must establish

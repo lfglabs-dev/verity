@@ -209,10 +209,16 @@ MUTANTS.update({
     'import-fnptr-struct-delete-modifier-delete-nonzero': ('for member in info.memberNames do\n        out := out.push (writeMember member (.literal 0))', 'for member in info.memberNames do\n        out := out.push (writeMember member (.literal 1))'),
     'import-fnptr-struct-delete-modifier-post-drop': ('out := ((out ++ v.pre).push (.letVar captured v.expr) ++ env.rootPost).push (.returnValues [.localVar captured])', 'out := ((out ++ v.pre).push (.letVar captured v.expr)).push (.returnValues [.localVar captured])'),
     'import-fnptr-struct-delete-modifier-opaque-delete-guard': ('unless info.opaqueNames.isEmpty do\n        failAt target "cannot delete mapping struct with opaque members"', 'unless true do\n        failAt target "cannot delete mapping struct with opaque members"'),
+    'import-empty-array-bytes-calldata-length-zero': ('let some cb := (← get).calldataBytes.find? id | failAt j "unknown calldata bytes parameter"\n            pure (.expr { pre, expr := .localVar cb.lengthBinding })', 'let some _cb := (← get).calldataBytes.find? id | failAt j "unknown calldata bytes parameter"\n            pure (.expr { pre, expr := .literal 0 })'),
+    'import-empty-array-bytes-calldata-empty-return-len': ('else if emptyBodyArrayRet?.isSome then\n      out := out ++ #[.returnValues [.literal 32, .literal 0]]', 'else if emptyBodyArrayRet?.isSome then\n      out := out ++ #[.returnValues [.literal 0]]'),
+    'import-empty-array-bytes-calldata-tail-bound': ('guard (.le (.add (.localVar dataBinding) (.localVar lengthBinding)) .calldatasize) ]', 'guard (.le (.localVar dataBinding) .calldatasize) ]'),
+    'import-empty-array-bytes-calldata-nonempty-body-guard': ('unless fnStmts.isEmpty && fnMods.isEmpty do return none', 'unless true do return none'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-empty-array-bytes-calldata-"):
+        fixture = "EmptyArrayReturnBytesCalldataSequence"
     if name.startswith("import-fnptr-struct-delete-modifier-"):
         fixture = "FnPtrStructDeleteModifierSequence"
     if name.startswith("import-int256-contract-"):
@@ -269,11 +275,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -284,6 +290,9 @@ def run(directory, output, name):
     if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence'}:
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [19, 0, 1, 2, 3, 20, 21, 96, 97, 98, 99999, 100000, (1 << 256) - 1])]
+    if fixture == 'EmptyArrayReturnBytesCalldataSequence':
+        prefix = argv.index('--change-prefix')
+        argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     result = subprocess.run(argv, cwd=directory, env=environment,
@@ -390,6 +399,16 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-empty-array-bytes-calldata-nonempty-body-guard':
+        diagnostic = 'an explicit root return is required'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ uint256 private v;
+ function checked(uint256 x) external returns (uint256[] memory) {
+  v = x;
+ }
+}
+''')
     else:
         argument = name.endswith('argument-guard')
         expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
@@ -446,11 +465,13 @@ def mutation_campaign(output, selected=None):
                               'import-modifier-unchecked-sibling-guard',
                               'import-tuple-helper-duplicate-target-guard',
                               'import-int256-contract-signed-modulo-guard',
-                              'import-fnptr-struct-delete-modifier-opaque-delete-guard'}
+                              'import-fnptr-struct-delete-modifier-opaque-delete-guard',
+                              'import-empty-array-bytes-calldata-nonempty-body-guard'}
         if order_guard:
             helper_order_control(directory, name, False)
         source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')
                               else 'Compiler/SolidityImport/Quote.lean' if name == 'import-modulo-quote'
+                              else 'Compiler/SolidityImport/AbiLowering.lean' if name == 'import-empty-array-bytes-calldata-tail-bound'
                               else 'Verity/Core/Model/Denote.lean' if name.startswith('denote-')
                               else 'Compiler/SolidityImport/Import.lean')
         text = source.read_text()

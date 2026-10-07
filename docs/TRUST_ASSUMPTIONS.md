@@ -195,7 +195,13 @@ signed `+`, `-`, `*`, `/`, and unary `-` overflow (including `-type(int256).min`
 `UncheckedBlock` (preserving division-by-zero `Panic(0x12)`). Contract/interface
 and `address payable` scalar values use 160-bit address representations for
 parameters, locals, returns, storage fields, mapping values, and explicit
-`Contract(addr)` / `address(contractVal)` casts.
+`Contract(addr)` / `address(contractVal)` casts. Empty-body root functions without
+modifiers that return a single `T[] memory` (`T` in `uint256`, `int256`, `address`,
+`bool`, `bytes32`) emit `Stmt.returnValues [.literal 32, .literal 0]` (the 64-byte
+ABI encoding of an empty dynamic array); root `bytes calldata` parameters (named or
+unnamed) use `AbiLowering.bytesCalldataHead` under `.explicitPrelude` to validate
+the offset, header, `uint64` length bound, and payload tail bound at entry and
+expose `.length`.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears

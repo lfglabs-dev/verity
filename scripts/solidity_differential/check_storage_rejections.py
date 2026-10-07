@@ -456,6 +456,46 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'ModifierDefinition: [solidity-import:unsupported] only a single top-level _; placeholder is supported in modifiers'),
+        ('empty-array-return-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external pure returns (address[] memory) {}\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('empty-array-return-nonempty-body-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256 private v;\n  function checked(uint256 x) external returns (address[] memory) { v = x; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionDefinition: [solidity-import:unsupported] an explicit root return is required'),
+        ('empty-array-return-narrow-elem-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external pure returns (uint8[] memory) {}\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported empty-body root return type uint8[]'),
+        ('empty-array-return-with-modifier-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  modifier m() { _; }\n  function checked(uint256) external m pure returns (address[] memory) {}\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported empty-body root return type address[]'),
+        ('bytes-param-calldata-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes calldata b) external pure returns (uint256) { return b.length; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('bytes-param-unnamed-empty-array-accepted',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes calldata) external pure returns (uint256[] memory) {}\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('bytes-param-memory-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes memory b) external pure returns (uint256) { return b.length; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported location memory for bytes'),
+        ('bytes-param-value-use-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes calldata b) external pure returns (uint256) { bytes calldata c = b; return c.length; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] storage or memory path used as a value'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -465,12 +505,13 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         (directory / 'Fixture.sol').write_text(source_text)
         if dep_text is not None:
             (directory / 'Dep.sol').write_text(dep_text)
+        fn_sig = 'checked(bytes)' if name.startswith('bytes-param-') else 'checked(uint256)'
         driver = directory / 'Check.lean'
         driver.write_text(f'''import Compiler.SolidityImport.Import
 solidity_import tested from "{directory}" entry "Fixture.sol"
   using {profile_text}
   contract C
-  function checked(uint256)
+  function {fn_sig}
 ''')
         artifact = directory / 'Check.olean'
         result = subprocess.run(['lake', 'env', 'lean', str(driver), '-o', str(artifact)],

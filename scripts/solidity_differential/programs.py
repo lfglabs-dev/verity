@@ -1107,3 +1107,41 @@ def stateful_fn_ptr_struct_delete_modifier_source(fixture: str, variant: str) ->
         return fixture
     raise ValueError(f'unknown fn-ptr-struct-delete-modifier variant: {variant}')
 
+
+def stateful_empty_array_bytes_calldata_source(fixture: str, variant: str) -> str:
+    """Equivalent empty-body dynamic array return and bytes calldata root parameter sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        renamed = fixture.replace(
+            'function getRewardTokens() external view returns (address[] memory) {}',
+            'function getRewardTokens() external view returns (address[] memory rewardTokens) {}',
+        ).replace(
+            'function redeemRewards(bytes calldata) external returns (uint256[] memory) {}',
+            'function redeemRewards(bytes calldata ignoredData) external returns (uint256[] memory amounts) {}',
+        )
+        if renamed == fixture:
+            raise ValueError('empty-array-bytes-calldata renamed anchor changed')
+        names = {'payload', 'tag', 'len', 'out', 'value'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), renamed)
+    if variant == 'expanded-length-and-accum':
+        replacements = {
+            'emptyFlag = (payload.length == 0);':
+            'emptyFlag = (len == 0);',
+            'totalSeen += len + 1;':
+            'totalSeen = totalSeen + len + 1;',
+            'lengthByTag[tag] += lastLength + 1;':
+            'lengthByTag[tag] = lengthByTag[tag] + lastLength + 1;',
+            'totalSeen += lengthByTag[tag];':
+            'totalSeen = totalSeen + lengthByTag[tag];',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('empty-array-bytes-calldata variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown empty-array-bytes-calldata variant: {variant}')
+
