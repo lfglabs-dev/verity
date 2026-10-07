@@ -1074,3 +1074,36 @@ def stateful_int256_contract_type_source(fixture: str, variant: str) -> str:
         return fixture
     raise ValueError(f'unknown int256-contract-types variant: {variant}')
 
+
+def stateful_fn_ptr_struct_delete_modifier_source(fixture: str, variant: str) -> str:
+    """Equivalent function-pointer, mapping-struct delete, and post-placeholder modifier sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'input', 'seed', 'slot', 'subKey', 'pickFirst', 'tag',
+            'calcFn', 'recordFn', 'pairFn', 'computed', 'p0', 'p1',
+            'ord', 'ordSum', 'nestedSum', 'a', 'b', 'val', 'x', 'y',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-delete-and-modifier':
+        replacements = {
+            'preCounter += tag + 1;':
+            'preCounter = preCounter + tag + 1;',
+            'postCounter += tag + 2;':
+            'postCounter = postCounter + tag + 2;',
+            'delete orders[slot];':
+            'orders[slot].amount = 0;\n            orders[slot].fee = 0;\n            orders[slot].epoch = 0;',
+            'delete nestedOrders[slot][subKey];':
+            'nestedOrders[slot][subKey].amount = 0;\n            nestedOrders[slot][subKey].fee = 0;\n            nestedOrders[slot][subKey].epoch = 0;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('fn-ptr-struct-delete-modifier variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown fn-ptr-struct-delete-modifier variant: {variant}')
+

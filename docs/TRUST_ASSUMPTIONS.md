@@ -164,9 +164,18 @@ storage fields use 8-bit packed storage with `logicalNot (logicalNot ...)`
 normalization on read and write, and prefix `!` on `bool` lowers to `logicalNot`.
 Root functions whose return parameters are all named scalars initialize each to
 zero and return them on bare `return;` or fallthrough, while empty-body scalar
-hooks return zero words. Pre-placeholder modifiers ending with a single trailing
-`_;` (without `virtual`, internal `return;`, or post-placeholder code) are inlined
-before root and helper bodies with fresh lexical scope and `unchecked := false`.
+hooks return zero words. Modifiers with a single top-level `_;` (without `virtual`
+or internal `return;`) are inlined around root and helper bodies with their own
+lexical scope and `unchecked := false`, wrapping multiple modifiers outside-in;
+when a modifier has statements after `_;`, return values on explicit return or
+fallthrough paths are captured before running the post-placeholder statements.
+Internal function-pointer locals initialized at declaration to a direct
+internal/private helper or a conditional `cond ? f : g` over internal/private
+helpers evaluate any selector condition once at declaration, reject reassignment,
+and lower calls by inlining the target helper(s) after evaluating arguments once in
+caller source order. Whole-struct `delete` on one/two-key mapping structs clears
+every decoded scalar/packed member to zero after rejecting structs with `opaque`
+or array members.
 `UncheckedBlock` switches unsigned `+`, `-`, `*` and `+=`/`-=` within its lexical
 block to wrapping `2^bits` arithmetic while preserving division/modulo-by-zero
 panics and resetting across call boundaries. Scalar assignment expressions
@@ -194,7 +203,7 @@ multiple times in `storageLayout.storage` (such as shadowed private state
 variables) are rejected when referenced, while unreferenced duplicate private
 `__gap` arrays do not block import. Namespace-qualified output names and
 framed-JSON provenance are deterministic. Unnamed non-empty root fallthrough, named call
-arguments, external contract calls, function pointers, and narrow signed types are rejected.
+arguments, external contract calls, external or reassigned function pointers, and narrow signed types are rejected.
 The slice makes no dynamic ABI-head claim: that unrelated denotation extension
 is not part of this change. Solidity sources are Lake inputs only when the
 consumer declares them (`input_dir` + `needs`); consumers should also
