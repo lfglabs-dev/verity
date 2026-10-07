@@ -553,21 +553,25 @@ gates remain pending.
 | Supported Solidity (development; native validation pending) | Lowering boundary |
 | --- | --- |
 | Named unsigned/address/bool/bytes32 result in a single-result internal helper | Initialize a declaration-bound result to zero, preserve assignments and early explicit returns, and return its value on fallthrough. Restore result context across nested helper calls. |
-| Existing single Yul assignment followed by a helper continuation | Assign the named result and continue with the following statements. Clean narrow unsigned/address results by masking and booleans by nonzero normalization. Assembly assignments in branches retain the caller continuation. |
+| Existing single Yul assignment followed by a helper continuation | Assign the named result only when `InlineAssembly.externalReferences` resolves the target identifier to the active helper return declaration (`!isOffset`, `!isSlot`, no suffix, `valueSize == 1`), then continue with the following statements. Clean narrow unsigned/address results by masking and booleans by nonzero normalization. Assembly assignments in branches retain the caller continuation. |
 
 A structural direct-result path retains existing full-word single-terminal-assembly
 models. This adds no Yul builtin, deployment or external-call semantics. Yul reads
 of narrow named results are rejected because the current result slot stores a
-clean Solidity value, whereas Yul could observe dirty bits. Reference/tuple
-results, modifiers, recursive calls and statements after an explicit return
-remain rejected. Bare returns are rejected, matching the pinned solc source
-audit; implicit named-result fallthrough is supported.
+clean Solidity value, whereas Yul could observe dirty bits. Shadowed local
+targets with the same name as the helper return reject at the Yul assignment;
+reference locals (`bytes memory`, fixed memory array snapshots and storage
+aliases) erase shadowed names from Yul identifier lookup within their lexical
+scope. Reference/tuple results, modifiers, recursive calls and statements after
+an explicit return remain rejected. Bare returns are rejected, matching the
+pinned solc source audit; implicit named-result fallthrough is supported.
 
 The initial draft passed 93 build jobs and 64 A/B/C transactions. The expanded
-fixture adds nested contexts, boolean/address cleanup and assembly branch
-continuation. Three generated variants, seven runtime mutants and eleven located
-controls await native validation on the final commit. Full release gates and
-the pinned pilot check remain pending; no golden or provenance was changed.
+fixture adds nested contexts, boolean/address cleanup, assembly branch
+continuation and lexical shadowing. Three generated variants, runtime and guard
+mutants and sixteen located controls await native validation on the final commit.
+Full release gates and the pinned pilot check remain pending; no golden or
+provenance was changed.
 
 ### Development slice: numeric Yul expressions
 

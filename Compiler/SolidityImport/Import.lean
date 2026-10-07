@@ -194,6 +194,7 @@ private structure Env where
   mems : RBMap Nat MemParam compare
   byteBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   helperResult : Option (String × String) := none
+  helperReturnId : Option Nat := none
   fieldsByName : RBMap String FieldInfo compare
   layoutItems : RBMap String Json compare
   layoutTypes : Json
@@ -1517,6 +1518,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
   unless rets.size == 1 do failAt fn "only single-value helpers are inlined"
   let retName ← mStr (← mField rets[0]! "name")
+  let retId ← mNat (← mField rets[0]! "id")
   let mut pre : Array Stmt := #[]
   let mut yul := savedYul
   for i in [:params.size] do
@@ -1560,7 +1562,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let terminalAssembly ← if stmts.size == 1 &&
       (resultType == "uint256" || resultType == "uint" || resultType == "bytes32") then
     pure ((← mKind stmts[0]!) == "InlineAssembly") else pure false
-  modify fun e => { e with helperResult := none }
+  modify fun e => { e with helperResult := none, helperReturnId := some retId }
   if retName != "" && !terminalAssembly then
     let declaration := rets[0]!
     let id ← mNat (← mField declaration "id")
@@ -1577,7 +1579,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let result ← lowerHelper stmts retName
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, helperResult := saved.helperResult, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, scalarTy := saved.scalarTy }
   pure { pre := pre ++ result.pre, expr := result.expr }
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
@@ -2108,6 +2110,19 @@ private partial def lowerAssembly (j : Json) (retName : String) : M Val := do
   let vname ← mStr (← mField vars[0]! "name")
   unless retName != "" && vname == retName do
     failAt asg s!"Yul assigns {vname}, not the return name {retName}"
+  let targetSrc ← mStr (← mField vars[0]! "src")
+  let refs ← mArr (← mField j "externalReferences")
+  let mut targetId? : Option Nat := none
+  for ref in refs do
+    if (← mStr (← mField ref "src")) == targetSrc then
+      unless !(← mBool (← mField ref "isOffset")) && !(← mBool (← mField ref "isSlot")) &&
+          (field? ref "suffix").isNone && (← mNat (← mField ref "valueSize")) == 1 do
+        failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
+      targetId? := some (← mNat (← mField ref "declaration"))
+  let some targetId := targetId?
+    | failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
+  unless (← get).helperReturnId == some targetId do
+    failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
   pure { pre := #[], expr := ← lowerYul (← mField asg "value") }
 
 private partial def lowerLocal (s : Json) : M (Array Stmt) := do
@@ -2145,7 +2160,9 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     let effects := buffer.pre ++ #[.letVar pointer buffer.pointer, .letVar size buffer.size]
     let retained : EncodedBytes :=
       { pre := #[], pointer := .localVar pointer, size := .localVar size }
-    modify fun e => { e with byteBuffers := e.byteBuffers.insert id retained }
+    modify fun e =>
+      { e with byteBuffers := e.byteBuffers.insert id retained,
+               yulNames := e.yulNames.erase name }
     return effects
   if loc == "memory" && (← mType d).contains '[' then
     if (← mKind init) == "TupleExpression" then
@@ -2168,7 +2185,9 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       let binding ← fresh
       result := result.push (.letVar binding (read s!"__solidity_element_{i}"))
       elements := elements.push (.localVar binding)
-    modify fun e => { e with snapshots := e.snapshots.insert id elements }
+    modify fun e =>
+      { e with snapshots := e.snapshots.insert id elements,
+               yulNames := e.yulNames.erase name }
     markField field
     return result
   if loc == "storage" then
@@ -2190,7 +2209,9 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
           | .outer field key => do
               let (pre, key) ← capture key
               pure (pre, SPath.outer field key)
-        modify fun e => { e with paths := e.paths.insert id frozen }
+        modify fun e =>
+          { e with paths := e.paths.insert id frozen,
+                   yulNames := e.yulNames.erase name }
         pure (pre ++ keys)
     | _ => failAt s "storage local is not a resolved read path"
   else
@@ -2623,7 +2644,7 @@ private def importSlice
     -- do not leak between functions. Field layouts and the closure are shared.
     env := { env with currentFile := entry, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       snapshots := RBMap.empty, mems := RBMap.empty, byteBuffers := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]

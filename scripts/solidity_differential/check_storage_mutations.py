@@ -176,13 +176,15 @@ MUTANTS.update({
 MUTANTS.update({
     'import-yul-numeric-literal': ('pure (.literal value)\n  | "YulIdentifier" =>', 'pure (.bitXor (.literal value) (.literal 1))\n  | "YulIdentifier" =>'),
     'import-yul-numeric-add': ('| "add", #[a, b] => pure (.add a b)', '| "add", #[a, b] => pure (.sub a b)'),
+    'import-yul-result-scope': ('{ e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr,', '{ e with values := e.values.insert id expr, yulNames := e.yulNames,'),
+    'import-yul-result-id-guard': ('unless (← get).helperReturnId == some targetId do', 'unless true do'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-yul-numeric-"):
         fixture = "YulNumericSequence"
-    if name.startswith("import-named-helper-"):
+    if name.startswith(("import-named-helper-", "import-yul-result-")):
         fixture = "NamedHelperReturnSequence"
     if name.startswith("import-byte-local-"):
         fixture = "EncodedByteLocalSequence"
@@ -248,11 +250,27 @@ def helper_order_control(directory, name, mutated):
     """A guard mutant must admit exactly the source that the baseline rejects."""
     target = directory / '.lake/helper-order-control'
     target.mkdir(exist_ok=True)
-    argument = name.endswith('argument-guard')
-    expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
-    diagnostic = ('stateful helper call arguments require explicit evaluation-order support'
-                  if argument else 'stateful helper operands require explicit evaluation-order support')
-    (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+    if name == 'import-yul-result-id-guard':
+        diagnostic = 'Yul assigns result, not the return declaration result'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ function h(uint256 n) internal pure returns (uint256 result) {
+  result = 7;
+  if (n == 0) {
+   uint256 result = n;
+   assembly { result := xor(n, n) }
+  }
+  return result;
+ }
+ function checked(uint256 x) external pure returns (uint256) { return h(x); }
+}
+''')
+    else:
+        argument = name.endswith('argument-guard')
+        expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
+        diagnostic = ('stateful helper call arguments require explicit evaluation-order support'
+                      if argument else 'stateful helper operands require explicit evaluation-order support')
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
  uint256 value;
  function bump() internal returns (uint256) { value = value + 1; return value; }
@@ -295,7 +313,8 @@ def mutation_campaign(output, selected=None):
             raise HarnessError(f'{name}: unmodified positive control failed')
         order_guard = name in {'import-helper-effect-binary-guard',
                               'import-helper-effect-argument-guard',
-                              'import-helper-effect-classifier'}
+                              'import-helper-effect-classifier',
+                              'import-yul-result-id-guard'}
         if order_guard:
             helper_order_control(directory, name, False)
         source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')

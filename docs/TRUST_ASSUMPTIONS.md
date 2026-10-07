@@ -1306,16 +1306,21 @@ Named scalar helper results are lowered to fresh declaration-bound local slots
 initialized before body effects. Existing scalar-write/branch/require/event
 semantics are reused. Implicit fallthrough observes the result slot; explicit
 returns terminate the helper path. Nested helper inlining restores the caller's
-result context, lookup maps and scalar types. Existing full-word single-terminal
-assembly keeps its direct expression lowering.
+result context, return declaration id, lookup maps and scalar types. Existing
+full-word single-terminal assembly keeps its direct expression lowering.
 
-Assembly result assignments with a continuation clean unsigned/address widths
-and normalize booleans before Solidity reads. Yul reads of narrow named results
-are rejected rather than substituting cleaned bits for raw assembly bits. No new
-Denote arm, axiom or Yul builtin is introduced; code deployment and general raw
-memory remain unsupported. The initial draft64 A/B/C pass covers the initial
-fixture only; expanded type/scope cases, seven actual mutants, generated variants,
-located controls, exact-head release gates and the pilot check remain pending.
+Assembly result assignments must resolve their target identifier through
+`InlineAssembly.externalReferences` to the active helper return declaration id
+(`!isOffset`, `!isSlot`, no suffix, `valueSize == 1`); shadowed local targets
+with the same spelling reject. Reference-local declarations erase their name from
+the Yul identifier map for their lexical scope. Assembly result assignments with
+a continuation clean unsigned/address widths and normalize booleans before
+Solidity reads. Yul reads of narrow named results are rejected rather than
+substituting cleaned bits for raw assembly bits. No new Denote arm, axiom or Yul
+builtin is introduced; code deployment and general raw memory remain unsupported.
+Expanded type/scope/shadowing cases, runtime and guard mutants, generated
+variants, located controls, exact-head release gates and the pilot check remain
+pending.
 
 ### Development numeric Yul expressions
 

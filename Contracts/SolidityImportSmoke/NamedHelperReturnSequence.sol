@@ -56,6 +56,20 @@ contract SequenceFixture {
         result = result + 5;
     }
 
+    function shadowedAssembly(uint256 input) internal pure returns (uint256 result) {
+        uint256 seed = input + 2;
+        result = 7;
+        if (input % 2 == 0) {
+            uint256 result = seed;
+            result = result + 1;
+        } else {
+            uint256 input = seed;
+            assembly { result := add(result, input) }
+        }
+        assembly { result := add(result, xor(input, mul(input, lt(input, input)))) }
+        result = result + 6;
+    }
+
     function change(uint256 input) external returns (uint256) {
         uint256 zero = defaultResult();
         uint256 first = early(input);
@@ -68,7 +82,8 @@ contract SequenceFixture {
         uint256 addressValue = uint256(uint160(who));
         uint256 booleanValue = flag ? 1 : 0;
         uint256 branchValue = branchAssembly(input);
-        value = zero + first + second + narrow + third + addressValue + booleanValue + branchValue;
+        uint256 shadowedValue = shadowedAssembly(input);
+        value = zero + first + second + narrow + third + addressValue + booleanValue + branchValue + shadowedValue;
         emit Changed(value);
         return value;
     }

@@ -9,6 +9,11 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('yul-result-shadowed-target', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { uint256 result = n; assembly { result := xor(n,n) } } return result; }', 'return h(x);', 'uint256', 'not the return declaration result'),
+        ('yul-result-shadowed-else-target', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { result = 1; } else { uint256 result = n; assembly { result := xor(n,n) } } return result; }', 'return h(x);', 'uint256', 'not the return declaration result'),
+        ('yul-result-shadowed-branch-solidity', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { uint256 result = n; result = result + 1; } assembly { result := add(result, 1) } }', 'return h(x);', 'uint256', None),
+        ('yul-result-shadowed-bytes-read', 'function h(uint256 n) internal pure returns(uint256 result) { if(n == 0) { bytes memory n = abi.encode(uint256(1)); assembly { result := xor(n,n) } } }', 'return h(x);', 'uint256', 'unbound Yul identifier n'),
+        ('yul-result-shadowed-snapshot-read', 'mapping(uint256 => uint16[7]) a; function h(uint256 n) internal view returns(uint256 result) { if(n == 0) { uint16[7] memory n = a[1]; assembly { result := xor(n,n) } } }', 'return h(x);', 'uint256', 'unbound Yul identifier n'),
         ('yul-numeric-decimal', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := xor(n, 31) } }', 'return h(x);', 'uint256', None),
         ('yul-numeric-hex', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := xor(n, 0x20) } }', 'return h(x);', 'uint256', None),
         ('yul-numeric-word', 'function h(uint256 n) internal pure returns(uint256 r) { assembly { r := 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff } }', 'return h(x);', 'uint256', None),

@@ -855,9 +855,10 @@ def stateful_named_helper_return_source(fixture: str, variant: str) -> str:
         return fixture
     if variant == 'renamed':
         import re
-        names = {'value', 'input', 'result', 'defaultResult', 'early',
+        names = {'value', 'input', 'result', 'seed', 'defaultResult', 'early',
                  'continuedAssembly', 'narrowAssembly', 'nested', 'booleanAssembly',
-                 'addressAssembly', 'branchAssembly', 'branchValue', 'zero', 'first', 'second', 'third', 'narrow',
+                 'addressAssembly', 'branchAssembly', 'branchValue', 'shadowedAssembly',
+                 'shadowedValue', 'zero', 'first', 'second', 'third', 'narrow',
                  'flag', 'who', 'addressValue', 'booleanValue'}
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'
@@ -872,6 +873,8 @@ def stateful_named_helper_return_source(fixture: str, variant: str) -> str:
             '        result = result + 1;\n        return result;\n    }',
             '        result = result + 5;\n    }':
             '        result = result + 5;\n        return result;\n    }',
+            '        result = result + 6;\n    }':
+            '        result = result + 6;\n        return result;\n    }',
             '        result = result + zero;\n    }':
             '        result = result + zero;\n        return result;\n    }',
         }
