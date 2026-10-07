@@ -19,6 +19,7 @@ def main():
       None),
      ('narrow-direct', 'uint128', 'event E(uint128 value);', 'emit E(x); return x;', None),
      ('narrow8-direct', 'uint8', 'event E(uint8 value);', 'emit E(x); return x;', None),
+     ('narrow8-max-constant', 'uint256', 'event E(uint8 value);', 'emit E(type(uint8).max); return x;', None),
      ('narrow-local',
       'uint256',
       'event E(uint8 value);',

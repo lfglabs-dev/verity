@@ -171,7 +171,14 @@ before root and helper bodies with fresh lexical scope and `unchecked := false`.
 block to wrapping `2^bits` arithmetic while preserving division/modulo-by-zero
 panics and resetting across call boundaries. Scalar assignment expressions
 `(x = rhs)` require order-independent binary siblings and single-argument call
-contexts.
+contexts. Unnamed multi-return scalar helpers are inlined via continuation-passing
+into fresh zero-initialized result bindings and consumed only by matching tuple
+destructuring declarations or assignments (evaluating converted components before
+committing non-elided local or scalar storage targets and rejecting duplicate
+targets). Unsigned scalar parameters modified by `+=` or `-=` are copied into
+declaration-bound local bindings at frame entry so call-by-value compound updates
+remain frame-local. Narrow `.uintN bits` event parameters accept canonical integer
+constant literals `n < 2 ^ bits` alongside matching direct parameters.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears

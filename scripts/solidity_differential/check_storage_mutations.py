@@ -194,10 +194,17 @@ MUTANTS.update({
     'import-modifier-unchecked-assignment-expr-write': ('return { pre := (pre ++ value.pre).push (.letVar resultVar storedExpr) |>.push (.setStorage name (.localVar resultVar)), expr := .localVar resultVar }', 'return { pre := (pre ++ value.pre).push (.letVar resultVar storedExpr), expr := .localVar resultVar }'),
     'import-modifier-unchecked-constant-power': ('let power := a ^ b', 'let power := a * b'),
     'import-modifier-unchecked-sibling-guard': ('if (assignmentIn (← mField j "leftExpression") && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||\n        (assignmentIn (← mField j "rightExpression") && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then', 'if false then'),
+    'import-tuple-helper-return-swap': ('for i in [:results.size] do\n              let (binding, _, _) := results[i]!\n              pre := pre.push (.assignVar binding (vals.getD i (.literal 0)))', 'for i in [:results.size] do\n              let (binding, _, _) := results[i]!\n              pre := pre.push (.assignVar binding (vals.getD (results.size - 1 - i) (.literal 0)))'),
+    'import-tuple-helper-local-drop': ('out := out ++ converted.pre |>.push (.letVar binding converted.expr)', 'out := out ++ converted.pre |>.push (.letVar binding (.literal 0))'),
+    'import-tuple-helper-assign-storage-drop': ('assigns := assigns ++ pre ++ converted.pre |>.push (.setStorage name storedExpr)', 'assigns := assigns ++ pre ++ converted.pre'),
+    'import-tuple-helper-param-compound-init-zero': ('if (bodyCompoundAssignedIds body).contains pid && !(bodyDirectAssignedIds body).contains pid then\n          let some scalar := paramType pty\n            | failAt p s!"unsupported writable helper parameter type {pty}"\n          let binding ← freshFor (if pname == "" then "param" else pname)\n          let expr := Expr.localVar binding\n          pre := pre ++ converted.pre |>.push (.letVar binding converted.expr)', 'if (bodyCompoundAssignedIds body).contains pid && !(bodyDirectAssignedIds body).contains pid then\n          let some scalar := paramType pty\n            | failAt p s!"unsupported writable helper parameter type {pty}"\n          let binding ← freshFor (if pname == "" then "param" else pname)\n          let expr := Expr.localVar binding\n          pre := pre ++ converted.pre |>.push (.letVar binding (.literal 0))'),
+    'import-tuple-helper-duplicate-target-guard': ('unless cid ≥ 0 && !seenIds.contains cid.toNat do', 'unless cid ≥ 0 do'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-tuple-helper-"):
+        fixture = "TupleHelperSequence"
     if name.startswith("import-modifier-unchecked-"):
         fixture = "ModifierUncheckedCompoundSequence"
     if name.startswith("import-void-helper-"):
@@ -248,11 +255,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -260,7 +267,7 @@ def run(directory, output, name):
     if fixture == 'NamedHelperReturnSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 40, 50, 60, 70, 255, 256, 257, (1 << 160) - 1, 1 << 160, (1 << 160) + 1, (1 << 256) - 1])]
-    if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence'}:
+    if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'}:
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [19, 0, 1, 2, 3, 20, 21, 96, 97, 98, 99999, 100000, (1 << 256) - 1])]
     environment = dict(os.environ)
@@ -336,6 +343,18 @@ contract C {
  function checked(uint256 x) external returns (uint256) { return (v = x) + v; }
 }
 ''')
+    elif name == 'import-tuple-helper-duplicate-target-guard':
+        diagnostic = 'duplicate or invalid target in tuple assignment'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ function _pair(uint256 y) internal pure returns (uint256, uint256) { return (y, y + 1); }
+ function checked(uint256 x) external pure returns (uint256) {
+  uint256 a = 0;
+  (a, a) = _pair(x);
+  return a;
+ }
+}
+''')
     else:
         argument = name.endswith('argument-guard')
         expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
@@ -389,7 +408,8 @@ def mutation_campaign(output, selected=None):
                               'import-solc-viair-guard',
                               'import-solc-uncollected-source-guard',
                               'import-inheritance-duplicate-storage-guard',
-                              'import-modifier-unchecked-sibling-guard'}
+                              'import-modifier-unchecked-sibling-guard',
+                              'import-tuple-helper-duplicate-target-guard'}
         if order_guard:
             helper_order_control(directory, name, False)
         source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')

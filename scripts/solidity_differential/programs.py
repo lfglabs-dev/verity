@@ -1009,3 +1009,34 @@ def stateful_modifier_unchecked_compound_source(fixture: str, variant: str) -> s
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown modifier-unchecked-compound variant: {variant}')
+
+
+def stateful_tuple_helper_source(fixture: str, variant: str) -> str:
+    """Equivalent multi-return helper, parameter compound-assignment, and narrow literal event sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'input', 'seed', 'slot', 'gain', 'mgmtFee', 'netGain', 'baseClaim',
+            'rate', 'interest', 'claimBasis', 'burnAmount', 'seedBonus',
+            'gross', 'fee', 'boosted', 'clearedBasis', 'clearedBurn',
+            'splitNet', 'localSecondary', 'feeAdjusted',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'explicit-return-and-literal':
+        replacements = {
+            'burnAmount = baseClaim;': 'burnAmount = baseClaim;\n        return (claimBasis, burnAmount);',
+            'emit NarrowInitialized(type(uint8).max);': 'emit NarrowInitialized(255);',
+            '(uint256 splitNet, ) = _splitWithParamCompound(seed + 30, (seed % 9) + 4);':
+            '(uint256 splitNet, uint256 unusedBoost) = _splitWithParamCompound(seed + 30, (seed % 9) + 4);',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('tuple-helper variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown tuple-helper variant: {variant}')
+
