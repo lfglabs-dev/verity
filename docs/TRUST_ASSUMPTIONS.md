@@ -164,7 +164,14 @@ storage fields use 8-bit packed storage with `logicalNot (logicalNot ...)`
 normalization on read and write, and prefix `!` on `bool` lowers to `logicalNot`.
 Root functions whose return parameters are all named scalars initialize each to
 zero and return them on bare `return;` or fallthrough, while empty-body scalar
-hooks return zero words.
+hooks return zero words. Pre-placeholder modifiers ending with a single trailing
+`_;` (without `virtual`, internal `return;`, or post-placeholder code) are inlined
+before root and helper bodies with fresh lexical scope and `unchecked := false`.
+`UncheckedBlock` switches unsigned `+`, `-`, `*` and `+=`/`-=` within its lexical
+block to wrapping `2^bits` arithmetic while preserving division/modulo-by-zero
+panics and resetting across call boundaries. Scalar assignment expressions
+`(x = rhs)` require order-independent binary siblings and single-argument call
+contexts.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears

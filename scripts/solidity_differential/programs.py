@@ -984,3 +984,28 @@ def stateful_void_helper_guard_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown void-helper-guards variant: {variant}')
 
 
+def stateful_modifier_unchecked_compound_source(fixture: str, variant: str) -> str:
+    """Equivalent modifier, unchecked, and compound-assignment sources with local renaming and expanded assignments."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'input', 'seed', 'slot', 'localAcc', 'assigned', 'wrapMul', 'rawHelper', 'helperOut', 'localMirror', 'echoed', 'raw', 'delta'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-compound':
+        replacements = {
+            'localAcc += 17;': 'localAcc = localAcc + 17;',
+            'localAcc -= 5;': 'localAcc = localAcc - 5;',
+            '10 ** 3': '1000',
+            '2 ** 8': '256',
+            'uint256 echoed = (localMirror = seed + 11) + 6;':
+            'localMirror = seed + 11;\n        uint256 echoed = localMirror + 6;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('modifier-unchecked-compound variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown modifier-unchecked-compound variant: {variant}')

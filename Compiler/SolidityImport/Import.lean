@@ -243,6 +243,8 @@ private structure Env where
   helperReturnId : Option Nat := none
   rootIsVoid : Bool := false
   rootReturns : Array Expr := #[]
+  modifiers : RBMap Nat Json compare := RBMap.empty
+  unchecked : Bool := false
   fieldsByName : RBMap String FieldInfo compare
   layoutItems : RBMap String Json compare
   layoutTypes : Json
@@ -305,7 +307,7 @@ private def failAt (j : Json) (why : String) : M α := do
   let env ← get
   let frames := env.stack.reverse.map fun id =>
     let owner := env.funContract.find? id |>.getD "<free>"
-    let name := (env.funs.find? id).bind (fun fn => optStr fn "name") |>.getD s!"decl#{id}"
+    let name := ((env.funs.find? id).orElse (fun _ => env.modifiers.find? id)).bind (fun fn => optStr fn "name") |>.getD s!"decl#{id}"
     s!"{owner}.{name}"
   let why := s!"[solidity-import:unsupported] {why}\nclosure: {String.intercalate " -> " frames}"
   let file :=
@@ -496,6 +498,19 @@ private partial def statefulCallIn (j : Json) (env : Env) : Bool :=
         | none => false
       else false
       o.foldl (fun found _ child => found || statefulCallIn child env) own
+  | _ => false
+
+private def isOrderIndependentSibling : Expr → Bool
+  | .literal _ | .param _ | .blockTimestamp | .blockNumber
+  | .caller | .contractAddress | .chainid => true
+  | _ => false
+
+private partial def assignmentIn (j : Json) : Bool :=
+  match j with
+  | .arr xs => xs.any assignmentIn
+  | .obj o =>
+      let own := optStr j "nodeType" == some "Assignment"
+      o.foldl (fun found _ child => found || assignmentIn child) own
   | _ => false
 
 private def atom (v : Val) : M Val := do
@@ -899,6 +914,7 @@ private partial def lowerExpr (j : Json) : M Val := do
   | "BinaryOperation" => lowerBinary j
   | "Conditional" => lowerConditional j
   | "FunctionCall" => lowerCall j
+  | "Assignment" => lowerAssignmentExpr j
   | "Identifier" | "MemberAccess" | "IndexAccess" =>
       match ← lowerRef j with
       | .expr v => pure v
@@ -1200,6 +1216,10 @@ private partial def lowerBinary (j : Json) : M Val := do
       failAt j "stateful helper operands require explicit evaluation-order support"
   let left ← lowerExpr (← mField j "leftExpression")
   let right ← lowerExpr (← mField j "rightExpression")
+  unless op == "&&" || op == "||" do
+    if (assignmentIn (← mField j "leftExpression") && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||
+        (assignmentIn (← mField j "rightExpression") && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then
+      failAt j "assignment operand with non-atomic sibling requires explicit evaluation-order support"
   let common ← mStr (← mField (← mField j "commonType") "typeString")
   -- Solidity folds literal sums in unbounded integer arithmetic. Admit only
   -- exact natural literals whose sum remains representable as an EVM word.
@@ -1218,6 +1238,14 @@ private partial def lowerBinary (j : Json) : M Val := do
           let product := a * b
           if product < 2 ^ 256 then return { pre := #[], expr := .literal product }
     failAt j "unsupported integer constant product"
+  if common.startsWith "int_const" && op == "**" then
+    if left.pre.isEmpty && right.pre.isEmpty then
+      if let .literal a := left.expr then
+        if let .literal b := right.expr then
+          if a ≤ 1 || b < 256 then
+            let power := a ^ b
+            if power < 2 ^ 256 then return { pre := #[], expr := .literal power }
+    failAt j s!"unsupported operand type {common}"
   unless (bitsOf common).isSome || common == "bool" do
     failAt j s!"unsupported operand type {common}"
   match op with
@@ -1234,11 +1262,31 @@ private partial def lowerBinary (j : Json) : M Val := do
              expr := .localVar dest }
   | "+" =>
       let some bits := bitsOf common | failAt j s!"unsupported add type {common}"
-      checkedAdd bits left right
-  | "-" => checkedSub left right
+      if (← get).unchecked then
+        let a ← atom left
+        let b ← atom right
+        let wrapped := if bits < 256 then Expr.bitAnd (.add a.expr b.expr) (.literal (2 ^ bits - 1)) else .add a.expr b.expr
+        pure { pre := a.pre ++ b.pre, expr := wrapped }
+      else
+        checkedAdd bits left right
+  | "-" =>
+      let some bits := bitsOf common | failAt j s!"unsupported sub type {common}"
+      if (← get).unchecked then
+        let a ← atom left
+        let b ← atom right
+        let wrapped := if bits < 256 then Expr.bitAnd (.sub a.expr b.expr) (.literal (2 ^ bits - 1)) else .sub a.expr b.expr
+        pure { pre := a.pre ++ b.pre, expr := wrapped }
+      else
+        checkedSub left right
   | "*" =>
       let some bits := bitsOf common | failAt j s!"unsupported mul type {common}"
-      checkedMul bits left right
+      if (← get).unchecked then
+        let a ← atom left
+        let b ← atom right
+        let wrapped := if bits < 256 then Expr.bitAnd (.mul a.expr b.expr) (.literal (2 ^ bits - 1)) else .mul a.expr b.expr
+        pure { pre := a.pre ++ b.pre, expr := wrapped }
+      else
+        checkedMul bits left right
   | "/" => checkedDiv left right
   | "%" =>
       unless common.startsWith "uint" do failAt j "modulo requires unsigned scalar operands"
@@ -1624,6 +1672,8 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   for arg in nodes do
     if statefulCallIn arg (← get) then
       failAt arg "stateful helper call arguments require explicit evaluation-order support"
+    if nodes.size > 1 && assignmentIn arg then
+      failAt arg "assignment expression in multi-argument call requires explicit evaluation-order support"
     if (← mType arg).startsWith "struct " then
       match ← lowerRef arg with
       | .mem id pre =>
@@ -1678,13 +1728,12 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let savedFile := (← get).currentFile
   let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
   let frame := fnId :: (← get).stack
-  modify fun e => { e with stack := frame, currentFile := frameFile }
+  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false }
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
     | failAt fn "function has no body"
   unless implemented do failAt fn "function has no body"
   let mods ← mArr (← mField fn "modifiers")
-  unless mods.isEmpty do failAt fn "modifiers are outside this slice"
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   unless params.size == args.size do
     failAt at_ s!"call arity {args.size} does not match declaration {params.size}"
@@ -1731,7 +1780,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   -- assembly assignment. A named variable needed by a continuation gets a
   -- declaration-bound slot, initialized before any source-body effect.
   let resultType ← mType rets[0]!
-  let terminalAssembly ← if stmts.size == 1 &&
+  let terminalAssembly ← if stmts.size == 1 && mods.isEmpty &&
       (resultType == "uint256" || resultType == "uint" || resultType == "bytes32") then
     pure ((← mKind stmts[0]!) == "InlineAssembly") else pure false
   modify fun e => { e with helperResult := none, helperReturnId := some retId }
@@ -1756,9 +1805,11 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
     let binding ← fresh
     pre := pre ++ #[.letVar binding (.literal 0)]
     modify fun e => { e with helperResult := some (binding, ty) }
+  let modStmts ← lowerModifiers mods
+  pre := pre ++ modStmts
   let result ← lowerHelper stmts retName
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
+    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, scalarTy := saved.scalarTy }
   pure { pre := pre ++ result.pre, expr := result.expr }
 
@@ -1766,7 +1817,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
   let visibility := optStr fn "visibility" |>.getD ""
-  unless visibility == "internal" || visibility == "private" do
+  unless visibility == "internal" || visibility == "private" || visibility == "public" do
     failAt at_ "void helper calls require an internal or private declaration"
   let saved := ← get
   let savedYul := saved.yulNames
@@ -1775,13 +1826,12 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   let savedHelperReturnId := saved.helperReturnId
   let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
   let frame := fnId :: (← get).stack
-  modify fun e => { e with stack := frame, currentFile := frameFile }
+  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false }
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
     | failAt fn "function has no body"
   unless implemented do failAt fn "function has no body"
   let mods ← mArr (← mField fn "modifiers")
-  unless mods.isEmpty do failAt fn "modifiers are outside this slice"
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   unless params.size == args.size do
     failAt at_ s!"call arity {args.size} does not match declaration {params.size}"
@@ -1821,12 +1871,13 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
           yul := yul.erase pname
   modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none }
   noteFn fn
+  let modStmts ← lowerModifiers mods
   let stmts ← mArr (← mField body "statements")
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure #[])
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
+    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, scalarTy := saved.scalarTy }
-  pure (pre ++ bodyStmts)
+  pure (pre ++ modStmts ++ bodyStmts)
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
   -- `i` counts the receiver plus explicit arguments. The receiver is not in
@@ -1852,6 +1903,102 @@ private partial def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M 
   | _, _ =>
       if argTy.startsWith "int_const" || argTy == paramTy then pure v
       else failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+
+private partial def stmtContainsPlaceholder (s : Json) : M Bool := do
+  match ← mKind s with
+  | "PlaceholderStatement" => pure true
+  | "Block" | "UncheckedBlock" =>
+      let stmts ← mArr (← mField s "statements")
+      stmts.anyM stmtContainsPlaceholder
+  | "IfStatement" =>
+      let yes ← stmtContainsPlaceholder (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else stmtContainsPlaceholder j
+        | none => pure false
+      pure (yes || no)
+  | "ForStatement" =>
+      stmtContainsPlaceholder (← mField s "body")
+  | _ => pure false
+
+private partial def lowerModifier (modInv : Json) : M (Array Stmt) := do
+  let kind? := optStr modInv "kind"
+  if kind?.isSome && kind? != some "modifierInvocation" then
+    failAt modInv "base constructor calls are outside this slice"
+  let modNode ← mField modInv "modifierName"
+  let refId ← refInt modNode
+  if refId < 0 then failAt modInv "unresolved modifier"
+  let modId := refId.toNat
+  if (← get).stack.contains modId then failAt modInv s!"recursive modifier {modId}"
+  let some modDecl := (← get).modifiers.find? modId | failAt modInv s!"unresolved modifier {modId}"
+  if optStr modDecl "virtual" == some "true" || (field? modDecl "virtual").bind (fun v => v.getBool?.toOption) == some true then
+    failAt modDecl "virtual modifiers are outside this slice"
+  let implemented := (field? modDecl "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+  let some body := (field? modDecl "body").filter (!·.isNull)
+    | failAt modDecl "modifier has no body"
+  unless implemented do failAt modDecl "modifier has no body"
+  let stmts ← mArr (← mField body "statements")
+  unless stmts.size ≥ 1 && (← mKind stmts.back!) == "PlaceholderStatement" do
+    failAt modDecl "only pre-placeholder modifiers ending with _; are supported"
+  let preStmts := stmts.pop
+  if ← preStmts.anyM stmtContainsPlaceholder then
+    failAt modDecl "only a single trailing _; placeholder is supported in modifiers"
+  if ← preStmts.anyM stmtContainsReturn then
+    failAt modDecl "return inside a modifier is outside this slice"
+  let params ← mArr (← mField (← mField modDecl "parameters") "parameters")
+  let args ← match field? modInv "arguments" with
+    | some j => if j.isNull then pure #[] else mArr j
+    | none => pure #[]
+  unless params.size == args.size do
+    failAt modInv s!"modifier arity {args.size} does not match declaration {params.size}"
+  let mut argVals : Array Val := #[]
+  for i in [:args.size] do
+    let argNode := args[i]!
+    if statefulCallIn argNode (← get) then
+      failAt argNode "stateful modifier arguments require explicit evaluation-order support"
+    if args.size > 1 && assignmentIn argNode then
+      failAt argNode "assignment expression in multi-argument modifier requires explicit evaluation-order support"
+    argVals := argVals.push (← lowerExpr argNode)
+  let saved ← get
+  let savedYul := saved.yulNames
+  let savedFile := saved.currentFile
+  let savedHelperResult := saved.helperResult
+  let savedHelperReturnId := saved.helperReturnId
+  let frameFile := saved.nodeFile.find? modId |>.getD saved.currentFile
+  let frame := modId :: saved.stack
+  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false }
+  let mut pre : Array Stmt := #[]
+  let mut yul := savedYul
+  for i in [:params.size] do
+    let p := params[i]!
+    let pname ← mStr (← mField p "name")
+    let pid ← mNat (← mField p "id")
+    let pty ← mType p
+    unless (paramType pty).isSome do
+      failAt p s!"unsupported modifier parameter type {pty}"
+    let argNode := args[i]!
+    let argTy ← mType argNode
+    let some argVal := argVals[i]? | failAt argNode s!"missing modifier argument {i}"
+    let converted ← convert pty argTy argVal argNode
+    let bound ← atom converted
+    pre := pre ++ bound.pre
+    modify fun e => { e with values := e.values.insert pid bound.expr }
+    if pname != "" then
+      yul := yul.insert pname bound.expr
+  modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none }
+  noteFn modDecl
+  let bodyStmts ← lowerVoidHelperFrom preStmts.toList (pure #[])
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile, unchecked := saved.unchecked,
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
+             snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
+             helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, scalarTy := saved.scalarTy }
+  pure (pre ++ bodyStmts)
+
+private partial def lowerModifiers (mods : Array Json) : M (Array Stmt) := do
+  let mut out : Array Stmt := #[]
+  for modInv in mods do
+    out := out ++ (← lowerModifier modInv)
+  pure out
 
 private partial def lowerHelper (stmts : Array Json) (retName : String) : M Val := do
   let (pre, result) ← lowerHelperFrom stmts.toList retName
@@ -1879,7 +2026,7 @@ private partial def helperReturns (s : Json) : M Bool := do
   match ← mKind s with
   | "Return" | "RevertStatement" => pure true
   | "InlineAssembly" => pure (← get).helperResult.isNone
-  | "Block" => ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
+  | "Block" | "UncheckedBlock" => ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
   | "IfStatement" =>
       let yes ← helperReturns (← mField s "trueBody")
       let no ← match field? s "falseBody" with
@@ -1978,6 +2125,14 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
         let saved ← get
         out := out ++ (← lowerHelperLoopBody statement)
         modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+    | "UncheckedBlock" =>
+        let saved ← get
+        modify fun e => { e with unchecked := true }
+        let subStmts ← mArr (← mField statement "statements")
+        for sub in subStmts do
+          let subOut ← lowerHelperLoopBody sub
+          out := out ++ subOut
+        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames, unchecked := saved.unchecked }
     | "VariableDeclarationStatement" => out := out ++ (← lowerLocal statement)
     | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
     | "EmitStatement" => out := out ++ (← lowerEmit statement)
@@ -2006,6 +2161,29 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
       pure (#[], (← get).helperResult.map fun (binding, _) => Expr.localVar binding)
   | s :: rest =>
     match ← mKind s with
+    | "Block" | "UncheckedBlock" =>
+        let isUnchecked := (← mKind s) == "UncheckedBlock"
+        let saved ← get
+        let restore : M Unit := modify fun e =>
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
+                   snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, unchecked := saved.unchecked }
+        if isUnchecked then
+          modify fun e => { e with unchecked := true }
+        let blockStmts ← mArr (← mField s "statements")
+        let blockReturns ← helperListReturns blockStmts
+        if blockReturns then
+          if let some next := rest.head? then failAt next "statement after helper result"
+          let (inner, res) ← lowerHelperFrom blockStmts.toList retName
+          restore
+          pure (inner, res)
+        else if ← listContainsReturn blockStmts then
+          failAt s "partial return inside a helper block is outside this slice"
+        else
+          let (inner, _) ← lowerHelperFrom blockStmts.toList retName
+          restore
+          let (tail, res) ← lowerHelperFrom rest retName
+          pure (inner ++ tail, res)
     | "VariableDeclarationStatement" =>
         let pre ← lowerLocal s
         let (tail, result) ← lowerHelperFrom rest retName
@@ -2096,7 +2274,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
 private partial def voidHelperReturns (s : Json) : M Bool := do
   match ← mKind s with
   | "Return" | "RevertStatement" => pure true
-  | "Block" => ((← mArr (← mField s "statements")).back?.map voidHelperReturns).getD (pure false)
+  | "Block" | "UncheckedBlock" => ((← mArr (← mField s "statements")).back?.map voidHelperReturns).getD (pure false)
   | "IfStatement" =>
       let yes ← voidHelperReturns (← mField s "trueBody")
       let no ← match field? s "falseBody" with
@@ -2108,7 +2286,7 @@ private partial def voidHelperReturns (s : Json) : M Bool := do
 private partial def stmtContainsReturn (s : Json) : M Bool := do
   match ← mKind s with
   | "Return" => pure true
-  | "Block" =>
+  | "Block" | "UncheckedBlock" =>
       let stmts ← mArr (← mField s "statements")
       stmts.anyM stmtContainsReturn
   | "IfStatement" =>
@@ -2128,12 +2306,15 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
   | s :: rest =>
     let kRest : M (Array Stmt) := lowerVoidHelperFrom rest k
     match ← mKind s with
-    | "Block" =>
+    | "Block" | "UncheckedBlock" =>
+        let isUnchecked := (← mKind s) == "UncheckedBlock"
         let saved ← get
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
                    snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, unchecked := saved.unchecked }
+        if isUnchecked then
+          modify fun e => { e with unchecked := true }
         let blockStmts ← mArr (← mField s "statements")
         if ← voidHelperReturns s then
           if let some next := rest.head? then failAt next "statement after void helper return"
@@ -2210,7 +2391,15 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     if reference ≥ 0 then
       if let some declaration := (← get).funs.find? reference.toNat then
         let visibility := optStr declaration "visibility" |>.getD ""
-        unless visibility == "internal" || visibility == "private" do
+        let internalCallee ← match ← mKind callee with
+          | "Identifier" => pure true
+          | "MemberAccess" =>
+              let base ← mField callee "expression"
+              let baseTy ← mType base
+              pure (((← mKind base) == "Identifier" && optStr base "name" == some "super" && (← refInt base) < 0) ||
+                baseTy.startsWith "type(contract ")
+          | _ => pure false
+        unless visibility == "internal" || visibility == "private" || (visibility == "public" && internalCallee) do
           failAt callee "discarded helper calls require an internal or private declaration"
         let rets ← mArr (← mField (← mField declaration "returnParameters") "parameters")
         if rets.isEmpty then
@@ -2224,6 +2413,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     return ← lowerRequire statement
   let deleting := kind == "UnaryOperation"
   let operator ← mStr (← mField expression "operator")
+  if !deleting && (operator == "+=" || operator == "-=") then
+    return ← lowerCompoundAssignment expression operator
   unless (deleting && operator == "delete") || (!deleting && operator == "=") do
     failAt expression "only scalar storage assignment and delete are supported"
   let target ← mField expression (if deleting then "subExpression" else "leftHandSide")
@@ -2317,6 +2508,131 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   if info.booleanScalar && !deleting then
     return (pre ++ value.pre).push (.setStorage name (.logicalNot (.logicalNot value.expr)))
   return (pre ++ value.pre).push (.setStorage name value.expr)
+
+private partial def combineCompound (operator : String) (ty : String) (lhs rhs : Expr) (at_ : Json) : M Val := do
+  let some bits := bitsOf ty
+    | failAt at_ s!"compound assignment requires an unsigned integer type, found {ty}"
+  let isUnchecked := (← get).unchecked
+  if operator == "+=" then
+    if isUnchecked then
+      let wrapped := if bits < 256 then Expr.bitAnd (.add lhs rhs) (.literal (2 ^ bits - 1)) else .add lhs rhs
+      pure { pre := #[], expr := wrapped }
+    else
+      checkedAdd bits { pre := #[], expr := lhs } { pre := #[], expr := rhs }
+  else if operator == "-=" then
+    if isUnchecked then
+      let wrapped := if bits < 256 then Expr.bitAnd (.sub lhs rhs) (.literal (2 ^ bits - 1)) else .sub lhs rhs
+      pure { pre := #[], expr := wrapped }
+    else
+      checkedSub { pre := #[], expr := lhs } { pre := #[], expr := rhs }
+  else
+    failAt at_ s!"unsupported compound assignment operator {operator}"
+
+private partial def lowerCompoundAssignment (expression : Json) (operator : String) : M (Array Stmt) := do
+  let target ← mField expression "leftHandSide"
+  let right ← mField expression "rightHandSide"
+  if (← mKind target) == "Identifier" then
+    let id ← refInt target
+    if id ≥ 0 then
+      if let some bound := (← get).values.find? id.toNat then
+        let .localVar binding := bound
+          | failAt target "only materialized scalar locals are writable"
+        unless (← get).writableLocals.find? id.toNat == some binding do
+          failAt target "only declaration-bound scalar locals are writable"
+        let ty ← mType target
+        unless ty.startsWith "uint" && (bitsOf ty).isSome do
+          failAt target s!"unsupported scalar local compound assignment type {ty}"
+        let rhsVal ← atom (← convert ty (← mType right) (← lowerExpr right) right)
+        let combined ← combineCompound operator ty (.localVar binding) rhsVal.expr expression
+        return rhsVal.pre ++ combined.pre |>.push (.assignVar binding combined.expr)
+  if (← mKind target) == "MemberAccess" then
+    let cMember ← mStr (← mField target "memberName")
+    let .path pre path ← lowerRef (← mField target "expression")
+      | failAt target "member assignment requires a mapping struct storage path"
+    unless pre.isEmpty do failAt target "member write key prelude is unsupported"
+    let (name, count, read, write) ← match path with
+      | .one cField cKey => pure (cField, 1, Expr.structMember cField cKey cMember, fun (cVal : Expr) => Stmt.setStructMember cField cKey cMember cVal)
+      | .two cField cKey1 cKey2 => pure (cField, 2, Expr.structMember2 cField cKey1 cKey2 cMember, fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 cMember cVal)
+      | .outer _ _ => failAt target "member assignment requires both mapping keys"
+    let info ← resolveField name target
+    if info.opaqueNames.contains cMember then failAt target s!"member {cMember} is opaque in this slice"
+    unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains cMember do
+      failAt target "member assignment requires a supported layout member"
+    let ty ← mType target
+    unless ty.startsWith "uint" && (bitsOf ty).isSome do
+      failAt target "member assignment requires an unsigned scalar member"
+    markField name
+    let rhsVal ← atom (← convert ty (← mType right) (← lowerExpr right) right)
+    let lhsVar ← fresh
+    let combined ← combineCompound operator ty (.localVar lhsVar) rhsVal.expr expression
+    return rhsVal.pre.push (.letVar lhsVar read) ++ combined.pre |>.push (write combined.expr)
+  if (← mKind target) == "IndexAccess" then
+    let reference ← lowerRef target
+    if let .fixedElement _ _ _ := reference then
+      failAt expression "only scalar storage assignment and delete are supported"
+    let .path pre path := reference
+      | failAt target "mapping assignment target is not a storage path"
+    let (name, count, read, write) ← match path with
+      | .one cField cKey => pure (cField, 1, Expr.structMember cField cKey "__solidity_value", fun (cVal : Expr) => Stmt.setStructMember cField cKey "__solidity_value" cVal)
+      | .two cField cKey1 cKey2 => pure (cField, 2, Expr.structMember2 cField cKey1 cKey2 "__solidity_value", fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 "__solidity_value" cVal)
+      | .outer _ _ => failAt target "mapping assignment requires both keys"
+    let info ← resolveField name target
+    unless info.scalarMapping && info.keyCount == count do
+      failAt target "only scalar mapping values are writable"
+    let ty ← mType target
+    unless ty.startsWith "uint" && (bitsOf ty).isSome do
+      failAt target s!"unsupported mapping compound assignment type {ty}"
+    if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
+      failAt target "compound mapping write key prelude with stateful RHS is unsupported"
+    markField name
+    let rhsVal ← atom (← convert ty (← mType right) (← lowerExpr right) right)
+    let lhsVar ← fresh
+    let combined ← combineCompound operator ty (.localVar lhsVar) rhsVal.expr expression
+    return (pre ++ rhsVal.pre).push (.letVar lhsVar read) ++ combined.pre |>.push (write combined.expr)
+  unless (← mKind target) == "Identifier" do
+    failAt target "only a resolved scalar storage identifier is writable"
+  let .state name pre ← lowerRef target
+    | failAt target "assignment target is not scalar storage"
+  let info ← resolveField name target
+  unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
+  let ty ← mType target
+  unless ty.startsWith "uint" && (bitsOf ty).isSome do
+    failAt target s!"unsupported scalar storage compound assignment type {ty}"
+  markField name
+  let rhsVal ← atom (← convert ty (← mType right) (← lowerExpr right) right)
+  let lhsVar ← fresh
+  let combined ← combineCompound operator ty (.localVar lhsVar) rhsVal.expr expression
+  return (pre ++ rhsVal.pre).push (.letVar lhsVar (.storage name)) ++ combined.pre |>.push (.setStorage name combined.expr)
+
+private partial def lowerAssignmentExpr (j : Json) : M Val := do
+  let operator ← mStr (← mField j "operator")
+  unless operator == "=" do
+    failAt j "compound assignment expressions are outside this slice"
+  let target ← mField j "leftHandSide"
+  let right ← mField j "rightHandSide"
+  unless (← mKind target) == "Identifier" do
+    failAt target "assignment expressions currently require a scalar local or storage identifier"
+  let id ← refInt target
+  if id ≥ 0 then
+    if let some bound := (← get).values.find? id.toNat then
+      let .localVar binding := bound
+        | failAt target "only materialized scalar locals are writable"
+      unless (← get).writableLocals.find? id.toNat == some binding do
+        failAt target "only declaration-bound scalar locals are writable"
+      let ty ← mType target
+      unless (paramType ty).isSome do
+        failAt target s!"unsupported scalar local assignment type {ty}"
+      let value ← atom (← convert ty (← mType right) (← lowerExpr right) right)
+      return { pre := value.pre.push (.assignVar binding value.expr), expr := .localVar binding }
+  let .state name pre ← lowerRef target
+    | failAt target "assignment target is not scalar storage"
+  let info ← resolveField name target
+  unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
+  markField name
+  let value ← atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+  let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot value.expr) else value.expr
+  let resultVar ← fresh
+  return { pre := (pre ++ value.pre).push (.letVar resultVar storedExpr) |>.push (.setStorage name (.localVar resultVar)), expr := .localVar resultVar }
 
 private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "expression"
@@ -2694,6 +3010,15 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
                    snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames }
         out := out ++ nested
         returned := nestedReturned
+    | "UncheckedBlock" =>
+        let saved ← get
+        modify fun e => { e with unchecked := true }
+        let (uncheckedNested, uncheckedReturned) ← lowerRootStatements (← mArr (← mField s "statements"))
+        modify fun e =>
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
+                   snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames, unchecked := saved.unchecked }
+        out := out ++ uncheckedNested
+        returned := uncheckedReturned
     | "VariableDeclarationStatement" =>
         out := out ++ (← lowerLocal s)
     | "ExpressionStatement" =>
@@ -2762,7 +3087,6 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     | failAt fn "function has no body"
   unless implemented do failAt fn "function has no body"
   let mods ← mArr (← mField fn "modifiers")
-  unless mods.isEmpty do failAt fn "modifiers are outside this slice"
   let returns ← mArr (← mField (← mField fn "returnParameters") "parameters")
   let mut rootInit : Array Stmt := #[]
   let mut rootRetExprs : Array Expr := #[]
@@ -2788,9 +3112,10 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   modify fun e =>
     { e with rootIsVoid := returns.isEmpty,
              rootReturns := if allNamedScalar then rootRetExprs else #[] }
+  let modStmts ← lowerModifiers mods
   let stmts ← mArr (← mField body "statements")
   let (bodyOut, returned) ← lowerRootStatements stmts
-  let mut out := rootInit ++ bodyOut
+  let mut out := rootInit ++ modStmts ++ bodyOut
   unless returned do
     if returns.isEmpty then
       out := out.push .stop
@@ -2847,6 +3172,14 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
                   | none => e.contractFuns
                 let funBases := e.funBases.insert id baseIds
                 { e with funs, funContract, funContractId, contractFuns, funBases }
+          | "ModifierDefinition" =>
+              modify fun e =>
+                let modifiers := e.modifiers.insert id j
+                let funContract := e.funContract.insert id (contract?.map Prod.snd |>.getD "<free>")
+                let funContractId := match contract? with
+                  | some (cid, _) => e.funContractId.insert id cid
+                  | none => e.funContractId
+                { e with modifiers, funContract, funContractId }
           | "StructDefinition" =>
               modify fun e => { e with structs := e.structs.insert id j }
           | "EventDefinition" =>

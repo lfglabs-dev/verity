@@ -82,6 +82,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.Solc0810SequenceModel,
     .one `Contracts.SolidityImportSmoke.InheritanceSequenceModel,
     .one `Contracts.SolidityImportSmoke.VoidHelperGuardSequenceModel,
+    .one `Contracts.SolidityImportSmoke.ModifierUncheckedCompoundSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,
