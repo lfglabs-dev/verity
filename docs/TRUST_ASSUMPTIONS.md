@@ -178,7 +178,15 @@ committing non-elided local or scalar storage targets and rejecting duplicate
 targets). Unsigned scalar parameters modified by `+=` or `-=` are copied into
 declaration-bound local bindings at frame entry so call-by-value compound updates
 remain frame-local. Narrow `.uintN bits` event parameters accept canonical integer
-constant literals `n < 2 ^ bits` alongside matching direct parameters.
+constant literals `n < 2 ^ bits` alongside matching direct parameters. Full-width
+`int256` scalar parameters, locals, returns, storage fields, and mapping values use
+two's-complement 256-bit words (`slt`/`sgt`/`sdiv`), with `Panic(0x11)` on checked
+signed `+`, `-`, `*`, `/`, and unary `-` overflow (including `-type(int256).min` and
+`type(int256).min / -1`) and wrapping two's-complement arithmetic inside
+`UncheckedBlock` (preserving division-by-zero `Panic(0x12)`). Contract/interface
+and `address payable` scalar values use 160-bit address representations for
+parameters, locals, returns, storage fields, mapping values, and explicit
+`Contract(addr)` / `address(contractVal)` casts.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears
@@ -186,7 +194,7 @@ multiple times in `storageLayout.storage` (such as shadowed private state
 variables) are rejected when referenced, while unreferenced duplicate private
 `__gap` arrays do not block import. Namespace-qualified output names and
 framed-JSON provenance are deterministic. Unnamed non-empty root fallthrough, named call
-arguments, external contract calls, and unsupported signed operations are rejected.
+arguments, external contract calls, function pointers, and narrow signed types are rejected.
 The slice makes no dynamic ABI-head claim: that unrelated denotation extension
 is not part of this change. Solidity sources are Lake inputs only when the
 consumer declares them (`input_dir` + `needs`); consumers should also

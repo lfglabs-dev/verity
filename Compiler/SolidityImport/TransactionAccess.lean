@@ -42,7 +42,7 @@ def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
   | .shl left right | .shr left right | .keccak256 left right
   | .bitAnd left right | .bitXor left right | .eq left right | .lt left right
   | .gt left right | .le left right | .ge left right
-  | .slt left right | .sgt left right => do
+  | .slt left right | .sgt left right | .sdiv left right => do
       return (← expressionAccesses oracle fields state left) ++ (← expressionAccesses oracle fields state right)
   | .calldataload value | .mload value => expressionAccesses oracle fields state value
   | .logicalNot value => expressionAccesses oracle fields state value

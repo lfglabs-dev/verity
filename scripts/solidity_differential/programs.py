@@ -1040,3 +1040,37 @@ def stateful_tuple_helper_source(fixture: str, variant: str) -> str:
         return fixture
     raise ValueError(f'unknown tuple-helper variant: {variant}')
 
+
+def stateful_int256_contract_type_source(fixture: str, variant: str) -> str:
+    """Equivalent int256 arithmetic/storage/mapping and contract-type sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'input', 'seed', 'slot', 'candidate', 'fallbackPeer', 'preferCandidate',
+            'baseDelta', 'step', 'flipped', 'scaled', 'boundTag', 'wrapProbe',
+            'maxEdge', 'minEdge', 'negMin', 'defaultPeer', 'chosen', 'rawSigned',
+            'adjusted', 'peerWord', 'one', 'negOne',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-signed-and-cast':
+        replacements = {
+            'scaled += 4;':
+            'scaled = scaled + 4;',
+            'scaled -= 2;':
+            'scaled = scaled - 2;',
+            'IPeer defaultPeer;':
+            'IPeer defaultPeer = IPeer(address(0));',
+            'signedDeltaBySlot[slot] += adjusted;':
+            'signedDeltaBySlot[slot] = signedDeltaBySlot[slot] + adjusted;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('int256-contract-types variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown int256-contract-types variant: {variant}')
+

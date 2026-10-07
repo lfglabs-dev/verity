@@ -33,6 +33,7 @@ partial def quoteExpr : Expr → m Term
   | .mload offset => do `(Compiler.CompilationModel.Expr.mload $(← quoteExpr offset))
   | .slt a b => do `(Compiler.CompilationModel.Expr.slt $(← quoteExpr a) $(← quoteExpr b))
   | .sgt a b => do `(Compiler.CompilationModel.Expr.sgt $(← quoteExpr a) $(← quoteExpr b))
+  | .sdiv a b => do `(Compiler.CompilationModel.Expr.sdiv $(← quoteExpr a) $(← quoteExpr b))
   | .calldataload offset => do `(Compiler.CompilationModel.Expr.calldataload $(← quoteExpr offset))
   | .literal n => `(Compiler.CompilationModel.Expr.literal $(quote n))
   | .localVar x => `(Compiler.CompilationModel.Expr.localVar $(quote x))
@@ -132,6 +133,7 @@ def quoteField (f : Field) : m Term := do
 
 partial def quoteParamType : ParamType → m Term
   | .uint256 => `(Compiler.CompilationModel.ParamType.uint256)
+  | .int256 => `(Compiler.CompilationModel.ParamType.int256)
   | .address => `(Compiler.CompilationModel.ParamType.address)
   | .bytes32 => `(Compiler.CompilationModel.ParamType.bytes32)
   | .bool => `(Compiler.CompilationModel.ParamType.bool)

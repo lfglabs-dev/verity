@@ -48,7 +48,7 @@ def exprCovered : Expr → Bool
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
-  | .slt a b | .sgt a b
+  | .slt a b | .sgt a b | .sdiv a b
   | .lt a b | .gt a b | .le a b | .ge a b | .eq a b
   | .shl a b | .shr a b | .keccak256 a b | .bitAnd a b | .bitXor a b => exprCovered a && exprCovered b
   | .logicalNot a => exprCovered a
@@ -180,6 +180,15 @@ theorem evalExpr_sgt_arm (oracle : DenoteOracle) (fields : List Field)
       pure (boolWord (decide (
         (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs) : Int) <
         (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs) : Int))))) := rfl
+
+theorem evalExpr_sdiv_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.sdiv a b) = (do
+      let lhs ← evalExpr oracle fields state a
+      let rhs ← evalExpr oracle fields state b
+      pure (Verity.Core.Int256.div
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs))
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs))).toUint256.val) := rfl
 
 theorem execStmt_mstore_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (offset value : Expr) :

@@ -199,10 +199,18 @@ MUTANTS.update({
     'import-tuple-helper-assign-storage-drop': ('assigns := assigns ++ pre ++ converted.pre |>.push (.setStorage name storedExpr)', 'assigns := assigns ++ pre ++ converted.pre'),
     'import-tuple-helper-param-compound-init-zero': ('if (bodyCompoundAssignedIds body).contains pid && !(bodyDirectAssignedIds body).contains pid then\n          let some scalar := paramType pty\n            | failAt p s!"unsupported writable helper parameter type {pty}"\n          let binding ← freshFor (if pname == "" then "param" else pname)\n          let expr := Expr.localVar binding\n          pre := pre ++ converted.pre |>.push (.letVar binding converted.expr)', 'if (bodyCompoundAssignedIds body).contains pid && !(bodyDirectAssignedIds body).contains pid then\n          let some scalar := paramType pty\n            | failAt p s!"unsupported writable helper parameter type {pty}"\n          let binding ← freshFor (if pname == "" then "param" else pname)\n          let expr := Expr.localVar binding\n          pre := pre ++ converted.pre |>.push (.letVar binding (.literal 0))'),
     'import-tuple-helper-duplicate-target-guard': ('unless cid ≥ 0 && !seenIds.contains cid.toNat do', 'unless cid ≥ 0 do'),
+    'import-int256-contract-unary-neg': ('let ok := Stmt.assignVar dest (.sub (.literal 0) a.expr)\n            let ite := iteStmt (.eq a.expr (.literal (2 ^ 255))) overflowPanic ok', 'let ok := Stmt.assignVar dest a.expr\n            let ite := iteStmt (.eq a.expr (.literal (2 ^ 255))) overflowPanic ok'),
+    'import-int256-contract-sdiv': ('let ok := Stmt.assignVar dest (.sdiv a.expr b.expr)', 'let ok := Stmt.assignVar dest (.div a.expr b.expr)'),
+    'import-int256-contract-slt': ('if isSigned then cmp .slt left right else cmp .lt left right', 'if isSigned then cmp .lt left right else cmp .lt left right'),
+    'import-int256-contract-type-bounds': ('if tname == "int256" || tname == "int" then\n    let bound := if member == "max" then 2 ^ 255 - 1 else 2 ^ 255', 'if tname == "int256" || tname == "int" then\n    let bound := if member == "max" then 0 else 2 ^ 255'),
+    'import-int256-contract-checked-add-overflow': ('let nonNegB := iteStmt (.slt sum a.expr) overflowPanic ok\n  let negB := iteStmt (.sgt sum a.expr) overflowPanic ok', 'let nonNegB := ok\n  let negB := ok'),
+    'import-int256-contract-signed-modulo-guard': ('unless common.startsWith "uint" do failAt j "modulo requires unsigned scalar operands"', 'unless true do failAt j "modulo requires unsigned scalar operands"'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-int256-contract-"):
+        fixture = "Int256ContractTypeSequence"
     if name.startswith("import-tuple-helper-"):
         fixture = "TupleHelperSequence"
     if name.startswith("import-modifier-unchecked-"):
@@ -255,11 +263,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -267,7 +275,7 @@ def run(directory, output, name):
     if fixture == 'NamedHelperReturnSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 40, 50, 60, 70, 255, 256, 257, (1 << 160) - 1, 1 << 160, (1 << 160) + 1, (1 << 256) - 1])]
-    if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence'}:
+    if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence'}:
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [19, 0, 1, 2, 3, 20, 21, 96, 97, 98, 99999, 100000, (1 << 256) - 1])]
     environment = dict(os.environ)
@@ -355,6 +363,15 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-int256-contract-signed-modulo-guard':
+        diagnostic = 'modulo requires unsigned scalar operands'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ function checked(uint256 x) external pure returns (uint256) {
+  return uint256(int256(x) % int256(7));
+ }
+}
+''')
     else:
         argument = name.endswith('argument-guard')
         expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
@@ -409,7 +426,8 @@ def mutation_campaign(output, selected=None):
                               'import-solc-uncollected-source-guard',
                               'import-inheritance-duplicate-storage-guard',
                               'import-modifier-unchecked-sibling-guard',
-                              'import-tuple-helper-duplicate-target-guard'}
+                              'import-tuple-helper-duplicate-target-guard',
+                              'import-int256-contract-signed-modulo-guard'}
         if order_guard:
             helper_order_control(directory, name, False)
         source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')
