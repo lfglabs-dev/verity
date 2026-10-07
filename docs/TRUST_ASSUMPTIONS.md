@@ -133,13 +133,18 @@ The source digest hashes `Import.lean`, `Coverage.lean`, `Report.lean`,
 the package that contains them: the Verity tree itself, or
 `.lake/packages/verity` when a downstream package elaborates the import. The
 pinned solc binary stays in the elaborating package's
-`.lake/solidity-import/solc-0.8.34`.
+`.lake/solidity-import/solc-0.8.34` or `.lake/solidity-import/solc-0.8.10`.
 
 The frontend is in the trust base. A covered model is not a proof that the
 model matches the Solidity source or solc's bytecode. `storageLayout` slots and
-packed offsets are copied from pinned solc 0.8.34
-(`0.8.34+commit.80d5c536`; linux-amd64 and macosx-amd64 SHA-256 pins in
-`Import.lean`). `mappingSlot` in the denotation oracle is not Keccak. Numeric
+packed offsets are copied from the pinned solc release selected by `Profile.solc`
+(`0.8.34+commit.80d5c536` or `0.8.10+commit.fc410830`; linux-amd64 and
+macosx-amd64 SHA-256 pins in `Import.lean`). Because `solc 0.8.10` lacks
+`--no-import-callback` and silently ignores unknown standard-JSON settings such
+as `"viaIR"`, the importer rejects `viaIR := true` on `0.8.10+commit.fc410830`,
+restricts `evmVersion` to pre-Paris releases up to `"london"`, and verifies that
+every key in `parsed["sources"]` was explicitly collected into the hashed
+standard-JSON input. `mappingSlot` in the denotation oracle is not Keccak. Numeric
 claims are about the values `structMember` reads back.
 
 Checked `uint256` and narrower unsigned arithmetic is lowered to `Stmt.ite` plus

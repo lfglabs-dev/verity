@@ -226,8 +226,55 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
               not re.search(r'Fixture\.sol:\d+:\d+:', text)):
             raise RuntimeError(f'{name}: expected located rejection {expected!r}\n{text}')
         print(f'pass storage-{name}', flush=True)
+    solc_0810_cases = [
+        ('solc-0810-single-quote-import',
+         "pragma solidity 0.8.10;\nimport './Dep.sol';\ncontract C { function checked(uint256 x) external pure returns (uint256) { return Dep.addOne(x); } }\n",
+         "pragma solidity 0.8.10;\nlibrary Dep { function addOne(uint256 x) internal pure returns (uint256) { return x + 1; } }\n",
+         '{ solc := "0.8.10+commit.fc410830", evmVersion := "london", viaIR := false, optimizerRuns := some 1, bytecodeHash := "none" }',
+         None),
+        ('solc-0810-osaka-rejected',
+         "pragma solidity 0.8.10;\ncontract C { function checked(uint256 x) external pure returns (uint256) { return x; } }\n",
+         None,
+         '{ solc := "0.8.10+commit.fc410830", evmVersion := "osaka", viaIR := false, optimizerRuns := some 1, bytecodeHash := "none" }',
+         'evmVersion osaka is not supported for solc 0.8.10+commit.fc410830'),
+        ('solc-0810-viair-rejected',
+         "pragma solidity 0.8.10;\ncontract C { function checked(uint256 x) external pure returns (uint256) { return x; } }\n",
+         None,
+         '{ solc := "0.8.10+commit.fc410830", evmVersion := "london", viaIR := true, optimizerRuns := some 1, bytecodeHash := "none" }',
+         'viaIR is not supported for solc 0.8.10+commit.fc410830'),
+        ('solc-0810-unknown-release-rejected',
+         "pragma solidity 0.8.10;\ncontract C { function checked(uint256 x) external pure returns (uint256) { return x; } }\n",
+         None,
+         '{ solc := "0.8.10+commit.deadbeef", evmVersion := "london", viaIR := false, optimizerRuns := some 1, bytecodeHash := "none" }',
+         'this importer is pinned to solc 0.8.34+commit.80d5c536 or 0.8.10+commit.fc410830, not 0.8.10+commit.deadbeef'),
+    ]
+    for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
+        directory = output / name
+        directory.mkdir()
+        (directory / 'Fixture.sol').write_text(source_text)
+        if dep_text is not None:
+            (directory / 'Dep.sol').write_text(dep_text)
+        driver = directory / 'Check.lean'
+        driver.write_text(f'''import Compiler.SolidityImport.Import
+solidity_import tested from "{directory}" entry "Fixture.sol"
+  using {profile_text}
+  contract C
+  function checked(uint256)
+''')
+        artifact = directory / 'Check.olean'
+        result = subprocess.run(['lake', 'env', 'lean', str(driver), '-o', str(artifact)],
+                                cwd=root, text=True, capture_output=True, timeout=120)
+        text = result.stdout + result.stderr
+        (directory / 'check.log').write_text(text)
+        if expected is None:
+            if result.returncode or not artifact.exists():
+                raise RuntimeError(f'{name}: positive control failed\n{text}')
+        elif result.returncode == 0 or artifact.exists() or expected not in text:
+            raise RuntimeError(f'{name}: expected rejection {expected!r}\n{text}')
+        print(f'pass storage-{name}', flush=True)
     print(output)
 
 
 if __name__ == '__main__':
     main()
+

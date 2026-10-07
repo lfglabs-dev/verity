@@ -520,7 +520,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
             raise SystemExit(f"{mutant}: expected a runtime differential divergence")
         print(f"pass {mutant}")
     # Removing an order guard must change a located rejection to admission.
-    for mutant in ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard'):
+    for mutant in ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard'):
         output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],

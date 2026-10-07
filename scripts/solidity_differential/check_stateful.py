@@ -28,6 +28,7 @@ def main():
     parser.add_argument('--shrink-attempts', type=int, default=1000)
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
+    parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--source-fixture', type=Path,
         default=Path(__file__).parent / 'fixtures/Sequence.sol')
@@ -55,22 +56,32 @@ def main():
         output.mkdir(parents=True, exist_ok=False)
     fixture = args.source_fixture.resolve()
     source_text = stateful_scalar_source(fixture.read_text(), args.variant)
+    solc_bin = SOLC if args.solc_version == '0.8.34' else SOLC.with_name('solc-0.8.10')
+    evm_version = 'osaka' if args.solc_version == '0.8.34' else 'london'
+    optimizer_runs = 466 if args.solc_version == '0.8.34' else 1
+    source_settings = {'evmVersion': evm_version,
+        'optimizer': {'enabled': True, 'runs': optimizer_runs},
+        'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}
+    if args.solc_version == '0.8.34':
+        source_settings['viaIR'] = True
     request = {'language': 'Solidity', 'sources': {'Sequence.sol': {'content': source_text}},
-        'settings': {'evmVersion': 'osaka', 'viaIR': True,
-            'optimizer': {'enabled': True, 'runs': 466},
-            'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}}
-    source = solc_compile(request, fixture.parent, output / 'source')['contracts']['Sequence.sol']['SequenceFixture']['evm']
+        'settings': source_settings}
+    source = solc_compile(request, fixture.parent, output / 'source', solc=solc_bin)['contracts']['Sequence.sol']['SequenceFixture']['evm']
     names = [f'change(uint{args.argument_bits})', 'fail()', 'read()']
     write_json(output / 'selectors.json', [int(source['methodIdentifiers'][name], 16) for name in names])
     driver = args.model_driver.resolve()
-    identity = ImplementationIdentity(driver, extra_inputs=[fixture])
+    extra_inputs = [fixture]
+    imported_dep = fixture.parent / 'Solc0810Imported.sol'
+    if imported_dep.exists():
+        extra_inputs.append(imported_dep)
+    identity = ImplementationIdentity(driver, extra_inputs=extra_inputs)
     write_json(output / 'implementation.json', identity.manifest)
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json', output / 'model.yul'],
             log=output / 'compile-model.log')
     identity.verify()
     compiled = solc_compile({'language': 'Yul', 'sources': {'Model.yul': {'content': (output / 'model.yul').read_text()}},
-        'settings': {'evmVersion': 'osaka', 'optimizer': {'enabled': True, 'runs': 466},
-            'outputSelection': {'*': {'*': ['evm.bytecode.object']}}}}, fixture.parent, output / 'compiled')
+        'settings': {'evmVersion': evm_version, 'optimizer': {'enabled': True, 'runs': optimizer_runs},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object']}}}}, fixture.parent, output / 'compiled', solc=solc_bin)
     objects = list(compiled['contracts']['Model.yul'].values())
     if len(objects) != 1:
         raise HarnessError('expected exactly one Verity-compiled object')
@@ -123,14 +134,14 @@ def main():
         'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity),
         'compiled': EVMAdapter(output / 'C', [compiled_code], initial_storage=initial_storage)}
     write_json(output / 'provenance.json', {
-        'solcSha256': hashlib.sha256(SOLC.read_bytes()).hexdigest(),
+        'solcSha256': hashlib.sha256(solc_bin.read_bytes()).hexdigest(),
         'anvilVersion': command(['anvil', '--version']).strip(),
         'leanVersion': command(['lake', 'env', 'lean', '--version']).strip(),
         'sourceSha256': hashlib.sha256(source_text.encode()).hexdigest(),
         'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest(),
         'variant': args.variant, 'seed': args.seed, 'transactionCount': args.transactions,
         'changePrefix': args.change_prefix, 'argumentBits': args.argument_bits, 'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
-        'evmVersion': 'osaka', 'optimizerRuns': 466})
+        'evmVersion': evm_version, 'optimizerRuns': optimizer_runs})
     result = replay_three_routes(transactions, adapters)
     identity.verify()
     write_json(output / 'campaign.json', {'seed': args.seed, 'transactions': transactions, **result})

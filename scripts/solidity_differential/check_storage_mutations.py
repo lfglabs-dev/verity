@@ -178,10 +178,14 @@ MUTANTS.update({
     'import-yul-numeric-add': ('| "add", #[a, b] => pure (.add a b)', '| "add", #[a, b] => pure (.sub a b)'),
     'import-yul-result-scope': ('{ e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr,', '{ e with values := e.values.insert id expr, yulNames := e.yulNames,'),
     'import-yul-result-id-guard': ('unless (← get).helperReturnId == some targetId do', 'unless true do'),
+    'import-solc-viair-guard': ('if profile.viaIR && !release.supportsViaIR then', 'if false then'),
+    'import-solc-uncollected-source-guard': ('unless sources.contains logical do', 'unless true do'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-solc-"):
+        fixture = "Solc0810Sequence"
     if name.startswith("import-yul-numeric-"):
         fixture = "YulNumericSequence"
     if name.startswith(("import-named-helper-", "import-yul-result-")):
@@ -224,11 +228,13 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture == 'Solc0810Sequence':
+        argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
         argv = argv[:argv.index('--change-prefix')] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 32, 33, 255, 256, (1 << 255) - 1, 1 << 255, (1 << 256) - 2, (1 << 256) - 1])]
     if fixture == 'NamedHelperReturnSequence':
@@ -250,6 +256,8 @@ def helper_order_control(directory, name, mutated):
     """A guard mutant must admit exactly the source that the baseline rejects."""
     target = directory / '.lake/helper-order-control'
     target.mkdir(exist_ok=True)
+    using_clause = '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }'
+    require_located = True
     if name == 'import-yul-result-id-guard':
         diagnostic = 'Yul assigns result, not the return declaration result'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
@@ -263,6 +271,29 @@ contract C {
   return result;
  }
  function checked(uint256 x) external pure returns (uint256) { return h(x); }
+}
+''')
+    elif name == 'import-solc-viair-guard':
+        diagnostic = 'viaIR is not supported for solc 0.8.10+commit.fc410830'
+        using_clause = '{ solc := "0.8.10+commit.fc410830", evmVersion := "london", viaIR := true, optimizerRuns := some 1, bytecodeHash := "none" }'
+        require_located = False
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.10;
+contract C {
+ function checked(uint256 x) external pure returns (uint256) { return x; }
+}
+''')
+    elif name == 'import-solc-uncollected-source-guard':
+        diagnostic = 'solc loaded uncollected source Uncollected.sol'
+        using_clause = '{ solc := "0.8.10+commit.fc410830", evmVersion := "london", viaIR := false, optimizerRuns := some 1, bytecodeHash := "none" }'
+        require_located = False
+        (directory / 'Uncollected.sol').write_text('''pragma solidity 0.8.10;
+library Uncollected { uint256 internal constant UNUSED = 1; }
+''')
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.10;
+import
+  "./Uncollected.sol";
+contract C {
+ function checked(uint256 x) external pure returns (uint256) { return x; }
 }
 ''')
     else:
@@ -281,7 +312,7 @@ contract C {
     driver = target / 'Check.lean'
     driver.write_text(f'''import Compiler.SolidityImport.Import
 solidity_import tested from "{target}" entry "Fixture.sol"
-  using {{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }}
+  using {using_clause}
   contract C
   function checked(uint256)
 ''')
@@ -295,7 +326,7 @@ solidity_import tested from "{target}" entry "Fixture.sol"
         if result.returncode or not artifact.exists():
             raise HarnessError(f'{name}: removed guard did not admit the exact negative control; see {log_path}')
     elif (result.returncode == 0 or artifact.exists() or diagnostic not in log
-          or not re.search(r'Fixture\.sol:\d+:\d+:', log)):
+          or (require_located and not re.search(r'Fixture\.sol:\d+:\d+:', log))):
         raise HarnessError(f'{name}: baseline did not precisely reject the order control; see {log_path}')
     return diagnostic, str(log_path)
 
@@ -314,7 +345,9 @@ def mutation_campaign(output, selected=None):
         order_guard = name in {'import-helper-effect-binary-guard',
                               'import-helper-effect-argument-guard',
                               'import-helper-effect-classifier',
-                              'import-yul-result-id-guard'}
+                              'import-yul-result-id-guard',
+                              'import-solc-viair-guard',
+                              'import-solc-uncollected-source-guard'}
         if order_guard:
             helper_order_control(directory, name, False)
         source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')

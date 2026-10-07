@@ -14,7 +14,8 @@ match the settings the audited bytecode is built with.
 namespace Compiler.CompilationModel.SolidityImport
 
 structure Profile where
-  /-- Exact solc release. The importer accepts only its pinned release. -/
+  /-- Exact solc release. The importer accepts only its pinned releases
+      (`0.8.34+commit.80d5c536` and `0.8.10+commit.fc410830`). -/
   solc : String := "0.8.34+commit.80d5c536"
   evmVersion : String
   viaIR : Bool

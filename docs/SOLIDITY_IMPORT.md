@@ -30,7 +30,8 @@ solidity_import example from "Contracts/SolidityImportSmoke" entry "Slice.sol" u
   `#print`able). `using` takes any `Profile`, named or inline
   (`using { evmVersion := "osaka", ... }`). The settings go to solc and into the
   digest; they should match how the audited bytecode is built. `solc` defaults
-  to the only accepted release, `0.8.34+commit.80d5c536`.
+  to `0.8.34+commit.80d5c536`, and also accepts `0.8.10+commit.fc410830` for
+  legacy London-era targets (`viaIR := false`, `evmVersion` up to `"london"`).
 - Each `function` clause selects one root by name and Solidity parameter types.
   A struct may be qualified (`IMidnight.Market`). Roots are lowered
   independently and share one field list.
@@ -55,8 +56,8 @@ It also defines typed accessors for specifications, with Solidity types
 `oracle` computes mapping slots and is a parameter, so a theorem over these
 accessors holds for any slot derivation; it does not identify slots with Keccak.
 
-Install the compiler once with `python3 scripts/setup_solc_import.py` (a
-downstream package passes `--output .lake/solidity-import/solc-0.8.34`).
+Install the compiler once with `python3 scripts/setup_solc_import.py --all` (a
+downstream package passes `--output .lake/solidity-import/solc-0.8.34` or `--version 0.8.10 --output .lake/solidity-import/solc-0.8.10`).
 Elaboration never downloads a compiler; it checks the binary's SHA-256 before
 and after running it.
 
@@ -589,3 +590,11 @@ normalization/commuted-add variants are generated; runtime literal/add mutations
 and located acceptance/rejection controls are registered. Native validation,
 exact-head release gates and the pinned pilot check are pending. This is a
 prerequisite for the measured IdLib path, not an implementation of `storeInCode`.
+
+### Development slice: pinned `solc 0.8.10` release and single-quoted imports
+
+| Supported profile / source form | Lowering and provenance boundary |
+| --- | --- |
+| `Profile.solc := "0.8.10+commit.fc410830"` | Verified against `.lake/solidity-import/solc-0.8.10` SHA-256 pins (Linux and macOS) before and after invocation; requires `viaIR := false` and `evmVersion` up to `"london"`. |
+| Single-quoted and double-quoted `import` paths | `importSpecs` extracts both `'...'` and `"..."` import specifiers; after compilation, every key in `parsed["sources"]` must belong to the explicitly collected `sources` map so `solc 0.8.10` cannot silently load uncollected host files without `--no-import-callback`. |
+

@@ -40,7 +40,10 @@ def snapshot(destination):
     else:
         command(["cp", "-a", "--reflink=auto", WORKSPACE / ".lake/build", cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
-    shutil.copy2(WORKSPACE / ".lake/solidity-import/solc-0.8.34", cache / "solidity-import/solc-0.8.34")
+    for compiler_name in ("solc-0.8.34", "solc-0.8.10"):
+        compiler_src = WORKSPACE / ".lake/solidity-import" / compiler_name
+        if compiler_src.exists():
+            shutil.copy2(compiler_src, cache / "solidity-import" / compiler_name)
 
 
 def mutation_campaign(output, selected=None):

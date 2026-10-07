@@ -910,3 +910,27 @@ def stateful_yul_numeric_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown Yul numeric variant: {variant}')
+
+
+def stateful_solc_0810_source(fixture: str, variant: str) -> str:
+    """Equivalent solc 0.8.10 sources with single- and double-quoted imports."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'value', 'managementFee', 'feeSplit', 'input', 'tvl', 'fee', 'receiver'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'double-quoted':
+        replacements = {
+            "import './Solc0810Imported.sol';": 'import "./Solc0810Imported.sol";',
+            'uint256 tvl = (input % 1000000) * 365 days + 365 days;':
+            'uint256 tvl = ((input % 1000000) + 1) * 365 days;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('solc 0.8.10 double-quoted anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown solc 0.8.10 variant: {variant}')

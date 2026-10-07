@@ -37,15 +37,52 @@ namespace Compiler.CompilationModel.SolidityImport
 
 def importerVersion : String := "solidity-import-1"
 
-private def solcLongVersion := "0.8.34+commit.80d5c536"
+private structure SolcRelease where
+  longVersion : String
+  binaryName : String
+  sha256s : Array String
+  banners : Array String
+  hasNoImportCallbackFlag : Bool
+  supportedEvmVersions : Array String
+  supportsViaIR : Bool
 
-private def officialSolcSha256s : Array String := #[
-  "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
-  "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746"]
+private def solcReleases : Array SolcRelease := #[
+  { longVersion := "0.8.34+commit.80d5c536",
+    binaryName := "solc-0.8.34",
+    sha256s := #[
+      "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+      "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.34+commit.80d5c536.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.34+commit.80d5c536.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    supportedEvmVersions := #[
+      "osaka", "prague", "cancun", "shanghai", "paris", "london", "berlin",
+      "istanbul", "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true },
+  { longVersion := "0.8.10+commit.fc410830",
+    binaryName := "solc-0.8.10",
+    sha256s := #[
+      "c7effacf28b9d64495f81b75228fbf4266ac0ec87e8f1adc489ddd8a4dd06d89",
+      "a79fff23aeb35be856e446827c44a9cfa4c382f29babd2f6a405ef73d1e2a4cc"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.10+commit.fc410830.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.10+commit.fc410830.Darwin.appleclang"],
+    hasNoImportCallbackFlag := false,
+    supportedEvmVersions := #[
+      "london", "berlin", "istanbul", "petersburg", "constantinople",
+      "byzantium", "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := false }]
 
-private def acceptedSolcBanners : Array String := #[
-  s!"solc, the solidity compiler commandline interface\nVersion: {solcLongVersion}.Linux.g++",
-  s!"solc, the solidity compiler commandline interface\nVersion: {solcLongVersion}.Darwin.appleclang"]
+private def resolveSolcRelease (profile : Profile) : MetaM SolcRelease := do
+  let some release := solcReleases.find? (·.longVersion == profile.solc)
+    | throwError "this importer is pinned to solc {String.intercalate " or " (solcReleases.map (·.longVersion)).toList}, not {profile.solc}"
+  unless release.supportedEvmVersions.contains profile.evmVersion do
+    throwError "evmVersion {profile.evmVersion} is not supported for solc {release.longVersion}"
+  if profile.viaIR && !release.supportsViaIR then
+    throwError "viaIR is not supported for solc {release.longVersion}"
+  pure release
 
 private def field (j : Json) (key : String) : MetaM Json :=
   match j.getObjVal? key with
@@ -2194,8 +2231,14 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     match ← lowerRef init with
     | .path pre path =>
         -- A Solidity storage pointer fixes its address at declaration time.
-        -- Freeze even simple local keys, since subsequent assignments may change them.
+        -- Freeze writable local keys, since subsequent assignments may change them.
         let capture (key : Expr) : M (Array Stmt × Expr) := do
+          let env ← get
+          let writable := match key with
+            | .localVar name => env.writableLocals.toList.any (fun (_, b) => b == name)
+            | _ => false
+          if !writable then
+            return (#[], key)
           let binding ← fresh
           pure (#[.letVar binding key], .localVar binding)
         let (keys, frozen) ← match path with
@@ -2464,6 +2507,10 @@ private def importSpecs (text : String) : Array String := Id.run do
       let parts := t.splitOn "\""
       if parts.length ≥ 2 then
         out := out.push parts[1]!
+      else
+        let singleParts := t.splitOn "'"
+        if singleParts.length ≥ 2 then
+          out := out.push singleParts[1]!
   pure out
 
 private def readRemappings (root : System.FilePath) : IO (Array (String × String)) := do
@@ -2494,13 +2541,13 @@ private partial def collectSources
     | .ok next => acc ← collectSources root next remaps acc
   pure acc
 
-private def verifyCompiler (compiler : System.FilePath) : MetaM String := do
+private def verifyCompiler (release : SolcRelease) (compiler : System.FilePath) : MetaM String := do
   let output ←
     if System.Platform.isOSX then
       IO.Process.output { cmd := "/usr/bin/shasum", args := #["-a", "256", compiler.toString] }
     else
       IO.Process.output { cmd := "/usr/bin/sha256sum", args := #[compiler.toString] }
-  unless output.exitCode == 0 && officialSolcSha256s.contains (output.stdout.take 64).toString do
+  unless output.exitCode == 0 && release.sha256s.contains (output.stdout.take 64).toString do
     throwError "compiler checksum mismatch"
   return (output.stdout.take 64).toString
 
@@ -2571,13 +2618,14 @@ private def importSlice
     (pkgRoot projectRoot : System.FilePath) (entry contract : String)
     (roots : Array (String × Array String)) (profile : Profile) :
     MetaM (CompilationModel × ImportReport) := do
-  let compiler := pkgRoot / ".lake/solidity-import/solc-0.8.34"
-  let solcSha ← verifyCompiler compiler
+  let release ← resolveSolcRelease profile
+  let compiler := pkgRoot / ".lake/solidity-import" / release.binaryName
+  let solcSha ← verifyCompiler release compiler
   let versionOut ← IO.Process.output { cmd := compiler.toString, args := #["--version"] }
   unless versionOut.exitCode == 0 &&
-      acceptedSolcBanners.contains versionOut.stdout.trimAscii.toString do
+      release.banners.contains versionOut.stdout.trimAscii.toString do
     throwError "compiler version mismatch"
-  unless (← verifyCompiler compiler) == solcSha do throwError "compiler changed during import"
+  unless (← verifyCompiler release compiler) == solcSha do throwError "compiler changed during import"
   let remaps ← readRemappings projectRoot
   let sources ← collectSources projectRoot entry remaps RBMap.empty
   let mut fileBytes : RBMap String ByteArray compare := RBMap.empty
@@ -2585,7 +2633,7 @@ private def importSlice
   for (logical, text) in sources do
     fileBytes := fileBytes.insert logical (text.toUTF8)
     sourceObj := sourceObj.push (logical, Json.mkObj [("content", Json.str text)])
-  let settings := Json.mkObj [
+  let baseSettings : List (String × Json) := [
     ("evmVersion", Json.str profile.evmVersion),
     ("metadata", Json.mkObj [("bytecodeHash", Json.str profile.bytecodeHash)]),
     ("optimizer", Json.mkObj [("enabled", Json.bool profile.optimizerRuns.isSome),
@@ -2593,17 +2641,23 @@ private def importSlice
     ("outputSelection", Json.mkObj [("*", Json.mkObj [
       ("", Json.arr #[Json.str "ast"]),
       ("*", Json.arr #[Json.str "storageLayout"])])]),
-    ("remappings", Json.arr (remaps.map fun p => Json.str s!"{p.1}={p.2}")),
-    ("viaIR", Json.bool profile.viaIR)]
+    ("remappings", Json.arr (remaps.map fun p => Json.str s!"{p.1}={p.2}"))]
+  let settings := Json.mkObj (if release.supportsViaIR then
+    baseSettings ++ [("viaIR", Json.bool profile.viaIR)]
+  else baseSettings)
   let input := Json.mkObj [
     ("language", Json.str "Solidity"),
     ("settings", settings),
     ("sources", Json.mkObj sourceObj.toList)]
+  let solcArgs := if release.hasNoImportCallbackFlag then
+    #["--standard-json", "--no-import-callback"]
+  else
+    #["--standard-json"]
   let output ← IO.Process.output
-    { cmd := compiler.toString, args := #["--standard-json", "--no-import-callback"] }
+    { cmd := compiler.toString, args := solcArgs }
     (some input.compress)
   unless output.exitCode == 0 do throwError "solc failed: {output.stderr}"
-  unless (← verifyCompiler compiler) == solcSha do throwError "compiler changed during import"
+  unless (← verifyCompiler release compiler) == solcSha do throwError "compiler changed during import"
   let parsed ← match Json.parse output.stdout with
     | .ok v => pure v
     | .error e => throwError "solc output is not JSON: {e}"
@@ -2615,6 +2669,10 @@ private def importSlice
   let mut env := Env.init
   env := { env with files := fileBytes }
   let sourcesOut ← field parsed "sources"
+  let .obj sourceUnits := sourcesOut | throwError "solc sources output is not an object"
+  for (logical, _) in sourceUnits do
+    unless sources.contains logical do
+      throwError "solc loaded uncollected source {logical}"
   for (logical, _) in sources do
     let unit ← field sourcesOut logical
     let ast ← field unit "ast"
@@ -2787,7 +2845,7 @@ private def importSlice
   -- concatenation merely because their text contains separator newlines.
   let digestInput := Json.mkObj [
     ("importerVersion", Json.str importerVersion),
-    ("solcVersion", Json.str solcLongVersion),
+    ("solcVersion", Json.str release.longVersion),
     ("contract", Json.str contract),
     ("functions", Json.arr signatures),
     ("solcInput", input),
@@ -2797,7 +2855,7 @@ private def importSlice
       ("Profile.lean", Json.str profileSrc)])]
   let digest := sha256Hex digestInput.compress.toUTF8
   let report : ImportReport :=
-    { importerVersion, solcLongVersion, solcSha256 := solcSha, settingsJson := settings.compress,
+    { importerVersion, solcLongVersion := release.longVersion, solcSha256 := solcSha, settingsJson := settings.compress,
       sourceDigest := digest, contract, roots := (roots.map (·.1)).toList,
       functions := specs.toList.map fun f =>
         { function := f.name, denoteCovered := executableStmtListCovered f.body,
@@ -2982,8 +3040,7 @@ def elabSolidityImport : CommandElab := fun stx => do
     if debug.skipKernelTC.get (← getOptions) then
       throwError "kernel checking must be enabled"
     let profile ← liftTermElabM <| evalProfile prof
-    unless profile.solc == solcLongVersion do
-      throwError "this importer is pinned to solc {solcLongVersion}, not {profile.solc}"
+    discard <| liftTermElabM <| resolveSolcRelease profile
     let roots ← roots.mapM fun root => do
       let `(solidityRoot| function $fn ( $tys,* )) := root | throwUnsupportedSyntax
       pure (fn.getId.toString, tys.getElems.map (·.getId.toString (escape := false)))
