@@ -182,6 +182,7 @@ private structure FieldInfo where
   keyCount : Nat
   memberNames : Array String
   opaqueNames : Array String
+  booleanScalar : Bool := false
   scalarMapping : Bool := false
   booleanMapping : Bool := false
   fixedArrayLength : Option Nat := none
@@ -240,6 +241,8 @@ private structure Env where
   byteBuffers : RBMap Nat EncodedBytes compare := RBMap.empty
   helperResult : Option (String × String) := none
   helperReturnId : Option Nat := none
+  rootIsVoid : Bool := false
+  rootReturns : Array Expr := #[]
   fieldsByName : RBMap String FieldInfo compare
   layoutItems : RBMap String Json compare
   layoutTypes : Json
@@ -589,7 +592,8 @@ private def buildField (types item : Json) : M FieldInfo := do
   let encoding ← mStr (← mField top "encoding")
   if encoding == "inplace" then
     let width ←
-      if typeId == "t_address" || typeId == "t_address_payable" then pure 160
+      if typeId == "t_bool" then pure 8
+      else if typeId == "t_address" || typeId == "t_address_payable" then pure 160
       else if typeId == "t_bytes32" then pure 256
       else if typeId.startsWith "t_uint" then
         let some bits := (typeId.drop 6).toNat? | throwError "invalid scalar uint layout {typeId}"
@@ -597,13 +601,17 @@ private def buildField (types item : Json) : M FieldInfo := do
           throwError "invalid scalar uint width {bits}"
         pure bits
       else throwError "unsupported scalar storage type {typeId}"
+    let bytes ← mNat (← mField top "numberOfBytes")
+    unless bytes * 8 == width do
+      throwError "scalar storage size disagrees with type {typeId}"
     let offset := (← mNat (← mField item "offset")) * 8
     unless offset + width ≤ 256 do throwError "scalar storage field {name} crosses a word boundary"
     let packedBits : Option PackedBits :=
       if offset == 0 && width == 256 then none else some { offset, width }
     -- Exact physical words; source types still govern conversions and ABI.
     let field : Field := { name, ty := .uint256, slot := some slot, packedBits }
-    return { slot, field, keyCount := 0, memberNames := #[], opaqueNames := #[] }
+    return { slot, field, keyCount := 0, memberNames := #[], opaqueNames := #[],
+             booleanScalar := typeId == "t_bool" }
   unless encoding == "mapping" do
     throwError "unsupported storage encoding {encoding} for {name}"
   let key1 ← liftM (mappingKey (← mStr (← mField top "key")))
@@ -879,6 +887,15 @@ private partial def lowerExpr (j : Json) : M Val := do
         lowerExpr cs[0]!
       else
         failAt j "a multi-value expression is only valid as a return"
+  | "UnaryOperation" =>
+      unless (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true &&
+          optStr j "operator" == some "!" do
+        failAt j "unsupported unary operation"
+      let sub ← mField j "subExpression"
+      unless (← mType sub) == "bool" && (← mType j) == "bool" do
+        failAt j "logical negation requires a bool operand"
+      let v ← lowerExpr sub
+      pure { pre := v.pre, expr := .logicalNot v.expr }
   | "BinaryOperation" => lowerBinary j
   | "Conditional" => lowerConditional j
   | "FunctionCall" => lowerCall j
@@ -889,7 +906,10 @@ private partial def lowerExpr (j : Json) : M Val := do
           let info ← resolveField name j
           unless info.keyCount == 0 do failAt j "mapping used as a scalar value"
           markField name
-          pure { pre, expr := .storage name }
+          if info.booleanScalar then
+            pure { pre, expr := .logicalNot (.logicalNot (.storage name)) }
+          else
+            pure { pre, expr := .storage name }
       | .path pre path => scalarMappingRead pre path j
       | .fixedElement pre path index =>
           let (name, count, read) ← match path with
@@ -1542,6 +1562,83 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   pre := pre ++ (AbiEncoding.staticWords pointer finish words).toArray
   return { pre, pointer := .localVar pointer, size := .literal (32 * words.length) }
 
+private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallArg) := do
+  let names ← mArr (← mField j "names")
+  unless names.isEmpty do failAt j "named call arguments are outside this slice"
+  let callee ← mField j "expression"
+  let (fnId, receiver?) ← match ← mKind callee with
+    | "MemberAccess" =>
+        let id ← refInt callee
+        if id < 0 then failAt callee "builtin call is outside this slice"
+        let base ← mField callee "expression"
+        let baseTy ← mType base
+        if baseTy.startsWith "type(library " then
+          pure (id.toNat, none)
+        else if baseTy.startsWith "type(contract super " then
+          unless (← mKind base) == "Identifier" && optStr base "name" == some "super" &&
+              (← refInt base) == -25 do
+            failAt base "invalid super callee"
+          let env ← get
+          let some callerFnId := env.stack.head?
+            | failAt callee "super call outside function context"
+          let some callerCid := env.funContractId.find? callerFnId
+            | failAt callee "super call outside contract function"
+          let some idx := env.linearizedBases.findIdx? (· == callerCid)
+            | failAt callee "enclosing contract is outside target inheritance chain"
+          let superBases := (env.linearizedBases.extract (idx + 1) env.linearizedBases.size).toList
+          let some resolvedId := resolveInContracts env superBases id.toNat
+            | failAt callee s!"unresolved super function {id.toNat}"
+          pure (resolvedId, none)
+        else if baseTy.startsWith "type(contract " then
+          unless (← mKind base) == "Identifier" do
+            failAt base "qualified base call requires a contract identifier"
+          let baseCid ← refInt base
+          let env ← get
+          unless baseCid ≥ 0 && env.linearizedBases.contains baseCid.toNat do
+            failAt base "qualified call contract is not a base of the target contract"
+          unless env.funContractId.find? id.toNat == some baseCid.toNat do
+            failAt callee "qualified call function is not declared in the named base contract"
+          pure (id.toNat, none)
+        else
+          pure (id.toNat, some base)
+    | "Identifier" =>
+        let id ← refInt callee
+        if id < 0 then failAt callee "builtin call is outside this slice"
+        let env ← get
+        let resolvedId ← match env.funContractId.find? id.toNat with
+          | some cid =>
+              if env.linearizedBases.contains cid then
+                match resolveInContracts env env.linearizedBases.toList id.toNat with
+                | some rid => pure rid
+                | none => failAt callee s!"unresolved inherited function {id.toNat}"
+              else
+                pure id.toNat
+          | none => pure id.toNat
+        pure (resolvedId, none)
+    | _ => failAt callee "unsupported callee"
+  let args ← mArr (← mField j "arguments")
+  let nodes := match receiver? with
+    | some recv => #[recv] ++ args
+    | none => args
+  let mut vals : Array CallArg := #[]
+  for arg in nodes do
+    if statefulCallIn arg (← get) then
+      failAt arg "stateful helper call arguments require explicit evaluation-order support"
+    if (← mType arg).startsWith "struct " then
+      match ← lowerRef arg with
+      | .mem id pre =>
+          let some descriptor := (← get).mems.find? id
+            | failAt arg "unknown reference argument"
+          vals := vals.push (.memory descriptor pre)
+      | _ => failAt arg "only root memory/calldata struct arguments are supported"
+    else
+      vals := vals.push (.scalar (← lowerExpr arg))
+  if receiver?.isSome then
+    if let some cid := (← get).funContractId.find? fnId then
+      unless (← get).contractKinds.find? cid == some "library" do
+        failAt callee "external contract calls are outside this slice"
+  pure (fnId, vals)
+
 private partial def lowerCall (j : Json) : M Val := do
   let names ← mArr (← mField j "names")
   unless names.isEmpty do failAt j "named call arguments are outside this slice"
@@ -1561,77 +1658,7 @@ private partial def lowerCall (j : Json) : M Val := do
       unless args.size == 1 do failAt j "keccak256 requires one byte buffer"
       let bytes ← lowerEncodedBytes args[0]!
       return { pre := bytes.pre, expr := .keccak256 bytes.pointer bytes.size }
-    let (fnId, receiver?) ← match ← mKind callee with
-      | "MemberAccess" =>
-          let id ← refInt callee
-          if id < 0 then failAt callee "builtin call is outside this slice"
-          let base ← mField callee "expression"
-          let baseTy ← mType base
-          if baseTy.startsWith "type(library " then
-            pure (id.toNat, none)
-          else if baseTy.startsWith "type(contract super " then
-            unless (← mKind base) == "Identifier" && optStr base "name" == some "super" &&
-                (← refInt base) == -25 do
-              failAt base "invalid super callee"
-            let env ← get
-            let some callerFnId := env.stack.head?
-              | failAt callee "super call outside function context"
-            let some callerCid := env.funContractId.find? callerFnId
-              | failAt callee "super call outside contract function"
-            let some idx := env.linearizedBases.findIdx? (· == callerCid)
-              | failAt callee "enclosing contract is outside target inheritance chain"
-            let superBases := (env.linearizedBases.extract (idx + 1) env.linearizedBases.size).toList
-            let some resolvedId := resolveInContracts env superBases id.toNat
-              | failAt callee s!"unresolved super function {id.toNat}"
-            pure (resolvedId, none)
-          else if baseTy.startsWith "type(contract " then
-            unless (← mKind base) == "Identifier" do
-              failAt base "qualified base call requires a contract identifier"
-            let baseCid ← refInt base
-            let env ← get
-            unless baseCid ≥ 0 && env.linearizedBases.contains baseCid.toNat do
-              failAt base "qualified call contract is not a base of the target contract"
-            unless env.funContractId.find? id.toNat == some baseCid.toNat do
-              failAt callee "qualified call function is not declared in the named base contract"
-            pure (id.toNat, none)
-          else
-            pure (id.toNat, some base)
-      | "Identifier" =>
-          let id ← refInt callee
-          if id < 0 then failAt callee "builtin call is outside this slice"
-          let env ← get
-          let resolvedId ← match env.funContractId.find? id.toNat with
-            | some cid =>
-                if env.linearizedBases.contains cid then
-                  match resolveInContracts env env.linearizedBases.toList id.toNat with
-                  | some rid => pure rid
-                  | none => failAt callee s!"unresolved inherited function {id.toNat}"
-                else
-                  pure id.toNat
-            | none => pure id.toNat
-          pure (resolvedId, none)
-      | _ => failAt callee "unsupported callee"
-    let args ← mArr (← mField j "arguments")
-    let nodes := match receiver? with
-      | some recv => #[recv] ++ args
-      | none => args
-    let mut vals : Array CallArg := #[]
-    for arg in nodes do
-      if statefulCallIn arg (← get) then
-        failAt arg "stateful helper call arguments require explicit evaluation-order support"
-      if (← mType arg).startsWith "struct " then
-        match ← lowerRef arg with
-        | .mem id pre =>
-            let some descriptor := (← get).mems.find? id
-              | failAt arg "unknown reference argument"
-            vals := vals.push (.memory descriptor pre)
-        | _ => failAt arg "only root memory/calldata struct arguments are supported"
-      else
-        vals := vals.push (.scalar (← lowerExpr arg))
-    if receiver?.isSome then
-      if let some cid := (← get).funContractId.find? fnId then
-        unless (← get).contractKinds.find? cid == some "library" do
-          failAt callee "external contract calls are outside this slice"
+    let (fnId, vals) ← resolveCallTargetAndArgs j
     inlineFn fnId vals j
   else
     failAt j s!"unsupported call kind {kind}"
@@ -1721,11 +1748,85 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
       { e with helperResult := some (binding, ty),
                values := e.values.insert id expr, writableLocals := e.writableLocals.insert id binding,
                scalarTy := e.scalarTy.insert id scalar, yulNames := e.yulNames.insert retName expr }
+  else if stmts.isEmpty then
+    let declaration := rets[0]!
+    let ty ← mType declaration
+    unless (paramType ty).isSome do
+      failAt declaration s!"unsupported helper result type {ty}"
+    let binding ← fresh
+    pre := pre ++ #[.letVar binding (.literal 0)]
+    modify fun e => { e with helperResult := some (binding, ty) }
   let result ← lowerHelper stmts retName
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, scalarTy := saved.scalarTy }
   pure { pre := pre ++ result.pre, expr := result.expr }
+
+private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M (Array Stmt) := do
+  if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
+  let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
+  let visibility := optStr fn "visibility" |>.getD ""
+  unless visibility == "internal" || visibility == "private" do
+    failAt at_ "void helper calls require an internal or private declaration"
+  let saved := ← get
+  let savedYul := saved.yulNames
+  let savedFile := (← get).currentFile
+  let savedHelperResult := saved.helperResult
+  let savedHelperReturnId := saved.helperReturnId
+  let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
+  let frame := fnId :: (← get).stack
+  modify fun e => { e with stack := frame, currentFile := frameFile }
+  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+  let some body := (field? fn "body").filter (!·.isNull)
+    | failAt fn "function has no body"
+  unless implemented do failAt fn "function has no body"
+  let mods ← mArr (← mField fn "modifiers")
+  unless mods.isEmpty do failAt fn "modifiers are outside this slice"
+  let params ← mArr (← mField (← mField fn "parameters") "parameters")
+  unless params.size == args.size do
+    failAt at_ s!"call arity {args.size} does not match declaration {params.size}"
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.isEmpty do failAt fn "expected void helper"
+  let mut pre : Array Stmt := #[]
+  let mut yul := savedYul
+  for i in [:params.size] do
+    let p := params[i]!
+    let pname ← mStr (← mField p "name")
+    let pid ← mNat (← mField p "id")
+    let pty ← mType p
+    let argNode ← argumentAt at_ i
+    let argTy ← mType argNode
+    let some arg := args[i]? | failAt at_ s!"missing argument {i}"
+    match arg with
+    | .scalar value =>
+        let converted ← convert pty argTy value at_
+        let bound ← atom converted
+        pre := pre ++ bound.pre
+        modify fun e => { e with values := e.values.insert pid bound.expr }
+        if pname != "" then
+          yul := yul.insert pname bound.expr
+    | .memory descriptor effects =>
+        unless pty.startsWith "struct " do
+          failAt p "reference argument requires a struct parameter"
+        let sid ← refInt (← mField p "typeName")
+        unless sid >= 0 && sid.toNat == descriptor.structId do
+          failAt p "reference argument struct declaration differs"
+        let location := optStr p "storageLocation" |>.getD "default"
+        let expected := if descriptor.calldataLocation then "calldata" else "memory"
+        unless location == expected do
+          failAt p "reference argument location conversion is unsupported"
+        pre := pre ++ effects
+        modify fun e => { e with mems := e.mems.insert pid descriptor }
+        if pname != "" then
+          yul := yul.erase pname
+  modify fun e => { e with yulNames := yul, helperResult := none, helperReturnId := none }
+  noteFn fn
+  let stmts ← mArr (← mField body "statements")
+  let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure #[])
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, scalarTy := saved.scalarTy }
+  pure (pre ++ bodyStmts)
 
 private partial def argumentAt (call : Json) (i : Nat) : M Json := do
   -- `i` counts the receiver plus explicit arguments. The receiver is not in
@@ -1776,7 +1877,7 @@ private partial def ifParts (s : Json) : M (Val × Array Json × Array Json) := 
     Assembly results count because `lowerHelperFrom` treats them as results. -/
 private partial def helperReturns (s : Json) : M Bool := do
   match ← mKind s with
-  | "Return" => pure true
+  | "Return" | "RevertStatement" => pure true
   | "InlineAssembly" => pure (← get).helperResult.isNone
   | "Block" => ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
   | "IfStatement" =>
@@ -1880,6 +1981,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "VariableDeclarationStatement" => out := out ++ (← lowerLocal statement)
     | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
     | "EmitStatement" => out := out ++ (← lowerEmit statement)
+    | "RevertStatement" => out := out ++ (← lowerRevert statement)
     | "ForStatement" => out := out ++ (← lowerFor statement lowerHelperLoopBody)
     | "IfStatement" =>
         let (condition, _yes, no) ← ifParts statement
@@ -1919,6 +2021,10 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let emitted ← lowerEmit s
         let (tail, result) ← lowerHelperFrom rest retName
         pure (emitted ++ tail, result)
+    | "RevertStatement" =>
+        if let some next := rest.head? then failAt next "statement after helper revert"
+        let revStmts ← lowerRevert s
+        pure (revStmts, some ((← get).helperResult.map (fun (b, _) => Expr.localVar b) |>.getD (.literal 0)))
     | "ForStatement" =>
         let pre ← lowerFor s lowerHelperLoopBody
         let (tail, result) ← lowerHelperFrom rest retName
@@ -1926,9 +2032,14 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
     | "Return" =>
         if let some next := rest.head? then failAt next "statement after helper result"
         let expression := field? s "expression" |>.getD Json.null
-        if expression.isNull then failAt s "bare helper returns are unsupported"
-        let v ← lowerExpr expression
-        pure (v.pre, some v.expr)
+        if expression.isNull then
+          if let some (retBinding, _) := (← get).helperResult then
+            pure (#[], some (.localVar retBinding))
+          else
+            failAt s "bare helper returns are unsupported"
+        else
+          let v ← lowerExpr expression
+          pure (v.pre, some v.expr)
     | "InlineAssembly" =>
         if let some (binding, ty) := (← get).helperResult then
           let v ← lowerAssembly s retName
@@ -1982,6 +2093,110 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           | _, _ => failAt s "inlined helper does not return on every path"
     | kind => failAt s s!"unsupported helper statement {kind}"
 
+private partial def voidHelperReturns (s : Json) : M Bool := do
+  match ← mKind s with
+  | "Return" | "RevertStatement" => pure true
+  | "Block" => ((← mArr (← mField s "statements")).back?.map voidHelperReturns).getD (pure false)
+  | "IfStatement" =>
+      let yes ← voidHelperReturns (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else voidHelperReturns j
+        | none => pure false
+      pure (yes && no)
+  | _ => pure false
+
+private partial def stmtContainsReturn (s : Json) : M Bool := do
+  match ← mKind s with
+  | "Return" => pure true
+  | "Block" =>
+      let stmts ← mArr (← mField s "statements")
+      stmts.anyM stmtContainsReturn
+  | "IfStatement" =>
+      let yes ← stmtContainsReturn (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else stmtContainsReturn j
+        | none => pure false
+      pure (yes || no)
+  | _ => pure false
+
+private partial def listContainsReturn (stmts : Array Json) : M Bool :=
+  stmts.anyM stmtContainsReturn
+
+private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt)) : M (Array Stmt) := do
+  match stmts with
+  | [] => k
+  | s :: rest =>
+    let kRest : M (Array Stmt) := lowerVoidHelperFrom rest k
+    match ← mKind s with
+    | "Block" =>
+        let saved ← get
+        let restore : M Unit := modify fun e =>
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
+                   snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        let blockStmts ← mArr (← mField s "statements")
+        if ← voidHelperReturns s then
+          if let some next := rest.head? then failAt next "statement after void helper return"
+        if ← listContainsReturn blockStmts then
+          lowerVoidHelperFrom blockStmts.toList (do restore; kRest)
+        else
+          let inner ← lowerVoidHelperFrom blockStmts.toList (pure #[])
+          restore
+          let tailStmts ← kRest
+          pure (inner ++ tailStmts)
+    | "VariableDeclarationStatement" =>
+        let localStmts ← lowerLocal s
+        let tailStmts ← kRest
+        pure (localStmts ++ tailStmts)
+    | "ExpressionStatement" =>
+        let effStmts ← lowerEffect s
+        let tailStmts ← kRest
+        pure (effStmts ++ tailStmts)
+    | "EmitStatement" =>
+        let emitStmts ← lowerEmit s
+        let tailStmts ← kRest
+        pure (emitStmts ++ tailStmts)
+    | "RevertStatement" =>
+        if let some next := rest.head? then failAt next "statement after void helper revert"
+        lowerRevert s
+    | "ForStatement" =>
+        let loopStmts ← lowerFor s lowerHelperLoopBody
+        let tailStmts ← kRest
+        pure (loopStmts ++ tailStmts)
+    | "Return" =>
+        if let some next := rest.head? then failAt next "statement after void helper return"
+        let expression := field? s "expression" |>.getD Json.null
+        unless expression.isNull do failAt s "void helper cannot return a value"
+        pure #[]
+    | "IfStatement" =>
+        let (condition, yes, no) ← ifParts s
+        let yesAll ← match yes.back? with | some b => voidHelperReturns b | none => pure false
+        let noAll ← match no.back? with | some b => voidHelperReturns b | none => pure false
+        if yesAll && noAll then
+          if let some next := rest.head? then failAt next "statement after void helper return"
+        let yesAny ← listContainsReturn yes
+        let noAny ← listContainsReturn no
+        let saved ← get
+        let restore : M Unit := modify fun e =>
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
+                   snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        if !yesAny && !noAny then
+          let yesStmts ← lowerVoidHelperFrom yes.toList (pure #[])
+          restore
+          let noStmts ← lowerVoidHelperFrom no.toList (pure #[])
+          restore
+          let tailStmts ← kRest
+          pure (condition.pre.push (.ite condition.expr yesStmts.toList noStmts.toList) ++ tailStmts)
+        else
+          let kBranch : M (Array Stmt) := do restore; kRest
+          let yesStmts ← lowerVoidHelperFrom yes.toList (if yesAll then pure #[] else kBranch)
+          restore
+          let noStmts ← lowerVoidHelperFrom no.toList (if noAll then pure #[] else kBranch)
+          restore
+          pure (condition.pre.push (.ite condition.expr yesStmts.toList noStmts.toList))
+    | kind => failAt s s!"unsupported void helper statement {kind}"
+
 private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   let expression ← mField statement "expression"
   let kind ← mKind expression
@@ -1997,6 +2212,10 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
         let visibility := optStr declaration "visibility" |>.getD ""
         unless visibility == "internal" || visibility == "private" do
           failAt callee "discarded helper calls require an internal or private declaration"
+        let rets ← mArr (← mField (← mField declaration "returnParameters") "parameters")
+        if rets.isEmpty then
+          let (fnId, vals) ← resolveCallTargetAndArgs expression
+          return ← inlineVoidFn fnId vals expression
         -- Materialize even a discarded result: the final expression can itself
         -- read storage or fail. The helper's effect prelude remains ordered.
         let result ← atom (← lowerCall expression)
@@ -2095,6 +2314,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
   let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
     let right ← mField expression "rightHandSide"
     atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+  if info.booleanScalar && !deleting then
+    return (pre ++ value.pre).push (.setStorage name (.logicalNot (.logicalNot value.expr)))
   return (pre ++ value.pre).push (.setStorage name value.expr)
 
 private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
@@ -2137,6 +2358,11 @@ private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
   unless actual == expected do failAt message "require message bytes are not represented exactly by UTF-8"
   let condition ← atom (← lowerExpr args[0]!)
   return condition.pre.push (.require condition.expr value)
+
+private partial def lowerRevert (statement : Json) : M (Array Stmt) := do
+  let call ← mField statement "errorCall"
+  let (pre, name, values) ← lowerErrorArguments call
+  return pre.push (.requireError (.literal 0) name values)
 
 private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "eventCall"
@@ -2474,6 +2700,9 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         out := out ++ (← lowerEffect s)
     | "EmitStatement" =>
         out := out ++ (← lowerEmit s)
+    | "RevertStatement" =>
+        returned := true
+        out := out ++ (← lowerRevert s)
     | "ForStatement" =>
         out := out ++ (← lowerFor s fun body => do
           let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
@@ -2495,10 +2724,16 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
         returned := yesReturned && noReturned
     | "Return" =>
         returned := true
-        let some expr := field? s "expression"
-          | failAt s "bare return requires explicit void-return lowering"
-        if expr.isNull then failAt s "bare return requires explicit void-return lowering"
-        if (← mKind expr) == "TupleExpression" then
+        let expr := field? s "expression" |>.getD Json.null
+        if expr.isNull then
+          let env ← get
+          if env.rootIsVoid then
+            out := out ++ #[.stop]
+          else if !env.rootReturns.isEmpty then
+            out := out ++ #[.returnValues env.rootReturns.toList]
+          else
+            failAt s "bare return requires a void or named-return root function"
+        else if (← mKind expr) == "TupleExpression" then
           if ← mBool (← mField expr "isInlineArray") then
             failAt expr "inline arrays are outside this slice"
           let cs ← mArr (← mField expr "components")
@@ -2528,13 +2763,49 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   unless implemented do failAt fn "function has no body"
   let mods ← mArr (← mField fn "modifiers")
   unless mods.isEmpty do failAt fn "modifiers are outside this slice"
+  let returns ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  let mut rootInit : Array Stmt := #[]
+  let mut rootRetExprs : Array Expr := #[]
+  let mut allNamedScalar := !returns.isEmpty
+  for r in returns do
+    let rname ← mStr (← mField r "name")
+    if rname == "" then
+      allNamedScalar := false
+    else
+      let rid ← mNat (← mField r "id")
+      let rty ← mType r
+      let some scalar := paramType rty
+        | failAt r s!"unsupported named root return type {rty}"
+      let rbinding ← freshFor rname
+      let rexpr := Expr.localVar rbinding
+      rootInit := rootInit ++ #[.letVar rbinding (.literal 0)]
+      rootRetExprs := rootRetExprs.push rexpr
+      modify fun e =>
+        { e with values := e.values.insert rid rexpr,
+                 writableLocals := e.writableLocals.insert rid rbinding,
+                 scalarTy := e.scalarTy.insert rid scalar,
+                 yulNames := e.yulNames.insert rname rexpr }
+  modify fun e =>
+    { e with rootIsVoid := returns.isEmpty,
+             rootReturns := if allNamedScalar then rootRetExprs else #[] }
   let stmts ← mArr (← mField body "statements")
-  let (out, returned) ← lowerRootStatements stmts
-  let mut out := out
+  let (bodyOut, returned) ← lowerRootStatements stmts
+  let mut out := rootInit ++ bodyOut
   unless returned do
-    let returns ← mArr (← mField (← mField fn "returnParameters") "parameters")
-    unless returns.isEmpty do failAt fn "an explicit root return is required"
-    out := out.push .stop
+    if returns.isEmpty then
+      out := out.push .stop
+    else if !(← get).rootReturns.isEmpty then
+      out := out ++ #[.returnValues (← get).rootReturns.toList]
+    else if stmts.isEmpty then
+      let mut zeroReturns : List Expr := []
+      for r in returns do
+        let rty ← mType r
+        unless (paramType rty).isSome do
+          failAt r s!"unsupported empty-body root return type {rty}"
+        zeroReturns := zeroReturns ++ [.literal 0]
+      out := out ++ #[.returnValues zeroReturns]
+    else
+      failAt fn "an explicit root return is required"
   pure (out, srcParams)
 
 private partial def index (file : String) (contract? : Option (Nat × String)) (j : Json) : M Unit := do
@@ -2866,7 +3137,7 @@ private def importSlice
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       snapshots := RBMap.empty, mems := RBMap.empty, byteBuffers := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, yulNames := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, rootIsVoid := false, rootReturns := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]

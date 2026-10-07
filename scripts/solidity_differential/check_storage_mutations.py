@@ -183,10 +183,17 @@ MUTANTS.update({
     'import-inheritance-virtual-dispatch': ('if env.linearizedBases.contains cid then', 'if false then'),
     'import-inheritance-super-c3': ('let some resolvedId := resolveInContracts env superBases id.toNat', 'let some resolvedId := some id.toNat'),
     'import-inheritance-duplicate-storage-guard': ('if env.duplicateLayoutLabels.contains name then', 'if false then'),
+    'import-void-helper-continuation': ('let effStmts ← lowerEffect s\n        let tailStmts ← kRest\n        pure (effStmts ++ tailStmts)', 'let effStmts ← lowerEffect s\n        pure effStmts'),
+    'import-void-helper-nested-return-branch': ('let yesStmts ← lowerVoidHelperFrom yes.toList (if yesAll then pure #[] else kBranch)', 'let yesStmts ← lowerVoidHelperFrom yes.toList (pure #[])'),
+    'import-void-helper-revert-condition': ('return pre.push (.requireError (.literal 0) name values)', 'return pre.push (.requireError (.literal 1) name values)'),
+    'import-void-helper-unary-not': ('pure { pre := v.pre, expr := .logicalNot v.expr }', 'pure { pre := v.pre, expr := v.expr }'),
+    'import-void-helper-root-named-fallthrough': ('else if !(← get).rootReturns.isEmpty then\n      out := out ++ #[.returnValues (← get).rootReturns.toList]', 'else if !(← get).rootReturns.isEmpty then\n      out := out ++ #[.returnValues ((← get).rootReturns.toList.map fun _ => .literal 0)]'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-void-helper-"):
+        fixture = "VoidHelperGuardSequence"
     if name.startswith("import-inheritance-"):
         fixture = "InheritanceSequence"
     if name.startswith("import-solc-"):
@@ -233,11 +240,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -245,6 +252,9 @@ def run(directory, output, name):
     if fixture == 'NamedHelperReturnSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 40, 50, 60, 70, 255, 256, 257, (1 << 160) - 1, 1 << 160, (1 << 160) + 1, (1 << 256) - 1])]
+    if fixture == 'VoidHelperGuardSequence':
+        prefix = argv.index('--change-prefix')
+        argv = argv[:prefix] + ['--change-prefix', *map(str, [19, 0, 1, 2, 3, 20, 21, 96, 97, 98, 99999, 100000, (1 << 256) - 1])]
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     result = subprocess.run(argv, cwd=directory, env=environment,

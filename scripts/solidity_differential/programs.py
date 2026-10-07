@@ -958,3 +958,29 @@ def stateful_inheritance_source(fixture: str, variant: str) -> str:
         return fixture
     raise ValueError(f'unknown inheritance variant: {variant}')
 
+
+def stateful_void_helper_guard_source(fixture: str, variant: str) -> str:
+    """Equivalent void-helper and guard sources with local renaming and explicit fallthrough."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'input', 'seed', 'currentEpoch', 'hookZero', 'out', 'snapshot'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'explicit-else-and-return':
+        replacements = {
+            'require(input != 20, "void helper guard rollback");':
+            'require(input != 20, "void helper guard rollback");\n        return out;',
+            'function _emptyHook(uint256) internal pure returns (uint256) {}':
+            'function _emptyHook(uint256) internal pure returns (uint256 zero) { return zero; }',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('void-helper-guards variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown void-helper-guards variant: {variant}')
+
+

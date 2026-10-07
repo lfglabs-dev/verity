@@ -155,14 +155,23 @@ acyclic slice are inlined: unqualified internal/private calls in the target
 contract's `linearizedBaseContracts` resolve to the most-derived implemented
 override in the same transitive `baseFunctions` family, `super.fn(...)` resolves
 across the C3 suffix after the calling contract, and explicit `Base.fn(...)`
-calls verify base membership and static declaration ownership.
+calls verify base membership and static declaration ownership. Void internal/private
+helpers are inlined via continuation-passing so nested early `return;` inside
+`if`/`else` runs the post-conditional continuation only on fallthrough paths
+with restored lexical scope. `revert CustomError(...)` lowers through the same
+static custom-error encoding as `require(false, CustomError(...))`. Scalar `bool`
+storage fields use 8-bit packed storage with `logicalNot (logicalNot ...)`
+normalization on read and write, and prefix `!` on `bool` lowers to `logicalNot`.
+Root functions whose return parameters are all named scalars initialize each to
+zero and return them on bare `return;` or fallthrough, while empty-body scalar
+hooks return zero words.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears
 multiple times in `storageLayout.storage` (such as shadowed private state
 variables) are rejected when referenced, while unreferenced duplicate private
 `__gap` arrays do not block import. Namespace-qualified output names and
-framed-JSON provenance are deterministic. Implicit root returns, named call
+framed-JSON provenance are deterministic. Unnamed non-empty root fallthrough, named call
 arguments, external contract calls, and unsupported signed operations are rejected.
 The slice makes no dynamic ABI-head claim: that unrelated denotation extension
 is not part of this change. Solidity sources are Lake inputs only when the
