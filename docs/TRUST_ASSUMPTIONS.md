@@ -246,10 +246,17 @@ state variables. Root and helper `T[] calldata` / `T[] memory` scalar array para
 and `32 * length` tails via `AbiLowering.scalarArrayCalldataHead` / `scalarArrayMemoryHead`,
 materialize `calldata`-to-`memory` helper arguments via `materializeCalldataScalarArray`, and
 enforce `Panic(0x32)` bounds checks and calldata element validation on `arr[i]` via
-`readScalarArrayElement`. Root and helper `string calldata` / `string memory` parameters and
-non-reassigned `string memory` locals decode via `bytesCalldataHead` / `bytesMemoryHead` and
-retained `(pointer, size)` byte buffers (`stringBuffers`), supporting `bytes(s).length`,
-`keccak256(bytes(s))`, `abi.encodePacked(...)`, and single-return `string memory` helpers.
+`readScalarArrayElement`. Root and helper `bytes calldata` / `bytes memory` and `string calldata` / `string memory`
+parameters and non-reassigned `bytes memory` / `string memory` locals decode via
+`bytesCalldataHead` / `bytesMemoryHead` and retained `(pointer, size)` byte buffers
+(`byteBuffers` / `stringBuffers`), supporting `.length` on any `bytes` buffer (`b.length`,
+`bytes(s).length`, and inline `abi.encode*` / `bytes.concat` expressions), `bytes calldata`-to-`bytes memory`
+local and helper-argument copies, `bytes.concat` / `string.concat` (lowered via `lowerPacked`),
+`abi.encodeWithSignature` (computing the 4-byte `keccak256` signature selector prefix and
+concatenating `32 * n` scalar argument words via `encodeSelectorAndWords`), `abi.encodeCall`
+(resolving the target `FunctionDefinition` selector via `lowerMemberFunctionSelector` and
+converting the argument tuple components to their declared parameter types), and single-return
+`bytes memory` / `string memory` helpers (`inlineStringFn`).
 `address(this).balance`, `payable(address(this)).balance`, and Yul `selfbalance()` lower to
 `Expr.selfBalance`, and `tx.origin` and Yul `origin()` lower to `Expr.txOrigin`, while external
 `<addr>.balance` reads and `tx.gasprice` are rejected.
