@@ -49,6 +49,8 @@ partial def quoteExpr : Expr → m Term
   | .chainid => `(Compiler.CompilationModel.Expr.chainid)
   | .caller => `(Compiler.CompilationModel.Expr.caller)
   | .contractAddress => `(Compiler.CompilationModel.Expr.contractAddress)
+  | .selfBalance => `(Compiler.CompilationModel.Expr.selfBalance)
+  | .txOrigin => `(Compiler.CompilationModel.Expr.txOrigin)
   | .structMember f k x => do
       `(Compiler.CompilationModel.Expr.structMember $(quote f) $(← quoteExpr k) $(quote x))
   | .structMember2 f k1 k2 x => do
@@ -146,6 +148,7 @@ partial def quoteParamType : ParamType → m Term
   | .address => `(Compiler.CompilationModel.ParamType.address)
   | .bytes32 => `(Compiler.CompilationModel.ParamType.bytes32)
   | .bytes => `(Compiler.CompilationModel.ParamType.bytes)
+  | .string => `(Compiler.CompilationModel.ParamType.string)
   | .bool => `(Compiler.CompilationModel.ParamType.bool)
   | .uintN n => `(Compiler.CompilationModel.ParamType.uintN $(quote n))
   | .array elem => do

@@ -120,5 +120,89 @@ def materializeStaticScalarArray (data length arrayPointer nextFree : Expr)
      [.mstore (.add (.add arrayPointer (.literal 32))
        (.mul (.localVar index) (.literal 32))) value])]
 
+/-- Source-compatible `T[] calldata` root parameter checks as executable model
+code, matching `solc`'s `abi_decode_tuple` and `abi_decode_t_array_*_calldata_ptr`. -/
+def scalarArrayCalldataHead (offsetBinding headerBinding lengthBinding dataBinding : String)
+    (rootHeadWords headOffset : Nat) : List Stmt :=
+  [ guard (.logicalNot (.slt (.sub .calldatasize (.literal 4)) (.literal (32*rootHeadWords))))
+  , .letVar offsetBinding (.calldataload (.literal headOffset))
+  , guard (.le (.localVar offsetBinding) (.literal (2^64-1)))
+  , .letVar headerBinding (.add (.literal 4) (.localVar offsetBinding))
+  , guard (.slt (.add (.localVar headerBinding) (.literal 31)) .calldatasize)
+  , .letVar lengthBinding (.calldataload (.localVar headerBinding))
+  , guard (.le (.localVar lengthBinding) (.literal (2^64-1)))
+  , .letVar dataBinding (.add (.localVar headerBinding) (.literal 32))
+  , guard (.le (.add (.localVar dataBinding) (.mul (.localVar lengthBinding) (.literal 32))) .calldatasize) ]
+
+/-- Source-compatible `T[] memory` root parameter header checks and materialization,
+matching `solc`'s `abi_decode_t_array_*_memory_ptr`. -/
+def scalarArrayMemoryHead
+    (memoryPointer offsetBinding headerBinding lengthBinding dataBinding nextFreeBinding namePrefix : String)
+    (rootHeadWords headOffset : Nat) (kind : SolidityAbi.ScalarKind) : List Stmt :=
+  let freePointer := Expr.localVar memoryPointer
+  let allocationGuard := fun condition =>
+    Stmt.ite condition [] [.panicCode (.literal 0x41)]
+  [ guard (.logicalNot (.slt (.sub .calldatasize (.literal 4)) (.literal (32*rootHeadWords))))
+  , .letVar offsetBinding (.calldataload (.literal headOffset))
+  , guard (.le (.localVar offsetBinding) (.literal (2^64-1)))
+  , .letVar headerBinding (.add (.literal 4) (.localVar offsetBinding))
+  , guard (.slt (.add (.localVar headerBinding) (.literal 31)) .calldatasize)
+  , .letVar lengthBinding (.calldataload (.localVar headerBinding))
+  , allocationGuard (.le (.localVar lengthBinding) (.literal (2^64-1)))
+  , .letVar memoryPointer (.mload (.literal 64))
+  , .letVar nextFreeBinding
+      (.add freePointer (.mul (.literal 32) (.add (.localVar lengthBinding) (.literal 1))))
+  , allocationGuard (.le (.localVar nextFreeBinding) (.literal (2^64-1)))
+  , allocationGuard (.ge (.localVar nextFreeBinding) freePointer)
+  , .letVar dataBinding (.add (.localVar headerBinding) (.literal 32))
+  , guard (.le (.add (.localVar dataBinding) (.mul (.localVar lengthBinding) (.literal 32))) .calldatasize) ] ++
+  materializeStaticScalarArray (.localVar dataBinding) (.localVar lengthBinding)
+    freePointer (.localVar nextFreeBinding) namePrefix kind
+
+/-- Source-compatible `bytes memory` / `string memory` root parameter checks as
+executable model code, matching `solc`'s `abi_decode_t_bytes_memory_ptr`. -/
+def bytesMemoryHead
+    (memoryPointer offsetBinding headerBinding lengthBinding dataBinding nextFreeBinding copyIndexBinding : String)
+    (rootHeadWords headOffset : Nat) : List Stmt :=
+  let freePointer := Expr.localVar memoryPointer
+  let allocationGuard := fun condition =>
+    Stmt.ite condition [] [.panicCode (.literal 0x41)]
+  let alignedSize := Expr.bitAnd
+    (.add (.add (.localVar lengthBinding) (.literal 32)) (.literal 31))
+    (.bitNot (.literal 31))
+  let wordCount := Expr.div (.add (.localVar lengthBinding) (.literal 31)) (.literal 32)
+  [ guard (.logicalNot (.slt (.sub .calldatasize (.literal 4)) (.literal (32*rootHeadWords))))
+  , .letVar offsetBinding (.calldataload (.literal headOffset))
+  , guard (.le (.localVar offsetBinding) (.literal (2^64-1)))
+  , .letVar headerBinding (.add (.literal 4) (.localVar offsetBinding))
+  , guard (.slt (.add (.localVar headerBinding) (.literal 31)) .calldatasize)
+  , .letVar lengthBinding (.calldataload (.localVar headerBinding))
+  , allocationGuard (.le (.localVar lengthBinding) (.literal (2^64-1)))
+  , .letVar memoryPointer (.mload (.literal 64))
+  , .letVar nextFreeBinding (.add freePointer alignedSize)
+  , allocationGuard (.le (.localVar nextFreeBinding) (.literal (2^64-1)))
+  , allocationGuard (.ge (.localVar nextFreeBinding) freePointer)
+  , .letVar dataBinding (.add (.localVar headerBinding) (.literal 32))
+  , guard (.le (.add (.localVar dataBinding) (.localVar lengthBinding)) .calldatasize)
+  , .mstore freePointer (.localVar lengthBinding)
+  , .mstore (.literal 64) (.localVar nextFreeBinding)
+  , .forEach copyIndexBinding wordCount
+      [.mstore (.add (.add freePointer (.literal 32)) (.mul (.localVar copyIndexBinding) (.literal 32)))
+        (.calldataload (.add (.localVar dataBinding) (.mul (.localVar copyIndexBinding) (.literal 32))))] ]
+
+/-- Allocate and materialize a validated calldata scalar array into memory when
+passed to a `T[] memory` helper parameter. -/
+def materializeCalldataScalarArray (data length : Expr)
+    (arrayPointerBinding nextFreeBinding namePrefix : String)
+    (kind : SolidityAbi.ScalarKind) : List Stmt :=
+  let allocationGuard := fun condition =>
+    Stmt.ite condition [] [.panicCode (.literal 0x41)]
+  [ .letVar arrayPointerBinding (.mload (.literal 64))
+  , allocationGuard (.le length (.literal (2^64-1)))
+  , .letVar nextFreeBinding
+      (.add (.localVar arrayPointerBinding) (.mul (.literal 32) (.add length (.literal 1))))
+  , allocationGuard (.le (.localVar nextFreeBinding) (.literal (2^64-1)))
+  , allocationGuard (.ge (.localVar nextFreeBinding) (.localVar arrayPointerBinding)) ] ++
+  materializeStaticScalarArray data length (.localVar arrayPointerBinding) (.localVar nextFreeBinding) namePrefix kind
 
 end Compiler.CompilationModel.SolidityImport.AbiLowering

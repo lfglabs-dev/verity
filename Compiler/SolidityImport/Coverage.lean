@@ -44,7 +44,7 @@ def exprCovered : Expr → Bool
   | .storage _ => true
   | .localVar _ => true
   | .blockTimestamp => true
-  | .blockNumber | .chainid | .caller | .contractAddress => true
+  | .blockNumber | .chainid | .caller | .contractAddress | .selfBalance | .txOrigin => true
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
@@ -336,6 +336,14 @@ theorem evalExpr_caller_arm (oracle : DenoteOracle) (fields : List Field)
 theorem evalExpr_contractAddress_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) :
     evalExpr oracle fields s .contractAddress = some s.world.thisAddress.val := rfl
+
+theorem evalExpr_selfBalance_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .selfBalance = some s.world.selfBalance.val := rfl
+
+theorem evalExpr_txOrigin_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .txOrigin = some s.world.txOrigin.val := rfl
 
 theorem evalExpr_add_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (a b : Expr) :

@@ -1359,3 +1359,40 @@ def stateful_yul_builtins_and_encode_selector_source(fixture: str, variant: str)
         return fixture
     raise ValueError(f'unknown yul-builtins-and-encode-selector variant: {variant}')
 
+
+def stateful_array_string_params_and_context_source(fixture: str, variant: str) -> str:
+    """Equivalent dynamic scalar-array/string parameter, string local, selfbalance, and tx.origin sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'result', 'a', 'b', 's', 'vals', 'addrs', 'acc', 'caps', 'input',
+            'balA', 'balB', 'balYul', 'origSol', 'origYul', 'baseTag', 'rightTag',
+            'combined', 'wrapped', 'strMetric', 'digest', 'ctxMetric', 'amounts',
+            'recipients', 'label', 'tag', 'rolling', 'cdSum', 'memSum', 'fullLabel',
+            'labelMetric', 'finalDigest', 'metric', 'scale', 'direct', 'memTotal',
+            'reasonTag', 'd', 'recipient', 'amount', 'balSum', 'amountsLen',
+            'recipientsLen', 'orig',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-array-string-context':
+        replacements = {
+            'totalScore += (uint256(digest) & 0xffffffff) + ctxMetric;':
+            'totalScore = totalScore + (uint256(digest) & 0xffffffff) + ctxMetric;',
+            'totalScore += (uint256(finalDigest) & 0xffffffff) + metric;':
+            'totalScore = totalScore + (uint256(finalDigest) & 0xffffffff) + metric;',
+            'totalScore += metric;':
+            'totalScore = totalScore + metric;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('array-string-params-and-context variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown array-string-params-and-context variant: {variant}')
+
