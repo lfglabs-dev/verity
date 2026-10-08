@@ -1086,6 +1086,17 @@ private partial def lowerYul (j : Json) : M Val := do
   | "YulFunctionCall" =>
       let fname ← mStr (← mField (← mField j "functionName") "name")
       let args ← mArr (← mField j "arguments")
+      let expectedArity? : Option Nat := match fname with
+        | "caller" | "address" | "timestamp" | "number" | "chainid" => some 0
+        | "iszero" | "not" | "tload" | "clz" => some 1
+        | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod" | "exp"
+        | "and" | "or" | "xor" | "byte" | "shl" | "shr" | "sar" | "signextend"
+        | "lt" | "gt" | "slt" | "sgt" | "eq" => some 2
+        | _ => none
+      let some expectedArity := expectedArity?
+        | failAt j s!"unsupported Yul builtin {fname}"
+      unless args.size == expectedArity do
+        failAt j s!"unsupported Yul builtin {fname}"
       let mut pre : Array Stmt := #[]
       let mut xs : Array Expr := #[]
       for arg in args do
@@ -1097,19 +1108,31 @@ private partial def lowerYul (j : Json) : M Val := do
       | "sub", #[a, b] => pure { pre, expr := .sub a b }
       | "mul", #[a, b] => pure { pre, expr := .mul a b }
       | "div", #[a, b] => pure { pre, expr := .div a b }
+      | "sdiv", #[a, b] => pure { pre, expr := .sdiv a b }
       | "mod", #[a, b] => pure { pre, expr := .mod a b }
+      | "smod", #[a, b] => pure { pre, expr := .smod a b }
+      | "exp", #[a, b] => pure { pre, expr := .externalCall builtinExpName [a, b] }
       | "and", #[a, b] => pure { pre, expr := .bitAnd a b }
       | "or", #[a, b] => pure { pre, expr := .bitOr a b }
       | "xor", #[a, b] => pure { pre, expr := .bitXor a b }
+      | "byte", #[a, b] => pure { pre, expr := .byte a b }
       | "shl", #[a, b] => pure { pre, expr := .shl a b }
       | "shr", #[a, b] => pure { pre, expr := .shr a b }
       | "sar", #[a, b] => pure { pre, expr := .sar a b }
+      | "signextend", #[a, b] => pure { pre, expr := .signextend a b }
       | "lt", #[a, b] => pure { pre, expr := .lt a b }
       | "gt", #[a, b] => pure { pre, expr := .gt a b }
+      | "slt", #[a, b] => pure { pre, expr := .slt a b }
+      | "sgt", #[a, b] => pure { pre, expr := .sgt a b }
       | "eq", #[a, b] => pure { pre, expr := .eq a b }
       | "iszero", #[a] => pure { pre, expr := .logicalNot a }
       | "not", #[a] => pure { pre, expr := .bitNot a }
       | "tload", #[a] => pure { pre, expr := .tload a }
+      | "caller", #[] => pure { pre, expr := .caller }
+      | "address", #[] => pure { pre, expr := .contractAddress }
+      | "timestamp", #[] => pure { pre, expr := .blockTimestamp }
+      | "number", #[] => pure { pre, expr := .blockNumber }
+      | "chainid", #[] => pure { pre, expr := .chainid }
       | "clz", #[a] =>
           let inputBinding ← fresh
           let remBinding ← fresh
@@ -1592,6 +1615,10 @@ private partial def lowerRef (j : Json) : M Ref := do
         lowerTypeBound j base member
       else if member == "selector" then
         failAt j "function .selector member access is outside this slice"
+      else if member == "code" &&
+          ((← mType base) == "address" || (← mType base) == "address payable" ||
+           (← mType base).startsWith "contract ") then
+        failAt j "external contract code reads are outside this slice"
       else
         match ← lowerRef base with
         | .path pre path =>
@@ -2300,6 +2327,62 @@ private partial def lowerPacked (args : Array Json) : M EncodedBytes := do
   modify fun env => { env with encodingMemory := true }
   return { pre, pointer := .localVar pointer, size }
 
+/-- Check that a `.selector` receiver is a contract/interface type, `this`, or a
+pure local/parameter/cast expression that cannot read storage or trigger effects. -/
+private partial def isPureSelectorReceiver (j : Json) : M Bool := do
+  let ty ← mType j
+  if ty.startsWith "type(contract " || ty.startsWith "type(library " then
+    return (← mKind j) == "Identifier" || (← mKind j) == "MemberAccess"
+  match ← mKind j with
+  | "Identifier" =>
+      let id ← refInt j
+      if id == -28 && optStr j "name" == some "this" then return true
+      if id ≥ 0 then return (← get).values.contains id.toNat
+      return false
+  | "Literal" => return true
+  | "FunctionCall" =>
+      unless optStr j "kind" == some "typeConversion" && ty.startsWith "contract " do
+        return false
+      let args ← mArr (← mField j "arguments")
+      unless args.size == 1 do return false
+      isPureSelectorReceiver args[0]!
+  | _ => return false
+
+/-- Lower `<receiver>.<fn>.selector` to a 4-byte memory buffer containing the
+left-aligned 32-bit function selector from the referenced declaration. -/
+private partial def lowerSelectorBytes (j : Json) : M EncodedBytes := do
+  unless (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" &&
+      (← mType j) == "bytes4" do
+    failAt j "selector argument must be a function .selector expression"
+  let fnExpr ← mField j "expression"
+  unless (← mKind fnExpr) == "MemberAccess" do
+    failAt fnExpr "selector target must be a contract or interface member"
+  let receiver ← mField fnExpr "expression"
+  unless ← isPureSelectorReceiver receiver do
+    failAt receiver "selector receiver must be a contract/interface type, this, or a local/parameter"
+  let declId ← refInt fnExpr
+  unless declId ≥ 0 do
+    failAt fnExpr "unresolved selector target declaration"
+  let env ← get
+  let some decl := (env.funs.find? declId.toNat <|> env.stateVars.find? declId.toNat)
+    | failAt fnExpr s!"unresolved selector declaration {declId}"
+  let some hex := optStr decl "functionSelector"
+    | failAt fnExpr "selector target has no functionSelector"
+  unless hex.length == 8 do
+    failAt fnExpr s!"invalid functionSelector hex length {hex.length}"
+  let chars := hex.toList.toArray
+  let mut word := 0
+  for index in [:chars.size] do
+    let some digit := Compiler.Hex.hexCharToNat? chars[index]!
+      | failAt fnExpr "invalid functionSelector hex digit"
+    word := word * 16 + digit
+  let padded := word * 16 ^ 56
+  let pointer ← fresh
+  let finish ← fresh
+  modify fun e => { e with encodingMemory := true }
+  return { pre := (AbiEncoding.staticWords pointer finish [.literal padded]).toArray,
+           pointer := .localVar pointer, size := .literal 4 }
+
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   if (← mKind j) == "Literal" then
@@ -2307,6 +2390,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         optStr j "kind" == some "unicodeString" do
       failAt j "unsupported literal byte buffer"
     return ← lowerLiteralBytes j
+  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" then
+    return ← lowerSelectorBytes j
   if (← mKind j) == "Identifier" then
     let id ← refInt j
     if id ≥ 0 then
@@ -2335,6 +2420,46 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   let args ← mArr (← mField j "arguments")
   if optStr callee "memberName" == some "encodePacked" then
     return ← lowerPacked args
+  if optStr callee "memberName" == some "encodeWithSelector" then
+    unless args.size ≥ 1 do
+      failAt j "abi.encodeWithSelector requires a selector argument"
+    let selBuffer ← lowerSelectorBytes args[0]!
+    if args.size == 1 then
+      return selBuffer
+    let mut pre := selBuffer.pre
+    let mut words := []
+    for arg in args.extract 1 args.size do
+      let ty ← mType arg
+      unless (paramType ty).isSome do
+        failAt arg s!"unsupported ABI encoding argument type {ty}"
+      checkEncodingScalar arg
+      let value ← atom (← lowerExpr arg)
+      pre := pre ++ value.pre
+      words := words ++ [value.expr]
+    let wordsPointer ← fresh
+    let wordsFinish ← fresh
+    modify fun env => { env with encodingMemory := true }
+    pre := pre ++ (AbiEncoding.staticWords wordsPointer wordsFinish words).toArray
+    let wordsBuffer : EncodedBytes :=
+      { pre := #[], pointer := .localVar wordsPointer, size := .literal (32 * words.length) }
+    let buffers := [selBuffer, wordsBuffer]
+    let sizeName ← fresh
+    let size := Expr.localVar sizeName
+    pre := pre.push (.letVar sizeName (.literal (4 + 32 * words.length)))
+    let pointer ← fresh
+    let finish ← fresh
+    let clearIndex ← fresh
+    pre := pre ++ (AbiEncoding.packedBuffer pointer finish clearIndex size).toArray
+    let start ← fresh
+    pre := pre.push (.letVar start (.literal 0))
+    for buffer in buffers do
+      let index ← fresh
+      let byteName ← fresh
+      let address ← fresh
+      pre := pre.push (AbiEncoding.copyBytes buffer.pointer (.localVar pointer)
+        (.localVar start) buffer.size index byteName address)
+      pre := pre.push (.assignVar start (.add (.localVar start) buffer.size))
+    return { pre, pointer := .localVar pointer, size }
   unless optStr callee "memberName" == some "encode" do
     failAt callee "unsupported ABI encoding builtin"
   if args.size == 1 then
@@ -2483,11 +2608,25 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   unless names.isEmpty do failAt j "named call arguments are outside this slice"
   let callee ← mField j "expression"
   let (fnId, receiver?) ← match ← mKind callee with
+    | "FunctionCallOptions" =>
+        failAt callee "external contract calls are outside this slice"
     | "MemberAccess" =>
-        let id ← refInt callee
-        if id < 0 then failAt callee "builtin call is outside this slice"
         let base ← mField callee "expression"
         let baseTy ← mType base
+        if (← mKind base) == "Identifier" && optStr base "name" == some "abi" then
+          if (← refInt base) == -1 then
+            let member := optStr callee "memberName" |>.getD ""
+            if member == "decode" then
+              failAt callee "abi.decode is outside this slice"
+            else
+              failAt callee s!"abi.{member} is only supported as a byte buffer"
+        if (field? callee "referencedDeclaration").isNone then
+          let member := optStr callee "memberName" |>.getD ""
+          if (baseTy == "address" || baseTy == "address payable" || baseTy.startsWith "contract ") &&
+              ["call", "staticcall", "delegatecall", "transfer", "send"].contains member then
+            failAt callee "external contract calls are outside this slice"
+        let id ← refInt callee
+        if id < 0 then failAt callee "builtin call is outside this slice"
         if baseTy.startsWith "type(library " then
           pure (id.toNat, none)
         else if baseTy.startsWith "type(contract super " then
@@ -3792,6 +3931,15 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     -- dedicated validator must run before strict user-declaration resolution.
     if (← mKind callee) == "Identifier" && optStr callee "name" == some "require" then
       return ← lowerRequire statement
+    if (← mKind callee) == "FunctionCallOptions" then
+      failAt callee "external contract calls are outside this slice"
+    if (← mKind callee) == "MemberAccess" && (field? callee "referencedDeclaration").isNone then
+      let base ← mField callee "expression"
+      let baseTy ← mType base
+      let member := optStr callee "memberName" |>.getD ""
+      if (baseTy == "address" || baseTy == "address payable" || baseTy.startsWith "contract ") &&
+          ["call", "staticcall", "delegatecall", "transfer", "send"].contains member then
+        failAt callee "external contract calls are outside this slice"
     let reference ← refInt callee
     if reference ≥ 0 then
       if let some ptr := (← get).fnPtrs.find? reference.toNat then
