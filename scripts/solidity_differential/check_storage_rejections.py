@@ -496,6 +496,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Identifier: [solidity-import:unsupported] storage or memory path used as a value'),
+        ('overload-const-error-cond-tuple-tload-accepted',
+         "pragma solidity 0.8.34;\nuint256 constant ZERO_CONST = 0;\ncontract C {\n  error BoundErr(address who, uint8 maxB, uint256 z);\n  uint256 private saved;\n  function _tloadSlot(uint256 slot) internal view returns (bool v) {\n    assembly (\"memory-safe\") { v := tload(slot) }\n  }\n  function _ setVal(uint256 a) internal { _setVal(a, true); }\n  function _setVal(uint256 a, bool bump) internal { saved = bump ? a + 1 : a; }\n  function checked(uint256 x) external returns (uint256) {\n    if (x == 99) revert BoundErr(address(0), type(uint8).max, ZERO_CONST);\n    _ setVal(x);\n    (uint256 lo, uint256 hi) = x < 10 ? (0 days, 1 days) : (1 days, 7 days);\n    bool locked = _tloadSlot(x);\n    return saved + lo + hi + (locked ? 1 : 0);\n  }\n}\n".replace('_ setVal', '_setVal'),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('overload-root-collision-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) { return x; }\n  function checked(uint256 x, uint256 y) external pure returns (uint256) { return x + y; }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionDefinition: [solidity-import:unsupported] root function name collision: C.checked; import overloaded roots in separate slices'),
+        ('custom-error-nonconst-cast-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  error Failure(address who);\n  function checked(uint256 x) external pure returns (uint256) {\n    if (x > 0) revert Failure(address(uint160(x)));\n    return 0;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] custom-error arguments currently require literals or scalar bindings'),
+        ('cond-tuple-stateful-component-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256 private v;\n  function _bump() internal returns (uint256) { v += 1; return v; }\n  function checked(uint256 x) external returns (uint256) {\n    (uint256 a, uint256 b) = (x == 0) ? (_bump(), uint256(1)) : (uint256(2), uint256(3));\n    return a + b;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] stateful or assignment expression in multi-return tuple requires explicit evaluation-order support'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -505,7 +525,11 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         (directory / 'Fixture.sol').write_text(source_text)
         if dep_text is not None:
             (directory / 'Dep.sol').write_text(dep_text)
-        fn_sig = 'checked(bytes)' if name.startswith('bytes-param-') else 'checked(uint256)'
+        fn_sig = (
+            'checked(bytes)' if name.startswith('bytes-param-')
+            else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
+            else 'checked(uint256)'
+        )
         driver = directory / 'Check.lean'
         driver.write_text(f'''import Compiler.SolidityImport.Import
 solidity_import tested from "{directory}" entry "Fixture.sol"

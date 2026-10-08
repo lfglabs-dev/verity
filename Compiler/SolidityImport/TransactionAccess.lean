@@ -45,6 +45,11 @@ def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
   | .slt left right | .sgt left right | .sdiv left right => do
       return (← expressionAccesses oracle fields state left) ++ (← expressionAccesses oracle fields state right)
   | .calldataload value | .mload value => expressionAccesses oracle fields state value
+  | .tload value => do
+      let reads ← expressionAccesses oracle fields state value
+      let some slot := evalExpr oracle fields state value
+        | throw "transient load observation could not evaluate the slot"
+      return reads ++ [.transient (wordNormalize slot)]
   | .logicalNot value => expressionAccesses oracle fields state value
   | .structMember name key member => do
       let reads ← expressionAccesses oracle fields state key

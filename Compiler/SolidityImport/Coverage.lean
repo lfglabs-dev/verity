@@ -37,7 +37,7 @@ constructor (including `paramDynamicMember*`, `paramDynamicStaticComposite`,
 `mulDiv512*`, raw calls, `internalCall`, `intrinsic`, `forkIfAtLeast`, ADTs,
 `arrayElementWord`, `mappingChain`, and any future constructor) is rejected. -/
 def exprCovered : Expr → Bool
-  | .calldataload offset | .mload offset => exprCovered offset
+  | .calldataload offset | .mload offset | .tload offset => exprCovered offset
   | .calldatasize => true
   | .literal _ => true
   | .param _ => true
@@ -141,6 +141,12 @@ theorem evalExpr_mload_arm (oracle : DenoteOracle) (fields : List Field)
     evalExpr oracle fields state (.mload offset) = (do
       let resolved ← evalExpr oracle fields state offset
       some (state.world.memory resolved).val) := rfl
+
+theorem evalExpr_tload_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset : Expr) :
+    evalExpr oracle fields state (.tload offset) = (do
+      let resolved ← evalExpr oracle fields state offset
+      some (state.world.readTransient resolved).val) := rfl
 
 theorem evalExpr_shl_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (shift value : Expr) :

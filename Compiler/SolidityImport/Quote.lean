@@ -31,6 +31,7 @@ partial def quoteExpr : Expr → m Term
   | .keccak256 offset size => do
       `(Compiler.CompilationModel.Expr.keccak256 $(← quoteExpr offset) $(← quoteExpr size))
   | .mload offset => do `(Compiler.CompilationModel.Expr.mload $(← quoteExpr offset))
+  | .tload offset => do `(Compiler.CompilationModel.Expr.tload $(← quoteExpr offset))
   | .slt a b => do `(Compiler.CompilationModel.Expr.slt $(← quoteExpr a) $(← quoteExpr b))
   | .sgt a b => do `(Compiler.CompilationModel.Expr.sgt $(← quoteExpr a) $(← quoteExpr b))
   | .sdiv a b => do `(Compiler.CompilationModel.Expr.sdiv $(← quoteExpr a) $(← quoteExpr b))

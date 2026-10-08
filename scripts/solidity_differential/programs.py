@@ -1145,3 +1145,37 @@ def stateful_empty_array_bytes_calldata_source(fixture: str, variant: str) -> st
         return fixture
     raise ValueError(f'unknown empty-array-bytes-calldata variant: {variant}')
 
+
+def stateful_overload_const_error_cond_tuple_tload_source(fixture: str, variant: str) -> str:
+    """Equivalent same-contract overload, constant custom-error arg, conditional tuple, and tload sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'input', 'seed', 'owner', 'spender', 'maturity',
+            'start', 'end', 'feeLower', 'feeUpper', 'locked',
+            'interpolated', 'baseSlot', 'key1', 'key2', 'slot',
+            'value', 'emitEvent', 'ZERO_WORD', 'CBP_SCALE', 'LOCK_BASE_SLOT',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-error-and-accum':
+        replacements = {
+            'require(input != 19, BoundError(address(0), type(uint8).max, ZERO_WORD));':
+            'require(input != 19, BoundError(address(0), 255, 0));',
+            'revert BoundError(address(0), type(uint8).max, ZERO_WORD);':
+            'revert BoundError(address(0), 255, 0);',
+            'approvalCount += 1;':
+            'approvalCount = approvalCount + 1;',
+            'feeAccumulator += interpolated + (locked ? 1000 : 1) + allowances[owner][spender];':
+            'feeAccumulator = feeAccumulator + interpolated + (locked ? 1000 : 1) + allowances[owner][spender];',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('overload-const-error-cond-tuple-tload variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown overload-const-error-cond-tuple-tload variant: {variant}')
+

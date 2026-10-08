@@ -401,10 +401,17 @@ private def refInt (j : Json) : M Int := do
       if xs.size ≠ 0 then
         let env ← get
         let sameFamily ← if i ≥ 0 && env.funs.contains i.toNat then do
+          let targetClosure := baseFunctionClosure env i.toNat
           let mut ok := true
           for x in xs do
             let xid ← mNat x
-            unless sameVirtualFamily env xid i.toNat do
+            let sharesOrigin := env.funs.contains xid &&
+              (baseFunctionClosure env xid).any fun bx =>
+                targetClosure.any fun bi =>
+                  match env.funContractId.find? bx, env.funContractId.find? bi with
+                  | some cx, some ci => cx == ci
+                  | _, _ => false
+            unless sameVirtualFamily env xid i.toNat || sharesOrigin do
               ok := false
           pure ok
         else
@@ -930,6 +937,7 @@ private partial def lowerYul (j : Json) : M Expr := do
       | "xor", #[a, b] => pure (.bitXor a b)
       | "mul", #[a, b] => pure (.mul a b)
       | "lt", #[a, b] => pure (.lt a b)
+      | "tload", #[a] => pure (.tload a)
       | _, _ => failAt j s!"unsupported Yul builtin {fname}"
   | kind => failAt j s!"unsupported Yul node {kind}"
 
@@ -2291,7 +2299,84 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, calldataBytes := saved.calldataBytes, byteBuffers := saved.byteBuffers, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ modStmts ++ bodyStmts, retExprs)
 
-private partial def lowerMultiCall (j : Json) : M (Array Stmt × Array (Expr × String)) := do
+private partial def lowerMultiBranch (j : Json) (expectedTypes : Option (Array (Option String))) :
+    M (Array Stmt × Array (Expr × String)) := do
+  match ← mKind j with
+  | "TupleExpression" =>
+      if ← mBool (← mField j "isInlineArray") then
+        failAt j "inline arrays are outside this slice"
+      let cs ← mArr (← mField j "components")
+      unless cs.size > 1 do
+        failAt j "tuple expression requires multiple components"
+      if let some exp := expectedTypes then
+        unless cs.size == exp.size do
+          failAt j s!"tuple expression arity {cs.size} does not match target arity {exp.size}"
+      let mut pre : Array Stmt := #[]
+      let mut rets : Array (Expr × String) := #[]
+      for i in [:cs.size] do
+        let c := cs[i]!
+        if c.isNull then failAt j "empty tuple component"
+        if cs.size > 1 && (statefulCallIn c (← get) || assignmentIn c) then
+          failAt c "stateful or assignment expression in multi-return tuple requires explicit evaluation-order support"
+        let rawTy ← mType c
+        let rawVal ← lowerExpr c
+        let (val, outTy) ← match expectedTypes.bind (fun xs => xs.getD i none) with
+          | some targetTy => do
+              let v ← atom (← convert targetTy rawTy rawVal c)
+              pure (v, targetTy)
+          | none => do
+              let v ← atom rawVal
+              let outTy := if rawTy.startsWith "int_const" && !rawTy.startsWith "int_const -" then "uint256" else rawTy
+              pure (v, outTy)
+        pre := pre ++ val.pre
+        rets := rets.push (val.expr, outTy)
+      return (pre, rets)
+  | "Conditional" =>
+      let condNode ← mField j "condition"
+      unless (← mType condNode) == "bool" do failAt condNode "conditional condition must be bool"
+      let cond ← atom (← lowerExpr condNode)
+      let (yesPre, yesRets) ← lowerMultiBranch (← mField j "trueExpression") expectedTypes
+      let (noPre, noRets) ← lowerMultiBranch (← mField j "falseExpression") expectedTypes
+      unless yesRets.size == noRets.size do
+        failAt j "conditional tuple branches have mismatched arities"
+      let mut pre := cond.pre
+      let mut thenB := yesPre
+      let mut elseB := noPre
+      let mut outRets : Array (Expr × String) := #[]
+      for i in [:yesRets.size] do
+        let (yExpr, yTy) := yesRets.getD i (.literal 0, "")
+        let (nExpr, nTy) := noRets.getD i (.literal 0, "")
+        unless yTy == nTy do
+          failAt j "conditional tuple branches have mismatched component types"
+        let dest ← fresh
+        pre := pre.push (.letVar dest (.literal 0))
+        thenB := thenB.push (.assignVar dest yExpr)
+        elseB := elseB.push (.assignVar dest nExpr)
+        outRets := outRets.push (.localVar dest, yTy)
+      return (pre.push (.ite cond.expr thenB.toList elseB.toList), outRets)
+  | _ =>
+      let (callPre, retExprs) ← lowerMultiCall j expectedTypes
+      if let some exp := expectedTypes then
+        unless retExprs.size == exp.size do
+          failAt j s!"tuple expression arity {retExprs.size} does not match target arity {exp.size}"
+        let mut pre := callPre
+        let mut out : Array (Expr × String) := #[]
+        for i in [:retExprs.size] do
+          let (rExpr, rTy) := retExprs.getD i (.literal 0, "")
+          match exp.getD i none with
+          | some targetTy =>
+              let v ← atom (← convert targetTy rTy { pre := #[], expr := rExpr } j)
+              pre := pre ++ v.pre
+              out := out.push (v.expr, targetTy)
+          | none =>
+              out := out.push (rExpr, rTy)
+        return (pre, out)
+      return (callPre, retExprs)
+
+private partial def lowerMultiCall (j : Json) (expectedTypes : Option (Array (Option String)) := none) :
+    M (Array Stmt × Array (Expr × String)) := do
+  if (← mKind j) == "Conditional" then
+    return ← lowerMultiBranch j expectedTypes
   unless (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" do
     failAt j "tuple destructuring requires a multi-return helper call"
   let callee ← mField j "expression"
@@ -2978,8 +3063,14 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     let cs ← mArr (← mField target "components")
     unless cs.size > 1 && cs.any (!·.isNull) do
       failAt target "tuple assignment requires multiple components"
+    let mut expectedTypes : Array (Option String) := #[]
+    for c in cs do
+      if c.isNull then
+        expectedTypes := expectedTypes.push none
+      else
+        expectedTypes := expectedTypes.push (some (← mType c))
     let right ← mField expression "rightHandSide"
-    let (callPre, retExprs) ← lowerMultiCall right
+    let (callPre, retExprs) ← lowerMultiCall right (some expectedTypes)
     unless cs.size == retExprs.size do
       failAt expression s!"tuple assignment arity {cs.size} does not match helper return arity {retExprs.size}"
     let mut seenIds : Array Nat := #[]
@@ -3400,16 +3491,36 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
     unless (Denote.errorScalarType modelType).isSome do
       failAt parameter s!"unsupported custom-error parameter type {ty}"
     let argument := arguments[index]!
-    -- Restrict this first slice to total scalar operands. General expressions
-    -- need an evaluation-order argument, including competing panic paths.
-    match ← mKind argument with
-    | "Literal" => pure ()
-    | "Identifier" =>
-        let argumentId ← refInt argument
-        unless (← get).values.contains argumentId.toNat do
-          failAt argument "custom-error arguments currently require literals or scalar bindings"
-    | _ => failAt argument "custom-error arguments currently require literals or scalar bindings"
-    let value ← atom (← convert ty (← mType argument) (← lowerExpr argument) argument)
+    -- Restrict this slice to total scalar operands or pure compile-time constants.
+    -- General expressions need an evaluation-order argument, including competing panic paths.
+    let isDirectScalar ← match ← mKind argument with
+      | "Literal" => pure true
+      | "Identifier" =>
+          let argumentId ← refInt argument
+          if argumentId ≥ 0 && (← get).values.contains argumentId.toNat then
+            pure true
+          else if argumentId ≥ 0 && (← get).numericConstants.contains argumentId.toNat then
+            pure false
+          else
+            failAt argument "custom-error arguments currently require literals or scalar bindings"
+      | "FunctionCall" =>
+          unless optStr argument "kind" == some "typeConversion" do
+            failAt argument "custom-error arguments currently require literals or scalar bindings"
+          pure false
+      | "MemberAccess" =>
+          let member ← mStr (← mField argument "memberName")
+          unless member == "max" || member == "min" do
+            failAt argument "custom-error arguments currently require literals or scalar bindings"
+          pure false
+      | _ => failAt argument "custom-error arguments currently require literals or scalar bindings"
+    let converted ← convert ty (← mType argument) (← lowerExpr argument) argument
+    if !isDirectScalar then
+      let isConstLiteral := match converted.expr with
+        | .literal n => converted.pre.isEmpty && Denote.errorScalarValueValid modelType n
+        | _ => false
+      unless isConstLiteral do
+        failAt argument "custom-error arguments currently require literals or scalar bindings"
+    let value ← atom converted
     types := types ++ [modelType]
     values := values ++ [value.expr]
     pre := pre ++ value.pre
@@ -3453,7 +3564,13 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     unless decls.any (!·.isNull) do failAt s "empty tuple declaration"
     let init := field? s "initialValue" |>.getD Json.null
     if init.isNull then failAt s "tuple variable declaration requires an initializer"
-    let (callPre, retExprs) ← lowerMultiCall init
+    let mut expectedTypes : Array (Option String) := #[]
+    for d in decls do
+      if d.isNull then
+        expectedTypes := expectedTypes.push none
+      else
+        expectedTypes := expectedTypes.push (some (← mType d))
+    let (callPre, retExprs) ← lowerMultiCall init (some expectedTypes)
     unless decls.size == retExprs.size do
       failAt s s!"tuple declaration arity {decls.size} does not match helper return arity {retExprs.size}"
     let mut out := callPre
@@ -4210,6 +4327,9 @@ private def importSlice
     let (fn, paramTys) ← (selectFunction contract functionName written).run' env
     let rootId ← flexNat (← field fn "id")
     if rootIds.contains rootId then throwError "function {contract}.{functionName} is imported twice"
+    if specs.any (·.name == functionName) then
+      let rootFile := env.nodeFile.find? rootId |>.getD entry
+      (failAt fn s!"root function name collision: {contract}.{functionName}; import overloaded roots in separate slices").run' { env with currentFile := rootFile }
     rootIds := rootIds.push rootId
     signatures := signatures.push (Json.mkObj
       [("function", Json.str functionName), ("parameterTypes", Json.arr (paramTys.map Json.str))])

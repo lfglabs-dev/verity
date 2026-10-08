@@ -201,7 +201,18 @@ modifiers that return a single `T[] memory` (`T` in `uint256`, `int256`, `addres
 ABI encoding of an empty dynamic array); root `bytes calldata` parameters (named or
 unnamed) use `AbiLowering.bytesCalldataHead` under `.explicitPrelude` to validate
 the offset, header, `uint64` length bound, and payload tail bound at entry and
-expose `.length`.
+expose `.length`. Same-contract overloaded function declarations are accepted in
+`refInt` when every candidate in `overloadedDeclarations` belongs to the same
+virtual family or shares an origin declaring contract across `baseFunctionClosure`,
+while cross-contract unrelated overloads and duplicate root function names in a
+single slice are rejected. Custom-error arguments accept pure compile-time
+constant scalar expressions (`address(0)`, `type(T).max`/`min`, and named numeric
+constants) that lower to canonical literals with empty preludes alongside direct
+scalar bindings and literals. Conditional tuple expressions (`cond ? (...) : (...)`)
+in tuple declarations and assignments convert leaf components to the target types
+and join branches through fresh temporaries and `Stmt.ite`, rejecting stateful or
+assignment tuple components. Single-assignment inline assembly supports `tload(slot)`
+via `Expr.tload` over `DenoteState.transientStorage`.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears
