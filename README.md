@@ -1,4 +1,8 @@
-# Verity
+<p align="center">
+  <img src="verity.svg" alt="Verity" width="200" />
+</p>
+
+<h1 align="center">Verity</h1>
 
 A formally verified smart contract compiler for Ethereum, written in
 [Lean 4](https://lean-lang.org/). Write a contract in an embedded DSL (or
