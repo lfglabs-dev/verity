@@ -13,7 +13,7 @@ private def model (events : List EventDef) (values : List Expr) : CompilationMod
   { name := "EventRejections", fields := [], constructor := none, events, functions := [
     { name := "f", params := [], returnType := none, body := [.emit "Changed" values, .returnValues []] }] }
 private def input : String :=
-  "{\"account\":\"1\",\"storage\":[],\"transactions\":[{\"id\":\"0\",\"function\":\"f\",\"args\":[],\"sender\":\"2\",\"target\":\"1\",\"value\":\"0\",\"timestamp\":\"100\",\"blockNumber\":\"2\",\"observe\":[]}]}"
+  "{\"account\":\"1\",\"storage\":[],\"transactions\":[{\"id\":\"0\",\"function\":\"f\",\"args\":[],\"selector\":\"638722032\",\"sender\":\"2\",\"target\":\"1\",\"value\":\"0\",\"timestamp\":\"100\",\"blockNumber\":\"2\",\"observe\":[]}]}"
 
 def runChecks : IO Unit := do
   let request ← IO.ofExcept (Lean.Json.parse input)
@@ -33,11 +33,28 @@ def runChecks : IO Unit := do
     "observed event must resolve uniquely: Changed"
   reject "missing argument" (model [definition] [.literal 7]) "event argument count differs"
   reject "extra argument" (model [definition] (values ++ [.literal 10])) "event argument count differs"
+  -- Address events are now supported; retain the former negative case as a
+  -- positive control and check cleanup of dirty scalar values explicitly.
+  for (ty, dirty, expected) in [
+      (ParamType.address, 2^160 + 7, "7"), (.uint8, 2^8 + 7, "7"),
+      (.uint16, 2^16 + 7, "7"), (.uintN 128, 2^128 + 7, "7"),
+      (.bool, 2, "1")] do
+    let scalar := { definition with params := [
+      { name := "previous", ty, kind := .indexed },
+      { name := "next", ty := .uint256, kind := .unindexed }] }
+    let result ← IO.ofExcept (SequenceRunner.execute (model [scalar] [.literal dirty, .literal 9]) oracle request)
+    let resultRows ← IO.ofExcept result.getArr?
+    let emitted ← IO.ofExcept ((← IO.ofExcept (resultRows[0]!.getObjVal? "events")).getArr?)
+    unless emitted.size == 1 do throw (IO.userError "scalar event missing")
+    let topics ← IO.ofExcept ((← IO.ofExcept (emitted[0]!.getObjVal? "topics")).getArr?)
+    let actual ← IO.ofExcept topics[1]!.getStr?
+    unless actual == "0x" ++ String.ofList (List.replicate 63 '0') ++ expected do
+      throw (IO.userError "scalar event cleanup differs")
   let unsupported := { definition with params := [
-    { name := "previous", ty := .address, kind := .indexed },
+    { name := "previous", ty := .bytesN 16, kind := .indexed },
     { name := "next", ty := .uint256, kind := .unindexed }] }
   reject "unsupported type" (model [unsupported] values)
-    "event observation currently requires uint256 parameters"
+    "unsupported event observation parameter type"
   let excess := { definition with params := List.replicate 4 ({ name := "topic", ty := .uint256, kind := .indexed } : EventParam) }
   reject "too many topics" (model [excess] (List.replicate 4 (.literal 1)))
     "event has more than three indexed parameters"

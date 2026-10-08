@@ -1,0 +1,15 @@
+{
+  "repository": "morpho-org/midnight",
+  "commit": "96d31343e993329e7a593dde46516a2c0cbcd142",
+  "files": {
+    "libraries/IdLib.sol": {
+      "source": "src/libraries/IdLib.sol",
+      "sha256": "a4fad41d5f053b6f1873c728d6531694a1c348fc3488d1ae0c1571d1765e2dfb"
+    },
+    "interfaces/IMidnight.sol": {
+      "source": "src/interfaces/IMidnight.sol",
+      "sha256": "b1a0cbcd9de9ce3781bd12cdd0a8665361f988fd23d0219217ff4e7981710475"
+    }
+  },
+  "note": "Unmodified files for imported IdLib.toId hashing fixture; existing pilot provenance unchanged."
+}

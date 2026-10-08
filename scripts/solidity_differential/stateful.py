@@ -129,6 +129,32 @@ def shrink_sequence(transactions, replay, max_attempts=1000):
         raise HarnessError('sequence has no divergence')
     target = initial[0]['signature']
     attempts = 1
+    # Remove contiguous chunks first. Long campaigns otherwise replay nearly
+    # the entire sequence once for every irrelevant transaction. Every accepted
+    # candidate must reproduce the same mismatch category from the original
+    # pre-state; the deletion-by-one pass below still establishes minimality.
+    granularity = 2
+    while len(best) > 2 and attempts < max_attempts - 1:
+        size = (len(best) + granularity - 1) // granularity
+        reduced = False
+        for start in range(0, len(best), size):
+            if attempts >= max_attempts - 1:
+                break
+            candidate = best[:start] + best[start + size:]
+            if not candidate:
+                continue
+            result = replay(copy.deepcopy(candidate))
+            attempts += 1
+            if result and result[0]['signature'] == target:
+                best = candidate
+                granularity = max(2, granularity - 1)
+                reduced = True
+                break
+        if reduced:
+            continue
+        if granularity >= len(best):
+            break
+        granularity = min(len(best), granularity * 2)
     index = 0
     while index < len(best) and len(best) > 1 and attempts < max_attempts - 1:
         candidate = best[:index] + best[index + 1:]

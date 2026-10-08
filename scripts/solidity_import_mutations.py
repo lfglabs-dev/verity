@@ -53,8 +53,16 @@ def witnessWorld (credit pending lossFactor lastLoss lastAccrual : Nat) : Verity
       | _ => 0
     Verity.Core.Uint256.ofNat word
 
-def witnessBindings (maturity : Nat) : Env :=
-  [("m_maturity", maturity), ("id", 1), ("user", 2)]
+def witnessCalldata (maturity : Nat) : List Nat :=
+  [96, 1, 2, 0, 96, maturity, 0]
+
+def runWitness (world : Verity.ContractState) (timestamp maturity : Nat) : Option (List Nat) :=
+  match imported.model.functions with
+  | fn :: _ =>
+    let result := denoteFunction sliceOracle imported.model fn
+      { sender := 0, functionSelector := 0, blockTimestamp := timestamp, args := witnessCalldata maturity } world
+    if result.success then some result.returnWords else none
+  | [] => none
 
 def body : List Stmt :=
   match imported.model.functions with
@@ -64,12 +72,10 @@ def body : List Stmt :=
 #eval IO.println imported.report.sourceDigest
 
 #eval show IO Unit from do
-  let success := denoteScalarBody sliceOracle imported.model.fields
-    (witnessWorld 100 10 0 0 0) 50 (witnessBindings 100) body
+  let success := runWitness (witnessWorld 100 10 0 0 0) 50 100
   unless success == some [95, 5, 5] do
     throw (IO.userError s!"witness changed: {success}")
-  let reverted := denoteScalarBody sliceOracle imported.model.fields
-    (witnessWorld 1 2 0 0 0) 1 (witnessBindings 1) body
+  let reverted := runWitness (witnessWorld 1 2 0 0 0) 1 1
   unless reverted == none do
     throw (IO.userError s!"revert witness changed: {reverted}")
   IO.println imported.report.sourceDigest
@@ -238,7 +244,7 @@ def implicit_return(dest: Path) -> None:
         "return (uint128(post) - fee, uint128(postFee) - fee, fee);", ""))
 
 
-def projected_name_collision(dest: Path) -> None:
+def former_projection_name_collision(dest: Path) -> None:
     path = dest / "Slice.sol"
     path.write_text(path.read_text().replace("bytes32 id,", "bytes32 m_maturity,")
                     .replace("[id]", "[m_maturity]"))
@@ -294,11 +300,29 @@ def main() -> None:
     expect_success("unrelated-layout", write_project("unrelated-layout", unrelated_layout), witness=True)
     expect_failure("named-arguments", write_project("named-arguments", named_arguments), "named call arguments")
     expect_failure("implicit-return", write_project("implicit-return", implicit_return), "explicit root return")
-    diagnostic = expect_failure("uninitialized-local", write_project("uninitialized-local", uninitialized_local),
-                                "local declarations without an initializer")
-    if not re.search(r"Slice\.sol:\d+:\d+: VariableDeclarationStatement:", diagnostic):
-        raise SystemExit("uninitialized local lacks a Solidity source diagnostic")
-    expect_failure("projection-name-collision", write_project("projection-name", projected_name_collision), "projected parameter name collision")
+    # Scalar defaults are now supported; retain the original execution witness.
+    expect_success("uninitialized-local", write_project("uninitialized-local", uninitialized_local), witness=True)
+    def unsupported_default(dest: Path) -> None:
+        uninitialized_local(dest)
+        path = dest / "Slice.sol"
+        source = path.read_text()
+        assert source.count("uint128 ignored;") == 1
+        path.write_text(source.replace("uint128 ignored;", "int128 ignored;"))
+    diagnostic = expect_failure("signed-default-local", write_project("signed-default-local", unsupported_default),
+                                "unsupported default local type int128")
+    if not re.search(r"Slice\.sol:\d+:\d+: VariableDeclaration:", diagnostic):
+        raise SystemExit("unsupported default local lacks a Solidity source diagnostic")
+    # The old flattened name is now legal: full tuple parameters must retain their
+    # identity and the unchanged execution witness must still hold.
+    expect_success("former-projection-name-hygiene",
+                   write_project("projection-name", former_projection_name_collision), witness=True,
+                   extra=r'''
+#eval show IO Unit from do
+  let some fn := imported.model.functions.head? | throw (IO.userError "missing imported function")
+  let names := fn.params.map (·.name)
+  unless names == ["m", "m_maturity", "user"] && imported.report.projections.isEmpty do
+    throw (IO.userError "complete tuple signature was replaced by scalar projections")
+''')
     namespaced = WORK / "base/Namespaced.lean"
     namespaced.write_text(HEADER.format(root=WORK / "base").replace(
         "solidity_import imported", "namespace Nested\nsolidity_import imported") +
@@ -308,15 +332,33 @@ def main() -> None:
         raise SystemExit(result.stdout + result.stderr)
     print("pass namespaced-import")
     expect_success("shadowed-block", write_project("shadowed-block", shadow_builtin), witness=False,
-                   extra='\n#eval show IO Unit from do\n  unless imported.report.projections.any (fun p => p.member == "timestamp") do\n    throw (IO.userError "shadowed block was treated as a builtin")\n')
+                   extra=WITNESS[:WITNESS.index("#eval")] + r'''
+#eval show IO Unit from do
+  let some fn := imported.model.functions.head? | throw (IO.userError "missing imported function")
+  -- The first tuple member is the shadowing struct's timestamp (50), whereas
+  -- the real environment timestamp is 999. Confusing them changes the fee.
+  let result := denoteFunction sliceOracle imported.model fn
+    { sender := 0, functionSelector := 0, blockTimestamp := 999,
+      args := [96, 1, 2, 50, 96, 100, 0] } (witnessWorld 100 10 0 0 0)
+  unless result.success && result.returnWords == [95, 5, 5] do
+    throw (IO.userError "shadowed block was treated as a builtin")
+  unless fn.params.map (·.name) == ["block", "id", "user"] &&
+      imported.report.projections.isEmpty do
+    throw (IO.userError "shadowed struct lost its complete ABI signature")
+''')
     expect_success("narrow-multiply-overflow", write_project("narrow-multiply", narrow_multiply), witness=False,
                    extra=r'''
 #eval show IO Unit from do
   let oracle : DenoteOracle := { mappingSlot := fun _ _ => 0, keccakMemorySlice := fun _ _ _ => 0 }
-  let body := match imported.model.functions with | f :: _ => f.body | [] => []
-  let run := fun maturity => denoteScalarBody oracle imported.model.fields Verity.defaultState 0 [("m_maturity", maturity)] body
-  unless run 3 == some [9, 0, 0] do throw (IO.userError "small uint248 product changed")
-  unless run (2^128) == none do throw (IO.userError "uint248 product overflow was accepted")
+  let some fn := imported.model.functions.head? | throw (IO.userError "missing imported function")
+  -- Mkt is a static one-word tuple in this fixture, followed by id and user.
+  let run := fun maturity => denoteFunction oracle imported.model fn
+    { sender := 0, functionSelector := 0, args := [maturity, 1, 2] } Verity.defaultState
+  let small := run 3
+  unless small.success && small.returnWords == [9, 0, 0] do
+    throw (IO.userError "small uint248 product changed")
+  unless !(run (2^128)).success do
+    throw (IO.userError "uint248 product overflow was accepted")
 ''')
     two_roots = WORK / "base/TwoRoots.lean"
     two_roots.write_text("import Compiler.SolidityImport.Differential\n" + HEADER.format(root=WORK / "base") + WITNESS + f'''
@@ -417,7 +459,58 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-mapping-write-two',
                    'import-mapping-delete',
                    'import-mapping-bool-literal',
-                   'import-mapping-bool-read'):
+                   'import-mapping-bool-read', 'import-logical-and-branch',
+                   'import-logical-or-branch', 'import-logical-initial-value',
+                   'import-yul-result-scope', 'import-yul-numeric-literal', 'import-yul-numeric-add', 'import-named-helper-default', 'import-named-helper-fallthrough', 'import-named-helper-assembly', 'import-named-helper-width', 'import-named-helper-bool', 'import-named-helper-frame', 'import-named-helper-branch', 'import-byte-local-pointer', 'import-byte-local-length', 'import-byte-local-initialize', 'import-discarded-helper-drop', 'import-discarded-helper-emit', 'import-array-write-order', 'import-array-write-capture', 'import-fixed-array-snapshot-read', 'import-fixed-array-read-bound', 'import-fixed-array-snapshot-bound', 'import-fixed-array-word', 'import-fixed-array-bit', 'import-fixed-array-capture', 'import-fixed-array-read', 'import-fixed-array-bound', 'import-fixed-array-write', 'import-fixed-array-two-keys', 'import-fixed-array-snapshot', 'import-fixed-array-delete', 'import-helper-effect-drop', 'import-packed-member-delete', 'import-packed-member-value', 'import-packed-member-target', 'import-packed-member-two-keys', 'import-packed-member-capture', 'import-helper-loop-block', 'import-helper-loop-branch', 'import-helper-loop-nested', 'import-helper-loop-drop', 'import-helper-loop-effect', 'import-helper-loop-emit', 'import-invariant-for-bound', 'import-invariant-for-counter', 'import-local-write-value', 'import-local-write-delete', 'import-default-local-zero', 'import-modulo-value', 'import-modulo-zero', 'import-constant-array-element', 'import-constant-array-selection',
+                   'import-constant-array-bound', 'import-numeric-leading-dot', 'import-numeric-separators',
+                   'import-numeric-constant-product', 'import-numeric-constant-sum', 'import-numeric-constant-value', 'import-numeric-decimal-scale',
+                   'import-numeric-positive-exponent', 'import-numeric-negative-exponent',
+                   'import-numeric-hex-value', 'import-numeric-integral-value',
+                   'import-numeric-unit-minutes', 'import-numeric-unit-hours',
+                   'import-numeric-unit-days', 'import-numeric-unit-weeks',
+                   'import-numeric-unit-gwei', 'import-numeric-unit-ether',
+                   'import-numeric-unit-one',
+                   'import-if-root-swap', 'import-if-root-else-drop',
+                   'import-if-helper-swap', 'import-if-helper-guard-swap',
+                   'import-abi-source-offset', 'import-abi-drop', 'import-abi-offset', 'import-abi-uint-bound',
+                   'import-abi-address-bound', 'import-abi-bool-bound',
+                   'import-abi-inclusive', 'import-abi-revert',
+                   'import-struct-tuple-order',
+                   'import-struct-memory-drop',
+                   'import-struct-calldata-eager',
+                   'import-struct-calldata-drop',
+                   'import-struct-member-value',
+                   'import-struct-member-offset',
+                   'import-struct-head-base',
+                   'import-struct-memory-offset',
+                   'denote-struct-member-offset',
+                   'denote-struct-member-name',
+                   'denote-struct-member-value',
+
+                   'import-event-converted-binding', 'import-event-indexed', 'import-event-drop', 'import-event-values',
+                   'import-event-signature', 'observe-event-word', 'observe-event-narrow',
+                   'observe-event-address', 'observe-event-bool',
+                   'import-scalar-array-source-stride',
+                   'import-scalar-array-memory-stride',
+                   'import-scalar-array-validation',
+                   'import-scalar-array-length',
+                   'import-abi-length-for-capture', 'import-abi-length-for-zero', 'import-abi-array-length-calldata', 'import-abi-array-length-memory',
+                   'import-market-root-offset',
+                   'import-market-root-size',
+                   'import-market-calldata-array-size',
+                   'import-market-memory-panic',
+                   'import-market-struct-source-stride',
+                   'import-market-struct-pointer-stride',
+                   'import-market-struct-validation',
+                   'import-market-calldata-element-stride',
+                   'import-market-memory-element-stride',
+                   'import-market-member-validation',
+                   'import-market-root-scalar-validation',
+                   'import-market-memory-scalar-read',
+                   'import-market-calldata-scalar-read',
+                   'import-market-calldata-root-validation',
+                   'import-market-calldata-index-bounds',
+                   'import-dynamic-root-parameter-offset'):
         output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
         subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                         "--mutations", "--mutant", mutant, "--output", str(output)],
@@ -426,10 +519,102 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
         if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
             raise SystemExit(f"{mutant}: expected a runtime differential divergence")
         print(f"pass {mutant}")
+    # Removing an order guard must change a located rejection to admission.
+    for mutant in ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard'):
+        output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
+        subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
+                        "--mutations", "--mutant", mutant, "--output", str(output)],
+                       cwd=ROOT, check=True, timeout=900)
+        results = json.loads((output / "mutation-results.json").read_text())
+        if (len(results) != 1 or results[0]['mutant'] != mutant
+                or not results[0]['detected'] or not results[0]['baselinePassed']
+                or results[0]['kind'] != 'unsupported-order-admission'):
+            raise SystemExit(f'{mutant}: exact negative control guard mutation escaped detection')
+        print(f'pass {mutant} exact rejection guard')
+    # Quotation corruption is rejected before an executable model exists.
+    quote_output = Path(tempfile.mkdtemp(prefix="modulo-quote-integrity-", dir=WORK))
+    subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
+                    "--mutations", "--mutant", "import-modulo-quote", "--output", str(quote_output)],
+                   cwd=ROOT, check=True, timeout=900)
+    quote_results = json.loads((quote_output / "mutation-results.json").read_text())
+    if (len(quote_results) != 1 or quote_results[0]["mutant"] != "import-modulo-quote"
+            or not quote_results[0]["baselinePassed"]
+            or quote_results[0]["kind"] != "model-integrity-rejection"
+            or quote_results[0]["diagnostic"] != "internal: the elaborated model differs from the imported value"):
+        raise SystemExit("modulo quotation corruption escaped the exact integrity check")
+    print("pass import-modulo-quote integrity rejection")
     subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
                    cwd=ROOT, check=True, timeout=300)
     subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_storage_rejections.py")],
                    cwd=ROOT, check=True, timeout=300)
+    output = Path(tempfile.mkdtemp(prefix="scalar-array-rejections-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_scalar_array_abi_rejections",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=300)
+    output = Path(tempfile.mkdtemp(prefix="market-rejections-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_market_abi_rejections",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=300)
+    output = Path(tempfile.mkdtemp(prefix="block-mutations-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_block_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=1800)
+    block_result = json.loads((output / "complete.json").read_text())
+    if (block_result["mutant"] != "import-block-drop" or not block_result["detected"]
+            or not block_result["baselinePassed"] or not block_result["witness"]["deletion_minimal"]):
+        raise SystemExit("block mutation requires detected minimal runtime witness")
+    print("pass import-block-drop")
+    output = Path(tempfile.mkdtemp(prefix="reference-mutations-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_reference_argument_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=1800)
+    reference = json.loads((output / "complete.json").read_text())
+    if (reference["mutant"] != "import-reference-wrong-root" or not reference["detected"]
+            or not reference["baselinePassed"] or not reference["witness"]["deletion_minimal"]):
+        raise SystemExit("reference mutation requires detected minimal runtime witness")
+    print("pass import-reference-wrong-root")
+    for module, label in [
+        ("check_reference_boundary_mutations", "reference-boundary"),
+        ("check_reference_location_mutation", "reference-location"),
+    ]:
+        output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
+        launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                    f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
+        subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                       cwd=ROOT, check=True, timeout=2400)
+        result = json.loads((output / "complete.json").read_text())
+        if label == "reference-boundary":
+            controls = result["results"]
+            if result["exit"] != 0 or {c["mutant"] for c in controls} != {"external-library", "yul-shadow"}:
+                raise SystemExit("reference boundary mutation coverage incomplete")
+            if not all(c["detected"] and c["baselinePassed"] and c["unsupportedInputImported"] for c in controls):
+                raise SystemExit("reference boundary mutants require actual unsupported admission")
+        elif (result["mutant"] != "import-reference-location-guard" or not result["detected"]
+              or not result["baselinePassed"] or not result["unsupportedCopyImported"]):
+            raise SystemExit("reference location mutant requires actual unsupported copy admission")
+        print("pass " + label)
+    output = Path(tempfile.mkdtemp(prefix="hashing-mutations-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_hashing_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=7200)
+    hashing = json.loads((output / "complete.json").read_text())
+    expected_hashing_mutants = {
+        "hash-word-stride", "hash-root-offset", "hash-root-field", "hash-static-root-field",
+        "hash-array-length", "hash-array-destination-stride", "hash-literal-value",
+        "hash-literal-length", "hash-packed-address-width", "hash-packed-scalar-value",
+        "hash-copy-byte-shift", "hash-copy-zero-fill", "hash-buffer-identity",
+        "hash-keccak-length", "hash-hex-number"}
+    if hashing["exit"] != 0 or {r["mutant"] for r in hashing["results"]} != expected_hashing_mutants:
+        raise SystemExit("hashing mutation coverage incomplete")
+    if not all(r["detected"] and r["baselinePassed"] and r["witness"]["deletion_minimal"]
+               and r["witness"]["transactions"] for r in hashing["results"]):
+        raise SystemExit("hashing mutants require minimal reproduced runtime witnesses")
+    print("pass ABI hashing mutations")
     print("import mutations passed")
 
 

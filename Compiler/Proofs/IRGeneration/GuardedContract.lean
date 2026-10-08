@@ -69,7 +69,7 @@ binding only fails on arity, where both the plain and the guarded semantics
 revert — the lock overlay is invisible in the reverted result). -/
 theorem guardedFunctionChoice_bindFail (model : CompilationModel)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
-    (fn : FunctionSpec)
+    (fn : FunctionSpec) {habi : fn.abiDecoding = .standard}
     (hparams : ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty)
     (hbindNone : SourceSemantics.bindSupportedParams fn.params tx.args = none) :
     guardedFunctionChoice model tx initialWorld fn =
@@ -89,6 +89,7 @@ theorem guardedFunctionChoice_bindFail (model : CompilationModel)
         (SourceSemantics.withTransactionContext world tx) := by
     intro world
     unfold SourceSemantics.interpretFunction
+    simp only [FunctionSpec.bindingParams, habi]
     rw [hext]
   unfold guardedFunctionChoice
   cases hnl : fn.nonReentrantLock with
@@ -153,7 +154,8 @@ theorem compile_preserves_semantics_guarded
     model selectors ir.functions tx initialWorld
     (fun fn sel irFn hP => compileGuardedFunctionSpec_ok_metadata
       model.fields model.events model.errors [] sel fn irFn hP)
-    (fun fn hmem hbindNone => guardedFunctionChoice_bindFail model tx
+    (fun fn hmem hbindNone => guardedFunctionChoice_bindFail
+      (habi := (hSupported.functions fn (List.mem_of_mem_filter hmem)).standardAbi) model tx
       initialWorld fn (hparamsSupported fn hmem) hbindNone)
     hcompiled hparamsSupported hfunction
 

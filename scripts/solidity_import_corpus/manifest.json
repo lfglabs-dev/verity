@@ -100,15 +100,36 @@
       "contracts": [
         {
           "entry": "contracts/IdleCDOCreditVault.sol",
-          "contract": "IdleCDOCreditVault"
+          "contract": "IdleCDOCreditVault",
+          "profile": {
+            "solc": "0.8.10+commit.fc410830",
+            "evmVersion": "london",
+            "viaIR": false,
+            "optimizerRuns": 1,
+            "bytecodeHash": "none"
+          }
         },
         {
           "entry": "contracts/IdleCDOEpochVariant.sol",
-          "contract": "IdleCDOEpochVariant"
+          "contract": "IdleCDOEpochVariant",
+          "profile": {
+            "solc": "0.8.10+commit.fc410830",
+            "evmVersion": "london",
+            "viaIR": false,
+            "optimizerRuns": 1,
+            "bytecodeHash": "none"
+          }
         },
         {
           "entry": "contracts/strategies/idle/IdleCreditVault.sol",
-          "contract": "IdleCreditVault"
+          "contract": "IdleCreditVault",
+          "profile": {
+            "solc": "0.8.10+commit.fc410830",
+            "evmVersion": "london",
+            "viaIR": false,
+            "optimizerRuns": 999999,
+            "bytecodeHash": "none"
+          }
         }
       ],
       "dependencies": [

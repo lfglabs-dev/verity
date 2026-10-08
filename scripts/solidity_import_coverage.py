@@ -292,9 +292,19 @@ def probe(function, target, source_root, out, workspace, timeout):
             'file': function['file'], 'line': function['line'], 'column': function['column'],
             'construct': function['kind'], 'reason': 'solidity_import selects named functions only'}}
     driver = out / 'Probe.lean'
+    profile = target.get('profile')
+    if profile is None:
+        using_clause = '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }'
+    else:
+        runs = 'none' if profile.get('optimizerRuns') is None else f'some {int(profile["optimizerRuns"])}'
+        via_ir = 'true' if profile.get('viaIR', False) else 'false'
+        using_clause = (f'{{ solc := {json.dumps(profile["solc"])}, '
+                        f'evmVersion := {json.dumps(profile["evmVersion"])}, '
+                        f'viaIR := {via_ir}, optimizerRuns := {runs}, '
+                        f'bytecodeHash := {json.dumps(profile.get("bytecodeHash", "none"))} }}')
     driver.write_text('import Compiler.SolidityImport.Import\n'
         + f'solidity_import measured from {json.dumps(str(source_root))} entry {json.dumps(target["entry"])}\n'
-        + '  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }\n'
+        + f'  using {using_clause}\n'
         + f'  contract {ident(target["contract"])}\n'
         + f'  function {ident(name)}({", ".join(ident(t) for t in function["types"])})\n'
         + '#eval show IO Unit from do\n'
@@ -432,6 +442,12 @@ def main():
                 source_root = checkout(project, cache, args.fetch)
                 dependencies(project, source_root, cache, args.fetch)
                 solc = compiler(project['inventory_solc'], manifest, cache, args.fetch)
+                if project['inventory_solc'] in ('0.8.10', '0.8.34'):
+                    staged = workspace / '.lake' / 'solidity-import' / ('solc-' + project['inventory_solc'])
+                    if not staged.exists() or sha(staged) != sha(solc):
+                        staged.parent.mkdir(parents=True, exist_ok=True)
+                        staged.write_bytes(solc.read_bytes())
+                        staged.chmod(0o755)
                 item['source_sha256'] = sha(source_root / target['entry'])
                 functions = inventory(project, target, source_root, solc, dest)
                 for i, fn in enumerate(functions):

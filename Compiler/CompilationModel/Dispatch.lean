@@ -180,9 +180,9 @@ def compileFunctionSpec (fields : List Field) (events : List EventDef) (errors :
     Except String IRFunction := do
   validateFunctionSpec spec
   let returns ← functionReturns spec
-  let paramLoads := genParamLoads spec.params
+  let paramLoads := genParamLoads spec.bindingParams
   let bodyStmts ← compileStmtListWithFork fields events errors .calldata [] false
-    (spec.params.map (·.name)) adtTypes targetFork spec.body internalFunctions
+    (spec.bindingParams.map (·.name)) adtTypes targetFork spec.body internalFunctions
   let allStmts := paramLoads ++ bodyStmts
   let retType := match returns with
     | [single] => single.toIRType
@@ -324,7 +324,7 @@ def attachNonReentrantGuard (fields : List Field) (spec : FunctionSpec)
   | none => pure irFn
   | some lockField => do
       let guardStmts ← nonReentrantGuardPrologue fields lockField
-      let paramLoadCount := (genParamLoads spec.params).length
+      let paramLoadCount := (genParamLoads spec.bindingParams).length
       let (prefixLoads, suffix) := irFn.body.splitAt paramLoadCount
       -- Release the transient lock on every *successful* exit so a later
       -- top-level call to a same-lock nonreentrant entry in the same tx is

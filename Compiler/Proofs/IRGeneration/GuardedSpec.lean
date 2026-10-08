@@ -28,6 +28,7 @@ structure SupportedFunctionGuarded (spec : CompilationModel)
     ∃ field slot,
       findFieldWithResolvedSlot spec.fields lockField = some (field, slot) ∧
         slot < Compiler.Constants.evmModulus
+  standardAbi : fn.abiDecoding = .standard
   params : SupportedParamProfile fn.params
   returns : SupportedReturnProfile fn
   body : SupportedBodyInterface spec fn
@@ -45,6 +46,7 @@ structure SupportedSpecGuarded (spec : CompilationModel)
 /-- Every lock-free supported function is guarded-supported. -/
 def SupportedFunction.toGuarded {spec : CompilationModel} {fn : FunctionSpec}
     (h : SupportedFunction spec fn) : SupportedFunctionGuarded spec fn where
+  standardAbi := h.standardAbi
   nonInternal := h.nonInternal
   nonSpecialEntrypoint := h.nonSpecialEntrypoint
   lockResolved := fun lockField hlock => by

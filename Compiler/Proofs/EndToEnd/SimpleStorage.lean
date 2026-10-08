@@ -5646,6 +5646,7 @@ private theorem selectedCompiledFunction_oneParam_store0_value_stop_shape_of_for
           CompilationModel.compileFunctionSpec fields events errors
             [] entry.2 entry.1 = Except.ok irFn)
         pairs irFns)
+    (habi : ∀ entry ∈ pairs, entry.1.abiDecoding = .standard)
     (hSourceParams :
       ∀ entry, entry ∈ pairs → entry.2 = tx.functionSelector →
         entry.1.params =
@@ -5693,12 +5694,14 @@ private theorem selectedCompiledFunction_oneParam_store0_value_stop_shape_of_for
             entry.1.params =
               [{ name := "value", ty := CompilationModel.ParamType.uint256 }] :=
           hSourceParams entry hEntryMem hEntrySelector
+        have hBindings : entry.1.bindingParams = entry.1.params := by
+          simp [CompilationModel.FunctionSpec.bindingParams, habi entry hEntryMem]
         have hBodyStmts :
             bodyStmts =
               [Yul.YulStmt.exprStmt (Yul.YulExpr.call "sstore"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.ident "value"]),
               Yul.YulStmt.exprStmt (Yul.YulExpr.call "stop" [])] :=
-          hSourceBody entry bodyStmts hEntryMem hEntrySelector hbody
+          hSourceBody entry bodyStmts hEntryMem hEntrySelector (by simpa [hBindings] using hbody)
         constructor
         · rw [hirFn]
           simp [Compiler.Proofs.IRGeneration.FunctionShape.compiledFunctionIR,
@@ -5706,12 +5709,13 @@ private theorem selectedCompiledFunction_oneParam_store0_value_stop_shape_of_for
             CompilationModel.ParamType.toIRType]
         · rw [hirFn]
           simp [Compiler.Proofs.IRGeneration.FunctionShape.compiledFunctionIR,
-            hSpecParams, hBodyStmts]
+            hBindings, hSpecParams, hBodyStmts]
       · have hFindTail :
             tailIr.find? (fun fn => fn.selector == tx.functionSelector) =
               some irFn := by
           simpa [hSelector] using hFind
         exact ih
+          (fun entry' hMem => habi entry' (by simp [hMem]))
           (fun entry' hMem =>
             hSourceParams entry' (by simp [hMem]))
           (fun entry' bodyStmts hMem =>
@@ -5756,8 +5760,12 @@ private theorem selectedGeneratedFunction_oneParam_store0_value_stop_shape_of_co
       spec selectors hSupported irContract hcompile
   exact
     selectedCompiledFunction_oneParam_store0_value_stop_shape_of_forall₂
-      spec.fields spec.events spec.errors tx hcompiled hSourceParams
-      hSourceBody irFn hFind
+      spec.fields spec.events spec.errors tx hcompiled (by
+        intro entry hentry
+        have hfn : entry.1 ∈ selectorDispatchedFunctions spec := by
+          simpa [SourceSemantics.selectorFunctionPairs] using (List.of_mem_zip hentry).1
+        exact (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
+      hSourceParams hSourceBody irFn hFind
 
 private theorem nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_source_oneParam_store0_value_stop
     (spec : CompilationModel.CompilationModel) (selectors : List Nat)
@@ -7518,20 +7526,23 @@ private theorem selectedCompiledFunction_zeroParam_lit_return32_shape_of_forall�
         have hEntryMem : entry ∈ entry :: tailPairs := by simp
         have hSpecParams : entry.1.params = [] :=
           hSourceParams entry hEntryMem hEntrySelector
+        have hBindings : entry.1.bindingParams = entry.1.params := by
+          cases h : entry.1.abiDecoding <;>
+            simp [CompilationModel.FunctionSpec.bindingParams, h, hSpecParams]
         have hBodyStmts :
             bodyStmts =
               [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.lit value]),
               Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] :=
-          hSourceBody entry bodyStmts hEntryMem hEntrySelector hbody
+          hSourceBody entry bodyStmts hEntryMem hEntrySelector (by simpa [hBindings] using hbody)
         constructor
         · rw [hirFn]
           simp [Compiler.Proofs.IRGeneration.FunctionShape.compiledFunctionIR,
             hSpecParams]
         · rw [hirFn]
           simp [Compiler.Proofs.IRGeneration.FunctionShape.compiledFunctionIR,
-            hSpecParams, hBodyStmts]
+            hBindings, hSpecParams, hBodyStmts]
       · have hFindTail :
             tailIr.find? (fun fn => fn.selector == tx.functionSelector) =
               some irFn := by
@@ -7643,20 +7654,23 @@ private theorem selectedCompiledFunction_zeroParam_sload0_return32_shape_of_fora
         have hEntryMem : entry ∈ entry :: tailPairs := by simp
         have hSpecParams : entry.1.params = [] :=
           hSourceParams entry hEntryMem hEntrySelector
+        have hBindings : entry.1.bindingParams = entry.1.params := by
+          cases h : entry.1.abiDecoding <;>
+            simp [CompilationModel.FunctionSpec.bindingParams, h, hSpecParams]
         have hBodyStmts :
             bodyStmts =
               [Yul.YulStmt.exprStmt (Yul.YulExpr.call "mstore"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.call "sload" [Yul.YulExpr.lit 0]]),
               Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
                 [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] :=
-          hSourceBody entry bodyStmts hEntryMem hEntrySelector hbody
+          hSourceBody entry bodyStmts hEntryMem hEntrySelector (by simpa [hBindings] using hbody)
         constructor
         · rw [hirFn]
           simp [Compiler.Proofs.IRGeneration.FunctionShape.compiledFunctionIR,
             hSpecParams]
         · rw [hirFn]
           simp [Compiler.Proofs.IRGeneration.FunctionShape.compiledFunctionIR,
-            hSpecParams, hBodyStmts]
+            hBindings, hSpecParams, hBodyStmts]
       · have hFindTail :
             tailIr.find? (fun fn => fn.selector == tx.functionSelector) =
               some irFn := by

@@ -3976,7 +3976,7 @@ def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
     SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindExternalParams tx.functionSelector fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
       match execStmtListWithEvents fields spec.events
@@ -5009,7 +5009,7 @@ def interpretFunctionWithHelpers
     SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindExternalParams tx.functionSelector fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
       match execStmtListWithHelpers spec fields fuel
@@ -6665,7 +6665,7 @@ theorem interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
       interpretFunction spec fn tx initialWorld := by
   unfold interpretFunctionWithHelpers interpretFunction
   simp only
-  cases hbind : bindExternalParams tx.functionSelector fn.params tx.args with
+  cases hbind : bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none =>
       simp
   | some bindings =>

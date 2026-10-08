@@ -130,7 +130,7 @@ theorem denote_eq_sourceSemantics
     withTransactionContext_eq, effectiveFields_eq, Denote.bindExternalParams,
     SourceSemantics.bindExternalParams, toIRTransaction_functionSelector,
     toIRTransaction_args]
-  cases hbind : DynamicAbi.bindExternalParams tx.functionSelector fn.params tx.args with
+  cases hbind : DynamicAbi.bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none =>
       simp only [revertedResult_eq]
   | some bindings =>

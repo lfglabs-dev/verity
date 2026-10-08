@@ -54,7 +54,6 @@ private def jsonBytes (bytes : List UInt8) : Json :=
 private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : Except String Json := do
   let ident ← j.getObjValAs? String "id"
   let args ← words (← j.getObjVal? "args")
-  unless args.length == fn.params.length do throw "model argument count mismatch"
   let storage ← pairs (← j.getObjVal? "storage")
   let slots ← words (← j.getObjVal? "observe")
   unless (storage.map Prod.fst).eraseDups.length == storage.length do
@@ -64,18 +63,28 @@ private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : 
     match slot with
     | .slot n => Uint256.ofNat ((storage.find? (fun p => p.1 == n)).map Prod.snd |>.getD 0)
     | _ => Verity.defaultState.storageWords slot
-  let initial : DenoteState :=
-    { world := { world with blockTimestamp := Uint256.ofNat timestamp }
-      bindings := fn.params.map (·.name) |>.zip args
-      errors := model.errors }
-  let result := execStmtList oracle model.fields initial fn.body
-  let (status, output, data, finalWorld) ← match result with
-    | .stop final => match final.observedReturnWords with
-      | some xs => pure ("ok", xs, xs.flatMap wordBytes, final.world)
-      | none => throw "covered slice stopped without return words"
-    | .revertWithData bytes => pure ("revert", [], bytes, initial.world)
-    | .revert => throw "Denote failure has no exact revert observation"
-    | _ => throw "covered slice did not return or revert"
+  let tx : DenoteTransaction :=
+    { sender := 0, functionSelector := 0x12345678, args := args,
+      blockTimestamp := Uint256.ofNat timestamp }
+  let worldWithTx := withTransactionContext world tx
+  let publicResult := denoteFunction oracle model fn tx world
+  let (status, output, data, finalWorld) ←
+    match bindExternalParams tx.functionSelector fn.bindingParams args with
+    | none => pure ("revert", [], [], worldWithTx)
+    | some bindings => do
+      let initial : DenoteState :=
+        { world := worldWithTx, bindings := bindings,
+          selector := tx.functionSelector, errors := model.errors }
+      let result := execStmtList oracle (effectiveFields model) initial fn.body
+      match result with
+      | .stop final => match final.observedReturnWords with
+        | some xs => pure ("ok", xs, xs.flatMap wordBytes, final.world)
+        | none => throw "covered slice stopped without return words"
+      | .revertWithData bytes => pure ("revert", [], bytes, initial.world)
+      | .revert => throw "Denote failure has no exact revert observation"
+      | _ => throw "covered slice did not return or revert"
+  unless publicResult.success == (status == "ok") && publicResult.returnWords == output do
+    throw "exact observation disagrees with public Denote status/return words"
   return Json.mkObj [("id", toJson ident), ("status", toJson status),
     ("words", jsonWords output), ("data", jsonBytes data),
     ("storage", jsonWords (slots.map fun slot => (finalWorld.storageWords (.slot slot)).val))]

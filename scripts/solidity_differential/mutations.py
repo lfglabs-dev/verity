@@ -43,7 +43,10 @@ def snapshot(destination):
     else:
         command(["cp", "-a", "--reflink=auto", build, cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
-    shutil.copy2(WORKSPACE / ".lake/solidity-import/solc-0.8.34", cache / "solidity-import/solc-0.8.34")
+    for compiler_name in ("solc-0.8.34", "solc-0.8.10"):
+        compiler_src = WORKSPACE / ".lake/solidity-import" / compiler_name
+        if compiler_src.exists():
+            shutil.copy2(compiler_src, cache / "solidity-import" / compiler_name)
 
 
 def release(destination):
@@ -63,7 +66,49 @@ def mutation_campaign(output, selected=None):
     from .check_environment_mutations import mutation_campaign as context_campaign
     from .check_storage_mutations import MUTANTS as STORAGE_MUTANTS
     from .check_storage_mutations import mutation_campaign as storage_campaign
-    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS]:
+    from .check_abi_mutations import MUTANTS as ABI_MUTANTS
+    from .check_abi_mutations import mutation_campaign as abi_campaign
+    from .check_struct_abi_mutations import MUTANTS as STRUCT_ABI_MUTANTS
+    from .check_struct_abi_mutations import mutation_campaign as struct_abi_campaign
+    from .check_abi_length_for_mutations import MUTANTS as ARRAY_FOR_MUTANTS
+    from .check_abi_length_for_mutations import mutation_campaign as array_for_campaign
+    from .check_scalar_array_abi_mutations import MUTANTS as SCALAR_ARRAY_MUTANTS
+    from .check_scalar_array_abi_mutations import mutation_campaign as scalar_array_campaign
+    from .check_market_abi_mutations import MUTANTS as MARKET_ABI_MUTANTS
+    from .check_market_abi_mutations import mutation_campaign as market_abi_campaign
+    from .check_multiple_dynamic_abi_mutations import MUTANTS as MULTIPLE_ABI_MUTANTS
+    from .check_multiple_dynamic_abi_mutations import mutation_campaign as multiple_abi_campaign
+    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS, *STRUCT_ABI_MUTANTS, *SCALAR_ARRAY_MUTANTS, *ARRAY_FOR_MUTANTS, *MARKET_ABI_MUTANTS, *MULTIPLE_ABI_MUTANTS]:
+        if name in MULTIPLE_ABI_MUTANTS:
+            result = multiple_abi_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
+        if name in MARKET_ABI_MUTANTS:
+            result = market_abi_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
+        if name in ARRAY_FOR_MUTANTS:
+            result = array_for_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / 'mutation-results.json', reports)
+            continue
+        if name in SCALAR_ARRAY_MUTANTS:
+            result = scalar_array_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
+        if name in STRUCT_ABI_MUTANTS:
+            result = struct_abi_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
+        if name in ABI_MUTANTS:
+            result = abi_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / "mutation-results.json", reports)
+            continue
         if name in STORAGE_MUTANTS:
             storage = storage_campaign(output, [name])
             reports.extend(storage['mutants'])

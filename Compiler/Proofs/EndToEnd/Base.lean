@@ -4672,7 +4672,7 @@ private theorem compileFunctionSpec_noFuncDefs_of_static_params_and_body
     (hBodyNoFuncDefs :
       ∀ bodyStmts,
         CompilationModel.compileStmtList fields events errors .calldata [] false
-          (spec.params.map (·.name)) [] spec.body = Except.ok bodyStmts →
+          (spec.bindingParams.map (·.name)) [] spec.body = Except.ok bodyStmts →
         Compiler.Proofs.YulGeneration.Backends.Native.yulStmtsContainFuncDef
           bodyStmts = false)
     (hcompile :
@@ -4686,10 +4686,14 @@ private theorem compileFunctionSpec_noFuncDefs_of_static_params_and_body
   subst irFn
   change
     Compiler.Proofs.YulGeneration.Backends.Native.yulStmtsContainFuncDef
-      (CompilationModel.genParamLoads spec.params ++ bodyStmts) = false
+      (CompilationModel.genParamLoads spec.bindingParams ++ bodyStmts) = false
   simp [
     Compiler.Proofs.YulGeneration.Backends.genParamLoads_static_scalar_noFuncDefs
-      spec.params hStaticParams,
+      spec.bindingParams (by
+        cases h : spec.abiDecoding
+        · simpa [CompilationModel.FunctionSpec.bindingParams, h] using hStaticParams
+        · simp [CompilationModel.FunctionSpec.bindingParams, h,
+            Compiler.Proofs.YulGeneration.Backends.AllStaticScalarParams]),
     hBodyNoFuncDefs bodyStmts hbody]
 
 private theorem compileFunctionSpec_noFuncDefs_of_safe_static_params
@@ -4714,13 +4718,17 @@ private theorem compileFunctionSpec_noFuncDefs_of_safe_static_params
   subst irFn
   change
     Compiler.Proofs.YulGeneration.Backends.Native.yulStmtsContainFuncDef
-      (CompilationModel.genParamLoads spec.params ++ bodyStmts) = false
+      (CompilationModel.genParamLoads spec.bindingParams ++ bodyStmts) = false
   simp [
     Compiler.Proofs.YulGeneration.Backends.genParamLoads_static_scalar_noFuncDefs
-      spec.params hStaticParams,
+      spec.bindingParams (by
+        cases h : spec.abiDecoding
+        · simpa [CompilationModel.FunctionSpec.bindingParams, h] using hStaticParams
+        · simp [CompilationModel.FunctionSpec.bindingParams, h,
+            Compiler.Proofs.YulGeneration.Backends.AllStaticScalarParams]),
     Compiler.Proofs.YulGeneration.Backends.compileStmtList_always_noFuncDefs
       fields events errors .calldata [] false spec.body
-      (spec.params.map (·.name)) hSafeBody hbody]
+      (spec.bindingParams.map (·.name)) hSafeBody hbody]
 
 /-- Convert the new source-level safe-body closure theorem into the low-level
 `BridgedStmts fn.body` witness still consumed by the EVMYulLean runtime
@@ -4749,13 +4757,17 @@ private theorem compileFunctionSpec_bridged_of_safe_static_params
   subst irFn
   change
     Compiler.Proofs.YulGeneration.Backends.BridgedStmts
-      (CompilationModel.genParamLoads spec.params ++ bodyStmts)
+      (CompilationModel.genParamLoads spec.bindingParams ++ bodyStmts)
   exact Compiler.Proofs.YulGeneration.Backends.BridgedStmts_append
     (Compiler.Proofs.YulGeneration.Backends.genParamLoads_static_scalar_bridged
-      spec.params hStaticParams)
+      spec.bindingParams (by
+        cases h : spec.abiDecoding
+        · simpa [CompilationModel.FunctionSpec.bindingParams, h] using hStaticParams
+        · simp [CompilationModel.FunctionSpec.bindingParams, h,
+            Compiler.Proofs.YulGeneration.Backends.AllStaticScalarParams]))
     (Compiler.Proofs.YulGeneration.Backends.compileStmtList_always_bridged
       fields events errors .calldata [] false spec.body
-      (spec.params.map (·.name)) hSafeBody hbody)
+      (spec.bindingParams.map (·.name)) hSafeBody hbody)
 
 /-- Lift the one-function bridge closure theorem across the compiled external
 function table. This keeps the public EndToEnd theorem from exposing raw
@@ -4820,7 +4832,7 @@ private theorem compiledExternalFunctions_noFuncDefs_of_static_params_and_body
       (∀ entry, entry ∈ entries →
         ∀ bodyStmts,
           CompilationModel.compileStmtList fields events errors .calldata [] false
-            (entry.1.params.map (·.name)) [] entry.1.body =
+            (entry.1.bindingParams.map (·.name)) [] entry.1.body =
               Except.ok bodyStmts →
           Compiler.Proofs.YulGeneration.Backends.Native.yulStmtsContainFuncDef
             bodyStmts = false) →
@@ -6742,7 +6754,13 @@ theorem generatedRuntimeExternalBodiesHaveNoFuncDefs_of_compile_ok_supported
     spec.fields spec.events spec.errors
     (Compiler.Proofs.IRGeneration.ContractShape.compile_ok_yields_compiled_functions
       spec selectors hSupported irContract hCompile)
-    hStaticParams hBodyNoFuncDefs
+    hStaticParams (by
+      intro entry hentry bodyStmts hbody
+      have hfn : entry.1 ∈ selectorDispatchedFunctions spec := by
+        simpa [SourceSemantics.selectorFunctionPairs] using (List.of_mem_zip hentry).1
+      have habi := (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
+      exact hBodyNoFuncDefs entry hentry bodyStmts (by
+        simpa [CompilationModel.FunctionSpec.bindingParams, habi] using hbody))
 
 theorem generatedRuntimeExternalBodiesHaveNoFuncDefs_of_compile_ok_safe
     {spec : CompilationModel.CompilationModel} {selectors : List Nat}

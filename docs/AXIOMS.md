@@ -11,6 +11,12 @@ concrete packed read. Interpreter `#eval` checks are not theorems. The frontend 
 builds the model from solc JSON remains a trust assumption; see
 `TRUST_ASSUMPTIONS.md`.
 
+`EntryPointInvariants.lean` proves rollback and composition of per-entry-point
+invariants over finite model-call sequences, including explicit environment
+preparation. These theorems and the executable-model example in
+`EntryPointInvariantChecks.lean` are included in `PrintAxioms.lean`; they add no
+project axiom, `sorry`, or `native_decide`.
+
 ## Policy
 
 Axioms are exceptional. When an axiom exists, it must have:
@@ -506,3 +512,8 @@ semantics must update this file and [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md)
 If this file is stale, trust analysis is stale.
 
 **Last Updated**: 2026-05 (intrinsics addition)
+
+The bounded-loop invariant rule and its concrete storage/panic checks in
+`Compiler/SolidityImport/LoopInvariants.lean` and
+`Contracts/SolidityImportSmoke/LoopInvariantChecks.lean` are included in the
+generated axiom inventory. They introduce no project axioms.
