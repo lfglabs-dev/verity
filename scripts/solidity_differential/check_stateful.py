@@ -18,22 +18,37 @@ def main():
     parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
     parser.add_argument('--dirty-mappings', action='store_true',
         help='seed the MappingDirtySequence layout with noncanonical low bytes and nonzero upper bits')
+    parser.add_argument('--argument-bits', type=int, default=256,
+        help='unsigned width of the change argument; generates canonical ABI words')
+    parser.add_argument('--change-prefix', type=int, nargs='+', default=[],
+        help='deterministic initial change arguments before random calls')
     parser.add_argument('--seed', type=int, default=2448)
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--senders', type=int, default=1, help='number of funded transaction senders (1 to 10)')
     parser.add_argument('--shrink-attempts', type=int, default=1000)
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
+    parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--source-fixture', type=Path,
         default=Path(__file__).parent / 'fixtures/Sequence.sol')
     args = parser.parse_args()
+    if args.argument_bits not in range(8, 257, 8):
+        parser.error('argument width must be a byte-aligned unsigned width from 8 to 256')
+    if args.dirty_mappings and args.argument_bits != 256:
+        parser.error('dirty mapping fixture requires uint256 arguments')
     if not 1 <= args.senders <= 10:
         parser.error('sender count must be between one and ten')
     if args.transactions < 3 or args.shrink_attempts < 2:
         parser.error('at least three transactions and two shrink attempts required')
     if args.dirty_mappings and args.transactions < 5:
         parser.error('dirty mapping coverage requires at least five transactions')
+    if any(value < 0 or value >= (1 << args.argument_bits) for value in args.change_prefix):
+        parser.error('change prefix values must fit the argument width')
+    if len(args.change_prefix) > args.transactions - 3:
+        parser.error('change prefix exceeds the transaction budget')
+    if args.dirty_mappings and args.change_prefix:
+        parser.error('change prefix cannot replace the dirty mapping witness prefix')
     if args.output is None:
         output = Path(tempfile.mkdtemp(prefix='stateful-abc-', dir='.lake')).resolve()
     else:
@@ -41,22 +56,43 @@ def main():
         output.mkdir(parents=True, exist_ok=False)
     fixture = args.source_fixture.resolve()
     source_text = stateful_scalar_source(fixture.read_text(), args.variant)
+    solc_bin = SOLC if args.solc_version == '0.8.34' else SOLC.with_name('solc-0.8.10')
+    evm_version = 'osaka' if args.solc_version == '0.8.34' else 'london'
+    optimizer_runs = 466 if args.solc_version == '0.8.34' else 1
+    source_settings = {'evmVersion': evm_version,
+        'optimizer': {'enabled': True, 'runs': optimizer_runs},
+        'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}
+    if args.solc_version == '0.8.34':
+        source_settings['viaIR'] = True
     request = {'language': 'Solidity', 'sources': {'Sequence.sol': {'content': source_text}},
-        'settings': {'evmVersion': 'osaka', 'viaIR': True,
-            'optimizer': {'enabled': True, 'runs': 466},
-            'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}}
-    source = solc_compile(request, fixture.parent, output / 'source')['contracts']['Sequence.sol']['SequenceFixture']['evm']
-    names = ['change(uint256)', 'fail()', 'read()']
+        'settings': source_settings}
+    source = solc_compile(request, fixture.parent, output / 'source', solc=solc_bin)['contracts']['Sequence.sol']['SequenceFixture']['evm']
+    names = [f'change(uint{args.argument_bits})', 'fail()', 'read()']
+    for extra_name in (
+        'inspectBytes(bytes,uint256)',
+        'redeemRewards(bytes)',
+        'getRewardTokens()',
+        'echoMsgData()',
+        'applyRounding(uint8,uint256)',
+        'inspectStatic((uint128,uint64,bool),uint256)',
+        'applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)',
+    ):
+        if extra_name in source['methodIdentifiers']:
+            names.append(extra_name)
     write_json(output / 'selectors.json', [int(source['methodIdentifiers'][name], 16) for name in names])
     driver = args.model_driver.resolve()
-    identity = ImplementationIdentity(driver, extra_inputs=[fixture])
+    extra_inputs = [fixture]
+    imported_dep = fixture.parent / 'Solc0810Imported.sol'
+    if imported_dep.exists():
+        extra_inputs.append(imported_dep)
+    identity = ImplementationIdentity(driver, extra_inputs=extra_inputs)
     write_json(output / 'implementation.json', identity.manifest)
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json', output / 'model.yul'],
             log=output / 'compile-model.log')
     identity.verify()
     compiled = solc_compile({'language': 'Yul', 'sources': {'Model.yul': {'content': (output / 'model.yul').read_text()}},
-        'settings': {'evmVersion': 'osaka', 'optimizer': {'enabled': True, 'runs': 466},
-            'outputSelection': {'*': {'*': ['evm.bytecode.object']}}}}, fixture.parent, output / 'compiled')
+        'settings': {'evmVersion': evm_version, 'optimizer': {'enabled': True, 'runs': optimizer_runs},
+            'outputSelection': {'*': {'*': ['evm.bytecode.object']}}}}, fixture.parent, output / 'compiled', solc=solc_bin)
     objects = list(compiled['contracts']['Model.yul'].values())
     if len(objects) != 1:
         raise HarnessError('expected exactly one Verity-compiled object')
@@ -86,10 +122,74 @@ def main():
                                 '0x' + format(dirty, '064x')] for slot in sorted(slots)]
     write_json(output / 'initial-storage.json', initial_storage)
     rng = random.Random(args.seed)
-    calls = [('change(uint256)', [7]), ('fail()', []), ('read()', [])]
-    for _ in range(args.transactions - 3):
+    calls = [(names[0], [7]), ('fail()', []), ('read()', [])]
+    calls.extend((names[0], [value]) for value in args.change_prefix)
+    if 'inspectBytes(bytes,uint256)' in source['methodIdentifiers']:
+        bytes_prefix = [
+            ('getRewardTokens()', []),
+            ('redeemRewards(bytes)', [32, 0]),
+            ('redeemRewards(bytes)', [32, 5, 0x1122334455 << 216]),
+            ('redeemRewards(bytes)', [32, 33, 1]),
+            ('redeemRewards(bytes)', [64, 0]),
+            ('inspectBytes(bytes,uint256)', [64, 7, 0]),
+            ('inspectBytes(bytes,uint256)', [64, 9, 5, 0xdeadbeef01 << 216]),
+            ('inspectBytes(bytes,uint256)', [64, 11, 32, (1 << 256) - 1]),
+            ('inspectBytes(bytes,uint256)', [64, 13, 33, 1]),
+            ('inspectBytes(bytes,uint256)', [64, 15, 1 << 64, 0]),
+            ('inspectBytes(bytes,uint256)', [1 << 64, 17, 0]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(bytes_prefix[:remaining_budget])
+    if 'applyRounding(uint8,uint256)' in source['methodIdentifiers']:
+        enum_prefix = [
+            ('echoMsgData()', []),
+            ('applyRounding(uint8,uint256)', [0, 10]),
+            ('applyRounding(uint8,uint256)', [1, 20]),
+            ('applyRounding(uint8,uint256)', [2, 30]),
+            ('applyRounding(uint8,uint256)', [3, 40]),
+            ('applyRounding(uint8,uint256)', [255, 50]),
+            ('applyRounding(uint8,uint256)', [256, 60]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(enum_prefix[:remaining_budget])
+    if 'applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)' in source['methodIdentifiers']:
+        bundle_prefix = [
+            ('inspectStatic((uint128,uint64,bool),uint256)', [3, 5, 1, 10]),
+            ('inspectStatic((uint128,uint64,bool),uint256)', [3, 5, 0, 10]),
+            ('inspectStatic((uint128,uint64,bool),uint256)', [1 << 128, 5, 1, 10]),
+            ('inspectStatic((uint128,uint64,bool),uint256)', [3, 5, 2, 10]),
+            ('applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)', [64, 0, 10, 96, 128, 0, 0]),
+            ('applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)', [64, 0, 10, 96, 224, 1, 7, 3, 1, 1, 11]),
+            ('applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)', [64, 1, 10, 96, 320, 2, 7, 3, 1, 13, 5, 1, 2, 11, 17]),
+            ('applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)', [64, 0, 10, 96, 224, 1, 7, 1 << 64, 1, 1, 11]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(bundle_prefix[:remaining_budget])
+    while len(calls) < args.transactions:
         name = rng.choice(names)
-        call_args = [rng.choice([0, 1, (1 << 256) - 1, rng.getrandbits(256)])] if name == names[0] else []
+        if name == names[0]:
+            call_args = [rng.choice([0, 1, (1 << args.argument_bits) - 1, rng.getrandbits(args.argument_bits)])]
+        elif name == 'redeemRewards(bytes)':
+            call_args = rng.choice([[32, 0], [32, 5, 0x1122334455 << 216], [32, 32, (1 << 256) - 1], [32, 33, 1], [64, 0]])
+        elif name == 'inspectBytes(bytes,uint256)':
+            tag = rng.choice([0, 1, 2, 3, 7, 19])
+            call_args = rng.choice([[64, tag, 0], [64, tag, 5, 0xdeadbeef01 << 216], [64, tag, 32, (1 << 256) - 1], [64, tag, 33, 1], [64, tag, 1 << 64, 0], [1 << 64, tag, 0]])
+        elif name == 'applyRounding(uint8,uint256)':
+            call_args = [rng.choice([0, 1, 2, 3, 4, 255, 256]), rng.choice([0, 1, 7, 19, 999])]
+        elif name == 'inspectStatic((uint128,uint64,bool),uint256)':
+            call_args = rng.choice([[3, 5, 1, 10], [3, 5, 0, 10], [1 << 128, 5, 1, 10], [3, 5, 2, 10]])
+        elif name == 'applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)':
+            call_args = rng.choice([
+                [64, 0, 10, 96, 128, 0, 0],
+                [64, 0, 10, 96, 224, 1, 7, 3, 1, 1, 11],
+                [64, 1, 10, 96, 320, 2, 7, 3, 1, 13, 5, 1, 2, 11, 17],
+                [64, 0, 10, 96, 224, 1, 7, 1 << 64, 1, 1, 11],
+            ])
+        else:
+            call_args = []
         calls.append((name, call_args))
     if args.dirty_mappings:
         calls = [('read()', []), ('read()', []), ('change(uint256)', [7]),
@@ -108,14 +208,14 @@ def main():
         'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity),
         'compiled': EVMAdapter(output / 'C', [compiled_code], initial_storage=initial_storage)}
     write_json(output / 'provenance.json', {
-        'solcSha256': hashlib.sha256(SOLC.read_bytes()).hexdigest(),
+        'solcSha256': hashlib.sha256(solc_bin.read_bytes()).hexdigest(),
         'anvilVersion': command(['anvil', '--version']).strip(),
         'leanVersion': command(['lake', 'env', 'lean', '--version']).strip(),
         'sourceSha256': hashlib.sha256(source_text.encode()).hexdigest(),
         'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest(),
         'variant': args.variant, 'seed': args.seed, 'transactionCount': args.transactions,
-        'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
-        'evmVersion': 'osaka', 'optimizerRuns': 466})
+        'changePrefix': args.change_prefix, 'argumentBits': args.argument_bits, 'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
+        'evmVersion': evm_version, 'optimizerRuns': optimizer_runs})
     result = replay_three_routes(transactions, adapters)
     identity.verify()
     write_json(output / 'campaign.json', {'seed': args.seed, 'transactions': transactions, **result})

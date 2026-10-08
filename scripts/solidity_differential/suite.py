@@ -25,14 +25,29 @@ def stateful_campaign(output, transactions, seed):
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/StorageTraceChecks.lean'],
             log=output / 'storage-trace-checks.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/ExplicitAbiChecks.lean'],
+            log=output / 'explicit-abi-checks.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/SelectorIdentityChecks.lean'],
+            log=output / 'selector-identity-checks.log')
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
         ('mocks', ['-m', 'solidity_differential.check_mocks']),
+        ('emit-rejections', ['-m', 'solidity_differential.check_emit_rejections']),
         ('rejections', ['-m', 'solidity_differential.check_denote_rejections']),
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
         ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
     ]
+    checks.append(('hashing-programs', ['-m', 'solidity_differential.check_hashing_programs',
+        '--output', str(output / 'hashing-programs')]))
+    checks.append(('hashing-rejections', ['-m', 'solidity_differential.check_hashing_rejections',
+        '--output', str(output / 'hashing-rejections')]))
+    checks.append(('reference-arguments', ['-m', 'solidity_differential.check_reference_arguments',
+        '--output', str(output / 'reference-arguments')]))
+    checks.append(('reference-rejections', ['-m', 'solidity_differential.check_reference_argument_rejections',
+        '--output', str(output / 'reference-rejections')]))
     for variant in ('baseline', 'scoped', 'early-return'):
         checks.append((variant, ['-m', 'solidity_differential.check_stateful',
             '--transactions', str(transactions), '--seed', str(seed), '--variant', variant,
@@ -49,7 +64,10 @@ def stateful_campaign(output, transactions, seed):
     checks.append(('storage', ['-m', 'solidity_differential.check_storage',
         '--transactions', str(transactions), '--seed', str(seed),
         '--output', str(output / 'storage')]))
-    for fixture in ('void', 'bytes', 'mapping'):
+    checks.append(('storage-yul-numeric', ['-m', 'solidity_differential.check_storage',
+        '--fixture', 'yul-numeric', '--transactions', str(max(64, transactions)),
+        '--seed', str(seed), '--output', str(output / 'storage-yul-numeric')]))
+    for fixture in ('void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo'):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),
             '--output', str(output / ('storage-' + fixture))]))
@@ -58,6 +76,34 @@ def stateful_campaign(output, transactions, seed):
         '--source-fixture', 'Contracts/SolidityImportSmoke/MappingDirtySequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/MappingDirtySequenceModel.lean',
         '--output', str(output / 'mapping-dirty')]))
+    checks.append(('abi', ['-m', 'solidity_differential.check_abi_programs',
+        '--output', str(output / 'abi')]))
+    checks.append(('abi-rejections', ['-m', 'solidity_differential.check_abi_rejections']))
+    checks.append(('struct-abi', ['-m', 'solidity_differential.check_struct_abi_programs',
+        '--output', str(output / 'struct-abi')]))
+    checks.append(('struct-abi-rejections', ['-m', 'solidity_differential.check_struct_abi_rejections']))
+
+    for bits in (8, 16, 248):
+        checks.append(('narrow-event-' + str(bits), ['-m', 'solidity_differential.check_storage',
+            '--fixture', 'narrow-event', '--narrow-bits', str(bits),
+            '--transactions', str(transactions), '--seed', str(seed),
+            '--output', str(output / ('narrow-event-' + str(bits)))]))
+
+
+    checks.append(('scalar-array-abi', ['-m', 'solidity_differential.check_scalar_array_abi_programs',
+        '--output', str(output / 'scalar-array-abi')]))
+    checks.append(('scalar-array-abi-rejections', ['-m', 'solidity_differential.check_scalar_array_abi_rejections',
+        '--output', str(output / 'scalar-array-abi-rejections')]))
+    checks.append(('market-abi', ['-m', 'solidity_differential.check_market_abi_programs',
+        '--output', str(output / 'market-abi')]))
+    checks.append(('market-abi-rejections', ['-m', 'solidity_differential.check_market_abi_rejections',
+        '--output', str(output / 'market-abi-rejections')]))
+    checks.append(('block-rejections', ['-m', 'solidity_differential.check_block_rejections',
+        '--output', str(output / 'block-rejections')]))
+    checks.append(('abi-event-composition', ['-m', 'solidity_differential.check_abi_event_composition',
+        '--output', str(output / 'abi-event-composition')]))
+    checks.append(('multiple-dynamic-abi', ['-m', 'solidity_differential.check_multiple_dynamic_abi_programs',
+        '--output', str(output / 'multiple-dynamic-abi')]))
     checks.append(('errors', ['-m', 'solidity_differential.check_stateful',
         '--transactions', str(transactions), '--seed', str(seed),
         '--source-fixture', 'scripts/solidity_differential/fixtures/ErrorSequence.sol',

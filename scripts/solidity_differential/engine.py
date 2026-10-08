@@ -33,9 +33,9 @@ def command(argv, *, cwd=WORKSPACE, timeout=180, stdin=None, log=None):
     return result.stdout
 
 
-def solc_compile(request, project, out):
+def solc_compile(request, project, out, solc=SOLC):
     write_json(out.with_suffix(".input.json"), request)
-    stdout = command([SOLC, "--base-path", project, "--standard-json"], stdin=json.dumps(request), timeout=180)
+    stdout = command([solc, "--base-path", project, "--standard-json"], stdin=json.dumps(request), timeout=180)
     result = json.loads(stdout)
     write_json(out.with_suffix(".output.json"), result)
     errors = [e.get("formattedMessage", e["message"]) for e in result.get("errors", []) if e["severity"] == "error"]

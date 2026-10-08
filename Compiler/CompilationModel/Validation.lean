@@ -259,6 +259,12 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
   | Stmt.returnValues values =>
       if expectedReturns.isEmpty then
         throw s!"Compilation error: function '{fnName}' uses Stmt.returnValues but declares no return values"
+      else if !isInternal &&
+          match values, expectedReturns with
+          | [.literal 32, .literal 0], [ty] => isCanonicalReturnArrayParam ty
+          | [.literal 32, .calldatasize, .calldataload (.literal 0)], [.bytes] => params.isEmpty
+          | _, _ => false then
+        pure ()
       else if values.length != expectedReturns.length then
         throw s!"Compilation error: function '{fnName}' returnValues count mismatch: expected {expectedReturns.length}, got {values.length}"
       else
@@ -1345,6 +1351,15 @@ theorem validateNoUnsupportedAdtConstructInBranches_eq_viaFold
   rfl
 
 def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
+  if spec.abiDecoding == .explicitPrelude then
+    if spec.isInternal || spec.nonReentrantLock.isSome then
+      throw s!"Compilation error: function '{spec.name}' explicit ABI prelude is only supported on external entries without an automatic lock."
+    unless spec.localObligations.any (fun o => o.name == "solidity_explicit_abi") do
+      throw s!"Compilation error: function '{spec.name}' explicit ABI prelude requires the solidity_explicit_abi local obligation."
+    -- Signature parameters are not runtime bindings in this mode. Reject all
+    -- uses of Expr.param and derived parameter expressions before codegen.
+    validateFunctionIdentifierReferences { spec with params := [] }
+    spec.body.forM (validateStmtParamReferences spec.name [])
   let rawYulObligations :=
     Stmt.foldList
       (fun acc _ md => acc ++ md.localObligations)

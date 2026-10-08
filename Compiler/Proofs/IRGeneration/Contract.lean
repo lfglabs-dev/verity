@@ -268,6 +268,7 @@ theorem interpretIR_eq_runtimeContractOfFunctions
 
 theorem interpretContract_correct_of_ir_functions
     (model : CompilationModel)
+    {habi : ∀ fn ∈ selectorDispatchedFunctions model, fn.abiDecoding = .standard}
     (selectors : List Nat)
     (ir : IRContract)
     (irFns : List IRFunction)
@@ -301,13 +302,14 @@ theorem interpretContract_correct_of_ir_functions
     (tx := tx)
     (initialState := FunctionBody.initialIRStateForTx model tx initialWorld)
     (hfunctions := hfunctions)]
-  exact Dispatch.interpretContract_correct_of_compiled_functions
+  exact Dispatch.interpretContract_correct_of_compiled_functions (habi := habi)
     (model := model) (selectors := selectors) (irFns := irFns)
     (tx := tx) (initialWorld := initialWorld)
     hcompiled hparamsSupported hfunction
 
 theorem compile_preserves_semantics_of_compiled_functions
     (model : CompilationModel)
+    {habi : ∀ fn ∈ selectorDispatchedFunctions model, fn.abiDecoding = .standard}
     (selectors : List Nat)
     (ir : IRContract)
     (tx : IRTransaction)
@@ -333,7 +335,7 @@ theorem compile_preserves_semantics_of_compiled_functions
     FunctionBody.sourceResultMatchesIRResult
       (SourceSemantics.interpretContract model selectors tx initialWorld)
       (interpretIR ir tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  exact interpretContract_correct_of_ir_functions
+  exact interpretContract_correct_of_ir_functions (habi := habi)
     (model := model)
     (selectors := selectors)
     (ir := ir)
@@ -554,6 +556,7 @@ theorem compileFunctionSpec_correct_generic
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   have hfnModel : fn ∈ model.functions := List.mem_of_mem_filter hfn
   rcases Function.compileFunctionSpec_ok_components
+      (habi := (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
       model.fields model.events model.errors sel fn irFn hcompileFn with
     ⟨returns, bodyStmts, hvalidate, hreturns, hbodyCompile, hirFn⟩
   subst hirFn
@@ -701,6 +704,7 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   rcases Function.compileFunctionSpec_ok_components
+      (habi := (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
       model.fields model.events model.errors sel fn irFn hcompileFn with
     ⟨returns, bodyStmts, hvalidate, hreturns, hbodyCompile, hirFn⟩
   subst hirFn
@@ -1133,6 +1137,7 @@ theorem legacyCompatibleExternalBodies_of_compileValidatedCore_of_interface
     rw [← hSupported.noEvents, ← hSupported.noErrors]
     exact hcompileEntry
   exact Function.compileFunctionSpec_body_legacyCompatible_of_interface
+    (habi := (hSupported.supportedFunctionOfSelectorDispatched hfnDispatched).standardAbi)
     model.fields sel spec fn hparams (hbodies (spec, sel) hentry) hcompileEntry'
 
 /-- Structural compiled-internal-table premise, derived from the compilation
@@ -2111,6 +2116,7 @@ theorem compile_preserves_semantics
         (hbind := hbind))
   have hcontract :=
     compile_preserves_semantics_of_compiled_functions
+      (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
       (model := model)
       (selectors := selectors)
       (ir := ir)
@@ -2194,6 +2200,7 @@ theorem compile_preserves_semantics_with_scalar_events
     model selectors hSupported ir tx initialWorld htxNormalized hcalldataSizeFits
     hfuelPos hhelperFree hstmtDisjoint
   have hcontract := compile_preserves_semantics_of_compiled_functions
+    (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
     (model := model) (selectors := selectors) (ir := ir) (tx := tx)
     (initialWorld := initialWorld) (_hcompile := hcompile)
     (hcompiled := hcompiled) (hparamsSupported := hparamsSupported)
@@ -2497,6 +2504,7 @@ theorem compile_preserves_semantics_with_helper_proofs
         (hbind := hbind))
   have hcontract :=
     compile_preserves_semantics_of_compiled_functions
+      (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
       (model := model)
       (selectors := selectors)
       (ir := ir)

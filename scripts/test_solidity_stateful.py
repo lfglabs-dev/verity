@@ -118,6 +118,34 @@ class StatefulTests(unittest.TestCase):
         with self.assertRaisesRegex(HarnessError, 'out of fuel'):
             shrink_sequence(['set', 'read'], failed)
 
+    def test_long_campaign_shrinks_with_setup_and_order_preserved(self):
+        calls = []
+        original = list(range(64))
+        def replay(xs):
+            calls.append(list(xs))
+            return [{'signature': ('storage',)}] if 7 in xs and 49 in xs and xs.index(7) < xs.index(49) else []
+        result = shrink_sequence(original, replay, max_attempts=50)
+        self.assertEqual(result['transactions'], [7, 49])
+        self.assertTrue(result['deletion_minimal'])
+        self.assertEqual(calls[-1], [7, 49])
+        self.assertLess(result['attempts'], 50)
+        self.assertEqual(original, list(range(64)))
+
+    def test_chunk_replay_failure_is_never_a_witness(self):
+        def replay(xs):
+            if len(xs) != 64:
+                raise HarnessError('chunk execution failed')
+            return [{'signature': ('storage',)}]
+        with self.assertRaisesRegex(HarnessError, 'chunk execution failed'):
+            shrink_sequence(list(range(64)), replay)
+
+    def test_chunk_budget_exhaustion_does_not_claim_minimality(self):
+        result = shrink_sequence(list(range(64)),
+            lambda xs: [{'signature': ('storage',)}], max_attempts=3)
+        self.assertEqual(len(result['transactions']), 32)
+        self.assertEqual(result['attempts'], 3)
+        self.assertFalse(result['deletion_minimal'])
+
     def test_final_replay_must_reproduce(self):
         calls = []
         def replay(xs):

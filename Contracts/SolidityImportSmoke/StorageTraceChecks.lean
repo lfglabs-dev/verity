@@ -38,4 +38,44 @@ def main : IO Unit := do
   match bad with
   | .error _ => pure ()
   | .ok _ => throw (IO.userError "executed unsupported read was accepted")
+  let memoryLoop ← IO.ofExcept (traceStraightLine oracle fields initial
+    [.mstore (.storage "gate") (.storage "out"),
+     .forEach "i" (.literal 2)
+       [.setStorage "out" (.add (.storage "out") (.mload (.storage "gate")))],
+     .returnValues [.storage "out"]])
+  unless memoryLoop.touched ==
+      [.slot 0, .slot 1, .slot 1, .slot 0, .slot 1, .slot 1, .slot 0, .slot 1, .slot 1] do
+    throw (IO.userError "memory/loop trace missed expression reads or iteration accesses")
+  match memoryLoop.outcome with
+  | .stop state =>
+      unless state.observedReturnWords == some [15] do
+        throw (IO.userError "loop did not carry Denote state between iterations")
+  | _ => throw (IO.userError "loop return was not observed")
+  let emptyLoop ← IO.ofExcept (traceStraightLine oracle fields initial
+    [.forEach "i" (.literal 0) [forbidden], .returnValues [.localVar "i"]])
+  unless emptyLoop.touched == [] do throw (IO.userError "empty loop observed its body")
+  match emptyLoop.outcome with
+  | .stop state =>
+      unless state.observedReturnWords == some [0] do
+        throw (IO.userError "empty loop omitted initial index binding")
+  | _ => throw (IO.userError "empty loop return was not observed")
+  let loopBody : List Stmt :=
+    [.setStorage "out" (.localVar "i"),
+     .ite (.eq (.localVar "i") (.literal 1)) [.panicCode (.literal 0x32)] [],
+     .setStorage "out" (.literal 9)]
+  let loopRevert ← IO.ofExcept (executeTracedBody oracle fields initial.world []
+    [.forEach "i" (.literal 3) loopBody, forbidden])
+  unless loopRevert.touched == [.slot 1, .slot 1, .slot 1] &&
+      !loopRevert.frame.success && loopRevert.frame.world.readSlot 1 == 5 &&
+      loopRevert.frame.data == [0x4e, 0x48, 0x7b, 0x71] ++ List.replicate 31 0 ++ [0x32] do
+    throw (IO.userError "loop revert lost touches/payload/rollback or ran later iterations")
+  let nested ← IO.ofExcept (traceStraightLine oracle fields initial
+    [.forEach "i" (.storage "gate")
+      [.forEach "j" (.literal 2) [.setStorage "out" (.localVar "j")]],
+     .returnValues [.storage "out"]])
+  unless nested.touched == [.slot 0, .slot 1, .slot 1, .slot 1] do
+    throw (IO.userError "nested loop count/body accesses differ")
+  match traceStraightLine oracle fields initial [.forEach "i" (.literal 1) [forbidden]] with
+  | .error _ => pure ()
+  | .ok _ => throw (IO.userError "loop accepted an executed unsupported read")
   IO.println "selected branch, state advancement, early return, panic and rejection checks passed"

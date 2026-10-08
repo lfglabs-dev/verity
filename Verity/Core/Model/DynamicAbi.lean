@@ -243,6 +243,30 @@ private def dynamicTupleParamBindings (name : String) (relativeOffset absoluteOf
   , (s!"{name}_abs_offset", absoluteOffset)
   , (s!"{name}_data_offset", absoluteOffset) ]
 
+/-- Static tuple fields use the same recursive indexed names and word offsets
+as `Compiler.genStaticTypeLoads`. Unsupported leaves and missing words fail;
+this helper does not manufacture bindings for dynamic data or fixed arrays. -/
+def bindStaticTupleType (selector : Nat) (calldata : List Nat)
+    (name : String) (ty : ParamType) (offset : Nat) :
+    Option (List (String × Nat)) :=
+  match ty with
+  | .tuple elemTys =>
+      let rec go (tys : List ParamType) (index current : Nat) :
+          Option (List (String × Nat)) :=
+        match tys with
+        | [] => some []
+        | elemTy :: rest => do
+            let here ← bindStaticTupleType selector calldata s!"{name}_{index}" elemTy current
+            let tail ← go rest (index + 1) (current + paramHeadSize elemTy)
+            some (here ++ tail)
+        termination_by sizeOf tys
+      go elemTys 0 offset
+  | _ => do
+      let word ← externalWordAt? selector calldata offset
+      let value ← decodeSupportedParamWord ty word
+      some [(name, value)]
+termination_by sizeOf ty
+
 def bindExternalParam (selector : Nat) (calldata : List Nat)
     (headSize baseOffset headOffset : Nat) (param : Param) :
     Option (List (String × Nat)) :=
@@ -261,7 +285,9 @@ def bindExternalParam (selector : Nat) (calldata : List Nat)
               decodeDynamicTupleParamDataOffset? selector calldata headSize baseOffset headOffset
             some (dynamicTupleParamBindings param.name relativeOffset absoluteOffset)
           else
-            none
+            match param.ty with
+            | .tuple _ => bindStaticTupleType selector calldata param.name param.ty headOffset
+            | _ => none
 
 def bindExternalParamsFrom (selector : Nat) (calldata : List Nat)
     (headSize baseOffset : Nat) : List Param → Nat → Option (List (String × Nat))
@@ -348,7 +374,10 @@ theorem bindExternalParam_scalar_eq_some_inv
         rw [hb]
         cases hs : externalDynamicPayloadShape? param.ty with
         | some shape => simp [hshape shape]
-        | none => by_cases hdyn : isDynamicParamType param.ty <;> simp [hdyn]
+        | none =>
+            by_cases hdyn : isDynamicParamType param.ty <;> simp [hdyn]
+            obtain ⟨value, hvalue⟩ := htotal 0
+            cases hty : param.ty <;> simp_all [decodeSupportedParamWord]
       rw [hnone] at hbind
       simp at hbind
 
@@ -820,15 +849,16 @@ theorem bindExternalParamsFrom_some_of_witnesses
       exact ⟨here ++ there, by
         simp [bindExternalParamsFrom, hhere, hthere]⟩
 
-/-- Static tuples are not expanded by the current semantic external-parameter
-binder. Generated loaders can emit member bindings for static tuples, but
-`bindExternalParam` only binds scalar heads and dynamic-shape metadata today. -/
-theorem bindExternalParam_staticTuple_eq_none
+/-- Static tuples now expand through the indexed static decoder rather than
+falling through to the unsupported-parameter result. This equation pins the
+actual public binder branch; it is not a solc equivalence theorem. -/
+theorem bindExternalParam_staticTuple_arm
     {selector : Nat} {calldata : List Nat} {headSize baseOffset headOffset : Nat}
     {name : String} {elemTys : List ParamType}
     (hstatic : isDynamicParamTypeList elemTys = false) :
     bindExternalParam selector calldata headSize baseOffset headOffset
-      { name := name, ty := ParamType.tuple elemTys } = none := by
+      { name := name, ty := ParamType.tuple elemTys } =
+        bindStaticTupleType selector calldata name (.tuple elemTys) headOffset := by
   have hdecode :
       decodeSupportedParamWord (ParamType.tuple elemTys) =<<
         externalWordAt? selector calldata headOffset = none := by

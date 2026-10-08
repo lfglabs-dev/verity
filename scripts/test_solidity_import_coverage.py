@@ -166,6 +166,23 @@ class CoverageTests(unittest.TestCase):
             with self.assertRaisesRegex(MeasurementError, 'full commit SHA'):
                 checkout({'id': 'test', 'commit': 'main'}, Path(tmp), True)
 
+    def test_probe_uses_target_profile_when_present(self):
+        fn = {'kind': 'function', 'name': 'getApr', 'types': [], 'declaring_contract': 'IdleCreditVault',
+              'file': 'contracts/strategies/idle/IdleCreditVault.sol', 'line': 10, 'column': 5}
+        target = {'entry': 'contracts/strategies/idle/IdleCreditVault.sol', 'contract': 'IdleCreditVault',
+                  'profile': {'solc': '0.8.10+commit.fc410830', 'evmVersion': 'london',
+                              'viaIR': False, 'optimizerRuns': 999999, 'bytecodeHash': 'none'}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with patch('solidity_import_coverage.run', return_value=CompletedProcess([], 0, 'COVERAGE_IMPORT_OK\n', '')):
+                result = probe(fn, target, root, root, root, 10)
+            self.assertEqual(result['status'], 'importable')
+            probe_text = (root / 'Probe.lean').read_text()
+            self.assertIn('solc := "0.8.10+commit.fc410830"', probe_text)
+            self.assertIn('evmVersion := "london"', probe_text)
+            self.assertIn('viaIR := false', probe_text)
+            self.assertIn('optimizerRuns := some 999999', probe_text)
+
 
 if __name__ == '__main__':
     unittest.main()

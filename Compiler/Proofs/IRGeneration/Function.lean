@@ -181,6 +181,7 @@ def execResultToIRResult (initialState : IRState) : IRExecResult → IRResult
 theorem compileFunctionSpec_ok_of_components
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (selector : Nat) (spec : FunctionSpec)
+    {habi : spec.abiDecoding = .standard}
     (returns : List ParamType) (bodyStmts : List YulStmt)
     (hvalidate : validateFunctionSpec spec = Except.ok ())
     (hreturns : functionReturns spec = Except.ok returns)
@@ -190,6 +191,7 @@ theorem compileFunctionSpec_ok_of_components
     compileFunctionSpec fields events errors [] selector spec =
       Except.ok (compiledFunctionIR selector spec returns bodyStmts) := by
   unfold CompilationModel.compileFunctionSpec
+  simp only [FunctionSpec.bindingParams, habi]
   rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody]
   rfl
 
@@ -200,6 +202,7 @@ theorem compileFunctionSpec_ok_of_components_with_internals
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
     (internalFunctions : List FunctionSpec)
     (selector : Nat) (spec : FunctionSpec)
+    {habi : spec.abiDecoding = .standard}
     (returns : List ParamType) (bodyStmts : List YulStmt)
     (hvalidate : validateFunctionSpec spec = Except.ok ())
     (hreturns : functionReturns spec = Except.ok returns)
@@ -210,6 +213,7 @@ theorem compileFunctionSpec_ok_of_components_with_internals
         (internalFunctions := internalFunctions) =
       Except.ok (compiledFunctionIR selector spec returns bodyStmts) := by
   unfold CompilationModel.compileFunctionSpec
+  simp only [FunctionSpec.bindingParams, habi]
   rw [hvalidate, hreturns]
   change
     (do
@@ -236,7 +240,7 @@ theorem compileFunctionSpec_ok_params
     case ok returns =>
       cases hbody :
           compileStmtList fields events errors .calldata [] false
-            (spec.params.map (·.name)) [] spec.body
+            (spec.bindingParams.map (·.name)) [] spec.body
       · rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
@@ -260,7 +264,7 @@ theorem compileFunctionSpec_ok_selector
     case ok returns =>
       cases hbody :
           compileStmtList fields events errors .calldata [] false
-            (spec.params.map (·.name)) [] spec.body
+            (spec.bindingParams.map (·.name)) [] spec.body
       · rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
@@ -284,7 +288,7 @@ theorem compileFunctionSpec_ok_payable
     case ok returns =>
       cases hbody :
           compileStmtList fields events errors .calldata [] false
-            (spec.params.map (·.name)) [] spec.body
+            (spec.bindingParams.map (·.name)) [] spec.body
       · rw [hvalidate, hreturns, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList, hbody] at hcompile
         cases hcompile
       case ok bodyStmts =>
@@ -315,7 +319,7 @@ theorem compileFunctionSpec_ok_metadata_with_internals
     case ok returns =>
       cases hbody :
           compileStmtList fields events errors .calldata [] false
-            (spec.params.map (·.name)) [] spec.body internalFunctions
+            (spec.bindingParams.map (·.name)) [] spec.body internalFunctions
       · rw [hvalidate, hreturns,
           FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList
             (internalFunctions := internalFunctions), hbody] at hcompile
@@ -331,7 +335,8 @@ theorem compileFunctionSpec_ok_metadata_with_internals
 
 theorem compileFunctionSpec_ok_components
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
-    (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (selector : Nat) (spec : FunctionSpec)
+    {habi : spec.abiDecoding = .standard} (irFn : IRFunction)
     (hcompile : compileFunctionSpec fields events errors [] selector spec = Except.ok irFn) :
     ∃ returns bodyStmts,
       validateFunctionSpec spec = Except.ok () ∧
@@ -340,6 +345,7 @@ theorem compileFunctionSpec_ok_components
         (spec.params.map (·.name)) [] spec.body = Except.ok bodyStmts ∧
       irFn = compiledFunctionIR selector spec returns bodyStmts := by
   unfold CompilationModel.compileFunctionSpec at hcompile
+  simp only [FunctionSpec.bindingParams, habi] at hcompile
   cases hvalidate : validateFunctionSpec spec
   · rw [hvalidate] at hcompile
     cases hcompile
@@ -637,11 +643,11 @@ theorem exec_compiledFunctionIR_withInternals_of_body_extraFuel
     _ = tailResult := hbody
 
 theorem interpretFunction_eq_execResultToIRResult_of_body
-    (model : CompilationModel) (fn : FunctionSpec)
+    (model : CompilationModel)
+    (fn : FunctionSpec) {habi : fn.abiDecoding = .standard}
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (sourceResult : SourceSemantics.StmtResult)
-    (rollback : IRState) (irResult : IRExecResult)
-    (bindings : List (String × Nat))
+    (rollback : IRState) (irResult : IRExecResult) (bindings : List (String × Nat))
     (hbind :
       SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
     (hnoEvents : model.events = [])
@@ -682,12 +688,13 @@ theorem interpretFunction_eq_execResultToIRResult_of_body
       (sourceResult := sourceResult)
       (irResult := irResult)
       hrollbackStorage hrollbackEvents rfl hmatch
-  simp only [SourceSemantics.interpretFunction,
+  simp only [SourceSemantics.interpretFunction, FunctionSpec.bindingParams, habi,
     SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind]
   rw [hsourceWithEvents]; exact hpack
 
 theorem interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
     (model : CompilationModel) (fn : FunctionSpec)
+    {habi : fn.abiDecoding = .standard}
     (helperFuel : Nat)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (sourceResult : SourceSemantics.StmtResult)
@@ -721,24 +728,24 @@ theorem interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_bod
     simp [stmtResultMatchesIRExecWithInternals, FunctionBody.stmtResultMatchesIRExec] at hmatch
   · rcases hmatch with
       ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hblob, _, _, hcds, _, hret, hevents⟩
-    simp [SourceSemantics.interpretFunctionWithHelpers, hbind, hsource,
+    simp [SourceSemantics.interpretFunctionWithHelpers, FunctionSpec.bindingParams, habi, hbind, hsource,
       FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResultWithInternals,
       SourceSemantics.successResult, SourceSemantics.encodeStorage,
       hstorage, hevents, hret]
   · rcases hmatch with
       ⟨hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hblob, _, _, hcds, _, hret, hevents⟩
-    simp [SourceSemantics.interpretFunctionWithHelpers, hbind, hsource,
+    simp [SourceSemantics.interpretFunctionWithHelpers, FunctionSpec.bindingParams, habi, hbind, hsource,
       FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResultWithInternals,
       SourceSemantics.successResult, SourceSemantics.encodeStorage,
       hstorage, hevents]
   · rcases hmatch with
       ⟨hvalue, hstorage, htransient, hsender, hmsgValue, hthis, htimestamp, hblock, hchain, hblob, _, _, hcds, _, hret,
         hevents⟩
-    simp [SourceSemantics.interpretFunctionWithHelpers, hbind, hsource,
+    simp [SourceSemantics.interpretFunctionWithHelpers, FunctionSpec.bindingParams, habi, hbind, hsource,
       FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResultWithInternals,
       SourceSemantics.successResult, SourceSemantics.encodeStorage,
       hvalue, hstorage, hevents]
-  · simp [SourceSemantics.interpretFunctionWithHelpers, hbind, hsource,
+  · simp [SourceSemantics.interpretFunctionWithHelpers, FunctionSpec.bindingParams, habi, hbind, hsource,
       FunctionBody.sourceResultMatchesIRResult, FunctionBody.irResultOfExecResultWithInternals,
       SourceSemantics.revertedResult, hrollbackStorage, hrollbackEvents]
 
@@ -1439,7 +1446,8 @@ private theorem firstFieldWriteSlotConflict_eq_none_of_validateCompileInputs
 
 theorem compileFunctionSpec_correct_of_body
     (model : CompilationModel)
-    (selector : Nat) (fn : FunctionSpec) (irFn : IRFunction)
+    (selector : Nat) (fn : FunctionSpec)
+    {habi : fn.abiDecoding = .standard} (irFn : IRFunction)
     (returns : List ParamType) (bodyStmts : List YulStmt)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (sourceResult : SourceSemantics.StmtResult) (irExec : IRExecResult)
@@ -1476,7 +1484,7 @@ theorem compileFunctionSpec_correct_of_body
         irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   have hcompiled :=
-    compileFunctionSpec_ok_of_components model.fields model.events model.errors
+    compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
       selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
@@ -1495,7 +1503,7 @@ theorem compileFunctionSpec_correct_of_body
           (SourceSemantics.withTransactionContext initialWorld tx).events := by
     simp [initialState, FunctionBody.initialIRStateForTx]
   have hsourceMatch :=
-    interpretFunction_eq_execResultToIRResult_of_body
+    interpretFunction_eq_execResultToIRResult_of_body (habi := habi)
       (model := model) (fn := fn) (tx := tx) (initialWorld := initialWorld)
       (sourceResult := sourceResult) (rollback := initialState) (irResult := irExec)
       (bindings := bindings) hbind hnoEvents hsource hrollbackStorage hrollbackEvents hmatch
@@ -1516,7 +1524,8 @@ theorem compileFunctionSpec_correct_of_body_normalized_extraFuel
     (model : CompilationModel)
     (hnormalized :
       applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
-    (selector : Nat) (fn : FunctionSpec) (irFn : IRFunction)
+    (selector : Nat) (fn : FunctionSpec)
+    {habi : fn.abiDecoding = .standard} (irFn : IRFunction)
     (returns : List ParamType) (bodyStmts : List YulStmt)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (sourceResult : SourceSemantics.StmtResult) (irExec : IRExecResult)
@@ -1565,7 +1574,7 @@ theorem compileFunctionSpec_correct_of_body_normalized_extraFuel
       compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn := by
     simpa [hnormalized] using hcompile
   have hcompiled :=
-    compileFunctionSpec_ok_of_components model.fields model.events model.errors
+    compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
       selector fn returns bodyStmts hvalidate hreturns hbodyCompile'
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile'] at hcompiled
@@ -1584,7 +1593,7 @@ theorem compileFunctionSpec_correct_of_body_normalized_extraFuel
           (SourceSemantics.withTransactionContext initialWorld tx).events := by
     simp [initialState, FunctionBody.initialIRStateForTx]
   have hsourceMatch :=
-    interpretFunction_eq_execResultToIRResult_of_body
+    interpretFunction_eq_execResultToIRResult_of_body (habi := habi)
       (model := model) (fn := fn) (tx := tx) (initialWorld := initialWorld)
       (sourceResult := sourceResult) (rollback := initialState) (irResult := irExec)
       (bindings := bindings) hbind hnoEvents hsource hrollbackStorage hrollbackEvents hmatch
@@ -1603,10 +1612,10 @@ theorem compileFunctionSpec_correct_of_body_normalized_extraFuel
   simpa [initialState] using hsourceMatch
 
 theorem compileFunctionSpec_correct_of_body_supported_extraFuel
-    (model : CompilationModel)
-    (selectors : List Nat)
+    (model : CompilationModel) (selectors : List Nat)
     (hSupported : SupportedSpec model selectors)
-    (selector : Nat) (fn : FunctionSpec) (irFn : IRFunction)
+    (selector : Nat) (fn : FunctionSpec)
+    {habi : fn.abiDecoding = .standard} (irFn : IRFunction)
     (returns : List ParamType) (bodyStmts : List YulStmt)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (sourceResult : SourceSemantics.StmtResult) (irExec : IRExecResult)
@@ -1645,7 +1654,7 @@ theorem compileFunctionSpec_correct_of_body_supported_extraFuel
       (Compiler.Proofs.YulGeneration.execIRFunctionFuel
         ((genParamLoads fn.params ++ bodyStmts).length + extraFuel + 1)
         irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  exact compileFunctionSpec_correct_of_body_normalized_extraFuel
+  exact compileFunctionSpec_correct_of_body_normalized_extraFuel (habi := habi)
     model
     hSupported.normalizedFields
     selector fn irFn returns bodyStmts tx initialWorld sourceResult irExec
@@ -1679,6 +1688,8 @@ theorem supported_function_correct
     FunctionBody.sourceResultMatchesIRResult
       (SourceSemantics.interpretFunction model fn tx initialWorld)
     (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
   classical
   let _ := hvalidateInputs
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
@@ -1759,7 +1770,7 @@ theorem supported_function_correct
     rcases hbodyCorrect with
       ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
     have hfuel :=
-      compileFunctionSpec_correct_of_body_supported_extraFuel
+      compileFunctionSpec_correct_of_body_supported_extraFuel (habi := habi)
         (model := model)
         (selectors := selectors)
         (hSupported := hSupported)
@@ -1780,7 +1791,7 @@ theorem supported_function_correct
         (hSupported.selectorFunctionParamsSupported hfn)
         hcalldataSizeFits hbind hsource hbodyExec hmatch
     have hcompiled :=
-      compileFunctionSpec_ok_of_components model.fields model.events model.errors
+      compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
         selector fn returns bodyStmts hvalidate hreturns hbodyCompile
     have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
       rw [hcompile] at hcompiled
@@ -1830,7 +1841,7 @@ theorem supported_function_correct
     have hbodyExtraFuelLower :
         sizeOf bodyStmts - bodyStmts.length ≤ extraFuel := by
       have hcompiled :=
-        compileFunctionSpec_ok_of_components model.fields model.events model.errors
+        compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
           selector fn returns bodyStmts hvalidate hreturns hbodyCompile
       have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
         rw [hcompile] at hcompiled
@@ -1941,7 +1952,7 @@ theorem supported_function_correct
     rcases hbodyCorrect with
       ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
     have hfuel :=
-      compileFunctionSpec_correct_of_body_supported_extraFuel
+      compileFunctionSpec_correct_of_body_supported_extraFuel (habi := habi)
         (model := model)
         (selectors := selectors)
         (hSupported := hSupported)
@@ -1962,7 +1973,7 @@ theorem supported_function_correct
         (hSupported.selectorFunctionParamsSupported hfn)
         hcalldataSizeFits hbind hsource hbodyExec hmatch
     have hcompiled :=
-      compileFunctionSpec_ok_of_components model.fields model.events model.errors
+      compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
         selector fn returns bodyStmts hvalidate hreturns hbodyCompile
     have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
       rw [hcompile] at hcompiled
@@ -2048,9 +2059,11 @@ theorem supported_function_correct_with_helper_proofs_body_goal
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors
+  have hcompiled := compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
       selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
@@ -2082,7 +2095,7 @@ theorem supported_function_correct_with_helper_proofs_body_goal
         (irResult := irExec)
         hrollbackStorage hrollbackEvents rfl hmatch
     simp only [supportedSourceFunctionSemantics,
-      SourceSemantics.interpretFunctionWithHelpers,
+      SourceSemantics.interpretFunctionWithHelpers, FunctionSpec.bindingParams, habi,
       SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind]
     rw [hsource]
     exact hpack
@@ -2132,7 +2145,8 @@ theorem supported_function_correct_with_helper_proofs_body_goal
 private theorem supported_function_correct_with_scalar_events_body_goal_source_match
     (model : CompilationModel) (selectors : List Nat)
     (hSupported : SupportedSpecWithScalarEvents model selectors)
-    (fn : FunctionSpec) (tx : IRTransaction)
+    (fn : FunctionSpec)
+    {habi : fn.abiDecoding = .standard} (tx : IRTransaction)
     (initialWorld : Verity.ContractState) (bindings : List (String × Nat))
     (initialState : IRState) (irExec : IRExecResult) (sourceResult : SourceSemantics.StmtResult)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
@@ -2170,7 +2184,7 @@ private theorem supported_function_correct_with_scalar_events_body_goal_source_m
       (sourceResult := sourceResult) (irResult := irExec)
       hrollbackStorage hrollbackEvents rfl hmatch
   simp only [supportedSourceFunctionSemanticsWithScalarEvents,
-    SourceSemantics.interpretFunctionWithHelpers,
+    SourceSemantics.interpretFunctionWithHelpers, FunctionSpec.bindingParams, habi,
     SourceSemantics.bindExternalParams_eq_some_of_bindSupportedParams _ hbind]
   rw [hsource]
   exact hpack
@@ -2199,13 +2213,13 @@ private theorem supported_function_correct_with_scalar_events_body_goal_compiled
 
 private theorem supported_function_correct_with_scalar_events_body_goal_fuel
     (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpecWithScalarEvents model selectors)
-    (fn : FunctionSpec) (selector : Nat) (returns : List ParamType) (bodyStmts : List YulStmt)
+    (fn : FunctionSpec) {habi : fn.abiDecoding = .standard}
+    (selector : Nat) (returns : List ParamType) (bodyStmts : List YulStmt)
     (irFn : IRFunction) (tx : IRTransaction) (initialWorld : Verity.ContractState)
     (hvalidate : validateFunctionSpec fn = Except.ok ()) (hreturns : functionReturns fn = Except.ok returns)
     (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
     (hcompile : compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
-    (extraFuel : Nat)
-    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel = sizeOf (compiledFunctionIR selector fn returns bodyStmts).body)
+    (extraFuel : Nat) (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel = sizeOf (compiledFunctionIR selector fn returns bodyStmts).body)
     (irExec : IRExecResult)
     (hcompiledExec : Compiler.Proofs.YulGeneration.execIRFunctionFuel
       ((genParamLoads fn.params ++ bodyStmts).length + extraFuel + 1)
@@ -2217,7 +2231,7 @@ private theorem supported_function_correct_with_scalar_events_body_goal_fuel
         (execResultToIRResult (FunctionBody.initialIRStateForTx model tx initialWorld) irExec)) :
     FunctionBody.sourceResultMatchesIRResult (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hcompiled := compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
     injection hcompiled
@@ -2270,19 +2284,21 @@ theorem supported_function_correct_with_scalar_events_body_goal
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
   have hsourceMatch :
       FunctionBody.sourceResultMatchesIRResult
         (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
         (execResultToIRResult initialState irExec) :=
-    supported_function_correct_with_scalar_events_body_goal_source_match
+    supported_function_correct_with_scalar_events_body_goal_source_match (habi := habi)
       model selectors hSupported fn tx initialWorld bindings initialState irExec sourceResult
       hbind hsource hmatch rfl
   have hcompiledExec := supported_function_correct_with_scalar_events_body_goal_compiled_exec
     model selectors hSupported fn selector returns bodyStmts tx initialWorld bindings hfn hbind
     hcalldataSizeFits extraFuel irExec hbodyExec
-  exact supported_function_correct_with_scalar_events_body_goal_fuel
+  exact supported_function_correct_with_scalar_events_body_goal_fuel (habi := habi)
     model selectors hSupported fn selector returns bodyStmts irFn tx initialWorld hvalidate hreturns
     hbodyCompile hcompile extraFuel hcompiledBodyFuel irExec hcompiledExec hsourceMatch
 theorem supported_function_correct_with_helper_proofs_body_goal_and_helper_ir
@@ -2413,9 +2429,11 @@ theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
       (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
-  have hcompiled := compileFunctionSpec_ok_of_components_with_internals
+  have hcompiled := compileFunctionSpec_ok_of_components_with_internals (habi := habi)
       model.fields model.events model.errors internalFunctions selector fn returns bodyStmts
       hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
@@ -2439,7 +2457,7 @@ theorem supported_function_correct_with_helper_proofs_body_goal_with_internals
         (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
         (FunctionBody.irResultOfExecResultWithInternals initialState irExec) := by
     have hpack :=
-      interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
+      interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body (habi := habi)
         (model := model)
         (fn := fn)
         (helperFuel := hSupported.helperFuel)
@@ -2546,9 +2564,11 @@ theorem supported_function_correct_with_helper_rich_support_body_goal_with_inter
         model selectors hSupported fn tx initialWorld)
       (execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   rcases hbodyCorrect with ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
-  have hcompiled := compileFunctionSpec_ok_of_components_with_internals
+  have hcompiled := compileFunctionSpec_ok_of_components_with_internals (habi := habi)
       model.fields model.events model.errors internalFunctions selector fn returns bodyStmts
       hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
@@ -2573,7 +2593,7 @@ theorem supported_function_correct_with_helper_rich_support_body_goal_with_inter
           model selectors hSupported fn tx initialWorld)
         (FunctionBody.irResultOfExecResultWithInternals initialState irExec) := by
     simpa [supportedSourceFunctionSemanticsWithHelpers] using
-      (interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body
+      (interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body (habi := habi)
       (model := model) (fn := fn) (helperFuel := hSupported.helperFuel)
       (tx := tx) (initialWorld := initialWorld) (sourceResult := sourceResult)
       (rollback := initialState) (irResult := irExec) (bindings := bindings)
@@ -2666,7 +2686,9 @@ theorem supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
       (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
+  have hcompiled := compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
       selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
@@ -2838,6 +2860,8 @@ theorem supported_function_body_with_internals_goal_of_compileFunctionSpec_with_
             (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
           bindings)
         bindings extraFuel := by
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
   classical
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   rcases FunctionShape.compileFunctionSpec_ok_components_with_internals
@@ -2845,7 +2869,13 @@ theorem supported_function_body_with_internals_goal_of_compileFunctionSpec_with_
       selector fn irFn hcompile with
     ⟨returns, bodyStmts, _hvalidate, _hreturns, hbodyCompile, hirFn⟩
   have hirFnLocal : irFn = compiledFunctionIR selector fn returns bodyStmts := by
-    convert hirFn using 1 <;> rfl
+    rw [hirFn]
+    unfold FunctionShape.compiledFunctionIR compiledFunctionIR
+    simp only [FunctionSpec.bindingParams, habi]
+    cases returns with
+    | nil => rfl
+    | cons first rest => cases rest <;> rfl
+  simp only [FunctionSpec.bindingParams, habi] at hbodyCompile
   let extraFuel := sizeOf irFn.body - irFn.body.length
   have hbodyExtraFuelLower :
       sizeOf bodyStmts - bodyStmts.length ≤ extraFuel := by
@@ -3823,14 +3853,15 @@ legacy interface compiles to a function whose IR body stays inside the
 legacy-compatible external Yul subset (`LegacyCompatibleExternalStmtList`).
 Composes `genParamLoads_scalar_legacy` with the body composition lemma. -/
 theorem compileFunctionSpec_body_legacyCompatible_of_interface
-    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec)
+    {habi : spec.abiDecoding = .standard} (irFn : IRFunction)
     (hparams : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hbodyInterface :
       StmtListCompiledLegacyCompatible fields (spec.params.map (·.name)) spec.body)
     (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
     LegacyCompatibleExternalStmtList irFn.body := by
   obtain ⟨returns, bodyStmts, _hvalidate, _hreturns, hbodyCompile, hirFn⟩ :=
-    compileFunctionSpec_ok_components fields [] [] selector spec irFn hcompile
+    compileFunctionSpec_ok_components (habi := habi) fields [] [] selector spec irFn hcompile
   subst hirFn
   simp only [compiledFunctionIR]
   exact legacyCompatibleExternalStmtList_append
@@ -3841,13 +3872,14 @@ theorem compileFunctionSpec_body_legacyCompatible_of_interface
 body fragment. This discharges #2080's per-statement legacy interface for
 external functions whose source body is already in `StmtListCompileCore`. -/
 theorem compileFunctionSpec_body_legacyCompatible_of_compileCore
-    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec)
+    {habi : spec.abiDecoding = .standard} (irFn : IRFunction)
     (hparams : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hbodyCore :
       FunctionBody.StmtListCompileCore (spec.params.map (·.name)) spec.body)
     (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
     LegacyCompatibleExternalStmtList irFn.body :=
-  compileFunctionSpec_body_legacyCompatible_of_interface
+  compileFunctionSpec_body_legacyCompatible_of_interface (habi := habi)
     fields selector spec irFn hparams
     (stmtListCompileCore_compiledLegacyCompatible fields
       (compilerScope := spec.params.map (·.name)) hbodyCore)
@@ -3856,13 +3888,14 @@ theorem compileFunctionSpec_body_legacyCompatible_of_compileCore
 /-- Function-level legacy-compatibility package for the terminal-core body
 fragment, including terminal `ite` bodies. -/
 theorem compileFunctionSpec_body_legacyCompatible_of_terminalCore
-    (fields : List Field) (selector : Nat) (spec : FunctionSpec) (irFn : IRFunction)
+    (fields : List Field) (selector : Nat) (spec : FunctionSpec)
+    {habi : spec.abiDecoding = .standard} (irFn : IRFunction)
     (hparams : ∀ param ∈ spec.params, SupportedExternalScalarParamType param.ty)
     (hbodyTerminal :
       FunctionBody.StmtListTerminalCore (spec.params.map (·.name)) spec.body)
     (hcompile : compileFunctionSpec fields [] [] [] selector spec = Except.ok irFn) :
     LegacyCompatibleExternalStmtList irFn.body :=
-  compileFunctionSpec_body_legacyCompatible_of_interface
+  compileFunctionSpec_body_legacyCompatible_of_interface (habi := habi)
     fields selector spec irFn hparams
     (stmtListTerminalCore_compiledLegacyCompatible fields
       (compilerScope := spec.params.map (·.name)) hbodyTerminal)
@@ -4205,14 +4238,15 @@ private theorem supported_function_correct_with_scalar_events_state_runtime
     (fields := SourceSemantics.effectiveFields model) (bindings := bindings) hpreboundRuntime
 
 private theorem supported_function_correct_with_scalar_events_body_extraFuelLower
-    (model : CompilationModel) (fn : FunctionSpec) (selector : Nat) (returns : List ParamType)
+    (model : CompilationModel) (fn : FunctionSpec)
+    {habi : fn.abiDecoding = .standard} (selector : Nat) (returns : List ParamType)
     (bodyStmts : List YulStmt) (irFn : IRFunction)
     (hvalidate : validateFunctionSpec fn = Except.ok ()) (hreturns : functionReturns fn = Except.ok returns)
     (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
     (hcompile : compileFunctionSpec model.fields model.events model.errors [] selector fn = Except.ok irFn)
     (extraFuel : Nat) (hextraFuel : extraFuel = sizeOf irFn.body - irFn.body.length) :
     sizeOf bodyStmts - bodyStmts.length ≤ extraFuel := by
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hcompiled := compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
     injection hcompiled
@@ -4274,14 +4308,16 @@ theorem supported_function_correct_with_scalar_events
     (hbodyDisjoint : YulStmtListCallsDisjointFromInternalTable runtimeContract bodyStmts) (hinternal : runtimeContract.internalFunctions = [])
     (hhelperIR : execIRFunctionWithInternals runtimeContract 0 irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld) = execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) :
     FunctionBody.sourceResultMatchesIRResult (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld) (execIRFunctionWithInternals runtimeContract 0 irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
   let initialState := FunctionBody.initialIRStateForTx model tx initialWorld
   let state := ParamLoading.applyBindingsToIRState (prebindRawArgs initialState fn.params) bindings
   let extraFuel := sizeOf irFn.body - irFn.body.length
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
+  have hcompiled := compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled; injection hcompiled
   have hbodyExtraFuelLower : sizeOf bodyStmts - bodyStmts.length ≤ extraFuel :=
-    supported_function_correct_with_scalar_events_body_extraFuelLower
+    supported_function_correct_with_scalar_events_body_extraFuelLower (habi := habi)
       model fn selector returns bodyStmts irFn hvalidate hreturns hbodyCompile hcompile extraFuel rfl
   have hinit : FunctionBody.bindingsExactlyMatchIRVars [] initialState := by
     simpa [initialState] using FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx model tx initialWorld
@@ -4383,7 +4419,9 @@ theorem compileFunctionSpec_correct_with_scalar_events
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemanticsWithScalarEvents model selectors hSupported fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  rcases compileFunctionSpec_ok_components model.fields model.events model.errors sel fn irFn
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
+  rcases compileFunctionSpec_ok_components (habi := habi) model.fields model.events model.errors sel fn irFn
       hcompileFn with ⟨returns, bodyStmts, hvalidate, hreturns, hbodyCompile, hirFn⟩
   subst hirFn
   have hbodyDisjoint := compileStmtList_scalar_events_callsDisjoint
@@ -5208,6 +5246,7 @@ mapping-write step interfaces instead of contradiction. -/
 theorem supported_function_correct_with_body_interface_except_mapping_writes
     (model : CompilationModel)
     (fn : FunctionSpec)
+    {habi : fn.abiDecoding = .standard}
     (helperFuel : Nat)
     (hnormalized :
       applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
@@ -5280,7 +5319,7 @@ theorem supported_function_correct_with_body_interface_except_mapping_writes
           (prebindRawArgs initialState fn.params) bindings) := by
     exact supported_function_param_state_exact
       initialState fn.params bindings hinitBindings hparamNamesNodup hbind
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors
+  have hcompiled := compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
       selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
@@ -5423,7 +5462,7 @@ theorem supported_function_correct_with_body_interface_except_mapping_writes
         (SourceSemantics.interpretFunction model fn tx initialWorld)
         (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
     have hfuel :=
-      compileFunctionSpec_correct_of_body_normalized_extraFuel
+      compileFunctionSpec_correct_of_body_normalized_extraFuel (habi := habi)
         model
         hnormalized
         selector fn irFn returns bodyStmts tx initialWorld sourceResult irExec
@@ -5482,13 +5521,14 @@ theorem supported_function_correct_with_body_interface_except_mapping_writes
     model helperFuel fn tx initialWorld hBody.helperSurfaceClosed] using hlegacy
 
 /-- Body-local variant of
-`supported_function_correct_with_body_interface_except_mapping_writes`.
+`supported_function_correct_with_body_interface_except_mapping_writes (habi := habi)`.
 This keeps the alternate Tier 2 theorem usable for concrete contracts whose
 mapping-write safety argument is only available for the statements that
 actually occur in the current body. -/
 theorem supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety
     (model : CompilationModel)
     (fn : FunctionSpec)
+    {habi : fn.abiDecoding = .standard}
     (helperFuel : Nat)
     (hnormalized :
       applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
@@ -5561,7 +5601,7 @@ theorem supported_function_correct_with_body_interface_except_mapping_writes_stm
           (prebindRawArgs initialState fn.params) bindings) := by
     exact supported_function_param_state_exact
       initialState fn.params bindings hinitBindings hparamNamesNodup hbind
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors
+  have hcompiled := compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
       selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
@@ -5693,7 +5733,7 @@ theorem supported_function_correct_with_body_interface_except_mapping_writes_stm
         (SourceSemantics.interpretFunction model fn tx initialWorld)
         (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
     have hfuel :=
-      compileFunctionSpec_correct_of_body_normalized_extraFuel
+      compileFunctionSpec_correct_of_body_normalized_extraFuel (habi := habi)
         model
         hnormalized
         selector fn irFn returns bodyStmts tx initialWorld sourceResult irExec
@@ -5776,12 +5816,14 @@ theorem supported_function_correct_except_mapping_writes
     FunctionBody.sourceResultMatchesIRResult
       (SourceSemantics.interpretFunction model fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  rcases compileFunctionSpec_ok_components
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
+  rcases compileFunctionSpec_ok_components (habi := habi)
       model.fields model.events model.errors selector fn irFn hcompileFn with
     ⟨returns, bodyStmts, hvalidate, hreturns, hbodyCompile, hirFn⟩
   subst hirFn
   have hcorrect :=
-    supported_function_correct_with_body_interface_except_mapping_writes
+    supported_function_correct_with_body_interface_except_mapping_writes (habi := habi)
       (model := model)
       (fn := fn)
       (helperFuel := hSupported.helperFuel)
@@ -5832,12 +5874,14 @@ theorem supported_function_correct_except_mapping_writes_stmtSafety
     FunctionBody.sourceResultMatchesIRResult
       (SourceSemantics.interpretFunction model fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  rcases compileFunctionSpec_ok_components
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
+  rcases compileFunctionSpec_ok_components (habi := habi)
       model.fields model.events model.errors selector fn irFn hcompileFn with
     ⟨returns, bodyStmts, hvalidate, hreturns, hbodyCompile, hirFn⟩
   subst hirFn
   have hcorrect :=
-    supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety
+    supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety (habi := habi)
       (model := model)
       (fn := fn)
       (helperFuel := hSupported.helperFuel)
@@ -5909,6 +5953,8 @@ theorem supported_function_correct_with_helper_proofs_goal
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have habi : fn.abiDecoding = .standard :=
+    (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi
   classical
   let _ := hvalidateInputs
   have hsupportedFn := hSupported.supportedFunctionOfSelectorDispatched hfn
@@ -5955,7 +6001,7 @@ theorem supported_function_correct_with_helper_proofs_goal
           (prebindRawArgs initialState fn.params) bindings) := by
     exact supported_function_param_state_exact
       initialState fn.params bindings hinitBindings hparamNamesNodup hbind
-  have hcompiled := compileFunctionSpec_ok_of_components model.fields model.events model.errors
+  have hcompiled := compileFunctionSpec_ok_of_components (habi := habi) model.fields model.events model.errors
       selector fn returns bodyStmts hvalidate hreturns hbodyCompile
   have hirFn : irFn = compiledFunctionIR selector fn returns bodyStmts := by
     rw [hcompile] at hcompiled
