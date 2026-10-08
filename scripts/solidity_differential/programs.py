@@ -1179,3 +1179,34 @@ def stateful_overload_const_error_cond_tuple_tload_source(fixture: str, variant:
         return fixture
     raise ValueError(f'unknown overload-const-error-cond-tuple-tload variant: {variant}')
 
+
+def stateful_struct_fixed_array_and_fixed_return_source(fixture: str, variant: str) -> str:
+    """Equivalent struct fixed-size array member and root fixed-size array return sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'input', 'id', 'seed', 'writeIdx', 'readIdx', 'snap', 'fees',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-array-and-return':
+        replacements = {
+            'position[id][msg.sender].credit += uint128(seed);':
+            'position[id][msg.sender].credit = position[id][msg.sender].credit + uint128(seed);',
+            'delete position[id][msg.sender].fees[1];':
+            'position[id][msg.sender].fees[1] = 0;',
+            'pool[id].total += seed;':
+            'pool[id].total = pool[id].total + seed;',
+            'uint16[3] memory fees = settlementFeeCbps[id];\n        return fees;':
+            'return [settlementFeeCbps[id][0], settlementFeeCbps[id][1], settlementFeeCbps[id][2]];',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('struct-fixed-array-and-fixed-return variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown struct-fixed-array-and-fixed-return variant: {variant}')
+

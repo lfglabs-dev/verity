@@ -151,10 +151,21 @@ private inductive SPath where
   | two (field : String) (k1 k2 : Expr)
   | outer (field : String) (k1 : Expr)
 
+private structure StructFixedArrayInfo where
+  member : String
+  solcType : String
+  wordOffset : Nat
+  byteOffset : Nat
+  length : Nat
+  elementWidth : Nat
+  arrayType : String
+
 private inductive Ref where
   | expr (v : Val)
   | path (pre : Array Stmt) (p : SPath)
   | fixedElement (pre : Array Stmt) (path : SPath) (index : Expr)
+  | structFixedArray (pre : Array Stmt) (path : SPath) (info : StructFixedArrayInfo)
+  | structFixedElement (pre : Array Stmt) (path : SPath) (info : StructFixedArrayInfo) (index : Expr)
   | snapshot (elements : Array Expr)
   | mem (id : Nat) (pre : Array Stmt)
   | abiArray (id memberIndex : Nat) (pre : Array Stmt)
@@ -194,6 +205,7 @@ private structure FieldInfo where
   keyCount : Nat
   memberNames : Array String
   opaqueNames : Array String
+  structFixedArrays : Array StructFixedArrayInfo := #[]
   booleanScalar : Bool := false
   scalarMapping : Bool := false
   booleanMapping : Bool := false
@@ -260,6 +272,7 @@ private structure Env where
   helperPost : Array Stmt := #[]
   rootIsVoid : Bool := false
   rootReturns : Array Expr := #[]
+  rootFixedArrayReturn : Option (String × ParamType × Nat) := none
   rootPost : Array Stmt := #[]
   modifiers : RBMap Nat Json compare := RBMap.empty
   unchecked : Bool := false
@@ -269,6 +282,7 @@ private structure Env where
   included : Array FnRec
   projections : Array ProjRec
   opaqueMembers : Array OpaqRec
+  usedStructFixedArrays : Array (String × String) := #[]
   referenced : Array String
   scalarTy : RBMap Nat ParamType compare
   writableLocals : RBMap Nat String compare := RBMap.empty
@@ -644,6 +658,11 @@ private def markField (name : String) : M Unit := do
   unless env.referenced.contains name do
     modify fun e => { e with referenced := e.referenced.push name }
 
+private def markStructFixedArray (fieldName memberName : String) : M Unit := do
+  let env ← get
+  unless env.usedStructFixedArrays.contains (fieldName, memberName) do
+    modify fun e => { e with usedStructFixedArrays := e.usedStructFixedArrays.push (fieldName, memberName) }
+
 private def mappingKey (ty : String) : MetaM MappingKeyType :=
   match ty with
   | "t_bytes32" => pure .bytes32
@@ -790,12 +809,53 @@ private def buildField (types item : Json) : M FieldInfo := do
   let mut members' : Array StructMember := #[]
   let mut names : Array String := #[]
   let mut skipped : Array String := #[]
+  let mut structFixedArrays : Array StructFixedArrayInfo := #[]
   for m in members do
     let label ← mStr (← mField m "label")
     let solcType ← mStr (← mField m "type")
     let word ← mNat (← mField m "slot")
     let byteOff ← mNat (← mField m "offset")
-    if solcType.startsWith "t_array" || solcType.startsWith "t_mapping" then
+    if solcType.startsWith "t_array" then
+      let item : OpaqRec := ⟨name, label, solcType, word, byteOff⟩
+      modify fun e => { e with opaqueMembers := e.opaqueMembers.push item }
+      let fixedInfo? : Option StructFixedArrayInfo ← (do
+        let some arrTy := field? types solcType | return none
+        unless (← mStr (← mField arrTy "encoding")) == "inplace" && byteOff == 0 do
+          return none
+        let some baseKey := optStr arrTy "base" | return none
+        let arrLabel ← mStr (← mField arrTy "label")
+        let [elemLabel, suffix] := arrLabel.splitOn "["
+          | return none
+        unless suffix.endsWith "]" do return none
+        let some length := (suffix.dropEnd 1).toNat? | return none
+        unless length > 0 do return none
+        let some base := field? types baseKey | return none
+        let baseLabel ← mStr (← mField base "label")
+        unless elemLabel == baseLabel && baseLabel.startsWith "uint" do
+          return none
+        let some width := bitsOf baseLabel | return none
+        unless width > 0 && width ≤ 256 && width % 8 == 0 do
+          return none
+        unless (← mStr (← mField base "encoding")) == "inplace" &&
+            (← mNat (← mField base "numberOfBytes")) * 8 == width do
+          return none
+        let perWord := 256 / width
+        let words := (length + perWord - 1) / perWord
+        unless (← mNat (← mField arrTy "numberOfBytes")) == words * 32 do
+          return none
+        return some {
+          member := label
+          solcType
+          wordOffset := word
+          byteOffset := byteOff
+          length
+          elementWidth := width
+          arrayType := arrLabel
+        })
+      match fixedInfo? with
+      | some fixedInfo => structFixedArrays := structFixedArrays.push fixedInfo
+      | none => skipped := skipped.push label
+    else if solcType.startsWith "t_mapping" then
       skipped := skipped.push label
       modify fun e =>
         let item : OpaqRec := ⟨name, label, solcType, word, byteOff⟩
@@ -817,7 +877,7 @@ private def buildField (types item : Json) : M FieldInfo := do
     | none => .mappingStruct key1 members'.toList
   let field : Field := { name, ty, slot := some slot }
   pure { slot, field, keyCount := if key2.isSome then 2 else 1,
-         memberNames := names, opaqueNames := skipped }
+         memberNames := names, opaqueNames := skipped, structFixedArrays }
 
 /-- Resolve only reached fields: an unrelated unsupported layout must not
 prevent importing a supported function closure. -/
@@ -1043,6 +1103,24 @@ private partial def lowerExpr (j : Json) : M Val := do
               [.assignVar dest (read s!"__solidity_element_{i}")] [])
           markField name
           pure { pre, expr := .localVar dest }
+      | .structFixedElement pre path arrInfo index =>
+          let (name, count, read) ← match path with
+            | .one name key => pure (name, 1, fun member => Expr.structMember name key member)
+            | .two name key1 key2 => pure (name, 2, fun member => Expr.structMember2 name key1 key2 member)
+            | .outer _ _ => failAt j "fixed array element requires both mapping keys"
+          let info ← resolveField name j
+          unless info.keyCount == count do failAt j "fixed array mapping key count differs"
+          let dest ← fresh
+          let mut pre := pre.push (.ite (.lt index (.literal arrInfo.length))
+            [] [.panicCode (.literal 0x32)]) |>.push (.letVar dest (.literal 0))
+          for i in [:arrInfo.length] do
+            pre := pre.push (.ite (.eq index (.literal i))
+              [.assignVar dest (read s!"__solidity_struct_array_{arrInfo.member}_{i}")] [])
+          markField name
+          markStructFixedArray name arrInfo.member
+          pure { pre, expr := .localVar dest }
+      | .structFixedArray _ _ arrInfo =>
+          failAt j s!"struct fixed array member {arrInfo.member} requires an element index"
       | _ => failAt j "storage or memory path used as a value"
   | kind => failAt j s!"unsupported expression {kind}"
 
@@ -1145,6 +1223,17 @@ private partial def lowerRef (j : Json) : M Ref := do
           let captured ← fresh
           pure (.fixedElement ((pre ++ key.pre).push (.letVar captured key.expr))
             path (.localVar captured))
+      | .structFixedArray pre path arrInfo =>
+          let name ← match path with
+            | .one name _ | .two name _ _ => pure name
+            | .outer _ _ => failAt j "fixed array element requires both mapping keys"
+          let _ ← resolveField name j
+          let ty ← mType (← mField j "indexExpression")
+          unless ty.startsWith "uint" || ty.startsWith "int_const" do
+            failAt j "fixed storage array index must be unsigned"
+          let captured ← fresh
+          pure (.structFixedElement ((pre ++ key.pre).push (.letVar captured key.expr))
+            path arrInfo (.localVar captured))
       | .snapshot elements =>
           let ty ← mType (← mField j "indexExpression")
           unless ty.startsWith "uint" || ty.startsWith "int_const" do
@@ -1226,7 +1315,14 @@ private partial def lowerRef (j : Json) : M Ref := do
       else
         match ← lowerRef base with
         | .path pre path =>
-            pure (.expr (← memberRead pre path member j))
+            let fieldName ← match path with
+              | .one field _ | .two field _ _ => pure field
+              | .outer _ _ => failAt j "member access on an incomplete mapping"
+            let info ← resolveField fieldName j
+            if let some arrInfo := info.structFixedArrays.find? (·.member == member) then
+              pure (.structFixedArray pre path arrInfo)
+            else
+              pure (.expr (← memberRead pre path member j))
         | .mem id pre =>
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
             if let some schema := mem.schema then
@@ -1972,12 +2068,9 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   let callee ← mField j "expression"
   let (fnId, receiver?) ← match ← mKind callee with
     | "MemberAccess" =>
-        let base ← mField callee "expression"
-        if (← mKind base) == "Identifier" && optStr base "name" == some "abi" &&
-            optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_abi" then
-          failAt callee s!"unsupported abi builtin {optStr callee "memberName" |>.getD ""}"
         let id ← refInt callee
         if id < 0 then failAt callee "builtin call is outside this slice"
+        let base ← mField callee "expression"
         let baseTy ← mType base
         if baseTy.startsWith "type(library " then
           pure (id.toNat, none)
@@ -3133,6 +3226,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       | .outer _ _ => failAt target "member assignment requires both mapping keys"
     let info ← resolveField name target
     if info.opaqueNames.contains member then failAt target s!"member {member} is opaque in this slice"
+    if info.structFixedArrays.any (·.member == member) then
+      failAt target s!"struct fixed array member {member} requires an element index"
     unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains member do
       failAt target "member assignment requires a supported layout member"
     let ty ← mType target
@@ -3168,6 +3263,26 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
           [write s!"__solidity_element_{i}" (.localVar capturedValue)] [])
       markField name
       return result
+    if let .structFixedElement pre path arrInfo index := reference then
+      let (name, count, write) ← match path with
+        | .one name key => pure (name, 1, fun member value => Stmt.setStructMember name key member value)
+        | .two name key1 key2 => pure (name, 2, fun member value => Stmt.setStructMember2 name key1 key2 member value)
+        | .outer _ _ => failAt target "fixed array write requires both mapping keys"
+      let info ← resolveField name target
+      unless info.keyCount == count do failAt target "fixed array mapping key count differs"
+      let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
+        let right ← mField expression "rightHandSide"
+        atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+      let capturedValue ← fresh
+      let valuePre := value.pre.push (.letVar capturedValue value.expr)
+      let mut result := (valuePre ++ pre).push (.ite (.lt index (.literal arrInfo.length))
+        [] [.panicCode (.literal 0x32)])
+      for i in [:arrInfo.length] do
+        result := result.push (.ite (.eq index (.literal i))
+          [write s!"__solidity_struct_array_{arrInfo.member}_{i}" (.localVar capturedValue)] [])
+      markField name
+      markStructFixedArray name arrInfo.member
+      return result
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
     let (name, count, write) ← match path with
@@ -3178,6 +3293,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     if deleting && !info.scalarMapping && info.fixedArrayLength.isNone && info.keyCount == count then
       unless info.opaqueNames.isEmpty do
         failAt target "cannot delete mapping struct with opaque members"
+      unless info.structFixedArrays.isEmpty do
+        failAt target "cannot delete mapping struct with fixed-array members"
       unless !info.memberNames.isEmpty do
         failAt target "cannot delete empty mapping struct layout"
       markField name
@@ -3276,6 +3393,8 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
       | .outer _ _ => failAt target "member assignment requires both mapping keys"
     let info ← resolveField name target
     if info.opaqueNames.contains cMember then failAt target s!"member {cMember} is opaque in this slice"
+    if info.structFixedArrays.any (·.member == cMember) then
+      failAt target s!"struct fixed array member {cMember} requires an element index"
     unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains cMember do
       failAt target "member assignment requires a supported layout member"
     let ty ← mType target
@@ -3289,6 +3408,8 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
   if (← mKind target) == "IndexAccess" then
     let reference ← lowerRef target
     if let .fixedElement _ _ _ := reference then
+      failAt expression "only scalar storage assignment and delete are supported"
+    if let .structFixedElement _ _ _ _ := reference then
       failAt expression "only scalar storage assignment and delete are supported"
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
@@ -3653,28 +3774,49 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     if (← mKind init) == "TupleExpression" then
       if ← mBool (← mField init "isInlineArray") then
         failAt init "inline arrays are outside this slice"
-    let .path pre path ← lowerRef init
-      | failAt d "fixed memory array initialization requires a mapping storage array"
-    let (field, count, read) ← match path with
-      | .one field key => pure (field, 1, fun member => Expr.structMember field key member)
-      | .two field key1 key2 => pure (field, 2, fun member => Expr.structMember2 field key1 key2 member)
-      | .outer _ _ => failAt init "fixed array copy requires both mapping keys"
-    let info ← resolveField field init
-    let some length := info.fixedArrayLength
-      | failAt init "fixed memory array initialization requires a fixed storage array"
-    unless info.keyCount == count && ((← mType d).splitOn " ").head! == info.fixedArrayType do
-      failAt d "fixed memory array copy type differs from storage layout"
-    let mut result := pre
-    let mut elements : Array Expr := #[]
-    for i in [:length] do
-      let binding ← fresh
-      result := result.push (.letVar binding (read s!"__solidity_element_{i}"))
-      elements := elements.push (.localVar binding)
-    modify fun e =>
-      { e with snapshots := e.snapshots.insert id elements,
-               yulNames := e.yulNames.erase name }
-    markField field
-    return result
+    match ← lowerRef init with
+    | .path pre path =>
+        let (field, count, read) ← match path with
+          | .one field key => pure (field, 1, fun member => Expr.structMember field key member)
+          | .two field key1 key2 => pure (field, 2, fun member => Expr.structMember2 field key1 key2 member)
+          | .outer _ _ => failAt init "fixed array copy requires both mapping keys"
+        let info ← resolveField field init
+        let some length := info.fixedArrayLength
+          | failAt init "fixed memory array initialization requires a fixed storage array"
+        unless info.keyCount == count && ((← mType d).splitOn " ").head! == info.fixedArrayType do
+          failAt d "fixed memory array copy type differs from storage layout"
+        let mut result := pre
+        let mut elements : Array Expr := #[]
+        for i in [:length] do
+          let binding ← fresh
+          result := result.push (.letVar binding (read s!"__solidity_element_{i}"))
+          elements := elements.push (.localVar binding)
+        modify fun e =>
+          { e with snapshots := e.snapshots.insert id elements,
+                   yulNames := e.yulNames.erase name }
+        markField field
+        return result
+    | .structFixedArray pre path arrInfo =>
+        let (field, count, read) ← match path with
+          | .one field key => pure (field, 1, fun member => Expr.structMember field key member)
+          | .two field key1 key2 => pure (field, 2, fun member => Expr.structMember2 field key1 key2 member)
+          | .outer _ _ => failAt init "fixed array copy requires both mapping keys"
+        let info ← resolveField field init
+        unless info.keyCount == count && ((← mType d).splitOn " ").head! == arrInfo.arrayType do
+          failAt d "fixed memory array copy type differs from storage layout"
+        let mut result := pre
+        let mut elements : Array Expr := #[]
+        for i in [:arrInfo.length] do
+          let binding ← fresh
+          result := result.push (.letVar binding (read s!"__solidity_struct_array_{arrInfo.member}_{i}"))
+          elements := elements.push (.localVar binding)
+        modify fun e =>
+          { e with snapshots := e.snapshots.insert id elements,
+                   yulNames := e.yulNames.erase name }
+        markField field
+        markStructFixedArray field arrInfo.member
+        return result
+    | _ => failAt d "fixed memory array initialization requires a mapping storage array"
   if loc == "storage" then
     match ← lowerRef init with
     | .path pre path =>
@@ -3745,6 +3887,23 @@ private def functionEmptyBodyArrayReturnType? (fn : Json) : M (Option ParamType)
   let some elemTy := paramType elemStr | return none
   unless isCanonicalReturnArrayParam (.array elemTy) do return none
   return some (.array elemTy)
+
+private def functionFixedArrayReturnType? (fn : Json) : M (Option (String × ParamType × Nat)) := do
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.size == 1 do return none
+  let r := rets[0]!
+  let rname ← mStr (← mField r "name")
+  unless rname == "" do return none
+  let loc := optStr r "storageLocation" |>.getD "default"
+  unless loc == "memory" do return none
+  let rty ← mType r
+  let [elemStr, suffix] := rty.splitOn "["
+    | return none
+  unless suffix.endsWith "]" && suffix != "]" do return none
+  let some length := (suffix.dropEnd 1).toNat? | return none
+  unless length > 0 do return none
+  let some elemPty := paramType elemStr | return none
+  return some (elemStr, elemPty, length)
 
 private def bindRoot (fn : Json) : M (Array SrcParam) := do
   noteFn fn
@@ -3897,6 +4056,52 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
             out := out ++ env.rootPost ++ #[.returnValues env.rootReturns.toList]
           else
             failAt s "bare return requires a void or named-return root function"
+        else if let some (elemTy, _, length) := env.rootFixedArrayReturn then
+          let isInlineArr ← if (← mKind expr) == "TupleExpression" then
+            mBool (← mField expr "isInlineArray")
+          else
+            pure false
+          if isInlineArr then
+            let cs ← mArr (← mField expr "components")
+            unless cs.size == length do
+              failAt expr s!"inline return array length {cs.size} does not match return type length {length}"
+            let mut pres : Array Stmt := #[]
+            let mut exprs : Array Expr := #[]
+            for c in cs do
+              if c.isNull then failAt expr "empty return component"
+              if cs.size > 1 && (statefulCallIn c (← get) || assignmentIn c) then
+                failAt c "stateful or assignment expression in inline return array requires explicit evaluation-order support"
+              let v ← atom (← convert elemTy (← mType c) (← lowerExpr c) c)
+              pres := pres ++ v.pre
+              if env.rootPost.isEmpty then
+                exprs := exprs.push v.expr
+              else
+                let captured ← fresh
+                pres := pres.push (.letVar captured v.expr)
+                exprs := exprs.push (.localVar captured)
+            out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
+          else if (← mKind expr) == "Identifier" then
+            let id ← refInt expr
+            if id ≥ 0 then
+              if let some elements := env.snapshots.find? id.toNat then
+                unless elements.size == length && ((← mType expr).splitOn " ").head! == s!"{elemTy}[{length}]" do
+                  failAt expr "fixed-size array return snapshot type differs from return type"
+                if env.rootPost.isEmpty then
+                  out := out.push (.returnValues elements.toList)
+                else
+                  let mut pres : Array Stmt := #[]
+                  let mut exprs : Array Expr := #[]
+                  for elem in elements do
+                    let captured ← fresh
+                    pres := pres.push (.letVar captured elem)
+                    exprs := exprs.push (.localVar captured)
+                  out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
+              else
+                failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
+            else
+              failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
+          else
+            failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
         else if (← mKind expr) == "TupleExpression" then
           if ← mBool (← mField expr "isInlineArray") then
             failAt expr "inline arrays are outside this slice"
@@ -3949,9 +4154,10 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
                    yulNames := if p.name == "" then e.yulNames else e.yulNames.insert p.name pexpr }
   let stmts ← mArr (← mField body "statements")
   let emptyBodyArrayRet? ← functionEmptyBodyArrayReturnType? fn
+  let fixedArrayRet? ← functionFixedArrayReturnType? fn
   let mut rootRetExprs : Array Expr := #[]
-  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone
-  if emptyBodyArrayRet?.isNone then
+  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone
+  if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone then
     for r in returns do
       let rname ← mStr (← mField r "name")
       if rname == "" then
@@ -3973,7 +4179,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   modify fun e =>
     { e with bodyAssigned := bodyAssignedIds body,
              rootIsVoid := returns.isEmpty,
-             rootReturns := if allNamedScalar then rootRetExprs else #[] }
+             rootReturns := if allNamedScalar then rootRetExprs else #[],
+             rootFixedArrayReturn := fixedArrayRet? }
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with rootPost := modPost }
   let (bodyOut, returned) ← lowerRootStatements stmts
@@ -3986,6 +4193,11 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
       out := out ++ #[.returnValues [.literal 32, .literal 0]]
     else if !(← get).rootReturns.isEmpty then
       out := out ++ #[.returnValues (← get).rootReturns.toList]
+    else if let some (_, _, length) := fixedArrayRet? then
+      if stmts.isEmpty then
+        out := out ++ #[.returnValues (Array.replicate length (.literal 0)).toList]
+      else
+        failAt fn "an explicit root return is required"
     else if stmts.isEmpty then
       let mut zeroReturns : List Expr := []
       for r in returns do
@@ -4338,7 +4550,7 @@ private def importSlice
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       snapshots := RBMap.empty, mems := RBMap.empty, calldataBytes := RBMap.empty, byteBuffers := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], yulNames := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootPost := #[] }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootFixedArrayReturn := none, rootPost := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]
@@ -4430,6 +4642,8 @@ private def importSlice
     let returns ← (do
       if let some arrayRetTy ← functionEmptyBodyArrayReturnType? fn then
         return #[arrayRetTy]
+      if let some (_, elemPty, length) ← functionFixedArrayReturnType? fn then
+        return Array.replicate length elemPty
       let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
       let mut out : Array ParamType := #[]
       for r in rets do
@@ -4461,7 +4675,30 @@ private def importSlice
   let mut fields : Array (Nat × Field) := #[]
   for name in env.referenced do
     let some info := env.fieldsByName.find? name | throwError "missing field {name}"
-    fields := fields.push (info.slot, info.field)
+    let mut expandedMembers : List StructMember := []
+    for arrInfo in info.structFixedArrays do
+      if env.usedStructFixedArrays.contains (name, arrInfo.member) then
+        let perWord := 256 / arrInfo.elementWidth
+        for index in [:arrInfo.length] do
+          let offset := (index % perWord) * arrInfo.elementWidth
+          let packed : Option PackedBits :=
+            if arrInfo.elementWidth == 256 then none
+            else some { offset := offset, width := arrInfo.elementWidth }
+          let member : StructMember :=
+            { name := s!"__solidity_struct_array_{arrInfo.member}_{index}",
+              ty := .uint256,
+              wordOffset := arrInfo.wordOffset + index / perWord,
+              packed }
+          expandedMembers := expandedMembers ++ [member]
+    let field :=
+      if expandedMembers.isEmpty then info.field
+      else
+        let ty := match info.field.ty with
+          | .mappingStruct k ms => FieldType.mappingStruct k (ms ++ expandedMembers)
+          | .mappingStruct2 k1 k2 ms => FieldType.mappingStruct2 k1 k2 (ms ++ expandedMembers)
+          | other => other
+        { info.field with ty }
+    fields := fields.push (info.slot, field)
   let sortedFields := (fields.qsort (fun a b => a.1 < b.1)).map (·.2)
   let model : CompilationModel :=
     { name := contract, constructor := none, fields := sortedFields.toList,
@@ -4480,7 +4717,7 @@ private def importSlice
   let sortedExcluded := excluded.qsort (fun a b => a.declId < b.declId)
   let mut opaqueMembers : Array OpaqueMember := #[]
   for o in env.opaqueMembers do
-    if env.referenced.contains o.field then
+    if env.referenced.contains o.field && !env.usedStructFixedArrays.contains (o.field, o.name) then
       opaqueMembers := opaqueMembers.push
         { field := o.field, name := o.name, solcType := o.solcType,
           wordOffset := o.wordOffset, byteOffset := o.byteOffset }
@@ -4618,6 +4855,7 @@ private def elabStorageAccessors (ns : Name) (model : CompilationModel) (report 
     let keyWords ← keyIdents.toArray.mapM fun ident => `(($ident).val)
     let path := String.join (keyIdents.map fun _ => "[..]")
     for member in members do
+      if member.name.startsWith "__solidity_struct_array_" then continue
       let name := ns ++ Name.mkSimple field.name ++ Name.mkSimple member.name
       let valName := ns ++ Name.mkSimple field.name ++ Name.mkSimple (member.name ++ "_val")
       let read ← `(Compiler.CompilationModel.SolidityImport.readMember oracle $(mkIdent (`_root_ ++ ns ++ `model))

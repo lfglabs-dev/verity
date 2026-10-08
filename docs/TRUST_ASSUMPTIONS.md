@@ -1404,3 +1404,17 @@ CREATE2 executable or make an encoded-byte descriptor a Solidity object pointer.
 Generated variants, two runtime mutation rules and eight located controls are
 registered in the draft. Native A/B/C validation and all exact-head release gates
 remain pending; no new semantic-equivalence or Midnight-unlock claim is made.
+
+### Development struct fixed-size array members and root fixed-size array returns
+
+Fixed-size inplace unsigned scalar array members inside mapping-backed structs
+are expanded into synthetic `StructMember` entries only for slices that touch
+the array member (`usedStructFixedArrays`), preserving existing `opaqueMembers`
+reporting and layout declarations for slices that only access scalar struct
+fields. Element reads and writes reuse the existing `structMember` /
+`structMember2` / `setStructMember` / `setStructMember2` Denote and compiler
+arms with explicit `Panic(0x32)` bounds guards; whole-struct `delete` and
+whole-array `delete` remain rejected. Unnamed root fixed-size scalar array
+returns (`T[L] memory`) lower to `L` static ABI return words (`returnValues`)
+from either an inline array literal or a local fixed-size array snapshot
+without introducing new Denote instructions or project axioms.

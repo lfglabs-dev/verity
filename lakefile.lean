@@ -87,6 +87,8 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.Int256ContractTypeSequenceModel,
     .one `Contracts.SolidityImportSmoke.FnPtrStructDeleteModifierSequenceModel,
     .one `Contracts.SolidityImportSmoke.EmptyArrayReturnBytesCalldataSequenceModel,
+    .one `Contracts.SolidityImportSmoke.OverloadConstErrorCondTupleTloadSequenceModel,
+    .one `Contracts.SolidityImportSmoke.StructFixedArrayAndFixedReturnSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,
