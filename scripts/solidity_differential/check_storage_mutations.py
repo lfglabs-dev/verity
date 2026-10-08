@@ -244,10 +244,17 @@ MUTANTS.update({
     'import-array-string-params-context-selfbalance-one': ('        if ← isThisAddressConv base then\n          pure (.expr { pre := #[], expr := .selfBalance })', '        if ← isThisAddressConv base then\n          pure (.expr { pre := #[], expr := .literal 1 })'),
     'import-array-string-params-context-txorigin-zero': ('        unless member == "origin" do failAt j s!"unsupported transaction context member {member}"\n        pure (.expr { pre := #[], expr := .txOrigin })', '        unless member == "origin" do failAt j s!"unsupported transaction context member {member}"\n        pure (.expr { pre := #[], expr := .literal 0 })'),
     'import-array-string-params-context-external-balance-guard': ('        if ← isThisAddressConv base then\n          pure (.expr { pre := #[], expr := .selfBalance })\n        else\n          failAt j "external account balance reads are outside this slice"', '        if true then\n          pure (.expr { pre := #[], expr := .selfBalance })\n        else\n          failAt j "external account balance reads are outside this slice"'),
+    'import-bytes-memory-encode-call-byte-buffer-length-zero': ('        let some buf ← isByteBufferIdent base\n          | failAt base "internal error: missing byte buffer"\n        pure (.expr { pre := buf.pre, expr := buf.size })', '        let some buf ← isByteBufferIdent base\n          | failAt base "internal error: missing byte buffer"\n        pure (.expr { pre := buf.pre, expr := .literal 0 })'),
+    'import-bytes-memory-encode-call-signature-selector-zero': ('    let selWord := Expr.bitAnd (.keccak256 sigBuf.pointer sigBuf.size) (.literal (0xffffffff * 16 ^ 56))', '    let _ := sigBuf\n    let selWord := Expr.literal 0'),
+    'import-bytes-memory-encode-call-selector-words-size': ('  pre := pre.push (.letVar sizeName (.literal (4 + 32 * words.length)))', '  pre := pre.push (.letVar sizeName (.literal (32 * words.length)))'),
+    'import-bytes-memory-encode-call-bytes-concat-truncate': ('            failAt arg s!"unsupported bytes.concat argument type {argTy}"\n        return ← lowerPacked args', '            failAt arg s!"unsupported bytes.concat argument type {argTy}"\n        return ← lowerPacked (args.extract 0 1)'),
+    'import-bytes-memory-encode-call-param-type-guard': ('      unless (paramType pty).isSome do\n        failAt p s!"unsupported ABI encoding argument type {pty}"\n      checkEncodingScalar arg', '      unless (paramType pty).isSome do\n        failAt p s!"unsupported ABI encoding argument type {pty}"\n      pure ()'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-bytes-memory-encode-call-"):
+        fixture = "BytesMemoryAndAbiEncodeCallSequence"
     if name.startswith("import-array-string-params-context-"):
         fixture = "ArrayStringParamsAndContextSequence"
     if name.startswith("import-yul-builtins-encode-selector-"):
@@ -320,11 +327,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -332,7 +339,7 @@ def run(directory, output, name):
     if fixture == 'NamedHelperReturnSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 40, 50, 60, 70, 255, 256, 257, (1 << 160) - 1, 1 << 160, (1 << 160) + 1, (1 << 256) - 1])]
-    if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence'}:
+    if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence', 'ArrayStringParamsAndContextSequence', 'BytesMemoryAndAbiEncodeCallSequence'}:
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [19, 0, 1, 2, 3, 20, 21, 96, 97, 98, 99999, 100000, (1 << 256) - 1])]
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
@@ -529,6 +536,16 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-bytes-memory-encode-call-param-type-guard':
+        diagnostic = 'effectful ABI encoding argument is unsupported'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+interface IBad { function f(uint256 a) external; }
+contract C {
+ function checked(uint256 x) external pure returns (bytes32) {
+  return keccak256(abi.encodeCall(IBad.f, (x + 1)));
+ }
+}
+''')
     else:
         argument = name.endswith('argument-guard')
         expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
@@ -594,7 +611,8 @@ def mutation_campaign(output, selected=None):
                                   'import-exp-and-bitwise-shift-dynamic-exp-guard',
                                   'import-while-clz-struct-loc-nondecreasing-guard',
                                   'import-yul-builtins-encode-selector-pure-receiver-guard',
-                                  'import-array-string-params-context-external-balance-guard'}
+                                  'import-array-string-params-context-external-balance-guard',
+                                  'import-bytes-memory-encode-call-param-type-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')

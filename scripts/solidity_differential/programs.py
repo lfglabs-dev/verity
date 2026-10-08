@@ -1396,3 +1396,40 @@ def stateful_array_string_params_and_context_source(fixture: str, variant: str) 
         return fixture
     raise ValueError(f'unknown array-string-params-and-context variant: {variant}')
 
+
+def stateful_bytes_memory_and_abi_encode_call_source(fixture: str, variant: str) -> str:
+    """Equivalent bytes memory parameter/helper/local, .length, bytes.concat/string.concat, abi.encodeWithSignature, and abi.encodeCall sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'payload', 'salt', 'recipient', 'amount', 'delta', 'tag', 'pingData',
+            'notifyData', 'settleData', 'sigData', 'buf', 'weight', 'a', 'b',
+            'input', 'tagWord', 'batch', 'envelope', 'label', 'fullLabel',
+            'inlineCallLen', 'inlineSigLen', 'concatLen', 'totalLen', 'bufMetric',
+            'digest', 'lengthMetric', 'memPayload', 'cdPayload', 'wrappedMem',
+            'copiedCd', 'memMetric', 'cdMetric', 'joined', 'lenSum', 'callData', 'innerHash', 'combined',
+            'metric', 'errBuf', 'd', 'errLen', 'account',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-bytes-memory-encode-call':
+        replacements = {
+            'return string.concat(a, ":", b);':
+            'return string(abi.encodePacked(a, ":", b));',
+            'totalScore += (uint256(digest) & 0xffffffff) + lengthMetric;':
+            'totalScore = totalScore + (uint256(digest) & 0xffffffff) + lengthMetric;',
+            'totalScore += (uint256(digest) & 0xffffffff) + metric;':
+            'totalScore = totalScore + (uint256(digest) & 0xffffffff) + metric;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('bytes-memory-and-abi-encode-call variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown bytes-memory-and-abi-encode-call variant: {variant}')
+

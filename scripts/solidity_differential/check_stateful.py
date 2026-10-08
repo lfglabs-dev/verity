@@ -78,6 +78,7 @@ def main():
         'applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)',
         'inspectArraysAndStrings(uint256[],address[],string,uint256)',
         'inspectNarrowArray(uint64[],uint256)',
+        'inspectBytesMemory(bytes,bytes,string,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -186,6 +187,18 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(array_str_prefix[:remaining_budget])
+    if 'inspectBytesMemory(bytes,bytes,string,uint256)' in source['methodIdentifiers']:
+        bytes_mem_prefix = [
+            ('inspectBytesMemory(bytes,bytes,string,uint256)', [128, 160, 192, 7, 0, 0, 0]),
+            ('inspectBytesMemory(bytes,bytes,string,uint256)', [128, 192, 256, 11, 4, 0x11223344 << 224, 5, 0xdeadbeef01 << 216, 3, 0x616263 << 232]),
+            ('inspectBytesMemory(bytes,bytes,string,uint256)', [128, 192, 288, 19, 32, (1 << 256) - 1, 33, 0x123456789abcdef0, 0xff << 248, 5, 0x68656c6c6f << 216]),
+            ('inspectBytesMemory(bytes,bytes,string,uint256)', [128, 160, 192, 23, 65, 0, 0]),
+            ('inspectBytesMemory(bytes,bytes,string,uint256)', [96, 160, 192, 29, 0, 0, 0]),
+            ('inspectBytesMemory(bytes,bytes,string,uint256)', [128, 160, 192, 31, 0, 1 << 64, 0]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(bytes_mem_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -221,6 +234,15 @@ def main():
                 [64, 5, 2, 10, 25],
                 [64, 7, 1, (1 << 64) - 1],
                 [64, 9, 1, 1 << 64],
+            ])
+        elif name == 'inspectBytesMemory(bytes,bytes,string,uint256)':
+            call_args = rng.choice([
+                [128, 160, 192, 7, 0, 0, 0],
+                [128, 192, 256, 11, 4, 0x11223344 << 224, 5, 0xdeadbeef01 << 216, 3, 0x616263 << 232],
+                [128, 192, 288, 19, 32, (1 << 256) - 1, 33, 0x123456789abcdef0, 0xff << 248, 5, 0x68656c6c6f << 216],
+                [128, 160, 192, 23, 65, 0, 0],
+                [96, 160, 192, 29, 0, 0, 0],
+                [128, 160, 192, 31, 0, 1 << 64, 0],
             ])
         else:
             call_args = []

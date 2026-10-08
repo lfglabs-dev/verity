@@ -221,6 +221,7 @@ private inductive CallArg where
   | scalar (value : Val)
   | memory (descriptor : MemParam) (pre : Array Stmt)
   | scalarArray (descriptor : ScalarArrayParam) (pre : Array Stmt)
+  | byteBuffer (buffer : EncodedBytes)
   | stringBuffer (buffer : EncodedBytes)
   | calldataBytes (descriptor : CalldataBytesParam) (pre : Array Stmt)
 
@@ -1481,6 +1482,12 @@ private partial def isThisAddressConv (j : Json) : M Bool := do
     return true
   isThisAddressConv arg
 
+private partial def isByteBufferIdent (j : Json) : M (Option EncodedBytes) := do
+  unless (← mKind j) == "Identifier" do return none
+  let id ← refInt j
+  unless id ≥ 0 do return none
+  return (← get).byteBuffers.find? id.toNat
+
 private partial def lowerRef (j : Json) : M Ref := do
   match ← mKind j with
   | "Identifier" =>
@@ -1498,14 +1505,14 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.mem n #[])
       else if let some elem := env.abiElements.find? n then
         pure (.abiElement elem.rootId elem.memberIndex elem.pointer elem.inMemory #[])
-      else if env.calldataBytes.contains n then
-        pure (.calldataBytes n #[])
-      else if env.scalarArrays.contains n then
-        pure (.scalarArray n #[])
       else if env.byteBuffers.contains n then
         failAt j "encoded byte locals are limited to hash and packed encoding operands"
       else if env.stringBuffers.contains n then
         failAt j "string locals and memory parameters are limited to hash, packed encoding, and bytes(s).length operands"
+      else if env.calldataBytes.contains n then
+        pure (.calldataBytes n #[])
+      else if env.scalarArrays.contains n then
+        pure (.scalarArray n #[])
       else if let some decl := env.numericConstants.find? n then
         if env.constantStack.contains n then failAt j "cyclic constant initializer"
         let declared ← mType decl
@@ -1707,13 +1714,22 @@ private partial def lowerRef (j : Json) : M Ref := do
         let some idx := members.findIdx? (· == member)
           | failAt j s!"unknown enum member {member}"
         pure (.expr { pre := #[], expr := .literal idx })
+      else if member == "length" && (← isByteBufferIdent base).isSome then
+        let some buf ← isByteBufferIdent base
+          | failAt base "internal error: missing byte buffer"
+        pure (.expr { pre := buf.pre, expr := buf.size })
       else if member == "length" && (← isMsgDataNode base) then
         pure (.expr { pre := #[], expr := .calldatasize })
       else if member == "length" && (← mKind base) == "FunctionCall" &&
           optStr base "kind" == some "functionCall" &&
           ((← mType base) == "bytes calldata" || (← mType base) == "bytes memory" || (← mType base) == "bytes") then
-        let pre ← lowerMsgDataExpr base
-        pure (.expr { pre, expr := .calldatasize })
+        let baseArgs ← mArr (← mField base "arguments")
+        if baseArgs.isEmpty then
+          let pre ← lowerMsgDataExpr base
+          pure (.expr { pre, expr := .calldatasize })
+        else
+          let buf ← lowerEncodedBytes base
+          pure (.expr { pre := buf.pre, expr := buf.size })
       else if member == "length" && (← mKind base) == "FunctionCall" &&
           optStr base "kind" == some "typeConversion" &&
           ((← mType base) == "bytes" || (← mType base) == "bytes memory" || (← mType base) == "bytes calldata") then
@@ -2289,6 +2305,10 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
   match ← mKind j with
   | "Identifier" | "Literal" => pure ()
   | "MemberAccess" => checkEncodingScalar (← mField j "expression")
+  | "UnaryOperation" =>
+      unless optStr j "operator" == some "-" && (← mType j).startsWith "int_const -" do
+        failAt j "effectful ABI encoding argument is unsupported"
+      checkEncodingScalar (← mField j "subExpression")
   | "FunctionCall" =>
       unless optStr j "kind" == some "typeConversion" do
         failAt j "effectful ABI encoding argument is unsupported"
@@ -2474,13 +2494,9 @@ private partial def isPureSelectorReceiver (j : Json) : M Bool := do
       isPureSelectorReceiver args[0]!
   | _ => return false
 
-/-- Lower `<receiver>.<fn>.selector` to a 4-byte memory buffer containing the
-left-aligned 32-bit function selector from the referenced declaration. -/
-private partial def lowerSelectorBytes (j : Json) : M EncodedBytes := do
-  unless (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" &&
-      (← mType j) == "bytes4" do
-    failAt j "selector argument must be a function .selector expression"
-  let fnExpr ← mField j "expression"
+/-- Resolve `<receiver>.<fn>` to its declaration and a 4-byte memory buffer
+containing the left-aligned 32-bit function selector. -/
+private partial def lowerMemberFunctionSelector (fnExpr : Json) : M (Json × EncodedBytes) := do
   unless (← mKind fnExpr) == "MemberAccess" do
     failAt fnExpr "selector target must be a contract or interface member"
   let receiver ← mField fnExpr "expression"
@@ -2506,8 +2522,46 @@ private partial def lowerSelectorBytes (j : Json) : M EncodedBytes := do
   let pointer ← fresh
   let finish ← fresh
   modify fun e => { e with encodingMemory := true }
-  return { pre := (AbiEncoding.staticWords pointer finish [.literal padded]).toArray,
-           pointer := .localVar pointer, size := .literal 4 }
+  return (decl,
+          { pre := (AbiEncoding.staticWords pointer finish [.literal padded]).toArray,
+            pointer := .localVar pointer, size := .literal 4 })
+
+/-- Lower `<receiver>.<fn>.selector` to a 4-byte memory buffer containing the
+left-aligned 32-bit function selector from the referenced declaration. -/
+private partial def lowerSelectorBytes (j : Json) : M EncodedBytes := do
+  unless (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" &&
+      (← mType j) == "bytes4" do
+    failAt j "selector argument must be a function .selector expression"
+  let fnExpr ← mField j "expression"
+  return (← lowerMemberFunctionSelector fnExpr).2
+
+private partial def encodeSelectorAndWords (selBuffer : EncodedBytes) (pre : Array Stmt) (words : List Expr) : M EncodedBytes := do
+  if words.isEmpty then
+    return { selBuffer with pre }
+  let wordsPointer ← fresh
+  let wordsFinish ← fresh
+  modify fun env => { env with encodingMemory := true }
+  let mut pre := pre ++ (AbiEncoding.staticWords wordsPointer wordsFinish words).toArray
+  let wordsBuffer : EncodedBytes :=
+    { pre := #[], pointer := .localVar wordsPointer, size := .literal (32 * words.length) }
+  let buffers := [{ selBuffer with pre := #[] }, wordsBuffer]
+  let sizeName ← fresh
+  let size := Expr.localVar sizeName
+  pre := pre.push (.letVar sizeName (.literal (4 + 32 * words.length)))
+  let pointer ← fresh
+  let finish ← fresh
+  let clearIndex ← fresh
+  pre := pre ++ (AbiEncoding.packedBuffer pointer finish clearIndex size).toArray
+  let start ← fresh
+  pre := pre.push (.letVar start (.literal 0))
+  for buffer in buffers do
+    let index ← fresh
+    let byteName ← fresh
+    let address ← fresh
+    pre := pre.push (AbiEncoding.copyBytes buffer.pointer (.localVar pointer)
+      (.localVar start) buffer.size index byteName address)
+    pre := pre.push (.assignVar start (.add (.localVar start) buffer.size))
+  return { pre, pointer := .localVar pointer, size }
 
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
@@ -2556,12 +2610,37 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       let args ← mArr (← mField j "arguments")
       unless args.size == 1 do failAt j s!"{ty} conversion expects one argument"
       return ← lowerEncodedBytes args[0]!
-  if optStr j "kind" == some "functionCall" then
-    let ty ← mType j
-    if ty == "string memory" || ty == "string" then
-      let (fnId, vals) ← resolveCallTargetAndArgs j
-      return ← inlineStringFn fnId vals j
   let callee ← mField j "expression"
+  if optStr j "kind" == some "functionCall" && (← mKind callee) == "MemberAccess" then
+    let base ← mField callee "expression"
+    if (← mKind base) == "ElementaryTypeNameExpression" &&
+        optStr callee "memberName" == some "concat" &&
+        (field? callee "referencedDeclaration").isNone then
+      let tname := optStr (field? base "typeName" |>.getD Json.null) "name" |>.getD ""
+      let args ← mArr (← mField j "arguments")
+      if tname == "bytes" then
+        for arg in args do
+          let argTy ← mType arg
+          unless argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" ||
+              argTy == "bytes32" || argTy == "bytes4" || argTy.startsWith "literal_string " do
+            failAt arg s!"unsupported bytes.concat argument type {argTy}"
+        return ← lowerPacked args
+      if tname == "string" then
+        for arg in args do
+          let argTy ← mType arg
+          unless argTy == "string" || argTy == "string memory" || argTy == "string calldata" ||
+              argTy.startsWith "literal_string " do
+            failAt arg s!"unsupported string.concat argument type {argTy}"
+        return ← lowerPacked args
+  if optStr j "kind" == some "functionCall" then
+    let isHelperCall :=
+      ((← mKind callee) == "Identifier" || (← mKind callee) == "MemberAccess") &&
+      ((field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption)).any (· ≥ 0)
+    if isHelperCall then
+      let ty ← mType j
+      if ty == "string memory" || ty == "string" || ty == "bytes memory" || ty == "bytes" then
+        let (fnId, vals) ← resolveCallTargetAndArgs j
+        return ← inlineStringFn fnId vals j
   unless (← mKind callee) == "MemberAccess" do
     failAt callee "hash input must be a supported ABI encoding"
   let base ← mField callee "expression"
@@ -2578,8 +2657,6 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     unless args.size ≥ 1 do
       failAt j "abi.encodeWithSelector requires a selector argument"
     let selBuffer ← lowerSelectorBytes args[0]!
-    if args.size == 1 then
-      return selBuffer
     let mut pre := selBuffer.pre
     let mut words := []
     for arg in args.extract 1 args.size do
@@ -2590,30 +2667,72 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       let value ← atom (← lowerExpr arg)
       pre := pre ++ value.pre
       words := words ++ [value.expr]
-    let wordsPointer ← fresh
-    let wordsFinish ← fresh
-    modify fun env => { env with encodingMemory := true }
-    pre := pre ++ (AbiEncoding.staticWords wordsPointer wordsFinish words).toArray
-    let wordsBuffer : EncodedBytes :=
-      { pre := #[], pointer := .localVar wordsPointer, size := .literal (32 * words.length) }
-    let buffers := [selBuffer, wordsBuffer]
-    let sizeName ← fresh
-    let size := Expr.localVar sizeName
-    pre := pre.push (.letVar sizeName (.literal (4 + 32 * words.length)))
-    let pointer ← fresh
-    let finish ← fresh
-    let clearIndex ← fresh
-    pre := pre ++ (AbiEncoding.packedBuffer pointer finish clearIndex size).toArray
-    let start ← fresh
-    pre := pre.push (.letVar start (.literal 0))
-    for buffer in buffers do
-      let index ← fresh
-      let byteName ← fresh
-      let address ← fresh
-      pre := pre.push (AbiEncoding.copyBytes buffer.pointer (.localVar pointer)
-        (.localVar start) buffer.size index byteName address)
-      pre := pre.push (.assignVar start (.add (.localVar start) buffer.size))
-    return { pre, pointer := .localVar pointer, size }
+    return ← encodeSelectorAndWords selBuffer pre words
+  if optStr callee "memberName" == some "encodeWithSignature" then
+    unless args.size ≥ 1 do
+      failAt j "abi.encodeWithSignature requires a signature argument"
+    let sigNode := args[0]!
+    let sigTy ← mType sigNode
+    unless sigTy == "string" || sigTy == "string memory" || sigTy == "string calldata" ||
+        sigTy.startsWith "literal_string " do
+      failAt sigNode s!"unsupported abi.encodeWithSignature signature type {sigTy}"
+    let sigBuf ← lowerEncodedBytes sigNode
+    let selPtr ← fresh
+    let selFinish ← fresh
+    modify fun e => { e with encodingMemory := true }
+    let selWord := Expr.bitAnd (.keccak256 sigBuf.pointer sigBuf.size) (.literal (0xffffffff * 16 ^ 56))
+    let selBuffer : EncodedBytes :=
+      { pre := sigBuf.pre ++ (AbiEncoding.staticWords selPtr selFinish [selWord]).toArray,
+        pointer := .localVar selPtr,
+        size := .literal 4 }
+    let mut pre := selBuffer.pre
+    let mut words := []
+    for arg in args.extract 1 args.size do
+      let ty ← mType arg
+      unless (paramType ty).isSome do
+        failAt arg s!"unsupported ABI encoding argument type {ty}"
+      checkEncodingScalar arg
+      let value ← atom (← lowerExpr arg)
+      pre := pre ++ value.pre
+      words := words ++ [value.expr]
+    return ← encodeSelectorAndWords selBuffer pre words
+  if optStr callee "memberName" == some "encodeCall" then
+    unless args.size == 2 do
+      failAt j "abi.encodeCall requires a function pointer and an argument tuple"
+    let (decl, selBuffer) ← lowerMemberFunctionSelector args[0]!
+    unless (← mKind decl) == "FunctionDefinition" do
+      failAt args[0]! "abi.encodeCall target must be a function declaration"
+    let params ← mArr (← mField (← mField decl "parameters") "parameters")
+    let callArgs ← if (← mKind args[1]!) == "TupleExpression" then do
+      if ← mBool (← mField args[1]! "isInlineArray") then
+        failAt args[1]! "inline arrays are outside this slice"
+      mArr (← mField args[1]! "components")
+    else
+      pure #[args[1]!]
+    unless callArgs.size == params.size do
+      failAt args[1]! s!"abi.encodeCall argument count {callArgs.size} does not match declaration {params.size}"
+    let mut pre := selBuffer.pre
+    let mut words := []
+    for idx in [:params.size] do
+      let p := params[idx]!
+      let arg := callArgs[idx]!
+      if arg.isNull then failAt args[1]! "empty abi.encodeCall tuple component"
+      let pty ← mType p
+      let argTy ← mType arg
+      unless (paramType pty).isSome do
+        failAt p s!"unsupported ABI encoding argument type {pty}"
+      checkEncodingScalar arg
+      let rawVal ← lowerExpr arg
+      let converted ← convert pty argTy rawVal arg
+      if let some b := bitsOf pty then
+        if b < 256 && (argTy.startsWith "int_const" && !argTy.startsWith "int_const -") then
+          if let .literal n := converted.expr then
+            unless n < 2 ^ b do
+              failAt arg s!"literal {n} exceeds width of {pty}"
+      let value ← atom converted
+      pre := pre ++ value.pre
+      words := words ++ [value.expr]
+    return ← encodeSelectorAndWords selBuffer pre words
   unless optStr callee "memberName" == some "encode" do
     failAt callee "unsupported ABI encoding builtin"
   if args.size == 1 then
@@ -2674,14 +2793,16 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
               continue
       let buf ← lowerEncodedBytes arg
       vals := vals.push (.stringBuffer buf)
-    else if argTy == "bytes calldata" || argTy == "bytes" then
+    else if argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" then
       if (← mKind arg) == "Identifier" then
         let id ← refInt arg
         if id ≥ 0 then
           if let some cb := (← get).calldataBytes.find? id.toNat then
-            vals := vals.push (.calldataBytes cb #[])
-            continue
-      vals := vals.push (.scalar (← lowerExpr arg))
+            if !cb.inMemory then
+              vals := vals.push (.calldataBytes cb #[])
+              continue
+      let buf ← lowerEncodedBytes arg
+      vals := vals.push (.byteBuffer buf)
     else
       vals := vals.push (.scalar (← lowerExpr arg))
   pure vals
@@ -2701,6 +2822,11 @@ private partial def atomizeCallArgs (vals : Array CallArg) : M (Array Stmt × Ar
     | .scalarArray desc apre =>
         pre := pre ++ apre
         out := out.push (.scalarArray desc #[])
+    | .byteBuffer buf =>
+        let ptrBinding ← fresh
+        let sizeBinding ← fresh
+        pre := pre ++ buf.pre ++ #[.letVar ptrBinding buf.pointer, .letVar sizeBinding buf.size]
+        out := out.push (.byteBuffer { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding })
     | .stringBuffer buf =>
         let ptrBinding ← fresh
         let sizeBinding ← fresh
@@ -2812,6 +2938,12 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
               failAt callee "abi.decode is outside this slice"
             else
               failAt callee s!"abi.{member} is only supported as a byte buffer"
+        if (← mKind base) == "ElementaryTypeNameExpression" &&
+            optStr callee "memberName" == some "concat" &&
+            (field? callee "referencedDeclaration").isNone then
+          let tname := optStr (field? base "typeName" |>.getD Json.null) "name" |>.getD ""
+          if tname == "bytes" || tname == "string" then
+            failAt callee s!"{tname}.concat is only supported as a byte buffer"
         if (field? callee "referencedDeclaration").isNone then
           let member := optStr callee "memberName" |>.getD ""
           if (baseTy == "address" || baseTy == "address payable" || baseTy.startsWith "contract ") &&
@@ -3003,17 +3135,39 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           failAt p "scalar array argument location conversion is unsupported"
         if pname != "" then
           yul := yul.erase pname
-    | .stringBuffer buffer =>
+    | .byteBuffer buffer =>
         let location := optStr p "storageLocation" |>.getD "default"
-        unless pty == "string" && location == "memory" do
-          failAt p "string buffer argument requires a string memory parameter"
-        let ptrBinding ← freshFor (if pname == "" then "str_ptr" else pname)
+        unless pty == "bytes" && location == "memory" do
+          failAt p "byte buffer argument requires a bytes memory parameter"
+        let ptrBinding ← freshFor (if pname == "" then "bytes_ptr" else pname)
         let sizeBinding ← fresh
         pre := pre ++ buffer.pre ++ #[.letVar ptrBinding buffer.pointer, .letVar sizeBinding buffer.size]
         let retained : EncodedBytes :=
           { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
         modify fun e =>
-          { e with stringBuffers := e.stringBuffers.insert pid retained }
+          { e with byteBuffers := e.byteBuffers.insert pid retained }
+        if pname != "" then
+          yul := yul.erase pname
+    | .stringBuffer buffer =>
+        let location := optStr p "storageLocation" |>.getD "default"
+        if pty == "bytes" && location == "memory" && argTy.startsWith "literal_string " then
+          let ptrBinding ← freshFor (if pname == "" then "bytes_ptr" else pname)
+          let sizeBinding ← fresh
+          pre := pre ++ buffer.pre ++ #[.letVar ptrBinding buffer.pointer, .letVar sizeBinding buffer.size]
+          let retained : EncodedBytes :=
+            { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
+          modify fun e =>
+            { e with byteBuffers := e.byteBuffers.insert pid retained }
+        else
+          unless pty == "string" && location == "memory" do
+            failAt p "string buffer argument requires a string memory parameter"
+          let ptrBinding ← freshFor (if pname == "" then "str_ptr" else pname)
+          let sizeBinding ← fresh
+          pre := pre ++ buffer.pre ++ #[.letVar ptrBinding buffer.pointer, .letVar sizeBinding buffer.size]
+          let retained : EncodedBytes :=
+            { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
+          modify fun e =>
+            { e with stringBuffers := e.stringBuffers.insert pid retained }
         if pname != "" then
           yul := yul.erase pname
     | .calldataBytes descriptor effects =>
@@ -3024,13 +3178,11 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         if location == "calldata" && !descriptor.inMemory then
           pre := pre ++ effects
           modify fun e => { e with calldataBytes := e.calldataBytes.insert pid descriptor }
-        else if location == "memory" && descriptor.isString then
-          if descriptor.inMemory then
-            let retained : EncodedBytes :=
-              { pre := #[], pointer := .add (.localVar descriptor.memoryPointer) (.literal 32), size := .localVar descriptor.lengthBinding }
+        else if location == "memory" then
+          let retained ← if descriptor.inMemory then do
             pre := pre ++ effects
-            modify fun e => { e with stringBuffers := e.stringBuffers.insert pid retained }
-          else
+            pure ({ pre := #[], pointer := .add (.localVar descriptor.memoryPointer) (.literal 32), size := .localVar descriptor.lengthBinding } : EncodedBytes)
+          else do
             let pointer ← fresh
             let finish ← fresh
             let copyIdx ← fresh
@@ -3040,10 +3192,12 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             let copyStmt := Stmt.forEach copyIdx wordCount
               [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
                 (.calldataload (.add (.localVar descriptor.dataBinding) (.mul (.localVar copyIdx) (.literal 32))))]
-            let retained : EncodedBytes :=
-              { pre := #[], pointer := .localVar pointer, size := .localVar descriptor.lengthBinding }
             pre := pre ++ effects ++ (alloc ++ [copyStmt]).toArray
+            pure ({ pre := #[], pointer := .localVar pointer, size := .localVar descriptor.lengthBinding } : EncodedBytes)
+          if descriptor.isString then
             modify fun e => { e with stringBuffers := e.stringBuffers.insert pid retained }
+          else
+            modify fun e => { e with byteBuffers := e.byteBuffers.insert pid retained }
         else
           failAt p s!"unsupported {pty} helper parameter location {location}"
         if pname != "" then
@@ -3077,8 +3231,9 @@ private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Js
   let rname ← mStr (← mField r "name")
   unless rname == "" do failAt r "named string helper return is unsupported"
   let rloc := optStr r "storageLocation" |>.getD "default"
-  unless rloc == "memory" && (← mType r) == "string" do
-    failAt r "string helper return must be string memory"
+  let rty ← mType r
+  unless rloc == "memory" && (rty == "string" || rty == "bytes") do
+    failAt r "string helper return must be string memory or bytes memory"
   let (boundPre, yul) ← bindHelperParams params args body at_ savedYul
   modify fun e => { e with yulNames := yul }
   noteFn fn
@@ -3111,7 +3266,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   if optStr fn "visibility" == some "external" then
     for arg in args do
       match arg with
-      | .memory _ _ | .scalarArray _ _ | .stringBuffer _ | .calldataBytes _ _ =>
+      | .memory _ _ | .scalarArray _ _ | .byteBuffer _ | .stringBuffer _ | .calldataBytes _ _ =>
           failAt at_ "external reference helper calls are unsupported"
       | .scalar _ => pure ()
   let saved := ← get
@@ -4329,6 +4484,16 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
         if rets.isEmpty then
           let (fnId, vals) ← resolveCallTargetAndArgs expression
           return ← inlineVoidFn fnId vals expression
+        if rets.size == 1 then
+          let r := rets[0]!
+          let rloc := optStr r "storageLocation" |>.getD "default"
+          let rty ← mType r
+          if (← mStr (← mField r "name")) == "" && rloc == "memory" && (rty == "string" || rty == "bytes") then
+            let (fnId, vals) ← resolveCallTargetAndArgs expression
+            let buf ← inlineStringFn fnId vals expression
+            let ptrAtom ← atom { pre := #[], expr := buf.pointer }
+            let sizeAtom ← atom { pre := #[], expr := buf.size }
+            return buf.pre ++ ptrAtom.pre ++ sizeAtom.pre
         -- Materialize even a discarded result: the final expression can itself
         -- read storage or fail. The helper's effect prelude remains ordered.
         let result ← atom (← lowerCall expression)
@@ -5235,7 +5400,7 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
     let loc := optStr p "storageLocation" |>.getD "default"
     out := out.push { name, id }
     if ty == "bytes" then
-      unless loc == "calldata" do
+      unless loc == "calldata" || loc == "memory" do
         failAt p s!"unsupported location {loc} for bytes"
       modify fun e =>
         { e with bound := s!"{name}_offset" :: s!"{name}_length" :: s!"{name}_data_offset" :: e.bound }
@@ -5243,14 +5408,28 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       let headerBinding ← fresh
       let lengthBinding ← fresh
       let dataBinding ← fresh
+      let memoryPointer ← if loc == "memory" then fresh else pure ""
+      let nextFreeBinding ← if loc == "memory" then fresh else pure ""
+      let copyIndexBinding ← if loc == "memory" then fresh else pure ""
       modify fun e =>
         let bound : CalldataBytesParam :=
           { param := name
             offsetBinding
             headerBinding
             lengthBinding
-            dataBinding }
-        { e with calldataBytes := e.calldataBytes.insert id bound }
+            dataBinding
+            isString := false
+            inMemory := loc == "memory"
+            memoryPointer
+            nextFreeBinding
+            copyIndexBinding }
+        let byteBuffers :=
+          if loc == "memory" then
+            e.byteBuffers.insert id
+              { pre := #[], pointer := .add (.localVar memoryPointer) (.literal 32), size := .localVar lengthBinding }
+          else
+            e.byteBuffers
+        { e with calldataBytes := e.calldataBytes.insert id bound, byteBuffers }
     else if ty == "string" then
       unless loc == "calldata" || loc == "memory" do
         failAt p s!"unsupported location {loc} for string"
@@ -6369,13 +6548,16 @@ def elabSolidityImport : CommandElab := fun stx => do
       importSlice pkg project entry.getString contract.getId.toString roots profile
     let ns := (← getCurrNamespace) ++ alias.getId
     let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
-    elabCommand (← `(def $(name `model) : Compiler.CompilationModel.CompilationModel :=
-      $(← quoteModel model)))
-    elabCommand (← `(def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
-      $(← quoteReport report)))
+    elabCommand (← `(set_option maxRecDepth 4096 in
+      def $(name `model) : Compiler.CompilationModel.CompilationModel :=
+        $(← quoteModel model)))
+    elabCommand (← `(set_option maxRecDepth 4096 in
+      def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
+        $(← quoteReport report)))
     elabCommand (← `(def $(name `sourceDigest) : String := $(quote report.sourceDigest)))
-    elabCommand (← `(theorem $(name `covered) :
-      Compiler.CompilationModel.SolidityImport.modelImportCovered $(name `model) = true := by decide))
+    elabCommand (← `(set_option maxRecDepth 4096 in
+      theorem $(name `covered) :
+        Compiler.CompilationModel.SolidityImport.modelImportCovered $(name `model) = true := by decide))
     for fn in model.functions do
       if [`model, `report, `sourceDigest, `covered].contains (Name.mkSimple fn.name) then
         throwError "imported function {fn.name} collides with the generated {ns ++ Name.mkSimple fn.name}"
