@@ -530,10 +530,11 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
           YulExpr.call "add" [lenIdent, YulExpr.lit 31],
           YulExpr.call "not" [YulExpr.lit 31]
         ]
+      let copySource := if name.startsWith "_verity_memret_" then .memory else dynamicSource
       pure ([
         YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit 32]),
         YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 32, lenIdent]),
-      ] ++ dynamicCopyData dynamicSource (YulExpr.lit 64) dataOffset lenIdent ++ [
+      ] ++ dynamicCopyData copySource (YulExpr.lit 64) dataOffset lenIdent ++ [
         YulStmt.exprStmt (YulExpr.call "mstore" [tailOffset, YulExpr.lit 0]),
         YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.call "add" [YulExpr.lit 64, paddedLen]])
       ])

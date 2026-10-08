@@ -181,7 +181,10 @@ def validateStmtParamReferencesNode (fnName : String) (params : List Param) :
       | some ty =>
           throw s!"Compilation error: function '{fnName}' returnBytes '{name}' requires bytes/string parameter, got {repr ty}"
       | none =>
-          throw s!"Compilation error: function '{fnName}' returnBytes references unknown parameter '{name}'"
+          if name.startsWith "_verity_memret_" then
+            pure ()
+          else
+            throw s!"Compilation error: function '{fnName}' returnBytes references unknown parameter '{name}'"
   | Stmt.returnStorageWords name =>
       match findParamType params name with
       | some ty =>
@@ -298,7 +301,10 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
             else
               throw s!"Compilation error: function '{fnName}' uses Stmt.returnBytes to return parameter '{name}' of type {repr ty}, but declared returns are {repr expectedReturns}"
         | none =>
-            throw s!"Compilation error: function '{fnName}' returnBytes references unknown parameter '{name}'"
+            if name.startsWith "_verity_memret_" then
+              pure ()
+            else
+              throw s!"Compilation error: function '{fnName}' returnBytes references unknown parameter '{name}'"
       else
         throw s!"Compilation error: function '{fnName}' uses Stmt.returnBytes but declared returns are {repr expectedReturns}"
   | Stmt.returnStorageWords _ =>

@@ -117,6 +117,7 @@ mutual
     | .revertReturndata => true
     | .emit _ args => exprListCovered args
     | .stop => true
+    | .returnBytes _ => true
     | .setStorage _ value => exprCovered value
     | .setStructMember _ key _ value => exprCovered key && exprCovered value
     | .setStructMember2 _ key1 key2 _ value =>
@@ -668,6 +669,20 @@ theorem execStmtList_returnValues_stop_arm (oracle : DenoteOracle) (fields : Lis
         [.returnValues [.literal a, .literal b], .panic .arithmeticOverflow] =
       .stop { s with observedReturnWords := some [wordNormalize a, wordNormalize b], observedStop := false } := by
   simp [execStmtList, execStmt, evalExprList, evalExpr, wordNormalize]
+
+/-- Dynamic `bytes` / `string` returns are denoted: `returnBytesWords` resolves
+the offset and length bindings, reads the padded 32-byte words, and records
+`[32, len] ++ words` in `observedReturnWords`. -/
+theorem execStmt_returnBytes_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (name : String) :
+    execStmt oracle fields s (.returnBytes name) =
+      (match dynamicArrayBinding? s.bindings name with
+      | some (dataOffset, length) =>
+          .stop { s with
+            observedReturnWords := some (returnBytesWords s.selector s.world.calldata
+              s.world.memory (name.startsWith "_verity_memret_") dataOffset length)
+            observedStop := false }
+      | none => .revert) := rfl
 
 /-- Every function body of a model is in the slice whitelist. -/
 def modelImportCovered (model : CompilationModel) : Bool :=

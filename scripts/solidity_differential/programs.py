@@ -1433,3 +1433,39 @@ def stateful_bytes_memory_and_abi_encode_call_source(fixture: str, variant: str)
         return fixture
     raise ValueError(f'unknown bytes-memory-and-abi-encode-call variant: {variant}')
 
+
+def stateful_dynamic_bytes_and_string_return_source(fixture: str, variant: str) -> str:
+    """Equivalent dynamic bytes/string root return, _concat(string,string), and modifier post-statement sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'caller', 'amount', 'delta', '_a', '_b', 'payload', 'salt', 'input',
+            'label', 'saltWord', 'packed', 'combinedLen', 'digest', 'metric',
+            'a', 'b', 'mode', 'lenSum', 'kind', 'memPart', 'cdPart', 'modeTag',
+            'signedDelta', 'errLabel', 'd', 'errLen',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-dynamic-return':
+        replacements = {
+            'return string.concat(a, "-", b);':
+            'return string(abi.encodePacked(a, "-", b));',
+            'returnCount += 1;':
+            'returnCount = returnCount + 1;',
+            'totalScore += (delta & 0xffff) + returnCount;':
+            'totalScore = totalScore + (delta & 0xffff) + returnCount;',
+            'totalScore += (uint256(digest) & 0xffffffff) + metric;':
+            'totalScore = totalScore + (uint256(digest) & 0xffffffff) + metric;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1 and before != 'returnCount += 1;':
+                raise ValueError('dynamic-bytes-and-string-return variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown dynamic-bytes-and-string-return variant: {variant}')
+

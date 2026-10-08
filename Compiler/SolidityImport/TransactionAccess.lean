@@ -75,7 +75,7 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
   | .mstore address value => do
       return (← expressionAccesses oracle fields state address) ++
         (← expressionAccesses oracle fields state value)
-  | .revertReturndata | .stop => pure []
+  | .revertReturndata | .stop | .returnBytes _ => pure []
   | .returnValues values => do
       return (← values.mapM (expressionAccesses oracle fields state)).flatten
   | .panic _ => .ok []

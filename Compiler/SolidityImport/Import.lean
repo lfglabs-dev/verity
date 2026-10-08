@@ -309,6 +309,7 @@ private structure Env where
   rootReturns : Array Expr := #[]
   rootFixedArrayReturn : Option (String × ParamType × Nat) := none
   rootMsgDataReturn : Bool := false
+  rootDynamicBytesReturn : Option ParamType := none
   rootPost : Array Stmt := #[]
   modifiers : RBMap Nat Json compare := RBMap.empty
   unchecked : Bool := false
@@ -495,7 +496,7 @@ private def yulKeywords : List String :=
 free, so that proofs can refer to it, else `name_1`, `name_2`, ... Names that
 the compiler reserves or Yul forbids fall back to `fresh`. -/
 private def freshFor (name : String) : M String := do
-  if name.startsWith "__" || name.startsWith "_verity_slice_tmp" then return ← fresh
+  if name.startsWith "__" || name.startsWith "_verity_slice_tmp" || name.startsWith "_verity_memret_" then return ← fresh
   let env ← get
   let projected := env.mems.toList.flatMap fun (_, p) =>
     p.members.toList.map (fun (member, _) => s!"{p.param}_{member}")
@@ -5386,12 +5387,88 @@ private def functionMsgDataReturn? (fn : Json) : M Bool := do
   unless loc == "calldata" || loc == "memory" do return false
   return (← mType r) == "bytes"
 
+private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.size == 1 do return none
+  let r := rets[0]!
+  let rname ← mStr (← mField r "name")
+  unless rname == "" do return none
+  let loc := optStr r "storageLocation" |>.getD "default"
+  unless loc == "memory" || loc == "calldata" do return none
+  match ← mType r with
+  | "bytes" => return some .bytes
+  | "string" => return some .string
+  | _ => return none
+
+private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
+  match ← mKind j with
+  | "Literal" =>
+      pure (optStr j "kind" == some "hexString" || optStr j "kind" == some "string" ||
+            optStr j "kind" == some "unicodeString")
+  | "Identifier" =>
+      let id ← refInt j
+      if id < 0 then return false
+      let env ← get
+      if env.calldataBytes.contains id.toNat then
+        return true
+      if env.byteBuffers.contains id.toNat || env.stringBuffers.contains id.toNat then
+        return false
+      if let some decl := env.stateVars.find? id.toNat then
+        return (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true
+      return false
+  | "FunctionCall" =>
+      if optStr j "kind" == some "typeConversion" then
+        let ty ← mType j
+        return ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
+               ty == "string" || ty == "string memory" || ty == "string calldata"
+      if optStr j "kind" != some "functionCall" then
+        return false
+      let callee ← mField j "expression"
+      if (← mKind callee) == "MemberAccess" then
+        let base ← mField callee "expression"
+        if (← mKind base) == "ElementaryTypeNameExpression" &&
+            optStr callee "memberName" == some "concat" &&
+            (field? callee "referencedDeclaration").isNone then
+          let tname := optStr (field? base "typeName" |>.getD Json.null) "name" |>.getD ""
+          return tname == "string"
+        let isAbiBuiltin ← if (← mKind base) == "Identifier" && optStr base "name" == some "abi" then
+          pure ((← refInt base) == -1)
+        else
+          pure false
+        if isAbiBuiltin then
+          let mname := optStr callee "memberName"
+          return mname == some "encode" || mname == some "encodePacked" || mname == some "encodeCall"
+      let isHelperCall :=
+        ((← mKind callee) == "Identifier" || (← mKind callee) == "MemberAccess") &&
+        ((field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption)).any (· ≥ 0)
+      if isHelperCall then
+        let ty ← mType j
+        if ty == "string memory" || ty == "string" || ty == "bytes memory" || ty == "bytes" then
+          if let some (fnId, _) ← callTargetAndArity? j then
+            if let some fn := (← get).funs.find? fnId then
+              let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+              if rets.size == 1 then
+                let r := rets[0]!
+                let rloc := optStr r "storageLocation" |>.getD "default"
+                if rloc == "memory" then
+                  if let some body := (field? fn "body").filter (!·.isNull) then
+                    let stmts ← mArr (← mField body "statements")
+                    if stmts.size == 1 && (← mKind stmts[0]!) == "Return" then
+                      let retExpr := field? stmts[0]! "expression" |>.getD Json.null
+                      if !retExpr.isNull && (← isMsgDataNode retExpr) then
+                        return false
+                  return true
+      return false
+  | _ => return false
+
 private def bindRoot (fn : Json) : M (Array SrcParam) := do
   noteFn fn
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   let mut out : Array SrcParam := #[]
   for p in params do
     let rawName ← mStr (← mField p "name")
+    if rawName.startsWith "_verity_memret_" then
+      failAt p s!"parameter name {rawName} uses reserved _verity_memret_ prefix"
     let id ← mNat (← mField p "id")
     let name ← if rawName == "" then fresh else do
       modify fun e => { e with bound := rawName :: e.bound }
@@ -5667,6 +5744,19 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
               failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
           else
             failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
+        else if env.rootDynamicBytesReturn.isSome && (← canLowerDynamicBytesReturnExpr expr) then
+          let buf ← lowerEncodedBytes expr
+          let stem ← fresh
+          let memStem := s!"_verity_memret_{stem}"
+          let dataBinding := s!"{memStem}_data_offset"
+          let lenBinding := s!"{memStem}_length"
+          if (← get).sourceNames.contains dataBinding || (← get).sourceNames.contains lenBinding then
+            failAt s s!"generated return buffer name {memStem} collides with a source identifier"
+          modify fun e =>
+            { e with encodingMemory := true,
+                     bound := dataBinding :: lenBinding :: e.bound }
+          let bindStmts := #[Stmt.letVar dataBinding buf.pointer, Stmt.letVar lenBinding buf.size]
+          out := (out ++ buf.pre ++ bindStmts ++ env.rootPost).push (.returnBytes memStem)
         else if env.rootMsgDataReturn then
           let msgDataPre ← lowerMsgDataExpr expr
           out := (out ++ msgDataPre ++ env.rootPost).push
@@ -5725,9 +5815,10 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let emptyBodyArrayRet? ← functionEmptyBodyArrayReturnType? fn
   let fixedArrayRet? ← functionFixedArrayReturnType? fn
   let msgDataRet ← functionMsgDataReturn? fn
+  let dynamicBytesRet? ← functionDynamicBytesReturn? fn
   let mut rootRetExprs : Array Expr := #[]
-  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet
-  if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet then
+  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone
+  if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone then
     for r in returns do
       let rty ← mType r
       discard (validateEnumTypeIfNeeded r rty)
@@ -5752,7 +5843,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
              rootIsVoid := returns.isEmpty,
              rootReturns := if allNamedScalar then rootRetExprs else #[],
              rootFixedArrayReturn := fixedArrayRet?,
-             rootMsgDataReturn := msgDataRet }
+             rootMsgDataReturn := msgDataRet,
+             rootDynamicBytesReturn := dynamicBytesRet? }
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with rootPost := modPost }
   let (bodyOut, returned) ← lowerRootStatements stmts
@@ -5770,7 +5862,7 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
         out := out ++ #[.returnValues (Array.replicate length (.literal 0)).toList]
       else
         failAt fn "an explicit root return is required"
-    else if msgDataRet then
+    else if msgDataRet || dynamicBytesRet?.isSome then
       failAt fn "an explicit root return is required"
     else if stmts.isEmpty then
       let mut zeroReturns : List Expr := []
@@ -6136,7 +6228,7 @@ private def importSlice
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       snapshots := RBMap.empty, mems := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], yulNames := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootFixedArrayReturn := none, rootMsgDataReturn := false, rootPost := #[] }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootFixedArrayReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]
@@ -6253,6 +6345,8 @@ private def importSlice
         return Array.replicate length elemPty
       if ← functionMsgDataReturn? fn then
         return #[.bytes]
+      if let some dynRetTy ← functionDynamicBytesReturn? fn then
+        return #[dynRetTy]
       let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
       let mut out : Array ParamType := #[]
       for r in rets do

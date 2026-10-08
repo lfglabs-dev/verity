@@ -2831,6 +2831,13 @@ mutual
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
         | none => .revert
+    | state, .returnBytes name =>
+        match dynamicArrayBinding? state.bindings name with
+        | some (dataOffset, length) =>
+            .stop { state with
+              observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
+                state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
+        | none => .revert
     | _, _ => .revert
 
   def execStmtListWithEvents (fields : List Field) (events : List EventDef) :
@@ -3213,6 +3220,13 @@ mutual
         match evalExprList fields state values with
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
+        | none => .revert
+    | state, .returnBytes name =>
+        match dynamicArrayBinding? state.bindings name with
+        | some (dataOffset, length) =>
+            .stop { state with
+              observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
+                state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
         | none => .revert
     | _, _ => .revert
 
@@ -4847,6 +4861,13 @@ mutual
         match evalExprList fields state values with
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
+        | none => .revert
+    | .returnBytes name =>
+        match dynamicArrayBinding? state.bindings name with
+        | some (dataOffset, length) =>
+            .stop { state with
+              observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
+                state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
         | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)

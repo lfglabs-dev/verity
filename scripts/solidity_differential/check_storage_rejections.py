@@ -712,6 +712,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'FunctionCall: [solidity-import:unsupported] unsupported bytes.concat argument type bytes8'),
+        ('dynamic-bytes-and-string-return-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  function _concat(string memory a, string memory b) internal pure returns (string memory) {\n    return string(abi.encodePacked(a, b));\n  }\n  function checked(string memory a, string calldata b, uint256 x) external pure returns (string memory) {\n    if (x == 0) return _concat(a, b);\n    return string.concat(a, \":\", b);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('named-string-root-return-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external pure returns (string memory out) {\n    return \"ok\";\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported named root return type string'),
+        ('missing-dynamic-string-root-return-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256 private v;\n  function checked(uint256 x) external returns (string memory) {\n    v = x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionDefinition: [solidity-import:unsupported] an explicit root return is required'),
+        ('conditional-dynamic-string-root-return-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (string memory) {\n    return x == 0 ? \"a\" : \"b\";\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Literal: [solidity-import:unsupported] unsupported non-numeric literal'),
+        ('memret-reserved-param-prefix-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 _verity_memret_x) external pure returns (uint256) {\n    return _verity_memret_x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] parameter name _verity_memret_x uses reserved _verity_memret_ prefix'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -729,6 +754,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(S)' if name == 'struct-local-reassigned-rejected'
             else 'checked(«uint256[]»,«address[]»,string,uint256)' if name == 'array-string-params-and-context-positive'
             else 'checked(bytes,bytes,string,uint256)' if name == 'bytes-memory-and-abi-encode-call-positive'
+            else 'checked(string,string,uint256)' if name == 'dynamic-bytes-and-string-return-positive'
             else 'checked(«int128[]»)' if name == 'scalar-array-signed-element-rejected'
             else 'checked(uint256)'
         )
