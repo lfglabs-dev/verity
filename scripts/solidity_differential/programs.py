@@ -1326,3 +1326,36 @@ def stateful_while_clz_and_struct_loc_source(fixture: str, variant: str) -> str:
         return fixture
     raise ValueError(f'unknown while-clz-and-struct-loc variant: {variant}')
 
+
+def stateful_yul_builtins_and_encode_selector_source(fixture: str, variant: str) -> str:
+    """Equivalent Yul arithmetic/bitwise/context builtins and abi.encodeWithSelector sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'result', 'a', 'b', 'base', 'exponent', 'idx', 'word', 'byteIdx',
+            'input', 'token', 'recipient', 'amount', 'transferCall', 'aliasCall',
+            'd1', 'd2', 'd3', 'd4', 'digest', 'signedA', 'signedB', 'q', 'r',
+            'cmpBits', 'powVal', 'pickedByte', 'ext0', 'extWide', 'ctxMix',
+            'yulMetric', 'd',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-selector-and-yul':
+        replacements = {
+            'bytes memory aliasCall = transferCall;\n        bytes32 d1 = keccak256(aliasCall);':
+            'bytes32 d1 = keccak256(transferCall);',
+            'totalScore += (uint256(digest) & 0xffffffff) + (yulMetric & 0xffffffff);':
+            'totalScore = totalScore + (uint256(digest) & 0xffffffff) + (yulMetric & 0xffffffff);',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('yul-builtins-and-encode-selector variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown yul-builtins-and-encode-selector variant: {variant}')
+

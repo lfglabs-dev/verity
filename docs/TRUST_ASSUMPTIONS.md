@@ -1538,3 +1538,17 @@ whole-array `delete` remain rejected. Unnamed root fixed-size scalar array
 returns (`T[L] memory`) lower to `L` static ABI return words (`returnValues`)
 from either an inline array literal or a local fixed-size array snapshot
 without introducing new Denote instructions or project axioms.
+
+### Development `abi.encodeWithSelector`, `.selector` byte buffers, and extended Yul builtins
+
+`lowerSelectorBytes` and `abi.encodeWithSelector` reuse the existing word-memory
+allocation and byte-lane copy primitives (`AbiEncoding.staticWords`,
+`AbiEncoding.packedBuffer`, `AbiEncoding.copyBytes`) and require a pure selector
+receiver (`type(contract ...)`, `this`, literal, or local/parameter variable) so
+storage-variable receivers cannot introduce optimizer-dependent `SLOAD` trace
+differences. `lowerYul` extends the single-assignment inline assembly subset
+with `sdiv`, `smod`, `exp`, `byte`, `signextend`, `slt`, `sgt`, `caller`,
+`address`, `timestamp`, `number`, and `chainid`, pinning `Expr.smod`,
+`Expr.byte`, and `Expr.signextend` in `Coverage.lean` by `rfl` without adding
+project axioms or `native_decide`. External contract calls, `<addr>.code`, and
+`abi.decode` remain explicitly rejected with source-located diagnostics.

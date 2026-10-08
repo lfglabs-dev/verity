@@ -234,10 +234,17 @@ MUTANTS.update({
     'import-while-clz-struct-loc-while-bound-one': ('  pure #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]', '  pure #[.forEach loopVar (.literal 1) [.ite condVal.expr bodyOut.toList []]]'),
     'import-while-clz-struct-loc-mem-elem-zero': ('            let offset := Expr.add pointer (.literal (32*i))\n            let value := if !inMemory then Expr.calldataload offset else Expr.mload offset', '            let offset := Expr.add pointer (.literal (32*i))\n            let value := if !inMemory then Expr.calldataload offset else .literal 0'),
     'import-while-clz-struct-loc-nondecreasing-guard': ('  unless rightShiftOk || clearLowestOk || clearMsbOk do\n    failAt stepExpr "while loop update is not a recognized bounded bit-clearing or right-shift step"', '  unless true do\n    failAt stepExpr "while loop update is not a recognized bounded bit-clearing or right-shift step"'),
+    'import-yul-builtins-encode-selector-smod-div': ('| "smod", #[a, b] => pure { pre, expr := .smod a b }', '| "smod", #[a, b] => pure { pre, expr := .sdiv a b }'),
+    'import-yul-builtins-encode-selector-byte-zero': ('| "byte", #[a, b] => pure { pre, expr := .byte a b }', '| "byte", #[_a, _b] => pure { pre, expr := .literal 0 }'),
+    'import-yul-builtins-encode-selector-signextend-id': ('| "signextend", #[a, b] => pure { pre, expr := .signextend a b }', '| "signextend", #[_a, b] => pure { pre, expr := b }'),
+    'import-yul-builtins-encode-selector-selector-pad': ('let padded := word * 16 ^ 56', 'let padded := word'),
+    'import-yul-builtins-encode-selector-pure-receiver-guard': ('  unless ← isPureSelectorReceiver receiver do\n    failAt receiver "selector receiver must be a contract/interface type, this, or a local/parameter"', '  unless true do\n    failAt receiver "selector receiver must be a contract/interface type, this, or a local/parameter"'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-yul-builtins-encode-selector-"):
+        fixture = "YulBuiltinsAndEncodeSelectorSequence"
     if name.startswith("import-while-clz-struct-loc-"):
         fixture = "WhileClzAndStructLocSequence"
     if name.startswith("import-exp-and-bitwise-shift-"):
@@ -306,11 +313,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 21, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'Solc0810Sequence', 'InheritanceSequence', 'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'EmptyArrayReturnBytesCalldataSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'Solc0810Sequence':
         argv = argv[:argv.index('--change-prefix')] + ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
@@ -318,7 +325,7 @@ def run(directory, output, name):
     if fixture == 'NamedHelperReturnSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 40, 50, 60, 70, 255, 256, 257, (1 << 160) - 1, 1 << 160, (1 << 160) + 1, (1 << 256) - 1])]
-    if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence'}:
+    if fixture in {'VoidHelperGuardSequence', 'ModifierUncheckedCompoundSequence', 'TupleHelperSequence', 'Int256ContractTypeSequence', 'FnPtrStructDeleteModifierSequence', 'OverloadConstErrorCondTupleTloadSequence', 'StructFixedArrayAndFixedReturnSequence', 'MsgDataAndEnumSequence', 'ExpAndBitwiseShiftSequence', 'WhileClzAndStructLocSequence', 'YulBuiltinsAndEncodeSelectorSequence'}:
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [19, 0, 1, 2, 3, 20, 21, 96, 97, 98, 99999, 100000, (1 << 256) - 1])]
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
@@ -495,6 +502,17 @@ contract C {
  }
 }
 ''')
+    elif name == 'import-yul-builtins-encode-selector-pure-receiver-guard':
+        diagnostic = 'selector receiver must be a contract/interface type, this, or a local/parameter'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+interface IERC20 { function transfer(address to, uint256 amount) external returns (bool); }
+contract C {
+ IERC20 public token;
+ function checked(uint256 x) external view returns (bytes32) {
+  return keccak256(abi.encodeWithSelector(token.transfer.selector, address(0), x));
+ }
+}
+''')
     else:
         argument = name.endswith('argument-guard')
         expression = 'add(bump(), bump())' if argument else 'bump() + bump()'
@@ -558,7 +576,8 @@ def mutation_campaign(output, selected=None):
                                   'import-struct-fixed-array-delete-guard',
                                   'import-msg-data-and-enum-encoding-cast-guard',
                                   'import-exp-and-bitwise-shift-dynamic-exp-guard',
-                                  'import-while-clz-struct-loc-nondecreasing-guard'}
+                                  'import-while-clz-struct-loc-nondecreasing-guard',
+                                  'import-yul-builtins-encode-selector-pure-receiver-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')
