@@ -1285,3 +1285,44 @@ def stateful_exp_and_bitwise_shift_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown exp-and-bitwise-shifts variant: {variant}')
+
+
+def stateful_while_clz_and_struct_loc_source(fixture: str, variant: str) -> str:
+    """Equivalent bounded while-loop, Yul clz, and struct location/local sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'x', 'r', 'z', 'bitmap', 'value', 'result', 'v', 'bit', 'count',
+            'pending', 'acc', 'cfg', 'b', 'idx', 'aliasB', 's', 'cdAlias',
+            'memCopy', 'bundle', 'pivot', 'n', 'lastIdx', 'cdLast', 'memFirst',
+            'helperScore', 'digest', 'clzMetric', 'halvingMetric', 'popMetric',
+            'msbSumMetric', 'metrics', 'input', 'z0', 'nonzero', 'l2a', 'l2b',
+            'pc', 'sb', 'delta', 'z1',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-while-and-struct-loc':
+        replacements = {
+            'bit >>= 1;':
+            'bit = bit >> 1;',
+            'v &= (v - 1);':
+            'v = v & (v - 1);',
+            'pending = _clearBit(pending, i);':
+            'pending &= ~(1 << i);',
+            'Step memory memFirst = bundle.steps[lastIdx - lastIdx];':
+            'Step memory memFirst = bundle.steps[0];',
+            'totalScore += acc + helperScore;':
+            'totalScore = totalScore + acc + helperScore;',
+            'totalScore += delta;':
+            'totalScore = totalScore + delta;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('while-clz-and-struct-loc variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown while-clz-and-struct-loc variant: {variant}')
+

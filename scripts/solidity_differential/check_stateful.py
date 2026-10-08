@@ -68,7 +68,15 @@ def main():
         'settings': source_settings}
     source = solc_compile(request, fixture.parent, output / 'source', solc=solc_bin)['contracts']['Sequence.sol']['SequenceFixture']['evm']
     names = [f'change(uint{args.argument_bits})', 'fail()', 'read()']
-    for extra_name in ('inspectBytes(bytes,uint256)', 'redeemRewards(bytes)', 'getRewardTokens()', 'echoMsgData()', 'applyRounding(uint8,uint256)'):
+    for extra_name in (
+        'inspectBytes(bytes,uint256)',
+        'redeemRewards(bytes)',
+        'getRewardTokens()',
+        'echoMsgData()',
+        'applyRounding(uint8,uint256)',
+        'inspectStatic((uint128,uint64,bool),uint256)',
+        'applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)',
+    ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
     write_json(output / 'selectors.json', [int(source['methodIdentifiers'][name], 16) for name in names])
@@ -146,6 +154,20 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(enum_prefix[:remaining_budget])
+    if 'applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)' in source['methodIdentifiers']:
+        bundle_prefix = [
+            ('inspectStatic((uint128,uint64,bool),uint256)', [3, 5, 1, 10]),
+            ('inspectStatic((uint128,uint64,bool),uint256)', [3, 5, 0, 10]),
+            ('inspectStatic((uint128,uint64,bool),uint256)', [1 << 128, 5, 1, 10]),
+            ('inspectStatic((uint128,uint64,bool),uint256)', [3, 5, 2, 10]),
+            ('applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)', [64, 0, 10, 96, 128, 0, 0]),
+            ('applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)', [64, 0, 10, 96, 224, 1, 7, 3, 1, 1, 11]),
+            ('applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)', [64, 1, 10, 96, 320, 2, 7, 3, 1, 13, 5, 1, 2, 11, 17]),
+            ('applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)', [64, 0, 10, 96, 224, 1, 7, 1 << 64, 1, 1, 11]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(bundle_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -157,6 +179,15 @@ def main():
             call_args = rng.choice([[64, tag, 0], [64, tag, 5, 0xdeadbeef01 << 216], [64, tag, 32, (1 << 256) - 1], [64, tag, 33, 1], [64, tag, 1 << 64, 0], [1 << 64, tag, 0]])
         elif name == 'applyRounding(uint8,uint256)':
             call_args = [rng.choice([0, 1, 2, 3, 4, 255, 256]), rng.choice([0, 1, 7, 19, 999])]
+        elif name == 'inspectStatic((uint128,uint64,bool),uint256)':
+            call_args = rng.choice([[3, 5, 1, 10], [3, 5, 0, 10], [1 << 128, 5, 1, 10], [3, 5, 2, 10]])
+        elif name == 'applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)':
+            call_args = rng.choice([
+                [64, 0, 10, 96, 128, 0, 0],
+                [64, 0, 10, 96, 224, 1, 7, 3, 1, 1, 11],
+                [64, 1, 10, 96, 320, 2, 7, 3, 1, 13, 5, 1, 2, 11, 17],
+                [64, 0, 10, 96, 224, 1, 7, 1 << 64, 1, 1, 11],
+            ])
         else:
             call_args = []
         calls.append((name, call_args))

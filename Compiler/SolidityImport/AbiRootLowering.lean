@@ -12,19 +12,15 @@ structure Plan where
   names : List String
   body : List Stmt
 
-/-- Build the entry decoder in declaration order. Memory allocation begins at
-the current free pointer, initialized once by the function prelude. Calldata
-only validates the root head here; field checks remain at the actual reads. -/
-def root (stem : String) (rootHeadWords parameterHeadWord : Nat)
-    (schema : List Member) (inMemory : Bool) : Plan := Id.run do
-  let calldataPointer := stem ++ "_calldata"
+/-- Materialize a schema-checked struct from a validated calldata pointer into
+freshly allocated memory, returning the memory pointer, reserved binding names,
+and statements. Matches solc's `convert_t_struct_calldata_ptr_to_t_struct_memory_ptr`. -/
+def materializeFromCalldata (calldataPointer stem : String)
+    (schema : List Member) : Plan := Id.run do
   let memoryPointer := stem ++ "_memory"
   let nextPointer := stem ++ "_next"
-  let mut names := [calldataPointer]
-  let mut body := tupleHead calldataPointer rootHeadWords parameterHeadWord schema.length
-  if !inMemory then return { calldataPointer, memoryPointer, names, body }
-  names := names ++ [memoryPointer, nextPointer]
-  body := body ++ [
+  let mut names := [memoryPointer, nextPointer]
+  let mut body : List Stmt := [
     .letVar memoryPointer (.mload (.literal 64)),
     .letVar nextPointer (.add (.localVar memoryPointer) (.literal (32*schema.length))),
     .ite (.le (.localVar nextPointer) (.literal (2^64-1))) [] [.panicCode (.literal 0x41)],
@@ -71,6 +67,49 @@ def root (stem : String) (rootHeadWords parameterHeadWord : Nat)
           (.localVar arrayPointer) (.localVar next) elementStem (fields.map (·.kind)) ++
         [.mstore destination (.localVar arrayPointer)]
   return { calldataPointer, memoryPointer, names, body }
+
+/-- Materialize a single flat static struct element from a calldata pointer
+expression into freshly allocated memory, returning the memory pointer,
+reserved binding names, and statements. -/
+def materializeElementFromCalldata (source : Expr) (stem : String)
+    (fields : List ScalarField) : String × List String × List Stmt := Id.run do
+  let sourceBinding := stem ++ "_source"
+  let memoryPointer := stem ++ "_memory"
+  let nextPointer := stem ++ "_next"
+  let names := [sourceBinding, memoryPointer, nextPointer]
+  let mut body : List Stmt := [
+    .letVar sourceBinding source,
+    guard (.logicalNot (.slt (.sub .calldatasize (.localVar sourceBinding))
+      (.literal (32*fields.length)))),
+    .letVar memoryPointer (.mload (.literal 64)),
+    .letVar nextPointer (.add (.localVar memoryPointer) (.literal (32*fields.length))),
+    .ite (.le (.localVar nextPointer) (.literal (2^64-1))) [] [.panicCode (.literal 0x41)],
+    .ite (.ge (.localVar nextPointer) (.localVar memoryPointer)) [] [.panicCode (.literal 0x41)],
+    .mstore (.literal 64) (.localVar nextPointer)]
+  for (field, i) in fields.zipIdx do
+    let value := Expr.calldataload (.add (.localVar sourceBinding) (.literal (32*i)))
+    let bound := SolidityAbi.scalarBound field.kind
+    if bound < 2^256 then body := body ++ [guard (.lt value (.literal bound))]
+    body := body ++ [.mstore (.add (.localVar memoryPointer) (.literal (32*i))) value]
+  return (memoryPointer, names, body)
+
+/-- Build the entry decoder in declaration order. Memory allocation begins at
+the current free pointer, initialized once by the function prelude. Calldata
+only validates the root head here; field checks remain at the actual reads. -/
+def root (stem : String) (rootHeadWords parameterHeadWord : Nat)
+    (schema : List Member) (inMemory : Bool) : Plan := Id.run do
+  let calldataPointer := stem ++ "_calldata"
+  let memoryPointer := stem ++ "_memory"
+  let names := [calldataPointer]
+  let body := tupleHead calldataPointer rootHeadWords parameterHeadWord schema.length
+  if !inMemory then return { calldataPointer, memoryPointer, names, body }
+  let mat := materializeFromCalldata calldataPointer stem schema
+  return {
+    calldataPointer
+    memoryPointer := mat.memoryPointer
+    names := names ++ mat.names
+    body := body ++ mat.body
+  }
 
 /-- Scalar field reads preserve the eager-memory/lazy-calldata distinction.
 The importer must first resolve a scalar member, rather than treating an array

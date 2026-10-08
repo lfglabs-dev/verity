@@ -233,7 +233,15 @@ canonical literal, rejecting checked dynamic-base-and-exponent `**`). Bit shifts
 `uintN`), and compound assignments (`<<=`, `>>=`, `&=`, `|=`, `^=`, `/=`, `%=`) lower
 to `.shl`/`.shr`/`.sar`/`.bitAnd`/`.bitOr`/`.bitXor`/`.bitNot` and checked division/modulo
 helpers, and single-assignment inline assembly supports `sub`, `div`, `mod`, `and`, `or`,
-`shl`, `shr`, `sar`, `gt`, `eq`, `iszero`, and `not` (including `UtilsLib.zeroFloorSub`).
+`shl`, `shr`, `sar`, `gt`, `eq`, `iszero`, `not`, and `clz` (lowered as an 8-step binary
+search over `[128, 64, 32, 16, 8, 4, 2, 1]` returning `256` on zero, including `UtilsLib.zeroFloorSub`
+and `BitMapLib.msb`). Bounded unsigned `while` loops on a writable `uintN` local `v` (`v != 0` /
+`v > 0`) ending with a strictly decreasing bit-clearing (`v &= v - 1` or `msb(v)` + `clearBit`)
+or positive constant right-shift (`v >>= k`) update lower to `Stmt.forEach` with bound `bits`
+and per-iteration condition check, and `memory`/`calldata` struct locals and `calldata`-to-`memory`
+struct conversions materialize schema-checked structs and struct-array elements into memory
+while rejecting `memory`-to-`calldata` conversions, reassigned struct locals, and `immutable`
+state variables.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears

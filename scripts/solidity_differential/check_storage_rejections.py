@@ -581,6 +581,36 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'BinaryOperation: [solidity-import:unsupported] unsupported operand type int_const'),
+        ('while-clz-and-struct-loc-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Item { uint256 v; bool ok; }\n  struct Pack { uint256 head; Item[] items; }\n  function _msb(uint256 x) internal pure returns (uint8 r) {\n    assembly (\"memory-safe\") { r := sub(255, clz(x)) }\n  }\n  function _clear(uint256 b, uint8 i) internal pure returns (uint256) { return b & ~(1 << i); }\n  function _eval(Pack memory p) internal pure returns (uint256) {\n    Pack memory aliasP = p;\n    if (aliasP.items.length > 0) {\n      Item memory m = aliasP.items[0];\n      return aliasP.head + (m.ok ? m.v : 0);\n    }\n    return aliasP.head;\n  }\n  function checked(Pack calldata p, uint256 x) external pure returns (uint256) {\n    uint256 acc = _eval(p);\n    if (p.items.length > 0) {\n      Item calldata cd = p.items[p.items.length - 1];\n      Item memory cp = p.items[0];\n      acc += (cd.ok ? cd.v : 0) + cp.v;\n    }\n    uint256 w = x;\n    while (w != 0) {\n      uint8 i = _msb(w);\n      acc += i;\n      w = _clear(w, i);\n    }\n    uint256 u = x;\n    while (u != 0) {\n      acc += 1;\n      u &= (u - 1);\n    }\n    uint256 b = 128;\n    while (b > 0) {\n      acc += b;\n      b >>= 1;\n    }\n    return acc;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('while-non-decreasing-step-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256 v = x;\n    while (v != 0) {\n      v -= 1;\n    }\n    return v;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Assignment: [solidity-import:unsupported] while loop update is not a recognized bounded bit-clearing or right-shift step'),
+        ('while-return-inside-loop-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256 v = x;\n    while (v != 0) {\n      return v;\n    }\n    return 0;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'WhileStatement: [solidity-import:unsupported] return inside a while loop is unsupported'),
+        ('while-prefix-writes-loop-var-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256 v = x;\n    while (v != 0) {\n      v = 1;\n      v >>= 1;\n    }\n    return v;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'ExpressionStatement: [solidity-import:unsupported] a while loop variable may only be updated in the final loop statement'),
+        ('struct-local-reassigned-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; }\n  function checked(S calldata p) external pure returns (uint256) {\n    S memory s = p;\n    s = p;\n    return s.a;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] reassigned struct locals are outside this slice'),
+        ('immutable-state-var-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256 internal immutable IMM = 7;\n  function checked(uint256 x) external view returns (uint256) {\n    return x + IMM;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] immutable state variable IMM is outside this slice'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -594,6 +624,8 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             'checked(bytes)' if name.startswith('bytes-param-')
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
+            else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
+            else 'checked(S)' if name == 'struct-local-reassigned-rejected'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'
