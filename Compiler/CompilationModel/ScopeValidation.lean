@@ -573,7 +573,15 @@ def validateScopedStmtIdentifiers
   | Stmt.returnCodeData pointer => do
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount pointer
       pure localScope
-  | Stmt.returnBytes _ | Stmt.returnStorageWords _
+  | Stmt.returnBytes name =>
+      if name.startsWith "_verity_memret_" then
+        if localScope.contains s!"{name}_data_offset" && localScope.contains s!"{name}_length" then
+          pure localScope
+        else
+          throw s!"Compilation error: {context} Stmt.returnBytes '{name}' requires local bindings '{name}_data_offset' and '{name}_length'"
+      else
+        pure localScope
+  | Stmt.returnStorageWords _
   | Stmt.revertReturndata | Stmt.stop =>
       pure localScope
   | Stmt.unsafeYul fragment => do

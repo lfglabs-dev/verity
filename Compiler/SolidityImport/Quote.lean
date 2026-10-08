@@ -107,6 +107,8 @@ partial def quoteStmt : Stmt → m Term
       `(Compiler.CompilationModel.Stmt.emit $(quote name) $(← list (← args.mapM quoteExpr)))
   | .returnValues vs => do
       `(Compiler.CompilationModel.Stmt.returnValues $(← list (← vs.mapM quoteExpr)))
+  | .returnBytes name =>
+      `(Compiler.CompilationModel.Stmt.returnBytes $(quote name))
   | _ => throwError "internal: the importer cannot quote this statement"
 
 private def quoteKey : MappingKeyType → m Term

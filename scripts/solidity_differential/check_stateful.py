@@ -79,6 +79,8 @@ def main():
         'inspectArraysAndStrings(uint256[],address[],string,uint256)',
         'inspectNarrowArray(uint64[],uint256)',
         'inspectBytesMemory(bytes,bytes,string,uint256)',
+        'concatStrings(string,string,uint256)',
+        'buildPayload(bytes,bytes,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -199,6 +201,27 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(bytes_mem_prefix[:remaining_budget])
+    if 'concatStrings(string,string,uint256)' in source['methodIdentifiers']:
+        dyn_ret_prefix = [
+            ('concatStrings(string,string,uint256)', [96, 128, 0, 0, 0]),
+            ('concatStrings(string,string,uint256)', [96, 160, 4, 5, 0x68656c6c6f << 216, 5, 0x776f726c64 << 216]),
+            ('concatStrings(string,string,uint256)', [96, 160, 1, 5, 0x616c706861 << 216, 4, 0x62657461 << 224]),
+            ('concatStrings(string,string,uint256)', [96, 160, 2, 6, 0x70617265746f << 208, 3, 0x63646f << 232]),
+            ('concatStrings(string,string,uint256)', [96, 160, 3, 4, 0x69646c65 << 224, 0]),
+            ('concatStrings(string,string,uint256)', [96, 160, 7, 4, 0x69646c65 << 224, 7, 0x7472616e636865 << 200]),
+            ('concatStrings(string,string,uint256)', [96, 160, 8, 32, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 3, 0x363738 << 232]),
+            ('concatStrings(string,string,uint256)', [64, 128, 0, 0, 0]),
+            ('buildPayload(bytes,bytes,uint256)', [96, 160, 0, 4, 0x11223344 << 224, 2, 0xaabb << 240]),
+            ('buildPayload(bytes,bytes,uint256)', [96, 128, 1, 0, 0]),
+            ('buildPayload(bytes,bytes,uint256)', [96, 128, 2, 0, 0]),
+            ('buildPayload(bytes,bytes,uint256)', [96, 160, 3, 5, 0xdeadbeef01 << 216, 3, 0x010203 << 232]),
+            ('buildPayload(bytes,bytes,uint256)', [96, 128, 4, 0, 0]),
+            ('buildPayload(bytes,bytes,uint256)', [96, 128, 9, 0, 6, 0xfeedfacecafe << 208]),
+            ('buildPayload(bytes,bytes,uint256)', [96, 128, 5, 0, 1 << 64]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(dyn_ret_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -243,6 +266,24 @@ def main():
                 [128, 160, 192, 23, 65, 0, 0],
                 [96, 160, 192, 29, 0, 0, 0],
                 [128, 160, 192, 31, 0, 1 << 64, 0],
+            ])
+        elif name == 'concatStrings(string,string,uint256)':
+            call_args = rng.choice([
+                [96, 128, 0, 0, 0],
+                [96, 160, 4, 5, 0x68656c6c6f << 216, 5, 0x776f726c64 << 216],
+                [96, 160, 1, 5, 0x616c706861 << 216, 4, 0x62657461 << 224],
+                [96, 160, 2, 6, 0x70617265746f << 208, 3, 0x63646f << 232],
+                [96, 160, 3, 4, 0x69646c65 << 224, 0],
+                [96, 160, 7, 4, 0x69646c65 << 224, 7, 0x7472616e636865 << 200],
+            ])
+        elif name == 'buildPayload(bytes,bytes,uint256)':
+            call_args = rng.choice([
+                [96, 160, 0, 4, 0x11223344 << 224, 2, 0xaabb << 240],
+                [96, 128, 1, 0, 0],
+                [96, 128, 2, 0, 0],
+                [96, 160, 3, 5, 0xdeadbeef01 << 216, 3, 0x010203 << 232],
+                [96, 128, 4, 0, 0],
+                [96, 128, 9, 0, 6, 0xfeedfacecafe << 208],
             ])
         else:
             call_args = []

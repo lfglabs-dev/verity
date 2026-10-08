@@ -256,7 +256,11 @@ local and helper-argument copies, `bytes.concat` / `string.concat` (lowered via 
 concatenating `32 * n` scalar argument words via `encodeSelectorAndWords`), `abi.encodeCall`
 (resolving the target `FunctionDefinition` selector via `lowerMemberFunctionSelector` and
 converting the argument tuple components to their declared parameter types), and single-return
-`bytes memory` / `string memory` helpers (`inlineStringFn`).
+`bytes memory` / `string memory` helpers (`inlineStringFn`). Unnamed root functions returning
+`bytes` or `string` (`functionDynamicBytesReturn?`) lower admitted byte/string return expressions
+(`canLowerDynamicBytesReturnExpr`) via `lowerEncodedBytes` into `_verity_memret_<stem>` bindings
+and `Stmt.returnBytes`, reading 32-byte words from memory and right-zero-padding the final partial
+word (`32 :: length :: paddedWords`) in both `Denote.returnBytesWords` and `Compile.compileStmt`.
 `address(this).balance`, `payable(address(this)).balance`, and Yul `selfbalance()` lower to
 `Expr.selfBalance`, and `tx.origin` and Yul `origin()` lower to `Expr.txOrigin`, while external
 `<addr>.balance` reads and `tx.gasprice` are rejected.

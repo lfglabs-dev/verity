@@ -682,7 +682,12 @@ theorem execStmt_eq (fields : List Field) :
                 SourceSemantics.returndataAfterCall]
           · simp [toStmtResult, toRuntimeState, h]
   | _, .returnValues _ => by denote_stmt_arm
-  | _, .returnArray .. | _, .returnBytes .. | _, .returnStorageWords ..
+  | st, .returnBytes name => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt,
+        Denote.dynamicArrayBinding?, SourceSemantics.dynamicArrayBinding?,
+        toRuntimeState_bindings]
+      cases DynamicAbi.dynamicArrayBinding? st.bindings name <;> rfl
+  | _, .returnArray .. | _, .returnStorageWords ..
   | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
   | _, .internalCallAssign .. | _, .rawLog ..
   | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl

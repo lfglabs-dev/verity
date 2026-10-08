@@ -756,6 +756,29 @@ def dynamicArrayBinding? (bindings : Env) (name : String) :
     Option (Nat × Nat) :=
   DynamicAbi.dynamicArrayBinding? bindings name
 
+/-- ABI-encoded `32 :: length :: paddedDataWords` payload for `Stmt.returnBytes name`.
+    When `fromMemory` is true (`name.startsWith "_verity_memret_"`), reads 32-byte words from
+    `memory`; otherwise reads from `calldata`. Zero-pads the final partial word on the
+    right to 32 bytes, matching the Yul `calldatacopy`/memory-copy + zero-fill emitted by
+    `Compile.compileStmt` for `Stmt.returnBytes`. -/
+def returnBytesWords (selector : Nat) (calldata : List Nat)
+    (memory : Nat → Verity.Core.Uint256) (fromMemory : Bool) (dataOffset length : Nat) :
+    List Nat :=
+  let wordCount := (length + 31) / 32
+  let words := (List.range wordCount).map fun idx =>
+    let offset := wordNormalize (dataOffset + 32 * idx)
+    let raw :=
+      if fromMemory then
+        (memory offset).val
+      else
+        calldataloadWord selector calldata offset
+    if idx + 1 == wordCount && length % 32 != 0 then
+      let shift := 8 * (32 - length % 32)
+      (raw / (2 ^ shift)) * (2 ^ shift)
+    else
+      raw
+  32 :: wordNormalize length :: words
+
 abbrev arrayElement? := DynamicAbi.arrayElement?
 
 abbrev externalCalldataSize :=
@@ -1610,6 +1633,14 @@ mutual
         match evalExprList oracle fields state values with
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize), observedStop := false }
+        | none => .revert
+    | state, .returnBytes name =>
+        match dynamicArrayBinding? state.bindings name with
+        | some (dataOffset, length) =>
+            .stop { state with
+              observedReturnWords := some (returnBytesWords state.selector state.world.calldata
+                state.world.memory (name.startsWith "_verity_memret_") dataOffset length)
+              observedStop := false }
         | none => .revert
     | _, _ => .revert
 
