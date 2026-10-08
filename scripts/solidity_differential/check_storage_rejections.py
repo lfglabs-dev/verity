@@ -146,7 +146,8 @@ def main():
         ('logical-dead-effect', 'uint256 value; function bump() internal returns (bool) { value = 1; return true; }', 'return true || bump();', 'bool', None),
         ('logical-dead-remainder', '', 'return false && x % 2 == 0;', 'bool', None),
         ('logical-dead-rational-remainder', '', 'return false && x % (6 / 3) == 0;', 'bool', 'unsupported operand type'),
-        ('logical-external', 'function probe() external pure returns (bool) { return true; }', 'return true || this.probe();', 'bool', 'unresolved builtin identifier'),
+        ('logical-external', 'function probe() external pure returns (bool) { return true; }', 'return true || this.probe();', 'bool', 'external contract calls are outside this slice'),
+        ('logical-builtin', '', 'return true || this == this;', 'bool', 'unresolved builtin identifier'),
 
         ('effectful-helper', 'uint256 value; function bump() internal returns (uint256) { value = value + 1; return value; }', 'return bump() + bump();', 'uint256', 'stateful helper operands require explicit evaluation-order support'),
         ('helper-argument-effects', 'uint256 value; function bump() internal returns (uint256) { value = value + 1; return value; } function add(uint256 a, uint256 b) internal pure returns (uint256) { return a + b; }', 'return add(bump(), bump());', 'uint256', 'stateful helper call arguments require explicit evaluation-order support'),
@@ -651,6 +652,36 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] external contract calls are outside this slice'),
+        ('array-string-params-and-context-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  function _yulCtx() internal view returns (uint256 r) {\n    assembly (\"memory-safe\") {\n      r := add(selfbalance(), origin())\n    }\n  }\n  function _concat(string memory a, string memory b) internal pure returns (string memory) {\n    return string(abi.encodePacked(a, b));\n  }\n  function _sumMem(uint256[] memory vals, address[] memory addrs) internal pure returns (uint256) {\n    uint256 acc = 0;\n    for (uint256 i = 0; i < vals.length; i++) {\n      acc += vals[i] + uint256(uint160(addrs[i]));\n    }\n    return acc;\n  }\n  function checked(uint256[] calldata vals, address[] calldata addrs, string calldata label, uint256 x) external view returns (uint256) {\n    require(vals.length == addrs.length, \"len\");\n    bytes32 rolling = keccak256(bytes(label));\n    for (uint256 i = 0; i < vals.length; i++) {\n      address addr = addrs[i];\n      uint256 val = vals[i];\n      rolling = keccak256(abi.encode(rolling, addr, val));\n    }\n    string memory full = _concat(label, \":ok\");\n    uint256 ctx = address(this).balance + payable(address(this)).balance + uint256(uint160(tx.origin)) + _yulCtx();\n    return _sumMem(vals, addrs) + bytes(full).length + uint256(rolling) + ctx + x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('external-account-balance-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external view returns (uint256) {\n    return address(uint160(x)).balance;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] external account balance reads are outside this slice'),
+        ('tx-gasprice-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external view returns (uint256) {\n    return tx.gasprice;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] unsupported transaction context member gasprice'),
+        ('string-local-reassigned-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external pure returns (uint256) {\n    string memory s = \"a\";\n    s = \"b\";\n    return bytes(s).length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] reassigned string locals are outside this slice'),
+        ('string-local-value-use-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external pure returns (string memory) {\n    string memory s = \"a\";\n    return s;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] string locals and memory parameters are limited to hash, packed encoding, and bytes(s).length operands'),
+        ('scalar-array-signed-element-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(int128[] calldata a) external pure returns (uint256) {\n    return a.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported parameter type int128[]'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -666,6 +697,8 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
             else 'checked(S)' if name == 'struct-local-reassigned-rejected'
+            else 'checked(«uint256[]»,«address[]»,string,uint256)' if name == 'array-string-params-and-context-positive'
+            else 'checked(«int128[]»)' if name == 'scalar-array-signed-element-rejected'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

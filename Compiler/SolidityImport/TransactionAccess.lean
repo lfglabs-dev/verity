@@ -33,7 +33,7 @@ private def mappingMemberKeys (oracle : DenoteOracle) (fields : List Field)
 def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) : Expr → Except String (List Verity.StorageKey)
   | .literal _ | .param _ | .localVar _ => .ok []
-  | .caller | .contractAddress | .blockTimestamp | .blockNumber | .chainid | .calldatasize => .ok []
+  | .caller | .contractAddress | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber | .chainid | .calldatasize => .ok []
   | .storage name => do
       let some (field, slot) := findFieldWithResolvedSlot fields name
         | throw s!"unknown observed field {name}"

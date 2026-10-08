@@ -241,7 +241,18 @@ or positive constant right-shift (`v >>= k`) update lower to `Stmt.forEach` with
 and per-iteration condition check, and `memory`/`calldata` struct locals and `calldata`-to-`memory`
 struct conversions materialize schema-checked structs and struct-array elements into memory
 while rejecting `memory`-to-`calldata` conversions, reassigned struct locals, and `immutable`
-state variables.
+state variables. Root and helper `T[] calldata` / `T[] memory` scalar array parameters
+(`uint8`–`uint256`, `int256`, `address`, `bool`, `bytes32`) validate ABI heads, `uint64` lengths,
+and `32 * length` tails via `AbiLowering.scalarArrayCalldataHead` / `scalarArrayMemoryHead`,
+materialize `calldata`-to-`memory` helper arguments via `materializeCalldataScalarArray`, and
+enforce `Panic(0x32)` bounds checks and calldata element validation on `arr[i]` via
+`readScalarArrayElement`. Root and helper `string calldata` / `string memory` parameters and
+non-reassigned `string memory` locals decode via `bytesCalldataHead` / `bytesMemoryHead` and
+retained `(pointer, size)` byte buffers (`stringBuffers`), supporting `bytes(s).length`,
+`keccak256(bytes(s))`, `abi.encodePacked(...)`, and single-return `string memory` helpers.
+`address(this).balance`, `payable(address(this)).balance`, and Yul `selfbalance()` lower to
+`Expr.selfBalance`, and `tx.origin` and Yul `origin()` lower to `Expr.txOrigin`, while external
+`<addr>.balance` reads and `tx.gasprice` are rejected.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears

@@ -76,6 +76,8 @@ def main():
         'applyRounding(uint8,uint256)',
         'inspectStatic((uint128,uint64,bool),uint256)',
         'applyBundle((uint256,(uint256,uint64,bool)[],uint256[]),uint256)',
+        'inspectArraysAndStrings(uint256[],address[],string,uint256)',
+        'inspectNarrowArray(uint64[],uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -168,6 +170,22 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(bundle_prefix[:remaining_budget])
+    if 'inspectArraysAndStrings(uint256[],address[],string,uint256)' in source['methodIdentifiers']:
+        array_str_prefix = [
+            ('inspectArraysAndStrings(uint256[],address[],string,uint256)', [128, 160, 192, 7, 0, 0, 0]),
+            ('inspectArraysAndStrings(uint256[],address[],string,uint256)', [128, 192, 256, 11, 1, 100, 1, 0x1234, 5, 0x68656c6c6f << 216]),
+            ('inspectArraysAndStrings(uint256[],address[],string,uint256)', [128, 224, 320, 19, 2, 100, 200, 2, 0x1111, 0x2222, 32, 0x41424344 << 224]),
+            ('inspectArraysAndStrings(uint256[],address[],string,uint256)', [128, 192, 288, 23, 1, 100, 2, 0x1111, 0x2222, 0]),
+            ('inspectArraysAndStrings(uint256[],address[],string,uint256)', [128, 192, 256, 29, 1, 100, 1, 1 << 160, 0]),
+            ('inspectArraysAndStrings(uint256[],address[],string,uint256)', [128, 192, 256, 31, 1, 100, 1, 0x1234, 33, 1]),
+            ('inspectNarrowArray(uint64[],uint256)', [64, 3, 0]),
+            ('inspectNarrowArray(uint64[],uint256)', [64, 5, 2, 10, 25]),
+            ('inspectNarrowArray(uint64[],uint256)', [64, 7, 1, (1 << 64) - 1]),
+            ('inspectNarrowArray(uint64[],uint256)', [64, 9, 1, 1 << 64]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(array_str_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -187,6 +205,22 @@ def main():
                 [64, 0, 10, 96, 224, 1, 7, 3, 1, 1, 11],
                 [64, 1, 10, 96, 320, 2, 7, 3, 1, 13, 5, 1, 2, 11, 17],
                 [64, 0, 10, 96, 224, 1, 7, 1 << 64, 1, 1, 11],
+            ])
+        elif name == 'inspectArraysAndStrings(uint256[],address[],string,uint256)':
+            call_args = rng.choice([
+                [128, 160, 192, 7, 0, 0, 0],
+                [128, 192, 256, 11, 1, 100, 1, 0x1234, 5, 0x68656c6c6f << 216],
+                [128, 224, 320, 19, 2, 100, 200, 2, 0x1111, 0x2222, 32, 0x41424344 << 224],
+                [128, 192, 288, 23, 1, 100, 2, 0x1111, 0x2222, 0],
+                [128, 192, 256, 29, 1, 100, 1, 1 << 160, 0],
+                [128, 192, 256, 31, 1, 100, 1, 0x1234, 33, 1],
+            ])
+        elif name == 'inspectNarrowArray(uint64[],uint256)':
+            call_args = rng.choice([
+                [64, 3, 0],
+                [64, 5, 2, 10, 25],
+                [64, 7, 1, (1 << 64) - 1],
+                [64, 9, 1, 1 << 64],
             ])
         else:
             call_args = []

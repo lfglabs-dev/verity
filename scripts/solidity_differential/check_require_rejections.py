@@ -22,8 +22,9 @@ def main():
         ('custom-error-dynamic', 'require(value > 7, Failure(bytes("x")));', 'unsupported custom-error parameter type bytes'),
         ('dynamic-message', 'require(value > 7, reason);', 'literal string message'),
         ('byte-string-cast', 'require(value > 7, string(hex"61"));', 'literal string message'),
-        ('abi-decode', 'abi.decode(abi.encode(value), (uint256));', 'expression has no supported declaration reference'),
-        ('other-call', 'helper(value);', 'only builtin require calls'),
+        ('abi-decode', 'abi.decode(abi.encode(value), (uint256));', 'abi.decode is outside this slice'),
+        ('other-call', 'helper(value);', None),
+        ('assert-call', 'assert(value > 7);', 'only builtin require calls'),
     ]
     for name, statement, expected in cases:
         directory = output / name
