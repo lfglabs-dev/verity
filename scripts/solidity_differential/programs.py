@@ -1210,3 +1210,36 @@ def stateful_struct_fixed_array_and_fixed_return_source(fixture: str, variant: s
         return fixture
     raise ValueError(f'unknown struct-fixed-array-and-fixed-return variant: {variant}')
 
+
+def stateful_msg_data_and_enum_source(fixture: str, variant: str) -> str:
+    """Equivalent msg.data / _msgData() and enum support sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'raw', 'mode', 'value', 'r', 'nextR', 'adj', 'msgLen',
+            'input', 'rawMode', 'm', 'span', 'current', 'x', 'next', 'adjusted',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-enum-and-msgdata':
+        replacements = {
+            'return _msgData();':
+            'return msg.data;',
+            'uint256 msgLen = _msgData().length + msg.data.length;':
+            'uint256 msgLen = msg.data.length + _msgData().length;',
+            'totalScore += adj + uint256(uint8(nextR)) + msgLen;':
+            'totalScore = totalScore + adj + uint256(uint8(nextR)) + msgLen;',
+            'totalScore += adj + uint256(uint8(nextR)) + span;':
+            'totalScore = totalScore + adj + uint256(uint8(nextR)) + span;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('msg-data-and-enum variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown msg-data-and-enum variant: {variant}')
+
+

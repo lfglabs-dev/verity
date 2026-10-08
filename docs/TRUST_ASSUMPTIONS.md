@@ -212,7 +212,19 @@ scalar bindings and literals. Conditional tuple expressions (`cond ? (...) : (..
 in tuple declarations and assignments convert leaf components to the target types
 and join branches through fresh temporaries and `Stmt.ite`, rejecting stateful or
 assignment tuple components. Single-assignment inline assembly supports `tload(slot)`
-via `Expr.tload` over `DenoteState.transientStorage`.
+via `Expr.tload` over `DenoteState.transientStorage`. Fixed-size unsigned scalar
+array members inside mapping structs (`encoding == "inplace"`, `byteOffset == 0`) are
+expanded on demand into synthetic `StructMember` entries with `Panic(0x32)` bounds
+guards on element reads, writes, `delete`, and memory snapshot copies, and unnamed
+root fixed-size scalar array returns (`T[L] memory`) lower to `L` ABI return words.
+`msg.data.length` and `_msgData().length` lower to `Expr.calldatasize`, and
+zero-parameter root functions returning `msg.data` or `_msgData()` emit
+`Stmt.returnValues [.literal 32, .calldatasize, .calldataload (.literal 0)]` with
+`returns := [.bytes]`. Solidity `enum` types (`1..256` members) lower to `.uintN 8`
+scalars with tighter `< members.size` root calldata entry guards, `Panic(0x21)`
+bounds checks on explicit `Enum(x)` casts from integer types, and `0` / `members.size - 1`
+bounds for `type(Enum).min` / `type(Enum).max` (while rejecting fallible `Enum(x)`
+casts inside `abi.encode` / `abi.encodePacked` and `enum` struct or storage members).
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears

@@ -541,6 +541,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'IndexAccess: [solidity-import:unsupported] fixed-size array return requires an inline array or fixed array snapshot'),
+        ('msg-data-and-enum-positive',
+         "pragma solidity 0.8.34;\nabstract contract ContextBase {\n  function _msgData() internal view virtual returns (bytes calldata) { return msg.data; }\n}\ncontract C is ContextBase {\n  enum Mode { Disabled, Standard, Turbo }\n  function echoMsgData() external view returns (bytes memory) { return _msgData(); }\n  function checked(Mode m, uint256 x) external view returns (Mode, uint256) {\n    Mode next = m == type(Mode).max ? type(Mode).min : Mode(uint8(m) + 1);\n    Mode picked = Mode(x % 3);\n    return (picked, uint256(uint8(next)) + _msgData().length + msg.data.length);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('msg-data-return-with-params-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external pure returns (bytes memory) {\n    return msg.data;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] unsupported message context member data'),
+        ('msg-data-helper-multi-stmt-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function _msgData() internal pure returns (bytes calldata) {\n    uint256 x = 1;\n    x;\n    return msg.data;\n  }\n  function checked(uint256) external pure returns (uint256) {\n    return _msgData().length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionDefinition: [solidity-import:unsupported] msg.data helper must be a single return statement'),
+        ('enum-fallible-cast-in-abi-encode-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  enum Mode { A, B }\n  function checked(uint256 x) external pure returns (bytes32) {\n    return keccak256(abi.encode(Mode(x)));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] fallible enum conversion in ABI encoding argument is unsupported'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -553,6 +573,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         fn_sig = (
             'checked(bytes)' if name.startswith('bytes-param-')
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
+            else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

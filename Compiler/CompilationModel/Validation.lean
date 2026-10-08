@@ -262,6 +262,7 @@ def validateReturnShapesNode (fnName : String) (params : List Param)
       else if !isInternal &&
           match values, expectedReturns with
           | [.literal 32, .literal 0], [ty] => isCanonicalReturnArrayParam ty
+          | [.literal 32, .calldatasize, .calldataload (.literal 0)], [.bytes] => params.isEmpty
           | _, _ => false then
         pure ()
       else if values.length != expectedReturns.length then

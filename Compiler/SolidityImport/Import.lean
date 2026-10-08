@@ -251,6 +251,8 @@ private structure Env where
   linearizedBases : Array Nat := #[]
   duplicateLayoutLabels : Array String := #[]
   structs : RBMap Nat Json compare
+  enums : RBMap Nat (Array String) compare := RBMap.empty
+  enumByType : RBMap String (Nat × Array String) compare := RBMap.empty
   eventDecls : RBMap Nat Json compare
   usedEvents : List (Nat × EventDef)
   errorDecls : RBMap Nat Json compare
@@ -273,6 +275,7 @@ private structure Env where
   rootIsVoid : Bool := false
   rootReturns : Array Expr := #[]
   rootFixedArrayReturn : Option (String × ParamType × Nat) := none
+  rootMsgDataReturn : Bool := false
   rootPost : Array Stmt := #[]
   modifiers : RBMap Nat Json compare := RBMap.empty
   unchecked : Bool := false
@@ -285,6 +288,7 @@ private structure Env where
   usedStructFixedArrays : Array (String × String) := #[]
   referenced : Array String
   scalarTy : RBMap Nat ParamType compare
+  enumBounds : RBMap Nat Nat compare := RBMap.empty
   writableLocals : RBMap Nat String compare := RBMap.empty
   rawBindings : RBMap Nat String compare := RBMap.empty
   encodingMemory : Bool := false
@@ -608,6 +612,7 @@ private def bitsOf (ty : String) : Option Nat :=
   if ty == "uint256" || ty == "uint" then some 256
   else if ty == "bytes32" then some 256
   else if ty == "address" || ty == "address payable" || ty.startsWith "contract " then some 160
+  else if ty.startsWith "enum " then some 8
   else if ty.startsWith "uint" then (ty.drop 4).toNat?
   else none
 
@@ -620,9 +625,34 @@ private def paramType (ty : String) : Option ParamType :=
   | "bool" => some .bool
   | _ =>
       if ty.startsWith "contract " then some .address
+      else if ty.startsWith "enum " then some (.uintN 8)
       else match bitsOf ty with
       | some n => if n != 256 && ty.startsWith "uint" then some (.uintN n) else none
       | none => none
+
+private def resolveEnumMembers (j : Json) (ty : String) : M (Array String) := do
+  let env ← get
+  let byRef? : Option (Array String) :=
+    match (field? j "typeName").bind (fun tn => (field? tn "referencedDeclaration").bind (fun v => v.getNat?.toOption)) with
+    | some eid => env.enums.find? eid
+    | none =>
+        match (field? j "referencedDeclaration").bind (fun v => v.getNat?.toOption) with
+        | some eid => env.enums.find? eid
+        | none =>
+            match (field? j "expression").bind (fun ex => (field? ex "referencedDeclaration").bind (fun v => v.getNat?.toOption)) with
+            | some eid => env.enums.find? eid
+            | none => (env.enumByType.find? ty).map Prod.snd
+  let some ms := byRef?.orElse (fun _ => (env.enumByType.find? ty).map Prod.snd)
+    | failAt j s!"unresolved enum {ty}"
+  unless !ms.isEmpty && ms.size ≤ 256 do
+    failAt j s!"invalid enum member count {ms.size} for {ty}"
+  pure ms
+
+private def validateEnumTypeIfNeeded (j : Json) (ty : String) : M (Option Nat) := do
+  if ty.startsWith "enum " then
+    pure (some (← resolveEnumMembers j ty).size)
+  else
+    pure none
 
 /-- Resolve the actual CompilationModel parameter type, including projected
 struct members. A helper's Solidity return type need not be the type of the
@@ -960,8 +990,6 @@ private def literalUnitScale : String → Option Nat
   | "ether" => some (10 ^ 18)
   | _ => none
 
-mutual
-
 private partial def lowerYul (j : Json) : M Expr := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1000,6 +1028,119 @@ private partial def lowerYul (j : Json) : M Expr := do
       | "tload", #[a] => pure (.tload a)
       | _, _ => failAt j s!"unsupported Yul builtin {fname}"
   | kind => failAt j s!"unsupported Yul node {kind}"
+
+private def lowerAssembly (j : Json) (retName : String) : M Val := do
+  let ast ← mField j "AST"
+  unless (← mKind ast) == "YulBlock" do failAt j "assembly is not a Yul block"
+  let stmts ← mArr (← mField ast "statements")
+  unless stmts.size == 1 do failAt j "only a single Yul assignment is supported"
+  let asg := stmts[0]!
+  unless (← mKind asg) == "YulAssignment" do failAt asg "only a Yul assignment is supported"
+  let vars ← mArr (← mField asg "variableNames")
+  unless vars.size == 1 do failAt asg "Yul assignment must have one target"
+  let vname ← mStr (← mField vars[0]! "name")
+  unless retName != "" && vname == retName do
+    failAt asg s!"Yul assigns {vname}, not the return name {retName}"
+  let targetSrc ← mStr (← mField vars[0]! "src")
+  let refs ← mArr (← mField j "externalReferences")
+  let mut targetId? : Option Nat := none
+  for ref in refs do
+    if (← mStr (← mField ref "src")) == targetSrc then
+      unless !(← mBool (← mField ref "isOffset")) && !(← mBool (← mField ref "isSlot")) &&
+           (field? ref "suffix").isNone && (← mNat (← mField ref "valueSize")) == 1 do
+        failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
+      targetId? := some (← mNat (← mField ref "declaration"))
+  let some targetId := targetId?
+    | failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
+  unless (← get).helperReturnId == some targetId do
+    failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
+  pure { pre := #[], expr := ← lowerYul (← mField asg "value") }
+
+private def isMsgDataNode (j : Json) : M Bool := do
+  if (← mKind j) != "MemberAccess" then return false
+  unless optStr j "memberName" == some "data" do return false
+  let base ← mField j "expression"
+  if (← mKind base) != "Identifier" || optStr base "name" != some "msg" then return false
+  unless (← refInt base) == -15 do
+    failAt base "msg does not resolve to the transaction builtin"
+  return true
+
+private def argumentAt (call : Json) (i : Nat) : M Json := do
+  -- `i` counts the receiver plus explicit arguments. The receiver is not in
+  -- `arguments` when the call is `using for`.
+  let callee ← mField call "expression"
+  let args ← mArr (← mField call "arguments")
+  let hasReceiver ← match ← mKind callee with
+    | "MemberAccess" =>
+        let base ← mField callee "expression"
+        let baseTy ← mType base
+        pure !(baseTy.startsWith "type(library " || baseTy.startsWith "type(contract ")
+    | _ => pure false
+  if hasReceiver then
+    if i == 0 then mField callee "expression" else pure args[i - 1]!
+  else
+    pure args[i]!
+
+private def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := do
+  if argTy == paramTy then return v
+  if paramTy == "int256" || paramTy == "int" then
+    if argTy == "int256" || argTy == "int" || argTy.startsWith "int_const" then
+      return v
+    if argTy.startsWith "uint" then
+      if let some sb := bitsOf argTy then
+        if sb < 256 then return v
+    failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+  if (paramTy == "address" || paramTy == "address payable" || paramTy.startsWith "contract ") &&
+      (argTy == "address" || argTy == "address payable" || argTy.startsWith "contract ") then
+    return v
+  if paramTy.startsWith "uint" && argTy.startsWith "uint" then
+    match bitsOf paramTy, bitsOf argTy with
+    | some pb, some sb =>
+        if sb ≤ pb then return v
+        else failAt at_ s!"implicit narrowing from {argTy} to {paramTy}"
+    | _, _ => failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+  if argTy.startsWith "int_const" && !argTy.startsWith "int_const -" && !paramTy.startsWith "enum " && (bitsOf paramTy).isSome then
+    return v
+  failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+
+private partial def stmtContainsPlaceholder (s : Json) : M Bool := do
+  match ← mKind s with
+  | "PlaceholderStatement" => pure true
+  | "Block" | "UncheckedBlock" =>
+      let stmts ← mArr (← mField s "statements")
+      stmts.anyM stmtContainsPlaceholder
+  | "IfStatement" =>
+      let yes ← stmtContainsPlaceholder (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else stmtContainsPlaceholder j
+        | none => pure false
+      pure (yes || no)
+  | "ForStatement" =>
+      stmtContainsPlaceholder (← mField s "body")
+  | _ => pure false
+
+/-- Syntactic definite return: every path through `s` ends in a helper result.
+    Assembly results count because `lowerHelperFrom` treats them as results. -/
+private partial def helperReturns (s : Json) : M Bool := do
+  match ← mKind s with
+  | "Return" | "RevertStatement" => pure true
+  | "InlineAssembly" => pure (← get).helperResult.isNone
+  | "Block" | "UncheckedBlock" => ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
+  | "IfStatement" =>
+      let yes ← helperReturns (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else helperReturns j
+        | none => pure false
+      pure (yes && no)
+  | _ => pure false
+
+private def helperListReturns (stmts : Array Json) : M Bool := do
+  match stmts.back? with
+  | some s => helperReturns s
+  | none => pure false
+
+set_option maxHeartbeats 800000 in
+mutual
 
 private partial def lowerExpr (j : Json) : M Val := do
   match ← mKind j with
@@ -1308,6 +1449,22 @@ private partial def lowerRef (j : Json) : M Ref := do
         unless (← refInt base) == -15 do failAt base "msg does not resolve to the Solidity builtin"
         unless member == "sender" do failAt j s!"unsupported message context member {member}"
         pure (.expr { pre := #[], expr := .caller })
+      else if ((← mKind base) == "Identifier" || (← mKind base) == "MemberAccess") &&
+          (← mType base).startsWith "type(enum " then
+        let baseId ← refInt base
+        unless baseId ≥ 0 do failAt base "unresolved enum type"
+        let some members := (← get).enums.find? baseId.toNat
+          | failAt base s!"unresolved enum {baseId}"
+        let some idx := members.findIdx? (· == member)
+          | failAt j s!"unknown enum member {member}"
+        pure (.expr { pre := #[], expr := .literal idx })
+      else if member == "length" && (← isMsgDataNode base) then
+        pure (.expr { pre := #[], expr := .calldatasize })
+      else if member == "length" && (← mKind base) == "FunctionCall" &&
+          optStr base "kind" == some "functionCall" &&
+          ((← mType base) == "bytes calldata" || (← mType base) == "bytes memory" || (← mType base) == "bytes") then
+        let pre ← lowerMsgDataExpr base
+        pure (.expr { pre, expr := .calldatasize })
       else if member == "max" || member == "min" then
         lowerTypeBound j base member
       else if member == "selector" then
@@ -1381,6 +1538,17 @@ private partial def lowerTypeBound (at_ base : Json) (member : String) : M Ref :
   let args ← mArr (← mField base "arguments")
   unless args.size == 1 do failAt at_ "type() expects one argument"
   let arg := args[0]!
+  if (← mKind arg) == "Identifier" || (← mKind arg) == "MemberAccess" then
+    let argTy ← mType arg
+    if argTy.startsWith "type(enum " then
+      let eid ← refInt arg
+      unless eid ≥ 0 do failAt arg "unresolved enum type"
+      let some members := (← get).enums.find? eid.toNat
+        | failAt arg s!"unresolved enum {eid}"
+      unless !members.isEmpty && members.size ≤ 256 do
+        failAt arg s!"invalid enum member count {members.size}"
+      let bound := if member == "max" then members.size - 1 else 0
+      return .expr { pre := #[], expr := .literal bound }
   unless (← mKind arg) == "ElementaryTypeNameExpression" do
     failAt at_ "type() expects an elementary type"
   let tname ← mStr (← mField (← mField arg "typeName") "name")
@@ -1693,6 +1861,21 @@ private partial def lowerCast (j : Json) : M Val := do
     unless src == "address" || src == "address payable" || src.startsWith "contract " do
       failAt j s!"unsupported contract cast source {src}"
     return v
+  if callTy.startsWith "enum " then
+    let members ← resolveEnumMembers targetExpr callTy
+    let v ← lowerExpr args[0]!
+    let src ← mType args[0]!
+    if src == callTy then
+      return v
+    unless (src.startsWith "uint" && (bitsOf src).isSome) ||
+        src == "int256" || src == "int" || src.startsWith "int_const" do
+      failAt j s!"unsupported enum cast source {src} for {callTy}"
+    let a ← atom v
+    let dest ← fresh
+    let check := Stmt.ite (.lt a.expr (.literal members.size))
+      [.assignVar dest a.expr] [.panicCode (.literal 0x21)]
+    return { pre := a.pre.push (.letVar dest (.literal 0)) |>.push check,
+             expr := .localVar dest }
   unless (← mKind targetExpr) == "ElementaryTypeNameExpression" do
     failAt j "unsupported cast"
   let tname ← mStr (← mField (← mField targetExpr "typeName") "name")
@@ -1709,7 +1892,7 @@ private partial def lowerCast (j : Json) : M Val := do
   let narrow : Bool :=
     match bitsOf src with
     | some sb => decide (sb > bits)
-    | none => decide (bits < 256) && !src.startsWith "int_const"
+    | none => decide (bits < 256) && !src.startsWith "int_const" && !src.startsWith "enum "
   if narrow then
     let a ← atom v
     let dest ← fresh
@@ -1727,7 +1910,11 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
   | "FunctionCall" =>
       unless optStr j "kind" == some "typeConversion" do
         failAt j "effectful ABI encoding argument is unsupported"
-      for arg in (← mArr (← mField j "arguments")) do checkEncodingScalar arg
+      let args ← mArr (← mField j "arguments")
+      if (← mType j).startsWith "enum " then
+        unless args.size == 1 && (← mType args[0]!) == (← mType j) do
+          failAt j "fallible enum conversion in ABI encoding argument is unsupported"
+      for arg in args do checkEncodingScalar arg
   | _ => failAt j "effectful ABI encoding argument is unsupported"
 
 /-- Encode one root tuple from its complete declaration schema. Array
@@ -2178,6 +2365,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
     let pname ← mStr (← mField p "name")
     let pid ← mNat (← mField p "id")
     let pty ← mType p
+    discard (validateEnumTypeIfNeeded p pty)
     let argNode ← argumentAt at_ i
     let argTy ← mType argNode
     let some arg := args[i]? | failAt at_ s!"missing argument {i}"
@@ -2255,6 +2443,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   -- assembly assignment. A named variable needed by a continuation gets a
   -- declaration-bound slot, initialized before any source-body effect.
   let resultType ← mType rets[0]!
+  discard (validateEnumTypeIfNeeded rets[0]! resultType)
   let terminalAssembly ← if stmts.size == 1 && mods.isEmpty &&
       (resultType == "uint256" || resultType == "uint" || resultType == "bytes32") then
     pure ((← mKind stmts[0]!) == "InlineAssembly") else pure false
@@ -2330,6 +2519,59 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, calldataBytes := saved.calldataBytes, byteBuffers := saved.byteBuffers, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ modStmts ++ bodyStmts)
 
+private partial def lowerMsgDataExpr (j : Json) : M (Array Stmt) := do
+  if ← isMsgDataNode j then
+    return #[]
+  if (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" then
+    let names ← mArr (← mField j "names")
+    unless names.isEmpty do failAt j "named call arguments are outside this slice"
+    let args ← mArr (← mField j "arguments")
+    unless args.isEmpty do failAt j "msg.data helper call must take zero arguments"
+    let (fnId, vals) ← resolveCallTargetAndArgs j
+    return ← inlineMsgDataFn fnId vals j
+  failAt j "bytes return requires msg.data or an inlined _msgData() helper"
+
+private partial def inlineMsgDataFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M (Array Stmt) := do
+  if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
+  let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
+  let visibility := optStr fn "visibility" |>.getD ""
+  unless visibility == "internal" || visibility == "private" || visibility == "public" do
+    failAt at_ "msg.data helper calls require an internal, private, or public declaration"
+  let saved ← get
+  let savedYul := saved.yulNames
+  let savedFile := saved.currentFile
+  let frameFile := saved.nodeFile.find? fnId |>.getD saved.currentFile
+  let frame := fnId :: saved.stack
+  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+  let some body := (field? fn "body").filter (!·.isNull)
+    | failAt fn "function has no body"
+  unless implemented do failAt fn "function has no body"
+  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
+  let mods ← mArr (← mField fn "modifiers")
+  let params ← mArr (← mField (← mField fn "parameters") "parameters")
+  unless params.isEmpty && args.isEmpty do
+    failAt at_ "msg.data helper must take zero parameters"
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.size == 1 do failAt fn "msg.data helper must have one return parameter"
+  let r := rets[0]!
+  let rname ← mStr (← mField r "name")
+  unless rname == "" do failAt r "named msg.data helper return is unsupported"
+  let rloc := optStr r "storageLocation" |>.getD "default"
+  unless (rloc == "calldata" || rloc == "memory") && (← mType r) == "bytes" do
+    failAt r "msg.data helper return must be bytes calldata or bytes memory"
+  noteFn fn
+  let (modStmts, modPost) ← lowerModifiers mods
+  let stmts ← mArr (← mField body "statements")
+  unless stmts.size == 1 && (← mKind stmts[0]!) == "Return" do
+    failAt fn "msg.data helper must be a single return statement"
+  let retExpr := field? stmts[0]! "expression" |>.getD Json.null
+  if retExpr.isNull then failAt stmts[0]! "msg.data helper return requires an expression"
+  let bodyPre ← lowerMsgDataExpr retExpr
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile, unchecked := saved.unchecked,
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, calldataBytes := saved.calldataBytes, byteBuffers := saved.byteBuffers, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+  pure (modStmts ++ bodyPre ++ modPost)
+
 private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M (Array Stmt × Array (Expr × String)) := do
   if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
@@ -2361,6 +2603,7 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
     let rname ← mStr (← mField r "name")
     let rid ← mNat (← mField r "id")
     let rty ← mType r
+    discard (validateEnumTypeIfNeeded r rty)
     let some scalar := paramType rty
       | failAt r s!"unsupported multi-return helper result type {rty}"
     let binding ← if rname != "" then freshFor rname else fresh
@@ -2506,60 +2749,6 @@ private partial def lowerMultiCall (j : Json) (expectedTypes : Option (Array (Op
   let (fnId, vals) ← resolveCallTargetAndArgs j
   inlineMultiFn fnId vals j
 
-private partial def argumentAt (call : Json) (i : Nat) : M Json := do
-  -- `i` counts the receiver plus explicit arguments. The receiver is not in
-  -- `arguments` when the call is `using for`.
-  let callee ← mField call "expression"
-  let args ← mArr (← mField call "arguments")
-  let hasReceiver ← match ← mKind callee with
-    | "MemberAccess" =>
-        let base ← mField callee "expression"
-        let baseTy ← mType base
-        pure !(baseTy.startsWith "type(library " || baseTy.startsWith "type(contract ")
-    | _ => pure false
-  if hasReceiver then
-    if i == 0 then mField callee "expression" else pure args[i - 1]!
-  else
-    pure args[i]!
-
-private partial def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := do
-  if argTy == paramTy then return v
-  if paramTy == "int256" || paramTy == "int" then
-    if argTy == "int256" || argTy == "int" || argTy.startsWith "int_const" then
-      return v
-    if argTy.startsWith "uint" then
-      if let some sb := bitsOf argTy then
-        if sb < 256 then return v
-    failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
-  if (paramTy == "address" || paramTy == "address payable" || paramTy.startsWith "contract ") &&
-      (argTy == "address" || argTy == "address payable" || argTy.startsWith "contract ") then
-    return v
-  if paramTy.startsWith "uint" && argTy.startsWith "uint" then
-    match bitsOf paramTy, bitsOf argTy with
-    | some pb, some sb =>
-        if sb ≤ pb then return v
-        else failAt at_ s!"implicit narrowing from {argTy} to {paramTy}"
-    | _, _ => failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
-  if argTy.startsWith "int_const" && !argTy.startsWith "int_const -" && (bitsOf paramTy).isSome then
-    return v
-  failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
-
-private partial def stmtContainsPlaceholder (s : Json) : M Bool := do
-  match ← mKind s with
-  | "PlaceholderStatement" => pure true
-  | "Block" | "UncheckedBlock" =>
-      let stmts ← mArr (← mField s "statements")
-      stmts.anyM stmtContainsPlaceholder
-  | "IfStatement" =>
-      let yes ← stmtContainsPlaceholder (← mField s "trueBody")
-      let no ← match field? s "falseBody" with
-        | some j => if j.isNull then pure false else stmtContainsPlaceholder j
-        | none => pure false
-      pure (yes || no)
-  | "ForStatement" =>
-      stmtContainsPlaceholder (← mField s "body")
-  | _ => pure false
-
 private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt) := do
   let kind? := optStr modInv "kind"
   if kind?.isSome && kind? != some "modifierInvocation" then
@@ -2620,6 +2809,7 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
     let pname ← mStr (← mField p "name")
     let pid ← mNat (← mField p "id")
     let pty ← mType p
+    discard (validateEnumTypeIfNeeded p pty)
     let some scalar := paramType pty
       | failAt p s!"unsupported modifier parameter type {pty}"
     let argNode := args[i]!
@@ -2681,26 +2871,6 @@ private partial def ifParts (s : Json) : M (Val × Array Json × Array Json) := 
     | some j => if j.isNull then pure #[] else branch j
     | none => pure #[]
   pure (condition, yes, no)
-
-/-- Syntactic definite return: every path through `s` ends in a helper result.
-    Assembly results count because `lowerHelperFrom` treats them as results. -/
-private partial def helperReturns (s : Json) : M Bool := do
-  match ← mKind s with
-  | "Return" | "RevertStatement" => pure true
-  | "InlineAssembly" => pure (← get).helperResult.isNone
-  | "Block" | "UncheckedBlock" => ((← mArr (← mField s "statements")).back?.map helperReturns).getD (pure false)
-  | "IfStatement" =>
-      let yes ← helperReturns (← mField s "trueBody")
-      let no ← match field? s "falseBody" with
-        | some j => if j.isNull then pure false else helperReturns j
-        | none => pure false
-      pure (yes && no)
-  | _ => pure false
-
-private partial def helperListReturns (stmts : Array Json) : M Bool := do
-  match stmts.back? with
-  | some s => helperReturns s
-  | none => pure false
 
 /-- Shared exact loop checks; the caller supplies its own return semantics. -/
 private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : M (Array Stmt) := do
@@ -2882,6 +3052,8 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           pure (v.pre, some v.expr)
     | "InlineAssembly" =>
         if let some (binding, ty) := (← get).helperResult then
+          if ty.startsWith "enum " then
+            failAt s "Yul assignment to an enum result is unsupported"
           let v ← lowerAssembly s retName
           let cleaned := if ty == "bool" then Expr.logicalNot (.logicalNot v.expr) else
             match bitsOf ty with
@@ -3545,6 +3717,7 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
   for index in [:parameters.size] do
     let parameter := parameters[index]!
     let ty ← mType parameter
+    discard (validateEnumTypeIfNeeded parameter ty)
     let some modelType := paramType ty | failAt parameter s!"unsupported event parameter type {ty}"
     unless (Denote.errorScalarType modelType).isSome do
       failAt parameter s!"unsupported event parameter type {ty}"
@@ -3608,6 +3781,7 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
   for index in [:parameters.size] do
     let parameter := parameters[index]!
     let ty ← mType parameter
+    discard (validateEnumTypeIfNeeded parameter ty)
     let some modelType := paramType ty | failAt parameter s!"unsupported custom-error parameter type {ty}"
     unless (Denote.errorScalarType modelType).isSome do
       failAt parameter s!"unsupported custom-error parameter type {ty}"
@@ -3630,7 +3804,8 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
           pure false
       | "MemberAccess" =>
           let member ← mStr (← mField argument "memberName")
-          unless member == "max" || member == "min" do
+          let base ← mField argument "expression"
+          unless member == "max" || member == "min" || (← mType base).startsWith "type(enum " do
             failAt argument "custom-error arguments currently require literals or scalar bindings"
           pure false
       | _ => failAt argument "custom-error arguments currently require literals or scalar bindings"
@@ -3651,33 +3826,6 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
   else
     modify fun e => { e with usedErrors := e.usedErrors ++ [definition] }
   return (pre, name, values)
-
-private partial def lowerAssembly (j : Json) (retName : String) : M Val := do
-  let ast ← mField j "AST"
-  unless (← mKind ast) == "YulBlock" do failAt j "assembly is not a Yul block"
-  let stmts ← mArr (← mField ast "statements")
-  unless stmts.size == 1 do failAt j "only a single Yul assignment is supported"
-  let asg := stmts[0]!
-  unless (← mKind asg) == "YulAssignment" do failAt asg "only a Yul assignment is supported"
-  let vars ← mArr (← mField asg "variableNames")
-  unless vars.size == 1 do failAt asg "Yul assignment must have one target"
-  let vname ← mStr (← mField vars[0]! "name")
-  unless retName != "" && vname == retName do
-    failAt asg s!"Yul assigns {vname}, not the return name {retName}"
-  let targetSrc ← mStr (← mField vars[0]! "src")
-  let refs ← mArr (← mField j "externalReferences")
-  let mut targetId? : Option Nat := none
-  for ref in refs do
-    if (← mStr (← mField ref "src")) == targetSrc then
-      unless !(← mBool (← mField ref "isOffset")) && !(← mBool (← mField ref "isSlot")) &&
-           (field? ref "suffix").isNone && (← mNat (← mField ref "valueSize")) == 1 do
-        failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
-      targetId? := some (← mNat (← mField ref "declaration"))
-  let some targetId := targetId?
-    | failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
-  unless (← get).helperReturnId == some targetId do
-    failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
-  pure { pre := #[], expr := ← lowerYul (← mField asg "value") }
 
 private partial def lowerLocal (s : Json) : M (Array Stmt) := do
   let decls ← mArr (← mField s "declarations")
@@ -3706,6 +3854,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       unless loc == "default" do
         failAt d "tuple variable declaration only supports scalar locals"
       let ty ← mType d
+      discard (validateEnumTypeIfNeeded d ty)
       let some scalarType := paramType ty
         | failAt d s!"unsupported tuple local type {ty}"
       let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
@@ -3746,6 +3895,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     unless loc == "default" do
       failAt d "uninitialized reference locals are outside this slice"
     let ty ← mType d
+    discard (validateEnumTypeIfNeeded d ty)
     let some scalarType := paramType ty
       | failAt d s!"unsupported default local type {ty}"
     let binding ← freshFor name
@@ -3852,6 +4002,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     unless loc == "default" do
       failAt d s!"unsupported local storage location {loc}"
     let ty ← mType d
+    discard (validateEnumTypeIfNeeded d ty)
     let some scalarType := paramType ty
       | failAt d s!"unsupported scalar local type {ty}"
     let converted ← convert ty (← mType init) v init
@@ -3884,6 +4035,7 @@ private def functionEmptyBodyArrayReturnType? (fn : Json) : M (Option ParamType)
   let rty ← mType r
   unless rty.endsWith "[]" do return none
   let elemStr := (rty.dropEnd 2).toString
+  unless !elemStr.startsWith "enum " do return none
   let some elemTy := paramType elemStr | return none
   unless isCanonicalReturnArrayParam (.array elemTy) do return none
   return some (.array elemTy)
@@ -3901,9 +4053,21 @@ private def functionFixedArrayReturnType? (fn : Json) : M (Option (String × Par
     | return none
   unless suffix.endsWith "]" && suffix != "]" do return none
   let some length := (suffix.dropEnd 1).toNat? | return none
-  unless length > 0 do return none
+  unless length > 0 && !elemStr.startsWith "enum " do return none
   let some elemPty := paramType elemStr | return none
   return some (elemStr, elemPty, length)
+
+private def functionMsgDataReturn? (fn : Json) : M Bool := do
+  let params ← mArr (← mField (← mField fn "parameters") "parameters")
+  unless params.isEmpty do return false
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.size == 1 do return false
+  let r := rets[0]!
+  let rname ← mStr (← mField r "name")
+  unless rname == "" do return false
+  let loc := optStr r "storageLocation" |>.getD "default"
+  unless loc == "calldata" || loc == "memory" do return false
+  return (← mType r) == "bytes"
 
 private def bindRoot (fn : Json) : M (Array SrcParam) := do
   noteFn fn
@@ -3942,7 +4106,7 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       let some decl := (← get).structs.find? sid.toNat | failAt p s!"unresolved struct {ty}"
       let members ← structMemberList decl
       let sname ← mStr (← mField decl "name")
-      let staticTypes := members.toList.mapM (fun (_, ty) => paramType ty)
+      let staticTypes := members.toList.mapM (fun (_, ty) => if ty.startsWith "enum " then none else paramType ty)
       let schema ← if staticTypes.isSome then pure none else do
         let structs := (← get).structs
         match AbiSchema.root (fun id => structs.find? id) decl with
@@ -3974,10 +4138,14 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       failAt p s!"unsupported location {loc} for {ty}"
     else
       let some pty := paramType ty | failAt p s!"unsupported parameter type {ty}"
+      let enumBound? ← validateEnumTypeIfNeeded p ty
       modify fun e =>
         let values := e.values.insert id (.param name)
         let scalarTy := e.scalarTy.insert id pty
-        { e with values, scalarTy }
+        let enumBounds := match enumBound? with
+          | some b => e.enumBounds.insert id b
+          | none => e.enumBounds
+        { e with values, scalarTy, enumBounds }
   let explicitAbi := (← get).mems.toList.any (fun (_, mem) => mem.schema.isSome) || !(← get).calldataBytes.isEmpty
   modify fun e => { e with explicitAbi }
   if explicitAbi then
@@ -4102,6 +4270,10 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
               failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
           else
             failAt expr "fixed-size array return requires an inline array or fixed array snapshot"
+        else if env.rootMsgDataReturn then
+          let msgDataPre ← lowerMsgDataExpr expr
+          out := (out ++ msgDataPre ++ env.rootPost).push
+            (.returnValues [.literal 32, .calldatasize, .calldataload (.literal 0)])
         else if (← mKind expr) == "TupleExpression" then
           if ← mBool (← mField expr "isInlineArray") then
             failAt expr "inline arrays are outside this slice"
@@ -4155,16 +4327,18 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let stmts ← mArr (← mField body "statements")
   let emptyBodyArrayRet? ← functionEmptyBodyArrayReturnType? fn
   let fixedArrayRet? ← functionFixedArrayReturnType? fn
+  let msgDataRet ← functionMsgDataReturn? fn
   let mut rootRetExprs : Array Expr := #[]
-  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone
-  if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone then
+  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet
+  if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet then
     for r in returns do
+      let rty ← mType r
+      discard (validateEnumTypeIfNeeded r rty)
       let rname ← mStr (← mField r "name")
       if rname == "" then
         allNamedScalar := false
       else
         let rid ← mNat (← mField r "id")
-        let rty ← mType r
         let some scalar := paramType rty
           | failAt r s!"unsupported named root return type {rty}"
         let rbinding ← freshFor rname
@@ -4180,7 +4354,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     { e with bodyAssigned := bodyAssignedIds body,
              rootIsVoid := returns.isEmpty,
              rootReturns := if allNamedScalar then rootRetExprs else #[],
-             rootFixedArrayReturn := fixedArrayRet? }
+             rootFixedArrayReturn := fixedArrayRet?,
+             rootMsgDataReturn := msgDataRet }
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with rootPost := modPost }
   let (bodyOut, returned) ← lowerRootStatements stmts
@@ -4198,6 +4373,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
         out := out ++ #[.returnValues (Array.replicate length (.literal 0)).toList]
       else
         failAt fn "an explicit root return is required"
+    else if msgDataRet then
+      failAt fn "an explicit root return is required"
     else if stmts.isEmpty then
       let mut zeroReturns : List Expr := []
       for r in returns do
@@ -4259,6 +4436,18 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
                 { e with modifiers, funContract, funContractId }
           | "StructDefinition" =>
               modify fun e => { e with structs := e.structs.insert id j }
+          | "EnumDefinition" =>
+              let ename ← mStr (← mField j "name")
+              let ms ← mArr (← mField j "members")
+              let mut memberNames : Array String := #[]
+              for m in ms do
+                memberNames := memberNames.push (← mStr (← mField m "name"))
+              let enumKey := match contract? with
+                | some (_, cname) => s!"enum {cname}.{ename}"
+                | none => s!"enum {ename}"
+              modify fun e =>
+                { e with enums := e.enums.insert id memberNames,
+                         enumByType := e.enumByType.insert enumKey (id, memberNames) }
           | "EventDefinition" =>
               modify fun e => { e with eventDecls := e.eventDecls.insert id j }
           | "ErrorDefinition" =>
@@ -4549,8 +4738,8 @@ private def importSlice
     -- do not leak between functions. Field layouts and the closure are shared.
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                      snapshots := RBMap.empty, mems := RBMap.empty, calldataBytes := RBMap.empty, byteBuffers := RBMap.empty, scalarTy := RBMap.empty, writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], yulNames := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootFixedArrayReturn := none, rootPost := #[] }
+                      snapshots := RBMap.empty, mems := RBMap.empty, calldataBytes := RBMap.empty, byteBuffers := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], yulNames := RBMap.empty,
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootFixedArrayReturn := none, rootMsgDataReturn := false, rootPost := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]
@@ -4621,13 +4810,15 @@ private def importSlice
         -- occupy one offset word. Compute scalar offsets from the full ABI.
         let some i := modelParamNames.findIdx? (· == p.name)
           | throwError "missing scalar model parameter {p.name}"
-        let limit := match ty with
-          | .uint8 => some (2^8)
-          | .uint16 => some (2^16)
-          | .uintN bits => if bits < 256 then some (2^bits) else none
-          | .address => some (2^160)
-          | .bool => some 2
-          | _ => none
+        let limit := match env.enumBounds.find? p.id with
+          | some enumMax => some enumMax
+          | none => match ty with
+            | .uint8 => some (2^8)
+            | .uint16 => some (2^16)
+            | .uintN bits => if bits < 256 then some (2^bits) else none
+            | .address => some (2^160)
+            | .bool => some 2
+            | _ => none
         if let some bound := limit then
           -- At entry the EVM return-data buffer is empty. This guard is placed
           -- before every source statement, so the rejection has empty bytes.
@@ -4644,6 +4835,8 @@ private def importSlice
         return #[arrayRetTy]
       if let some (_, elemPty, length) ← functionFixedArrayReturnType? fn then
         return Array.replicate length elemPty
+      if ← functionMsgDataReturn? fn then
+        return #[.bytes]
       let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
       let mut out : Array ParamType := #[]
       for r in rets do
@@ -4657,7 +4850,7 @@ private def importSlice
       { name := functionName, params := modelParams.toList, returnType := none,
         returns := returns.toList, isView, body := body.toList,
         abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
-        localObligations := if abiGuards.isEmpty then [] else [{
+        localObligations := if abiGuards.isEmpty && !env.rootMsgDataReturn then [] else [{
           name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
           obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Within this fragment without external calls the fresh EIP-211 returndata buffer stays empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved."
           proofStatus := .unchecked }] }
