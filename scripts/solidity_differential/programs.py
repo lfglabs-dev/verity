@@ -1243,3 +1243,45 @@ def stateful_msg_data_and_enum_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown msg-data-and-enum variant: {variant}')
 
 
+def stateful_exp_and_bitwise_shift_source(fixture: str, variant: str) -> str:
+    """Equivalent exponentiation, bitwise, shift, and compound assignment sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'x', 'y', 'z', 'bitmap', 'bit', 'a', 'b', 'value', 'result', 'candidate',
+            'input', 'exp', 'scale', 'sq', 'wrappedPow', 'bitIdx', 'nextMap', 'metric', 's',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-exp-and-bitwise':
+        replacements = {
+            'nextMap |= uint128(1 << (input % 16));':
+            'nextMap = nextMap | uint128(1 << (input % 16));',
+            'nextMap &= uint128(0x7fffffffffffffffffffffffffffffff);':
+            'nextMap = nextMap & uint128(0x7fffffffffffffffffffffffffffffff);',
+            'nextMap ^= ~uint128(input & 0xff);':
+            'nextMap = nextMap ^ ~uint128(input & 0xff);',
+            'nextMap >>= uint8((input % 2) + 1);':
+            'nextMap = nextMap >> uint8((input % 2) + 1);',
+            'nextMap <<= uint8(input % 3);':
+            'nextMap = nextMap << uint8(input % 3);',
+            'metric /= ((input % 3) + 1);':
+            'metric = metric / ((input % 3) + 1);',
+            'metric %= 1000000007;':
+            'metric = metric % 1000000007;',
+            's >>= uint8((input % 3) + 1);':
+            's = s >> uint8((input % 3) + 1);',
+            's <<= 1;':
+            's = s << 1;',
+            's /= int256(2);':
+            's = s / int256(2);',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('exp-and-bitwise-shifts variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown exp-and-bitwise-shifts variant: {variant}')

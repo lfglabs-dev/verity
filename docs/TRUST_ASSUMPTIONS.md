@@ -225,6 +225,15 @@ scalars with tighter `< members.size` root calldata entry guards, `Panic(0x21)`
 bounds checks on explicit `Enum(x)` casts from integer types, and `0` / `members.size - 1`
 bounds for `type(Enum).min` / `type(Enum).max` (while rejecting fallible `Enum(x)`
 casts inside `abi.encode` / `abi.encodePacked` and `enum` struct or storage members).
+Unsigned exponentiation (`**`) lowers to `Expr.externalCall "exp" [a, b]` (masked to
+`2^bits - 1` when `bits < 256` in `unchecked` mode, and guarded by `maxSafeExponent`
+or `maxSafeBase` with `Panic(0x11)` in checked mode when either base or exponent is a
+canonical literal, rejecting checked dynamic-base-and-exponent `**`). Bit shifts
+(`<<`, `>>`), bitwise `&`, `|`, `^`, unary `~` (masked to `2^bits - 1` on narrow
+`uintN`), and compound assignments (`<<=`, `>>=`, `&=`, `|=`, `^=`, `/=`, `%=`) lower
+to `.shl`/`.shr`/`.sar`/`.bitAnd`/`.bitOr`/`.bitXor`/`.bitNot` and checked division/modulo
+helpers, and single-assignment inline assembly supports `sub`, `div`, `mod`, `and`, `or`,
+`shl`, `shr`, `sar`, `gt`, `eq`, `iszero`, and `not` (including `UtilsLib.zeroFloorSub`).
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears

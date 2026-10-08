@@ -48,10 +48,12 @@ def exprCovered : Expr → Bool
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
-  | .slt a b | .sgt a b | .sdiv a b
+  | .slt a b | .sgt a b | .sdiv a b | .sar a b
   | .lt a b | .gt a b | .le a b | .ge a b | .eq a b
-  | .shl a b | .shr a b | .keccak256 a b | .bitAnd a b | .bitXor a b => exprCovered a && exprCovered b
-  | .logicalNot a => exprCovered a
+  | .shl a b | .shr a b | .keccak256 a b | .bitAnd a b | .bitOr a b | .bitXor a b => exprCovered a && exprCovered b
+  | .bitNot a | .logicalNot a => exprCovered a
+  | .externalCall name [base, exponent] =>
+      name == builtinExpName && exprCovered base && exprCovered exponent
   | _ => false
 
 /-- Every expression in the list is covered. -/
@@ -395,6 +397,14 @@ theorem evalExpr_bitAnd_arm (oracle : DenoteOracle) (fields : List Field)
         let rhs ← evalExpr oracle fields s b
         pure (Verity.Core.Uint256.and lhs rhs).val) := rfl
 
+theorem evalExpr_bitOr_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (a b : Expr) :
+    evalExpr oracle fields s (.bitOr a b) =
+      (do
+        let lhs ← evalExpr oracle fields s a
+        let rhs ← evalExpr oracle fields s b
+        pure (Verity.Core.Uint256.or lhs rhs).val) := rfl
+
 theorem evalExpr_bitXor_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (a b : Expr) :
     evalExpr oracle fields s (.bitXor a b) =
@@ -402,6 +412,33 @@ theorem evalExpr_bitXor_arm (oracle : DenoteOracle) (fields : List Field)
         let lhs ← evalExpr oracle fields s a
         let rhs ← evalExpr oracle fields s b
         pure (Verity.Core.Uint256.xor lhs rhs).val) := rfl
+
+theorem evalExpr_bitNot_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (a : Expr) :
+    evalExpr oracle fields s (.bitNot a) =
+      (do
+        let value ← evalExpr oracle fields s a
+        pure (Verity.Core.Uint256.not value).val) := rfl
+
+theorem evalExpr_sar_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.sar a b) =
+      (do
+        let lhs ← evalExpr oracle fields state a
+        let rhs ← evalExpr oracle fields state b
+        pure (Verity.Core.Int256.sar
+          (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs))
+          (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs))).toUint256.val) := rfl
+
+theorem evalExpr_externalCall_builtinExp_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (base exponent : Expr) :
+    evalExpr oracle fields s (.externalCall builtinExpName [base, exponent]) =
+      (do
+        let baseVal ← evalExpr oracle fields s base
+        let exponentVal ← evalExpr oracle fields s exponent
+        pure (Verity.Core.Uint256.powEff
+          (Verity.Core.Uint256.ofNat baseVal)
+          (Verity.Core.Uint256.ofNat exponentVal)).val) := rfl
 
 /-- `Expr.logicalOr` and `Expr.logicalAnd` are eager in `evalExpr`, so they are
 not slice constructors. `Expr.paramDynamicHeadWord` is an ABI-head read and is

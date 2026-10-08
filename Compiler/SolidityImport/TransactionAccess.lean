@@ -39,8 +39,8 @@ def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
         | throw s!"unknown observed field {name}"
       return [fieldKey field slot]
   | .add left right | .sub left right | .mul left right | .div left right | .mod left right
-  | .shl left right | .shr left right | .keccak256 left right
-  | .bitAnd left right | .bitXor left right | .eq left right | .lt left right
+  | .shl left right | .shr left right | .sar left right | .keccak256 left right
+  | .bitAnd left right | .bitOr left right | .bitXor left right | .eq left right | .lt left right
   | .gt left right | .le left right | .ge left right
   | .slt left right | .sgt left right | .sdiv left right => do
       return (← expressionAccesses oracle fields state left) ++ (← expressionAccesses oracle fields state right)
@@ -50,7 +50,12 @@ def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
       let some slot := evalExpr oracle fields state value
         | throw "transient load observation could not evaluate the slot"
       return reads ++ [.transient (wordNormalize slot)]
-  | .logicalNot value => expressionAccesses oracle fields state value
+  | .bitNot value | .logicalNot value => expressionAccesses oracle fields state value
+  | .externalCall name [left, right] =>
+      if name == builtinExpName then do
+        return (← expressionAccesses oracle fields state left) ++ (← expressionAccesses oracle fields state right)
+      else
+        .error s!"unsupported storage observation expression: {repr (Expr.externalCall name [left, right])}"
   | .structMember name key member => do
       let reads ← expressionAccesses oracle fields state key
       return reads ++ (← mappingMemberKeys oracle fields state name member [key] false)
