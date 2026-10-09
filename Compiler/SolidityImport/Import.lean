@@ -334,6 +334,8 @@ private structure Env where
   bound : List String
   stack : List Nat
   yulNames : RBMap String Expr compare
+  yulScratch0 : Bool := false
+  yulScratch32 : Bool := false
   currentFile : String
 
 private def Env.init : Env where
@@ -625,7 +627,7 @@ private partial def bodyAssignedIds (j : Json) : List Nat :=
 private def isCompoundAssignOp (operator : String) : Bool :=
   ["+=", "-=", "*=", "<<=", ">>=", "&=", "|=", "^=", "/=", "%="].contains operator
 
-/-- Declarations modified by compound assignment (`+=`, `-=`, `*=`, `<<=`, `>>=`, `&=`, `|=`, `^=`, `/=`, `%=`) or Yul assignment in `j`. -/
+/-- Declarations modified by compound assignment (`+=`, `-=`, `*=`, `<<=`, `>>=`, `&=`, `|=`, `^=`, `/=`, `%=`), `++`/`--`, or Yul assignment in `j`. -/
 private partial def bodyCompoundAssignedIds (j : Json) : List Nat :=
   match j with
   | .arr xs => xs.toList.flatMap bodyCompoundAssignedIds
@@ -635,6 +637,8 @@ private partial def bodyCompoundAssignedIds (j : Json) : List Nat :=
       let target :=
         if kind == some "Assignment" && isCompoundAssignOp operator then
           field? j "leftHandSide"
+        else if kind == some "UnaryOperation" && ["++", "--"].contains operator then
+          field? j "subExpression"
         else none
       let own := match target with
         | some t => targetAssignedIds t
@@ -698,7 +702,10 @@ private partial def assignmentIn (j : Json) : Bool :=
   match j with
   | .arr xs => xs.any assignmentIn
   | .obj o =>
-      let own := optStr j "nodeType" == some "Assignment"
+      let kind := optStr j "nodeType"
+      let op := optStr j "operator" |>.getD ""
+      let own := kind == some "Assignment" ||
+        (kind == some "UnaryOperation" && ["++", "--", "delete"].contains op)
       o.foldl (fun found _ child => found || assignmentIn child) own
   | _ => false
 
@@ -1238,7 +1245,7 @@ private partial def lowerYul (j : Json) : M Val := do
         | "iszero" | "not" | "tload" | "clz" => some 1
         | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod" | "exp"
         | "and" | "or" | "xor" | "byte" | "shl" | "shr" | "sar" | "signextend"
-        | "lt" | "gt" | "slt" | "sgt" | "eq" => some 2
+        | "lt" | "gt" | "slt" | "sgt" | "eq" | "keccak256" => some 2
         | "addmod" | "mulmod" => some 3
         | _ => none
       let some expectedArity := expectedArity?
@@ -1283,6 +1290,17 @@ private partial def lowerYul (j : Json) : M Val := do
       | "chainid", #[] => pure { pre, expr := .chainid }
       | "selfbalance", #[] => pure { pre, expr := .selfBalance }
       | "origin", #[] => pure { pre, expr := .txOrigin }
+      | "keccak256", #[a, b] => do
+          let (.literal off, .literal size) := (a, b)
+            | failAt j "only scratch-space keccak256 over 0x00..0x3f is supported"
+          let env ← get
+          let validScratch :=
+            (off == 0 && size == 32 && env.yulScratch0) ||
+            (off == 32 && size == 32 && env.yulScratch32) ||
+            (off == 0 && size == 64 && env.yulScratch0 && env.yulScratch32)
+          unless validScratch do
+            failAt j "keccak256 requires scratch-space words 0x00..0x3f to be written in the same Yul block"
+          pure { pre, expr := .keccak256 (.literal off) (.literal size) }
       | "addmod", #[a, b, m] => do
           let v ← lowerYulAddmod a b m
           pure { pre := pre ++ v.pre, expr := v.expr }
@@ -1357,6 +1375,9 @@ private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array 
   let stmts ← mArr (← mField ast "statements")
   let refs ← mArr (← mField j "externalReferences")
   let savedYulNames := (← get).yulNames
+  let savedScratch0 := (← get).yulScratch0
+  let savedScratch32 := (← get).yulScratch32
+  modify fun e => { e with yulScratch0 := false, yulScratch32 := false }
   let mut yulLocals : RBMap String String compare := RBMap.empty
   let mut out : Array Stmt := #[]
   for stmt in stmts do
@@ -1438,10 +1459,23 @@ private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array 
           let slotVal ← lowerYul args[0]!
           let valVal ← lowerYul args[1]!
           out := out ++ slotVal.pre ++ valVal.pre |>.push (.tstore slotVal.expr valVal.expr)
+        else if fname == "mstore" then
+          unless args.size == 2 do failAt expr "mstore requires two arguments"
+          let offVal ← lowerYul args[0]!
+          let valVal ← lowerYul args[1]!
+          let .literal off := offVal.expr
+            | failAt expr "only scratch-space mstore at 0x00 or 0x20 is supported"
+          unless offVal.pre.isEmpty && (off == 0 || off == 32) do
+            failAt expr "only scratch-space mstore at 0x00 or 0x20 is supported"
+          if off == 0 then
+            modify fun e => { e with yulScratch0 := true }
+          else
+            modify fun e => { e with yulScratch32 := true }
+          out := out ++ valVal.pre |>.push (.mstore (.literal off) valVal.expr)
         else
           failAt stmt s!"unsupported Yul expression statement {fname} (unsupported statement InlineAssembly)"
     | kind => failAt stmt s!"unsupported Yul statement {kind}"
-  modify fun e => { e with yulNames := savedYulNames }
+  modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
   pure out
 
 private def isMsgDataNode (j : Json) : M Bool := do
@@ -1565,56 +1599,59 @@ private partial def lowerExpr (j : Json) : M Val := do
       else
         failAt j "a multi-value expression is only valid as a return"
   | "UnaryOperation" =>
-      unless (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true do
-        failAt j "unsupported unary operation"
       let op := optStr j "operator"
-      let sub ← mField j "subExpression"
-      if op == some "!" then
-        unless (← mType sub) == "bool" && (← mType j) == "bool" do
-          failAt j "logical negation requires a bool operand"
-        let v ← lowerExpr sub
-        pure { pre := v.pre, expr := .logicalNot v.expr }
-      else if op == some "-" then
-        let jTy ← mType j
-        let subTy ← mType sub
-        let v ← lowerExpr sub
-        if jTy.startsWith "int_const" then
-          unless v.pre.isEmpty do failAt j "negative constant requires a pure literal operand"
-          let .literal n := v.expr | failAt j "negative constant requires a pure literal operand"
-          if n == 0 then
-            pure { pre := #[], expr := .literal 0 }
-          else if n ≤ 2 ^ 255 then
-            pure { pre := #[], expr := .literal (2 ^ 256 - n) }
+      if op == some "++" || op == some "--" then
+        lowerIncDecExpr j
+      else do
+        unless (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true do
+          failAt j "unsupported unary operation"
+        let sub ← mField j "subExpression"
+        if op == some "!" then
+          unless (← mType sub) == "bool" && (← mType j) == "bool" do
+            failAt j "logical negation requires a bool operand"
+          let v ← lowerExpr sub
+          pure { pre := v.pre, expr := .logicalNot v.expr }
+        else if op == some "-" then
+          let jTy ← mType j
+          let subTy ← mType sub
+          let v ← lowerExpr sub
+          if jTy.startsWith "int_const" then
+            unless v.pre.isEmpty do failAt j "negative constant requires a pure literal operand"
+            let .literal n := v.expr | failAt j "negative constant requires a pure literal operand"
+            if n == 0 then
+              pure { pre := #[], expr := .literal 0 }
+            else if n ≤ 2 ^ 255 then
+              pure { pre := #[], expr := .literal (2 ^ 256 - n) }
+            else
+              failAt j "negative constant out of int256 range"
+          else if (jTy == "int256" || jTy == "int") && (subTy == "int256" || subTy == "int") then
+            let a ← atom v
+            if (← get).unchecked then
+              pure { pre := a.pre, expr := .sub (.literal 0) a.expr }
+            else
+              let dest ← fresh
+              let ok := Stmt.assignVar dest (.sub (.literal 0) a.expr)
+              let ite := iteStmt (.eq a.expr (.literal (2 ^ 255))) overflowPanic ok
+              pure { pre := a.pre.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
           else
-            failAt j "negative constant out of int256 range"
-        else if (jTy == "int256" || jTy == "int") && (subTy == "int256" || subTy == "int") then
+            failAt j s!"unary negation requires an int256 operand, found {subTy}"
+        else if op == some "~" then
+          let jTy ← mType j
+          let subTy ← mType sub
+          unless jTy == subTy do
+            failAt j s!"bitwise negation operand type {subTy} does not match {jTy}"
+          let v ← lowerExpr sub
           let a ← atom v
-          if (← get).unchecked then
-            pure { pre := a.pre, expr := .sub (.literal 0) a.expr }
+          if jTy == "int256" || jTy == "int" || jTy == "bytes32" then
+            pure { pre := a.pre, expr := .bitNot a.expr }
+          else if jTy.startsWith "uint" then
+            let some bits := bitsOf jTy | failAt j s!"unsupported bitwise negation type {jTy}"
+            let inverted := if bits < 256 then Expr.bitAnd (.bitNot a.expr) (.literal (2 ^ bits - 1)) else .bitNot a.expr
+            pure { pre := a.pre, expr := inverted }
           else
-            let dest ← fresh
-            let ok := Stmt.assignVar dest (.sub (.literal 0) a.expr)
-            let ite := iteStmt (.eq a.expr (.literal (2 ^ 255))) overflowPanic ok
-            pure { pre := a.pre.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
+            failAt j s!"unsupported bitwise negation type {jTy}"
         else
-          failAt j s!"unary negation requires an int256 operand, found {subTy}"
-      else if op == some "~" then
-        let jTy ← mType j
-        let subTy ← mType sub
-        unless jTy == subTy do
-          failAt j s!"bitwise negation operand type {subTy} does not match {jTy}"
-        let v ← lowerExpr sub
-        let a ← atom v
-        if jTy == "int256" || jTy == "int" || jTy == "bytes32" then
-          pure { pre := a.pre, expr := .bitNot a.expr }
-        else if jTy.startsWith "uint" then
-          let some bits := bitsOf jTy | failAt j s!"unsupported bitwise negation type {jTy}"
-          let inverted := if bits < 256 then Expr.bitAnd (.bitNot a.expr) (.literal (2 ^ bits - 1)) else .bitNot a.expr
-          pure { pre := a.pre, expr := inverted }
-        else
-          failAt j s!"unsupported bitwise negation type {jTy}"
-      else
-        failAt j "unsupported unary operation"
+          failAt j "unsupported unary operation"
   | "BinaryOperation" => lowerBinary j
   | "Conditional" => lowerConditional j
   | "FunctionCall" => lowerCall j
@@ -1719,11 +1756,15 @@ private partial def lowerRef (j : Json) : M Ref := do
       else if let some decl := env.numericConstants.find? n then
         if env.constantStack.contains n then failAt j "cyclic constant initializer"
         let declared ← mType decl
-        unless (declared.startsWith "uint" && (bitsOf declared).isSome) || declared == "bool" do
+        unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
+            declared == "bool" || declared == "bytes32" ||
+            declared == "int256" || declared == "int" ||
+            declared == "address" || declared == "address payable" do
           failAt j s!"unsupported numeric constant type {declared}"
         let initializer ← mField decl "value"
         modify fun e => { e with constantStack := n :: e.constantStack }
-        let value ← lowerExpr initializer
+        let rawValue ← lowerExpr initializer
+        let value ← convert declared (← mType initializer) rawValue initializer
         modify fun e => { e with constantStack := env.constantStack }
         pure (.expr value)
       else if let some decl := env.stateVars.find? n then
@@ -2246,7 +2287,7 @@ private partial def lowerBinary (j : Json) : M Val := do
         failAt j s!"shift amount must be unsigned, found {rightTy}"
       let a ← atom left
       let b ← atom right
-      if isSigned then
+      if isSigned || common == "bytes32" then
         pure { pre := a.pre ++ b.pre, expr := .shl b.expr a.expr }
       else if common.startsWith "uint" then
         let some bits := bitsOf common | failAt j s!"unsupported shift type {common}"
@@ -2262,7 +2303,7 @@ private partial def lowerBinary (j : Json) : M Val := do
       let b ← atom right
       if isSigned then
         pure { pre := a.pre ++ b.pre, expr := .sar b.expr a.expr }
-      else if common.startsWith "uint" && (bitsOf common).isSome then
+      else if (common.startsWith "uint" && (bitsOf common).isSome) || common == "bytes32" then
         pure { pre := a.pre ++ b.pre, expr := .shr b.expr a.expr }
       else
         failAt j s!"unsupported shift type {common}"
@@ -5050,6 +5091,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     return ← lowerRequire statement
   let deleting := kind == "UnaryOperation"
   let operator ← mStr (← mField expression "operator")
+  if deleting && (operator == "++" || operator == "--") then
+    return (← lowerIncDecExpr expression).pre
   if !deleting && isCompoundAssignOp operator then
     return ← lowerCompoundAssignment expression operator
   unless (deleting && operator == "delete") || (!deleting && operator == "=") do
@@ -5279,6 +5322,10 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
       pure { pre := #[], expr := .bitOr lhs rhs }
     else if operator == "^=" then
       pure { pre := #[], expr := .bitXor lhs rhs }
+    else if operator == "<<=" then
+      pure { pre := #[], expr := .shl rhs lhs }
+    else if operator == ">>=" then
+      pure { pre := #[], expr := .shr rhs lhs }
     else
       failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
   else
@@ -5327,7 +5374,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
   let right ← mField expression "rightHandSide"
   let isSupportedCompoundTy (ty : String) : Bool :=
     (ty.startsWith "uint" && (bitsOf ty).isSome) || ty == "int256" || ty == "int" ||
-      (ty == "bytes32" && ["&=", "|=", "^="].contains operator)
+      (ty == "bytes32" && ["&=", "|=", "^=", "<<=", ">>="].contains operator)
   let lowerRhs (ty : String) : M Val := do
     let rightTy ← mType right
     let raw ← lowerExpr right
@@ -5446,6 +5493,94 @@ private partial def lowerAssignmentExpr (j : Json) : M Val := do
   let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot value.expr) else value.expr
   let resultVar ← fresh
   return { pre := (pre ++ value.pre).push (.letVar resultVar storedExpr) |>.push (.setStorage name (.localVar resultVar)), expr := .localVar resultVar }
+
+private partial def lowerIncDecExpr (j : Json) : M Val := do
+  let operator ← mStr (← mField j "operator")
+  let isPrefix := (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true
+  let compoundOp := if operator == "++" then "+=" else "-="
+  let target ← mField j "subExpression"
+  let isSupportedIncDecTy (ty : String) : Bool :=
+    (ty.startsWith "uint" && (bitsOf ty).isSome) || ty == "int256" || ty == "int"
+  if (← mKind target) == "Identifier" then
+    let id ← refInt target
+    if id ≥ 0 then
+      if let some bound := (← get).values.find? id.toNat then
+        let .localVar binding := bound
+          | failAt target "only materialized scalar locals are writable"
+        unless (← get).writableLocals.find? id.toNat == some binding do
+          failAt target "only declaration-bound scalar locals are writable"
+        let ty ← mType target
+        unless isSupportedIncDecTy ty do
+          failAt target s!"unsupported scalar local increment/decrement type {ty}"
+        let oldVar ← fresh
+        let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+        let stmts := #[Stmt.letVar oldVar (.localVar binding)] ++ combined.pre |>.push (.assignVar binding combined.expr)
+        return { pre := stmts, expr := if isPrefix then .localVar binding else .localVar oldVar }
+  if (← mKind target) == "MemberAccess" then
+    let cMember ← mStr (← mField target "memberName")
+    let .path pre path ← lowerRef (← mField target "expression")
+      | failAt target "member assignment requires a mapping struct storage path"
+    unless pre.isEmpty do failAt target "member write key prelude is unsupported"
+    let (name, count, read, write) ← match path with
+      | .one cField cKey => pure (cField, 1, Expr.structMember cField cKey cMember, fun (cVal : Expr) => Stmt.setStructMember cField cKey cMember cVal)
+      | .two cField cKey1 cKey2 => pure (cField, 2, Expr.structMember2 cField cKey1 cKey2 cMember, fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 cMember cVal)
+      | .outer _ _ => failAt target "member assignment requires both mapping keys"
+    let info ← resolveField name target
+    if info.opaqueNames.contains cMember then failAt target s!"member {cMember} is opaque in this slice"
+    if info.structFixedArrays.any (·.member == cMember) then
+      failAt target s!"struct fixed array member {cMember} requires an element index"
+    unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains cMember do
+      failAt target "member assignment requires a supported layout member"
+    let ty ← mType target
+    unless ty.startsWith "uint" && (bitsOf ty).isSome do
+      failAt target "member assignment requires an unsigned scalar member"
+    markField name
+    let oldVar ← fresh
+    let newVar ← fresh
+    let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+    let stmts := #[Stmt.letVar oldVar read] ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (write (.localVar newVar))
+    return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+  if (← mKind target) == "IndexAccess" then
+    let reference ← lowerRef target
+    if let .fixedElement _ _ _ := reference then
+      failAt j "only scalar storage assignment and delete are supported"
+    if let .structFixedElement _ _ _ _ := reference then
+      failAt j "only scalar storage assignment and delete are supported"
+    let .path pre path := reference
+      | failAt target "mapping assignment target is not a storage path"
+    let (name, count, read, write) ← match path with
+      | .one cField cKey => pure (cField, 1, Expr.structMember cField cKey "__solidity_value", fun (cVal : Expr) => Stmt.setStructMember cField cKey "__solidity_value" cVal)
+      | .two cField cKey1 cKey2 => do
+          unless pre.isEmpty do failAt target "nested mapping increment/decrement key prelude is unsupported"
+          pure (cField, 2, Expr.structMember2 cField cKey1 cKey2 "__solidity_value", fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 "__solidity_value" cVal)
+      | .outer _ _ => failAt target "mapping assignment requires both keys"
+    let info ← resolveField name target
+    unless info.scalarMapping && info.keyCount == count do
+      failAt target "only scalar mapping values are writable"
+    let ty ← mType target
+    unless isSupportedIncDecTy ty do
+      failAt target s!"unsupported mapping increment/decrement type {ty}"
+    markField name
+    let oldVar ← fresh
+    let newVar ← fresh
+    let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+    let stmts := pre.push (.letVar oldVar read) ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (write (.localVar newVar))
+    return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+  unless (← mKind target) == "Identifier" do
+    failAt target "only a resolved scalar storage identifier is writable"
+  let .state name pre ← lowerRef target
+    | failAt target "assignment target is not scalar storage"
+  let info ← resolveField name target
+  unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
+  let ty ← mType target
+  unless isSupportedIncDecTy ty do
+    failAt target s!"unsupported scalar storage increment/decrement type {ty}"
+  markField name
+  let oldVar ← fresh
+  let newVar ← fresh
+  let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+  let stmts := pre.push (.letVar oldVar (.storage name)) ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (.setStorage name (.localVar newVar))
+  return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
 
 private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "expression"
@@ -6563,7 +6698,7 @@ private def importSpecs (text : String) : Array String := Id.run do
   let mut out : Array String := #[]
   for line in text.splitOn "\n" do
     let t := line.trimAscii.toString
-    if t.startsWith "import" then
+    if t.startsWith "import" || t.startsWith "} from " then
       let parts := t.splitOn "\""
       if parts.length ≥ 2 then
         out := out.push parts[1]!
