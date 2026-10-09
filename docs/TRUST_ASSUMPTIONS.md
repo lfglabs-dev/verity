@@ -1574,3 +1574,18 @@ with `sdiv`, `smod`, `exp`, `byte`, `signextend`, `slt`, `sgt`, `caller`,
 `Expr.byte`, and `Expr.signextend` in `Coverage.lean` by `rfl` without adding
 project axioms or `native_decide`. External contract calls, `<addr>.code`, and
 `abi.decode` remain explicitly rejected with source-located diagnostics.
+
+### Development `string` and `bytes` storage variables (`encoding == "bytes"`)
+
+Top-level `string` and `bytes` storage variables (`layout.encoding == "bytes"`,
+`numberOfBytes == 32`) reuse the existing `Expr.storageArrayElement` and
+`Stmt.setStorageArrayElement` AST constructors on scalar `FieldType.uint256`
+fields to represent computed-slot `sload`/`tload` and `sstore`/`tstore` at
+`keccak256(abi.encode(uint256(slot))) + i` without adding new `Expr` or `Stmt`
+constructors, project axioms, or `native_decide`. Both reads, writes, and
+`delete` enforce `solc`'s `Panic(0x22)` storage-encoding invariant on the base
+slot word (`(raw & 1) == ((raw & 255) / 2)` when `0 < (raw & 255) < 64`), clean
+trailing bytes of the final word on long writes, and zero out stale long-storage
+words when shrinking or transitioning from long (`>= 32` bytes) to short (`< 32`
+bytes) encoding. Storage `bytes` indexing (`b[i]`), `.push` / `.pop`, and
+storage-pointer locals remain rejected with located diagnostics.

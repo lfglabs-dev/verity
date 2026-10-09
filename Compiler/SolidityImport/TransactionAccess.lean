@@ -64,6 +64,15 @@ def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
       let reads1 ← expressionAccesses oracle fields state key1
       let reads2 ← expressionAccesses oracle fields state key2
       return reads1 ++ reads2 ++ (← mappingMemberKeys oracle fields state name member [key1, key2] false)
+  | .storageArrayElement name slotExpr => do
+      let reads ← expressionAccesses oracle fields state slotExpr
+      let some (field, _) := findFieldWithResolvedSlot fields name
+        | throw s!"unknown observed field {name}"
+      unless field.ty == .uint256 do
+        throw s!"unsupported storage observation field type for {name}"
+      let some slot := evalExpr oracle fields state slotExpr
+        | throw "computed slot observation could not evaluate the slot"
+      return reads ++ [fieldKey field slot]
   | expression => .error s!"unsupported storage observation expression: {repr expression}"
 
 def statementAccesses (oracle : DenoteOracle) (fields : List Field)
@@ -95,6 +104,16 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
       let some slots := findFieldWriteSlots fields name
         | throw s!"unknown observed write slots for {name}"
       return reads ++ slots.map (fieldKey field)
+  | .setStorageArrayElement name slotExpr value => do
+      let slotReads ← expressionAccesses oracle fields state slotExpr
+      let valueReads ← expressionAccesses oracle fields state value
+      let some (field, _) := findFieldWithResolvedSlot fields name
+        | throw s!"unknown observed field {name}"
+      unless field.ty == .uint256 do
+        throw s!"unsupported storage observation field type for {name}"
+      let some slot := evalExpr oracle fields state slotExpr
+        | throw "computed slot observation could not evaluate the slot"
+      return slotReads ++ valueReads ++ [fieldKey field slot]
   | .setStructMember name key member value => do
       let keyReads ← expressionAccesses oracle fields state key
       let valueReads ← expressionAccesses oracle fields state value

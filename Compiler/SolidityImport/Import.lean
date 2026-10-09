@@ -239,6 +239,8 @@ private structure FieldInfo where
   booleanScalar : Bool := false
   scalarMapping : Bool := false
   booleanMapping : Bool := false
+  bytesStorage : Bool := false
+  stringStorage : Bool := false
   fixedArrayLength : Option Nat := none
   fixedArrayType : String := ""
 
@@ -849,6 +851,16 @@ private def buildField (types item : Json) : M FieldInfo := do
     let field : Field := { name, ty := .uint256, slot := some slot, packedBits }
     return { slot, field, keyCount := 0, memberNames := #[], opaqueNames := #[],
              booleanScalar := typeId == "t_bool" }
+  if encoding == "bytes" then
+    unless typeId == "t_string_storage" || typeId == "t_bytes_storage" do
+      throwError "unsupported bytes-encoded storage type {typeId} for {name}"
+    let bytes ← mNat (← mField top "numberOfBytes")
+    let offset ← mNat (← mField item "offset")
+    unless bytes == 32 && offset == 0 do
+      throwError "bytes storage field {name} must occupy a full slot at offset 0"
+    let field : Field := { name, ty := .uint256, slot := some slot }
+    return { slot, field, keyCount := 0, memberNames := #[], opaqueNames := #[],
+             bytesStorage := true, stringStorage := typeId == "t_string_storage" }
   unless encoding == "mapping" do
     throwError "unsupported storage encoding {encoding} for {name}"
   let key1 ← liftM (mappingKey (← mStr (← mField top "key")))
@@ -1424,6 +1436,7 @@ private partial def lowerExpr (j : Json) : M Val := do
       | .state name pre =>
           let info ← resolveField name j
           unless info.keyCount == 0 do failAt j "mapping used as a scalar value"
+          if info.bytesStorage then failAt j "bytes or string storage variable used as a scalar value"
           markField name
           if info.booleanScalar then
             pure { pre, expr := .logicalNot (.logicalNot (.storage name)) }
@@ -1577,6 +1590,7 @@ private partial def lowerRef (j : Json) : M Ref := do
       match base with
       | .state name pre =>
           let info ← resolveField name j
+          if info.bytesStorage then failAt j "index access on bytes or string storage variable is outside this slice"
           markField name
           if info.keyCount == 2 then
             pure (.path (pre ++ key.pre) (.outer name key.expr))
@@ -1733,7 +1747,8 @@ private partial def lowerRef (j : Json) : M Ref := do
           pure (.expr { pre := buf.pre, expr := buf.size })
       else if member == "length" && (← mKind base) == "FunctionCall" &&
           optStr base "kind" == some "typeConversion" &&
-          ((← mType base) == "bytes" || (← mType base) == "bytes memory" || (← mType base) == "bytes calldata") then
+          ((← mType base) == "bytes" || (← mType base) == "bytes memory" || (← mType base) == "bytes calldata" ||
+           (← mType base) == "bytes storage pointer") then
         let args ← mArr (← mField base "arguments")
         unless args.size == 1 do failAt base "bytes() conversion expects one argument"
         let arg := args[0]!
@@ -1742,6 +1757,10 @@ private partial def lowerRef (j : Json) : M Ref := do
           if id ≥ 0 then
             if let some cb := (← get).calldataBytes.find? id.toNat then
               return .expr { pre := #[], expr := .localVar cb.lengthBinding }
+        if let some val ← lowerStorageBytesLength? arg then
+          return .expr val
+        if (← mType base) == "bytes storage pointer" then
+          failAt base "bytes() storage conversion requires a resolved storage identifier"
         let buf ← lowerEncodedBytes arg
         pure (.expr { pre := buf.pre, expr := buf.size })
       else if member == "max" || member == "min" then
@@ -1819,6 +1838,12 @@ private partial def lowerRef (j : Json) : M Ref := do
             unless member == "length" do failAt j s!"unsupported array member {member}"
             let some arr := (← get).scalarArrays.find? id | failAt j "unknown scalar array parameter"
             pure (.expr { pre, expr := .localVar arr.lengthBinding })
+        | .state name pre =>
+            let info ← resolveField name j
+            unless member == "length" && info.bytesStorage && !info.stringStorage do
+              failAt j s!"unsupported member {member}"
+            let val ← lowerStorageBytesLength name pre
+            pure (.expr val)
         | _ => failAt j s!"unsupported member {member}"
   | kind => failAt j s!"unsupported reference {kind}"
 
@@ -2564,6 +2589,252 @@ private partial def encodeSelectorAndWords (selBuffer : EncodedBytes) (pre : Arr
     pre := pre.push (.assignVar start (.add (.localVar start) buffer.size))
   return { pre, pointer := .localVar pointer, size }
 
+private partial def lowerStorageBytesLength (name : String) (pre : Array Stmt) : M Val := do
+  markField name
+  let raw ← fresh
+  let outOfPlace ← fresh
+  let len ← fresh
+  let shortCheck := Expr.lt (.localVar len) (.literal 32)
+  let stmts : Array Stmt := #[
+    .letVar raw (.storage name),
+    .letVar outOfPlace (.bitAnd (.localVar raw) (.literal 1)),
+    .letVar len (.div (.localVar raw) (.literal 2)),
+    .ite (.eq (.localVar outOfPlace) (.literal 0))
+      [.assignVar len (.bitAnd (.localVar len) (.literal 0x7f))]
+      [],
+    .ite (.eq (.localVar outOfPlace) shortCheck)
+      [.panicCode (.literal 0x22)]
+      []
+  ]
+  return { pre := pre ++ stmts, expr := .localVar len }
+
+private partial def storageBytesSourceVar? (j : Json) : M (Option String) := do
+  if (← mKind j) == "Identifier" then
+    let id ← refInt j
+    unless id ≥ 0 do return none
+    let env ← get
+    if env.values.contains id.toNat || env.paths.contains id.toNat || env.snapshots.contains id.toNat ||
+       env.mems.contains id.toNat || env.abiElements.contains id.toNat ||
+       env.byteBuffers.contains id.toNat || env.stringBuffers.contains id.toNat ||
+       env.calldataBytes.contains id.toNat || env.scalarArrays.contains id.toNat ||
+       env.numericConstants.contains id.toNat then
+      return none
+    let some decl := env.stateVars.find? id.toNat | return none
+    if (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true then
+      return none
+    if optStr decl "mutability" == some "immutable" then
+      return none
+    let name ← mStr (← mField decl "name")
+    if env.duplicateLayoutLabels.contains name then
+      failAt j s!"shadowed storage declaration {name} is outside this slice"
+    if let some item := env.layoutItems.find? name then
+      unless (← mNat (← mField item "astId")) == id.toNat do
+        failAt j s!"shadowed storage declaration {name} is outside this slice"
+    let info ← resolveField name j
+    unless info.bytesStorage do return none
+    return some name
+  if (← mKind j) == "FunctionCall" && optStr j "kind" == some "typeConversion" then
+    let ty ← mType j
+    if ty == "bytes storage pointer" || ty == "string storage pointer" then
+      let args ← mArr (← mField j "arguments")
+      if args.size == 1 then
+        return ← storageBytesSourceVar? args[0]!
+  return none
+
+private partial def lowerStorageBytesLength? (j : Json) : M (Option Val) := do
+  let some name ← storageBytesSourceVar? j | return none
+  some <$> lowerStorageBytesLength name #[]
+
+private partial def lowerStorageBytesRead (name : String) (at_ : Json) : M EncodedBytes := do
+  let info ← resolveField name at_
+  unless info.bytesStorage do
+    failAt at_ "storage byte buffer read requires a string or bytes storage variable"
+  markField name
+  modify fun e => { e with encodingMemory := true }
+  let raw ← fresh
+  let outOfPlace ← fresh
+  let len ← fresh
+  let pointer ← fresh
+  let finish ← fresh
+  let dataSlot ← fresh
+  let wordCount ← fresh
+  let copyIdx ← fresh
+  let shortCheck := Expr.lt (.localVar len) (.literal 32)
+  let reserveStmts := AbiEncoding.reserve pointer finish
+    (.bitAnd (.add (.localVar len) (.literal 31)) (.bitNot (.literal 31)))
+  let shortWord := Expr.bitAnd (.localVar raw) (.bitNot (.literal 0xff))
+  let longBranch : List Stmt := [
+    .mstore (.literal 0) (.literal info.slot),
+    .letVar dataSlot (.keccak256 (.literal 0) (.literal 32)),
+    .letVar wordCount (.div (.add (.localVar len) (.literal 31)) (.literal 32)),
+    .forEach copyIdx (.localVar wordCount) [
+      .mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
+        (.storageArrayElement name (.add (.localVar dataSlot) (.localVar copyIdx)))
+    ]
+  ]
+  let stmts : Array Stmt := #[
+    .letVar raw (.storage name),
+    .letVar outOfPlace (.bitAnd (.localVar raw) (.literal 1)),
+    .letVar len (.div (.localVar raw) (.literal 2)),
+    .ite (.eq (.localVar outOfPlace) (.literal 0))
+      [.assignVar len (.bitAnd (.localVar len) (.literal 0x7f))]
+      [],
+    .ite (.eq (.localVar outOfPlace) shortCheck)
+      [.panicCode (.literal 0x22)]
+      []
+  ] ++ reserveStmts.toArray ++ #[
+    .ite (.eq (.localVar outOfPlace) (.literal 0))
+      [ .ite (.gt (.localVar len) (.literal 0))
+          [.mstore (.localVar pointer) shortWord]
+          [] ]
+      longBranch
+  ]
+  return { pre := stmts, pointer := .localVar pointer, size := .localVar len }
+
+private partial def lowerStorageBytesDelete (name : String) (pre : Array Stmt) : M (Array Stmt) := do
+  let info ← resolveField name Json.null
+  markField name
+  modify fun e => { e with encodingMemory := true }
+  let oldRaw ← fresh
+  let oldOutOfPlace ← fresh
+  let oldLen ← fresh
+  let dataSlot ← fresh
+  let oldSlotCount ← fresh
+  let clearIdx ← fresh
+  let shortCheck := Expr.lt (.localVar oldLen) (.literal 32)
+  let clearLong : List Stmt := [
+    .mstore (.literal 0) (.literal info.slot),
+    .letVar dataSlot (.keccak256 (.literal 0) (.literal 32)),
+    .letVar oldSlotCount (.div (.add (.localVar oldLen) (.literal 31)) (.literal 32)),
+    .forEach clearIdx (.localVar oldSlotCount) [
+      .setStorageArrayElement name (.add (.localVar dataSlot) (.localVar clearIdx)) (.literal 0)
+    ],
+    .setStorage name (.literal 0)
+  ]
+  let stmts : Array Stmt := #[
+    .letVar oldRaw (.storage name),
+    .letVar oldOutOfPlace (.bitAnd (.localVar oldRaw) (.literal 1)),
+    .letVar oldLen (.div (.localVar oldRaw) (.literal 2)),
+    .ite (.eq (.localVar oldOutOfPlace) (.literal 0))
+      [.assignVar oldLen (.bitAnd (.localVar oldLen) (.literal 0x7f))]
+      [],
+    .ite (.eq (.localVar oldOutOfPlace) shortCheck)
+      [.panicCode (.literal 0x22)]
+      [],
+    .ite (.gt (.localVar oldLen) (.literal 0))
+      [ .ite (.gt (.localVar oldLen) (.literal 31))
+          clearLong
+          [.setStorage name (.literal 0)] ]
+      []
+  ]
+  return pre ++ stmts
+
+private partial def lowerStorageBytesWrite (name : String) (pre : Array Stmt) (target right : Json) : M (Array Stmt) := do
+  let info ← resolveField name target
+  let targetTy ← mType target
+  let rightTy ← mType right
+  if info.stringStorage then
+    unless rightTy == "string" || rightTy == "string memory" || rightTy == "string calldata" ||
+           rightTy == "string storage ref" || rightTy == "string storage pointer" ||
+           rightTy.startsWith "literal_string " do
+      failAt right s!"cannot assign {rightTy} to {targetTy}"
+  else
+    unless rightTy == "bytes" || rightTy == "bytes memory" || rightTy == "bytes calldata" ||
+           rightTy == "bytes storage ref" || rightTy == "bytes storage pointer" ||
+           rightTy.startsWith "literal_string " do
+      failAt right s!"cannot assign {rightTy} to {targetTy}"
+  markField name
+  if let some srcName ← storageBytesSourceVar? right then
+    if srcName == name then
+      return pre
+  let buf ← lowerEncodedBytes right
+  modify fun e => { e with encodingMemory := true }
+  let ptr ← fresh
+  let newLen ← fresh
+  let oldRaw ← fresh
+  let oldOutOfPlace ← fresh
+  let oldLen ← fresh
+  let cleanupDataSlot ← fresh
+  let oldSlotCount ← fresh
+  let newSlotCount ← fresh
+  let clearCount ← fresh
+  let clearIdx ← fresh
+  let writeDataSlot ← fresh
+  let fullWords ← fresh
+  let copyIdx ← fresh
+  let remBytes ← fresh
+  let lastWord ← fresh
+  let shortWord ← fresh
+  let shortCheck := Expr.lt (.localVar oldLen) (.literal 32)
+  let maskDynamic (data bytes : Expr) : Expr :=
+    .bitAnd data (.bitNot (.shr (.mul (.literal 8) bytes) (.bitNot (.literal 0))))
+  let cleanupStmts : List Stmt := [
+    .ite (.gt (.localVar oldLen) (.literal 31))
+      [ .ite (.gt (.localVar oldLen) (.localVar newLen))
+          [ .mstore (.literal 0) (.literal info.slot),
+            .letVar cleanupDataSlot (.keccak256 (.literal 0) (.literal 32)),
+            .letVar oldSlotCount (.div (.add (.localVar oldLen) (.literal 31)) (.literal 32)),
+            .letVar newSlotCount (.div (.add (.localVar newLen) (.literal 31)) (.literal 32)),
+            .ite (.lt (.localVar newLen) (.literal 32))
+              [.assignVar newSlotCount (.literal 0)]
+              [],
+            .letVar clearCount (.sub (.localVar oldSlotCount) (.localVar newSlotCount)),
+            .forEach clearIdx (.localVar clearCount) [
+              .setStorageArrayElement name
+                (.add (.add (.localVar cleanupDataSlot) (.localVar newSlotCount)) (.localVar clearIdx))
+                (.literal 0)
+            ] ]
+          [] ]
+      []
+  ]
+  let writeLongStmts : List Stmt := [
+    .mstore (.literal 0) (.literal info.slot),
+    .letVar writeDataSlot (.keccak256 (.literal 0) (.literal 32)),
+    .letVar fullWords (.div (.localVar newLen) (.literal 32)),
+    .forEach copyIdx (.localVar fullWords) [
+      .setStorageArrayElement name
+        (.add (.localVar writeDataSlot) (.localVar copyIdx))
+        (.mload (.add (.localVar ptr) (.mul (.localVar copyIdx) (.literal 32))))
+    ],
+    .letVar remBytes (.bitAnd (.localVar newLen) (.literal 0x1f)),
+    .ite (.gt (.localVar remBytes) (.literal 0))
+      [ .letVar lastWord (.mload (.add (.localVar ptr) (.mul (.localVar fullWords) (.literal 32)))),
+        .setStorageArrayElement name
+          (.add (.localVar writeDataSlot) (.localVar fullWords))
+          (maskDynamic (.localVar lastWord) (.localVar remBytes)) ]
+      [],
+    .setStorage name (.add (.mul (.localVar newLen) (.literal 2)) (.literal 1))
+  ]
+  let writeShortStmts : List Stmt := [
+    .letVar shortWord (.literal 0),
+    .ite (.gt (.localVar newLen) (.literal 0))
+      [ .assignVar shortWord
+          (maskDynamic (.mload (.localVar ptr)) (.localVar newLen)) ]
+      [],
+    .setStorage name (.bitOr (.localVar shortWord) (.mul (.localVar newLen) (.literal 2)))
+  ]
+  let stmts : Array Stmt := #[
+    .letVar ptr buf.pointer,
+    .letVar newLen buf.size,
+    .ite (.gt (.localVar newLen) (.literal 0xffffffffffffffff))
+      [.panicCode (.literal 0x41)]
+      [],
+    .letVar oldRaw (.storage name),
+    .letVar oldOutOfPlace (.bitAnd (.localVar oldRaw) (.literal 1)),
+    .letVar oldLen (.div (.localVar oldRaw) (.literal 2)),
+    .ite (.eq (.localVar oldOutOfPlace) (.literal 0))
+      [.assignVar oldLen (.bitAnd (.localVar oldLen) (.literal 0x7f))]
+      [],
+    .ite (.eq (.localVar oldOutOfPlace) shortCheck)
+      [.panicCode (.literal 0x22)]
+      []
+  ] ++ cleanupStmts.toArray ++ #[
+    .ite (.gt (.localVar newLen) (.literal 31))
+      writeLongStmts
+      writeShortStmts
+  ]
+  return pre ++ buf.pre ++ stmts
+
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   if (← mKind j) == "Literal" then
@@ -2596,18 +2867,31 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           return { pre := (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := .localVar cb.lengthBinding }
     let some decl := (← get).stateVars.find? id.toNat
       | failAt j "only literal constants are supported as named byte buffers"
-    unless (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true do
-      failAt j "mutable byte buffers are unsupported"
-    let value ← mField decl "value"
-    unless (← mKind value) == "Literal" do
-      failAt value "byte constant must have a literal initializer"
-    return ← lowerEncodedBytes value
+    if (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true then
+      let value ← mField decl "value"
+      unless (← mKind value) == "Literal" do
+        failAt value "byte constant must have a literal initializer"
+      return ← lowerEncodedBytes value
+    if optStr decl "mutability" == some "immutable" then
+      let name ← mStr (← mField decl "name")
+      failAt j s!"immutable state variable {name} is outside this slice"
+    let name ← mStr (← mField decl "name")
+    let env ← get
+    if env.duplicateLayoutLabels.contains name then
+      failAt j s!"shadowed storage declaration {name} is outside this slice"
+    if let some item := env.layoutItems.find? name then
+      unless (← mNat (← mField item "astId")) == id.toNat do
+        failAt j s!"shadowed storage declaration {name} is outside this slice"
+    let info ← resolveField name j
+    if info.bytesStorage then
+      return ← lowerStorageBytesRead name j
+    failAt j "mutable byte buffers are unsupported"
   unless (← mKind j) == "FunctionCall" do
     failAt j "hash input must be a supported ABI encoding"
   if optStr j "kind" == some "typeConversion" then
     let ty ← mType j
-    if ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
-       ty == "string" || ty == "string memory" || ty == "string calldata" then
+    if ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" || ty == "bytes storage pointer" ||
+       ty == "string" || ty == "string memory" || ty == "string calldata" || ty == "string storage pointer" then
       let args ← mArr (← mField j "arguments")
       unless args.size == 1 do failAt j s!"{ty} conversion expects one argument"
       return ← lowerEncodedBytes args[0]!
@@ -2623,6 +2907,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         for arg in args do
           let argTy ← mType arg
           unless argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" ||
+              argTy == "bytes storage ref" || argTy == "bytes storage pointer" ||
               argTy == "bytes32" || argTy == "bytes4" || argTy.startsWith "literal_string " do
             failAt arg s!"unsupported bytes.concat argument type {argTy}"
         return ← lowerPacked args
@@ -2630,6 +2915,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         for arg in args do
           let argTy ← mType arg
           unless argTy == "string" || argTy == "string memory" || argTy == "string calldata" ||
+              argTy == "string storage ref" || argTy == "string storage pointer" ||
               argTy.startsWith "literal_string " do
             failAt arg s!"unsupported string.concat argument type {argTy}"
         return ← lowerPacked args
@@ -2675,6 +2961,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     let sigNode := args[0]!
     let sigTy ← mType sigNode
     unless sigTy == "string" || sigTy == "string memory" || sigTy == "string calldata" ||
+        sigTy == "string storage ref" || sigTy == "string storage pointer" ||
         sigTy.startsWith "literal_string " do
       failAt sigNode s!"unsupported abi.encodeWithSignature signature type {sigTy}"
     let sigBuf ← lowerEncodedBytes sigNode
@@ -2784,6 +3071,7 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
           vals := vals.push (.scalarArray descriptor pre)
       | _ => failAt arg "only scalar array parameter arguments are supported"
     else if argTy == "string" || argTy == "string memory" || argTy == "string calldata" ||
+            argTy == "string storage ref" || argTy == "string storage pointer" ||
             argTy.startsWith "literal_string " then
       if (← mKind arg) == "Identifier" then
         let id ← refInt arg
@@ -2794,7 +3082,8 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
               continue
       let buf ← lowerEncodedBytes arg
       vals := vals.push (.stringBuffer buf)
-    else if argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" then
+    else if argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" ||
+            argTy == "bytes storage ref" || argTy == "bytes storage pointer" then
       if (← mKind arg) == "Identifier" then
         let id ← refInt arg
         if id ≥ 0 then
@@ -2950,6 +3239,8 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
           if (baseTy == "address" || baseTy == "address payable" || baseTy.startsWith "contract ") &&
               ["call", "staticcall", "delegatecall", "transfer", "send"].contains member then
             failAt callee "external contract calls are outside this slice"
+          if ["push", "pop"].contains member then
+            failAt callee s!"storage array {member} is outside this slice"
         let id ← refInt callee
         if id < 0 then failAt callee "builtin call is outside this slice"
         if baseTy.startsWith "type(library " then
@@ -4424,6 +4715,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       if (baseTy == "address" || baseTy == "address payable" || baseTy.startsWith "contract ") &&
           ["call", "staticcall", "delegatecall", "transfer", "send"].contains member then
         failAt callee "external contract calls are outside this slice"
+      if ["push", "pop"].contains member then
+        failAt callee s!"storage array {member} is outside this slice"
     let reference ← refInt callee
     if reference ≥ 0 then
       if let some ptr := (← get).fnPtrs.find? reference.toNat then
@@ -4551,6 +4844,7 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
           | failAt c "assignment target is not scalar storage"
         let info ← resolveField name c
         unless info.keyCount == 0 do failAt c "whole mapping assignment is unsupported"
+        if info.bytesStorage then failAt c "bytes or string storage tuple assignment is outside this slice"
         markField name
         let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot converted.expr) else converted.expr
         assigns := assigns ++ pre ++ converted.pre |>.push (.setStorage name storedExpr)
@@ -4678,6 +4972,12 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     | failAt target "assignment target is not scalar storage"
   let info ← resolveField name target
   unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
+  if info.bytesStorage then
+    if deleting then
+      return ← lowerStorageBytesDelete name pre
+    else
+      let right ← mField expression "rightHandSide"
+      return ← lowerStorageBytesWrite name pre target right
   markField name
   let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
     let right ← mField expression "rightHandSide"
@@ -4875,6 +5175,7 @@ private partial def lowerAssignmentExpr (j : Json) : M Val := do
     | failAt target "assignment target is not scalar storage"
   let info ← resolveField name target
   unless info.keyCount == 0 do failAt target "whole mapping assignment is unsupported"
+  if info.bytesStorage then failAt target "bytes or string storage assignment expression is outside this slice"
   markField name
   let value ← atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
   let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot value.expr) else value.expr
@@ -5414,13 +5715,15 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
       if env.byteBuffers.contains id.toNat || env.stringBuffers.contains id.toNat then
         return false
       if let some decl := env.stateVars.find? id.toNat then
-        return (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true
+        if (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true then
+          return true
+        return optStr decl "mutability" != some "immutable"
       return false
   | "FunctionCall" =>
       if optStr j "kind" == some "typeConversion" then
         let ty ← mType j
-        return ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
-               ty == "string" || ty == "string memory" || ty == "string calldata"
+        return ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" || ty == "bytes storage pointer" ||
+               ty == "string" || ty == "string memory" || ty == "string calldata" || ty == "string storage pointer"
       if optStr j "kind" != some "functionCall" then
         return false
       let callee ← mField j "expression"

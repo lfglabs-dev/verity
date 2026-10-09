@@ -737,6 +737,41 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] parameter name _verity_memret_x uses reserved _verity_memret_ prefix'),
+        ('bytes-and-string-storage-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  string private _name;\n  bytes private _payload;\n  function _init(string memory n) internal {\n    _name = n;\n  }\n  function checked(string memory n, bytes calldata p, uint256 x) external returns (string memory) {\n    _init(n);\n    _payload = p;\n    if (x == 0) {\n      delete _name;\n      return \"empty\";\n    }\n    _name = string.concat(_name, \":ok\");\n    _payload = bytes.concat(_payload, bytes32(x));\n    require(bytes(_name).length + _payload.length + uint256(keccak256(bytes(_name))) > 0, \"bad\");\n    return _name;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('bytes-storage-index-access-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  bytes private _b;\n  function checked(uint256 x) external view returns (uint256) {\n    return uint256(uint8(_b[x]));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'IndexAccess: [solidity-import:unsupported] index access on bytes or string storage variable is outside this slice'),
+        ('bytes-storage-push-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  bytes private _b;\n  function checked(uint256 x) external returns (uint256) {\n    _b.push(bytes1(uint8(x)));\n    return _b.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] storage array push is outside this slice'),
+        ('bytes-storage-pop-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  bytes private _b;\n  function checked(uint256) external returns (uint256) {\n    _b.pop();\n    return _b.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] storage array pop is outside this slice'),
+        ('string-storage-assignment-expr-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  string private _s;\n  function checked(uint256) external returns (uint256) {\n    return bytes(_s = \"a\").length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] bytes() storage conversion requires a resolved storage identifier'),
+        ('string-storage-pointer-local-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  string private _s;\n  function checked(uint256) external view returns (uint256) {\n    string storage p = _s;\n    return bytes(p).length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclarationStatement: [solidity-import:unsupported] storage local is not a resolved read path'),
+        ('shadowed-string-storage-read-rejected',
+         "pragma solidity 0.8.34;\nabstract contract Base { string private dup; }\ncontract C is Base {\n  string private dup;\n  function checked(uint256) external view returns (bytes32) {\n    return keccak256(bytes(dup));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] shadowed storage declaration dup is outside this slice'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -755,6 +790,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(«uint256[]»,«address[]»,string,uint256)' if name == 'array-string-params-and-context-positive'
             else 'checked(bytes,bytes,string,uint256)' if name == 'bytes-memory-and-abi-encode-call-positive'
             else 'checked(string,string,uint256)' if name == 'dynamic-bytes-and-string-return-positive'
+            else 'checked(string,bytes,uint256)' if name == 'bytes-and-string-storage-positive'
             else 'checked(«int128[]»)' if name == 'scalar-array-signed-element-rejected'
             else 'checked(uint256)'
         )

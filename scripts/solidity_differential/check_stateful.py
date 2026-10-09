@@ -81,6 +81,9 @@ def main():
         'inspectBytesMemory(bytes,bytes,string,uint256)',
         'concatStrings(string,string,uint256)',
         'buildPayload(bytes,bytes,uint256)',
+        'syncStorage(string,bytes,uint256)',
+        'getName()',
+        'getPayload()',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -222,6 +225,27 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(dyn_ret_prefix[:remaining_budget])
+    if 'syncStorage(string,bytes,uint256)' in source['methodIdentifiers']:
+        storage_bytes_prefix = [
+            ('getName()', []),
+            ('getPayload()', []),
+            ('syncStorage(string,bytes,uint256)', [96, 160, 0, 5, 0x616c706861 << 216, 4, 0x11223344 << 224]),
+            ('getName()', []),
+            ('getPayload()', []),
+            ('syncStorage(string,bytes,uint256)', [96, 192, 1, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232, 33, 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20, 0xff << 248]),
+            ('getName()', []),
+            ('getPayload()', []),
+            ('syncStorage(string,bytes,uint256)', [96, 160, 2, 4, 0x62657461 << 224, 3, 0xaabbcc << 232]),
+            ('getName()', []),
+            ('getPayload()', []),
+            ('syncStorage(string,bytes,uint256)', [96, 128, 3, 0, 0]),
+            ('getName()', []),
+            ('syncStorage(string,bytes,uint256)', [96, 160, 4, 6, 0x70617265746f << 208, 0]),
+            ('getPayload()', []),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(storage_bytes_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -284,6 +308,15 @@ def main():
                 [96, 160, 3, 5, 0xdeadbeef01 << 216, 3, 0x010203 << 232],
                 [96, 128, 4, 0, 0],
                 [96, 128, 9, 0, 6, 0xfeedfacecafe << 208],
+            ])
+        elif name == 'syncStorage(string,bytes,uint256)':
+            call_args = rng.choice([
+                [96, 128, 0, 0, 0],
+                [96, 160, 0, 5, 0x616c706861 << 216, 4, 0x11223344 << 224],
+                [96, 192, 1, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232, 33, 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20, 0xff << 248],
+                [96, 160, 2, 4, 0x62657461 << 224, 3, 0xaabbcc << 232],
+                [96, 128, 3, 0, 0],
+                [96, 160, 4, 6, 0x70617265746f << 208, 0],
             ])
         else:
             call_args = []

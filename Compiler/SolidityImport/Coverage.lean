@@ -47,6 +47,7 @@ def exprCovered : Expr → Bool
   | .blockNumber | .chainid | .caller | .contractAddress | .selfBalance | .txOrigin => true
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
+  | .storageArrayElement _ index => exprCovered index
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
   | .slt a b | .sgt a b | .sdiv a b | .smod a b | .sar a b
   | .byte a b | .signextend a b
@@ -119,6 +120,7 @@ mutual
     | .stop => true
     | .returnBytes _ => true
     | .setStorage _ value => exprCovered value
+    | .setStorageArrayElement _ index value => exprCovered index && exprCovered value
     | .setStructMember _ key _ value => exprCovered key && exprCovered value
     | .setStructMember2 _ key1 key2 _ value =>
         exprCovered key1 && exprCovered key2 && exprCovered value
@@ -268,6 +270,26 @@ theorem execStmt_setStorage_arm (oracle : DenoteOracle) (fields : List Field)
            .continue { state with world := writeUintFieldSlots fields name state.world slots resolved }
        | _, _ => .revert) := rfl
 
+theorem execStmt_setStorageArrayElement_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (fieldName : String) (index value : Expr) :
+    execStmt oracle fields state (.setStorageArrayElement fieldName index value) =
+      (match findFieldWithResolvedSlot fields fieldName,
+          evalExpr oracle fields state index,
+          evalExpr oracle fields state value with
+       | some ({ ty := .dynamicArray _, .. }, slot), some idx, some resolved =>
+           match storageArraySetAt (state.world.readArray slot) idx resolved with
+           | some updated =>
+               .continue { state with world := writeStorageArray state.world slot updated }
+           | none => .revert
+       | some ({ ty := .fixedArrayUint128 size, .. }, _), some idx, some resolved =>
+           match findFieldWriteSlots fields fieldName >>= fun slots =>
+               writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
+           | some world => .continue { state with world := world }
+           | none => .revert
+       | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+           .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
+       | _, _, _ => .revert) := rfl
+
 theorem execStmt_require_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (condition : Expr) (message : String) :
     execStmt oracle fields state (.require condition message) =
@@ -305,6 +327,22 @@ theorem evalExpr_storage_arm (oracle : DenoteOracle) (fields : List Field)
            | some packed => some (Verity.Core.Uint256.and
                (Verity.Core.Uint256.shr packed.offset rawWord) (packedMaskNat packed)).val
        | none => none) := rfl
+
+theorem evalExpr_storageArrayElement_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (fieldName : String) (index : Expr) :
+    evalExpr oracle fields state (.storageArrayElement fieldName index) =
+      (do
+        let idx ← evalExpr oracle fields state index
+        match findFieldWithResolvedSlot fields fieldName with
+        | some ({ ty := .dynamicArray _, .. }, slot) =>
+            match (state.world.readArray slot)[idx]? with
+            | some value => some value.val
+            | none => none
+        | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
+            readFixedUint128ArrayElement state.world slot size idx
+        | some (field@{ ty := .uint256, .. }, _) =>
+            some (readFieldWord state.world field idx).val
+        | _ => none) := rfl
 
 theorem evalExpr_literal_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (n : Nat) :

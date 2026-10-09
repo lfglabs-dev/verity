@@ -197,6 +197,9 @@ def compileSetStorageArrayElement (fields : List Field) (dynamicSource : Dynamic
         ]) [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])],
         YulStmt.let_ "__packed_offset" packedOffsetExpr
       ] ++ baseSlots.map writePackedAt)]
+    | .uint256 =>
+      let storeBuiltin := if f.isTransient then "tstore" else "sstore"
+      pure [YulStmt.exprStmt (YulExpr.call storeBuiltin [indexExpr, valueExpr])]
     | _ => do
       let (slot, _) ← validateDynamicArrayField fields field
       pure [YulStmt.block [

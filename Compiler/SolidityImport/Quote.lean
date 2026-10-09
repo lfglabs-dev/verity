@@ -55,6 +55,8 @@ partial def quoteExpr : Expr → m Term
       `(Compiler.CompilationModel.Expr.structMember $(quote f) $(← quoteExpr k) $(quote x))
   | .structMember2 f k1 k2 x => do
       `(Compiler.CompilationModel.Expr.structMember2 $(quote f) $(← quoteExpr k1) $(← quoteExpr k2) $(quote x))
+  | .storageArrayElement f i => do
+      `(Compiler.CompilationModel.Expr.storageArrayElement $(quote f) $(← quoteExpr i))
   | .add a b => do `(Compiler.CompilationModel.Expr.add $(← quoteExpr a) $(← quoteExpr b))
   | .sub a b => do `(Compiler.CompilationModel.Expr.sub $(← quoteExpr a) $(← quoteExpr b))
   | .mul a b => do `(Compiler.CompilationModel.Expr.mul $(← quoteExpr a) $(← quoteExpr b))
@@ -87,6 +89,8 @@ partial def quoteStmt : Stmt → m Term
         $(← list (← body.mapM quoteStmt)))
   | .letVar x v => do `(Compiler.CompilationModel.Stmt.letVar $(quote x) $(← quoteExpr v))
   | .setStorage x v => do `(Compiler.CompilationModel.Stmt.setStorage $(quote x) $(← quoteExpr v))
+  | .setStorageArrayElement f i v => do
+      `(Compiler.CompilationModel.Stmt.setStorageArrayElement $(quote f) $(← quoteExpr i) $(← quoteExpr v))
   | .setStructMember f k x v => do
       `(Compiler.CompilationModel.Stmt.setStructMember $(quote f) $(← quoteExpr k) $(quote x) $(← quoteExpr v))
   | .setStructMember2 f k1 k2 x v => do
