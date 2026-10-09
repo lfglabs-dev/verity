@@ -27,7 +27,9 @@ for name,old,new,message in [
         raise RuntimeError(f'nonunique pinned Market mutation anchor: {name}')
     variants.append((name,interface.replace(old,new),contract,'f(Market)',message))
 computed=contract.replace('Market memory market','Market calldata market, uint256 i').replace('return 7;','return uint256(uint160(market.collateralParams[i + 1].token));')
-variants.append(('computed-index',interface,computed,'f(Market, uint256)','computed struct-array indices'))
+variants.append(('computed-index',interface,computed,'f(Market, uint256)',None))
+assign_computed=computed.replace('i + 1','i += 1')
+variants.append(('assignment-index',interface,assign_computed,'f(Market, uint256)','compound assignment expressions are outside this slice'))
 mixed=contract.replace('contract C','struct Tiny { uint256 value; }\ncontract C').replace('Market memory market','Market memory market, Tiny memory other')
 variants.append(('mixed-structs',interface,mixed,'f(Market, Tiny)','mixed static and dynamic struct parameters'))
 results=[]

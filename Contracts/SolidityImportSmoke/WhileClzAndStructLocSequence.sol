@@ -103,7 +103,7 @@ contract SequenceFixture {
     function inspectStatic(StaticCfg calldata cfg, uint256 x) external pure returns (uint256) {
         StaticCfg calldata cdAlias = cfg;
         StaticCfg memory memCopy = cdAlias;
-        return _evalStaticMemory(cfg, x) + (memCopy.active ? uint256(memCopy.bonus) : 0);
+        return _evalStaticMemory(memCopy, x) + (memCopy.active ? uint256(memCopy.bonus) : 0);
     }
 
     function applyBundle(Bundle calldata bundle, uint256 pivot) external returns (uint256, bytes32) {

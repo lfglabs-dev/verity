@@ -99,6 +99,7 @@ jobs:
               command=(lake build Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness)
               ;;
             print-axioms)
+              python3 scripts/setup_solc_import.py --all
               command=(lake build PrintAxioms)
               ;;
             *)

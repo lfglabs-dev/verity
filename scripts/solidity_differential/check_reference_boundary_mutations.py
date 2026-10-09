@@ -23,7 +23,9 @@ def main():
         ('external-library',
          'if optStr fn "visibility" == some "external" then',
          'if false then'),
-        ('yul-shadow', 'yul := yul.erase pname', 'pure ()'),
+        ('yul-shadow',
+         '          failAt p "reference argument location conversion is unsupported"\n        if pname != "" then\n          yul := yul.erase pname',
+         '          failAt p "reference argument location conversion is unsupported"\n        if pname != "" then\n          pure ()'),
     ]
     results = []
     for name, anchor, replacement in rules:

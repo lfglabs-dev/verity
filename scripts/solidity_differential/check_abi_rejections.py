@@ -7,10 +7,11 @@ import tempfile
 
 def main():
     output = Path(tempfile.mkdtemp(prefix='abi-rejections-', dir='.lake')).resolve()
-    cases = [(ty, ty, True) for ty in ('uint8', 'uint16', 'uint248', 'uint256', 'address', 'bool')]
-    cases += [(ty, ty, False) for ty in ('int8', 'int256', 'bytes16')]
-    cases += [('bytes', 'bytes memory', False), ('string', 'string memory', False),
-              ('uint256[]', 'uint256[] calldata', False), ('uint8[2]', 'uint8[2] calldata', False)]
+    cases = [(ty, ty, True) for ty in ('uint8', 'uint16', 'uint248', 'uint256', 'int256', 'address', 'bool')]
+    cases += [(ty, ty, False) for ty in ('int8', 'bytes16')]
+    cases += [('bytes', 'bytes memory', True), ('string', 'string memory', True),
+              ('uint256[]', 'uint256[] calldata', True), ('uint8[2]', 'uint8[2] calldata', False),
+              ('uint256[][]', 'uint256[][] calldata', False), ('bytes[2]', 'bytes[2] calldata', False)]
     for index, (signature, declaration, valid) in enumerate(cases):
         directory = output / str(index)
         directory.mkdir()

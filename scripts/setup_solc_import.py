@@ -100,12 +100,12 @@ def install(version: str, platform_name: str, dest: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", choices=tuple(RELEASES), default="0.8.34", help="pinned solc release")
+    parser.add_argument("--version", choices=tuple(RELEASES), default=None, help="pinned solc release")
     parser.add_argument("--all", action="store_true", help="install all pinned solc releases into .lake/solidity-import/")
     parser.add_argument("--output", type=Path, help="destination binary path")
     args = parser.parse_args()
     platform_name = host_platform()
-    if args.all:
+    if args.all or (args.version is None and args.output is None):
         if args.output is not None:
             raise RuntimeError("--output cannot be combined with --all")
         for version, release in RELEASES.items():
@@ -115,12 +115,13 @@ def main() -> int:
             else:
                 install(version, platform_name, dest)
         return 0
-    release = RELEASES[args.version]
+    version = args.version or "0.8.34"
+    release = RELEASES[version]
     dest = args.output or (ROOT / ".lake" / "solidity-import" / release["binary_name"])
     if dest.exists() and file_sha256(dest) == release["sha256"][platform_name]:
         print(f"already installed at {dest}")
         return 0
-    install(args.version, platform_name, dest)
+    install(version, platform_name, dest)
     return 0
 
 
