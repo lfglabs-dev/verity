@@ -1553,3 +1553,57 @@ def stateful_yul_block_mulmod_tstore_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown yul-block-mulmod-tstore variant: {variant}')
+
+
+def stateful_merkle_and_nonces_source(fixture: str, variant: str) -> str:
+    """Equivalent extended scalar constants, scratch-space Yul mstore/keccak256, bytes32 shifts, and ++/-- sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'left', 'right', 'value', 'word', 'a', 'b', 'owner', 'nonce', 'current',
+            'leafHash', 'leafIndex', 'p0', 'p1', 'currentHash', 'input', 'expectedNonce',
+            'afterFirst', 'beforeDec', 'localCounter', 'postInc', 'preInc', 'postDec',
+            'preDec', 'narrowLocal', 'narrowPost', 'narrowPre', 'preStep', 'postStep',
+            'sDelta', 'sPost', 'sPre', 'cursorSnap', 'boxKey', 'hitBefore', 'hitAfter',
+            'g1', 'g2', 'gridBefore', 'gridAfter', 'leaf', 'sib0', 'sib1', 'shiftedMask',
+            'merkleOut', 'score', 'summary',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-merkle-and-nonces':
+        replacements = {
+            '\n        localCounter++;':
+            '\n        localCounter += 1;',
+            '\n        --localCounter;':
+            '\n        localCounter -= 1;',
+            'narrowLocal--;':
+            'narrowLocal -= 1;',
+            'stepCount--;':
+            'stepCount -= 1;',
+            'signedCursor++;':
+            'signedCursor += 1;',
+            'boxes[boxKey].misses++;':
+            'boxes[boxKey].misses += 1;',
+            '--boxes[boxKey].misses;':
+            'boxes[boxKey].misses -= 1;',
+            'gridNonce[g1][g2]--;':
+            'gridNonce[g1][g2] -= 1;',
+            'sib0 <<= (input & 7);':
+            'sib0 = sib0 << (input & 7);',
+            'sib1 >>= ((input >> 3) & 7);':
+            'sib1 = sib1 >> ((input >> 3) & 7);',
+            'totalScore += (uint256(merkleOut) & 0xffffffff) + score;':
+            'totalScore = totalScore + (uint256(merkleOut) & 0xffffffff) + score;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('merkle-and-nonces variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown merkle-and-nonces variant: {variant}')
+
