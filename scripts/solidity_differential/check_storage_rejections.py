@@ -78,7 +78,7 @@ def main():
         ('helper-effect-delete', 'mapping(uint256 => uint256) value; function helper(uint256 n) internal returns (uint256) { value[1] = n; delete value[1]; return value[1]; }', 'return helper(x);', 'uint256', None),
         ('helper-effect-compound', 'uint256 value; function helper(uint256 n) internal returns (uint256) { value += n; return value; }', 'return helper(x);', 'uint256', None),
         ('helper-effect-increment', 'uint256 value; function helper(uint256 n) internal returns (uint256) { value++; return n; }', 'return helper(x);', 'uint256', None),
-        ('helper-effect-parameter', 'function helper(uint256 n) internal pure returns (uint256) { n = 0; return n; }', 'return helper(x);', 'uint256', 'only materialized scalar locals are writable'),
+        ('helper-effect-parameter', 'function helper(uint256 n) internal pure returns (uint256) { n = 0; return n; }', 'return helper(x);', 'uint256', None),
         ('helper-effect-root-struct', 'struct Box { uint256 low; } Box box; function helper(uint256 n) internal returns (uint256) { box.low = n; return n; }', 'return helper(x);', 'uint256', 'member assignment requires a mapping struct storage path'),
         ('helper-effect-external', 'function helper(uint256 n) internal returns (uint256) { this.checked(n); return n; }', 'return helper(x);', 'uint256', 'discarded helper calls require an internal or private'),
         ('member-write', 'struct Box { uint8 low; uint128 sibling; } mapping(uint256 => Box) private boxes;', 'boxes[1].low = uint8(x); return uint256(boxes[1].low);', 'uint256', None),
@@ -204,8 +204,10 @@ def main():
         ('local-delete', '', 'uint256 value = x; delete value; return value;', 'uint256', None),
         ('local-compound', '', 'uint256 value = 0; value += x; return value;', 'uint256', None),
         ('local-increment', '', 'uint256 value = 0; value++; return value;', 'uint256', None),
-        ('parameter-write', '', 'x = 0; return x;', 'uint256', 'only materialized scalar locals are writable'),
-        ('helper-parameter-write', 'function h(uint256 y) internal pure returns (uint256) { y = 0; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only declaration-bound scalar locals are writable'),
+        ('parameter-write', '', 'x = 0; return x;', 'uint256', None),
+        ('helper-parameter-write', 'function h(uint256 y) internal pure returns (uint256) { y = 0; return y; }', 'uint256 local = x; return h(local);', 'uint256', None),
+        ('parameter-delete', '', 'delete x; return x;', 'uint256', 'only materialized scalar locals are writable'),
+        ('helper-parameter-delete', 'function h(uint256 y) internal pure returns (uint256) { delete y; return y; }', 'uint256 local = x; return h(local);', 'uint256', 'only declaration-bound scalar locals are writable'),
         ('local-array-write', '', 'uint256[2] memory a; a[0] = x; return x;', 'uint256', 'uninitialized reference locals'),
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', None),
     ]
@@ -853,6 +855,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local out is unsupported'),
+        ('udvt-param-assign-hashmarket-positive',
+         "pragma solidity 0.8.34;\ntype Uid is uint128;\nerror BadLimit(address caller, uint256 maxAllowed);\nstruct Item { uint128 amount; bool active; }\nstruct Market { Item[] items; uint256 version; }\ncontract C {\n  function _msgSender() internal view returns (address) { return msg.sender; }\n  function _limit() internal pure returns (uint256) { return 100; }\n  function _pair(Uid u, uint256 x) internal pure returns (uint256, uint256) {\n    x = x + 3;\n    if (x > 10) return (uint256(Uid.unwrap(u)), x);\n    return (x, uint256(Uid.unwrap(u)));\n  }\n  function _outer(Uid u, uint256 x) internal pure returns (uint256, uint256) {\n    if (x == 0) return (0, 0);\n    return _pair(u, x);\n  }\n  function _itemVal(Item memory it) internal pure returns (uint256) {\n    return it.active ? uint256(it.amount) : 0;\n  }\n  function _itemValCd(Item calldata it) internal pure returns (uint256) {\n    return it.active ? uint256(it.amount) : 1;\n  }\n  function _hashArr(uint256[] memory arr) internal pure returns (bytes32 h) {\n    assembly (\"memory-safe\") {\n      h := keccak256(add(arr, 0x20), mul(mload(arr), 0x20))\n    }\n  }\n  function checked(Market calldata m, Uid u, uint256 x) external returns (uint256) {\n    x = x + 1;\n    if (x > _limit()) revert BadLimit(_msgSender(), _limit());\n    Uid u2 = Uid.wrap(uint128(x));\n    (uint256 a, uint256 b) = _outer(u2, uint256(Uid.unwrap(u)));\n    uint256 v = _itemVal(m.items[0]) + _itemValCd(m.items[0]);\n    uint256[] memory words = new uint256[](1);\n    words[0] = v + a + b + m.version;\n    return uint256(_hashArr(words));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('udvt-unsupported-underlying-rejected',
+         "pragma solidity 0.8.34;\ntype Bad is bytes16;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    Bad b = Bad.wrap(bytes16(uint128(x)));\n    return uint256(uint128(Bad.unwrap(b)));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] unsupported user-defined value type underlying type bytes16'),
+        ('custom-error-stateful-zero-arg-helper-rejected',
+         "pragma solidity 0.8.34;\nerror Bad(uint256 v);\ncontract C {\n  uint256 private s;\n  function _bump() internal returns (uint256) { s += 1; return s; }\n  function checked(uint256 x) external returns (uint256) {\n    if (x == 0) revert Bad(_bump());\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] custom-error arguments currently require literals or scalar bindings'),
+        ('yul-keccak256-mismatched-array-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (bytes32 h) {\n    uint256[] memory a = new uint256[](1);\n    uint256[] memory b = new uint256[](1);\n    a[0] = x;\n    b[0] = x;\n    assembly (\"memory-safe\") {\n      h := keccak256(add(a, 0x20), mul(mload(b), 0x20))\n    }\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulIdentifier: [solidity-import:unsupported] unbound Yul identifier a'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -873,6 +895,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(string,string,uint256)' if name == 'dynamic-bytes-and-string-return-positive'
             else 'checked(string,bytes,uint256)' if name == 'bytes-and-string-storage-positive'
             else 'checked(«int128[]»)' if name == 'scalar-array-signed-element-rejected'
+            else 'checked(Market,Uid,uint256)' if name == 'udvt-param-assign-hashmarket-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'
