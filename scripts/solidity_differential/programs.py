@@ -1507,3 +1507,49 @@ def stateful_bytes_and_string_storage_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown bytes-and-string-storage variant: {variant}')
 
 
+def stateful_yul_block_mulmod_tstore_source(fixture: str, variant: str) -> str:
+    """Equivalent multi-statement Yul block, mulmod/addmod, tstore, and *= compound assignment sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'slot', 'nextValue', 'prevValue', 'current', 'x', 'y', 'denominator',
+            'result', 'prod0', 'prod1', 'mm', 'remainder', 'twos', 'inverse',
+            'a', 'b', 'modVal', 'out', 'localAcc', 'step', 'm', 'input', 'prev',
+            'prevA', 'afterA', 'loaded', 'restoredA', 'modBase', 'solMul', 'solAdd',
+            'yulZeroMod', 'bigX', 'bigY', 'bigDenom', 'scaled', 'mixed', 'factor',
+            'localProd', 'sVal', 'bucketKey', 'combined', 'digest', 'slotKey',
+            'weight', 'denom', 'oldVal', 'safeDenom', 'mVal', 'aVal', 'cur',
+            'next', 'finalLock', 'currentLock', 'summary', 'slotA', 'slotB', 'pulseScore',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-yul-mulmod-tstore':
+        replacements = {
+            'localProd *= factor;':
+            'localProd = localProd * factor;',
+            'packedScale *= uint128(factor);':
+            'packedScale = packedScale * uint128(factor);',
+            'narrowCounter *= uint64(factor + 0x100000001);':
+            'narrowCounter = narrowCounter * uint64(factor + 0x100000001);',
+            'sVal *= -3;':
+            'sVal = sVal * -3;',
+            'signedMetric *= sVal;':
+            'signedMetric = signedMetric * sVal;',
+            'bucketMul[bucketKey] *= factor;':
+            'bucketMul[bucketKey] = bucketMul[bucketKey] * factor;',
+            'weight += 2;':
+            'weight += 1 + 1;',
+            'totalScore += (uint256(digest) & 0xffffffff) + combined;':
+            'totalScore = totalScore + (uint256(digest) & 0xffffffff) + combined;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('yul-block-mulmod-tstore variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown yul-block-mulmod-tstore variant: {variant}')

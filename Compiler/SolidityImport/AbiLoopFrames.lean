@@ -33,6 +33,10 @@ theorem abiHeaderPreservingStmt_memory (oracle : DenoteOracle) (fields : List Fi
     exact worldFrame_memory state _ (execStmt_slice_world oracle fields state _ (by simpa [stmtCovered] using covered))
   case assignVar name value =>
     exact worldFrame_memory state _ (execStmt_slice_world oracle fields state _ (by simpa [stmtCovered] using covered))
+  case tstore offset value =>
+    cases evaluatedOffset : evalExpr oracle fields state offset <;>
+      cases evaluatedValue : evalExpr oracle fields state value <;>
+      simp [execStmt, evaluatedOffset, evaluatedValue, preservesMemory, Verity.ContractState.writeTransient]
   case setStorage name value => exact scalarWrite_memory oracle fields state name value
   case setStructMember name key member value =>
     exact execStmt_setStructMember_memory_frame oracle fields state name member key value
