@@ -14,14 +14,17 @@ def main():
     cases = [
         ('nested-return', '{ { return 7; } }', None, None),
         ('empty-block', '{} return 7;', None, None),
-        ('unchecked', '{ unchecked { return 7; } }', 'unchecked', 'unsupported statement UncheckedBlock'),
+        ('unchecked', '{ unchecked { return 7; } }', None, None),
         ('conditional', '{ if (true) { return 7; } } return 8;', None, None),
-        ('conditional-unchecked', '{ if (true) { unchecked { return 7; } } } return 8;', 'unchecked', 'unsupported statement UncheckedBlock'),
-        ('loop', '{ while (false) {} } return 7;', 'while', 'unsupported statement WhileStatement'),
+        ('conditional-unchecked', '{ if (true) { unchecked { return 7; } } } return 8;', None, None),
+        ('loop', '{ while (false) {} } return 7;', 'false', 'a while loop condition must compare a loop variable against zero'),
+        ('do-while', '{ do {} while (false); } return 7;', 'do', 'unsupported statement DoWhileStatement'),
         ('after-return', '{ return 7; } return 8;', 'return 8', 'statement after root return'),
         ('uninitialized', '{ uint256 x; } return 7;', None, None),
-        ('uninitialized-signed', '{ int256 x; } return 7;', 'int256 x', 'unsupported default local type int256'),
+        ('uninitialized-signed', '{ int256 x; } return 7;', None, None),
+        ('uninitialized-int128', '{ int128 x; } return 7;', 'int128 x', 'unsupported default local type int128'),
         ('uninitialized-memory', '{ bytes memory x; } return 7;', 'bytes memory x', 'uninitialized reference locals'),
+        ('uninitialized-array', '{ uint256[] memory x; } return 7;', 'uint256[] memory x', 'uninitialized reference locals'),
     ]
     results = []
     for name, body, token, diagnostic in cases:

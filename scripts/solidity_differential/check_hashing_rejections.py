@@ -27,8 +27,9 @@ def main():
          's.a', 'hash input must be a supported ABI encoding'),
         ('multi-struct', 'struct S { uint256 a; }', 'S memory s', 'keccak256(abi.encode(s, uint256(0)))',
          's, uint256', 'unsupported ABI encoding argument type struct'),
-        ('dynamic-bytes', '', 'bytes calldata value', 'keccak256(value)',
-         'bytes calldata value', 'unsupported parameter type bytes'),
+        ('dynamic-bytes', '', 'bytes calldata value', 'keccak256(value)', None, None),
+        ('msg-data-bytes', '', '', 'keccak256(msg.data)',
+         'msg.data', 'hash input must be a supported ABI encoding'),
     ]
     results = []
     for name, declarations, params, expression, token, diagnostic in cases:

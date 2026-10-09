@@ -25,10 +25,10 @@ def main():
         raise HarnessError('location mutation positive rejection suite failed')
     source = directory / 'Compiler/SolidityImport/Import.lean'
     original = source.read_text()
-    anchor = 'unless location == expected do'
+    anchor = 'else if location == expected then'
     if original.count(anchor) != 1:
         raise HarnessError('location mutation anchor not unique')
-    source.write_text(original.replace(anchor, 'unless true do'))
+    source.write_text(original.replace(anchor, 'else if true then'))
     command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
             timeout=600, log=output / 'build.log')
     # A tool error is not detection: require that the unsupported copy actually

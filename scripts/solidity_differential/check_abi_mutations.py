@@ -17,12 +17,12 @@ MUTANTS = {'import-abi-source-offset': ('(.literal (4 + (modelParams.toList.take
                        'p.ty) 0))',
                        '(.literal (36 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize '
                        'p.ty) 0))'),
- 'import-abi-uint-bound': ('\n          | .uintN bits => if bits < 256 then some (2^bits) else none',
+ 'import-abi-uint-bound': ('\n            | .uintN bits => if bits < 256 then some (2^bits) else none',
                            '\n'
-                           '          | .uintN bits => if bits < 256 then some (2^(bits+1)) else none'),
- 'import-abi-address-bound': ('\n          | .address => some (2^160)',
-                              '\n          | .address => some (2^161)'),
- 'import-abi-bool-bound': ('\n          | .bool => some 2', '\n          | .bool => some 3'),
+                           '            | .uintN bits => if bits < 256 then some (2^(bits+1)) else none'),
+ 'import-abi-address-bound': ('\n            | .address => some (2^160)',
+                              '\n            | .address => some (2^161)'),
+ 'import-abi-bool-bound': ('\n            | .bool => some 2', '\n            | .bool => some 3'),
  'import-abi-inclusive': ('\n            (.lt (.calldataload', '\n            (.le (.calldataload'),
  'import-abi-revert': ('\n            [] [.revertReturndata])',
                        '\n            [] [.panic .arithmeticOverflow])')}

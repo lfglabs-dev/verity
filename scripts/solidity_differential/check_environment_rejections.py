@@ -21,9 +21,11 @@ def main():
         ('basefee', 'uint256', 'block.basefee', 'view', 'unsupported block context member basefee'),
         ('prevrandao', 'uint256', 'block.prevrandao', 'view', 'unsupported block context member prevrandao'),
         ('coinbase', 'address', 'block.coinbase', 'view', 'unsupported block context member coinbase'),
-        ('origin', 'address', 'tx.origin', 'view', 'unresolved builtin identifier'),
-        ('signature', 'bytes4', 'msg.sig', 'view', 'unsupported'),
-        ('data', 'uint256', 'msg.data.length', 'view', 'unsupported message context member data'),
+        ('origin', 'address', 'tx.origin', 'view', None),
+        ('signature', 'bytes4', 'msg.sig', 'view', 'unsupported message context member sig'),
+        ('data', 'uint256', 'msg.data.length', 'view', None),
+        ('gasprice', 'uint256', 'tx.gasprice', 'view', 'unsupported transaction context member gasprice'),
+        ('data-slice', 'uint256', 'uint256(uint8(msg.data[0]))', 'view', 'unsupported message context member data'),
     ]
     for name, ty, expr, mutability, expected in cases:
         directory = output / name

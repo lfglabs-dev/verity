@@ -39,23 +39,25 @@ MUTANTS = {'import-market-root-offset': ('Compiler/SolidityImport/AbiLowering.le
                                      '    checks ++'),
  'import-market-calldata-element-stride': ('Compiler/SolidityImport/Import.lean',
                                            '(.add (.localVar data) (.mul key.expr (.literal '
-                                           '(32*fields.length)))) pre)',
-                                           '(.add (.localVar data) (.mul key.expr (.literal 32))) pre)'),
+                                           '(32*fields.length)))) false pre)',
+                                           '(.add (.localVar data) (.mul key.expr (.literal 32))) false pre)'),
  'import-market-memory-element-stride': ('Compiler/SolidityImport/Import.lean',
                                          '(.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal '
-                                         '32)))) pre)',
+                                         '32)))) true pre)',
                                          '(.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal '
-                                         '64)))) pre)'),
+                                         '64)))) true pre)'),
  'import-market-member-validation': ('Compiler/SolidityImport/Import.lean',
-                                     'let pre := if mem.calldataLocation && bound < 2^256 then\n'
+                                     'let pre := if !inMemory && bound < 2^256 then\n'
                                      '              pre.push (AbiLowering.guard (.lt value (.literal '
                                      'bound))) else pre',
-                                     'let pre := if mem.calldataLocation && bound < 2^256 then\n'
+                                     'let pre := if !inMemory && bound < 2^256 then\n'
                                      '              pre.push (AbiLowering.guard (.literal 1)) else pre'),
  'import-market-root-scalar-validation': ('Compiler/SolidityImport/AbiRootLowering.lean',
                                           'if bound < 2^256 then body := body ++ [guard (.lt value (.literal '
-                                          'bound))]',
-                                          'if bound < 2^256 then body := body ++ [guard (.literal 1)]'),
+                                          'bound))]\n'
+                                          '      body := body ++ [.mstore destination value]',
+                                          'if bound < 2^256 then body := body ++ [guard (.literal 1)]\n'
+                                          '      body := body ++ [.mstore destination value]'),
  'import-market-memory-scalar-read': ('Compiler/SolidityImport/AbiRootLowering.lean',
                                       'if inMemory then ([], .mload (.add (.localVar plan.memoryPointer) '
                                       '(.literal (32*index))))',
@@ -71,10 +73,14 @@ MUTANTS = {'import-market-root-offset': ('Compiler/SolidityImport/AbiLowering.le
                                             'else [], value)',
                                             '(if bound < 2^256 then [guard (.literal 1)] else [], value)'),
  'import-market-calldata-index-bounds': ('Compiler/SolidityImport/Import.lean',
-                                         'let pre := pre ++ checks.toArray ++ #[.ite (.lt key.expr '
+                                         '            let checks := AbiLowering.staticArrayHead (.localVar (mem.abiStem ++ "_calldata"))\n'
+                                         '              memberIndex fields.length header length data\n'
+                                         '            let pre := pre ++ checks.toArray ++ key.pre ++ #[.ite (.lt key.expr '
                                          '(.localVar length))\n'
                                          '              [] [.panicCode (.literal 0x32)]]',
-                                         'let pre := pre ++ checks.toArray ++ #[.ite (.literal 1)\n'
+                                         '            let checks := AbiLowering.staticArrayHead (.localVar (mem.abiStem ++ "_calldata"))\n'
+                                         '              memberIndex fields.length header length data\n'
+                                         '            let pre := pre ++ checks.toArray ++ key.pre ++ #[.ite (.literal 1)\n'
                                          '              [] [.panicCode (.literal 0x32)]]')}
 
 def run(directory, output):

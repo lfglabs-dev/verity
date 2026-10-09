@@ -20,7 +20,8 @@ def main():
               ('uint128[2]', 'fixed arrays are unsupported')]
     cases = [(ty, location, '7', message) for location in ('memory', 'calldata')
              for ty, message in types]
-    cases.append(('uint128[]', 'calldata', 'box.values[flag + 1]', 'computed struct-array indices'))
+    cases.append(('uint128[]', 'calldata', 'box.values[flag + 1]', None))
+    cases.append(('uint128[]', 'calldata', 'box.values[flag += 1]', 'compound assignment expressions are outside this slice'))
     # Keep every original case and exercise the same schema boundaries at length access.
     cases += [(ty, location, 'box.values.length', message)
               for location in ('memory', 'calldata') for ty, message in types]

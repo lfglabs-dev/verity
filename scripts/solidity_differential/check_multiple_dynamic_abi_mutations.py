@@ -8,10 +8,10 @@ from .engine import HarnessError, command, write_json
 from .mutations import snapshot
 
 MUTANTS = {'import-dynamic-root-parameter-offset': ('Compiler/SolidityImport/AbiRootLowering.lean',
-                                          'let mut body := tupleHead '
+                                          'let body := tupleHead '
                                           'calldataPointer rootHeadWords '
                                           'parameterHeadWord schema.length',
-                                          'let mut body := tupleHead '
+                                          'let body := tupleHead '
                                           'calldataPointer rootHeadWords 0 '
                                           'schema.length')}
 

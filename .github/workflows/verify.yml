@@ -427,6 +427,9 @@ jobs:
       - name: Check Lean warning non-regression
         run: python3 scripts/check_lean_warning_regression.py --log lake-build.log
 
+      - name: Setup pinned solc for Solidity import
+        run: python3 scripts/setup_solc_import.py
+
       - name: Prebuild shared audit Lean targets
         run: |
           set +e
@@ -450,7 +453,6 @@ jobs:
 
       - name: Check Solidity slice imports and mutation regressions
         run: |
-          python3 scripts/setup_solc_import.py
           lake build SolidityImportSmoke
           python3 scripts/solidity_import_mutations.py
 
@@ -458,7 +460,7 @@ jobs:
         run: make verify-storage-layout
 
       - name: Package prepared Lean workspace build
-        run: tar -hcf lean-workspace-build.tar .lake/build
+        run: tar -hcf lean-workspace-build.tar .lake/build .lake/solidity-import
 
       - name: Publish Lean workspace build locally
         run: |

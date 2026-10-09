@@ -3382,7 +3382,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           failAt p "reference argument struct declaration differs"
         let location := optStr p "storageLocation" |>.getD "default"
         let expected := if descriptor.calldataLocation then "calldata" else "memory"
-        if descriptor.calldataLocation && location == "memory" then
+        if descriptor.calldataLocation && location == "memory" && descriptor.schema.isSome then
           let (convStmts, memDesc) ← convertStructCalldataToMemory descriptor p
           pre := pre ++ effects ++ convStmts
           modify fun e => { e with mems := e.mems.insert pid memDesc }

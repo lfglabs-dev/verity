@@ -15,8 +15,8 @@ MUTANTS = {
     "denote-custom-require-argument": ("Verity/Core/Model/Denote.lean", 'return selector ++ values.flatMap wordBytes', 'return selector ++ values.flatMap (fun value => wordBytes (value + 1))'),
     "denote-panic-selector": ("Verity/Core/Model/Denote.lean", '[0x4e, 0x48, 0x7b, 0x71]', '[0x4e, 0x48, 0x7b, 0x70]'),
     "denote-panic-endian": ("Verity/Core/Model/Denote.lean", 'value / 2^(8*(31-i))', 'value / 2^(8*i)'),
-    "import-comparison": ("Compiler/SolidityImport/Import.lean", '| "<" => cmp .lt left right', '| "<" => cmp .gt left right'),
-    "import-field-slot": ("Compiler/SolidityImport/Import.lean", 'slot := some slot }', 'slot := some (slot + 1) }'),
+    "import-comparison": ("Compiler/SolidityImport/Import.lean", '| "<" =>\n      if isSigned then cmp .slt left right else cmp .lt left right', '| "<" =>\n      if isSigned then cmp .slt left right else cmp .gt left right'),
+    "import-field-slot": ("Compiler/SolidityImport/Import.lean", '    | none => .mappingStruct key1 members\'.toList\n  let field : Field := { name, ty, slot := some slot }', '    | none => .mappingStruct key1 members\'.toList\n  let field : Field := { name, ty, slot := some (slot + 1) }'),
     "denote-packed-mask": ("Verity/Core/Model/Denote.lean", '(2 ^ packed.width) - 1', '(2 ^ packed.width) - 2'),
     "denote-storage-read": ("Verity/Core/Model/Denote.lean", '    world.readSlot (wordNormalize slot)\n', '    world.readSlot (wordNormalize (slot + 1))\n'),
 }

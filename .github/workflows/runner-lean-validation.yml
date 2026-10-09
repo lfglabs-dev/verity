@@ -132,6 +132,10 @@ jobs:
         run: >-
           "$RUNNER_TEMP/time-step" "make check" make check
 
+      - name: Setup pinned solc for Solidity import
+        run: >-
+          "$RUNNER_TEMP/time-step" "setup solc import" python3 scripts/setup_solc_import.py --all
+
       - name: Full Lake build
         run: >-
           "$RUNNER_TEMP/time-step" "lake build" bash -lc "set -o pipefail; lake build 2>&1 | tee lake-build.log"
