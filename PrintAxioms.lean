@@ -449,6 +449,7 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.evalExpr_byte_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_signextend_arm
   Compiler.CompilationModel.SolidityImport.execStmt_mstore_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_tstore_arm
   Compiler.CompilationModel.SolidityImport.execStmt_panicCode_arm
   Compiler.CompilationModel.SolidityImport.execStmt_forEach_arm
   Compiler.CompilationModel.SolidityImport.execStmt_revertReturndata_arm
@@ -7951,4 +7952,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7314 theorems/lemmas (5263 public, 2051 private, 0 sorry'd)
+-- Total: 7315 theorems/lemmas (5264 public, 2051 private, 0 sorry'd)

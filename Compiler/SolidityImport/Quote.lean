@@ -83,6 +83,8 @@ private def quotePanic : Verity.Core.PanicCode → m Term
 partial def quoteStmt : Stmt → m Term
   | .mstore offset value => do
       `(Compiler.CompilationModel.Stmt.mstore $(← quoteExpr offset) $(← quoteExpr value))
+  | .tstore offset value => do
+      `(Compiler.CompilationModel.Stmt.tstore $(← quoteExpr offset) $(← quoteExpr value))
   | .panicCode code => do `(Compiler.CompilationModel.Stmt.panicCode $(← quoteExpr code))
   | .forEach name count body => do
       `(Compiler.CompilationModel.Stmt.forEach $(quote name) $(← quoteExpr count)

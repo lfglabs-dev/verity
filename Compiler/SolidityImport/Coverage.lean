@@ -92,6 +92,7 @@ mutual
   /-- Statements admitted in a loop whose ABI memory header is hoisted.
   Explicit memory writes and unknown/call constructors are excluded, recursively. -/
   def abiHeaderPreservingStmt : Stmt → Bool
+    | .tstore offset value => exprCovered offset && exprCovered value
     | .forEach _ count body => exprCovered count && abiHeaderPreservingList body
     | .ite condition yes no =>
         exprCovered condition && abiHeaderPreservingList yes && abiHeaderPreservingList no
@@ -113,6 +114,7 @@ meaning and its original world-preservation theorems. -/
 mutual
   def executableStmtCovered : Stmt → Bool
     | .mstore offset value => exprCovered offset && exprCovered value
+    | .tstore offset value => exprCovered offset && exprCovered value
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertReturndata => true
@@ -235,6 +237,15 @@ theorem execStmt_mstore_arm (oracle : DenoteOracle) (fields : List Field)
       (match evalExpr oracle fields state offset, evalExpr oracle fields state value with
        | some address, some resolved => .continue { state with world := { state.world with
            memory := fun o => if o = address then resolved else state.world.memory o } }
+       | _, _ => .revert) := rfl
+
+theorem execStmt_tstore_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset value : Expr) :
+    execStmt oracle fields state (.tstore offset value) =
+      (match evalExpr oracle fields state offset, evalExpr oracle fields state value with
+       | some resolvedOffset, some resolvedValue =>
+           let resolvedOffset := wordNormalize resolvedOffset
+           .continue { state with world := state.world.writeTransient resolvedOffset resolvedValue }
        | _, _ => .revert) := rfl
 
 theorem execStmt_panicCode_arm (oracle : DenoteOracle) (fields : List Field)

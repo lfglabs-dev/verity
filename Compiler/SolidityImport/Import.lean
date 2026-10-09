@@ -577,6 +577,31 @@ private partial def targetAssignedIds (t : Json) : List Nat :=
     | none => []
   else []
 
+private partial def yulAssignedSrcs (j : Json) : List String :=
+  match j with
+  | .arr xs => xs.toList.flatMap yulAssignedSrcs
+  | .obj o =>
+      let own :=
+        if optStr j "nodeType" == some "YulAssignment" then
+          match (field? j "variableNames").bind (fun v => v.getArr?.toOption) with
+          | some vars => vars.toList.filterMap (fun v => optStr v "src")
+          | none => []
+        else []
+      o.foldl (fun acc _ v => acc ++ yulAssignedSrcs v) own
+  | _ => []
+
+private def inlineAssemblyAssignedIds (j : Json) : List Nat :=
+  let srcs := match field? j "AST" with
+    | some ast => yulAssignedSrcs ast
+    | none => []
+  match (field? j "externalReferences").bind (fun v => v.getArr?.toOption) with
+  | some refs =>
+      refs.toList.filterMap fun ref =>
+        match optStr ref "src", (field? ref "declaration").bind (fun d => d.getNat?.toOption) with
+        | some s, some declId => if srcs.contains s then some declId else none
+        | _, _ => none
+  | none => []
+
 /-- Includes nested loop step writes; callers pass only the current loop body. -/
 private partial def bodyAssignedIds (j : Json) : List Nat :=
   match j with
@@ -591,14 +616,16 @@ private partial def bodyAssignedIds (j : Json) : List Nat :=
         else none
       let own := match target with
         | some t => targetAssignedIds t
-        | none => []
+        | none =>
+            if kind == some "InlineAssembly" then inlineAssemblyAssignedIds j
+            else []
       o.foldl (fun acc _ v => acc ++ bodyAssignedIds v) own
   | _ => []
 
 private def isCompoundAssignOp (operator : String) : Bool :=
-  ["+=", "-=", "<<=", ">>=", "&=", "|=", "^=", "/=", "%="].contains operator
+  ["+=", "-=", "*=", "<<=", ">>=", "&=", "|=", "^=", "/=", "%="].contains operator
 
-/-- Declarations modified by compound assignment (`+=`, `-=`, `<<=`, `>>=`, `&=`, `|=`, `^=`, `/=`, `%=`) in `j`. -/
+/-- Declarations modified by compound assignment (`+=`, `-=`, `*=`, `<<=`, `>>=`, `&=`, `|=`, `^=`, `/=`, `%=`) or Yul assignment in `j`. -/
 private partial def bodyCompoundAssignedIds (j : Json) : List Nat :=
   match j with
   | .arr xs => xs.toList.flatMap bodyCompoundAssignedIds
@@ -611,7 +638,9 @@ private partial def bodyCompoundAssignedIds (j : Json) : List Nat :=
         else none
       let own := match target with
         | some t => targetAssignedIds t
-        | none => []
+        | none =>
+            if kind == some "InlineAssembly" then inlineAssemblyAssignedIds j
+            else []
       o.foldl (fun acc _ v => acc ++ bodyCompoundAssignedIds v) own
   | _ => []
 
@@ -1129,6 +1158,53 @@ private def literalUnitScale : String → Option Nat
   | "ether" => some (10 ^ 18)
   | _ => none
 
+private def lowerYulAddmod (a b m : Expr) : M Val := do
+  let mBinding ← fresh
+  let aModBinding ← fresh
+  let bModBinding ← fresh
+  let diffBinding ← fresh
+  let resBinding ← fresh
+  let stmts : Array Stmt := #[
+    .letVar mBinding m,
+    .letVar aModBinding (.mod a (.localVar mBinding)),
+    .letVar bModBinding (.mod b (.localVar mBinding)),
+    .letVar diffBinding (.sub (.localVar mBinding) (.localVar bModBinding)),
+    .letVar resBinding (.literal 0),
+    .ite (.lt (.localVar aModBinding) (.localVar diffBinding))
+      [.assignVar resBinding (.add (.localVar aModBinding) (.localVar bModBinding))]
+      [.assignVar resBinding (.sub (.localVar aModBinding) (.localVar diffBinding))]
+  ]
+  pure { pre := stmts, expr := .localVar resBinding }
+
+private def lowerYulMulmod (a b m : Expr) : M Val := do
+  let mBinding ← fresh
+  let termBinding ← fresh
+  let remBinding ← fresh
+  let accBinding ← fresh
+  let diffBinding ← fresh
+  let idxBinding ← fresh
+  let loopBody : List Stmt := [
+    .assignVar diffBinding (.sub (.localVar mBinding) (.localVar termBinding)),
+    .ite (.eq (.bitAnd (.localVar remBinding) (.literal 1)) (.literal 1))
+      [.ite (.lt (.localVar accBinding) (.localVar diffBinding))
+        [.assignVar accBinding (.add (.localVar accBinding) (.localVar termBinding))]
+        [.assignVar accBinding (.sub (.localVar accBinding) (.localVar diffBinding))]]
+      [],
+    .ite (.lt (.localVar termBinding) (.localVar diffBinding))
+      [.assignVar termBinding (.add (.localVar termBinding) (.localVar termBinding))]
+      [.assignVar termBinding (.sub (.localVar termBinding) (.localVar diffBinding))],
+    .assignVar remBinding (.shr (.literal 1) (.localVar remBinding))
+  ]
+  let stmts : Array Stmt := #[
+    .letVar mBinding m,
+    .letVar termBinding (.mod a (.localVar mBinding)),
+    .letVar remBinding (.mod b (.localVar mBinding)),
+    .letVar accBinding (.literal 0),
+    .letVar diffBinding (.literal 0),
+    .forEach idxBinding (.literal 256) loopBody
+  ]
+  pure { pre := stmts, expr := .localVar accBinding }
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -1163,6 +1239,7 @@ private partial def lowerYul (j : Json) : M Val := do
         | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod" | "exp"
         | "and" | "or" | "xor" | "byte" | "shl" | "shr" | "sar" | "signextend"
         | "lt" | "gt" | "slt" | "sgt" | "eq" => some 2
+        | "addmod" | "mulmod" => some 3
         | _ => none
       let some expectedArity := expectedArity?
         | failAt j s!"unsupported Yul builtin {fname}"
@@ -1206,6 +1283,12 @@ private partial def lowerYul (j : Json) : M Val := do
       | "chainid", #[] => pure { pre, expr := .chainid }
       | "selfbalance", #[] => pure { pre, expr := .selfBalance }
       | "origin", #[] => pure { pre, expr := .txOrigin }
+      | "addmod", #[a, b, m] => do
+          let v ← lowerYulAddmod a b m
+          pure { pre := pre ++ v.pre, expr := v.expr }
+      | "mulmod", #[a, b, m] => do
+          let v ← lowerYulMulmod a b m
+          pure { pre := pre ++ v.pre, expr := v.expr }
       | "clz", #[a] =>
           let inputBinding ← fresh
           let remBinding ← fresh
@@ -1228,19 +1311,8 @@ private partial def lowerYul (j : Json) : M Val := do
       | _, _ => failAt j s!"unsupported Yul builtin {fname}"
   | kind => failAt j s!"unsupported Yul node {kind}"
 
-private def lowerAssembly (j : Json) (retName : String) : M Val := do
-  let ast ← mField j "AST"
-  unless (← mKind ast) == "YulBlock" do failAt j "assembly is not a Yul block"
-  let stmts ← mArr (← mField ast "statements")
-  unless stmts.size == 1 do failAt j "only a single Yul assignment is supported"
-  let asg := stmts[0]!
-  unless (← mKind asg) == "YulAssignment" do failAt asg "only a Yul assignment is supported"
-  let vars ← mArr (← mField asg "variableNames")
-  unless vars.size == 1 do failAt asg "Yul assignment must have one target"
-  let vname ← mStr (← mField vars[0]! "name")
-  unless retName != "" && vname == retName do
-    failAt asg s!"Yul assigns {vname}, not the return name {retName}"
-  let targetSrc ← mStr (← mField vars[0]! "src")
+private def checkYulReturnTarget (j asg varNode : Json) (vname retName : String) : M Unit := do
+  let targetSrc ← mStr (← mField varNode "src")
   let refs ← mArr (← mField j "externalReferences")
   let mut targetId? : Option Nat := none
   for ref in refs do
@@ -1253,7 +1325,124 @@ private def lowerAssembly (j : Json) (retName : String) : M Val := do
     | failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
   unless (← get).helperReturnId == some targetId do
     failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
+
+private def lowerAssembly (j : Json) (retName : String) : M Val := do
+  let ast ← mField j "AST"
+  unless (← mKind ast) == "YulBlock" do failAt j "assembly is not a Yul block"
+  let stmts ← mArr (← mField ast "statements")
+  unless stmts.size == 1 do failAt j "only a single Yul assignment is supported"
+  let asg := stmts[0]!
+  unless (← mKind asg) == "YulAssignment" do failAt asg "only a Yul assignment is supported"
+  let vars ← mArr (← mField asg "variableNames")
+  unless vars.size == 1 do failAt asg "Yul assignment must have one target"
+  let vname ← mStr (← mField vars[0]! "name")
+  unless retName != "" && vname == retName do
+    failAt asg s!"Yul assigns {vname}, not the return name {retName}"
+  checkYulReturnTarget j asg vars[0]! vname retName
   lowerYul (← mField asg "value")
+
+private def isFullWordYulScalar : ParamType → Bool
+  | .uint256 | .int256 | .bytes32 => true
+  | _ => false
+
+private def cleanHelperResultExpr (ty : String) (v : Val) : Expr :=
+  if ty == "bool" then Expr.logicalNot (.logicalNot v.expr) else
+    match bitsOf ty with
+    | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
+    | none => v.expr
+
+private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array Stmt) := do
+  let ast ← mField j "AST"
+  unless (← mKind ast) == "YulBlock" do failAt j "assembly is not a Yul block"
+  let stmts ← mArr (← mField ast "statements")
+  let refs ← mArr (← mField j "externalReferences")
+  let savedYulNames := (← get).yulNames
+  let mut yulLocals : RBMap String String compare := RBMap.empty
+  let mut out : Array Stmt := #[]
+  for stmt in stmts do
+    match ← mKind stmt with
+    | "YulVariableDeclaration" =>
+        let vars ← mArr (← mField stmt "variables")
+        unless vars.size == 1 do failAt stmt "Yul variable declaration must have one variable"
+        let varNode := vars[0]!
+        unless optStr varNode "type" == some "" do
+          failAt varNode "typed Yul variables are unsupported"
+        let vname ← mStr (← mField varNode "name")
+        unless vname.all (fun c => c.isAlphanum || c == '_') && vname != "" do
+          failAt varNode s!"unsupported Yul variable name {vname}"
+        if yulLocals.contains vname then
+          failAt varNode s!"duplicate Yul variable declaration {vname}"
+        let v ← match (field? stmt "value").filter (!·.isNull) with
+          | some valNode => lowerYul valNode
+          | none => pure { pre := #[], expr := .literal 0 }
+        let binding ← freshFor vname
+        let expr := Expr.localVar binding
+        modify fun e => { e with yulNames := e.yulNames.insert vname expr }
+        yulLocals := yulLocals.insert vname binding
+        out := out ++ v.pre |>.push (.letVar binding v.expr)
+    | "YulAssignment" =>
+        let vars ← mArr (← mField stmt "variableNames")
+        unless vars.size == 1 do failAt stmt "Yul assignment must have one target"
+        let varNode := vars[0]!
+        let vname ← mStr (← mField varNode "name")
+        if let some yulBinding := yulLocals.find? vname then
+          let v ← lowerYul (← mField stmt "value")
+          out := out ++ v.pre |>.push (.assignVar yulBinding v.expr)
+        else if retName != "" && vname == retName && (← get).helperResult.isSome then
+          checkYulReturnTarget j stmt varNode vname retName
+          let some (binding, ty) := (← get).helperResult
+            | failAt stmt s!"Yul assigns {vname}, not the return declaration {retName}"
+          if ty.startsWith "enum " then
+            failAt j "Yul assignment to an enum result is unsupported"
+          let v ← lowerYul (← mField stmt "value")
+          let cleaned := cleanHelperResultExpr ty v
+          out := out ++ v.pre |>.push (.assignVar binding cleaned)
+        else
+          let targetSrc ← mStr (← mField varNode "src")
+          let mut targetId? : Option Nat := none
+          for ref in refs do
+            if (← mStr (← mField ref "src")) == targetSrc then
+              unless !(← mBool (← mField ref "isOffset")) && !(← mBool (← mField ref "isSlot")) &&
+                   (field? ref "suffix").isNone && (← mNat (← mField ref "valueSize")) == 1 do
+                failAt stmt s!"Yul assignment to non-scalar reference {vname} is unsupported"
+              targetId? := some (← mNat (← mField ref "declaration"))
+          let some targetId := targetId?
+            | if retName != "" then failAt stmt s!"Yul assigns {vname}, not the return name {retName}"
+              else failAt stmt s!"unresolved Yul assignment target {vname}"
+          let env ← get
+          if env.enumBounds.contains targetId then
+            failAt j "Yul assignment to an enum variable is unsupported"
+          let some binding := env.writableLocals.find? targetId
+            | if retName != "" then failAt stmt s!"Yul assigns {vname}, not the return name {retName}"
+              else failAt stmt s!"Yul assignment target {vname} is not a writable scalar local"
+          let unshadowed := match env.yulNames.find? vname with
+            | some (.localVar b) => b == binding
+            | _ => false
+          unless unshadowed do
+            if retName != "" then failAt stmt s!"Yul assigns {vname}, not the return declaration {retName}"
+            else failAt stmt s!"Yul assignment target {vname} is shadowed"
+          let some scalarType := env.scalarTy.find? targetId
+            | failAt stmt s!"unknown scalar type for Yul assignment target {vname}"
+          unless isFullWordYulScalar scalarType do
+            failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"
+          let v ← lowerYul (← mField stmt "value")
+          out := out ++ v.pre |>.push (.assignVar binding v.expr)
+    | "YulExpressionStatement" =>
+        let expr ← mField stmt "expression"
+        unless (← mKind expr) == "YulFunctionCall" do
+          failAt stmt "unsupported Yul expression statement"
+        let fname ← mStr (← mField (← mField expr "functionName") "name")
+        let args ← mArr (← mField expr "arguments")
+        if fname == "tstore" then
+          unless args.size == 2 do failAt expr "tstore requires two arguments"
+          let slotVal ← lowerYul args[0]!
+          let valVal ← lowerYul args[1]!
+          out := out ++ slotVal.pre ++ valVal.pre |>.push (.tstore slotVal.expr valVal.expr)
+        else
+          failAt stmt s!"unsupported Yul expression statement {fname} (unsupported statement InlineAssembly)"
+    | kind => failAt stmt s!"unsupported Yul statement {kind}"
+  modify fun e => { e with yulNames := savedYulNames }
+  pure out
 
 private def isMsgDataNode (j : Json) : M Bool := do
   if (← mKind j) != "MemberAccess" then return false
@@ -3321,6 +3510,30 @@ private partial def lowerCall (j : Json) : M Val := do
         unless args.size == 1 do failAt j "keccak256 requires one byte buffer"
         let bytes ← lowerEncodedBytes args[0]!
         return { pre := bytes.pre, expr := .keccak256 bytes.pointer bytes.size }
+      if calleeId == -2 || calleeId == -16 then
+        let isMul := calleeId == -16
+        let bname := if isMul then "mulmod" else "addmod"
+        unless optStr callee "name" == some bname &&
+            (← mType callee) == "function (uint256,uint256,uint256) pure returns (uint256)" do
+          failAt callee s!"{bname} must resolve to the global uint256 builtin"
+        let args ← mArr (← mField j "arguments")
+        unless args.size == 3 do failAt j s!"{bname} requires three uint256 arguments"
+        let mut pre : Array Stmt := #[]
+        let mut argExprs : Array Expr := #[]
+        for modArg in args do
+          if statefulCallIn modArg (← get) then
+            failAt modArg s!"stateful {bname} arguments require explicit evaluation-order support"
+          if assignmentIn modArg then
+            failAt modArg s!"assignment expression in {bname} requires explicit evaluation-order support"
+          let converted ← convert "uint256" (← mType modArg) (← lowerExpr modArg) modArg
+          let bound ← atom converted
+          pre := pre ++ bound.pre
+          argExprs := argExprs.push bound.expr
+        let #[a, b, m] := argExprs
+          | failAt j s!"{bname} requires three uint256 arguments"
+        let modCheck : Stmt := .ite (.eq m (.literal 0)) [.panic .divisionByZero] []
+        let modVal ← if isMul then lowerYulMulmod a b m else lowerYulAddmod a b m
+        return { pre := pre.push modCheck ++ modVal.pre, expr := modVal.expr }
       if calleeId ≥ 0 then
         if let some ptr := (← get).fnPtrs.find? calleeId.toNat then
           let vals ← lowerCallArgs j none
@@ -3589,9 +3802,19 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   -- declaration-bound slot, initialized before any source-body effect.
   let resultType ← mType rets[0]!
   discard (validateEnumTypeIfNeeded rets[0]! resultType)
-  let terminalAssembly ← if stmts.size == 1 && mods.isEmpty &&
-      (resultType == "uint256" || resultType == "uint" || resultType == "bytes32") then
-    pure ((← mKind stmts[0]!) == "InlineAssembly") else pure false
+  let isSingleYulAssign ← if stmts.size == 1 then do
+    if (← mKind stmts[0]!) == "InlineAssembly" then
+      let ast ← mField stmts[0]! "AST"
+      if (← mKind ast) == "YulBlock" then
+        let ystmts ← mArr (← mField ast "statements")
+        if ystmts.size == 1 then
+          pure ((← mKind ystmts[0]!) == "YulAssignment")
+        else pure false
+      else pure false
+    else pure false
+  else pure false
+  let terminalAssembly := isSingleYulAssign && mods.isEmpty &&
+      (resultType == "uint256" || resultType == "uint" || resultType == "bytes32")
   modify fun e => { e with helperResult := none, helperReturnId := some retId, multiHelperResults := none }
   if retName != "" && !terminalAssembly then
     let declaration := rets[0]!
@@ -4416,6 +4639,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
     | "EmitStatement" => out := out ++ (← lowerEmit statement)
     | "RevertStatement" => out := out ++ (← lowerRevert statement)
+    | "InlineAssembly" => out := out ++ (← lowerAssemblyStmts statement "")
     | "ForStatement" => out := out ++ (← lowerFor statement lowerHelperLoopBody)
     | "WhileStatement" => out := out ++ (← lowerWhile statement lowerHelperLoopBody)
     | "IfStatement" =>
@@ -4503,16 +4727,39 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           let v ← lowerExpr expression
           pure (v.pre, some v.expr)
     | "InlineAssembly" =>
-        if let some (binding, ty) := (← get).helperResult then
-          if ty.startsWith "enum " then
-            failAt s "Yul assignment to an enum result is unsupported"
-          let v ← lowerAssembly s retName
-          let cleaned := if ty == "bool" then Expr.logicalNot (.logicalNot v.expr) else
-            match bitsOf ty with
-            | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
-            | none => v.expr
+        let isSingleRetAssign ← do
+          let ast ← mField s "AST"
+          if (← mKind ast) == "YulBlock" then
+            let ystmts ← mArr (← mField ast "statements")
+            if ystmts.size == 1 then
+              if (← mKind ystmts[0]!) == "YulAssignment" then
+                let vars ← mArr (← mField ystmts[0]! "variableNames")
+                if vars.size == 1 then
+                  let vname ← mStr (← mField vars[0]! "name")
+                  pure (retName != "" && vname == retName)
+                else pure false
+              else pure false
+            else pure false
+          else pure false
+        if isSingleRetAssign then
+          if let some (binding, ty) := (← get).helperResult then
+            if ty.startsWith "enum " then
+              failAt s "Yul assignment to an enum result is unsupported"
+            let v ← lowerAssembly s retName
+            let cleaned := cleanHelperResultExpr ty v
+            let (tail, result) ← lowerHelperFrom rest retName
+            pure (v.pre.push (.assignVar binding cleaned) ++ tail, result)
+          else
+            if let some next := rest.head? then failAt next "statement after helper result"
+            let v ← lowerAssembly s retName
+            pure (v.pre, some v.expr)
+        else if (← get).helperResult.isSome || !rest.isEmpty then
+          if let some (_, ty) := (← get).helperResult then
+            if ty.startsWith "enum " then
+              failAt s "Yul assignment to an enum result is unsupported"
+          let asmStmts ← lowerAssemblyStmts s retName
           let (tail, result) ← lowerHelperFrom rest retName
-          pure (v.pre.push (.assignVar binding cleaned) ++ tail, result)
+          pure (asmStmts ++ tail, result)
         else
           if let some next := rest.head? then failAt next "statement after helper result"
           let v ← lowerAssembly s retName
@@ -4628,6 +4875,10 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
     | "RevertStatement" =>
         if let some next := rest.head? then failAt next "statement after void helper revert"
         lowerRevert s
+    | "InlineAssembly" =>
+        let asmStmts ← lowerAssemblyStmts s ""
+        let tailStmts ← kRest
+        pure (asmStmts ++ tailStmts)
     | "ForStatement" =>
         let loopStmts ← lowerFor s lowerHelperLoopBody
         let tailStmts ← kRest
@@ -4718,6 +4969,9 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       if ["push", "pop"].contains member then
         failAt callee s!"storage array {member} is outside this slice"
     let reference ← refInt callee
+    if (← mKind callee) == "Identifier" && (reference == -2 || reference == -16) then
+      let modCall ← atom (← lowerCall expression)
+      return modCall.pre
     if reference ≥ 0 then
       if let some ptr := (← get).fnPtrs.find? reference.toNat then
         unless (← mKind callee) == "Identifier" do
@@ -4999,6 +5253,11 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
         pure { pre := #[], expr := .sub lhs rhs }
       else
         checkedSignedSub { pre := #[], expr := lhs } { pre := #[], expr := rhs }
+    else if operator == "*=" then
+      if isUnchecked then
+        pure { pre := #[], expr := .mul lhs rhs }
+      else
+        checkedSignedMul { pre := #[], expr := lhs } { pre := #[], expr := rhs }
     else if operator == "/=" then
       signedDiv isUnchecked { pre := #[], expr := lhs } { pre := #[], expr := rhs }
     else if operator == "<<=" then
@@ -5039,6 +5298,12 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
         pure { pre := #[], expr := wrapped }
       else
         checkedSub { pre := #[], expr := lhs } { pre := #[], expr := rhs }
+    else if operator == "*=" then
+      if isUnchecked then
+        let wrapped := if bits < 256 then Expr.bitAnd (.mul lhs rhs) (.literal (2 ^ bits - 1)) else .mul lhs rhs
+        pure { pre := #[], expr := wrapped }
+      else
+        checkedMul bits { pre := #[], expr := lhs } { pre := #[], expr := rhs }
     else if operator == "/=" then
       checkedDiv { pre := #[], expr := lhs } { pre := #[], expr := rhs }
     else if operator == "%=" then
@@ -5917,7 +6182,8 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
         let enumBounds := match enumBound? with
           | some b => e.enumBounds.insert id b
           | none => e.enumBounds
-        { e with values, scalarTy, enumBounds }
+        let yulNames := if rawName == "" then e.yulNames else e.yulNames.insert rawName (.param name)
+        { e with values, scalarTy, enumBounds, yulNames }
   let explicitAbi := (← get).mems.toList.any (fun (_, mem) => mem.schema.isSome) || !(← get).calldataBytes.isEmpty || !(← get).scalarArrays.isEmpty
   modify fun e => { e with explicitAbi }
   if explicitAbi then
@@ -5927,10 +6193,12 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
         if mem.staticTypes.isSome then
           failAt p "mixed static and dynamic struct parameters require explicit static-root lowering"
       else if !(← get).calldataBytes.contains id && !(← get).scalarArrays.contains id then
+        let rawName ← mStr (← mField p "name")
         let binding ← fresh
         modify fun e => { e with
           rawBindings := e.rawBindings.insert id binding
-          values := e.values.insert id (.localVar binding) }
+          values := e.values.insert id (.localVar binding)
+          yulNames := if rawName == "" then e.yulNames else e.yulNames.insert rawName (.localVar binding) }
   pure out
 
 private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × Bool) := do
@@ -5966,6 +6234,8 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
     | "RevertStatement" =>
         returned := true
         out := out ++ (← lowerRevert s)
+    | "InlineAssembly" =>
+        out := out ++ (← lowerAssemblyStmts s "")
     | "ForStatement" =>
         out := out ++ (← lowerFor s fun body => do
           let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
@@ -6663,7 +6933,7 @@ private def importSlice
       { name := functionName, params := modelParams.toList, returnType := none,
         returns := returns.toList, isView, body := body.toList,
         abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
-        localObligations := if abiGuards.isEmpty && !env.rootMsgDataReturn then [] else [{
+        localObligations := if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
           name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
           obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Within this fragment without external calls the fresh EIP-211 returndata buffer stays empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved."
           proofStatus := .unchecked }] }
