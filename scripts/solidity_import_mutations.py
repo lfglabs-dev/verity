@@ -150,19 +150,30 @@ def uninitialized_local(dest: Path) -> None:
 
 
 def call_unused_from_loss(dest: Path) -> None:
+    lib = (dest / "Lib.sol").read_text()
+    assert "i < 3; i++" in lib
+    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += 2"))
     text = (dest / "Slice.sol").read_text()
     old = "return marketState[market].lossFactor;"
     assert old in text
     (dest / "Slice.sol").write_text(text.replace(old, "uint256 ignored = L.unused();\n        " + old))
 
 
-def call_unused(dest: Path) -> None:
+def call_supported_unused(dest: Path) -> None:
     text = (dest / "Slice.sol").read_text()
     text = text.replace(
         "uint128 credit = p.credit;",
         "uint256 ignored = L.unused();\n        uint128 credit = p.credit;",
     )
     (dest / "Slice.sol").write_text(text)
+
+
+def call_unused(dest: Path) -> None:
+    lib = (dest / "Lib.sol").read_text()
+    assert "i < 3; i++" in lib
+    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += 2"))
+    call_supported_unused(dest)
+
 
 
 def swap_returns(dest: Path) -> None:
@@ -240,8 +251,16 @@ def named_arguments(dest: Path) -> None:
 def implicit_return(dest: Path) -> None:
     path = dest / "Slice.sol"
     path.write_text(path.read_text().replace(
-        "returns (uint128, uint128, uint128)", "returns (uint128 a, uint128 b, uint128 c)").replace(
+        "returns (uint128, uint128, uint128)", "returns (uint128 a, uint128 b, uint128)").replace(
         "return (uint128(post) - fee, uint128(postFee) - fee, fee);", ""))
+
+
+def named_implicit_return(dest: Path) -> None:
+    path = dest / "Slice.sol"
+    path.write_text(path.read_text().replace(
+        "returns (uint128, uint128, uint128)", "returns (uint128 a, uint128 b, uint128 c)").replace(
+        "return (uint128(post) - fee, uint128(postFee) - fee, fee);",
+        "a = uint128(post) - fee; b = uint128(postFee) - fee; c = fee;"))
 
 
 def former_projection_name_collision(dest: Path) -> None:
@@ -300,6 +319,7 @@ def main() -> None:
     expect_success("unrelated-layout", write_project("unrelated-layout", unrelated_layout), witness=True)
     expect_failure("named-arguments", write_project("named-arguments", named_arguments), "named call arguments")
     expect_failure("implicit-return", write_project("implicit-return", implicit_return), "explicit root return")
+    expect_success("named-implicit-return", write_project("named-implicit-return", named_implicit_return), witness=True)
     # Scalar defaults are now supported; retain the original execution witness.
     expect_success("uninitialized-local", write_project("uninitialized-local", uninitialized_local), witness=True)
     def unsupported_default(dest: Path) -> None:
@@ -435,6 +455,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
     expect_failure("field-detected", write_project("field", change_field), "witness changed")
     expect_failure("return-order", write_project("returns", swap_returns), "witness changed")
     expect_failure("layout", write_project("layout", swap_layout), "witness changed")
+    expect_success("reachable-compound-for", write_project("reachable-compound-for", call_supported_unused), witness=True)
     diagnostic = expect_failure("reachable-for", write_project("reachable", call_unused), "unsupported")
     assert "[solidity-import:unsupported]" in diagnostic and "closure:" in diagnostic
     assert "Lib.sol:" in diagnostic and "closure: C.f -> L.unused" in diagnostic, diagnostic

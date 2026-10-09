@@ -1607,3 +1607,46 @@ def stateful_merkle_and_nonces_source(fixture: str, variant: str) -> str:
         return fixture
     raise ValueError(f'unknown merkle-and-nonces variant: {variant}')
 
+
+def stateful_multiproof_mapping_keys_ratifiers_source(fixture: str, variant: str) -> str:
+    """Equivalent dynamic memory scalar array allocation/write, extended mapping keys/struct members, and root named Yul return sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'left', 'right', 'value', 'a', 'b', 'slot', 'oldValue', 'proof',
+            'proofFlags', 'leaves', 'merkleRoot', 'leavesLen', 'proofFlagsLen',
+            'hashes', 'leafPos', 'hashPos', 'proofPos', 'input', 'resultAddr',
+            'badLeaves', 'badProof', 'badFlags', 'root', 'ratifierId', 'feed',
+            'maxDiff', 'isEnabled', 'delta', 'user', 'nKey', 'mode', 'tSlot',
+            'nextActor', 'prevActor', 'loadedActor', 'score', 'exitSlot',
+            'dirtyWord', 'r0', 'summary', 'caller',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-multiproof-ratifiers':
+        replacements = {
+            'narrowKeyScores[nKey] += uint256(maxDiff);':
+            'narrowKeyScores[nKey] = narrowKeyScores[nKey] + uint256(maxDiff);',
+            'signedKeyScores[delta] += (input & 0x1f) + 1;':
+            'signedKeyScores[delta] = signedKeyScores[delta] + (input & 0x1f) + 1;',
+            'boolKeyScores[ratifiers[ratifierId].enabled] += 3;':
+            'boolKeyScores[ratifiers[ratifierId].enabled] = boolKeyScores[ratifiers[ratifierId].enabled] + 3;',
+            'modeKeyScores[mode] += 5;':
+            'modeKeyScores[mode] = modeKeyScores[mode] + 5;',
+            'feedKeyScores[ratifiers[ratifierId].oracle] += 7;':
+            'feedKeyScores[ratifiers[ratifierId].oracle] = feedKeyScores[ratifiers[ratifierId].oracle] + 7;',
+            'totalScore += score;':
+            'totalScore = totalScore + score;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('multiproof-mapping-keys-ratifiers variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown multiproof-mapping-keys-ratifiers variant: {variant}')
+
