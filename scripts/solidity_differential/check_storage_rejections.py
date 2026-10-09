@@ -875,6 +875,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'YulIdentifier: [solidity-import:unsupported] unbound Yul identifier a'),
+        ('struct-mapping-and-bytes4-interface-positive',
+         "pragma solidity 0.8.34;\ninterface IERC165 {\n  function supportsInterface(bytes4 interfaceId) external view returns (bool);\n}\ninterface IAccess {\n  function hasRole(bytes32 role, address account) external view returns (bool);\n  function getRoleAdmin(bytes32 role) external view returns (bytes32);\n}\nbytes4 constant EXTRA_ID = 0xabcdef01;\ncontract C {\n  struct RoleData {\n    mapping(address => bool) hasRole;\n    mapping(address => uint96) weight;\n    bytes32 adminRole;\n  }\n  mapping(bytes32 => RoleData) private _roles;\n  function checked(bytes4 interfaceId, uint256 x) external returns (bytes4) {\n    bytes32 role = bytes32(x & 3);\n    address acct = address(uint160(x + 1));\n    _roles[role].hasRole[acct] = (x & 1) == 0;\n    _roles[role].weight[acct] += uint96(x);\n    _roles[role].weight[acct]++;\n    _roles[role].adminRole = bytes32(uint256(uint32(interfaceId)));\n    bool ok = interfaceId == type(IERC165).interfaceId || interfaceId == type(IAccess).interfaceId || interfaceId == EXTRA_ID;\n    if (!ok) delete _roles[role].hasRole[acct];\n    return bytes4(bytes32(_roles[role].adminRole)) ^ type(IAccess).interfaceId;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('struct-mapping-delete-struct-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct RoleData { mapping(address => bool) hasRole; bytes32 adminRole; }\n  mapping(bytes32 => RoleData) private _roles;\n  function checked(uint256 x) external returns (bytes32) {\n    delete _roles[bytes32(x)];\n    return _roles[bytes32(x)].adminRole;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'IndexAccess: [solidity-import:unsupported] cannot delete mapping struct with mapping members'),
+        ('struct-mapping-unindexed-value-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct RoleData { mapping(address => bool) hasRole; bytes32 adminRole; }\n  mapping(bytes32 => RoleData) private _roles;\n  function checked(uint256 x) external view returns (bytes32) {\n    mapping(address => bool) storage m = _roles[bytes32(x)].hasRole;\n    return m[address(0)] ? bytes32(uint256(1)) : bytes32(0);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclarationStatement: [solidity-import:unsupported] storage local is not a resolved read path'),
+        ('interfaceid-noninterface-contract-rejected',
+         "pragma solidity 0.8.34;\ncontract Impl {\n  function foo(uint256 x) external pure returns (uint256) { return x; }\n}\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    return uint256(uint32(type(Impl).interfaceId)) + x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'solc:'),
+        ('bytes4-implicit-int-const-comparison-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    bytes4 sel = bytes4(uint32(x));\n    return sel == 0x01ffc9a7 ? 1 : 0;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'BinaryOperation: [solidity-import:unsupported] implicit constant conversion to bytes4 is outside this slice'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -896,6 +921,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(string,bytes,uint256)' if name == 'bytes-and-string-storage-positive'
             else 'checked(«int128[]»)' if name == 'scalar-array-signed-element-rejected'
             else 'checked(Market,Uid,uint256)' if name == 'udvt-param-assign-hashmarket-positive'
+            else 'checked(bytes4,uint256)' if name == 'struct-mapping-and-bytes4-interface-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

@@ -160,12 +160,22 @@ private structure StructFixedArrayInfo where
   elementWidth : Nat
   arrayType : String
 
+private structure StructMappingInfo where
+  member : String
+  solcType : String
+  wordOffset : Nat
+  keyType : MappingKeyType
+  valueWidth : Nat
+  booleanValue : Bool := false
+
 private inductive Ref where
   | expr (v : Val)
   | path (pre : Array Stmt) (p : SPath)
   | fixedElement (pre : Array Stmt) (path : SPath) (index : Expr)
   | structFixedArray (pre : Array Stmt) (path : SPath) (info : StructFixedArrayInfo)
   | structFixedElement (pre : Array Stmt) (path : SPath) (info : StructFixedArrayInfo) (index : Expr)
+  | structMapping (pre : Array Stmt) (path : SPath) (info : StructMappingInfo)
+  | structMappingElement (pre : Array Stmt) (path : SPath) (info : StructMappingInfo) (key : Expr)
   | snapshot (elements : Array Expr)
   | mem (id : Nat) (pre : Array Stmt)
   | abiArray (id memberIndex : Nat) (pre : Array Stmt)
@@ -238,6 +248,7 @@ private structure FieldInfo where
   opaqueNames : Array String
   booleanMembers : Array String := #[]
   structFixedArrays : Array StructFixedArrayInfo := #[]
+  structMappings : Array StructMappingInfo := #[]
   booleanScalar : Bool := false
   scalarMapping : Bool := false
   booleanMapping : Bool := false
@@ -282,6 +293,7 @@ private structure Env where
   contractKinds : RBMap Nat String compare := RBMap.empty
   contractBases : RBMap Nat (Array Nat) compare := RBMap.empty
   contractFuns : RBMap Nat (Array Nat) compare := RBMap.empty
+  contractNodes : RBMap Nat (Array Json) compare := RBMap.empty
   linearizedBases : Array Nat := #[]
   duplicateLayoutLabels : Array String := #[]
   structs : RBMap Nat Json compare
@@ -328,9 +340,12 @@ private structure Env where
   projections : Array ProjRec
   opaqueMembers : Array OpaqRec
   usedStructFixedArrays : Array (String × String) := #[]
+  usedStructMappings : Array (String × String) := #[]
+  usedRawStorage : Bool := false
   referenced : Array String
   scalarTy : RBMap Nat ParamType compare
   enumBounds : RBMap Nat Nat compare := RBMap.empty
+  bytes4Params : Array Nat := #[]
   writableLocals : RBMap Nat String compare := RBMap.empty
   rawBindings : RBMap Nat String compare := RBMap.empty
   encodingMemory : Bool := false
@@ -509,7 +524,7 @@ private def yulKeywords : List String :=
 free, so that proofs can refer to it, else `name_1`, `name_2`, ... Names that
 the compiler reserves or Yul forbids fall back to `fresh`. -/
 private def freshFor (name : String) : M String := do
-  if name.startsWith "__" || name.startsWith "_verity_slice_tmp" || name.startsWith "_verity_memret_" then return ← fresh
+  if name.startsWith "__" || name.startsWith "_verity_slice_tmp" || name.startsWith "_verity_memret_" || name.startsWith "_verity_raw_storage" then return ← fresh
   let env ← get
   let projected := env.mems.toList.flatMap fun (_, p) =>
     p.members.toList.map (fun (member, _) => s!"{p.param}_{member}")
@@ -752,6 +767,7 @@ private def paramType (ty : String) : Option ParamType :=
   | "int256" | "int" => some .int256
   | "address" | "address payable" => some .address
   | "bytes32" => some .bytes32
+  | "bytes4" => some (.bytesN 4)
   | "bool" => some .bool
   | _ =>
       if ty.startsWith "contract " then some .address
@@ -844,6 +860,8 @@ private def noteFn (fn : Json) : M Unit := do
       let added := e.included.push ⟨contract, name, id, tys⟩
       { e with included := added }
 
+private def rawStorageFieldName : String := "_verity_raw_storage"
+
 private def markField (name : String) : M Unit := do
   let env ← get
   unless env.referenced.contains name do
@@ -853,6 +871,12 @@ private def markStructFixedArray (fieldName memberName : String) : M Unit := do
   let env ← get
   unless env.usedStructFixedArrays.contains (fieldName, memberName) do
     modify fun e => { e with usedStructFixedArrays := e.usedStructFixedArrays.push (fieldName, memberName) }
+
+private def markStructMapping (fieldName memberName : String) : M Unit := do
+  let env ← get
+  unless env.usedStructMappings.contains (fieldName, memberName) do
+    modify fun e => { e with usedStructMappings := e.usedStructMappings.push (fieldName, memberName) }
+  modify fun e => { e with usedRawStorage := true }
 
 private def mappingKey (ty : String) : MetaM MappingKeyType :=
   match ty with
@@ -891,6 +915,8 @@ private def mappingKeyNames (env : Env) (name : String) : List String :=
 
 private def buildField (types item : Json) : M FieldInfo := do
   let name ← mStr (← mField item "label")
+  if name == rawStorageFieldName then
+    throwError "state variable name {name} is reserved"
   let slot ← mNat (← mField item "slot")
   let typeId ← mStr (← mField item "type")
   let top ← liftM (layoutType types typeId)
@@ -1020,6 +1046,7 @@ private def buildField (types item : Json) : M FieldInfo := do
   let mut skipped : Array String := #[]
   let mut booleanMembers : Array String := #[]
   let mut structFixedArrays : Array StructFixedArrayInfo := #[]
+  let mut structMappings : Array StructMappingInfo := #[]
   for m in members do
     let label ← mStr (← mField m "label")
     let solcType ← mStr (← mField m "type")
@@ -1066,10 +1093,45 @@ private def buildField (types item : Json) : M FieldInfo := do
       | some fixedInfo => structFixedArrays := structFixedArrays.push fixedInfo
       | none => skipped := skipped.push label
     else if solcType.startsWith "t_mapping" then
-      skipped := skipped.push label
-      modify fun e =>
-        let item : OpaqRec := ⟨name, label, solcType, word, byteOff⟩
-        { e with opaqueMembers := e.opaqueMembers.push item }
+      let item : OpaqRec := ⟨name, label, solcType, word, byteOff⟩
+      modify fun e => { e with opaqueMembers := e.opaqueMembers.push item }
+      let mapInfo? : Option StructMappingInfo ← (do
+        let some mapTy := field? types solcType | return none
+        unless (← mStr (← mField mapTy "encoding")) == "mapping" && byteOff == 0 &&
+            (← mNat (← mField mapTy "numberOfBytes")) == 32 do
+          return none
+        let keyStr ← mStr (← mField mapTy "key")
+        let keyType ← try liftM (mappingKey keyStr) catch _ => return none
+        let valKey ← mStr (← mField mapTy "value")
+        let some leafTy := field? types valKey | return none
+        unless (field? leafTy "members").isNone && (optStr leafTy "base").isNone do
+          return none
+        unless (← mStr (← mField leafTy "encoding")) == "inplace" do
+          return none
+        let leafLabel ← mStr (← mField leafTy "label")
+        let width? : Option Nat :=
+          if leafLabel == "bool" then some 8
+          else if leafLabel == "address" || leafLabel == "address payable" || leafLabel.startsWith "contract " then some 160
+          else if leafLabel == "bytes32" || leafLabel == "int256" || leafLabel == "int" then some 256
+          else if leafLabel.startsWith "uint" then
+            match (leafLabel.drop 4).toNat? with
+            | some bits => if bits > 0 && bits ≤ 256 && bits % 8 == 0 then some bits else none
+            | none => none
+          else none
+        let some width := width? | return none
+        unless (← mNat (← mField leafTy "numberOfBytes")) * 8 == width do
+          return none
+        return some {
+          member := label
+          solcType
+          wordOffset := word
+          keyType
+          valueWidth := width
+          booleanValue := leafLabel == "bool"
+        })
+      match mapInfo? with
+      | some mapInfo => structMappings := structMappings.push mapInfo
+      | none => skipped := skipped.push label
     else if solcType == "t_bool" || solcType == "t_address" || solcType == "t_address_payable" ||
         solcType.startsWith "t_contract(" || solcType == "t_bytes32" || solcType == "t_int256" ||
         solcType.startsWith "t_uint" then
@@ -1098,11 +1160,13 @@ private def buildField (types item : Json) : M FieldInfo := do
     | none => .mappingStruct key1 members'.toList
   let field : Field := { name, ty, slot := some slot }
   pure { slot, field, keyCount := if key2.isSome then 2 else 1,
-         memberNames := names, opaqueNames := skipped, booleanMembers, structFixedArrays }
+         memberNames := names, opaqueNames := skipped, booleanMembers, structFixedArrays, structMappings }
 
 /-- Resolve only reached fields: an unrelated unsupported layout must not
 prevent importing a supported function closure. -/
 private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
+  if name == rawStorageFieldName then
+    failAt at_ s!"reserved storage field name {name}"
   if let some info := (← get).fieldsByName.find? name then return info
   let env ← get
   let some item := env.layoutItems.find? name | failAt at_ s!"no storage layout for {name}"
@@ -1110,6 +1174,88 @@ private def resolveField (name : String) (at_ : Json) : M FieldInfo := do
     failAt at_ (← ex.toMessageData.toString)
   modify fun e => { e with fieldsByName := e.fieldsByName.insert name info }
   return info
+
+private def computeStructMappingLeafSlot (path : SPath) (info : FieldInfo) (mapInfo : StructMappingInfo)
+    (innerKey : Expr) (at_ : Json) : M (Array Stmt × Expr) := do
+  modify fun e => { e with encodingMemory := true }
+  let (count, baseStmts, baseSlot) ← match path with
+    | .one _ k1 => do
+        let bSlot ← fresh
+        let stmts : Array Stmt := #[
+          .mstore (.literal 0) k1,
+          .mstore (.literal 32) (.literal info.slot),
+          .letVar bSlot (.keccak256 (.literal 0) (.literal 64))
+        ]
+        pure (1, stmts, bSlot)
+    | .two _ k1 k2 => do
+        let outerSlot ← fresh
+        let bSlot ← fresh
+        let stmts : Array Stmt := #[
+          .mstore (.literal 0) k1,
+          .mstore (.literal 32) (.literal info.slot),
+          .letVar outerSlot (.keccak256 (.literal 0) (.literal 64)),
+          .mstore (.literal 0) k2,
+          .mstore (.literal 32) (.localVar outerSlot),
+          .letVar bSlot (.keccak256 (.literal 0) (.literal 64))
+        ]
+        pure (2, stmts, bSlot)
+    | .outer _ _ => failAt at_ "struct mapping element requires both outer mapping keys"
+  unless info.keyCount == count do
+    failAt at_ "struct mapping key count differs"
+  let mapBaseExpr :=
+    if mapInfo.wordOffset == 0 then Expr.localVar baseSlot
+    else .add (.localVar baseSlot) (.literal mapInfo.wordOffset)
+  let leafSlot ← fresh
+  let leafStmts : Array Stmt := #[
+    .mstore (.literal 0) innerKey,
+    .mstore (.literal 32) mapBaseExpr,
+    .letVar leafSlot (.keccak256 (.literal 0) (.literal 64))
+  ]
+  return (baseStmts ++ leafStmts, .localVar leafSlot)
+
+private def readStructMappingElement (pre : Array Stmt) (path : SPath) (mapInfo : StructMappingInfo)
+    (innerKey : Expr) (at_ : Json) : M Val := do
+  let name ← match path with
+    | .one name _ | .two name _ _ => pure name
+    | .outer _ _ => failAt at_ "struct mapping element requires both outer mapping keys"
+  let info ← resolveField name at_
+  markField name
+  markStructMapping name mapInfo.member
+  let (slotStmts, slotExpr) ← computeStructMappingLeafSlot path info mapInfo innerKey at_
+  let raw := Expr.storageArrayElement rawStorageFieldName slotExpr
+  let masked :=
+    if mapInfo.valueWidth < 256 then Expr.bitAnd raw (.literal (2 ^ mapInfo.valueWidth - 1))
+    else raw
+  let cleaned :=
+    if mapInfo.booleanValue then Expr.logicalNot (.logicalNot masked)
+    else masked
+  let dest ← fresh
+  pure { pre := pre ++ slotStmts ++ #[.letVar dest cleaned], expr := .localVar dest }
+
+private def writeStructMappingElement (pre : Array Stmt) (path : SPath) (mapInfo : StructMappingInfo)
+    (innerKey valExpr : Expr) (deleting : Bool) (at_ : Json) : M (Array Stmt) := do
+  let name ← match path with
+    | .one name _ | .two name _ _ => pure name
+    | .outer _ _ => failAt at_ "struct mapping element requires both outer mapping keys"
+  let info ← resolveField name at_
+  markField name
+  markStructMapping name mapInfo.member
+  let (slotStmts, slotExpr) ← computeStructMappingLeafSlot path info mapInfo innerKey at_
+  let cleanVal :=
+    if mapInfo.booleanValue && !deleting then Expr.logicalNot (.logicalNot valExpr)
+    else if mapInfo.valueWidth < 256 then Expr.bitAnd valExpr (.literal (2 ^ mapInfo.valueWidth - 1))
+    else valExpr
+  if mapInfo.valueWidth == 256 then
+    return pre ++ slotStmts ++ #[.setStorageArrayElement rawStorageFieldName slotExpr cleanVal]
+  else
+    let mask := 2 ^ mapInfo.valueWidth - 1
+    let invMask := (2 ^ 256 - 1) - mask
+    let oldWord ← fresh
+    let newWord := Expr.bitOr (.bitAnd (.localVar oldWord) (.literal invMask)) cleanVal
+    return pre ++ slotStmts ++ #[
+      .letVar oldWord (.storageArrayElement rawStorageFieldName slotExpr),
+      .setStorageArrayElement rawStorageFieldName slotExpr newWord
+    ]
 
 private def memberRead (pre : Array Stmt) (path : SPath) (member : String) (at_ : Json) : M Val := do
   let (fieldName, read) ← match path with
@@ -1459,7 +1605,9 @@ private def isFullWordYulScalar : ParamType → Bool
   | _ => false
 
 private def cleanHelperResultExpr (ty : String) (v : Val) : Expr :=
-  if ty == "bool" then Expr.logicalNot (.logicalNot v.expr) else
+  if ty == "bool" then Expr.logicalNot (.logicalNot v.expr)
+  else if ty == "bytes4" then Expr.bitAnd v.expr (.literal ((2 ^ 32 - 1) * 16 ^ 56))
+  else
     match bitsOf ty with
     | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
     | none => v.expr
@@ -1616,6 +1764,15 @@ private def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := d
         if sb ≤ pb then return v
         else failAt at_ s!"implicit narrowing from {argTy} to {paramTy}"
     | _, _ => failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+  if paramTy == "bytes4" && argTy.startsWith "int_const" && !argTy.startsWith "int_const -" then
+    let .literal n := v.expr
+      | failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+    let raw := optStr at_ "value" |>.getD ""
+    let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
+    unless v.pre.isEmpty && n < 2 ^ 32 &&
+        (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do
+      failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+    return { pre := #[], expr := .literal (n * 16 ^ 56) }
   if argTy.startsWith "int_const" && !argTy.startsWith "int_const -" && !paramTy.startsWith "enum " && (bitsOf paramTy).isSome then
     return v
   failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
@@ -1739,6 +1896,8 @@ private partial def lowerExpr (j : Json) : M Val := do
           let a ← atom v
           if jTy == "int256" || jTy == "int" || jTy == "bytes32" then
             pure { pre := a.pre, expr := .bitNot a.expr }
+          else if jTy == "bytes4" then
+            pure { pre := a.pre, expr := .bitAnd (.bitNot a.expr) (.literal ((2 ^ 32 - 1) * 16 ^ 56)) }
           else if jTy.startsWith "uint" then
             let some bits := bitsOf jTy | failAt j s!"unsupported bitwise negation type {jTy}"
             let inverted := if bits < 256 then Expr.bitAnd (.bitNot a.expr) (.literal (2 ^ bits - 1)) else .bitNot a.expr
@@ -1798,6 +1957,10 @@ private partial def lowerExpr (j : Json) : M Val := do
           pure { pre, expr := .localVar dest }
       | .structFixedArray _ _ arrInfo =>
           failAt j s!"struct fixed array member {arrInfo.member} requires an element index"
+      | .structMappingElement pre path mapInfo key =>
+          readStructMappingElement pre path mapInfo key j
+      | .structMapping _ _ mapInfo =>
+          failAt j s!"struct mapping member {mapInfo.member} requires a mapping key"
       | _ => failAt j "storage or memory path used as a value"
   | kind => failAt j s!"unsupported expression {kind}"
 
@@ -1852,7 +2015,7 @@ private partial def lowerRef (j : Json) : M Ref := do
         if env.constantStack.contains n then failAt j "cyclic constant initializer"
         let declared ← mType decl
         unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
-            declared == "bool" || declared == "bytes32" ||
+            declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
             declared == "int256" || declared == "int" ||
             declared == "address" || declared == "address payable" do
           failAt j s!"unsupported numeric constant type {declared}"
@@ -1947,6 +2110,14 @@ private partial def lowerRef (j : Json) : M Ref := do
           let captured ← fresh
           pure (.structFixedElement ((pre ++ key.pre).push (.letVar captured key.expr))
             path arrInfo (.localVar captured))
+      | .structMapping pre path mapInfo =>
+          let name ← match path with
+            | .one name _ | .two name _ _ => pure name
+            | .outer _ _ => failAt j "struct mapping element requires both outer mapping keys"
+          let _ ← resolveField name j
+          let captured ← fresh
+          pure (.structMappingElement ((pre ++ key.pre).push (.letVar captured key.expr))
+            path mapInfo (.localVar captured))
       | .snapshot elements =>
           let ty ← mType indexExpression
           unless ty.startsWith "uint" || ty.startsWith "int_const" do
@@ -2090,6 +2261,8 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.expr { pre := buf.pre, expr := buf.size })
       else if member == "max" || member == "min" then
         lowerTypeBound j base member
+      else if member == "interfaceId" then
+        lowerInterfaceId j base
       else if member == "selector" then
         failAt j "function .selector member access is outside this slice"
       else if member == "balance" &&
@@ -2111,6 +2284,8 @@ private partial def lowerRef (j : Json) : M Ref := do
             let info ← resolveField fieldName j
             if let some arrInfo := info.structFixedArrays.find? (·.member == member) then
               pure (.structFixedArray pre path arrInfo)
+            else if let some mapInfo := info.structMappings.find? (·.member == member) then
+              pure (.structMapping pre path mapInfo)
             else
               pure (.expr (← memberRead pre path member j))
         | .mem id pre =>
@@ -2205,6 +2380,38 @@ private partial def lowerTypeBound (at_ base : Json) (member : String) : M Ref :
   else
     failAt at_ s!"unsupported type().{member} {tname}"
 
+private partial def lowerInterfaceId (at_ base : Json) : M Ref := do
+  unless (← mKind base) == "FunctionCall" do
+    failAt at_ "interfaceId is only supported on type(I)"
+  let callee ← mField base "expression"
+  unless (← mKind callee) == "Identifier" && optStr callee "name" == some "type" do
+    failAt at_ "interfaceId is only supported on type(I)"
+  let args ← mArr (← mField base "arguments")
+  unless args.size == 1 do failAt at_ "type() expects one argument"
+  let arg := args[0]!
+  unless (← mKind arg) == "Identifier" || (← mKind arg) == "MemberAccess" do
+    failAt arg "type(I).interfaceId expects an interface identifier"
+  let cid ← refInt arg
+  unless cid ≥ 0 do failAt arg "unresolved interface type"
+  let env ← get
+  unless env.contractKinds.find? cid.toNat == some "interface" do
+    failAt arg "type(I).interfaceId requires an interface type"
+  let some nodes := env.contractNodes.find? cid.toNat
+    | failAt arg s!"unresolved interface definition {cid}"
+  let mut acc : Nat := 0
+  for node in nodes do
+    if let some hex := optStr node "functionSelector" then
+      unless hex.length == 8 do
+        failAt node s!"invalid functionSelector hex length {hex.length}"
+      let chars := hex.toList.toArray
+      let mut word := 0
+      for index in [:chars.size] do
+        let some digit := Compiler.Hex.hexCharToNat? chars[index]!
+          | failAt node "invalid functionSelector hex digit"
+        word := word * 16 + digit
+      acc := Nat.xor acc word
+  return .expr { pre := #[], expr := .literal (acc * 16 ^ 56) }
+
 private partial def readAbiMember (id : Nat) (pre : Array Stmt) (member : String) (at_ : Json) : M Val := do
   let some mem := (← get).mems.find? id | failAt at_ "unknown memory parameter"
   let some idx := mem.members.findIdx? (fun p => p.1 == member)
@@ -2292,7 +2499,12 @@ private partial def lowerBinary (j : Json) : M Val := do
           if shifted < 2 ^ 256 then return { pre := #[], expr := .literal shifted }
     failAt j s!"unsupported operand type {common}"
   let isSigned := common == "int256" || common == "int"
-  unless (bitsOf common).isSome || common == "bool" || isSigned do
+  if common == "bytes4" then
+    let leftTy ← mType (← mField j "leftExpression")
+    let rightTy ← mType (← mField j "rightExpression")
+    unless leftTy == "bytes4" && rightTy == "bytes4" do
+      failAt j "implicit constant conversion to bytes4 is outside this slice"
+  unless (bitsOf common).isSome || common == "bool" || common == "bytes4" || isSigned do
     failAt j s!"unsupported operand type {common}"
   match op with
   | "&&" | "||" =>
@@ -2403,7 +2615,7 @@ private partial def lowerBinary (j : Json) : M Val := do
       else
         failAt j s!"unsupported shift type {common}"
   | "&" | "|" | "^" =>
-      unless (common.startsWith "uint" && (bitsOf common).isSome) || common == "bytes32" || isSigned do
+      unless (common.startsWith "uint" && (bitsOf common).isSome) || common == "bytes32" || common == "bytes4" || isSigned do
         failAt j s!"unsupported bitwise operand type {common}"
       let a ← atom left
       let b ← atom right
@@ -2637,6 +2849,31 @@ private partial def lowerCast (j : Json) : M Val := do
         (src.startsWith "uint" && (bitsOf src).isSome) do
       failAt j s!"unsupported cast source {src} for {tname}"
     return v
+  if tname == "bytes4" then
+    if src == "bytes4" then
+      return v
+    else if src == "bytes32" then
+      let a ← atom v
+      let dest ← fresh
+      let bound := Stmt.letVar dest (.bitAnd a.expr (.literal ((2 ^ 32 - 1) * 16 ^ 56)))
+      return { pre := a.pre.push bound, expr := .localVar dest }
+    else if src == "uint32" then
+      let a ← atom v
+      let dest ← fresh
+      let shifted := Stmt.letVar dest (.shl (.literal 224) (.bitAnd a.expr (.literal (2 ^ 32 - 1))))
+      return { pre := a.pre.push shifted, expr := .localVar dest }
+    else
+      failAt j s!"unsupported cast source {src} for bytes4"
+  if src == "bytes4" then
+    if tname == "bytes32" then
+      return v
+    else if tname == "uint32" then
+      let a ← atom v
+      let dest ← fresh
+      let shifted := Stmt.letVar dest (.shr (.literal 224) a.expr)
+      return { pre := a.pre.push shifted, expr := .localVar dest }
+    else
+      failAt j s!"unsupported cast target {tname} from bytes4"
   let some bits := bitsOf tname | failAt j s!"unsupported cast target {tname}"
   let narrow : Bool :=
     match bitsOf src with
@@ -2655,7 +2892,9 @@ custom reverts or effects hidden beneath a cast out of the admitted fragment. -/
 private partial def checkEncodingScalar (j : Json) : M Unit := do
   match ← mKind j with
   | "Identifier" | "Literal" => pure ()
-  | "MemberAccess" => checkEncodingScalar (← mField j "expression")
+  | "MemberAccess" =>
+      if optStr j "memberName" == some "interfaceId" then pure ()
+      else checkEncodingScalar (← mField j "expression")
   | "UnaryOperation" =>
       unless optStr j "operator" == some "-" && (← mType j).startsWith "int_const -" do
         failAt j "effectful ABI encoding argument is unsupported"
@@ -2776,6 +3015,8 @@ private partial def lowerLiteralBytes (j : Json) : M EncodedBytes := do
 
 private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
   let ty ← mType j
+  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" && ty == "bytes4" then
+    return ← lowerSelectorBytes j
   if let some _ := paramType ty then
     -- Hash builtins consume only admitted byte buffers; other function calls
     -- remain rejected even if hidden beneath a scalar cast.
@@ -2786,11 +3027,11 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
         hashCall := (← refInt callee) == -8
     unless hashCall do checkEncodingScalar j
     let value ← atom (← lowerExpr j)
-    let size := if ty == "bool" then 1 else (bitsOf ty).getD 256 / 8
+    let size := if ty == "bool" then 1 else if ty == "bytes4" then 4 else (bitsOf ty).getD 256 / 8
     let pointer ← fresh
     let finish ← fresh
     modify fun env => { env with encodingMemory := true }
-    let padded := Expr.mul value.expr (.literal (2^(8*(32-size))))
+    let padded := if ty == "bytes4" then value.expr else Expr.mul value.expr (.literal (2^(8*(32-size))))
     let pre := value.pre ++ (AbiEncoding.staticWords pointer finish [padded]).toArray
     return { pre, pointer := .localVar pointer, size := .literal size }
   lowerEncodedBytes j
@@ -5366,6 +5607,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       | .two field key1 key2 => pure (field, 2, fun (value : Expr) => Stmt.setStructMember2 field key1 key2 member value)
       | .outer _ _ => failAt target "member assignment requires both mapping keys"
     let info ← resolveField name target
+    if info.structMappings.any (·.member == member) then
+      failAt target s!"struct mapping member {member} requires a mapping key"
     if info.opaqueNames.contains member then failAt target s!"member {member} is opaque in this slice"
     if info.structFixedArrays.any (·.member == member) then
       failAt target s!"struct fixed array member {member} requires an element index"
@@ -5450,6 +5693,15 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       markField name
       markStructFixedArray name arrInfo.member
       return result
+    if let .structMappingElement pre path mapInfo key := reference then
+      let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
+        let right ← mField expression "rightHandSide"
+        atom (← convert (← mType target) (← mType right) (← lowerExpr right) right)
+      if !pre.isEmpty && !deleting then
+        let right ← mField expression "rightHandSide"
+        if assignmentIn right || statefulCallIn right (← get) then
+          failAt target "struct mapping write key prelude with stateful RHS is unsupported"
+      return ← writeStructMappingElement (pre ++ value.pre) path mapInfo key value.expr deleting target
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
     let (name, count, write) ← match path with
@@ -5458,6 +5710,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       | .outer _ _ => failAt target "mapping assignment requires both keys"
     let info ← resolveField name target
     if deleting && !info.scalarMapping && info.fixedArrayLength.isNone && info.keyCount == count then
+      unless info.structMappings.isEmpty do
+        failAt target "cannot delete mapping struct with mapping members"
       unless info.opaqueNames.isEmpty do
         failAt target "cannot delete mapping struct with opaque members"
       unless info.structFixedArrays.isEmpty do
@@ -5546,6 +5800,15 @@ private partial def combineCompound (operator : String) (ty : String) (lhs rhs :
       pure { pre := #[], expr := .shr rhs lhs }
     else
       failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
+  else if ty == "bytes4" then
+    if operator == "&=" then
+      pure { pre := #[], expr := .bitAnd lhs rhs }
+    else if operator == "|=" then
+      pure { pre := #[], expr := .bitOr lhs rhs }
+    else if operator == "^=" then
+      pure { pre := #[], expr := .bitXor lhs rhs }
+    else
+      failAt at_ s!"unsupported compound assignment operator {operator} for {ty}"
   else
     let some bits := bitsOf ty
       | failAt at_ s!"compound assignment requires an integer type, found {ty}"
@@ -5592,7 +5855,8 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
   let right ← mField expression "rightHandSide"
   let isSupportedCompoundTy (ty : String) : Bool :=
     (ty.startsWith "uint" && (bitsOf ty).isSome) || ty == "int256" || ty == "int" ||
-      (ty == "bytes32" && ["&=", "|=", "^=", "<<=", ">>="].contains operator)
+      (ty == "bytes32" && ["&=", "|=", "^=", "<<=", ">>="].contains operator) ||
+      (ty == "bytes4" && ["&=", "|=", "^="].contains operator)
   let lowerRhs (ty : String) : M Val := do
     let rightTy ← mType right
     let raw ← lowerExpr right
@@ -5626,6 +5890,8 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
       | .two cField cKey1 cKey2 => pure (cField, 2, Expr.structMember2 cField cKey1 cKey2 cMember, fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 cMember cVal)
       | .outer _ _ => failAt target "member assignment requires both mapping keys"
     let info ← resolveField name target
+    if info.structMappings.any (·.member == cMember) then
+      failAt target s!"struct mapping member {cMember} requires a mapping key"
     if info.opaqueNames.contains cMember then failAt target s!"member {cMember} is opaque in this slice"
     if info.structFixedArrays.any (·.member == cMember) then
       failAt target s!"struct fixed array member {cMember} requires an element index"
@@ -5645,6 +5911,17 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
       failAt expression "only scalar storage assignment and delete are supported"
     if let .structFixedElement _ _ _ _ := reference then
       failAt expression "only scalar storage assignment and delete are supported"
+    if let .structMappingElement pre path mapInfo key := reference then
+      let ty ← mType target
+      unless isSupportedCompoundTy ty do
+        failAt target s!"unsupported mapping compound assignment type {ty}"
+      if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
+        failAt target "compound mapping write key prelude with stateful RHS is unsupported"
+      let rhsVal ← lowerRhs ty
+      let lhsVal ← readStructMappingElement pre path mapInfo key target
+      let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
+      let writeStmts ← writeStructMappingElement #[] path mapInfo key combined.expr false target
+      return rhsVal.pre ++ lhsVal.pre ++ combined.pre ++ writeStmts
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
     let (name, count, read, write) ← match path with
@@ -5744,6 +6021,8 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
       | .two cField cKey1 cKey2 => pure (cField, 2, Expr.structMember2 cField cKey1 cKey2 cMember, fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 cMember cVal)
       | .outer _ _ => failAt target "member assignment requires both mapping keys"
     let info ← resolveField name target
+    if info.structMappings.any (·.member == cMember) then
+      failAt target s!"struct mapping member {cMember} requires a mapping key"
     if info.opaqueNames.contains cMember then failAt target s!"member {cMember} is opaque in this slice"
     if info.structFixedArrays.any (·.member == cMember) then
       failAt target s!"struct fixed array member {cMember} requires an element index"
@@ -5764,6 +6043,18 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
       failAt j "only scalar storage assignment and delete are supported"
     if let .structFixedElement _ _ _ _ := reference then
       failAt j "only scalar storage assignment and delete are supported"
+    if let .structMappingElement pre path mapInfo key := reference then
+      let ty ← mType target
+      unless isSupportedIncDecTy ty do
+        failAt target s!"unsupported mapping increment/decrement type {ty}"
+      let lhsVal ← readStructMappingElement pre path mapInfo key target
+      let oldVar ← fresh
+      let newVar ← fresh
+      let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+      let writeStmts ← writeStructMappingElement #[] path mapInfo key (.localVar newVar) false target
+      let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
+        combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
+      return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
     let .path pre path := reference
       | failAt target "mapping assignment target is not a storage path"
     let (name, count, read, write) ← match path with
@@ -5963,7 +6254,7 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
           if member == "sender" || member == "timestamp" || member == "number" || member == "chainid" || member == "origin" then
             pure true
           else
-            unless member == "max" || member == "min" || (← mType base).startsWith "type(enum " do
+            unless member == "max" || member == "min" || member == "interfaceId" || (← mType base).startsWith "type(enum " do
               failAt argument "custom-error arguments currently require literals or scalar bindings"
             pure false
       | _ => failAt argument "custom-error arguments currently require literals or scalar bindings"
@@ -6346,7 +6637,7 @@ private def functionEmptyBodyArrayReturnType? (fn : Json) : M (Option ParamType)
   let rty ← mType r
   unless rty.endsWith "[]" do return none
   let elemStr := (rty.dropEnd 2).toString
-  unless !elemStr.startsWith "enum " do return none
+  unless !elemStr.startsWith "enum " && elemStr != "bytes4" do return none
   let some elemTy := paramType elemStr | return none
   unless isCanonicalReturnArrayParam (.array elemTy) do return none
   return some (.array elemTy)
@@ -6364,7 +6655,7 @@ private def functionFixedArrayReturnType? (fn : Json) : M (Option (String × Par
     | return none
   unless suffix.endsWith "]" && suffix != "]" do return none
   let some length := (suffix.dropEnd 1).toNat? | return none
-  unless length > 0 && !elemStr.startsWith "enum " do return none
+  unless length > 0 && !elemStr.startsWith "enum " && elemStr != "bytes4" do return none
   let some elemPty := paramType elemStr | return none
   return some (elemStr, elemPty, length)
 
@@ -6571,7 +6862,7 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       let some decl := (← get).structs.find? sid.toNat | failAt p s!"unresolved struct {ty}"
       let members ← structMemberList decl
       let sname ← mStr (← mField decl "name")
-      let staticTypes := members.toList.mapM (fun (_, ty) => if ty.startsWith "enum " then none else paramType ty)
+      let staticTypes := members.toList.mapM (fun (_, ty) => if ty.startsWith "enum " || ty == "bytes4" then none else paramType ty)
       let schema ← if staticTypes.isSome then pure none else do
         let structs := (← get).structs
         match AbiSchema.root (fun id => structs.find? id) decl with
@@ -6610,8 +6901,9 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
         let enumBounds := match enumBound? with
           | some b => e.enumBounds.insert id b
           | none => e.enumBounds
+        let bytes4Params := if ty == "bytes4" then e.bytes4Params.push id else e.bytes4Params
         let yulNames := if rawName == "" then e.yulNames else e.yulNames.insert rawName (.param name)
-        { e with values, scalarTy, enumBounds, yulNames }
+        { e with values, scalarTy, enumBounds, bytes4Params, yulNames }
   let explicitAbi := (← get).mems.toList.any (fun (_, mem) => mem.schema.isSome) || !(← get).calldataBytes.isEmpty || !(← get).scalarArrays.isEmpty
   modify fun e => { e with explicitAbi }
   if explicitAbi then
@@ -6928,10 +7220,14 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
               let bases ← match field? j "linearizedBaseContracts" with
                 | some b => (← mArr b).mapM mNat
                 | none => pure #[id]
+              let cnodes ← match field? j "nodes" with
+                | some ns => mArr ns
+                | none => pure #[]
               modify fun e =>
                 { e with contractNames := e.contractNames.insert id n,
                          contractKinds := e.contractKinds.insert id kind,
-                         contractBases := e.contractBases.insert id bases }
+                         contractBases := e.contractBases.insert id bases,
+                         contractNodes := e.contractNodes.insert id cnodes }
               next := some (id, n)
           | "FunctionDefinition" =>
               let baseIds ← match field? j "baseFunctions" with
@@ -7274,7 +7570,7 @@ private def importSlice
     -- do not leak between functions. Field layouts and the closure are shared.
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                      snapshots := RBMap.empty, mems := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty,
+                      snapshots := RBMap.empty, mems := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty,
                       projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
@@ -7380,6 +7676,11 @@ private def importSlice
           abiGuards := abiGuards.push (.ite
             (.lt (.calldataload (.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0))) (.literal bound))
             [] [.revertReturndata])
+        if env.bytes4Params.contains p.id then
+          let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+          abiGuards := abiGuards.push (.ite
+            (.eq (.bitAnd (.calldataload (.literal offset)) (.literal (2 ^ 224 - 1))) (.literal 0))
+            [] [.revertReturndata])
         if let some binding := env.rawBindings.find? p.id then
           let some i := modelParamNames.findIdx? (· == p.name) | throwError "missing raw scalar parameter"
           let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
@@ -7450,6 +7751,12 @@ private def importSlice
         { info.field with ty }
     fields := fields.push (info.slot, field)
   let sortedFields := (fields.qsort (fun a b => a.1 < b.1)).map (·.2)
+  let sortedFields :=
+    if env.usedRawStorage then
+      let maxSlot := fields.foldl (fun acc pair => Nat.max acc pair.1) 0
+      sortedFields.push { name := rawStorageFieldName, ty := .uint256, slot := some (maxSlot + 1000) }
+    else
+      sortedFields
   let model : CompilationModel :=
     { name := contract, constructor := none, fields := sortedFields.toList,
       errors := env.usedErrors, events := env.usedEvents.map Prod.snd, functions := specs.toList }
@@ -7467,7 +7774,8 @@ private def importSlice
   let sortedExcluded := excluded.qsort (fun a b => a.declId < b.declId)
   let mut opaqueMembers : Array OpaqueMember := #[]
   for o in env.opaqueMembers do
-    if env.referenced.contains o.field && !env.usedStructFixedArrays.contains (o.field, o.name) then
+    if env.referenced.contains o.field && !env.usedStructFixedArrays.contains (o.field, o.name) &&
+        !env.usedStructMappings.contains (o.field, o.name) then
       opaqueMembers := opaqueMembers.push
         { field := o.field, name := o.name, solcType := o.solcType,
           wordOffset := o.wordOffset, byteOffset := o.byteOffset }
@@ -7573,6 +7881,7 @@ private def paramTypeTerm? : ParamType → Option (CommandElabM Term)
   | .uint16 => some `(Verity.Core.UIntN 16)
   | .address => some `(Verity.Core.Address)
   | .bytes32 => some `(Verity.Core.BytesN 32)
+  | .bytesN 4 => some `(Verity.Core.BytesN 4)
   | .bool => some `(Bool)
   | _ => none
 

@@ -1691,3 +1691,44 @@ def stateful_udvt_param_assign_hashmarket_source(fixture: str, variant: str) -> 
     raise ValueError(f'unknown udvt-param-assign-hashmarket variant: {variant}')
 
 
+def stateful_struct_mapping_and_bytes4_interface_source(fixture: str, variant: str) -> str:
+    """Equivalent nested struct mappings, bytes4 scalars/casts/bitwise ops, and type(I).interfaceId sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'role', 'account', 'neededRole', 'previousAdminRole',
+            'newAdminRole', 'sel', 'maskVal', 'out',
+            'maskBytes', 'combined', 'scopeId', 'weightTag', 'delta', 'scoped',
+            'w', 'activeBit', 'tag', 'ok', 'scrubbed', 'word32', 'digest',
+            'bonus', 'input', 'caller', 'peer', 'branch', 'weightKey',
+            'weightNow', 'scopedMetric', 'probeIface', 'ifaceSupported',
+            'scrubbedWord', 'roleBit', '_msgSender', '_checkRole',
+            '_setRoleAdmin', '_grantRole', '_revokeRole', '_scrubSelector',
+            '_syncScopedRole',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-struct-mapping-bytes4':
+        replacements = {
+            '_roles[role].grantCount += 1;':
+            '_roles[role].grantCount = _roles[role].grantCount + 1;',
+            'combined ^= type(IERC165Lite).interfaceId;':
+            'combined = combined ^ type(IERC165Lite).interfaceId;',
+            'scoped.weights[weightTag] += delta + 3;':
+            'scoped.weights[weightTag] = scoped.weights[weightTag] + delta + 3;',
+            'scoped.grantCount += 1;':
+            'scoped.grantCount = scoped.grantCount + 1;',
+            'totalScore += delta;':
+            'totalScore = totalScore + delta;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('struct-mapping-and-bytes4-interface variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown struct-mapping-and-bytes4-interface variant: {variant}')
