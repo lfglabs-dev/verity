@@ -552,6 +552,11 @@ def compileExprWithInternals (fields : List Field)
                 YulExpr.lit slot, YulExpr.lit size,
                 ← compileExprWithInternals fields dynamicSource internalFunctions index
               ])
+          | .uint256 => do
+              let loadBuiltin := if f.isTransient then "tload" else "sload"
+              pure (YulExpr.call loadBuiltin [
+                ← compileExprWithInternals fields dynamicSource internalFunctions index
+              ])
           | _ =>
               throw s!"Compilation error: field '{field}' is not a storage dynamic array; use Expr.storageArrayElement only with FieldType.dynamicArray"
       | none =>

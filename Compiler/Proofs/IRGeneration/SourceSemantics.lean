@@ -1228,6 +1228,8 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
           | none => none
       | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
           readFixedUint128ArrayElement state.world slot size idx
+      | some (field@{ ty := .uint256, .. }, _) =>
+          some (readFieldWord state.world field idx).val
       | _ => none
   | .caller => some state.world.sender.val
   | .contractAddress => some state.world.thisAddress.val
@@ -2316,6 +2318,8 @@ private theorem evalExpr_storageArrayElement
           | none => none
       | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
           readFixedUint128ArrayElement state.world slot size idx
+      | some (field@{ ty := .uint256, .. }, _) =>
+          some (readFieldWord state.world field idx).val
       | _ => none) := rfl
 
 private theorem evalExpr_mapping2
@@ -2640,6 +2644,8 @@ mutual
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
             | none => .revert
+        | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+            .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
         | _, _, _ => .revert
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
@@ -3030,6 +3036,8 @@ mutual
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
             | none => .revert
+        | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+            .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
         | _, _, _ => .revert
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
@@ -4081,6 +4089,8 @@ mutual
             | none => none
         | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
             readFixedUint128ArrayElement state.world slot size idx
+        | some (field@{ ty := .uint256, .. }, _) =>
+            some (readFieldWord state.world field idx).val
         | _ => none
     | .constructorArg idx =>
         lookupBinding? state.bindings s!"arg{idx}"
@@ -4634,6 +4644,8 @@ mutual
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
             | none => .revert
+        | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+            .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
         | _, _, _ => .revert
     | .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExprWithHelpers spec fields fuel state value with

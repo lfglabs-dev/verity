@@ -1469,3 +1469,41 @@ def stateful_dynamic_bytes_and_string_return_source(fixture: str, variant: str) 
         return fixture
     raise ValueError(f'unknown dynamic-bytes-and-string-return variant: {variant}')
 
+
+def stateful_bytes_and_string_storage_source(fixture: str, variant: str) -> str:
+    """Equivalent string/bytes storage variable read, write, length, delete, and return sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'delta', 'name_', 'symbol_', 'input', 'branch', 'saltWord', 'nameLen',
+            'symLen', 'payLen', 'totalLen', 'digest', 'metric', 'newName',
+            'newPayload', 'mode', 'kind', 'combinedLen', 'd', 'errLen', 'lenMetric',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-bytes-string-storage':
+        replacements = {
+            '_symbol = string.concat(_name, ":tag");':
+            '_symbol = string(abi.encodePacked(_name, ":tag"));',
+            '_name = string.concat(newName, "-", _symbol);':
+            '_name = string(abi.encodePacked(newName, "-", _symbol));',
+            'syncCount += 1;':
+            'syncCount = syncCount + 1;',
+            'totalScore += (delta & 0xffff) + bytes(_name).length + _payload.length;':
+            'totalScore = totalScore + (delta & 0xffff) + bytes(_name).length + _payload.length;',
+            'totalScore += (uint256(digest) & 0xffffffff) + metric;':
+            'totalScore = totalScore + (uint256(digest) & 0xffffffff) + metric;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1 and before != 'syncCount += 1;':
+                raise ValueError('bytes-and-string-storage variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown bytes-and-string-storage variant: {variant}')
+
+

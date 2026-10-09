@@ -885,6 +885,8 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
           | none => none
       | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
           readFixedUint128ArrayElement state.world slot size idx
+      | some (field@{ ty := .uint256, .. }, _) =>
+          some (readFieldWord state.world field idx).val
       | _ => none
   | .caller => some state.world.sender.val
   | .contractAddress => some state.world.thisAddress.val
@@ -1426,6 +1428,8 @@ mutual
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
             | none => .revert
+        | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+            .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
         | _, _, _ => .revert
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr oracle fields state value with
