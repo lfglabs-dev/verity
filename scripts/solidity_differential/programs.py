@@ -1650,3 +1650,44 @@ def stateful_multiproof_mapping_keys_ratifiers_source(fixture: str, variant: str
         return fixture
     raise ValueError(f'unknown multiproof-mapping-keys-ratifiers variant: {variant}')
 
+
+def stateful_udvt_param_assign_hashmarket_source(fixture: str, variant: str) -> str:
+    """Equivalent user-defined value types, direct parameter assignment, chained/conditional multi-returns, and dynamic memory array/market hashing sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'c', 'delta', 'cap', 'tokens', 'digest', 'words', 'items', 'step',
+            'bonus', 'id', 'raw', 'a', 'b', 'pickChained', 'item', 'tok', 'fac',
+            'act', 'th', 'market', 'clockTag', 'itemHashes', 'cdHash', 'memCopy',
+            'memHash', 'itemsDigest', 'cw', 'input', 'callerCopy', 'scrubbed',
+            'clk', 'clockWord', 'sid', 'shortTag', 'tokHash', 'wordHash',
+            'pairVal', 'pairTag', 'combinedDigest', 'addBonus',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-udvt-param-hashmarket':
+        replacements = {
+            'step = step * 2 + bonus;':
+            'step = (step << 1) + bonus;',
+            'raw = raw + delta;':
+            'raw += delta;',
+            'a = a + 7;':
+            'a += 7;',
+            'totalScore += (uint256(lastDigest) & 0xffff) + market.items.length;':
+            'totalScore = totalScore + (uint256(lastDigest) & 0xffff) + market.items.length;',
+            'totalScore += delta;':
+            'totalScore = totalScore + delta;',
+            'totalScore += 999;':
+            'totalScore = totalScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('udvt-param-assign-hashmarket variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown udvt-param-assign-hashmarket variant: {variant}')
+
+

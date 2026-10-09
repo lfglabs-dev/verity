@@ -84,6 +84,7 @@ def main():
         'syncStorage(string,bytes,uint256)',
         'getName()',
         'getPayload()',
+        'hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -246,6 +247,16 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(storage_bytes_prefix[:remaining_budget])
+    if 'hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)' in source['methodIdentifiers']:
+        market_bundle_prefix = [
+            ('hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 0]),
+            ('hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 1, 7, 3, 1]),
+            ('hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 250, 15, 64, 2, 7, 3, 1, 13, 5, 0]),
+            ('hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 1, 7, 1 << 64, 1]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(market_bundle_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -317,6 +328,13 @@ def main():
                 [96, 160, 2, 4, 0x62657461 << 224, 3, 0xaabbcc << 232],
                 [96, 128, 3, 0, 0],
                 [96, 160, 4, 6, 0x70617265746f << 208, 0],
+            ])
+        elif name == 'hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)':
+            call_args = rng.choice([
+                [64, 100, 10, 64, 0],
+                [64, 100, 10, 64, 1, 7, 3, 1],
+                [64, 250, 15, 64, 2, 7, 3, 1, 13, 5, 0],
+                [64, 100, 10, 64, 1, 7, 1 << 64, 1],
             ])
         else:
             call_args = []
