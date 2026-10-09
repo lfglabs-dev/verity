@@ -1732,3 +1732,44 @@ def stateful_struct_mapping_and_bytes4_interface_source(fixture: str, variant: s
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown struct-mapping-and-bytes4-interface variant: {variant}')
+
+
+def stateful_erc2981_holders_arrays_msghash_source(fixture: str, variant: str) -> str:
+    """Equivalent ERC2981 whole-struct storage/memory locals, holder .selector, Arrays.unsafeMemoryAccess, and MessageHashUtils sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'tokenId', 'salePrice', 'royalty', 'feeNumerator', 'denominator',
+            'arr', 'pos', 'res', 'messageHash', 'digest', 'validator', 'data',
+            'domainSeparator', 'structHash', 'ptr', 's', 'result',
+            'sel721', 'sel1155', 'combinedSel', 'ethDigest', 'validatorDigest',
+            'typedDigest', 'input', 'candidate', 'fraction', 'mode', 'rcv',
+            'amt', 'amounts', 'receivers', 'pickedAmt', 'pickedRcv', 'ss',
+            'ssLen', 'sel', 'valDigest', 'delta', 'defFrac',
+            '_feeDenominator', '_setDefaultRoyalty', '_deleteDefaultRoyalty',
+            '_setTokenRoyalty', '_resetTokenRoyalty', '_unsafeMemoryAccessUint',
+            '_unsafeMemoryAccessAddress', '_toEthSignedMessageHash',
+            '_toDataWithIntendedValidatorHash', '_toTypedDataHash',
+            '_shortStringByteLength',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-erc2981-holders-arrays-msghash':
+        replacements = {
+            'totalScore += (uint256(typedDigest) & 0xffff) + royaltyAmount + uint256(lastSelectorWord & 0xff);':
+            'totalScore = totalScore + (uint256(typedDigest) & 0xffff) + royaltyAmount + uint256(lastSelectorWord & 0xff);',
+            'totalScore += delta;':
+            'totalScore = totalScore + delta;',
+            'totalScore += 777;':
+            'totalScore = totalScore + 777;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('erc2981-holders-arrays-msghash variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown erc2981-holders-arrays-msghash variant: {variant}')
+

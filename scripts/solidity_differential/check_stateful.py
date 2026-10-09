@@ -86,6 +86,7 @@ def main():
         'getPayload()',
         'hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)',
         'checkInterface(bytes4,uint256)',
+        'royaltyAndHolderCheck(uint256,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -268,6 +269,15 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(check_iface_prefix[:remaining_budget])
+    if 'royaltyAndHolderCheck(uint256,uint256)' in source['methodIdentifiers']:
+        royalty_prefix = [
+            ('royaltyAndHolderCheck(uint256,uint256)', [0, 10000]),
+            ('royaltyAndHolderCheck(uint256,uint256)', [1, 25000]),
+            ('royaltyAndHolderCheck(uint256,uint256)', [2, 50000]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(royalty_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -354,6 +364,13 @@ def main():
                 [0x12345678 << 224, 19],
                 [0xffffffff << 224, 29],
                 [(0x01ffc9a7 << 224) | 1, 23],
+            ])
+        elif name == 'royaltyAndHolderCheck(uint256,uint256)':
+            call_args = rng.choice([
+                [0, 10000],
+                [1, 25000],
+                [2, 50000],
+                [3, 75000],
             ])
         else:
             call_args = []
