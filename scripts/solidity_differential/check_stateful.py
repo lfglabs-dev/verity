@@ -91,6 +91,7 @@ def main():
         'slotAndShortStringStep(string,uint32,uint32,uint256)',
         'vaultLabel()',
         'trancheHistorySnapshot(uint256)',
+        'lookupWindow(uint48,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -103,7 +104,7 @@ def main():
     identity = ImplementationIdentity(driver, extra_inputs=extra_inputs)
     write_json(output / 'implementation.json', identity.manifest)
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json', output / 'model.yul'],
-            log=output / 'compile-model.log')
+            timeout=600, log=output / 'compile-model.log')
     identity.verify()
     compiled = solc_compile({'language': 'Yul', 'sources': {'Model.yul': {'content': (output / 'model.yul').read_text()}},
         'settings': {'evmVersion': evm_version, 'optimizer': {'enabled': True, 'runs': optimizer_runs},
@@ -323,6 +324,19 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(tranche_hist_prefix[:remaining_budget])
+    if 'lookupWindow(uint48,uint256)' in source['methodIdentifiers']:
+        lookup_window_prefix = [
+            ('lookupWindow(uint48,uint256)', [1, 0]),
+            ('lookupWindow(uint48,uint256)', [3, 0]),
+            ('lookupWindow(uint48,uint256)', [6, 1]),
+            ('lookupWindow(uint48,uint256)', [4, 97]),
+            ('lookupWindow(uint48,uint256)', [5, 98]),
+            ('lookupWindow(uint48,uint256)', [5, 99]),
+            ('lookupWindow(uint48,uint256)', [1 << 48, 0]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(lookup_window_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -436,6 +450,8 @@ def main():
             ])
         elif name == 'trancheHistorySnapshot(uint256)':
             call_args = rng.choice([[0], [1], [2], [3], [4], [5], [97], [98], [99]])
+        elif name == 'lookupWindow(uint48,uint256)':
+            call_args = rng.choice([[0, 0], [1, 0], [3, 0], [5, 1], [8, 0], [2, 97], [2, 98], [2, 99], [1 << 48, 0]])
         else:
             call_args = []
         calls.append((name, call_args))

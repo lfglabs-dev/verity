@@ -1810,3 +1810,39 @@ def stateful_enumerable_set_map_storage_arrays_source(fixture: str, variant: str
         return fixture
     raise ValueError(f'unknown enumerable-set-map-storage-arrays variant: {variant}')
 
+
+def stateful_checkpoints_and_struct_arrays_source(fixture: str, variant: str) -> str:
+    """Equivalent OpenZeppelin Checkpoints, binary-search while loops, named struct constructors, and struct storage arrays sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'a', 'b', 'self', 'key', 'value', 'len', 'pos', 'low', 'high', 'mid',
+            'ckpt', 'last', 'result', 'seed', 'input', 'branch', 'voter',
+            'stepDelta', 'nextClock', 'nextSupply', 'clock', 'oldVal', 'newVal',
+            'pushed', 'lastIdx', 'cur', 'k', 'firstCkpt', 'cLen', 'hasLatest',
+            'latestKey', 'latestVal', 'queryKey', 'recentVal',
+            'voterVal', 'chosen', 'recSum', 'r0', 'summary',
+            'digest', 'metric', 'mode', 'bad', 'up', '_getGovernanceStorage',
+            '_makeRecord',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-checkpoints-and-struct-arrays':
+        replacements = {
+            'trancheRecords[0].assets += 9;':
+            'trancheRecords[0].assets = trancheRecords[0].assets + 9;',
+            'trancheRecords[0].shares += 2;':
+            'trancheRecords[0].shares = trancheRecords[0].shares + 2;',
+            'totalScore += metric;':
+            'totalScore = totalScore + metric;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('checkpoints-and-struct-arrays variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown checkpoints-and-struct-arrays variant: {variant}')
+
