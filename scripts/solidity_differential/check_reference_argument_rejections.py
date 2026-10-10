@@ -17,8 +17,9 @@ def main():
         ('calldata', 'calldata', 'calldata', 's', None, None),
         ('copy', 'calldata', 'memory', 's', 'S memory item',
          'reference argument location conversion is unsupported'),
-        ('storage', 'memory', 'storage', 'state', 'state);',
-         'only root memory/calldata struct arguments are supported'),
+        ('storage', 'memory', 'storage', 'state', None, None),
+        ('storage-reassigned', 'memory', 'storage', 'state', 'S storage item',
+         'reassigned storage struct parameters are outside this slice'),
         ('recursive', 'memory', 'memory', 's', 'h(item)', 'recursive call'),
         ('parenthesized', 'memory', 'memory', '(s)', '(s)',
          'unsupported reference TupleExpression'),
@@ -35,8 +36,10 @@ def main():
             f'function f(S {root} s) external pure returns (uint256) {{ return h({argument}); }}\n'
             f'function h(S {helper} item) internal pure returns (uint256) {{ return item.x; }}\n'
             '}\n')
-        if name == 'storage':
+        if name in ('storage', 'storage-reassigned'):
             source = source.replace('contract C {', 'contract C { S state;').replace('external pure', 'external view').replace('internal pure', 'internal view')
+        if name == 'storage-reassigned':
+            source = source.replace('return item.x;', 'item = state; return item.x;')
         if name == 'recursive':
             source = source.replace('return item.x;', 'return h(item);')
         signature = 'f(S)'
