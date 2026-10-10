@@ -92,6 +92,7 @@ def main():
         'vaultLabel()',
         'trancheHistorySnapshot(uint256)',
         'lookupWindow(uint48,uint256)',
+        'quoteTickRoundtrip(uint256,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -337,6 +338,19 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(lookup_window_prefix[:remaining_budget])
+    if 'quoteTickRoundtrip(uint256,uint256)' in source['methodIdentifiers']:
+        quote_tick_prefix = [
+            ('quoteTickRoundtrip(uint256,uint256)', [0, 8]),
+            ('quoteTickRoundtrip(uint256,uint256)', [3368, 8]),
+            ('quoteTickRoundtrip(uint256,uint256)', [3376, 8]),
+            ('quoteTickRoundtrip(uint256,uint256)', [6744, 8]),
+            ('quoteTickRoundtrip(uint256,uint256)', [1200, 24]),
+            ('quoteTickRoundtrip(uint256,uint256)', [4800, 0]),
+            ('quoteTickRoundtrip(uint256,uint256)', [6745, 8]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(quote_tick_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -452,6 +466,8 @@ def main():
             call_args = rng.choice([[0], [1], [2], [3], [4], [5], [97], [98], [99]])
         elif name == 'lookupWindow(uint48,uint256)':
             call_args = rng.choice([[0, 0], [1, 0], [3, 0], [5, 1], [8, 0], [2, 97], [2, 98], [2, 99], [1 << 48, 0]])
+        elif name == 'quoteTickRoundtrip(uint256,uint256)':
+            call_args = rng.choice([[0, 8], [1600, 8], [3368, 8], [3376, 8], [5000, 24], [6744, 8], [6745, 8], [2400, 0]])
         else:
             call_args = []
         calls.append((name, call_args))

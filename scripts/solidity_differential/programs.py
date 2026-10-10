@@ -1846,3 +1846,41 @@ def stateful_checkpoints_and_struct_arrays_source(fixture: str, variant: str) ->
         return fixture
     raise ValueError(f'unknown checkpoints-and-struct-arrays variant: {variant}')
 
+
+def stateful_ticklib_and_three_key_mapping_source(fixture: str, variant: str) -> str:
+    """Equivalent Pareto TickLib, 3-key scalar/struct mappings, and top-level fixed-size storage arrays sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'x', 'd', 'ln2', 'offset', 'q', 'r', 'secondTerm', 'thirdTerm', 'expR',
+            'tick', 'price', 'spacing', 'low', 'high', 'mid', 'input', 'rawTick',
+            'alignedTick', 'recoveredTick', 'idx4', 'idx3', 'snapFees', 'snapCaps',
+            'delegate', 'side', 'nAfterInc', 'marketId', 'bucket', 'qSnap',
+            'd0', 'd1', 'feeSummary', 'capSummary', 'nonceSummary', 'q0',
+            'quotaSummary', 'boundedSpacing', 'recovered',
+            'divHalfDownUnchecked', 'wExp', 'tickToPrice', 'priceToTick',
+            'LN_ONE_PLUS_DELTA', 'MAX_TICK', 'PRICE_ROUNDING_STEP',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-ticklib-and-three-key-mapping':
+        replacements = {
+            'lastPrice += price;':
+            'lastPrice = lastPrice + price;',
+            'lastTick += recoveredTick;':
+            'lastTick = lastTick + recoveredTick;',
+            'nonces[side][msg.sender][delegate] += 1;':
+            'nonces[side][msg.sender][delegate] = nonces[side][msg.sender][delegate] + 1;',
+            'q.used += uint64(snapFees[idx4]);':
+            'q.used = q.used + uint64(snapFees[idx4]);',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('ticklib-and-three-key-mapping variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown ticklib-and-three-key-mapping variant: {variant}')
+

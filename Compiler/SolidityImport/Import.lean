@@ -307,6 +307,7 @@ private structure FieldInfo where
   stringStorage : Bool := false
   dynamicArrayElemType : Option (String × ParamType × SolidityAbi.ScalarKind) := none
   dynamicArrayStructId : Option Nat := none
+  thirdKeyMapping : Option StructMappingInfo := none
   fixedArrayLength : Option Nat := none
   fixedArrayType : String := ""
 
@@ -405,6 +406,7 @@ private structure Env where
   enumBounds : RBMap Nat Nat compare := RBMap.empty
   bytes4Params : Array Nat := #[]
   writableLocals : RBMap Nat String compare := RBMap.empty
+  zeroInitLocals : Array Nat := #[]
   rawBindings : RBMap Nat String compare := RBMap.empty
   encodingMemory : Bool := false
   explicitAbi : Bool := false
@@ -1407,6 +1409,42 @@ private def buildField (types item : Json) : M FieldInfo := do
       return { slot, field, keyCount := 0, memberNames := names, opaqueNames := skipped,
                booleanMembers, structFixedArrays, structMappings, structDynamicArrays, subStructs,
                structMembers := members' }
+    if let some baseId := optStr top "base" then
+      unless (← mNat (← mField item "offset")) == 0 do
+        throwError "top-level fixed storage array {name} must start at byte offset 0"
+      let label ← mStr (← mField top "label")
+      let [elementLabel, suffix] := label.splitOn "["
+        | throwError "fixed storage arrays require exactly one fixed dimension: {label}"
+      unless suffix.endsWith "]" do throwError "invalid fixed array layout {label}"
+      let some length := (suffix.dropEnd 1).toNat?
+        | throwError "fixed storage arrays require a resolved fixed length: {label}"
+      unless length > 0 do throwError "fixed storage array length must be positive"
+      let base ← liftM (layoutType types baseId)
+      let baseLabel ← mStr (← mField base "label")
+      unless elementLabel == baseLabel && baseLabel.startsWith "uint" do
+        throwError "fixed storage arrays require unsigned scalar elements: {label}"
+      let some width := bitsOf baseLabel
+        | throwError "invalid fixed storage array element width: {baseLabel}"
+      unless width > 0 && width ≤ 256 && width % 8 == 0 do
+        throwError "invalid fixed storage array element width: {width}"
+      unless (← mStr (← mField base "encoding")) == "inplace" &&
+          (← mNat (← mField base "numberOfBytes")) * 8 == width do
+        throwError "fixed storage array base layout disagrees with {baseLabel}"
+      let perWord := 256 / width
+      let words := (length + perWord - 1) / perWord
+      unless (← mNat (← mField top "numberOfBytes")) == words * 32 do
+        throwError "fixed storage array footprint disagrees with {label}"
+      let mut members : Array StructMember := #[]
+      for index in [:length] do
+        let offset := (index % perWord) * width
+        let packed : Option PackedBits :=
+          if width == 256 then none else some { offset := offset, width := width }
+        let member : StructMember :=
+          { name := s!"__solidity_element_{index}", ty := .uint256, wordOffset := index / perWord, packed }
+        members := members.push member
+      let field : Field := { name, ty := .uint256, slot := some slot }
+      return { slot, field, keyCount := 0, memberNames := #[], opaqueNames := #[],
+               structMembers := members, fixedArrayLength := some length, fixedArrayType := label }
     let width ←
       if typeId == "t_bool" then pure 8
       else if typeId == "t_address" || typeId == "t_address_payable" || typeId.startsWith "t_contract(" then pure 160
@@ -1487,6 +1525,56 @@ private def buildField (types item : Json) : M FieldInfo := do
       pure (none, value)
     else
       throwError "unsupported mapping value encoding {encoding} for {name}"
+  if let some k2 := key2 then
+    if (← mStr (← mField structTy "encoding")) == "mapping" then
+      let key3 ← liftM (mappingKey (normalizeSolcLayoutType (← get) (← mStr (← mField structTy "key"))))
+      let valKey ← mStr (← mField structTy "value")
+      let leafTy ← liftM (layoutType types valKey)
+      if (normalizeSolcLayoutType (← get) valKey).startsWith "t_struct(" then
+        let some valSid := resolveStructIdFromSolcType? (← get) valKey
+          | throwError "unsupported 3-key mapping value type {valKey} for {name}"
+        let _ ← resolveRawStructInfo valSid Json.null
+        let mapInfo : StructMappingInfo :=
+          { member := "__solidity_value"
+            solcType := valKey
+            wordOffset := 0
+            keyType := key3
+            valueWidth := 256
+            booleanValue := false
+            valueStructId := some valSid }
+        let field : Field := { name, ty := .mappingStruct2 key1 k2 [], slot := some slot }
+        return { slot, field, keyCount := 2, memberNames := #[], opaqueNames := #[],
+                 thirdKeyMapping := some mapInfo }
+      if (field? leafTy "members").isNone && (optStr leafTy "base").isNone then
+        let leafEncoding ← mStr (← mField leafTy "encoding")
+        unless leafEncoding == "inplace" do
+          throwError "unsupported 3-key mapping value encoding {leafEncoding} for {name}"
+        let rawLeafType ← mStr (← mField leafTy "label")
+        let leafType := (← get).userValueTypes.find? rawLeafType |>.getD rawLeafType
+        let width ←
+          if leafType == "bool" then pure 8
+          else if leafType == "address" || leafType == "address payable" || leafType.startsWith "contract " then pure 160
+          else if leafType == "bytes32" || leafType == "int256" || leafType == "int" then pure 256
+          else if leafType.startsWith "uint" then
+            let some bits := (leafType.drop 4).toNat? | throwError "invalid 3-key mapping uint layout {rawLeafType}"
+            unless bits > 0 && bits ≤ 256 && bits % 8 == 0 do
+              throwError "invalid 3-key mapping uint width {bits}"
+            pure bits
+          else throwError "unsupported 3-key mapping value type {rawLeafType} for {name}"
+        let bytes ← mNat (← mField leafTy "numberOfBytes")
+        unless bytes * 8 == width do
+          throwError "3-key mapping value size disagrees with type {rawLeafType}"
+        let mapInfo : StructMappingInfo :=
+          { member := "__solidity_value"
+            solcType := valKey
+            wordOffset := 0
+            keyType := key3
+            valueWidth := width
+            booleanValue := leafType == "bool" }
+        let field : Field := { name, ty := .mappingStruct2 key1 k2 [], slot := some slot }
+        return { slot, field, keyCount := 2, memberNames := #[], opaqueNames := #[],
+                 thirdKeyMapping := some mapInfo }
+      throwError "unsupported 3-key mapping value type for {name}"
   -- Fixed arrays have finite elements, not an extra mapping key. Solidity
   -- packs floor(256/width) elements per word, leaving any remainder unused.
   if let some baseId := optStr structTy "base" then
@@ -2452,6 +2540,9 @@ private def checkYulReturnTarget (j asg varNode : Json) (vname retName : String)
     failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
 
 private def lowerAssembly (j : Json) (retName : String) : M Val := do
+  let assignedInAsm := bodyAssignedIds j
+  if !assignedInAsm.isEmpty then
+    modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedInAsm.contains ·) }
   let ast ← mField j "AST"
   unless (← mKind ast) == "YulBlock" do failAt j "assembly is not a Yul block"
   let stmts ← mArr (← mField ast "statements")
@@ -2718,6 +2809,9 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
   pure out
 
 private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array Stmt) := do
+  let assignedInAsm := bodyAssignedIds j
+  if !assignedInAsm.isEmpty then
+    modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedInAsm.contains ·) }
   let ast ← mField j "AST"
   unless (← mKind ast) == "YulBlock" do failAt j "assembly is not a Yul block"
   let stmts ← mArr (← mField ast "statements")
@@ -2939,7 +3033,7 @@ private partial def lowerExpr (j : Json) : M Val := do
       | .path pre path => scalarMappingRead pre path j
       | .fixedElement pre path index =>
           let (name, count, read) ← match path with
-            | .zero _ => failAt j "top-level fixed array element read is outside this slice"
+            | .zero name => pure (name, 0, fun member => Expr.storage (topStructMemberFieldName (splitSPathField name).1 member))
             | .one name key => pure (name, 1, fun member => Expr.structMember name key member)
             | .two name key1 key2 => pure (name, 2, fun member => Expr.structMember2 name key1 key2 member)
             | .outer _ _ => failAt j "fixed array element requires both mapping keys"
@@ -3109,6 +3203,11 @@ private partial def lowerRef (j : Json) : M Ref := do
           unless info.keyCount == 0 && !info.scalarMapping && info.fixedArrayLength.isNone do
             failAt j s!"unsupported storage struct state variable {name}"
           pure (.path #[] (.zero name))
+        else if !(← mType j).startsWith "mapping(" && (← mType j).contains "[" && !(← mType j).contains "[]" then
+          let info ← resolveField name j
+          unless info.keyCount == 0 && info.fixedArrayLength.isSome do
+            failAt j s!"unsupported fixed storage array state variable {name}"
+          pure (.path #[] (.zero name))
         else
           pure (.state name #[])
       else if env.funs.contains n || env.fnPtrs.contains n then
@@ -3174,7 +3273,11 @@ private partial def lowerRef (j : Json) : M Ref := do
           else
             pure (.path (pre ++ key.pre) (.one name key.expr))
       | .path pre (.outer field k1) =>
-          pure (.path (pre ++ key.pre) (.two field k1 key.expr))
+          let info ← resolveField field j
+          if let some mapInfo := info.thirdKeyMapping then
+            pure (.structMapping (pre ++ key.pre) (.two field k1 key.expr) mapInfo)
+          else
+            pure (.path (pre ++ key.pre) (.two field k1 key.expr))
       | .path pre path =>
           let rawName ← match path with
             | .zero name | .one name _ | .two name _ _ => pure name
@@ -3456,7 +3559,10 @@ private partial def lowerRef (j : Json) : M Ref := do
               let (fieldName, subPrefix) := splitSPathField rawFieldName
               let qualMember := qualifySPathMember subPrefix member
               let info ← resolveField fieldName j
-              if info.subStructs.any (·.1 == qualMember) then
+              if member == "length" && subPrefix == "" && info.fixedArrayLength.isSome then
+                let some len := info.fixedArrayLength | failAt j "missing fixed array length"
+                pure (.expr { pre, expr := .literal len })
+              else if info.subStructs.any (·.1 == qualMember) then
                 pure (.path pre (appendSPathSub path member))
               else if let some arrInfo := info.structFixedArrays.find? (·.member == qualMember) then
                 pure (.structFixedArray pre path arrInfo)
@@ -3466,6 +3572,12 @@ private partial def lowerRef (j : Json) : M Ref := do
                 pure (.structDynamicArray pre path dynInfo)
               else
                 pure (.expr (← memberRead pre path member j))
+        | .structFixedArray pre _ arrInfo =>
+            unless member == "length" do failAt j s!"unsupported fixed array member {member}"
+            pure (.expr { pre, expr := .literal arrInfo.length })
+        | .snapshot elements =>
+            unless member == "length" do failAt j s!"unsupported fixed array member {member}"
+            pure (.expr { pre := #[], expr := .literal elements.size })
         | .flatStruct id =>
             let some flat := (← get).flatStructs.find? id | failAt j "unknown flat struct local"
             let some (_, _, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
@@ -3530,7 +3642,8 @@ private partial def lowerRef (j : Json) : M Ref := do
             else
               let rawName ← match path with
                 | .zero name | .one name _ | .two name _ _ => pure name
-                | .outer _ _ | .rawSlot _ _ | .bytesSlot _ _ =>
+                | .outer _ _ => failAt j "struct dynamic array length requires all outer mapping keys"
+                | .rawSlot _ _ | .bytesSlot _ _ =>
                     failAt j "struct dynamic array length requires all outer mapping keys"
               let (name, _) := splitSPathField rawName
               let info ← resolveField name j
@@ -6564,8 +6677,144 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (retSid, retStructName, pre ++ modStmts ++ bodyStmts, memberExprs)
 
+private partial def unwrapSignFlipStmts (j : Json) (unchecked : Bool) : M (Array Json × Bool) := do
+  let kind ← mKind j
+  if kind == "Block" || kind == "UncheckedBlock" then
+    let u' := unchecked || kind == "UncheckedBlock"
+    let ss ← mArr (← mField j "statements")
+    if ss.size == 1 then
+      let k0 ← mKind ss[0]!
+      if k0 == "Block" || k0 == "UncheckedBlock" then
+        unwrapSignFlipStmts ss[0]! u'
+      else
+        pure (ss, u')
+    else
+      pure (ss, u')
+  else
+    pure (#[j], unchecked)
+
+private partial def jsonReferencesDecl (j : Json) (declId : Nat) : Bool :=
+  match j with
+  | .obj kvs =>
+      let selfMatch := match kvs.toList.find? (fun (k, _) => k == "referencedDeclaration") with
+        | some (_, v) => v.getInt?.toOption == some (Int.ofNat declId)
+        | none => false
+      selfMatch || kvs.toList.any (fun (_, v) => jsonReferencesDecl v declId)
+  | .arr xs => xs.any (fun x => jsonReferencesDecl x declId)
+  | _ => false
+
+/-- Recognizes bounded sign-flip self-calls such as `TickLib.wExp(int256 x)`:
+    when a helper `f(int256 x)` whose top-level body is `if (x < 0) ... else { falseBody }`
+    (or `if (x < 0) { return ...; } <rest>`) calls `f(-x)` from its `x < 0` branch, `-x` is
+    guaranteed non-negative for all `x != type(int256).min` (and for `x == type(int256).min`,
+    `wExp(-x)` re-enters the `x < 0` branch and reverts by infinite recursion). Thus `f(-x)`
+    can be lowered by guarding against `(-x) < 0` and inlining the non-negative path with
+    `x` bound to `-x`. -/
+private partial def trySignFlipSelfCall? (fnId : Nat) (args : Array CallArg) (at_ : Json) : M (Option Val) := do
+  let stack := (← get).stack
+  unless stack.head? == some fnId && !(stack.drop 1).contains fnId do
+    return none
+  let some fn := (← get).funs.find? fnId | return none
+  if optStr fn "visibility" == some "external" then return none
+  let mods ← mArr (← mField fn "modifiers")
+  let params ← mArr (← mField (← mField fn "parameters") "parameters")
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless mods.isEmpty && params.size == 1 && args.size == 1 && rets.size == 1 do
+    return none
+  let p0 := params[0]!
+  let pid ← mNat (← mField p0 "id")
+  let pty ← mType p0
+  unless pty == "int256" || pty == "int" do return none
+  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+  let some body := (field? fn "body").filter (!·.isNull) | return none
+  unless implemented && !(bodyAssignedIds body).contains pid do return none
+  let arg0 ← stripParens (← argumentAt at_ 0)
+  unless (← mKind arg0) == "UnaryOperation" && optStr arg0 "operator" == some "-" do
+    return none
+  let sub ← stripParens (← mField arg0 "subExpression")
+  unless (← mKind sub) == "Identifier" do return none
+  unless (← refInt sub) == pid do return none
+  let (bodyStmts, topUnchecked) ← unwrapSignFlipStmts body false
+  if bodyStmts.isEmpty then return none
+  let topStmt := bodyStmts[0]!
+  unless (← mKind topStmt) == "IfStatement" do return none
+  let cond ← stripParens (← mField topStmt "condition")
+  unless (← mKind cond) == "BinaryOperation" do return none
+  let op ← mStr (← mField cond "operator")
+  let lhs ← stripParens (← mField cond "leftExpression")
+  let rhs ← stripParens (← mField cond "rightExpression")
+  let isNegCheck ←
+    if op == "<" then
+      if (← mKind lhs) == "Identifier" then
+        if (← refInt lhs) == pid then isZeroLiteral rhs else pure false
+      else
+        pure false
+    else if op == ">" then
+      if (← mKind rhs) == "Identifier" then
+        if (← refInt rhs) == pid then isZeroLiteral lhs else pure false
+      else
+        pure false
+    else
+      pure false
+  unless isNegCheck do return none
+  let (falseStmts, falseUnchecked) ←
+    if bodyStmts.size == 1 then do
+      let some fBody := (field? topStmt "falseBody").filter (!·.isNull) | return none
+      unwrapSignFlipStmts fBody topUnchecked
+    else do
+      unless ((field? topStmt "falseBody").filter (!·.isNull)).isNone do return none
+      let tBody ← mField topStmt "trueBody"
+      unless (← voidHelperReturns tBody) do return none
+      pure (bodyStmts.extract 1 bodyStmts.size, topUnchecked)
+  if falseStmts.isEmpty then return none
+  let fBodyJson := Json.arr falseStmts
+  if jsonReferencesDecl fBodyJson fnId then return none
+  let saved ← get
+  let savedYul := saved.yulNames
+  let savedFile := saved.currentFile
+  let frameFile := saved.nodeFile.find? fnId |>.getD saved.currentFile
+  let frame := fnId :: saved.stack
+  modify fun e =>
+    { e with stack := frame, currentFile := frameFile, unchecked := falseUnchecked,
+             bodyAssigned := bodyAssignedIds fBodyJson, zeroInitLocals := #[] }
+  let retName ← mStr (← mField rets[0]! "name")
+  let retId ← mNat (← mField rets[0]! "id")
+  let (boundPre, yul) ← bindHelperParams params args fBodyJson at_ savedYul
+  let mut pre := boundPre
+  modify fun e =>
+    { e with yulNames := yul, helperResult := none, helperReturnId := some retId,
+             multiHelperResults := none, flatStructHelperResult := none }
+  let some boundParamExpr := (← get).values.find? pid
+    | failAt at_ "unbound sign-flip parameter"
+  pre := pre.push (.ite (.slt boundParamExpr (.literal 0)) [.revertReturndata] [])
+  noteFn fn
+  let resultType ← mType rets[0]!
+  discard (validateEnumTypeIfNeeded rets[0]! resultType)
+  if retName != "" then
+    let declaration := rets[0]!
+    let id ← mNat (← mField declaration "id")
+    let ty ← mType declaration
+    let some scalar := paramType ty
+      | failAt declaration s!"unsupported named helper result type {ty}"
+    let binding ← freshFor retName
+    let expr := Expr.localVar binding
+    pre := pre.push (.letVar binding (.literal 0))
+    modify fun e =>
+      { e with helperResult := some (binding, ty),
+               values := e.values.insert id expr, writableLocals := e.writableLocals.insert id binding,
+               scalarTy := e.scalarTy.insert id scalar, yulNames := e.yulNames.insert retName expr }
+  let result ← lowerHelper falseStmts retName
+  let finalResult : Val := { pre := pre ++ result.pre, expr := result.expr }
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+  return some finalResult
+
 private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M Val := do
-  if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
+  if (← get).stack.contains fnId then
+    if let some v ← trySignFlipSelfCall? fnId args at_ then
+      return v
+    failAt at_ s!"recursive call {fnId}"
   let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
   -- External library calls cross an ABI/delegatecall boundary. A root
   -- descriptor may only be shared with helpers in the same call frame.
@@ -6585,7 +6834,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   let some body := (field? fn "body").filter (!·.isNull)
     | failAt fn "function has no body"
   unless implemented do failAt fn "function has no body"
-  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
+  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
   let mods ← mArr (← mField fn "modifiers")
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   unless params.size == args.size do
@@ -6650,7 +6899,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
            expr := .localVar retCapture }
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure finalResult
 
 private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M (Array Stmt) := do
@@ -6670,7 +6919,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   let some body := (field? fn "body").filter (!·.isNull)
     | failAt fn "function has no body"
   unless implemented do failAt fn "function has no body"
-  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body }
+  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }
   let mods ← mArr (← mField fn "modifiers")
   let params ← mArr (← mField (← mField fn "parameters") "parameters")
   unless params.size == args.size do
@@ -6686,7 +6935,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
   modify fun e =>
     { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
-             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
+             values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ modStmts ++ bodyStmts)
 
 private partial def lowerMsgDataExpr (j : Json) : M (Array Stmt) := do
@@ -7040,6 +7289,9 @@ private partial def lowerHelper (stmts : Array Json) (retName : String) : M Val 
 /-- Splits an `if` into its lowered boolean condition and branch statements.
     A branch that is not a block is a single statement. -/
 private partial def ifParts (s : Json) : M (Val × Array Json × Array Json) := do
+  let assignedInIf := bodyAssignedIds s
+  if !assignedInIf.isEmpty then
+    modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedInIf.contains ·) }
   let conditionNode ← mField s "condition"
   unless (← mType conditionNode) == "bool" do failAt conditionNode "if condition must be bool"
   let condition ← atom (← lowerExpr conditionNode)
@@ -7421,7 +7673,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
   modify fun e =>
     { e with values := saved.values, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-             writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
   let mut out : Array Stmt := #[]
   if abiLength then
     let captured ← fresh
@@ -7431,10 +7683,21 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
     out := out.push (.forEach binding bound.expr bodyOut.toList)
   pure out
 
+private partial def unwrapLoopBodyStmts (j : Json) : M (Array Json) := do
+  let kind ← mKind j
+  if kind == "Block" || kind == "UncheckedBlock" then
+    let stmts ← mArr (← mField j "statements")
+    if stmts.size == 1 && ((← mKind stmts[0]!) == "Block" || (← mKind stmts[0]!) == "UncheckedBlock") then
+      unwrapLoopBodyStmts stmts[0]!
+    else
+      pure stmts
+  else
+    pure #[j]
+
 /-- Exact bounded while-loop lowering for:
     1. unsigned bit-clearing (`msb` + `clearBit` or `v &= v - 1`) and positive constant right-shift (`v >>= k`)
-    2. binary-search `while (low < high)` / `while (high > low)` loops where `mid = average(low, high)` and one
-       branch sets `high = mid` while the other sets `low = mid + 1`. -/
+    2. binary-search `while (low < high)` / `while (high > low)` / `while (low != high)` (with `low == 0` at entry)
+       loops where `mid = average(low, high)` and one branch sets `high = mid` while the other sets `low = mid + 1`. -/
 private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) : M (Array Stmt) := do
   let cond ← mField s "condition"
   unless (← mKind cond) == "BinaryOperation" do
@@ -7442,23 +7705,21 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
   let condOp ← mStr (← mField cond "operator")
   let condLhs ← stripParens (← mField cond "leftExpression")
   let condRhs ← stripParens (← mField cond "rightExpression")
-  if (condOp == "<" || condOp == ">") &&
+  if (condOp == "<" || condOp == ">" || condOp == "!=") &&
       (← mKind condLhs) == "Identifier" && (← mKind condRhs) == "Identifier" then
-    let lowNode := if condOp == "<" then condLhs else condRhs
-    let highNode := if condOp == "<" then condRhs else condLhs
-    let lowRef ← refInt lowNode
-    let highRef ← refInt highNode
-    if lowRef ≥ 0 && highRef ≥ 0 && lowRef != highRef then
-      let lowId := lowRef.toNat
-      let highId := highRef.toNat
+    let lhsRef ← refInt condLhs
+    let rhsRef ← refInt condRhs
+    if lhsRef ≥ 0 && rhsRef ≥ 0 && lhsRef != rhsRef then
+      let lhsId := lhsRef.toNat
+      let rhsId := rhsRef.toNat
       let env ← get
-      if (env.writableLocals.find? lowId).isSome && (env.writableLocals.find? highId).isSome then
-        let lowTy ← mType lowNode
-        let highTy ← mType highNode
-        if let some bits := bitsOf lowTy then
-          if lowTy == highTy && lowTy.startsWith "uint" && bits > 0 && bits ≤ 256 then
+      if (env.writableLocals.find? lhsId).isSome && (env.writableLocals.find? rhsId).isSome then
+        let lhsTy ← mType condLhs
+        let rhsTy ← mType condRhs
+        if let some bits := bitsOf lhsTy then
+          if lhsTy == rhsTy && lhsTy.startsWith "uint" && bits > 0 && bits ≤ 256 then
             let body ← mField s "body"
-            let bodyStmts ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
+            let bodyStmts ← unwrapLoopBodyStmts body
             if ← listContainsReturn bodyStmts then
               failAt s "return inside a while loop is unsupported"
             unless bodyStmts.size == 2 do
@@ -7474,10 +7735,8 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
             let midDecl := decls[0]!
             let midId ← mNat (← mField midDecl "id")
             let midTy ← mType midDecl
-            unless midTy == lowTy && !(bodyAssignedIds body).contains midId do
+            unless midTy == lhsTy && !(bodyAssignedIds body).contains midId do
               failAt midDecl "binary-search midpoint must be an unassigned local of the bound type"
-            unless ← isBinarySearchMidpointExpr initVal lowId highId bits do
-              failAt initVal "binary-search midpoint must be the floor average of low and high"
             let ifCond ← mField ifStmt "condition"
             if statefulCallIn ifCond env || assignmentIn ifCond then
               failAt ifCond "stateful or assignment binary-search condition is unsupported"
@@ -7485,22 +7744,48 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
             let fBody := field? ifStmt "falseBody" |>.getD Json.null
             if fBody.isNull then
               failAt ifStmt "binary-search while loop requires both true and false branches"
+            let (lowId, highId) ←
+              if condOp == "<" then
+                pure (lhsId, rhsId)
+              else if condOp == ">" then
+                pure (rhsId, lhsId)
+              else do
+                let fwdMid ← isBinarySearchMidpointExpr initVal lhsId rhsId bits
+                let fwdT ← classifyBinarySearchBranch tBody lhsId rhsId midId bits
+                let fwdF ← classifyBinarySearchBranch fBody lhsId rhsId midId bits
+                let fwdBranches := (fwdT == some true && fwdF == some false) || (fwdT == some false && fwdF == some true)
+                if fwdMid && fwdBranches then
+                  pure (lhsId, rhsId)
+                else
+                  let revMid ← isBinarySearchMidpointExpr initVal rhsId lhsId bits
+                  let revT ← classifyBinarySearchBranch tBody rhsId lhsId midId bits
+                  let revF ← classifyBinarySearchBranch fBody rhsId lhsId midId bits
+                  let revBranches := (revT == some true && revF == some false) || (revT == some false && revF == some true)
+                  if revMid && revBranches then
+                    pure (rhsId, lhsId)
+                  else
+                    pure (lhsId, rhsId)
+            unless ← isBinarySearchMidpointExpr initVal lowId highId bits do
+              failAt initVal "binary-search midpoint must be the floor average of low and high"
             let tKind ← classifyBinarySearchBranch tBody lowId highId midId bits
             let fKind ← classifyBinarySearchBranch fBody lowId highId midId bits
             unless (tKind == some true && fKind == some false) ||
                    (tKind == some false && fKind == some true) do
               failAt ifStmt "binary-search branches must assign high = mid and low = mid + 1"
+            if condOp == "!=" && !env.zeroInitLocals.contains lowId then
+              failAt cond "binary-search while (low != high) requires low to be zero at loop entry"
             let condVal ← lowerExpr cond
             unless condVal.pre.isEmpty do
               failAt cond "while loop condition must be a pure scalar comparison"
             let loopVar ← fresh
             let saved ← get
             let bodyOut ← lowerBody body
+            let loopWrites := bodyAssignedIds body
             modify fun e =>
               { e with values := saved.values, paths := saved.paths,
                        snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
                        calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-                       writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+                       writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
             return #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
   let varNode? ←
     if (condOp == "!=" || condOp == ">") && (← isZeroLiteral condRhs) then
@@ -7526,7 +7811,7 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
   unless varTy.startsWith "uint" && bits > 0 && bits ≤ 256 do
     failAt varNode s!"a while loop variable must be an unsigned integer, found {varTy}"
   let body ← mField s "body"
-  let bodyStmts ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
+  let bodyStmts ← unwrapLoopBodyStmts body
   if ← listContainsReturn bodyStmts then
     failAt s "return inside a while loop is unsupported"
   unless bodyStmts.size ≥ 1 do
@@ -7604,11 +7889,12 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
   let loopVar ← fresh
   let saved ← get
   let bodyOut ← lowerBody body
+  let loopWrites := bodyAssignedIds body
   modify fun e =>
     { e with values := saved.values, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
              calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-             writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
   pure #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
 
 private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
@@ -8260,6 +8546,15 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
     | .outer _ _ => failAt target "mapping assignment requires both keys"
     | .rawSlot _ _ | .bytesSlot _ _ => failAt target "whole raw-slot struct storage assignment is outside this slice"
   let info ← resolveField name target
+  if deleting then
+    if let some length := info.fixedArrayLength then
+      unless info.keyCount == count do
+        failAt target "fixed array mapping key count differs"
+      markField name
+      let mut out := pre
+      for i in [:length] do
+        out := out.push (writeMember s!"__solidity_element_{i}" (.literal 0))
+      return out
   unless !info.scalarMapping && info.fixedArrayLength.isNone && info.keyCount == count do
     failAt target "whole struct storage assignment requires a struct storage path"
   if deleting then
@@ -8298,6 +8593,9 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
   return out
 
 private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
+  let assignedHere := bodyAssignedIds statement
+  if !assignedHere.isEmpty then
+    modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedHere.contains ·) }
   let expression ← mField statement "expression"
   let kind ← mKind expression
   if kind == "FunctionCall" && optStr expression "kind" == some "functionCall" then
@@ -8648,7 +8946,7 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       -- the RHS before the LHS mapping keys and index, then checks bounds.
       -- lowerRef captures the keys/index in their recursive source order.
       let (name, count, write) ← match path with
-        | .zero _ => failAt target "top-level fixed array write is outside this slice"
+        | .zero name => pure (name, 0, fun member value => Stmt.setStorage (topStructMemberFieldName (splitSPathField name).1 member) value)
         | .one name key => pure (name, 1, fun member value => Stmt.setStructMember name key member value)
         | .two name key1 key2 => pure (name, 2, fun member value => Stmt.setStructMember2 name key1 key2 member value)
         | .outer _ _ => failAt target "fixed array write requires both mapping keys"
@@ -8730,7 +9028,7 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       | .outer _ _ => failAt target "mapping assignment requires both keys"
       | .rawSlot _ _ | .bytesSlot _ _ => failAt target "mapping assignment target is not a storage path"
     let info ← resolveField name target
-    if !info.scalarMapping && info.fixedArrayLength.isNone && info.keyCount == count then
+    if !info.scalarMapping && (info.fixedArrayLength.isNone || deleting) && info.keyCount == count then
       return ← writeWholeStorageStruct pre path deleting target expression
     unless info.scalarMapping && info.keyCount == count do
       failAt target "only scalar mapping values are writable"
@@ -9420,6 +9718,9 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
   return (pre, name, values)
 
 private partial def lowerLocal (s : Json) : M (Array Stmt) := do
+  let assignedHere := bodyAssignedIds s
+  if !assignedHere.isEmpty then
+    modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedHere.contains ·) }
   let decls ← mArr (← mField s "declarations")
   if decls.size > 1 then
     unless decls.any (!·.isNull) do failAt s "empty tuple declaration"
@@ -9454,12 +9755,14 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       let binding ← freshFor name
       let expr := Expr.localVar binding
       out := out ++ converted.pre |>.push (.letVar binding converted.expr)
+      let isZero := converted.pre.isEmpty && (match converted.expr with | .literal 0 => true | _ => false)
       modify fun e =>
         { e with values := e.values.insert id expr,
                  scalarTy := e.scalarTy.insert id scalarType,
                  yulNames := e.yulNames.insert name expr,
                  yulMemoryArrays := e.yulMemoryArrays.erase name,
-                 writableLocals := e.writableLocals.insert id binding }
+                 writableLocals := e.writableLocals.insert id binding,
+                 zeroInitLocals := if isZero then (if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id) else e.zeroInitLocals.filter (· != id) }
     return out
   unless decls.size == 1 do failAt s "only a single declaration is supported"
   if decls[0]!.isNull then failAt s "empty declaration"
@@ -9498,7 +9801,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       { e with values := e.values.insert id expr,
                scalarTy := e.scalarTy.insert id scalarType,
                yulNames := e.yulNames.insert name expr,
-               writableLocals := e.writableLocals.insert id binding }
+               writableLocals := e.writableLocals.insert id binding,
+               zeroInitLocals := if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id }
     return #[.letVar binding (.literal 0)]
   if loc == "memory" && (← mType d) == "bytes" then
     -- Evaluate allocation and encoding once, at the declaration. Only a
@@ -9622,7 +9926,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     match ← lowerRef init with
     | .path pre path =>
         let (field, count, read) ← match path with
-          | .zero _ => failAt init "fixed memory array initialization requires a mapping storage array"
+          | .zero field => pure (field, 0, fun member => Expr.storage (topStructMemberFieldName (splitSPathField field).1 member))
           | .one field key => pure (field, 1, fun member => Expr.structMember field key member)
           | .two field key1 key2 => pure (field, 2, fun member => Expr.structMember2 field key1 key2 member)
           | .outer _ _ => failAt init "fixed array copy requires both mapping keys"
@@ -9841,9 +10145,11 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     let converted ← convert ty (← mType init) v init
     let binding ← freshFor name
     let expr := Expr.localVar binding
+    let isZero := converted.pre.isEmpty && (match converted.expr with | .literal 0 => true | _ => false)
     modify fun e =>
       { e with values := e.values.insert id expr, scalarTy := e.scalarTy.insert id scalarType,
-               yulNames := e.yulNames.insert name expr, writableLocals := e.writableLocals.insert id binding }
+               yulNames := e.yulNames.insert name expr, writableLocals := e.writableLocals.insert id binding,
+               zeroInitLocals := if isZero then (if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id) else e.zeroInitLocals.filter (· != id) }
     pure (converted.pre.push (.letVar binding converted.expr))
 
 end
@@ -10812,7 +11118,7 @@ private def importSlice
     -- do not leak between functions. Field layouts and the closure are shared.
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                      snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty,
+                      snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty,
                       projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2

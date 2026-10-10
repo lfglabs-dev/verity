@@ -100,6 +100,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.StorageSlotShortStringsTimeSequenceModel,
     .one `Contracts.SolidityImportSmoke.EnumerableSetMapSequenceModel,
     .one `Contracts.SolidityImportSmoke.CheckpointsAndStructArraysSequenceModel,
+    .one `Contracts.SolidityImportSmoke.TickLibAndThreeKeyMappingSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,
