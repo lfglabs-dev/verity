@@ -1053,6 +1053,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Identifier: [solidity-import:unsupported] fixed storage arrays require unsigned scalar elements: int16[4]'),
+        ('offer-hash-and-domain-separator-positive',
+         "pragma solidity 0.8.34;\nbytes32 constant CP_TYPEHASH = keccak256(\"CollateralParams(address token,uint256 lltv,uint256 liquidationCursor,address oracle)\");\nbytes32 constant MARKET_TYPEHASH = keccak256(\"Market\");\nbytes32 constant OFFER_TYPEHASH = keccak256(\"Offer\");\nbytes32 constant DOMAIN_TYPEHASH = keccak256(\"EIP712Domain(uint256 chainId,address verifyingContract)\");\nstruct CollateralParams { address token; uint256 lltv; uint256 liquidationCursor; address oracle; }\nstruct Market { uint256 chainId; address midnight; address loanToken; CollateralParams[] collateralParams; uint256 maturity; uint256 rcfThreshold; address enterGate; address liquidatorGate; }\nstruct Offer { Market market; bool buy; address maker; uint256 start; uint256 expiry; uint256 tick; bytes32 group; address callback; bytes callbackData; address receiverIfMakerIsSeller; address ratifier; bool reduceOnly; uint128 maxUnits; uint128 maxAssets; uint256 continuousFeeCap; }\nlibrary HashLib {\n  function hashCollateralParams(CollateralParams memory cp) internal pure returns (bytes32) {\n    return keccak256(abi.encode(CP_TYPEHASH, cp.token, cp.lltv, cp.liquidationCursor, cp.oracle));\n  }\n  function hashMarket(Market memory market) internal pure returns (bytes32) {\n    bytes memory encoded;\n    for (uint256 i = 0; i < market.collateralParams.length; i++) {\n      encoded = bytes.concat(encoded, hashCollateralParams(market.collateralParams[i]));\n    }\n    return keccak256(abi.encode(MARKET_TYPEHASH, market.chainId, market.midnight, market.loanToken, keccak256(encoded), market.maturity, market.rcfThreshold, market.enterGate, market.liquidatorGate));\n  }\n  function hashOffer(Offer memory offer) internal pure returns (bytes32) {\n    return keccak256(abi.encode(OFFER_TYPEHASH, hashMarket(offer.market), offer.buy, offer.maker, offer.start, offer.expiry, offer.tick, offer.group, offer.callback, keccak256(offer.callbackData), offer.receiverIfMakerIsSeller, offer.ratifier, offer.reduceOnly, offer.maxUnits, offer.maxAssets, offer.continuousFeeCap));\n  }\n}\ncontract C {\n  function DOMAIN_SEPARATOR() public view returns (bytes32) {\n    return keccak256(abi.encode(DOMAIN_TYPEHASH, block.chainid, address(this)));\n  }\n  function checked(Offer calldata offer, uint256 rate) external view returns (uint256) {\n    bytes32 h = HashLib.hashOffer(offer);\n    bytes32 mh = HashLib.hashMarket(offer.market);\n    bytes32 d = keccak256(bytes.concat(\"\\x19\\x01\", DOMAIN_SEPARATOR(), h));\n    return uint256(d) ^ uint256(mh) ^ offer.callbackData.length ^ uint256(keccak256(offer.callbackData)) ^ rate;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('abi-encode-fallible-helper-call-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  error Bad();\n  function _mayRevert(uint256 x) internal pure returns (uint256) {\n    if (x == 99) revert Bad();\n    return x;\n  }\n  function checked(uint256 x) external pure returns (bytes32) {\n    return keccak256(abi.encode(_mayRevert(x)));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported'),
+        ('abi-encode-root-bytes-field-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { bytes data; uint256 x; }\n  function checked(S calldata s) external pure returns (bytes32) {\n    return keccak256(abi.encode(s));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] ABI encoding of nested dynamic structs or bytes fields is outside this slice'),
+        ('abi-schema-static-nested-struct-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Inner { uint256 a; }\n  struct Outer { Inner inner; bytes data; }\n  function checked(Outer calldata o) external pure returns (uint256) {\n    return o.data.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'UserDefinedTypeName: [solidity-import:unsupported] ABI schema: static nested structs inside dynamic structs are outside this slice'),
+        ('abi-encode-struct-array-effectful-index-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Item { uint256 a; }\n  struct Bundle { Item[] items; uint256 tag; }\n  function _hashItem(Item memory it) internal pure returns (bytes32) {\n    return keccak256(abi.encode(it.a));\n  }\n  function checked(Bundle calldata b, uint256 i) external pure returns (bytes32) {\n    return keccak256(abi.encode(_hashItem(b.items[i + 1])));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'BinaryOperation: [solidity-import:unsupported] effectful ABI encoding argument is unsupported'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1067,7 +1092,10 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
-            else 'checked(S)' if name == 'struct-local-reassigned-rejected'
+            else 'checked(S)' if name in {'struct-local-reassigned-rejected', 'abi-encode-root-bytes-field-rejected'}
+            else 'checked(Outer)' if name == 'abi-schema-static-nested-struct-rejected'
+            else 'checked(Bundle,uint256)' if name == 'abi-encode-struct-array-effectful-index-rejected'
+            else 'checked(Offer,uint256)' if name == 'offer-hash-and-domain-separator-positive'
             else 'checked(«uint256[]»,«address[]»,string,uint256)' if name == 'array-string-params-and-context-positive'
             else 'checked(bytes,bytes,string,uint256)' if name == 'bytes-memory-and-abi-encode-call-positive'
             else 'checked(string,string,uint256)' if name == 'dynamic-bytes-and-string-return-positive'

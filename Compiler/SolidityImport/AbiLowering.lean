@@ -205,4 +205,67 @@ def materializeCalldataScalarArray (data length : Expr)
   , allocationGuard (.ge (.localVar nextFreeBinding) (.localVar arrayPointerBinding)) ] ++
   materializeStaticScalarArray data length (.localVar arrayPointerBinding) (.localVar nextFreeBinding) namePrefix kind
 
+/-- Eager memory materialization of a `bytes` field inside a dynamic struct,
+matching `solc`'s `abi_decode_t_bytes_memory_ptr` at a tuple member offset. -/
+def memoryBytesField (tuplePointer : Expr) (memberWord : Nat)
+    (bytesPointer headerBinding lengthBinding dataBinding nextFreeBinding copyIndexBinding : String) : List Stmt :=
+  let freePointer := Expr.localVar bytesPointer
+  let allocationGuard := fun condition =>
+    Stmt.ite condition [] [.panicCode (.literal 0x41)]
+  let alignedSize := Expr.bitAnd
+    (.add (.add (.localVar lengthBinding) (.literal 32)) (.literal 31))
+    (.bitNot (.literal 31))
+  let wordCount := Expr.div (.add (.localVar lengthBinding) (.literal 31)) (.literal 32)
+  let relative := Expr.calldataload (.add tuplePointer (.literal (32*memberWord)))
+  [ guard (.le relative (.literal (2^64-1)))
+  , .letVar headerBinding (.add tuplePointer relative)
+  , guard (.slt (.add (.localVar headerBinding) (.literal 31)) .calldatasize)
+  , .letVar lengthBinding (.calldataload (.localVar headerBinding))
+  , allocationGuard (.le (.localVar lengthBinding) (.literal (2^64-1)))
+  , .letVar bytesPointer (.mload (.literal 64))
+  , .letVar nextFreeBinding (.add freePointer alignedSize)
+  , allocationGuard (.le (.localVar nextFreeBinding) (.literal (2^64-1)))
+  , allocationGuard (.ge (.localVar nextFreeBinding) freePointer)
+  , .letVar dataBinding (.add (.localVar headerBinding) (.literal 32))
+  , guard (.le (.add (.localVar dataBinding) (.localVar lengthBinding)) .calldatasize)
+  , .mstore freePointer (.localVar lengthBinding)
+  , .mstore (.literal 64) (.localVar nextFreeBinding)
+  , .forEach copyIndexBinding wordCount
+      [.mstore (.add (.add freePointer (.literal 32)) (.mul (.localVar copyIndexBinding) (.literal 32)))
+        (.calldataload (.add (.localVar dataBinding) (.mul (.localVar copyIndexBinding) (.literal 32))))]
+  , .mstore (.add (.add freePointer (.literal 32)) (.localVar lengthBinding)) (.literal 0) ]
+
+/-- Lazy calldata `bytes` member header checks at a struct member word,
+matching `solc`'s `calldata_struct_member_access` and `abi_decode_t_bytes_calldata_ptr`. -/
+def calldataBytesFieldHead (tuplePointer : Expr) (memberWord : Nat)
+    (addressBinding lengthBinding dataBinding : String) : List Stmt :=
+  let relative := Expr.calldataload (.add tuplePointer (.literal (32*memberWord)))
+  let available := Expr.sub (.sub .calldatasize tuplePointer) (.literal 31)
+  [ guard (.slt relative available)
+  , .letVar addressBinding (.add tuplePointer relative)
+  , .letVar lengthBinding (.calldataload (.localVar addressBinding))
+  , guard (.le (.localVar lengthBinding) (.literal (2^64-1)))
+  , .letVar dataBinding (.add (.localVar addressBinding) (.literal 32))
+  , guard (.logicalNot (.sgt (.localVar dataBinding)
+      (.sub .calldatasize (.localVar lengthBinding)))) ]
+
+/-- Lazy calldata nested dynamic struct pointer check at a parent struct member word,
+matching `solc`'s `calldata_struct_member_access` for dynamic structs. -/
+def nestedStructCalldataHead (tuplePointer : Expr) (memberWord subHeadWords : Nat)
+    (addressBinding : String) : List Stmt :=
+  let relative := Expr.calldataload (.add tuplePointer (.literal (32*memberWord)))
+  let available := Expr.sub (.sub .calldatasize tuplePointer) (.literal (32*subHeadWords - 1))
+  [ guard (.slt relative available)
+  , .letVar addressBinding (.add tuplePointer relative) ]
+
+/-- Eager calldata head check for a nested dynamic struct inside a memory struct decoder,
+matching `solc`'s `abi_decode_t_struct_*_memory_ptr`. -/
+def memoryNestedStructHead (tuplePointer : Expr) (memberWord subHeadWords : Nat)
+    (addressBinding : String) : List Stmt :=
+  let relative := Expr.calldataload (.add tuplePointer (.literal (32*memberWord)))
+  [ guard (.le relative (.literal (2^64-1)))
+  , .letVar addressBinding (.add tuplePointer relative)
+  , guard (.logicalNot (.slt (.sub .calldatasize (.localVar addressBinding))
+      (.literal (32*subHeadWords)))) ]
+
 end Compiler.CompilationModel.SolidityImport.AbiLowering

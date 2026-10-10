@@ -1884,3 +1884,42 @@ def stateful_ticklib_and_three_key_mapping_source(fixture: str, variant: str) ->
         return fixture
     raise ValueError(f'unknown ticklib-and-three-key-mapping variant: {variant}')
 
+
+def stateful_offer_hash_and_domain_separator_source(fixture: str, variant: str) -> str:
+    """Equivalent Midnight Offer/Market/CollateralParams EIP-712 hashing and DOMAIN_SEPARATOR sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'height', 'treeHash', 'priceTreeHash', 'rateTreeHash', 'combinedTree',
+            'cp', 'cpHash', 'nonce', 'maxExpiry', 'enterStructHash', 'enterDigest',
+            'dom', 'rHash', 'pHash', 'mHash', 'digest', 'cpBonus', 'firstCp',
+            'cbBonus', 'flagBonus', 'encodedCollateralParams',
+            'offerTreeTypeHash', 'priceRatifierV1OfferTreeTypeHash',
+            'rateRatifierV1OfferTreeTypeHash', 'hashNode', 'hashCollateralParams',
+            'hashMarket', 'hashOffer', 'hashPriceRatifierV1Offer', 'hashRateRatifierV1Offer',
+            'MAX_HEIGHT', 'COLLATERAL_PARAMS_TYPEHASH', 'MARKET_TYPEHASH', 'OFFER_TYPEHASH',
+            'PRICE_RATIFIER_V1_OFFER_TYPEHASH', 'RATE_RATIFIER_V1_OFFER_TYPEHASH',
+            'EIP712_DOMAIN_TYPEHASH', 'ENTER_TYPEHASH',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-offer-hash-and-domain-separator':
+        replacements = {
+            'offerCounts[combinedTree] += 1;':
+            'offerCounts[combinedTree] = offerCounts[combinedTree] + 1;',
+            'offerCounts[rHash] += 1;':
+            'offerCounts[rHash] = offerCounts[rHash] + 1;',
+            'offerCounts[pHash] += 1;':
+            'offerCounts[pHash] = offerCounts[pHash] + 1;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('offer-hash-and-domain-separator variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown offer-hash-and-domain-separator variant: {variant}')
+
+

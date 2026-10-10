@@ -223,6 +223,7 @@ private inductive Ref where
   | mem (id : Nat) (pre : Array Stmt)
   | flatStruct (id : Nat)
   | abiArray (id memberIndex : Nat) (pre : Array Stmt)
+  | abiBytesField (id memberIndex : Nat) (pre : Array Stmt)
   | abiElement (id memberIndex : Nat) (pointer : Expr) (inMemory : Bool) (pre : Array Stmt)
   | calldataBytes (id : Nat) (pre : Array Stmt)
   | scalarArray (id : Nat) (pre : Array Stmt)
@@ -796,6 +797,47 @@ private partial def statefulCallIn (j : Json) (env : Env) : Bool :=
       else false
       o.foldl (fun found _ child => found || statefulCallIn child env) own
   | _ => false
+
+mutual
+  private partial def jsonHasCustomRevert (env : Env) (seen : List Nat) (j : Json) : Bool :=
+    match j with
+    | .arr xs => xs.any (jsonHasCustomRevert env seen)
+    | .obj o =>
+        let kind := optStr j "nodeType"
+        let own :=
+          if kind == some "RevertStatement" then true
+          else if kind == some "YulFunctionCall" then
+            let fname := optStr (field? j "functionName" |>.getD Json.null) "name"
+            fname == some "revert" || fname == some "invalid"
+          else if kind == some "FunctionCall" && optStr j "kind" == some "functionCall" then
+            let callee := field? j "expression" |>.getD Json.null
+            match (field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption) with
+            | some (-18) | some (-20) | some (-3) => true
+            | some id =>
+                if id >= 0 then
+                  let natId := id.toNat
+                  let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
+                  fnHasCustomRevert env targetId seen
+                else false
+            | none => false
+          else false
+        o.foldl (fun found _ child => found || jsonHasCustomRevert env seen child) own
+    | _ => false
+
+  private partial def fnHasCustomRevert (env : Env) (fnId : Nat) (seen : List Nat := []) : Bool :=
+    if seen.contains fnId then true
+    else
+      match env.funs.find? fnId with
+      | none => true
+      | some fn =>
+          let isPureOrView := [some "pure", some "view"].contains (optStr fn "stateMutability")
+          let noMods := ((field? fn "modifiers").bind (fun m => m.getArr?.toOption)).map (·.isEmpty) == some true
+          let hasBody := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
+          match (field? fn "body").filter (!·.isNull) with
+          | none => true
+          | some body =>
+              !isPureOrView || !noMods || !hasBody || jsonHasCustomRevert env (fnId :: seen) body
+end
 
 private def isOrderIndependentSibling : Expr → Bool
   | .literal _ | .param _ | .blockTimestamp | .blockNumber
@@ -3591,7 +3633,61 @@ private partial def lowerRef (j : Json) : M Ref := do
                   return .abiArray id i pre
                 if let some (.scalarArray _) := schema[i]? then
                   return .abiArray id i pre
+                if let some (.bytesField _) := schema[i]? then
+                  return .abiBytesField id i pre
+                if let some (.nestedStruct _ subSid subSname subMembers subSchema) := schema[i]? then
+                  let subId := 1000000000 + (← get).next
+                  modify fun e => { e with next := e.next + 1 }
+                  if mem.calldataLocation then
+                    let subStem ← freshAbiStem subSchema false
+                    let checks := AbiLowering.nestedStructCalldataHead
+                      (.localVar (mem.abiStem ++ "_calldata")) i subSchema.length (subStem ++ "_calldata")
+                    let subMem : MemParam :=
+                      { structId := subSid
+                        param := s!"{mem.param}_{member}"
+                        structName := subSname
+                        members := subMembers.toArray
+                        staticTypes := none
+                        calldataLocation := true
+                        headBinding := ""
+                        schema := some subSchema
+                        abiStem := subStem }
+                    modify fun e => { e with mems := e.mems.insert subId subMem }
+                    return .mem subId (pre ++ checks.toArray)
+                  else
+                    let subStem ← freshAbiStem subSchema true
+                    let loadPtr := Stmt.letVar (subStem ++ "_memory")
+                      (.mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32*i))))
+                    let subMem : MemParam :=
+                      { structId := subSid
+                        param := s!"{mem.param}_{member}"
+                        structName := subSname
+                        members := subMembers.toArray
+                        staticTypes := none
+                        calldataLocation := false
+                        headBinding := ""
+                        schema := some subSchema
+                        abiStem := subStem }
+                    modify fun e => { e with mems := e.mems.insert subId subMem }
+                    return .mem subId (pre.push loadPtr)
             pure (.expr (← readAbiMember id pre member j))
+        | .abiBytesField id memberIndex pre =>
+            unless member == "length" do failAt j s!"unsupported bytes member {member}"
+            let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
+            let some schema := mem.schema | failAt j "missing ABI schema"
+            let some (.bytesField _) := schema[memberIndex]?
+              | failAt j "length requires a schema-checked ABI bytes field"
+            if mem.calldataLocation then
+              let header ← fresh
+              let length ← fresh
+              let data ← fresh
+              let checks := AbiLowering.calldataBytesFieldHead
+                (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data
+              return .expr { pre := pre ++ checks.toArray, expr := .localVar length }
+            else
+              let bytesPtr := Expr.mload (.add (.localVar (mem.abiStem ++ "_memory"))
+                (.literal (32*memberIndex)))
+              return .expr { pre, expr := .mload bytesPtr }
         | .abiArray id memberIndex pre =>
             unless member == "length" do failAt j s!"unsupported array member {member}"
             let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
@@ -4281,6 +4377,17 @@ private partial def lowerCast (j : Json) : M Val := do
   else
     pure v
 
+private partial def checkEncodingStructRef (j : Json) : M Unit := do
+  match ← mKind j with
+  | "Identifier" => pure ()
+  | "MemberAccess" => checkEncodingStructRef (← mField j "expression")
+  | "IndexAccess" =>
+      checkEncodingStructRef (← mField j "baseExpression")
+      let idx ← mField j "indexExpression"
+      unless (← mKind idx) == "Identifier" || (← mKind idx) == "Literal" do
+        failAt idx "effectful ABI encoding argument is unsupported"
+  | _ => failAt j "effectful ABI encoding argument is unsupported"
+
 /-- Restrict the entire argument tree, not merely its outer cast. This keeps
 custom reverts or effects hidden beneath a cast out of the admitted fragment. -/
 private partial def checkEncodingScalar (j : Json) : M Unit := do
@@ -4294,13 +4401,47 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
         failAt j "effectful ABI encoding argument is unsupported"
       checkEncodingScalar (← mField j "subExpression")
   | "FunctionCall" =>
-      unless optStr j "kind" == some "typeConversion" do
-        failAt j "effectful ABI encoding argument is unsupported"
       let args ← mArr (← mField j "arguments")
-      if (← mType j).startsWith "enum " then
-        unless args.size == 1 && (← mType args[0]!) == (← mType j) do
-          failAt j "fallible enum conversion in ABI encoding argument is unsupported"
-      for arg in args do checkEncodingScalar arg
+      if optStr j "kind" == some "typeConversion" then
+        if (← mType j).startsWith "enum " then
+          unless args.size == 1 && (← mType args[0]!) == (← mType j) do
+            failAt j "fallible enum conversion in ABI encoding argument is unsupported"
+        for arg in args do checkEncodingScalar arg
+      else if optStr j "kind" == some "functionCall" then
+        unless (← mArr (← mField j "names")).isEmpty do
+          failAt j "effectful ABI encoding argument is unsupported"
+        let callee ← mField j "expression"
+        if (← mKind callee) == "Identifier" || (← mKind callee) == "MemberAccess" then
+          let refId := (field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption)
+          if refId == some (-8) && (← mKind callee) == "Identifier" && args.size == 1 then
+            pure ()
+          else if let some id := refId then
+            unless id >= 0 do
+              failAt j "effectful ABI encoding argument is unsupported"
+            let env ← get
+            let natId := id.toNat
+            let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
+            if fnHasCustomRevert env targetId then
+              failAt j "effectful ABI encoding argument is unsupported"
+            if (← mKind callee) == "MemberAccess" then
+              let base ← mField callee "expression"
+              let baseTy ← mType base
+              unless baseTy.startsWith "type(library " do
+                if baseTy.startsWith "struct " then
+                  checkEncodingStructRef base
+                else
+                  checkEncodingScalar base
+            for arg in args do
+              if (← mType arg).startsWith "struct " then
+                checkEncodingStructRef arg
+              else
+                checkEncodingScalar arg
+          else
+            failAt j "effectful ABI encoding argument is unsupported"
+        else
+          failAt j "effectful ABI encoding argument is unsupported"
+      else
+        failAt j "effectful ABI encoding argument is unsupported"
   | _ => failAt j "effectful ABI encoding argument is unsupported"
 
 /-- Encode one root tuple from its complete declaration schema. Array
@@ -4336,11 +4477,13 @@ private partial def lowerEncodedRoot (arg : Json) : M EncodedBytes := do
         let value ← atom (← readAbiMember id #[] field.name arg)
         pre := pre ++ value.pre
         pre := pre.push (.mstore destination value.expr)
+    | .bytesField _ | .nestedStruct _ _ _ _ _ =>
+        failAt arg "ABI encoding of nested dynamic structs or bytes fields is outside this slice"
     | .scalarArray _ | .structArray _ _ =>
         let kinds : List SolidityAbi.ScalarKind := match member with
           | .scalarArray field => [field.kind]
           | .structArray _ fields => fields.map (fun (field : AbiSchema.ScalarField) => field.kind)
-          | .scalar _ => []
+          | .scalar _ | .bytesField _ | .nestedStruct _ _ _ _ _ => []
         let scalarArray := match member with
           | .scalarArray _ => true
           | _ => false
@@ -4930,6 +5073,41 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "value" then
     if let some name ← storageBytesSourceVar? j then
       return ← lowerStorageBytesRead name j
+  if (← mKind j) == "MemberAccess" &&
+      ((← mType j) == "bytes" || (← mType j) == "bytes memory" || (← mType j) == "bytes calldata") then
+    if (← mType (← mField j "expression")).startsWith "struct " then
+      if let .abiBytesField id memberIndex pre ← lowerRef j then
+        let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
+        let some schema := mem.schema | failAt j "missing ABI schema"
+        let some (.bytesField _) := schema[memberIndex]?
+          | failAt j "expected a schema-checked ABI bytes field"
+        if mem.calldataLocation then
+          let header ← fresh
+          let length ← fresh
+          let data ← fresh
+          let checks := AbiLowering.calldataBytesFieldHead
+            (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data
+          let pointer ← fresh
+          let finish ← fresh
+          let copyIdx ← fresh
+          let wordCount := Expr.div (.add (.localVar length) (.literal 31)) (.literal 32)
+          modify fun e => { e with encodingMemory := true }
+          let alloc := AbiEncoding.reserve pointer finish (.mul (.literal 32) wordCount)
+          let copyStmt := Stmt.forEach copyIdx wordCount
+            [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
+              (.calldataload (.add (.localVar data) (.mul (.localVar copyIdx) (.literal 32))))]
+          return { pre := pre ++ checks.toArray ++ (alloc ++ [copyStmt]).toArray,
+                   pointer := .localVar pointer, size := .localVar length }
+        else
+          let bytesPtr ← fresh
+          let length ← fresh
+          let loadStmts : Array Stmt := #[
+            .letVar bytesPtr (.mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32 * memberIndex)))),
+            .letVar length (.mload (.localVar bytesPtr))
+          ]
+          return { pre := pre ++ loadStmts,
+                   pointer := .add (.localVar bytesPtr) (.literal 32),
+                   size := .localVar length }
   if (← mKind j) == "Identifier" then
     let id ← refInt j
     if id ≥ 0 then
@@ -5123,7 +5301,8 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     -- Avoid assigning an evaluation order to multiple effectful arguments.
     -- Scalar paths and casts have no source-level writes or custom reverts.
     checkEncodingScalar arg
-    let value ← atom (← lowerExpr arg)
+    let raw ← lowerExpr arg
+    let value ← if raw.pre.isEmpty then pure raw else atom raw
     pre := pre ++ value.pre
     words := words ++ [value.expr]
   let pointer ← fresh
@@ -8830,6 +9009,24 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
           let right ← mField expression "rightHandSide"
           atom (← convert ty (← mType right) (← lowerExpr right) right)
         return value.pre.push (.assignVar binding value.expr)
+      if let some buf := (← get).byteBuffers.find? id.toNat then
+        if !deleting then
+          let right ← mField expression "rightHandSide"
+          let isBytesConcat ← if (← mKind right) == "FunctionCall" && optStr right "kind" == some "functionCall" then do
+            let callee ← mField right "expression"
+            if (← mKind callee) == "MemberAccess" && optStr callee "memberName" == some "concat" &&
+                (field? callee "referencedDeclaration").isNone then
+              let base ← mField callee "expression"
+              pure ((← mKind base) == "ElementaryTypeNameExpression" &&
+                    (optStr (field? base "typeName" |>.getD Json.null) "name" |>.getD "") == "bytes")
+            else
+              pure false
+          else
+            pure false
+          if isBytesConcat then
+            if let (.localVar ptrBinding, .localVar sizeBinding) := (buf.pointer, buf.size) then
+              let rhsBuf ← lowerEncodedBytes right
+              return rhsBuf.pre ++ #[.assignVar ptrBinding rhsBuf.pointer, .assignVar sizeBinding rhsBuf.size]
   if (← mKind target) == "MemberAccess" then
     let member ← mStr (← mField target "memberName")
     match ← lowerRef (← mField target "expression") with
@@ -9789,6 +9986,17 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
                  yulNames := e.yulNames.erase name }
       return pre
   if init.isNull then
+    if loc == "memory" && (← mType d) == "bytes" && (← get).bodyAssigned.contains id then
+      let pointer ← freshFor name
+      let size ← fresh
+      let effects : Array Stmt := #[.letVar pointer (.literal 96), .letVar size (.literal 0)]
+      let retained : EncodedBytes :=
+        { pre := #[], pointer := .localVar pointer, size := .localVar size }
+      modify fun e =>
+        { e with byteBuffers := e.byteBuffers.insert id retained,
+                 encodingMemory := true,
+                 yulNames := e.yulNames.erase name }
+      return effects
     unless loc == "default" do
       failAt d "uninitialized reference locals are outside this slice"
     let ty ← mType d
@@ -10247,6 +10455,10 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
         let ty ← mType j
         return ty == "string storage ref" || ty == "string storage pointer" ||
                ty == "bytes storage ref" || ty == "bytes storage pointer"
+      let ty ← mType j
+      if (ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata") &&
+          (← mType (← mField j "expression")).startsWith "struct " then
+        return true
       return false
   | "FunctionCall" =>
       if optStr j "kind" == some "typeConversion" then
@@ -11557,14 +11769,14 @@ def elabSolidityImport : CommandElab := fun stx => do
       importSlice pkg project entry.getString contract.getId.toString roots profile
     let ns := (← getCurrNamespace) ++ alias.getId
     let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
-    elabCommand (← `(set_option maxRecDepth 4096 in
+    elabCommand (← `(set_option maxRecDepth 16384 in
       def $(name `model) : Compiler.CompilationModel.CompilationModel :=
         $(← quoteModel model)))
-    elabCommand (← `(set_option maxRecDepth 4096 in
+    elabCommand (← `(set_option maxRecDepth 16384 in
       def $(name `report) : Compiler.CompilationModel.SolidityImport.ImportReport :=
         $(← quoteReport report)))
     elabCommand (← `(def $(name `sourceDigest) : String := $(quote report.sourceDigest)))
-    elabCommand (← `(set_option maxRecDepth 4096 in
+    elabCommand (← `(set_option maxRecDepth 16384 in
       theorem $(name `covered) :
         Compiler.CompilationModel.SolidityImport.modelImportCovered $(name `model) = true := by decide))
     for fn in model.functions do

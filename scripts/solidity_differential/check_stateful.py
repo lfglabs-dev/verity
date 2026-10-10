@@ -13,6 +13,81 @@ from .identity import ImplementationIdentity
 from .programs import stateful_scalar_source
 
 
+OFFER_MEM_SIG = 'inspectOfferMem(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),uint256)'
+OFFER_CD_SIG = 'inspectOfferCd(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),uint256,address)'
+
+
+def _encode_offer_call(
+    extra_scalars,
+    *,
+    chain_id=1,
+    midnight=0x1111,
+    loan_token=0x2222,
+    collateral_params=(),
+    maturity=1700000000,
+    rcf_threshold=5000,
+    enter_gate=0x3333,
+    liquidator_gate=0x4444,
+    buy=1,
+    maker=0x5555,
+    start=100,
+    expiry=200,
+    tick=120,
+    group=0xABCD,
+    callback=0x6666,
+    cb_words=(),
+    cb_len=None,
+    receiver_if_seller=0x7777,
+    ratifier=0x8888,
+    reduce_only=0,
+    max_units=1000,
+    max_assets=2000,
+    fee_cap=300,
+    offer_offset=None,
+    market_rel_offset=None,
+    cp_rel_offset=None,
+    cb_rel_offset=None,
+):
+    head_arity = 1 + len(extra_scalars)
+    top_off = (32 * head_arity) if offer_offset is None else offer_offset
+    mkt_off = (15 * 32) if market_rel_offset is None else market_rel_offset
+    cp_off = (8 * 32) if cp_rel_offset is None else cp_rel_offset
+    mkt_words = [
+        chain_id,
+        midnight,
+        loan_token,
+        cp_off,
+        maturity,
+        rcf_threshold,
+        enter_gate,
+        liquidator_gate,
+        len(collateral_params),
+    ]
+    for cp in collateral_params:
+        mkt_words.extend(cp)
+    default_cb_off = 15 * 32 + 32 * len(mkt_words)
+    cb_off = default_cb_off if cb_rel_offset is None else cb_rel_offset
+    actual_cb_len = (32 * len(cb_words)) if cb_len is None else cb_len
+    offer_head = [
+        mkt_off,
+        buy,
+        maker,
+        start,
+        expiry,
+        tick,
+        group,
+        callback,
+        cb_off,
+        receiver_if_seller,
+        ratifier,
+        reduce_only,
+        max_units,
+        max_assets,
+        fee_cap,
+    ]
+    return [top_off, *extra_scalars, *offer_head, *mkt_words, actual_cb_len, *cb_words]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
@@ -93,6 +168,9 @@ def main():
         'trancheHistorySnapshot(uint256)',
         'lookupWindow(uint48,uint256)',
         'quoteTickRoundtrip(uint256,uint256)',
+        'DOMAIN_SEPARATOR()',
+        OFFER_MEM_SIG,
+        OFFER_CD_SIG,
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -351,6 +429,41 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(quote_tick_prefix[:remaining_budget])
+    if OFFER_MEM_SIG in source['methodIdentifiers']:
+        offer_prefix = [
+            ('DOMAIN_SEPARATOR()', []),
+            (OFFER_MEM_SIG, _encode_offer_call([500])),
+            (OFFER_MEM_SIG, _encode_offer_call(
+                [750],
+                collateral_params=((0xA1, 8500, 1500, 0xB1),),
+                cb_len=5,
+                cb_words=(0x1122334455 << 216,),
+            )),
+            (OFFER_MEM_SIG, _encode_offer_call(
+                [900],
+                buy=0,
+                reduce_only=1,
+                collateral_params=((0xA1, 8000, 1200, 0xB1), (0xA2, 9000, 1800, 0xB2)),
+                cb_len=35,
+                cb_words=(0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232),
+            )),
+            (OFFER_MEM_SIG, _encode_offer_call([500], max_units=1 << 128)),
+            (OFFER_MEM_SIG, _encode_offer_call([500], buy=2)),
+            (OFFER_CD_SIG, _encode_offer_call([600, 0x9999])),
+            (OFFER_CD_SIG, _encode_offer_call(
+                [850, 0xAAAA],
+                buy=0,
+                reduce_only=1,
+                collateral_params=((0xA1, 8200, 1400, 0xB1), (0xA2, 8800, 1600, 0xB2)),
+                cb_len=4,
+                cb_words=(0xDEADBEEF << 224,),
+            )),
+            (OFFER_CD_SIG, _encode_offer_call([600, 0x9999], collateral_params=((0xA1, 8200, 1400, 1 << 160),))),
+            (OFFER_CD_SIG, _encode_offer_call([600, 0x9999], cb_len=65)),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(offer_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -468,6 +581,19 @@ def main():
             call_args = rng.choice([[0, 0], [1, 0], [3, 0], [5, 1], [8, 0], [2, 97], [2, 98], [2, 99], [1 << 48, 0]])
         elif name == 'quoteTickRoundtrip(uint256,uint256)':
             call_args = rng.choice([[0, 8], [1600, 8], [3368, 8], [3376, 8], [5000, 24], [6744, 8], [6745, 8], [2400, 0]])
+        elif name == OFFER_MEM_SIG:
+            call_args = rng.choice([
+                _encode_offer_call([500]),
+                _encode_offer_call([750], collateral_params=((0xA1, 8500, 1500, 0xB1),), cb_len=5, cb_words=(0x1122334455 << 216,)),
+                _encode_offer_call([900], buy=0, reduce_only=1, collateral_params=((0xA1, 8000, 1200, 0xB1), (0xA2, 9000, 1800, 0xB2)), cb_len=35, cb_words=(0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232)),
+                _encode_offer_call([500], max_units=1 << 128),
+            ])
+        elif name == OFFER_CD_SIG:
+            call_args = rng.choice([
+                _encode_offer_call([600, 0x9999]),
+                _encode_offer_call([850, 0xAAAA], buy=0, reduce_only=1, collateral_params=((0xA1, 8200, 1400, 0xB1), (0xA2, 8800, 1600, 0xB2)), cb_len=4, cb_words=(0xDEADBEEF << 224,)),
+                _encode_offer_call([600, 0x9999], collateral_params=((0xA1, 8200, 1400, 1 << 160),)),
+            ])
         else:
             call_args = []
         calls.append((name, call_args))
