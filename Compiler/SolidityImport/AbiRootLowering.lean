@@ -11,62 +11,88 @@ structure Plan where
   memoryPointer : String
   names : List String
   body : List Stmt
+  deriving Inhabited
 
 /-- Materialize a schema-checked struct from a validated calldata pointer into
 freshly allocated memory, returning the memory pointer, reserved binding names,
 and statements. Matches solc's `convert_t_struct_calldata_ptr_to_t_struct_memory_ptr`. -/
 def materializeFromCalldata (calldataPointer stem : String)
-    (schema : List Member) : Plan := Id.run do
-  let memoryPointer := stem ++ "_memory"
-  let nextPointer := stem ++ "_next"
-  let mut names := [memoryPointer, nextPointer]
-  let mut body : List Stmt := [
-    .letVar memoryPointer (.mload (.literal 64)),
-    .letVar nextPointer (.add (.localVar memoryPointer) (.literal (32*schema.length))),
-    .ite (.le (.localVar nextPointer) (.literal (2^64-1))) [] [.panicCode (.literal 0x41)],
-    .ite (.ge (.localVar nextPointer) (.localVar memoryPointer)) [] [.panicCode (.literal 0x41)],
-    .mstore (.literal 64) (.localVar nextPointer)]
-  for (member, i) in schema.zipIdx do
-    let destination := Expr.add (.localVar memoryPointer) (.literal (32*i))
-    match member with
-    | .scalar field =>
-      let value := Expr.calldataload (.add (.localVar calldataPointer) (.literal (32*i)))
-      let bound := SolidityAbi.scalarBound field.kind
-      if bound < 2^256 then body := body ++ [guard (.lt value (.literal bound))]
-      body := body ++ [.mstore destination value]
-    | .scalarArray field =>
-      let memberStem := stem ++ "_array" ++ toString i
-      let arrayPointer := memberStem ++ "_memory"
-      let header := memberStem ++ "_header"
-      let length := memberStem ++ "_length"
-      let data := memberStem ++ "_data"
-      let next := memberStem ++ "_next"
-      let elementStem := memberStem ++ "_element"
-      names := names ++ [arrayPointer, header, length, data, next, elementStem ++ "_index"]
-      body := body ++ [.letVar arrayPointer (.mload (.literal 64))] ++
-        memoryStaticArrayHead (.localVar calldataPointer) (.localVar arrayPointer) i 1
-          header length data next ++
-        materializeStaticScalarArray (.localVar data) (.localVar length)
-          (.localVar arrayPointer) (.localVar next) elementStem field.kind ++
-        [.mstore destination (.localVar arrayPointer)]
-    | .structArray _ fields =>
-      let memberStem := stem ++ "_array" ++ toString i
-      let arrayPointer := memberStem ++ "_memory"
-      let header := memberStem ++ "_header"
-      let length := memberStem ++ "_length"
-      let data := memberStem ++ "_data"
-      let next := memberStem ++ "_next"
-      let elementStem := memberStem ++ "_element"
-      names := names ++ [arrayPointer, header, length, data, next,
-        elementStem ++ "_index", elementStem ++ "_element",
-        elementStem ++ "_next", elementStem ++ "_source"]
-      body := body ++ [.letVar arrayPointer (.mload (.literal 64))] ++
-        memoryStaticArrayHead (.localVar calldataPointer) (.localVar arrayPointer) i fields.length
-          header length data next ++
-        materializeStaticStructArray (.localVar data) (.localVar length)
-          (.localVar arrayPointer) (.localVar next) elementStem (fields.map (·.kind)) ++
-        [.mstore destination (.localVar arrayPointer)]
-  return { calldataPointer, memoryPointer, names, body }
+    (schema : List Member) (fuel : Nat := 16) : Plan :=
+  match fuel with
+  | 0 => { calldataPointer, memoryPointer := stem ++ "_memory", names := [], body := [] }
+  | fuel + 1 => Id.run do
+    let memoryPointer := stem ++ "_memory"
+    let nextPointer := stem ++ "_next"
+    let mut names := [memoryPointer, nextPointer]
+    let mut body : List Stmt := [
+      .letVar memoryPointer (.mload (.literal 64)),
+      .letVar nextPointer (.add (.localVar memoryPointer) (.literal (32*schema.length))),
+      .ite (.le (.localVar nextPointer) (.literal (2^64-1))) [] [.panicCode (.literal 0x41)],
+      .ite (.ge (.localVar nextPointer) (.localVar memoryPointer)) [] [.panicCode (.literal 0x41)],
+      .mstore (.literal 64) (.localVar nextPointer)]
+    for (member, i) in schema.zipIdx do
+      let destination := Expr.add (.localVar memoryPointer) (.literal (32*i))
+      match member with
+      | .scalar field =>
+        let value := Expr.calldataload (.add (.localVar calldataPointer) (.literal (32*i)))
+        let bound := SolidityAbi.scalarBound field.kind
+        if bound < 2^256 then body := body ++ [guard (.lt value (.literal bound))]
+        body := body ++ [.mstore destination value]
+      | .bytesField _ =>
+        let memberStem := stem ++ "_bytes" ++ toString i
+        let bytesPointer := memberStem ++ "_memory"
+        let header := memberStem ++ "_header"
+        let length := memberStem ++ "_length"
+        let data := memberStem ++ "_data"
+        let next := memberStem ++ "_next"
+        let copyIndex := memberStem ++ "_index"
+        names := names ++ [bytesPointer, header, length, data, next, copyIndex]
+        body := body ++
+          memoryBytesField (.localVar calldataPointer) i
+            bytesPointer header length data next copyIndex ++
+          [.mstore destination (.localVar bytesPointer)]
+      | .scalarArray field =>
+        let memberStem := stem ++ "_array" ++ toString i
+        let arrayPointer := memberStem ++ "_memory"
+        let header := memberStem ++ "_header"
+        let length := memberStem ++ "_length"
+        let data := memberStem ++ "_data"
+        let next := memberStem ++ "_next"
+        let elementStem := memberStem ++ "_element"
+        names := names ++ [arrayPointer, header, length, data, next, elementStem ++ "_index"]
+        body := body ++ [.letVar arrayPointer (.mload (.literal 64))] ++
+          memoryStaticArrayHead (.localVar calldataPointer) (.localVar arrayPointer) i 1
+            header length data next ++
+          materializeStaticScalarArray (.localVar data) (.localVar length)
+            (.localVar arrayPointer) (.localVar next) elementStem field.kind ++
+          [.mstore destination (.localVar arrayPointer)]
+      | .structArray _ fields =>
+        let memberStem := stem ++ "_array" ++ toString i
+        let arrayPointer := memberStem ++ "_memory"
+        let header := memberStem ++ "_header"
+        let length := memberStem ++ "_length"
+        let data := memberStem ++ "_data"
+        let next := memberStem ++ "_next"
+        let elementStem := memberStem ++ "_element"
+        names := names ++ [arrayPointer, header, length, data, next,
+          elementStem ++ "_index", elementStem ++ "_element",
+          elementStem ++ "_next", elementStem ++ "_source"]
+        body := body ++ [.letVar arrayPointer (.mload (.literal 64))] ++
+          memoryStaticArrayHead (.localVar calldataPointer) (.localVar arrayPointer) i fields.length
+            header length data next ++
+          materializeStaticStructArray (.localVar data) (.localVar length)
+            (.localVar arrayPointer) (.localVar next) elementStem (fields.map (·.kind)) ++
+          [.mstore destination (.localVar arrayPointer)]
+      | .nestedStruct _ _ _ _ subSchema =>
+        let memberStem := stem ++ "_struct" ++ toString i
+        let subCalldata := memberStem ++ "_calldata"
+        let subMat := materializeFromCalldata subCalldata memberStem subSchema fuel
+        names := names ++ [subCalldata] ++ subMat.names
+        body := body ++
+          memoryNestedStructHead (.localVar calldataPointer) i subSchema.length subCalldata ++
+          subMat.body ++
+          [.mstore destination (.localVar subMat.memoryPointer)]
+    return { calldataPointer, memoryPointer, names, body }
 
 /-- Materialize a single flat static struct element from a calldata pointer
 expression into freshly allocated memory, returning the memory pointer,
