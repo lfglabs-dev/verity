@@ -90,6 +90,7 @@ def main():
         'dequeAndBitmapStep(string,uint256)',
         'slotAndShortStringStep(string,uint32,uint32,uint256)',
         'vaultLabel()',
+        'trancheHistorySnapshot(uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -309,6 +310,19 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(slot_short_prefix[:remaining_budget])
+    if 'trancheHistorySnapshot(uint256)' in source['methodIdentifiers']:
+        tranche_hist_prefix = [
+            ('trancheHistorySnapshot(uint256)', [0]),
+            ('trancheHistorySnapshot(uint256)', [1]),
+            ('trancheHistorySnapshot(uint256)', [2]),
+            ('trancheHistorySnapshot(uint256)', [97]),
+            ('trancheHistorySnapshot(uint256)', [98]),
+            ('trancheHistorySnapshot(uint256)', [99]),
+            ('trancheHistorySnapshot(uint256)', [3]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(tranche_hist_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -420,6 +434,8 @@ def main():
                 [128, 8, 2, 99, 0],
                 [128, 10, 5, 3, 0],
             ])
+        elif name == 'trancheHistorySnapshot(uint256)':
+            call_args = rng.choice([[0], [1], [2], [3], [4], [5], [97], [98], [99]])
         else:
             call_args = []
         calls.append((name, call_args))

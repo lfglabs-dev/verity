@@ -98,6 +98,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.DynamicBytesAndStringReturnSequenceModel,
     .one `Contracts.SolidityImportSmoke.BytesAndStringStorageSequenceModel,
     .one `Contracts.SolidityImportSmoke.StorageSlotShortStringsTimeSequenceModel,
+    .one `Contracts.SolidityImportSmoke.EnumerableSetMapSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,
