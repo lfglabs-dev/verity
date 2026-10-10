@@ -1959,3 +1959,40 @@ def stateful_abi_decode_and_ratifier_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown abi-decode-and-ratifier variant: {variant}')
+
+
+def stateful_votes_checkpoints_arrays_bitmaps_source(fixture: str, variant: str) -> str:
+    """Equivalent OZ Votes / Checkpoints / Arrays / BitMaps / AccessControlDefaultAdminRules sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'store', 'op', 'delta', 'updated', 'from', 'to', 'amount', 'voter',
+            'delegatee', 'snapKey', 'curVotes', 'canSub', 'chosenOp', 'ub',
+            'firstSigner', 'firstTag', 'firstSnap', 'hasTotal', 'latestKey', 'latestTotal',
+            'delLatest', 'pendAdmin', 'pendSched', 'cLen',
+            'targetSnap', 'mode', '_add', '_subtract', '_push', '_checkOp', '_applyOp',
+            '_moveDelegateVotes', '_transferVotingUnits', '_delegatee', '_delegateCheckpoints',
+            '_totalCheckpoints', '_snapshots', '_signers', '_tags', '_claimed',
+            '_pendingDefaultAdmin', '_pendingDefaultAdminSchedule',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-votes-checkpoints-arrays-bitmaps':
+        replacements = {
+            'nonces[true][voter][delegatee] += 1;':
+            'nonces[true][voter][delegatee] = nonces[true][voter][delegatee] + 1;',
+            'nonces[false][voter][delegatee] += 2;':
+            'nonces[false][voter][delegatee] = nonces[false][voter][delegatee] + 2;',
+            'totalScore += metric;':
+            'totalScore = totalScore + metric;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('votes-checkpoints-arrays-bitmaps variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown votes-checkpoints-arrays-bitmaps variant: {variant}')
+

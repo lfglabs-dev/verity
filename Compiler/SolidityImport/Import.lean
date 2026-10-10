@@ -272,6 +272,10 @@ private structure MemParam where
   schema : Option (List AbiSchema.Member) := none
   abiStem : String := ""
 
+private inductive FnPtr where
+  | direct (fnId : Nat)
+  | branch (cond : Expr) (trueFnId : Nat) (falseFnId : Nat)
+
 private inductive CallArg where
   | scalar (value : Val)
   | memory (descriptor : MemParam) (pre : Array Stmt)
@@ -284,10 +288,7 @@ private inductive CallArg where
   | flatStruct (structId : Nat) (structName : String) (members : Array (String × String × Expr)) (pre : Array Stmt)
   | storageBytes (fieldName : String) (isString : Bool)
   | storageDynamicArray (fieldName : String) (slotExpr : Expr) (elemTy : String) (elemStructId : Option Nat) (pre : Array Stmt)
-
-private inductive FnPtr where
-  | direct (fnId : Nat)
-  | branch (cond : Expr) (trueFnId : Nat) (falseFnId : Nat)
+  | fnPtr (ptr : FnPtr) (pre : Array Stmt)
 
 private structure FieldInfo where
   slot : Nat
@@ -387,6 +388,7 @@ private structure Env where
   rootReturnTypes : Array String := #[]
   rootNamedReturn : Option (Nat × String × String × String) := none
   rootFixedArrayReturn : Option (String × ParamType × Nat) := none
+  rootFlatStructReturn : Option (Nat × String × Array (String × String × String) × Bool) := none
   rootMsgDataReturn : Bool := false
   rootDynamicBytesReturn : Option ParamType := none
   rootPost : Array Stmt := #[]
@@ -5838,6 +5840,9 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
         continue
       let buf ← lowerEncodedBytes arg
       vals := vals.push (.byteBuffer buf)
+    else if argTy.startsWith "function (" then
+      let (fpre, ptr) ← lowerFnPtrInit arg
+      vals := vals.push (.fnPtr ptr fpre)
     else
       vals := vals.push (.scalar (← lowerExpr arg))
   pure vals
@@ -5886,6 +5891,9 @@ private partial def atomizeCallArgs (vals : Array CallArg) : M (Array Stmt × Ar
         let slotAtom ← atom { pre := spre, expr := slotExpr }
         pre := pre ++ slotAtom.pre
         out := out.push (.storageDynamicArray fieldName slotAtom.expr elemTy elemSid? #[])
+    | .fnPtr ptr fpre =>
+        pre := pre ++ fpre
+        out := out.push (.fnPtr ptr #[])
   pure (pre, out)
 
 private partial def resolveFnPtrTarget (j : Json) : M Nat := do
@@ -6546,6 +6554,21 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               yul := yul.erase pname
           else
             failAt p s!"unsupported storage dynamic array helper parameter location {location}"
+    | .fnPtr ptr effects =>
+        let some typeNameNode := field? p "typeName"
+          | failAt p "function pointer argument requires a function parameter"
+        unless optStr typeNameNode "nodeType" == some "FunctionTypeName" do
+          failAt p "function pointer argument requires a function parameter"
+        let fvis := optStr typeNameNode "visibility" |>.getD ""
+        unless fvis == "internal" do
+          failAt p s!"only internal function pointer parameters are supported, found {fvis}"
+        if (bodyAssignedIds body).contains pid then
+          failAt p "reassigned function pointer parameters are outside this slice"
+        pre := pre ++ effects
+        modify fun e =>
+          { e with fnPtrs := e.fnPtrs.insert pid ptr }
+        if pname != "" then
+          yul := yul.erase pname
   pure (pre, yul)
 
 private partial def bindYulExternalConstants (j : Json) : M (Array Stmt) := do
@@ -7375,7 +7398,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
     for arg in args do
       match arg with
       | .memory _ _ | .abiElement _ _ | .scalarArray _ _ | .byteBuffer _ | .stringBuffer _ | .calldataBytes _ _
-      | .storagePath _ _ _ | .flatStruct _ _ _ _ | .storageBytes _ _ | .storageDynamicArray _ _ _ _ _ =>
+      | .storagePath _ _ _ | .flatStruct _ _ _ _ | .storageBytes _ _ | .storageDynamicArray _ _ _ _ _ | .fnPtr _ _ =>
           failAt at_ "external reference helper calls are unsupported"
       | .scalar _ => pure ()
   let saved := ← get
@@ -9234,22 +9257,22 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       if let some ptr := (← get).fnPtrs.find? reference.toNat then
         unless (← mKind callee) == "Identifier" do
           failAt callee "function pointer call requires a local identifier"
-        let checkFnVoid (fnId : Nat) : M Bool := do
+        let checkFnArity (fnId : Nat) : M Nat := do
           let some declaration := (← get).funs.find? fnId
             | failAt callee "unresolved function pointer target"
           let visibility := optStr declaration "visibility" |>.getD ""
-          unless visibility == "internal" || visibility == "private" do
-            failAt callee "function pointer target requires an internal or private declaration"
+          unless visibility == "internal" || visibility == "private" || visibility == "public" do
+            failAt callee "function pointer target requires an internal, private, or public declaration"
           let rets ← mArr (← mField (← mField declaration "returnParameters") "parameters")
-          pure rets.isEmpty
-        let isVoid ← match ptr with
-          | .direct fnId => checkFnVoid fnId
+          pure rets.size
+        let arity ← match ptr with
+          | .direct fnId => checkFnArity fnId
           | .branch _ tId fId => do
-              let v1 ← checkFnVoid tId
-              let v2 ← checkFnVoid fId
+              let v1 ← checkFnArity tId
+              let v2 ← checkFnArity fId
               unless v1 == v2 do failAt callee "function pointer branches have mismatched return arities"
               pure v1
-        if isVoid then
+        if arity == 0 then
           let rawVals ← lowerCallArgs expression none
           match ptr with
           | .direct fnId =>
@@ -9259,6 +9282,9 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
               let trueStmts ← inlineVoidFn trueFnId atomicVals expression
               let falseStmts ← inlineVoidFn falseFnId atomicVals expression
               return argPre.push (.ite condExpr trueStmts.toList falseStmts.toList)
+        else if arity > 1 then
+          let (multiPre, _) ← lowerMultiCall expression
+          return multiPre
         else
           let result ← atom (← lowerCall expression)
           return result.pre
@@ -10924,6 +10950,30 @@ private def functionDynamicBytesReturn? (fn : Json) : M (Option ParamType) := do
   | "string" => return some .string
   | _ => return none
 
+private def functionFlatStructReturnType? (fn : Json) :
+    M (Option (Nat × String × String × Nat × Array (String × String × ParamType))) := do
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.size == 1 do return none
+  let r := rets[0]!
+  let loc := optStr r "storageLocation" |>.getD "default"
+  unless loc == "memory" do return none
+  let rty ← mType r
+  unless rty.startsWith "struct " && !rty.contains "[" do return none
+  let (retSid, retDecl) ← resolveStructDeclFromType r
+  let retStructName ← mStr (← mField retDecl "name")
+  let retMembers ← mArr (← mField retDecl "members")
+  unless !retMembers.isEmpty do return none
+  let mut memberSpecs : Array (String × String × ParamType) := #[]
+  for mNode in retMembers do
+    let mName ← mStr (← mField mNode "name")
+    let mTy ← mType mNode
+    unless !mTy.startsWith "enum " do return none
+    let some mPty := paramType mTy | return none
+    memberSpecs := memberSpecs.push (mName, mTy, mPty)
+  let rname ← mStr (← mField r "name")
+  let rid ← mNat (← mField r "id")
+  return some (retSid, retStructName, rname, rid, memberSpecs)
+
 private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
   match ← mKind j with
   | "Conditional" =>
@@ -11323,6 +11373,40 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
           let msgDataPre ← lowerMsgDataExpr expr
           out := (out ++ msgDataPre ++ env.rootPost).push
             (.returnValues [.literal 32, .calldatasize, .calldataload (.literal 0)])
+        else if let some (retSid, _, memberBindings, isNamed) := env.rootFlatStructReturn then
+          let isSameNamedReturn ← if isNamed && (← mKind expr) == "Identifier" then do
+            let id ← refInt expr
+            if id ≥ 0 then
+              if let some flat := env.flatStructs.find? id.toNat then
+                pure (flat.members == memberBindings)
+              else pure false
+            else pure false
+          else pure false
+          if isSameNamedReturn then
+            if env.rootPost.isEmpty then
+              out := out.push (.returnValues env.rootReturns.toList)
+            else
+              let mut pres : Array Stmt := #[]
+              let mut exprs : Array Expr := #[]
+              for retExpr in env.rootReturns do
+                let captured ← fresh
+                pres := pres.push (.letVar captured retExpr)
+                exprs := exprs.push (.localVar captured)
+              out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
+          else
+            let (exprSid, _, valPre, memberVals) ← lowerFlatStructValue expr (some retSid) true
+            unless exprSid == retSid && memberVals.size == memberBindings.size do
+              failAt expr "root struct return member count mismatch"
+            let mut pres := valPre
+            let mut exprs : Array Expr := #[]
+            for (_, _, valExpr) in memberVals do
+              if env.rootPost.isEmpty then
+                exprs := exprs.push valExpr
+              else
+                let captured ← fresh
+                pres := pres.push (.letVar captured valExpr)
+                exprs := exprs.push (.localVar captured)
+            out := (out ++ pres ++ env.rootPost).push (.returnValues exprs.toList)
         else if (← mKind expr) == "TupleExpression" then
           if ← mBool (← mField expr "isInlineArray") then
             failAt expr "inline arrays are outside this slice"
@@ -11391,13 +11475,28 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let stmts ← mArr (← mField body "statements")
   let emptyBodyArrayRet? ← functionEmptyBodyArrayReturnType? fn
   let fixedArrayRet? ← functionFixedArrayReturnType? fn
+  let flatStructRet? ← functionFlatStructReturnType? fn
   let msgDataRet ← functionMsgDataReturn? fn
   let dynamicBytesRet? ← functionDynamicBytesReturn? fn
   let rootReturnTypes ← returns.mapM mType
   let mut rootRetExprs : Array Expr := #[]
   let mut rootNamedReturn? : Option (Nat × String × String × String) := none
-  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone
-  if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone then
+  let mut rootFlatStructState? : Option (Nat × String × Array (String × String × String) × Bool) := none
+  let mut allNamedScalar := !returns.isEmpty && emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && flatStructRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone
+  if let some (retSid, retStructName, rname, rid, memberSpecs) := flatStructRet? then
+    let mut memberBindings : Array (String × String × String) := #[]
+    for (mName, mTy, _) in memberSpecs do
+      let binding ← freshFor s!"{if rname == "" then "ret_struct" else rname}_{mName}"
+      if rname != "" then
+        rootInit := rootInit.push (.letVar binding (.literal 0))
+        rootRetExprs := rootRetExprs.push (.localVar binding)
+      memberBindings := memberBindings.push (mName, mTy, binding)
+    if rname != "" then
+      modify fun e =>
+        { e with flatStructs := e.flatStructs.insert rid { structId := retSid, structName := retStructName, members := memberBindings },
+                 yulNames := e.yulNames.erase rname }
+    rootFlatStructState? := some (retSid, retStructName, memberBindings, rname != "")
+  else if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone then
     for r in returns do
       let rty ← mType r
       discard (validateEnumTypeIfNeeded r rty)
@@ -11422,10 +11521,11 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   modify fun e =>
     { e with bodyAssigned := bodyAssignedIds body,
              rootIsVoid := returns.isEmpty,
-             rootReturns := if allNamedScalar then rootRetExprs else #[],
+             rootReturns := if allNamedScalar || (flatStructRet?.isSome && !rootRetExprs.isEmpty) then rootRetExprs else #[],
              rootReturnTypes := rootReturnTypes,
              rootNamedReturn := if allNamedScalar then rootNamedReturn? else none,
              rootFixedArrayReturn := fixedArrayRet?,
+             rootFlatStructReturn := rootFlatStructState?,
              rootMsgDataReturn := msgDataRet,
              rootDynamicBytesReturn := dynamicBytesRet? }
   let (modStmts, modPost) ← lowerModifiers mods
@@ -11443,6 +11543,11 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     else if let some (_, _, length) := fixedArrayRet? then
       if stmts.isEmpty then
         out := out ++ #[.returnValues (Array.replicate length (.literal 0)).toList]
+      else
+        failAt fn "an explicit root return is required"
+    else if let some (_, _, _, _, memberSpecs) := flatStructRet? then
+      if stmts.isEmpty then
+        out := out ++ #[.returnValues (Array.replicate memberSpecs.size (.literal 0)).toList]
       else
         failAt fn "an explicit root return is required"
     else if msgDataRet || dynamicBytesRet?.isSome then
@@ -11827,7 +11932,7 @@ private def importSlice
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[] }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]
@@ -11947,6 +12052,8 @@ private def importSlice
         return #[arrayRetTy]
       if let some (_, elemPty, length) ← functionFixedArrayReturnType? fn then
         return Array.replicate length elemPty
+      if let some (_, _, _, _, memberSpecs) ← functionFlatStructReturnType? fn then
+        return (memberSpecs.map (fun (p : String × String × ParamType) => p.2.2) : Array ParamType)
       if ← functionMsgDataReturn? fn then
         return #[.bytes]
       if let some dynRetTy ← functionDynamicBytesReturn? fn then
