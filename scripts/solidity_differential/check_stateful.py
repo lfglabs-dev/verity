@@ -88,6 +88,8 @@ def main():
         'checkInterface(bytes4,uint256)',
         'royaltyAndHolderCheck(uint256,uint256)',
         'dequeAndBitmapStep(string,uint256)',
+        'slotAndShortStringStep(string,uint32,uint32,uint256)',
+        'vaultLabel()',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -290,6 +292,23 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(deque_prefix[:remaining_budget])
+    if 'slotAndShortStringStep(string,uint32,uint32,uint256)' in source['methodIdentifiers']:
+        slot_short_prefix = [
+            ('vaultLabel()', []),
+            ('slotAndShortStringStep(string,uint32,uint32,uint256)', [128, 12, 3, 0, 5, 0x616c706861 << 216]),
+            ('vaultLabel()', []),
+            ('slotAndShortStringStep(string,uint32,uint32,uint256)', [128, 6, 4, 1, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232]),
+            ('vaultLabel()', []),
+            ('slotAndShortStringStep(string,uint32,uint32,uint256)', [128, 18, 2, 0, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232]),
+            ('slotAndShortStringStep(string,uint32,uint32,uint256)', [128, 8, 2, 99, 0]),
+            ('slotAndShortStringStep(string,uint32,uint32,uint256)', [128, 1 << 32, 2, 0, 0]),
+            ('slotAndShortStringStep(string,uint32,uint32,uint256)', [96, 8, 2, 0, 0]),
+            ('slotAndShortStringStep(string,uint32,uint32,uint256)', [128, 9, 1, 2, 4, 0x62657461 << 224]),
+            ('vaultLabel()', []),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(slot_short_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -391,6 +410,15 @@ def main():
                 [64, 9, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232],
                 [64, 3, 4, 0x62657461 << 224],
                 [64, 22, 6, 0x70617265746f << 208],
+            ])
+        elif name == 'slotAndShortStringStep(string,uint32,uint32,uint256)':
+            call_args = rng.choice([
+                [128, 12, 3, 0, 5, 0x616c706861 << 216],
+                [128, 6, 4, 1, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232],
+                [128, 15, 2, 0, 4, 0x62657461 << 224],
+                [128, 18, 2, 0, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232],
+                [128, 8, 2, 99, 0],
+                [128, 10, 5, 3, 0],
             ])
         else:
             call_args = []
