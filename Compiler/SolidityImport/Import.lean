@@ -2962,6 +2962,52 @@ private def helperListReturns (stmts : Array Json) : M Bool := do
   | some s => helperReturns s
   | none => pure false
 
+private inductive AbiDecodeTypeItem where
+  | scalar (ty : String) (pty : ParamType) (enumBound? : Option Nat)
+  | flatStruct (sid : Nat) (sName : String) (members : Array (String × String))
+  | scalarArray (elemStr : String) (elemPty : ParamType) (abiKind : SolidityAbi.ScalarKind)
+  | dynamicBytes (isString : Bool)
+
+private instance : Inhabited AbiDecodeTypeItem := ⟨.dynamicBytes false⟩
+
+private inductive AbiDecodedValue where
+  | scalar (ty : String) (pty : ParamType) (expr : Expr)
+  | flatStruct (sid : Nat) (sName : String) (members : Array (String × String × Expr))
+  | scalarArray (elemStr : String) (elemPty : ParamType) (abiKind : SolidityAbi.ScalarKind) (desc : ScalarArrayParam)
+  | dynamicBytes (isString : Bool) (buf : EncodedBytes)
+
+private instance : Inhabited AbiDecodedValue := ⟨.scalar "" .uint256 (.literal 0)⟩
+
+private def readAbiDecodeWord (fromCalldata : Bool) (addr : Expr) : Expr :=
+  if fromCalldata then
+    .calldataload addr
+  else
+    let rem := Expr.bitAnd addr (.literal 31)
+    let aligned := Expr.bitAnd addr (.bitNot (.literal 31))
+    let shiftBits := Expr.mul rem (.literal 8)
+    .bitOr
+      (.shl shiftBits (.mload aligned))
+      (.shr (.sub (.literal 256) shiftBits) (.mload (.add aligned (.literal 32))))
+
+private def abiDecodeScalarGuard? (ty : String) (enumBound? : Option Nat) (word : Expr) : Option Stmt :=
+  if ty == "uint256" || ty == "uint" || ty == "int256" || ty == "int" || ty == "bytes32" then
+    none
+  else if ty == "bool" then
+    some (AbiLowering.guard (.lt word (.literal 2)))
+  else if ty == "address" || ty == "address payable" || ty.startsWith "contract " then
+    some (AbiLowering.guard (.lt word (.literal (2 ^ 160))))
+  else if ty == "bytes4" then
+    some (AbiLowering.guard (.eq (.bitAnd word (.literal (2 ^ 224 - 1))) (.literal 0)))
+  else if ty.startsWith "enum " then
+    enumBound?.map fun bound => AbiLowering.guard (.lt word (.literal bound))
+  else if ty.startsWith "uint" then
+    match bitsOf ty with
+    | some bits =>
+        if bits < 256 then some (AbiLowering.guard (.lt word (.literal (2 ^ bits)))) else none
+    | none => none
+  else
+    none
+
 set_option maxHeartbeats 800000 in
 mutual
 
@@ -5045,6 +5091,301 @@ private partial def lowerStorageBytesWrite (name : String) (pre : Array Stmt) (t
   ]
   return pre ++ buf.pre ++ stmts
 
+private partial def isAbiDecodeCall (j : Json) : M Bool := do
+  let j ← stripParens j
+  unless (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" do
+    return false
+  let callee ← mField j "expression"
+  unless (← mKind callee) == "MemberAccess" && optStr callee "memberName" == some "decode" do
+    return false
+  let base ← mField callee "expression"
+  if (← mKind base) == "Identifier" && optStr base "name" == some "abi" then
+    return (← refInt base) == -1
+  return false
+
+private partial def parseAbiDecodeItem (comp : Json) : M AbiDecodeTypeItem := do
+  let comp ← stripParens comp
+  if comp.isNull then
+    failAt comp "empty abi.decode type component"
+  let rawTy ← mType comp
+  unless rawTy.startsWith "type(" && rawTy.endsWith ")" do
+    failAt comp s!"abi.decode requires a type argument, found {rawTy}"
+  let innerRaw := ((rawTy.drop 5).dropEnd 1).toString
+  let cleanTy :=
+    if innerRaw.endsWith " storage pointer" then (innerRaw.dropEnd 16).toString
+    else if innerRaw.endsWith " storage ref" then (innerRaw.dropEnd 12).toString
+    else if innerRaw.endsWith " memory" then (innerRaw.dropEnd 7).toString
+    else if innerRaw.endsWith " calldata" then (innerRaw.dropEnd 9).toString
+    else innerRaw
+  if cleanTy == "bytes" then
+    return .dynamicBytes false
+  if cleanTy == "string" then
+    return .dynamicBytes true
+  if cleanTy.endsWith "[]" then
+    let some (elemStr, elemPty, abiKind) := scalarArrayElement? cleanTy
+      | failAt comp s!"unsupported abi.decode array type {cleanTy}"
+    return .scalarArray elemStr elemPty abiKind
+  if cleanTy.startsWith "struct " && !cleanTy.contains "[" then
+    let refId := (field? comp "referencedDeclaration").bind (fun v => v.getInt?.toOption) |>.getD (-1)
+    let (sid, sDecl) ← do
+      if refId ≥ 0 then
+        if let some decl := (← get).structs.find? refId.toNat then
+          pure (refId.toNat, decl)
+        else
+          let targetName := ((cleanTy.drop 7).toString.splitOn ".").getLastD ""
+          match (← get).structs.toList.filter (fun (_, d) => optStr d "name" == some targetName) with
+          | [x] => pure x
+          | _ => failAt comp s!"unable to resolve struct declaration for {cleanTy}"
+      else
+        let targetName := ((cleanTy.drop 7).toString.splitOn ".").getLastD ""
+        match (← get).structs.toList.filter (fun (_, d) => optStr d "name" == some targetName) with
+        | [x] => pure x
+        | _ => failAt comp s!"unable to resolve struct declaration for {cleanTy}"
+    let sName ← mStr (← mField sDecl "name")
+    let sMembers ← mArr (← mField sDecl "members")
+    if sMembers.isEmpty then
+      failAt comp "empty struct in abi.decode is unsupported"
+    let mut members : Array (String × String) := #[]
+    for mNode in sMembers do
+      let mName ← mStr (← mField mNode "name")
+      let mTy ← mType mNode
+      unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+        failAt mNode s!"unsupported abi.decode struct member type {mTy}"
+      members := members.push (mName, mTy)
+    return .flatStruct sid sName members
+  let refId := (field? comp "referencedDeclaration").bind (fun v => v.getInt?.toOption) |>.getD (-1)
+  let scalarTy ← if refId ≥ 0 then
+    if let some uTy := (← get).userValueTypeById.find? refId.toNat then
+      pure uTy
+    else
+      pure cleanTy
+  else
+    pure cleanTy
+  let enumBound? ← validateEnumTypeIfNeeded comp scalarTy
+  let some pty := paramType scalarTy
+    | failAt comp s!"unsupported abi.decode type {cleanTy}"
+  return .scalar scalarTy pty enumBound?
+
+private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array Stmt × Bool × Expr × Expr) := do
+  let inner ← unwrapBytesConversion (← stripParens rawNode)
+  if (← mKind inner) == "Identifier" then
+    let id ← refInt inner
+    if id ≥ 0 then
+      if let some cb := (← get).calldataBytes.find? id.toNat then
+        let ptrVar ← fresh
+        let lenVar ← fresh
+        if cb.inMemory then
+          return (#[
+            .letVar ptrVar (.add (.localVar cb.memoryPointer) (.literal 32)),
+            .letVar lenVar (.localVar cb.lengthBinding)
+          ], false, .localVar ptrVar, .localVar lenVar)
+        else
+          return (#[
+            .letVar ptrVar (.localVar cb.dataBinding),
+            .letVar lenVar (.localVar cb.lengthBinding)
+          ], true, .localVar ptrVar, .localVar lenVar)
+      if let some buf := (← get).byteBuffers.find? id.toNat then
+        let ptrVar ← fresh
+        let lenVar ← fresh
+        return (buf.pre ++ #[
+          .letVar ptrVar buf.pointer,
+          .letVar lenVar buf.size
+        ], false, .localVar ptrVar, .localVar lenVar)
+      if let some storageName ← storageBytesSourceVar? inner then
+        let buf ← lowerStorageBytesRead storageName inner
+        let ptrVar ← fresh
+        let lenVar ← fresh
+        return (buf.pre ++ #[
+          .letVar ptrVar buf.pointer,
+          .letVar lenVar buf.size
+        ], false, .localVar ptrVar, .localVar lenVar)
+  if (← mKind inner) == "MemberAccess" then
+    if let some storageName ← storageBytesSourceVar? inner then
+      let buf ← lowerStorageBytesRead storageName inner
+      let ptrVar ← fresh
+      let lenVar ← fresh
+      return (buf.pre ++ #[
+        .letVar ptrVar buf.pointer,
+        .letVar lenVar buf.size
+      ], false, .localVar ptrVar, .localVar lenVar)
+    let innerTy ← mType inner
+    if innerTy == "bytes" || innerTy == "bytes memory" || innerTy == "bytes calldata" then
+      if (← mType (← mField inner "expression")).startsWith "struct " then
+        if let .abiBytesField rootId memberIndex refPre ← lowerRef inner then
+          let some mem := (← get).mems.find? rootId | failAt inner "unknown ABI root"
+          let some schema := mem.schema | failAt inner "missing ABI schema"
+          let some (.bytesField _) := schema[memberIndex]?
+            | failAt inner "expected a schema-checked ABI bytes field"
+          if mem.calldataLocation then
+            let header ← fresh
+            let length ← fresh
+            let data ← fresh
+            let checks := AbiLowering.calldataBytesFieldHead
+              (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data
+            return (refPre ++ checks.toArray, true, .localVar data, .localVar length)
+          else
+            let bytesPtr ← fresh
+            let length ← fresh
+            let dataPtr ← fresh
+            let loadStmts : Array Stmt := #[
+              .letVar bytesPtr (.mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32 * memberIndex)))),
+              .letVar length (.mload (.localVar bytesPtr)),
+              .letVar dataPtr (.add (.localVar bytesPtr) (.literal 32))
+            ]
+            return (refPre ++ loadStmts, false, .localVar dataPtr, .localVar length)
+  failAt callee "abi.decode is outside this slice"
+
+private partial def lowerAbiDecodeItems (j : Json) : M (Array Stmt × Array AbiDecodedValue) := do
+  let j ← stripParens j
+  unless ← isAbiDecodeCall j do
+    failAt j "expected abi.decode call"
+  let callee ← mField j "expression"
+  let args ← mArr (← mField j "arguments")
+  unless args.size == 2 do
+    failAt j "abi.decode requires a byte buffer and a type tuple"
+  let typeArg ← stripParens args[1]!
+  let typeComps ← if (← mKind typeArg) == "TupleExpression" then do
+    if ← mBool (← mField typeArg "isInlineArray") then
+      failAt typeArg "inline arrays are outside this slice"
+    mArr (← mField typeArg "components")
+  else
+    pure #[typeArg]
+  if typeComps.isEmpty then
+    failAt typeArg "abi.decode requires at least one target type"
+  let mut items : Array AbiDecodeTypeItem := #[]
+  for comp in typeComps do
+    items := items.push (← parseAbiDecodeItem comp)
+  let (srcPre, fromCalldata, basePtr, lenExpr) ← lowerAbiDecodeDataSource args[0]! callee
+  let mut totalHeadSize : Nat := 0
+  for item in items do
+    match item with
+    | .scalar _ _ _ | .scalarArray _ _ _ | .dynamicBytes _ =>
+        totalHeadSize := totalHeadSize + 32
+    | .flatStruct _ _ members =>
+        totalHeadSize := totalHeadSize + 32 * members.size
+  let mut pre := srcPre.push (AbiLowering.guard (.logicalNot (.lt lenExpr (.literal totalHeadSize))))
+  let mut headCursor : Nat := 0
+  let mut decoded : Array AbiDecodedValue := #[]
+  let allocGuard (cond : Expr) : Stmt := .ite cond [] [.panicCode (.literal 0x41)]
+  for item in items do
+    match item with
+    | .scalar ty pty enumBound? =>
+        let wordVar ← fresh
+        let wordAddr := if headCursor == 0 then basePtr else Expr.add basePtr (.literal headCursor)
+        pre := pre.push (.letVar wordVar (readAbiDecodeWord fromCalldata wordAddr))
+        if let some g := abiDecodeScalarGuard? ty enumBound? (.localVar wordVar) then
+          pre := pre.push g
+        decoded := decoded.push (.scalar ty pty (.localVar wordVar))
+        headCursor := headCursor + 32
+    | .flatStruct sid sName members =>
+        let structPtr ← fresh
+        let structFinish ← fresh
+        modify fun e => { e with encodingMemory := true }
+        pre := pre ++ (AbiEncoding.reserve structPtr structFinish (.literal (32 * members.size))).toArray
+        let mut memberVals : Array (String × String × Expr) := #[]
+        for mIdx in [:members.size] do
+          let (mName, mTy) := members[mIdx]!
+          let wordVar ← fresh
+          let off := headCursor + 32 * mIdx
+          let wordAddr := if off == 0 then basePtr else Expr.add basePtr (.literal off)
+          pre := pre.push (.letVar wordVar (readAbiDecodeWord fromCalldata wordAddr))
+          if let some g := abiDecodeScalarGuard? mTy none (.localVar wordVar) then
+            pre := pre.push g
+          pre := pre.push (.mstore (.add (.localVar structPtr) (.literal (32 * mIdx))) (.localVar wordVar))
+          memberVals := memberVals.push (mName, mTy, .localVar wordVar)
+        decoded := decoded.push (.flatStruct sid sName memberVals)
+        headCursor := headCursor + 32 * members.size
+    | .scalarArray elemStr elemPty abiKind =>
+        let relOff ← fresh
+        let arrHeader ← fresh
+        let arrLen ← fresh
+        let arrPtr ← fresh
+        let nextFree ← fresh
+        let arrData ← fresh
+        let copyIdx ← fresh
+        let elemVal ← fresh
+        let headAddr := if headCursor == 0 then basePtr else Expr.add basePtr (.literal headCursor)
+        modify fun e => { e with encodingMemory := true }
+        pre := pre ++ #[
+          .letVar relOff (readAbiDecodeWord fromCalldata headAddr),
+          AbiLowering.guard (.le (.localVar relOff) (.literal (2 ^ 64 - 1))),
+          AbiLowering.guard (.le (.add (.localVar relOff) (.literal 32)) lenExpr),
+          .letVar arrHeader (.add basePtr (.localVar relOff)),
+          .letVar arrLen (readAbiDecodeWord fromCalldata (.localVar arrHeader)),
+          allocGuard (.le (.localVar arrLen) (.literal (2 ^ 64 - 1))),
+          .letVar arrPtr (.mload (.literal 64)),
+          .letVar nextFree (.add (.localVar arrPtr) (.mul (.literal 32) (.add (.localVar arrLen) (.literal 1)))),
+          allocGuard (.le (.localVar nextFree) (.literal (2 ^ 64 - 1))),
+          allocGuard (.ge (.localVar nextFree) (.localVar arrPtr)),
+          .letVar arrData (.add (.localVar arrHeader) (.literal 32)),
+          AbiLowering.guard (.le (.add (.add (.localVar relOff) (.literal 32)) (.mul (.literal 32) (.localVar arrLen))) lenExpr),
+          .mstore (.localVar arrPtr) (.localVar arrLen),
+          .mstore (.literal 64) (.localVar nextFree)
+        ]
+        let elemAddr := Expr.add (.localVar arrData) (.mul (.localVar copyIdx) (.literal 32))
+        let bound := SolidityAbi.scalarBound abiKind
+        let elemChecks : List Stmt :=
+          if bound == 2 ^ 256 then []
+          else [AbiLowering.guard (.lt (.localVar elemVal) (.literal bound))]
+        let loopBody : List Stmt :=
+          [ .letVar elemVal (readAbiDecodeWord fromCalldata elemAddr) ] ++
+          elemChecks ++
+          [ .mstore (.add (.add (.localVar arrPtr) (.literal 32)) (.mul (.localVar copyIdx) (.literal 32))) (.localVar elemVal) ]
+        pre := pre.push (.forEach copyIdx (.localVar arrLen) loopBody)
+        let desc : ScalarArrayParam := {
+          param := arrPtr
+          elementType := elemStr
+          modelElementType := elemPty
+          abiKind := abiKind
+          inMemory := true
+          lengthBinding := arrLen
+          memoryPointer := arrPtr
+        }
+        decoded := decoded.push (.scalarArray elemStr elemPty abiKind desc)
+        headCursor := headCursor + 32
+    | .dynamicBytes isString =>
+        let relOff ← fresh
+        let byteHeader ← fresh
+        let byteLen ← fresh
+        let bytesPointer ← fresh
+        let nextFree ← fresh
+        let byteData ← fresh
+        let copyIdx ← fresh
+        let headAddr := if headCursor == 0 then basePtr else Expr.add basePtr (.literal headCursor)
+        let alignedSize := Expr.bitAnd
+          (.add (.add (.localVar byteLen) (.literal 32)) (.literal 31))
+          (.bitNot (.literal 31))
+        let wordCount := Expr.div (.add (.localVar byteLen) (.literal 31)) (.literal 32)
+        modify fun e => { e with encodingMemory := true }
+        pre := pre ++ #[
+          .letVar relOff (readAbiDecodeWord fromCalldata headAddr),
+          AbiLowering.guard (.le (.localVar relOff) (.literal (2 ^ 64 - 1))),
+          AbiLowering.guard (.le (.add (.localVar relOff) (.literal 32)) lenExpr),
+          .letVar byteHeader (.add basePtr (.localVar relOff)),
+          .letVar byteLen (readAbiDecodeWord fromCalldata (.localVar byteHeader)),
+          allocGuard (.le (.localVar byteLen) (.literal (2 ^ 64 - 1))),
+          .letVar bytesPointer (.mload (.literal 64)),
+          .letVar nextFree (.add (.localVar bytesPointer) alignedSize),
+          allocGuard (.le (.localVar nextFree) (.literal (2 ^ 64 - 1))),
+          allocGuard (.ge (.localVar nextFree) (.localVar bytesPointer)),
+          .letVar byteData (.add (.localVar byteHeader) (.literal 32)),
+          AbiLowering.guard (.le (.add (.add (.localVar relOff) (.literal 32)) (.localVar byteLen)) lenExpr),
+          .mstore (.localVar bytesPointer) (.localVar byteLen),
+          .mstore (.literal 64) (.localVar nextFree),
+          .forEach copyIdx wordCount
+            [.mstore (.add (.add (.localVar bytesPointer) (.literal 32)) (.mul (.localVar copyIdx) (.literal 32)))
+              (readAbiDecodeWord fromCalldata (.add (.localVar byteData) (.mul (.localVar copyIdx) (.literal 32))))],
+          .mstore (.add (.add (.localVar bytesPointer) (.literal 32)) (.localVar byteLen)) (.literal 0)
+        ]
+        let buf : EncodedBytes := {
+          pre := #[]
+          pointer := .add (.localVar bytesPointer) (.literal 32)
+          size := .localVar byteLen
+        }
+        decoded := decoded.push (.dynamicBytes isString buf)
+        headCursor := headCursor + 32
+  return (pre, decoded)
+
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   if (← mKind j) == "Conditional" then
@@ -5204,6 +5545,13 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   unless isAbiBuiltin do
     failAt callee "encoding does not resolve to the abi builtin"
   let args ← mArr (← mField j "arguments")
+  if optStr callee "memberName" == some "decode" then
+    let (decodePre, decoded) ← lowerAbiDecodeItems j
+    unless decoded.size == 1 do
+      failAt j "abi.decode byte buffer expression requires a single bytes or string target type"
+    let .dynamicBytes _ buf := decoded[0]!
+      | failAt j "abi.decode byte buffer expression requires a bytes or string target type"
+    return { pre := decodePre ++ buf.pre, pointer := buf.pointer, size := buf.size }
   if optStr callee "memberName" == some "encodePacked" then
     return ← lowerPacked args
   if optStr callee "memberName" == some "encodeWithSelector" then
@@ -5424,33 +5772,43 @@ private partial def lowerCallArgs (j : Json) (receiver? : Option Json) : M (Arra
       else
         failAt arg "only storage struct dynamic array arguments are supported"
     else if let some (elemStr, _, _) := scalarArrayElement? argTy then
-      let isArrayHelperCall ← if (← mKind arg) == "FunctionCall" && optStr arg "kind" == some "functionCall" then
-        pure ((← mKind (← mField arg "expression")) != "NewExpression")
+      if ← isAbiDecodeCall arg then
+        let (decodePre, decoded) ← lowerAbiDecodeItems arg
+        unless decoded.size == 1 do
+          failAt arg "array abi.decode argument requires a single array target type"
+        let .scalarArray decElemStr _ _ desc := decoded[0]!
+          | failAt arg "array abi.decode argument requires a dynamic scalar array target type"
+        unless decElemStr == elemStr do
+          failAt arg "dynamic memory array argument type differs from declaration"
+        vals := vals.push (.scalarArray desc decodePre)
       else
-        pure false
-      if isArrayHelperCall then
-        let (fnId, innerVals) ← resolveCallTargetAndArgs arg
-        let (arrPre, desc) ← inlineArrayFn fnId innerVals elemStr arg
-        vals := vals.push (.scalarArray desc arrPre)
-      else
-        let ref ← lowerRef arg
-        if let .scalarArray id pre := ref then
-          let some descriptor := (← get).scalarArrays.find? id
-            | failAt arg "unknown scalar array argument"
-          vals := vals.push (.scalarArray descriptor pre)
-        else if let some (pre, fieldName, slotExpr, elemTy, _, _, none) ← resolveStorageDynamicArrayTarget ref arg then
-          let (spre, frozenSlot) ← do
-            let env ← get
-            let writable := match slotExpr with
-              | .localVar name => env.writableLocals.toList.any (fun (_, b) => b == name)
-              | _ => false
-            if !writable then pure (#[], slotExpr)
-            else do
-              let binding ← fresh
-              pure (#[.letVar binding slotExpr], .localVar binding)
-          vals := vals.push (.storageDynamicArray fieldName frozenSlot elemTy none (pre ++ spre))
+        let isArrayHelperCall ← if (← mKind arg) == "FunctionCall" && optStr arg "kind" == some "functionCall" then
+          pure ((← mKind (← mField arg "expression")) != "NewExpression")
         else
-          failAt arg "only scalar array parameter arguments are supported"
+          pure false
+        if isArrayHelperCall then
+          let (fnId, innerVals) ← resolveCallTargetAndArgs arg
+          let (arrPre, desc) ← inlineArrayFn fnId innerVals elemStr arg
+          vals := vals.push (.scalarArray desc arrPre)
+        else
+          let ref ← lowerRef arg
+          if let .scalarArray id pre := ref then
+            let some descriptor := (← get).scalarArrays.find? id
+              | failAt arg "unknown scalar array argument"
+            vals := vals.push (.scalarArray descriptor pre)
+          else if let some (pre, fieldName, slotExpr, elemTy, _, _, none) ← resolveStorageDynamicArrayTarget ref arg then
+            let (spre, frozenSlot) ← do
+              let env ← get
+              let writable := match slotExpr with
+                | .localVar name => env.writableLocals.toList.any (fun (_, b) => b == name)
+                | _ => false
+              if !writable then pure (#[], slotExpr)
+              else do
+                let binding ← fresh
+                pure (#[.letVar binding slotExpr], .localVar binding)
+            vals := vals.push (.storageDynamicArray fieldName frozenSlot elemTy none (pre ++ spre))
+          else
+            failAt arg "only scalar array parameter arguments are supported"
     else if argTy == "string" || argTy == "string memory" || argTy == "string calldata" ||
             argTy == "string storage ref" || argTy == "string storage pointer" ||
             argTy.startsWith "literal_string " then
@@ -5797,6 +6155,13 @@ private partial def lowerCall (j : Json) : M Val := do
               failAt j s!"{mname} requires one argument"
             let arg := args[0]!
             return ← convert uTy (← mType arg) (← lowerExpr arg) arg
+    if ← isAbiDecodeCall j then
+      let (decodePre, decoded) ← lowerAbiDecodeItems j
+      unless decoded.size == 1 do
+        failAt j "scalar abi.decode expression requires a single scalar target type"
+      let .scalar _ _ expr := decoded[0]!
+        | failAt j "scalar abi.decode expression requires a scalar target type"
+      return { pre := decodePre, expr }
     let (fnId, vals) ← resolveCallTargetAndArgs j
     inlineFn fnId vals j
   else
@@ -6524,6 +6889,15 @@ private partial def lowerArrayHelperStmts (expectedElemTy : String) (stmts : Lis
       | "Return" =>
           let retExpr := field? s "expression" |>.getD Json.null
           if retExpr.isNull then failAt s "array helper return requires an expression"
+          if ← isAbiDecodeCall retExpr then
+            let (decodePre, decoded) ← lowerAbiDecodeItems retExpr
+            unless decoded.size == 1 do
+              failAt retExpr "array abi.decode return requires a single array target type"
+            let .scalarArray decElemStr _ _ desc := decoded[0]!
+              | failAt retExpr "array abi.decode return requires a dynamic scalar array target type"
+            unless decElemStr == expectedElemTy do
+              failAt retExpr "returned scalar array type or location mismatch"
+            return (decodePre, desc)
           if (← mKind retExpr) == "FunctionCall" && optStr retExpr "kind" == some "functionCall" then
             let (fnId, vals) ← resolveCallTargetAndArgs retExpr
             return ← inlineArrayFn fnId vals expectedElemTy retExpr
@@ -7322,6 +7696,22 @@ private partial def lowerMultiCall (j : Json) (expectedTypes : Option (Array (Op
     return ← lowerMultiBranch j expectedTypes
   unless (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" do
     failAt j "tuple destructuring requires a multi-return helper call"
+  if ← isAbiDecodeCall j then
+    let (decodePre, decoded) ← lowerAbiDecodeItems j
+    unless decoded.size > 1 do
+      failAt j "tuple abi.decode requires multiple target types"
+    let mut retExprs : Array (Expr × String) := #[]
+    for i in [:decoded.size] do
+      let wantValue := match expectedTypes with
+        | some want => (want.getD i none).isSome
+        | none => true
+      if wantValue then
+        let .scalar ty _ expr := decoded[i]!
+          | failAt j "tuple assignment or return from abi.decode only supports scalar components"
+        retExprs := retExprs.push (expr, ty)
+      else
+        retExprs := retExprs.push (.literal 0, "uint256")
+    return (decodePre, retExprs)
   let callee ← mField j "expression"
   if (← mKind callee) == "Identifier" then
     let calleeId ← refInt callee
@@ -8576,6 +8966,16 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
   if (← mKind j) == "FunctionCall" && optStr j "kind" == some "functionCall" &&
       (← mType j).startsWith "struct " && !(← mType j).contains "[" &&
       (← mType j).endsWith " memory" then
+    if ← isAbiDecodeCall j then
+      let (decodePre, decoded) ← lowerAbiDecodeItems j
+      unless decoded.size == 1 do
+        failAt j "struct abi.decode requires a single struct target type"
+      let .flatStruct callSid callSName callMembers := decoded[0]!
+        | failAt j "struct abi.decode requires a flat struct target type"
+      if let some expectedSid := expectedSid? then
+        unless callSid == expectedSid do
+          failAt j "struct abi.decode return type mismatch"
+      return (callSid, callSName, decodePre, callMembers)
     let (fnId, vals) ← resolveCallTargetAndArgs j
     let (callSid, callSName, callPre, callMembers) ← inlineFlatStructFn fnId vals j
     if let some expectedSid := expectedSid? then
@@ -9923,6 +10323,86 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     unless decls.any (!·.isNull) do failAt s "empty tuple declaration"
     let init := field? s "initialValue" |>.getD Json.null
     if init.isNull then failAt s "tuple variable declaration requires an initializer"
+    if ← isAbiDecodeCall init then
+      let (decodePre, decoded) ← lowerAbiDecodeItems init
+      unless decls.size == decoded.size do
+        failAt s s!"tuple declaration arity {decls.size} does not match abi.decode arity {decoded.size}"
+      let mut out := decodePre
+      for i in [:decls.size] do
+        let d := decls[i]!
+        if d.isNull then continue
+        let name ← mStr (← mField d "name")
+        unless name.all (fun c => c.isAlphanum || c == '_' || c == '$') && name != "" do
+          failAt d s!"unsupported local name {name}"
+        let id ← mNat (← mField d "id")
+        let loc := optStr d "storageLocation" |>.getD "default"
+        let dTy ← mType d
+        match decoded[i]! with
+        | .scalar retTy _ retExpr =>
+            unless loc == "default" do
+              failAt d "scalar abi.decode component requires a default-location local"
+            discard (validateEnumTypeIfNeeded d dTy)
+            let some scalarType := paramType dTy
+              | failAt d s!"unsupported tuple local type {dTy}"
+            let converted ← convert dTy retTy { pre := #[], expr := retExpr } d
+            let binding ← freshFor name
+            let expr := Expr.localVar binding
+            out := out ++ converted.pre |>.push (.letVar binding converted.expr)
+            modify fun e =>
+              { e with values := e.values.insert id expr,
+                       scalarTy := e.scalarTy.insert id scalarType,
+                       yulNames := e.yulNames.insert name expr,
+                       yulMemoryArrays := e.yulMemoryArrays.erase name,
+                       writableLocals := e.writableLocals.insert id binding,
+                       zeroInitLocals := e.zeroInitLocals.filter (· != id) }
+        | .flatStruct sid sName memberVals =>
+            unless loc == "memory" && dTy.startsWith "struct " && !dTy.contains "[" do
+              failAt d "struct abi.decode component requires a memory struct local"
+            let (declSid, _) ← resolveStructDeclFromType d
+            unless declSid == sid do
+              failAt d "struct abi.decode component type mismatch"
+            let mut boundMembers : Array (String × String × String) := #[]
+            for (mName, mTy, mExpr) in memberVals do
+              let mBinding ← freshFor s!"{name}_{mName}"
+              out := out.push (.letVar mBinding mExpr)
+              boundMembers := boundMembers.push (mName, mTy, mBinding)
+            let fDesc : FlatStructLocal := { structId := sid, structName := sName, members := boundMembers }
+            modify fun e =>
+              { e with flatStructs := e.flatStructs.insert id fDesc,
+                       yulNames := e.yulNames.erase name,
+                       yulMemoryArrays := e.yulMemoryArrays.erase name }
+        | .scalarArray elemStr _ _ rawDesc =>
+            unless loc == "memory" && (dTy == elemStr ++ "[]" || dTy == elemStr ++ "[] memory") do
+              failAt d "array abi.decode component requires a matching memory array local"
+            if (← get).bodyAssigned.contains id then
+              failAt d "reassigned memory array locals are outside this slice"
+            let desc := { rawDesc with param := name }
+            modify fun e =>
+              { e with scalarArrays := e.scalarArrays.insert id desc,
+                       encodingMemory := true,
+                       yulNames := e.yulNames.erase name,
+                       yulMemoryArrays := e.yulMemoryArrays.insert name desc.memoryPointer }
+        | .dynamicBytes isString buf =>
+            let expectedBase := if isString then "string" else "bytes"
+            unless loc == "memory" && (dTy == expectedBase || dTy == expectedBase ++ " memory") do
+              failAt d s!"{expectedBase} abi.decode component requires a memory {expectedBase} local"
+            if isString && (← get).bodyAssigned.contains id then
+              failAt d "reassigned string locals are outside this slice"
+            let pointer ← freshFor name
+            let size ← fresh
+            out := out ++ buf.pre ++ #[.letVar pointer buf.pointer, .letVar size buf.size]
+            let retained : EncodedBytes := { pre := #[], pointer := .localVar pointer, size := .localVar size }
+            if isString then
+              modify fun e =>
+                { e with stringBuffers := e.stringBuffers.insert id retained,
+                         yulNames := e.yulNames.erase name,
+                         yulMemoryArrays := e.yulMemoryArrays.erase name }
+            else
+              modify fun e =>
+                { e with byteBuffers := e.byteBuffers.insert id retained,
+                         yulNames := e.yulNames.erase name,
+                         yulMemoryArrays := e.yulMemoryArrays.erase name }
+      return out
     let mut expectedTypes : Array (Option String) := #[]
     for d in decls do
       if d.isNull then
@@ -10044,6 +10524,21 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       | failAt d s!"unsupported dynamic memory array local type {← mType d}"
     if (← get).bodyAssigned.contains id then
       failAt d "reassigned memory array locals are outside this slice"
+    if ← isAbiDecodeCall init then
+      let (decodePre, decoded) ← lowerAbiDecodeItems init
+      unless decoded.size == 1 do
+        failAt init "array local abi.decode initializer requires a single array target type"
+      let .scalarArray decElemStr _ _ rawDesc := decoded[0]!
+        | failAt init "array local abi.decode initializer requires a dynamic scalar array target type"
+      unless decElemStr == elemStr do
+        failAt init "dynamic memory array initializer type differs from declaration"
+      let desc := { rawDesc with param := name }
+      modify fun e =>
+        { e with scalarArrays := e.scalarArrays.insert id desc,
+                 encodingMemory := true,
+                 yulNames := e.yulNames.erase name,
+                 yulMemoryArrays := e.yulMemoryArrays.insert name desc.memoryPointer }
+      return decodePre
     let isArrayHelperInit ← if (← mKind init) == "FunctionCall" && optStr init "kind" == some "functionCall" then do
       pure ((← mArr (← mField init "names")).isEmpty && (← mKind (← mField init "expression")) != "NewExpression")
     else
@@ -10481,7 +10976,8 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
           pure false
         if isAbiBuiltin then
           let mname := optStr callee "memberName"
-          return mname == some "encode" || mname == some "encodePacked" || mname == some "encodeCall"
+          return mname == some "encode" || mname == some "encodePacked" || mname == some "encodeCall" ||
+            mname == some "decode"
       let isHelperCall :=
         ((← mKind callee) == "Identifier" || (← mKind callee) == "MemberAccess") &&
         ((field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption)).any (· ≥ 0)

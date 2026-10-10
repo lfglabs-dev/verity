@@ -1923,3 +1923,39 @@ def stateful_offer_hash_and_domain_separator_source(fixture: str, variant: str) 
     raise ValueError(f'unknown offer-hash-and-domain-separator variant: {variant}')
 
 
+def stateful_abi_decode_and_ratifier_source(fixture: str, variant: str) -> str:
+    """Equivalent abi.decode (scalars, static structs, dynamic arrays, bytes, strings, Offer.callbackData) and ratifier sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'left', 'right', 'leafHash', 'leafIndex', 'proof', 'hash', 'isRight',
+            'input', 'encodedConfig', 'cfg', 'directMinRate', 'tupRate', 'tupActive',
+            'tupTag', 'shiftedInput', 'singleBuf', 'singleDecoded', 'arrBuf',
+            'arrDecoded', 'inlineElem', 'extraWord', 'rateFloor', 'weights', 'extraBytes', 'label',
+            'weightSum', 'extraHash', 'bonus', 'actualRate', 'targetRoot', 'badBool',
+            'flag', 'xs', 'hashNode', 'computeRoot', 'isLeaf', '_decodeStoredHeader',
+            '_decodeUintArray', '_firstOrZero', 'MAX_HEIGHT', 'ratifiedCounts',
+            'storedPayload', 'lastRatifiedRoot', 'lastDecodedRate',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-abi-decode-and-ratifier':
+        replacements = {
+            'ratifiedCounts[root] += 1;':
+            'ratifiedCounts[root] = ratifiedCounts[root] + 1;',
+            'ratifiedCounts[extraHash] += 1;':
+            'ratifiedCounts[extraHash] = ratifiedCounts[extraHash] + 1;',
+            'ratifiedCounts[targetRoot] += 1;':
+            'ratifiedCounts[targetRoot] = ratifiedCounts[targetRoot] + 1;',
+            'weightSum += weights[i];':
+            'weightSum = weightSum + weights[i];',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('abi-decode-and-ratifier variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown abi-decode-and-ratifier variant: {variant}')

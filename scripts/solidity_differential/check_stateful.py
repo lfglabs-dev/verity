@@ -15,6 +15,49 @@ from .programs import stateful_scalar_source
 
 OFFER_MEM_SIG = 'inspectOfferMem(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),uint256)'
 OFFER_CD_SIG = 'inspectOfferCd(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),uint256,address)'
+RATIFY_OFFER_CD_SIG = 'ratifyOfferCd(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),bytes32,uint256)'
+
+
+def _encode_mixed_payload_call(
+    rate_floor,
+    *,
+    min_rate=1200,
+    allowed_taker=0x3001,
+    active=1,
+    tag=0xAABBCCDD << 224,
+    weights=(10, 20),
+    extra_len=None,
+    extra_words=(0x11223344 << 224,),
+    label_len=None,
+    label_words=(0x616c706861 << 216,),
+    raw_offset=64,
+    raw_len=None,
+    weights_rel_offset=None,
+    extra_rel_offset=None,
+    label_rel_offset=None,
+):
+    actual_extra_len = (32 * len(extra_words)) if extra_len is None else extra_len
+    actual_label_len = (32 * len(label_words)) if label_len is None else label_len
+    w_off = (7 * 32) if weights_rel_offset is None else weights_rel_offset
+    e_off = (w_off + 32 * (1 + len(weights))) if extra_rel_offset is None else extra_rel_offset
+    l_off = (e_off + 32 * (1 + len(extra_words))) if label_rel_offset is None else label_rel_offset
+    inner_words = [
+        min_rate,
+        allowed_taker,
+        active,
+        tag,
+        w_off,
+        e_off,
+        l_off,
+        len(weights),
+        *weights,
+        actual_extra_len,
+        *extra_words,
+        actual_label_len,
+        *label_words,
+    ]
+    actual_raw_len = (32 * len(inner_words)) if raw_len is None else raw_len
+    return [raw_offset, rate_floor, actual_raw_len, *inner_words]
 
 
 def _encode_offer_call(
@@ -86,6 +129,33 @@ def _encode_offer_call(
         fee_cap,
     ]
     return [top_off, *extra_scalars, *offer_head, *mkt_words, actual_cb_len, *cb_words]
+
+
+def _encode_ratify_offer_call(
+    root,
+    actual_rate,
+    *,
+    min_rate=500,
+    allowed_taker=0,
+    leaf_index=0,
+    proof=(),
+    proof_rel_offset=128,
+    cb_len=None,
+    collateral_params=(),
+    buy=1,
+    reduce_only=0,
+    max_units=1000,
+):
+    cb_words = (min_rate, allowed_taker, leaf_index, proof_rel_offset, len(proof), *proof)
+    return _encode_offer_call(
+        [root, actual_rate],
+        collateral_params=collateral_params,
+        cb_words=cb_words,
+        cb_len=cb_len,
+        buy=buy,
+        reduce_only=reduce_only,
+        max_units=max_units,
+    )
 
 
 def main():
@@ -171,6 +241,8 @@ def main():
         'DOMAIN_SEPARATOR()',
         OFFER_MEM_SIG,
         OFFER_CD_SIG,
+        'decodeMixedPayload(bytes,uint256)',
+        RATIFY_OFFER_CD_SIG,
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -464,6 +536,46 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(offer_prefix[:remaining_budget])
+    if 'decodeMixedPayload(bytes,uint256)' in source['methodIdentifiers']:
+        ratifier_prefix = [
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000)),
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(
+                900,
+                min_rate=950,
+                allowed_taker=0x3005,
+                active=0,
+                tag=0x11223344 << 224,
+                weights=(5, 15, 25),
+                extra_len=35,
+                extra_words=(0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232),
+                label_len=6,
+                label_words=(0x70617265746f << 208,),
+            )),
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1500, min_rate=1200)),
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, active=2)),
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, allowed_taker=1 << 160)),
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, tag=(0xAABBCCDD << 224) | 1)),
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, raw_len=64)),
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, extra_len=65)),
+            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 600, min_rate=500, allowed_taker=0, leaf_index=0, proof=())),
+            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(
+                0,
+                850,
+                min_rate=700,
+                allowed_taker=0,
+                leaf_index=1,
+                proof=(0x1111, 0x2222),
+                collateral_params=((0xA1, 8200, 1400, 0xB1),),
+            )),
+            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 400, min_rate=500)),
+            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 600, min_rate=500, allowed_taker=0x9999)),
+            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0xDEAD, 600, min_rate=500)),
+            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 600, min_rate=500, allowed_taker=1 << 160)),
+            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 600, min_rate=500, cb_len=64)),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(ratifier_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -593,6 +705,20 @@ def main():
                 _encode_offer_call([600, 0x9999]),
                 _encode_offer_call([850, 0xAAAA], buy=0, reduce_only=1, collateral_params=((0xA1, 8200, 1400, 0xB1), (0xA2, 8800, 1600, 0xB2)), cb_len=4, cb_words=(0xDEADBEEF << 224,)),
                 _encode_offer_call([600, 0x9999], collateral_params=((0xA1, 8200, 1400, 1 << 160),)),
+            ])
+        elif name == 'decodeMixedPayload(bytes,uint256)':
+            call_args = rng.choice([
+                _encode_mixed_payload_call(1000),
+                _encode_mixed_payload_call(900, min_rate=950, active=0, weights=(5, 15, 25)),
+                _encode_mixed_payload_call(1500, min_rate=1200),
+                _encode_mixed_payload_call(1000, active=2),
+            ])
+        elif name == RATIFY_OFFER_CD_SIG:
+            call_args = rng.choice([
+                _encode_ratify_offer_call(0, 600, min_rate=500, allowed_taker=0, leaf_index=0, proof=()),
+                _encode_ratify_offer_call(0, 850, min_rate=700, allowed_taker=0, leaf_index=1, proof=(0x1111, 0x2222)),
+                _encode_ratify_offer_call(0, 400, min_rate=500),
+                _encode_ratify_offer_call(0xDEAD, 600, min_rate=500),
             ])
         else:
             call_args = []
