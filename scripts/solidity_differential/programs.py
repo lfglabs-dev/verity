@@ -1773,3 +1773,40 @@ def stateful_erc2981_holders_arrays_msghash_source(fixture: str, variant: str) -
         return fixture
     raise ValueError(f'unknown erc2981-holders-arrays-msghash variant: {variant}')
 
+
+def stateful_enumerable_set_map_storage_arrays_source(fixture: str, variant: str) -> str:
+    """Equivalent EnumerableSet, EnumerableMap, Arrays.unsafeAccess, and dynamic storage arrays sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'set', 'map', 'arr', 'pos', 'index', 'position', 'valueIndex',
+            'lastIndex', 'lastValue', 'len', 'store', 'result', 'atKey',
+            'val', 'ok', 'baseRate', 'last', 'input', 'branch',
+            'acct1', 'acct2', 'fac', 'bucketId', 'slotRef', 'poppedSlot', 'hasAcct2',
+            'lim2', 'exact', 'hasZero', 'zeroLim', 'trancheSnapshot',
+            'snapSum', 'mapLen', 'k0', 'v0', 'bLen', 'firstBorrower', 'cLen',
+            'lim1', 'tLen', 'summary', 'digest', 'metric', 'mode',
+            'impossible', 'bad', 'snap', 'acc', '_getRegistryStorage',
+            '_pushAndAdjustRate',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-enumerable-set-map-storage-arrays':
+        replacements = {
+            'arr[last] += 3;':
+            'arr[last] = arr[last] + 3;',
+            'totalScore += metric;':
+            'totalScore = totalScore + metric;',
+            'snapSum += trancheSnapshot[0];':
+            'snapSum = snapSum + trancheSnapshot[0];',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('enumerable-set-map-storage-arrays variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown enumerable-set-map-storage-arrays variant: {variant}')
+
