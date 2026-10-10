@@ -103,6 +103,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.TickLibAndThreeKeyMappingSequenceModel,
     .one `Contracts.SolidityImportSmoke.OfferHashAndDomainSeparatorSequenceModel,
     .one `Contracts.SolidityImportSmoke.AbiDecodeAndRatifierSequenceModel,
+    .one `Contracts.SolidityImportSmoke.VotesCheckpointsArraysBitMapsSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,

@@ -243,6 +243,10 @@ def main():
         OFFER_CD_SIG,
         'decodeMixedPayload(bytes,uint256)',
         RATIFY_OFFER_CD_SIG,
+        'checkpoints(address,uint32)',
+        'latestTotalCheckpoint()',
+        'pendingDefaultAdminView()',
+        'voteWindow(uint256,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -576,6 +580,25 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(ratifier_prefix[:remaining_budget])
+    if 'voteWindow(uint256,uint256)' in source['methodIdentifiers']:
+        votes_prefix = [
+            ('latestTotalCheckpoint()', []),
+            ('pendingDefaultAdminView()', []),
+            ('checkpoints(address,uint32)', [0x4000, 0]),
+            ('checkpoints(address,uint32)', [0x4001, 0]),
+            ('checkpoints(address,uint32)', [0x4000, 99]),
+            ('checkpoints(address,uint32)', [1 << 160, 0]),
+            ('checkpoints(address,uint32)', [0x4000, 1 << 32]),
+            ('voteWindow(uint256,uint256)', [0, 0]),
+            ('voteWindow(uint256,uint256)', [100, 1]),
+            ('voteWindow(uint256,uint256)', [250, 0]),
+            ('voteWindow(uint256,uint256)', [1, 97]),
+            ('voteWindow(uint256,uint256)', [1, 98]),
+            ('voteWindow(uint256,uint256)', [1, 99]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(votes_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -720,6 +743,10 @@ def main():
                 _encode_ratify_offer_call(0, 400, min_rate=500),
                 _encode_ratify_offer_call(0xDEAD, 600, min_rate=500),
             ])
+        elif name == 'checkpoints(address,uint32)':
+            call_args = rng.choice([[0x4000, 0], [0x4001, 0], [0x4002, 0], [0x4000, 1], [0x4000, 99]])
+        elif name == 'voteWindow(uint256,uint256)':
+            call_args = rng.choice([[0, 0], [50, 0], [150, 1], [300, 0], [10, 97], [10, 98], [10, 99]])
         else:
             call_args = []
         calls.append((name, call_args))

@@ -33,8 +33,8 @@ def main():
         ('named-helper-narrow', 'function h(uint256 n) internal pure returns(uint8 result) { assembly { result := xor(n,n) } require(n != 20, "named continuation"); }', 'return h(x);', 'uint256', None),
         ('named-helper-branch', 'function h(uint256 n) internal pure returns(uint256 result) { if(n == 0) { assembly { result := xor(n,n) } } else { result = n; } require(n != 20, "named continuation"); }', 'return h(x);', 'uint256', None),
         ('named-helper-dirty-read', 'function h(uint256 n) internal pure returns(uint8 result) { assembly { result := xor(n,n) } assembly { result := lt(result,n) } }', 'return h(x);', 'uint256', 'Yul reads of narrow named results are unsupported'),
-        ('named-helper-reference', 'struct P { uint256 a; } function h(uint256 n) internal pure returns(P memory result) { result = P(n); }', 'h(x); return x;', 'uint256', 'unsupported named helper result type'),
-        ('named-helper-tuple', 'function h(uint256 n) internal pure returns(uint256 a,uint256 b) { a = n; b = n; }', 'h(x); return x;', 'uint256', 'only single-value helpers'),
+        ('named-helper-reference', 'struct P { uint256 a; } function h(uint256 n) internal pure returns(P memory result) { result = P(n); }', 'h(x); return x;', 'uint256', None),
+        ('named-helper-tuple', 'function h(uint256 n) internal pure returns(uint256 a,uint256 b) { a = n; b = n; }', 'h(x); return x;', 'uint256', None),
         ('named-helper-modifier', 'modifier m() { _; } function h(uint256 n) internal pure m returns(uint256 result) { result = n; }', 'return h(x);', 'uint256', None),
         ('named-helper-after-return', 'function h(uint256 n) internal pure returns(uint256 result) { return n; result = 0; }', 'return h(x);', 'uint256', 'statement after helper result'),
         ('byte-local-encoded', '', 'bytes memory b = abi.encode(x); return uint256(keccak256(b));', 'uint256', None),
@@ -52,7 +52,7 @@ def main():
         ('discarded-helper', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-private', 'function h(uint256 n) private pure returns (uint256) { require(n != 20, "helper"); return n; }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-void', 'function h(uint256 n) internal { require(n != 20); }', 'h(x); return x;', 'uint256', 'require must resolve to a supported Solidity builtin signature'),
-        ('discarded-helper-tuple', 'function h(uint256 n) internal pure returns (uint256,uint256) { return (n,n); }', 'h(x); return x;', 'uint256', 'only single-value helpers'),
+        ('discarded-helper-tuple', 'function h(uint256 n) internal pure returns (uint256,uint256) { return (n,n); }', 'h(x); return x;', 'uint256', None),
         ('discarded-helper-external', 'function h(uint256 n) external pure returns (uint256) { return n; }', 'this.h(x); return x;', 'uint256', 'discarded helper calls require an internal or private'),
         ('discarded-helper-recursive', 'function h(uint256 n) internal returns (uint256) { h(n); return n; }', 'h(x); return x;', 'uint256', 'recursive call'),
         ('discarded-helper-argument-order', 'uint256 v; function h(uint256 n) internal returns (uint256) { v = n; return n; }', 'h(h(x)); return x;', 'uint256', 'stateful helper call arguments'),
@@ -1103,6 +1103,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] unsupported abi.decode struct member type enum C.Mode'),
+        ('votes-checkpoints-arrays-bitmaps-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Checkpoint208 { uint48 _key; uint208 _value; }\n  Checkpoint208[] private _ckpts;\n  function _add(uint208 a, uint208 b) private pure returns (uint208) { return a + b; }\n  function _sub(uint208 a, uint208 b) private pure returns (uint208) { return a - b; }\n  function _apply(function(uint208, uint208) view returns (uint208) op, uint208 a, uint208 b) private view returns (uint208) {\n    op(a, b);\n    return op(a, b);\n  }\n  function checked(uint256 x) external returns (Checkpoint208 memory) {\n    function(uint208, uint208) view returns (uint208) op = (x & 1) == 0 ? _add : _sub;\n    uint208 v = _apply(op, uint208((x & 0xff) + 10), 5);\n    _ckpts.push(Checkpoint208({_key: uint48(block.timestamp), _value: v}));\n    return _ckpts[_ckpts.length - 1];\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('fn-ptr-param-reassigned-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function _add(uint256 a, uint256 b) private pure returns (uint256) { return a + b; }\n  function _apply(function(uint256, uint256) internal pure returns (uint256) op, uint256 x) private pure returns (uint256) {\n    op = _add;\n    return op(x, 1);\n  }\n  function checked(uint256 x) external pure returns (uint256) {\n    return _apply(_add, x);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] reassigned function pointer parameters are outside this slice'),
+        ('fn-ptr-param-external-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function pub(uint256 a) external pure returns (uint256) { return a; }\n  function _apply(function(uint256) external pure returns (uint256) op, uint256 x) private pure returns (uint256) {\n    return op(x);\n  }\n  function checked(uint256 x) external view returns (uint256) {\n    return _apply(this.pub, x);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] external or bound function pointers are outside this slice'),
+        ('root-struct-return-dynamic-member-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Dyn { uint256 a; bytes b; }\n  function checked(uint256 x) external pure returns (Dyn memory) {\n    return Dyn(x, hex\"01\");\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] unsupported call kind structConstructorCall'),
+        ('root-struct-return-calldata-location-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; uint256 b; }\n  function checked(S calldata s) external pure returns (S calldata) {\n    return s;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] storage or memory path used as a value'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1117,7 +1142,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
-            else 'checked(S)' if name in {'struct-local-reassigned-rejected', 'abi-encode-root-bytes-field-rejected'}
+            else 'checked(S)' if name in {'struct-local-reassigned-rejected', 'abi-encode-root-bytes-field-rejected', 'root-struct-return-calldata-location-rejected'}
             else 'checked(Outer)' if name == 'abi-schema-static-nested-struct-rejected'
             else 'checked(Bundle,uint256)' if name == 'abi-encode-struct-array-effectful-index-rejected'
             else 'checked(Offer,uint256)' if name == 'offer-hash-and-domain-separator-positive'
