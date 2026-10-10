@@ -1078,6 +1078,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'BinaryOperation: [solidity-import:unsupported] effectful ABI encoding argument is unsupported'),
+        ('abi-decode-and-ratifier-positive',
+         "pragma solidity 0.8.34;\nstruct Offer { address maker; uint256 tick; bytes callbackData; }\nstruct Config { uint256 minRate; address allowedTaker; bool active; bytes4 tag; }\nlibrary HashLib {\n  function hashNode(bytes32 left, bytes32 right) internal pure returns (bytes32) {\n    return keccak256(abi.encode(left, right));\n  }\n  function isLeaf(bytes32 root, bytes32 leafHash, uint256 leafIndex, bytes32[] memory proof) internal pure returns (bool) {\n    if (proof.length > 3) return false;\n    if (leafIndex >= (1 << proof.length)) return false;\n    bytes32 h = leafHash;\n    for (uint256 i = 0; i < proof.length; ++i) {\n      bool isRight = (leafIndex >> i) & 1 == 1;\n      h = isRight ? hashNode(proof[i], h) : hashNode(h, proof[i]);\n    }\n    return h == root;\n  }\n}\ncontract C {\n  bytes private stored;\n  function checked(Offer calldata offer, bytes calldata raw, uint256 x) external returns (uint256) {\n    stored = raw;\n    (Config memory cfg, uint256[] memory weights, bytes memory extra, string memory label) =\n      abi.decode(raw, (Config, uint256[], bytes, string));\n    (uint256 minRate, address allowedTaker, uint256 leafIndex, bytes32[] memory proof) =\n      abi.decode(offer.callbackData, (uint256, address, uint256, bytes32[]));\n    bytes32 leafHash = keccak256(abi.encode(offer.maker, offer.tick, minRate, allowedTaker));\n    bool ok = HashLib.isLeaf(bytes32(x), leafHash, leafIndex % 8, proof);\n    return cfg.minRate + weights.length + extra.length + bytes(label).length + (ok ? 1 : 0);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('abi-decode-dynamic-struct-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Dyn { uint256 a; bytes data; }\n  function checked(bytes calldata raw) external pure returns (uint256) {\n    Dyn memory d = abi.decode(raw, (Dyn));\n    return d.a;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported abi.decode struct member type bytes'),
+        ('abi-decode-nested-array-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes calldata raw) external pure returns (uint256) {\n    (, uint256 y) = abi.decode(raw, (uint256[][], uint256));\n    return y;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'IndexAccess: [solidity-import:unsupported] unsupported abi.decode array type uint256[] memory[]'),
+        ('abi-decode-inline-encode-source-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    return abi.decode(abi.encode(x), (uint256));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] abi.decode is outside this slice'),
+        ('abi-decode-struct-enum-member-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  enum Mode { Off, On }\n  struct S { Mode m; }\n  function checked(uint256 x) external pure returns (uint256) {\n    bytes memory buf = abi.encode(x);\n    S memory s = abi.decode(buf, (S));\n    return uint256(s.m);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported abi.decode struct member type enum C.Mode'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1088,7 +1113,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         if dep_text is not None:
             (directory / 'Dep.sol').write_text(dep_text)
         fn_sig = (
-            'checked(bytes)' if name.startswith('bytes-param-')
+            'checked(bytes)' if name.startswith('bytes-param-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected'}
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
@@ -1096,6 +1121,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(Outer)' if name == 'abi-schema-static-nested-struct-rejected'
             else 'checked(Bundle,uint256)' if name == 'abi-encode-struct-array-effectful-index-rejected'
             else 'checked(Offer,uint256)' if name == 'offer-hash-and-domain-separator-positive'
+            else 'checked(Offer,bytes,uint256)' if name == 'abi-decode-and-ratifier-positive'
             else 'checked(«uint256[]»,«address[]»,string,uint256)' if name == 'array-string-params-and-context-positive'
             else 'checked(bytes,bytes,string,uint256)' if name == 'bytes-memory-and-abi-encode-call-positive'
             else 'checked(string,string,uint256)' if name == 'dynamic-bytes-and-string-return-positive'
