@@ -1178,6 +1178,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] unsupported ABI encoding argument type struct C.S'),
+        ('market-params-balances-positive',
+         (root / 'Contracts/SolidityImportSmoke/MarketParamsBalancesSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('yul-struct-keccak-wrong-byte-len-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; uint256 b; }\n  function checked(uint256 x) external pure returns (bytes32 h) {\n    S memory s = S({a: x, b: x + 1});\n    assembly {\n      h := keccak256(s, 32)\n    }\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulLiteral: [solidity-import:unsupported] Yul struct keccak256 byte length 32 does not match struct size 64'),
+        ('yul-struct-keccak-nonconstant-byte-len-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; uint256 b; }\n  function checked(uint256 x) external pure returns (bytes32 h) {\n    S memory s = S({a: x, b: x + 1});\n    assembly {\n      h := keccak256(s, x)\n    }\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulIdentifier: [solidity-import:unsupported] Yul struct keccak256 byte length must be a compile-time constant'),
+        ('yul-struct-keccak-bytes4-member-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { bytes4 sel; uint256 b; }\n  function checked(uint256 x) external pure returns (bytes32 h) {\n    S memory s = S({sel: bytes4(uint32(0x11223344)), b: x});\n    assembly {\n      h := keccak256(s, 64)\n    }\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulIdentifier: [solidity-import:unsupported] unsupported Yul struct keccak256 member type bytes4'),
+        ('flat-struct-member-bytes4-shift-compound-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { bytes4 sel; uint256 b; }\n  function checked(uint256 x) external pure returns (uint256) {\n    S memory s = S({sel: bytes4(uint32(0x11223344)), b: x});\n    s.sel <<= 8;\n    return uint256(uint32(s.sel)) + s.b;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] unsupported struct member compound assignment type bytes4'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1213,6 +1238,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'm(address)' if name == 'public-mapping-struct-getter-dynamic-array-rejected'
             else 'm(uint256,uint256,uint256)' if name == 'public-three-key-mapping-struct-getter-dynamic-array-rejected'
             else 'checked(uint256)\n  function verifyAndRecord(Authorization,Signature)\n  function batchCheckAndSum(«address[]»,«uint256[]»)' if name == 'ecrecover-authorizer-arrays-map-positive'
+            else 'checked(uint256)\n  function feeRecipient()\n  function lastMarketId()\n  function market(Id)\n  function position(Id,address)\n  function computeId(MarketParams)\n  function expectedMarketBalances(MarketParams,uint256)\n  function expectedTotalSupplyAssets(MarketParams,uint256)\n  function expectedSupplyAssets(MarketParams,address,uint256)\n  function expectedBorrowAssets(MarketParams,address,uint256)' if name == 'market-params-balances-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

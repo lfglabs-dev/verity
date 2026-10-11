@@ -421,6 +421,7 @@ private structure Env where
   stack : List Nat
   yulNames : RBMap String Expr compare
   yulMemoryArrays : RBMap String String compare := RBMap.empty
+  yulMemoryStructs : RBMap String Nat compare := RBMap.empty
   yulScratch0 : Bool := false
   yulScratch32 : Bool := false
   currentFile : String
@@ -2465,6 +2466,85 @@ private def yulMemoryArrayElementLoad? (addrNode : Json) (lowerYulFn : Json → 
     expr := .mload (.add (.add (.localVar arrayPtr) (.literal 32)) (.mul posVal.expr (.literal 32)))
   }
 
+private def readAbiMember (id : Nat) (pre : Array Stmt) (member : String) (at_ : Json) : M Val := do
+  let some mem := (← get).mems.find? id | failAt at_ "unknown memory parameter"
+  let some idx := mem.members.findIdx? (fun p => p.1 == member)
+    | failAt at_ s!"{member} is not a member of {mem.structName}"
+  if let some schema := mem.schema then
+    let some (.scalar field) := schema[idx]? | failAt at_ "struct array used as a scalar"
+    let plan := AbiRootLowering.root mem.abiStem 0 0 schema (!mem.calldataLocation)
+    let (checks, expr) := AbiRootLowering.scalarRead plan (!mem.calldataLocation) idx field.kind
+    return { pre := pre ++ checks.toArray, expr }
+  if let some types := mem.staticTypes then
+    let modelParam := s!"{mem.param}_{idx}"
+    let some ty := types[idx]? | failAt at_ "missing static tuple member type"
+    let limit := match ty with
+      | .uintN bits => if bits < 256 then some (2^bits) else none
+      | .address => some (2^160)
+      | .bool => some 2
+      | _ => none
+    let mut pre := pre
+    if mem.calldataLocation then
+      if let some bound := limit then
+        pre := pre.push (.ite
+          (.lt (.calldataload (.add (.localVar mem.headBinding) (.literal (32*idx))))
+            (.literal bound)) [] [.revertReturndata])
+    return { pre, expr := .param modelParam }
+  failAt at_ "struct member has no supported complete ABI schema"
+
+private def yulMemoryStructHash? (ptrNode sizeNode : Json) (lowerYulFn : Json → M Val) : M (Option Val) := do
+  if (← mKind ptrNode) != "YulIdentifier" then return none
+  let name ← mStr (← mField ptrNode "name")
+  let env ← get
+  if env.yulNames.contains name then return none
+  let some declId := env.yulMemoryStructs.find? name | return none
+  let mut pre : Array Stmt := #[]
+  let mut words : List Expr := []
+  if let some flat := env.flatStructs.find? declId then
+    for (_, mTy, binding) in flat.members do
+      unless !mTy.startsWith "enum " && mTy != "bytes4" && (paramType mTy).isSome do
+        failAt ptrNode s!"unsupported Yul struct keccak256 member type {mTy}"
+      words := words ++ [.localVar binding]
+  else if let some mem := env.mems.find? declId then
+    unless !mem.calldataLocation do
+      failAt ptrNode "Yul struct keccak256 requires a memory struct"
+    let allScalarSchema := match mem.schema with
+      | some schema => schema.all (fun | .scalar _ => true | _ => false)
+      | none => false
+    unless (mem.staticTypes.isSome || allScalarSchema) && !mem.members.isEmpty do
+      failAt ptrNode "Yul struct keccak256 requires a static scalar-member memory struct"
+    for (mName, mTy) in mem.members do
+      unless !mTy.startsWith "enum " && mTy != "bytes4" && (paramType mTy).isSome do
+        failAt ptrNode s!"unsupported Yul struct keccak256 member type {mTy}"
+      let v ← atom (← readAbiMember declId #[] mName ptrNode)
+      pre := pre ++ v.pre
+      words := words ++ [v.expr]
+  else if let some bound := env.abiElements.find? declId then
+    unless bound.inMemory do
+      failAt ptrNode "Yul struct keccak256 requires a memory struct"
+    let some mem := env.mems.find? bound.rootId | failAt ptrNode "unknown ABI root"
+    let some schema := mem.schema | failAt ptrNode "missing ABI schema"
+    let some (.structArray _ fields) := schema[bound.memberIndex]?
+      | failAt ptrNode "expected a struct-array element"
+    unless !fields.isEmpty do
+      failAt ptrNode "Yul struct keccak256 requires a non-empty struct"
+    let ptrAtom ← atom { pre := #[], expr := bound.pointer }
+    pre := pre ++ ptrAtom.pre
+    for idx in [:fields.length] do
+      words := words ++ [.mload (.add ptrAtom.expr (.literal (32 * idx)))]
+  else
+    return none
+  let sizeVal ← lowerYulFn sizeNode
+  let .literal byteLen := sizeVal.expr
+    | failAt sizeNode "Yul struct keccak256 byte length must be a compile-time constant"
+  unless sizeVal.pre.isEmpty && byteLen == 32 * words.length do
+    failAt sizeNode s!"Yul struct keccak256 byte length {byteLen} does not match struct size {32 * words.length}"
+  let pointer ← fresh
+  let finish ← fresh
+  modify fun e => { e with encodingMemory := true }
+  let alloc := (AbiEncoding.staticWords pointer finish words).toArray
+  return some { pre := pre ++ alloc, expr := .keccak256 (.localVar pointer) (.literal byteLen) }
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -2513,6 +2593,8 @@ private partial def lowerYul (j : Json) : M Val := do
       if fname == "keccak256" && args.size == 2 then
         if let some (sliceOff, sliceSize) ← yulMemoryArrayPayloadSlice? args[0]! args[1]! then
           return { pre := #[], expr := .keccak256 sliceOff sliceSize }
+        if let some structHash ← yulMemoryStructHash? args[0]! args[1]! lowerYul then
+          return structHash
       let mut pre : Array Stmt := #[]
       let mut xs : Array Expr := #[]
       for arg in args do
@@ -4036,32 +4118,6 @@ private partial def lowerSelectorMemberAccess (at_ base : Json) : M Ref := do
     failAt at_ "function .selector member access is outside this slice"
   else
     failAt at_ "function .selector member access is outside this slice"
-
-private partial def readAbiMember (id : Nat) (pre : Array Stmt) (member : String) (at_ : Json) : M Val := do
-  let some mem := (← get).mems.find? id | failAt at_ "unknown memory parameter"
-  let some idx := mem.members.findIdx? (fun p => p.1 == member)
-    | failAt at_ s!"{member} is not a member of {mem.structName}"
-  if let some schema := mem.schema then
-    let some (.scalar field) := schema[idx]? | failAt at_ "struct array used as a scalar"
-    let plan := AbiRootLowering.root mem.abiStem 0 0 schema (!mem.calldataLocation)
-    let (checks, expr) := AbiRootLowering.scalarRead plan (!mem.calldataLocation) idx field.kind
-    return { pre := pre ++ checks.toArray, expr }
-  if let some types := mem.staticTypes then
-    let modelParam := s!"{mem.param}_{idx}"
-    let some ty := types[idx]? | failAt at_ "missing static tuple member type"
-    let limit := match ty with
-      | .uintN bits => if bits < 256 then some (2^bits) else none
-      | .address => some (2^160)
-      | .bool => some 2
-      | _ => none
-    let mut pre := pre
-    if mem.calldataLocation then
-      if let some bound := limit then
-        pre := pre.push (.ite
-          (.lt (.calldataload (.add (.localVar mem.headBinding) (.literal (32*idx))))
-            (.literal bound)) [] [.revertReturndata])
-    return { pre, expr := .param modelParam }
-  failAt at_ "struct member has no supported complete ABI schema"
 
 private partial def lowerBinary (j : Json) : M Val := do
   let op ← mStr (← mField j "operator")
@@ -6347,7 +6403,9 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
     let argTy ← mType argNode
     let some arg := args[i]? | failAt at_ s!"missing argument {i}"
     if pname != "" then
-      modify fun e => { e with yulMemoryArrays := e.yulMemoryArrays.erase pname }
+      modify fun e =>
+        { e with yulMemoryArrays := e.yulMemoryArrays.erase pname,
+                 yulMemoryStructs := e.yulMemoryStructs.erase pname }
     match arg with
     | .scalar value =>
         let converted ← convert pty argTy value at_
@@ -6380,10 +6438,14 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         if descriptor.calldataLocation && location == "memory" && descriptor.schema.isSome then
           let (convStmts, memDesc) ← convertStructCalldataToMemory descriptor p
           pre := pre ++ effects ++ convStmts
-          modify fun e => { e with mems := e.mems.insert pid memDesc }
+          modify fun e =>
+            { e with mems := e.mems.insert pid memDesc,
+                     yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
         else if location == expected then
           pre := pre ++ effects
-          modify fun e => { e with mems := e.mems.insert pid descriptor }
+          modify fun e =>
+            { e with mems := e.mems.insert pid descriptor,
+                     yulMemoryStructs := if location == "memory" && pname != "" then e.yulMemoryStructs.insert pname pid else e.yulMemoryStructs }
         else
           failAt p "reference argument location conversion is unsupported"
         if pname != "" then
@@ -6421,12 +6483,15 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             pre := pre ++ effects ++ ptrAtom.pre ++ matStmts.toArray
             modify fun e =>
               { e with abiElements := e.abiElements.insert pid elemBound,
+                       yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
                        encodingMemory := true }
           else
             let ptrAtom ← atom { pre := #[], expr := bound.pointer }
             let elemBound : AbiElementLocal := { bound with pointer := ptrAtom.expr, inMemory := true }
             pre := pre ++ effects ++ ptrAtom.pre
-            modify fun e => { e with abiElements := e.abiElements.insert pid elemBound }
+            modify fun e =>
+              { e with abiElements := e.abiElements.insert pid elemBound,
+                       yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
         else
           failAt p "reference argument location conversion is unsupported"
         if pname != "" then
@@ -6575,7 +6640,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               pre := pre ++ readVal.pre |>.push (.letVar binding readVal.expr)
               members := members.push (mName, mTy, binding)
             modify fun e =>
-              { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members } }
+              { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
+                       yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
           else
             let (rawFieldName, count) ← match path with
               | .zero field => pure (field, 0)
@@ -6607,7 +6673,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
               pre := pre ++ readVal.pre |>.push (.letVar binding readVal.expr)
               members := members.push (mName, mTy, binding)
             modify fun e =>
-              { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members } }
+              { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
+                       yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
         else
           failAt p s!"unsupported storage struct helper parameter location {location}"
         if pname != "" then
@@ -6630,7 +6697,8 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           pre := pre.push (.letVar binding mExpr)
           members := members.push (mName, mTy, binding)
         modify fun e =>
-          { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members } }
+          { e with flatStructs := e.flatStructs.insert pid { structId := argSid, structName := sName, members },
+                   yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid }
         if pname != "" then
           yul := yul.erase pname
     | .storageBytes storageName isString =>
@@ -7027,7 +7095,7 @@ private partial def inlineStringFn (fnId : Nat) (args : Array CallArg) (at_ : Js
     failAt fn "empty string helper is outside this slice"
   let resBuf ← lowerStringHelperStmts stmts.toList
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return { pre := boundPre ++ resBuf.pre, pointer := resBuf.pointer, size := resBuf.size }
 
@@ -7072,6 +7140,7 @@ private partial def lowerArrayReinterpretAssembly? (declStmt asmStmt : Json) (re
   modify fun e =>
     { e with scalarArrays := e.scalarArrays.insert resId resDesc,
              yulMemoryArrays := e.yulMemoryArrays.insert resName resDesc.memoryPointer,
+             yulMemoryStructs := e.yulMemoryStructs.erase resName,
              yulNames := e.yulNames.erase resName }
   return some ()
 
@@ -7178,7 +7247,7 @@ private partial def inlineArrayFn (fnId : Nat) (args : Array CallArg) (expectedE
     failAt fn "empty array helper is outside this slice"
   let (resPre, resDesc) ← lowerArrayHelperStmts retElemTy stmts.toList
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (boundPre ++ resPre, resDesc)
 
@@ -7364,7 +7433,7 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
   let some finalPath := retPath?
     | failAt fn "storage pointer helper did not assign or return a storage slot"
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (pre, finalPath)
 
@@ -7420,7 +7489,9 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
   if rname != "" then
     modify fun e =>
       { e with flatStructs := e.flatStructs.insert rid { structId := retSid, structName := retStructName, members := memberBindings },
-               yulNames := e.yulNames.erase rname }
+               yulNames := e.yulNames.erase rname,
+               yulMemoryArrays := e.yulMemoryArrays.erase rname,
+               yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
   modify fun e =>
     { e with helperResult := none, helperReturnId := none, multiHelperResults := none,
              flatStructHelperResult := some (retSid, retStructName, memberBindings, rname != "") }
@@ -7438,7 +7509,7 @@ private partial def inlineFlatStructFn (fnId : Nat) (args : Array CallArg) (at_ 
       failAt fn "inlined struct helper does not return on every path"
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return (retSid, retStructName, pre ++ modStmts ++ bodyStmts, memberExprs)
 
@@ -7571,7 +7642,7 @@ private partial def trySignFlipSelfCall? (fnId : Nat) (args : Array CallArg) (at
   let result ← lowerHelper falseStmts retName
   let finalResult : Val := { pre := pre ++ result.pre, expr := result.expr }
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   return some finalResult
 
@@ -7663,7 +7734,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
     pure { pre := (pre ++ result.pre).push (.letVar retCapture result.expr) ++ modPost,
            expr := .localVar retCapture }
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure finalResult
 
@@ -7699,7 +7770,7 @@ private partial def inlineVoidFn (fnId : Nat) (args : Array CallArg) (at_ : Json
   let stmts ← mArr (← mField body "statements")
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ modStmts ++ bodyStmts)
 
@@ -7752,7 +7823,7 @@ private partial def inlineMsgDataFn (fnId : Nat) (args : Array CallArg) (at_ : J
   if retExpr.isNull then failAt stmts[0]! "msg.data helper return requires an expression"
   let bodyPre ← lowerMsgDataExpr retExpr
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (modStmts ++ bodyPre ++ modPost)
 
@@ -7815,7 +7886,7 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
       failAt fn "inlined multi-return helper does not return on every path"
   let bodyStmts ← lowerVoidHelperFrom stmts.toList (pure modPost)
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned, helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
   pure (pre ++ modStmts ++ bodyStmts, retExprs)
 
@@ -8046,7 +8117,7 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
   let preBodyStmts ← lowerVoidHelperFrom preStmts.toList (pure #[])
   let postBodyStmts ← lowerVoidHelperFrom postStmts.toList (pure #[])
   modify fun e =>
-    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, currentFile := savedFile, unchecked := saved.unchecked,
+    { e with stack := saved.stack, yulNames := savedYul, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, currentFile := savedFile, unchecked := saved.unchecked,
              values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, flatStructs := saved.flatStructs, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, fnPtrs := saved.fnPtrs, bodyAssigned := saved.bodyAssigned,
              helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }
@@ -8454,7 +8525,7 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
   modify fun e =>
     { e with values := saved.values, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   let mut out : Array Stmt := #[]
   if abiLength then
     let captured ← fresh
@@ -8566,7 +8637,7 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
               { e with values := saved.values, paths := saved.paths,
                        snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
                        calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-                       writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+                       writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
             return #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
   let varNode? ←
     if (condOp == "!=" || condOp == ">") && (← isZeroLiteral condRhs) then
@@ -8675,7 +8746,7 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
     { e with values := saved.values, paths := saved.paths,
              snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
              calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
-             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+             writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
   pure #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
 
 private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
@@ -8686,7 +8757,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "Block" =>
         let saved ← get
         out := out ++ (← lowerHelperLoopBody statement)
-        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
     | "UncheckedBlock" =>
         let saved ← get
         modify fun e => { e with unchecked := true }
@@ -8694,7 +8765,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
         for sub in subStmts do
           let subOut ← lowerHelperLoopBody sub
           out := out ++ subOut
-        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, unchecked := saved.unchecked }
+        modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, unchecked := saved.unchecked }
     | "VariableDeclarationStatement" => out := out ++ (← lowerLocal statement)
     | "ExpressionStatement" => out := out ++ (← lowerEffect statement)
     | "EmitStatement" => out := out ++ (← lowerEmit statement)
@@ -8710,7 +8781,7 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | "IfStatement" =>
         let (condition, _yes, no) ← ifParts statement
         let saved ← get
-        let restore : M Unit := modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+        let restore : M Unit := modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
         let yesOut ← lowerHelperLoopBody (← mField statement "trueBody")
         restore
         let noOut ← if no.isEmpty then pure #[] else lowerHelperLoopBody (← mField statement "falseBody")
@@ -8736,7 +8807,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
                    snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, unchecked := saved.unchecked }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, unchecked := saved.unchecked }
         if isUnchecked then
           modify fun e => { e with unchecked := true }
         let blockStmts ← mArr (← mField s "statements")
@@ -8854,7 +8925,7 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let saved ← get
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
         let restReturns ← helperListReturns rest.toArray
         let yesHasReturn ← listContainsReturn yes
         let noHasReturn ← listContainsReturn no
@@ -8931,7 +9002,7 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
                    snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, unchecked := saved.unchecked }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, unchecked := saved.unchecked }
         if isUnchecked then
           modify fun e => { e with unchecked := true }
         let blockStmts ← mArr (← mField s "statements")
@@ -9067,7 +9138,7 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
                    snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
         if !yesAny && !noAny then
           let yesStmts ← lowerVoidHelperFrom yes.toList (pure #[])
           restore
@@ -10087,62 +10158,73 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
         return rhsVal.pre ++ combined.pre |>.push (.assignVar binding combined.expr)
   if (← mKind target) == "MemberAccess" then
     let cMember ← mStr (← mField target "memberName")
-    let .path pre path ← lowerRef (← mField target "expression")
-      | failAt target "member assignment requires a mapping struct storage path"
-    if let .rawSlot structId baseSlot := path then
-      let rawInfo ← resolveRawStructInfo structId target
-      if rawInfo.mappings.any (·.member == cMember) then
-        failAt target s!"struct mapping member {cMember} requires a mapping key"
-      if rawInfo.dynamicArrays.any (·.member == cMember) then
-        failAt target s!"struct dynamic array member {cMember} requires an element index"
-      let some mInfo := rawInfo.scalars.find? (·.member == cMember)
-        | failAt target s!"member {cMember} is unsupported in raw-slot struct"
-      let ty ← mType target
-      unless isSupportedCompoundTy ty do
-        failAt target s!"unsupported raw-slot struct member compound assignment type {ty}"
-      if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
-        failAt target "raw-slot struct member compound write prelude with stateful RHS is unsupported"
-      let rhsVal ← lowerRhs ty
-      let lhsVal ← readRawStructScalar pre baseSlot mInfo
-      let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
-      let writeStmts ← writeRawStructScalar #[] baseSlot mInfo combined.expr false
-      return rhsVal.pre ++ lhsVal.pre ++ combined.pre ++ writeStmts
-    unless pre.isEmpty do failAt target "member write key prelude is unsupported"
-    let (rawField, count, read, write) ← match path with
-      | .zero rawField =>
-          let (cField, subPrefix) := splitSPathField rawField
-          let qualMember := qualifySPathMember subPrefix cMember
-          pure (rawField, 0, Expr.storage (topStructMemberFieldName cField qualMember), fun (cVal : Expr) => Stmt.setStorage (topStructMemberFieldName cField qualMember) cVal)
-      | .one rawField cKey =>
-          let (cField, subPrefix) := splitSPathField rawField
-          let qualMember := qualifySPathMember subPrefix cMember
-          pure (rawField, 1, Expr.structMember cField cKey qualMember, fun (cVal : Expr) => Stmt.setStructMember cField cKey qualMember cVal)
-      | .two rawField cKey1 cKey2 =>
-          let (cField, subPrefix) := splitSPathField rawField
-          let qualMember := qualifySPathMember subPrefix cMember
-          pure (rawField, 2, Expr.structMember2 cField cKey1 cKey2 qualMember, fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 qualMember cVal)
-      | .outer _ _ => failAt target "member assignment requires both mapping keys"
-      | .rawSlot _ _ | .bytesSlot _ _ => failAt target "member assignment requires a mapping struct storage path"
-    let (name, subPrefix) := splitSPathField rawField
-    let qualMember := qualifySPathMember subPrefix cMember
-    let info ← resolveField name target
-    if info.structMappings.any (·.member == qualMember) then
-      failAt target s!"struct mapping member {cMember} requires a mapping key"
-    if info.opaqueNames.contains qualMember then failAt target s!"member {cMember} is opaque in this slice"
-    if info.structFixedArrays.any (·.member == qualMember) then
-      failAt target s!"struct fixed array member {cMember} requires an element index"
-    if info.structDynamicArrays.any (·.member == qualMember) then
-      failAt target s!"struct dynamic array member {cMember} requires an element index"
-    unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains qualMember do
-      failAt target "member assignment requires a supported layout member"
-    let ty ← mType target
-    unless ty.startsWith "uint" && (bitsOf ty).isSome do
-      failAt target "member assignment requires an unsigned scalar member"
-    markField name
-    let rhsVal ← lowerRhs ty
-    let lhsVar ← fresh
-    let combined ← combineCompound operator ty (.localVar lhsVar) rhsVal.expr expression
-    return rhsVal.pre.push (.letVar lhsVar read) ++ combined.pre |>.push (write combined.expr)
+    match ← lowerRef (← mField target "expression") with
+    | .flatStruct structLocalId =>
+        let some flat := (← get).flatStructs.find? structLocalId
+          | failAt target "unknown flat struct local"
+        let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == cMember)
+          | failAt target s!"unknown flat struct member {cMember}"
+        unless isSupportedCompoundTy mTy do
+          failAt target s!"unsupported struct member compound assignment type {mTy}"
+        let rhsVal ← lowerRhs mTy
+        let combined ← combineCompound operator mTy (.localVar binding) rhsVal.expr expression
+        return rhsVal.pre ++ combined.pre |>.push (.assignVar binding combined.expr)
+    | .path pre path =>
+        if let .rawSlot structId baseSlot := path then
+          let rawInfo ← resolveRawStructInfo structId target
+          if rawInfo.mappings.any (·.member == cMember) then
+            failAt target s!"struct mapping member {cMember} requires a mapping key"
+          if rawInfo.dynamicArrays.any (·.member == cMember) then
+            failAt target s!"struct dynamic array member {cMember} requires an element index"
+          let some mInfo := rawInfo.scalars.find? (·.member == cMember)
+            | failAt target s!"member {cMember} is unsupported in raw-slot struct"
+          let ty ← mType target
+          unless isSupportedCompoundTy ty do
+            failAt target s!"unsupported raw-slot struct member compound assignment type {ty}"
+          if !pre.isEmpty && (assignmentIn right || statefulCallIn right (← get)) then
+            failAt target "raw-slot struct member compound write prelude with stateful RHS is unsupported"
+          let rhsVal ← lowerRhs ty
+          let lhsVal ← readRawStructScalar pre baseSlot mInfo
+          let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
+          let writeStmts ← writeRawStructScalar #[] baseSlot mInfo combined.expr false
+          return rhsVal.pre ++ lhsVal.pre ++ combined.pre ++ writeStmts
+        unless pre.isEmpty do failAt target "member write key prelude is unsupported"
+        let (rawField, count, read, write) ← match path with
+          | .zero rawField =>
+              let (cField, subPrefix) := splitSPathField rawField
+              let qualMember := qualifySPathMember subPrefix cMember
+              pure (rawField, 0, Expr.storage (topStructMemberFieldName cField qualMember), fun (cVal : Expr) => Stmt.setStorage (topStructMemberFieldName cField qualMember) cVal)
+          | .one rawField cKey =>
+              let (cField, subPrefix) := splitSPathField rawField
+              let qualMember := qualifySPathMember subPrefix cMember
+              pure (rawField, 1, Expr.structMember cField cKey qualMember, fun (cVal : Expr) => Stmt.setStructMember cField cKey qualMember cVal)
+          | .two rawField cKey1 cKey2 =>
+              let (cField, subPrefix) := splitSPathField rawField
+              let qualMember := qualifySPathMember subPrefix cMember
+              pure (rawField, 2, Expr.structMember2 cField cKey1 cKey2 qualMember, fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 qualMember cVal)
+          | .outer _ _ => failAt target "member assignment requires both mapping keys"
+          | .rawSlot _ _ | .bytesSlot _ _ => failAt target "member assignment requires a mapping struct storage path"
+        let (name, subPrefix) := splitSPathField rawField
+        let qualMember := qualifySPathMember subPrefix cMember
+        let info ← resolveField name target
+        if info.structMappings.any (·.member == qualMember) then
+          failAt target s!"struct mapping member {cMember} requires a mapping key"
+        if info.opaqueNames.contains qualMember then failAt target s!"member {cMember} is opaque in this slice"
+        if info.structFixedArrays.any (·.member == qualMember) then
+          failAt target s!"struct fixed array member {cMember} requires an element index"
+        if info.structDynamicArrays.any (·.member == qualMember) then
+          failAt target s!"struct dynamic array member {cMember} requires an element index"
+        unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains qualMember do
+          failAt target "member assignment requires a supported layout member"
+        let ty ← mType target
+        unless ty.startsWith "uint" && (bitsOf ty).isSome do
+          failAt target "member assignment requires an unsigned scalar member"
+        markField name
+        let rhsVal ← lowerRhs ty
+        let lhsVar ← fresh
+        let combined ← combineCompound operator ty (.localVar lhsVar) rhsVal.expr expression
+        return rhsVal.pre.push (.letVar lhsVar read) ++ combined.pre |>.push (write combined.expr)
+    | _ => failAt target "member assignment requires a mapping struct storage path"
   if (← mKind target) == "IndexAccess" then
     let reference ← lowerRef target
     if let .fixedElement _ _ _ := reference then
@@ -10276,64 +10358,76 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
         return { pre := stmts, expr := if isPrefix then .localVar binding else .localVar oldVar }
   if (← mKind target) == "MemberAccess" then
     let cMember ← mStr (← mField target "memberName")
-    let .path pre path ← lowerRef (← mField target "expression")
-      | failAt target "member assignment requires a mapping struct storage path"
-    if let .rawSlot structId baseSlot := path then
-      let rawInfo ← resolveRawStructInfo structId target
-      if rawInfo.mappings.any (·.member == cMember) then
-        failAt target s!"struct mapping member {cMember} requires a mapping key"
-      if rawInfo.dynamicArrays.any (·.member == cMember) then
-        failAt target s!"struct dynamic array member {cMember} requires an element index"
-      let some mInfo := rawInfo.scalars.find? (·.member == cMember)
-        | failAt target s!"member {cMember} is unsupported in raw-slot struct"
-      let ty ← mType target
-      unless isSupportedIncDecTy ty do
-        failAt target s!"unsupported raw-slot struct member increment/decrement type {ty}"
-      let lhsVal ← readRawStructScalar pre baseSlot mInfo
-      let oldVar ← fresh
-      let newVar ← fresh
-      let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
-      let writeStmts ← writeRawStructScalar #[] baseSlot mInfo (.localVar newVar) false
-      let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
-        combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
-      return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
-    unless pre.isEmpty do failAt target "member write key prelude is unsupported"
-    let (rawField, count, read, write) ← match path with
-      | .zero rawField =>
-          let (cField, subPrefix) := splitSPathField rawField
-          let qualMember := qualifySPathMember subPrefix cMember
-          pure (rawField, 0, Expr.storage (topStructMemberFieldName cField qualMember), fun (cVal : Expr) => Stmt.setStorage (topStructMemberFieldName cField qualMember) cVal)
-      | .one rawField cKey =>
-          let (cField, subPrefix) := splitSPathField rawField
-          let qualMember := qualifySPathMember subPrefix cMember
-          pure (rawField, 1, Expr.structMember cField cKey qualMember, fun (cVal : Expr) => Stmt.setStructMember cField cKey qualMember cVal)
-      | .two rawField cKey1 cKey2 =>
-          let (cField, subPrefix) := splitSPathField rawField
-          let qualMember := qualifySPathMember subPrefix cMember
-          pure (rawField, 2, Expr.structMember2 cField cKey1 cKey2 qualMember, fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 qualMember cVal)
-      | .outer _ _ => failAt target "member assignment requires both mapping keys"
-      | .rawSlot _ _ | .bytesSlot _ _ => failAt target "member assignment requires a mapping struct storage path"
-    let (name, subPrefix) := splitSPathField rawField
-    let qualMember := qualifySPathMember subPrefix cMember
-    let info ← resolveField name target
-    if info.structMappings.any (·.member == qualMember) then
-      failAt target s!"struct mapping member {cMember} requires a mapping key"
-    if info.opaqueNames.contains qualMember then failAt target s!"member {cMember} is opaque in this slice"
-    if info.structFixedArrays.any (·.member == qualMember) then
-      failAt target s!"struct fixed array member {cMember} requires an element index"
-    if info.structDynamicArrays.any (·.member == qualMember) then
-      failAt target s!"struct dynamic array member {cMember} requires an element index"
-    unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains qualMember do
-      failAt target "member assignment requires a supported layout member"
-    let ty ← mType target
-    unless ty.startsWith "uint" && (bitsOf ty).isSome do
-      failAt target "member assignment requires an unsigned scalar member"
-    markField name
-    let oldVar ← fresh
-    let newVar ← fresh
-    let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
-    let stmts := #[Stmt.letVar oldVar read] ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (write (.localVar newVar))
-    return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+    match ← lowerRef (← mField target "expression") with
+    | .flatStruct structLocalId =>
+        let some flat := (← get).flatStructs.find? structLocalId
+          | failAt target "unknown flat struct local"
+        let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == cMember)
+          | failAt target s!"unknown flat struct member {cMember}"
+        unless isSupportedIncDecTy mTy do
+          failAt target s!"unsupported struct member increment/decrement type {mTy}"
+        let oldVar ← fresh
+        let combined ← combineCompound compoundOp mTy (.localVar oldVar) (.literal 1) j
+        let stmts := #[Stmt.letVar oldVar (.localVar binding)] ++ combined.pre |>.push (.assignVar binding combined.expr)
+        return { pre := stmts, expr := if isPrefix then .localVar binding else .localVar oldVar }
+    | .path pre path =>
+        if let .rawSlot structId baseSlot := path then
+          let rawInfo ← resolveRawStructInfo structId target
+          if rawInfo.mappings.any (·.member == cMember) then
+            failAt target s!"struct mapping member {cMember} requires a mapping key"
+          if rawInfo.dynamicArrays.any (·.member == cMember) then
+            failAt target s!"struct dynamic array member {cMember} requires an element index"
+          let some mInfo := rawInfo.scalars.find? (·.member == cMember)
+            | failAt target s!"member {cMember} is unsupported in raw-slot struct"
+          let ty ← mType target
+          unless isSupportedIncDecTy ty do
+            failAt target s!"unsupported raw-slot struct member increment/decrement type {ty}"
+          let lhsVal ← readRawStructScalar pre baseSlot mInfo
+          let oldVar ← fresh
+          let newVar ← fresh
+          let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+          let writeStmts ← writeRawStructScalar #[] baseSlot mInfo (.localVar newVar) false
+          let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
+            combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
+          return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+        unless pre.isEmpty do failAt target "member write key prelude is unsupported"
+        let (rawField, count, read, write) ← match path with
+          | .zero rawField =>
+              let (cField, subPrefix) := splitSPathField rawField
+              let qualMember := qualifySPathMember subPrefix cMember
+              pure (rawField, 0, Expr.storage (topStructMemberFieldName cField qualMember), fun (cVal : Expr) => Stmt.setStorage (topStructMemberFieldName cField qualMember) cVal)
+          | .one rawField cKey =>
+              let (cField, subPrefix) := splitSPathField rawField
+              let qualMember := qualifySPathMember subPrefix cMember
+              pure (rawField, 1, Expr.structMember cField cKey qualMember, fun (cVal : Expr) => Stmt.setStructMember cField cKey qualMember cVal)
+          | .two rawField cKey1 cKey2 =>
+              let (cField, subPrefix) := splitSPathField rawField
+              let qualMember := qualifySPathMember subPrefix cMember
+              pure (rawField, 2, Expr.structMember2 cField cKey1 cKey2 qualMember, fun (cVal : Expr) => Stmt.setStructMember2 cField cKey1 cKey2 qualMember cVal)
+          | .outer _ _ => failAt target "member assignment requires both mapping keys"
+          | .rawSlot _ _ | .bytesSlot _ _ => failAt target "member assignment requires a mapping struct storage path"
+        let (name, subPrefix) := splitSPathField rawField
+        let qualMember := qualifySPathMember subPrefix cMember
+        let info ← resolveField name target
+        if info.structMappings.any (·.member == qualMember) then
+          failAt target s!"struct mapping member {cMember} requires a mapping key"
+        if info.opaqueNames.contains qualMember then failAt target s!"member {cMember} is opaque in this slice"
+        if info.structFixedArrays.any (·.member == qualMember) then
+          failAt target s!"struct fixed array member {cMember} requires an element index"
+        if info.structDynamicArrays.any (·.member == qualMember) then
+          failAt target s!"struct dynamic array member {cMember} requires an element index"
+        unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains qualMember do
+          failAt target "member assignment requires a supported layout member"
+        let ty ← mType target
+        unless ty.startsWith "uint" && (bitsOf ty).isSome do
+          failAt target "member assignment requires an unsigned scalar member"
+        markField name
+        let oldVar ← fresh
+        let newVar ← fresh
+        let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
+        let stmts := #[Stmt.letVar oldVar read] ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (write (.localVar newVar))
+        return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
+    | _ => failAt target "member assignment requires a mapping struct storage path"
   if (← mKind target) == "IndexAccess" then
     let reference ← lowerRef target
     if let .fixedElement _ _ _ := reference then
@@ -10704,6 +10798,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
                        scalarTy := e.scalarTy.insert id scalarType,
                        yulNames := e.yulNames.insert name expr,
                        yulMemoryArrays := e.yulMemoryArrays.erase name,
+                       yulMemoryStructs := e.yulMemoryStructs.erase name,
                        writableLocals := e.writableLocals.insert id binding,
                        zeroInitLocals := e.zeroInitLocals.filter (· != id) }
         | .flatStruct sid sName memberVals =>
@@ -10721,7 +10816,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
             modify fun e =>
               { e with flatStructs := e.flatStructs.insert id fDesc,
                        yulNames := e.yulNames.erase name,
-                       yulMemoryArrays := e.yulMemoryArrays.erase name }
+                       yulMemoryArrays := e.yulMemoryArrays.erase name,
+                       yulMemoryStructs := e.yulMemoryStructs.insert name id }
         | .scalarArray elemStr _ _ rawDesc =>
             unless loc == "memory" && (dTy == elemStr ++ "[]" || dTy == elemStr ++ "[] memory") do
               failAt d "array abi.decode component requires a matching memory array local"
@@ -10732,7 +10828,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
               { e with scalarArrays := e.scalarArrays.insert id desc,
                        encodingMemory := true,
                        yulNames := e.yulNames.erase name,
-                       yulMemoryArrays := e.yulMemoryArrays.insert name desc.memoryPointer }
+                       yulMemoryArrays := e.yulMemoryArrays.insert name desc.memoryPointer,
+                       yulMemoryStructs := e.yulMemoryStructs.erase name }
         | .dynamicBytes isString buf =>
             let expectedBase := if isString then "string" else "bytes"
             unless loc == "memory" && (dTy == expectedBase || dTy == expectedBase ++ " memory") do
@@ -10747,12 +10844,14 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
               modify fun e =>
                 { e with stringBuffers := e.stringBuffers.insert id retained,
                          yulNames := e.yulNames.erase name,
-                         yulMemoryArrays := e.yulMemoryArrays.erase name }
+                         yulMemoryArrays := e.yulMemoryArrays.erase name,
+                         yulMemoryStructs := e.yulMemoryStructs.erase name }
             else
               modify fun e =>
                 { e with byteBuffers := e.byteBuffers.insert id retained,
                          yulNames := e.yulNames.erase name,
-                         yulMemoryArrays := e.yulMemoryArrays.erase name }
+                         yulMemoryArrays := e.yulMemoryArrays.erase name,
+                         yulMemoryStructs := e.yulMemoryStructs.erase name }
       return out
     let mut expectedTypes : Array (Option String) := #[]
     for d in decls do
@@ -10789,6 +10888,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
                  scalarTy := e.scalarTy.insert id scalarType,
                  yulNames := e.yulNames.insert name expr,
                  yulMemoryArrays := e.yulMemoryArrays.erase name,
+                 yulMemoryStructs := e.yulMemoryStructs.erase name,
                  writableLocals := e.writableLocals.insert id binding,
                  zeroInitLocals := if isZero then (if e.zeroInitLocals.contains id then e.zeroInitLocals else e.zeroInitLocals.push id) else e.zeroInitLocals.filter (· != id) }
     return out
@@ -10801,7 +10901,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
   let id ← mNat (← mField d "id")
   let loc := optStr d "storageLocation" |>.getD "default"
   let init := field? s "initialValue" |>.getD Json.null
-  modify fun e => { e with yulMemoryArrays := e.yulMemoryArrays.erase name }
+  modify fun e => { e with yulMemoryArrays := e.yulMemoryArrays.erase name, yulMemoryStructs := e.yulMemoryStructs.erase name }
   if let some typeNameNode := field? d "typeName" then
     if optStr typeNameNode "nodeType" == some "FunctionTypeName" then
       let fvis := optStr typeNameNode "visibility" |>.getD ""
@@ -11098,7 +11198,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
         members := members.push (mName, mTy, binding)
       modify fun e =>
         { e with flatStructs := e.flatStructs.insert id { structId := sid.toNat, structName := sName, members },
-                 yulNames := e.yulNames.erase name }
+                 yulNames := e.yulNames.erase name,
+                 yulMemoryStructs := e.yulMemoryStructs.insert name id }
       return out
     match ← lowerRef init with
     | .path _ _ =>
@@ -11113,7 +11214,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
           members := members.push (mName, mTy, binding)
         modify fun e =>
           { e with flatStructs := e.flatStructs.insert id { structId := sid.toNat, structName := sName, members },
-                   yulNames := e.yulNames.erase name }
+                   yulNames := e.yulNames.erase name,
+                   yulMemoryStructs := e.yulMemoryStructs.insert name id }
         return out
     | .mem rootId effects =>
         if (← get).bodyAssigned.contains id then
@@ -11133,12 +11235,14 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
           let (convStmts, memDesc) ← convertStructCalldataToMemory descriptor d
           modify fun e =>
             { e with mems := e.mems.insert id memDesc,
-                     yulNames := e.yulNames.erase name }
+                     yulNames := e.yulNames.erase name,
+                     yulMemoryStructs := e.yulMemoryStructs.insert name id }
           return effects ++ convStmts
         else
           modify fun e =>
             { e with mems := e.mems.insert id descriptor,
-                     yulNames := e.yulNames.erase name }
+                     yulNames := e.yulNames.erase name,
+                     yulMemoryStructs := e.yulMemoryStructs.insert name id }
           return effects
     | .abiElement rootId memberIndex pointer inMemory effects =>
         if (← get).bodyAssigned.contains id then
@@ -11174,7 +11278,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
           modify fun e =>
             { e with abiElements := e.abiElements.insert id bound,
                      encodingMemory := true,
-                     yulNames := e.yulNames.erase name }
+                     yulNames := e.yulNames.erase name,
+                     yulMemoryStructs := e.yulMemoryStructs.insert name id }
           return effects ++ ptrAtom.pre ++ matStmts.toArray
         else
           let ptrAtom ← atom { pre := #[], expr := pointer }
@@ -11182,7 +11287,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
             { rootId, memberIndex, pointer := ptrAtom.expr, inMemory := true }
           modify fun e =>
             { e with abiElements := e.abiElements.insert id bound,
-                     yulNames := e.yulNames.erase name }
+                     yulNames := e.yulNames.erase name,
+                     yulMemoryStructs := e.yulMemoryStructs.insert name id }
           return effects ++ ptrAtom.pre
     | _ =>
         if (← get).bodyAssigned.contains id then
@@ -11518,7 +11624,8 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
             headBinding := headBinding
             schema := schema
             abiStem := abiStem }
-        { e with mems := e.mems.insert id bound }
+        { e with mems := e.mems.insert id bound,
+                 yulMemoryStructs := if loc == "memory" && rawName != "" then e.yulMemoryStructs.insert rawName id else e.yulMemoryStructs }
     else if ty.startsWith "struct " && !ty.contains "[" then
       failAt p s!"unsupported location {loc} for {ty}"
     else
@@ -11564,7 +11671,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
         -- Restore lexical lookup maps, but retain fresh names and discovered dependencies.
         modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
-                   snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+                   snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
         out := out ++ nested
         returned := nestedReturned
     | "UncheckedBlock" =>
@@ -11573,7 +11680,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
         let (uncheckedNested, uncheckedReturned) ← lowerRootStatements (← mArr (← mField s "statements")) stmtIsTail
         modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths,
-                   snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, unchecked := saved.unchecked }
+                   snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, unchecked := saved.unchecked }
         out := out ++ uncheckedNested
         returned := uncheckedReturned
     | "VariableDeclarationStatement" =>
@@ -11617,7 +11724,7 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
         let saved ← get
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
         -- A root return inside a branch stops execution, so the continuation
         -- stays after the conditional and runs only on fallthrough.
         let (yesOut, yesReturned) ← lowerRootStatements yes stmtIsTail
@@ -12095,7 +12202,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     if rname != "" then
       modify fun e =>
         { e with flatStructs := e.flatStructs.insert rid { structId := retSid, structName := retStructName, members := memberBindings },
-                 yulNames := e.yulNames.erase rname }
+                 yulNames := e.yulNames.erase rname,
+                 yulMemoryStructs := e.yulMemoryStructs.insert rname rid }
     rootFlatStructState? := some (retSid, retStructName, memberBindings, rname != "")
   else if emptyBodyArrayRet?.isNone && fixedArrayRet?.isNone && !msgDataRet && dynamicBytesRet?.isNone then
     for r in returns do
@@ -12627,7 +12735,7 @@ private def importSlice
     -- do not leak between functions. Field layouts and the closure are shared.
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
-                      snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty,
+                      snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty, yulMemoryStructs := RBMap.empty,
                       projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
