@@ -2219,3 +2219,38 @@ def stateful_string_bytes_mappings_uri_storage_strings_source(fixture: str, vari
         return fixture
     raise ValueError(f'unknown string-bytes-mappings-uri-storage-strings variant: {variant}')
 
+
+def stateful_strings_hex_arrays_bitmaps_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            '_checkpoints', '_signers', '_bitmap', '_hexLabels',
+            'totalDigestScore', 'rollingDigest',
+            'step', 'nextCheckpoint', 'lastIdx', 'bitIdx', 'enableBit',
+            'queryTarget', 'ub', 'hexAuto', 'hexFixed', 'addrHex',
+            'signedVal', 'signedStr', 'combined', 'sameLabel', 'nibXor',
+            'digest', 'bitNow', 'delta',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-strings-hex-arrays-bitmaps':
+        replacements = {
+            'for (uint256 i = 2 * length + 1; i > 1; --i)':
+            'for (uint256 i = 2 * length + 1; i > 1; i -= 1)',
+            'localValue >>= 4;':
+            'localValue = localValue >> 4;',
+            'totalDigestScore += delta;':
+            'totalDigestScore = totalDigestScore + delta;',
+            'totalDigestScore += 999;':
+            'totalDigestScore = totalDigestScore + 999;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('strings-hex-arrays-bitmaps variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown strings-hex-arrays-bitmaps variant: {variant}')
+

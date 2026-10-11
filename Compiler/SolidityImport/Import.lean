@@ -3523,12 +3523,27 @@ private partial def lowerRef (j : Json) : M Ref := do
       else if let some decl := env.numericConstants.find? n then
         if env.constantStack.contains n then failAt j "cyclic constant initializer"
         let declared ← mType decl
+        let initializer ← mField decl "value"
+        if declared.startsWith "bytes" then
+          if let some byteW := (declared.drop 5).toNat? then
+            if 1 ≤ byteW && byteW ≤ 32 && (← mKind initializer) == "Literal" &&
+                (optStr initializer "kind" == some "string" ||
+                 optStr initializer "kind" == some "unicodeString" ||
+                 optStr initializer "kind" == some "hexString") then
+              let hex ← mStr (← mField initializer "hexValue")
+              unless hex.length % 2 == 0 && hex.length / 2 ≤ byteW do
+                failAt initializer s!"fixed-bytes literal constant exceeds {declared}"
+              let word ← if hex.isEmpty then pure 0 else do
+                let some v := Compiler.Hex.parseHexNat? ("0x" ++ hex)
+                  | failAt initializer s!"invalid hexValue {hex}"
+                pure v
+              let aligned := word * 16 ^ (64 - hex.length)
+              return .expr { pre := #[], expr := .literal aligned }
         unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
             declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
             declared == "int256" || declared == "int" ||
             declared == "address" || declared == "address payable" do
           failAt j s!"unsupported numeric constant type {declared}"
-        let initializer ← mField decl "value"
         modify fun e => { e with constantStack := n :: e.constantStack }
         let rawValue ← lowerExpr initializer
         let value ← convert declared (← mType initializer) rawValue initializer
@@ -3791,6 +3806,22 @@ private partial def lowerRef (j : Json) : M Ref := do
             let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding)) [] [.panicCode (.literal 0x32)])
             let value := Expr.mload (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32)))
             return .expr { pre, expr := value }
+      | .expr baseVal =>
+          let baseTy ← mType baseExpression
+          if baseTy.startsWith "bytes" then
+            if let some byteW := (baseTy.drop 5).toNat? then
+              if 1 ≤ byteW && byteW ≤ 32 then
+                if statefulCallIn baseExpression (← get) || statefulCallIn indexExpression (← get) ||
+                   assignmentIn baseExpression || assignmentIn indexExpression then
+                  failAt j "stateful or assignment fixed-bytes index is unsupported"
+                let idxTy ← mType indexExpression
+                unless (idxTy.startsWith "uint" && (bitsOf idxTy).isSome) ||
+                    (idxTy.startsWith "int_const" && !idxTy.startsWith "int_const -") do
+                  failAt indexExpression "fixed-bytes index must be unsigned"
+                let bAtom ← atom baseVal
+                let pre := bAtom.pre ++ key.pre ++ #[.ite (.lt key.expr (.literal byteW)) [] [.panicCode (.literal 0x32)]]
+                return .expr { pre, expr := .shl (.literal 248) (.byte key.expr bAtom.expr) }
+          failAt j "index of a non-mapping or unsupported ABI value"
       | _ => failAt j "index of a non-mapping or unsupported ABI value"
   | "MemberAccess" =>
       let member ← mStr (← mField j "memberName")
@@ -4634,6 +4665,19 @@ private partial def lowerCast (j : Json) : M Val := do
       (src == "bytes" || src == "bytes memory" || src == "bytes calldata" ||
        src == "bytes storage ref" || src == "bytes storage pointer") then
     return ← lowerBytesToFixedBytes args[0]! (if tname == "bytes32" then 32 else 4) j
+  if tname == "bytes1" then
+    let innerArg ← stripParens args[0]!
+    if (← mKind innerArg) == "Literal" then
+      let kind ← mStr (← mField innerArg "kind")
+      if kind == "string" || kind == "unicodeString" || kind == "hexString" then
+        let hex ← mStr (← mField innerArg "hexValue")
+        unless hex.length == 2 || hex.length == 0 do
+          failAt j s!"bytes1 string literal cast requires at most 1 byte, found {hex.length / 2}"
+        let byteVal ← if hex.isEmpty then pure 0 else
+          match Compiler.Hex.parseHexNat? ("0x" ++ hex) with
+          | some n => pure n
+          | none => failAt j "invalid bytes1 literal hexValue"
+        return { pre := #[], expr := .literal (byteVal * 2 ^ 248) }
   let v ← lowerExpr args[0]!
   if src.startsWith "int" && src != "int256" && src != "int" && !src.startsWith "int_const" then
     failAt j s!"unsupported cast source {src}"
@@ -4642,6 +4686,41 @@ private partial def lowerCast (j : Json) : M Val := do
         (src.startsWith "uint" && (bitsOf src).isSome) do
       failAt j s!"unsupported cast source {src} for {tname}"
     return v
+  if tname == "bytes1" then
+    if src == "bytes1" then
+      return v
+    else if src == "uint8" then
+      let a ← atom v
+      let dest ← fresh
+      let shifted := Stmt.letVar dest (.shl (.literal 248) (.bitAnd a.expr (.literal 0xff)))
+      return { pre := a.pre.push shifted, expr := .localVar dest }
+    else if src == "bytes32" || src == "bytes4" then
+      let a ← atom v
+      let dest ← fresh
+      let bound := Stmt.letVar dest (.bitAnd a.expr (.literal (0xff * 2 ^ 248)))
+      return { pre := a.pre.push bound, expr := .localVar dest }
+    else if src.startsWith "int_const" && !src.startsWith "int_const -" then
+      let .literal n := v.expr
+        | failAt j s!"unsupported cast source {src} for bytes1"
+      let innerArg ← stripParens args[0]!
+      let raw := optStr innerArg "value" |>.getD ""
+      let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
+      unless v.pre.isEmpty && n < 256 &&
+          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 2)) do
+        failAt j s!"unsupported cast source {src} for bytes1"
+      return { pre := #[], expr := .literal (n * 2 ^ 248) }
+    else
+      failAt j s!"unsupported cast source {src} for bytes1"
+  if src == "bytes1" then
+    if tname == "bytes32" || tname == "bytes4" then
+      return v
+    else if tname == "uint8" then
+      let a ← atom v
+      let dest ← fresh
+      let shifted := Stmt.letVar dest (.shr (.literal 248) a.expr)
+      return { pre := a.pre.push shifted, expr := .localVar dest }
+    else
+      failAt j s!"unsupported cast target {tname} from bytes1"
   if tname == "bytes4" then
     if src == "bytes4" then
       return v
@@ -8818,15 +8897,64 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
   let counter ← mNat (← mField d "id")
   let counterName ← mStr (← mField d "name")
   unless (← mType d) == "uint256" do failAt d "a for loop counter must be uint256"
-  if let some start := (field? init "initialValue").filter (!·.isNull) then
-    unless (← mType start) == "int_const 0" do failAt start "a for loop counter must start at 0"
   let body ← mField s "body"
   let writes := bodyAssignedIds body
-  if writes.contains counter then
-    failAt d "a for loop counter must not be assigned in the loop body"
   let isCounter (j : Json) : M Bool := do
     if (← mKind j) != "Identifier" then return false
     pure ((← refInt j) == counter)
+  let cond ← mField s "condition"
+  let isDecrementFor ← if (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some ">" then
+    isCounter (← mField cond "leftExpression")
+  else
+    pure false
+  if isDecrementFor && !writes.contains counter then
+    let some startNode := (field? init "initialValue").filter (!·.isNull)
+      | failAt init "a decrementing for loop counter must have an initial value"
+    let step ← mField (← mField s "loopExpression") "expression"
+    let stepOk ← match ← mKind step with
+      | "UnaryOperation" =>
+          pure (optStr step "operator" == some "--" && (← isCounter (← mField step "subExpression")))
+      | "Assignment" =>
+          pure (optStr step "operator" == some "-=" && (← isCounter (← mField step "leftHandSide")) &&
+            (← mType (← mField step "rightHandSide")) == "int_const 1")
+      | _ => pure false
+    unless stepOk do failAt step "a decrementing for loop must decrement its counter by one"
+    let startVal ← atom (← lowerExpr startNode)
+    let lowerNode ← mField cond "rightExpression"
+    let lowerVal ← lowerExpr lowerNode
+    let lowerInvariant ← match lowerVal.expr with
+      | .literal _ | .param _ => pure true
+      | .localVar _ =>
+          if (← mKind lowerNode) == "Identifier" then
+            pure (!writes.contains (← refInt lowerNode).toNat)
+          else pure false
+      | _ => pure false
+    unless lowerVal.pre.isEmpty && lowerInvariant do
+      failAt lowerNode "a for loop bound must be a literal, a parameter or an unassigned local"
+    let countBinding ← fresh
+    let iterIdx ← fresh
+    let decBinding ← freshFor counterName
+    let saved ← get
+    modify fun e =>
+      { e with values := e.values.insert counter (.localVar decBinding),
+               yulNames := e.yulNames.insert counterName (.localVar decBinding) }
+    let bodyOut ← lowerBody body
+    modify fun e =>
+      { e with values := saved.values, paths := saved.paths,
+               snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+               writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+    let loopBodyStmts : List Stmt :=
+      [.letVar decBinding (.sub startVal.expr (.localVar iterIdx))] ++ bodyOut.toList
+    return startVal.pre ++ #[
+      .letVar countBinding (.literal 0),
+      .ite (.gt startVal.expr lowerVal.expr)
+        [.assignVar countBinding (.sub startVal.expr lowerVal.expr)] [],
+      .forEach iterIdx (.localVar countBinding) loopBodyStmts
+    ]
+  if let some start := (field? init "initialValue").filter (!·.isNull) then
+    unless (← mType start) == "int_const 0" do failAt start "a for loop counter must start at 0"
+  if writes.contains counter then
+    failAt d "a for loop counter must not be assigned in the loop body"
   let step ← mField (← mField s "loopExpression") "expression"
   let stepOk ← match ← mKind step with
     | "UnaryOperation" =>
@@ -8836,7 +8964,6 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
           (← mType (← mField step "rightHandSide")) == "int_const 1")
     | _ => pure false
   unless stepOk do failAt step "a for loop must increment its counter by one"
-  let cond ← mField s "condition"
   unless (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" do
     failAt cond "a for loop condition must be counter < bound"
   unless ← isCounter (← mField cond "leftExpression") do
@@ -10368,6 +10495,47 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
           return (value.pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding))
             [] [.panicCode (.literal 0x32)]) |>.push
             (.mstore (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul key.expr (.literal 32))) stored)
+        let baseName ← mStr (← mField baseNode "name")
+        if let some buf := (← get).byteBuffers.find? baseId.toNat then
+          if (← get).yulNames.contains baseName then
+            let indexExpression ← mField target "indexExpression"
+            if statefulCallIn indexExpression (← get) || assignmentIn indexExpression then
+              failAt target "stateful or assignment array index is unsupported"
+            let indexTy ← mType indexExpression
+            unless indexTy.startsWith "uint" || indexTy.startsWith "int_const" do
+              failAt target "byte buffer index must be unsigned"
+            let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do
+              let right ← mField expression "rightHandSide"
+              let innerRight ← stripParens right
+              if (← mKind innerRight) == "Literal" then
+                let rkind ← mStr (← mField innerRight "kind")
+                if rkind == "string" || rkind == "unicodeString" || rkind == "hexString" then
+                  let hex ← mStr (← mField innerRight "hexValue")
+                  unless hex.length == 2 || hex.length == 0 do
+                    failAt right s!"bytes1 string literal requires at most 1 byte, found {hex.length / 2}"
+                  let byteVal ← if hex.isEmpty then pure 0 else
+                    match Compiler.Hex.parseHexNat? ("0x" ++ hex) with
+                    | some n => pure n
+                    | none => failAt right "invalid bytes1 literal hexValue"
+                  pure ({ pre := #[], expr := .literal (byteVal * 2 ^ 248) } : Val)
+                else
+                  failAt right "byte buffer element assignment requires a bytes1 value"
+              else
+                let rTy ← mType right
+                unless rTy == "bytes1" do
+                  failAt right s!"byte buffer element assignment requires a bytes1 value, found {rTy}"
+                atom (← lowerExpr right)
+            let key ← atom (← lowerExpr indexExpression)
+            let addr := Expr.add buf.pointer key.expr
+            let wordAddr := AbiEncoding.byteWordOffset addr
+            let shiftBits := Expr.mul (.sub (.literal 31) (AbiEncoding.byteLane addr)) (.literal 8)
+            let topByte := Expr.bitAnd (.shr (.literal 248) value.expr) (.literal 0xff)
+            let byteMask := Expr.shl shiftBits (.literal 0xff)
+            let clearedWord := Expr.bitAnd (.mload wordAddr) (.bitNot byteMask)
+            let updatedWord := if deleting then clearedWord else Expr.bitOr clearedWord (.shl shiftBits topByte)
+            return (value.pre ++ key.pre).push (.ite (.lt key.expr buf.size)
+              [] [.panicCode (.literal 0x32)]) |>.push
+              (.mstore wordAddr updatedWord)
     let reference ← lowerRef target
     if let .fixedElement pre path index := reference then
       -- Under the pinned via-IR profile, assignment evaluates and captures
@@ -11461,7 +11629,12 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       pure ((← mArr (← mField init "names")).isEmpty && (← mKind (← mField init "expression")) == "NewExpression")
     else
       pure false
-    if isNewBytesInit && (← get).unchecked then
+    let isNewBytesBinaryLen ← if isNewBytesInit then do
+      let args ← mArr (← mField init "arguments")
+      if args.size == 1 then pure ((← mKind (← stripParens args[0]!)) == "BinaryOperation") else pure false
+    else
+      pure false
+    if isNewBytesInit && ((← get).unchecked || isNewBytesBinaryLen) then
       let initTy ← mType init
       let expectedBase := if isString then "string" else "bytes"
       unless initTy == expectedBase || initTy == expectedBase ++ " memory" do

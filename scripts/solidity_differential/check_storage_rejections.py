@@ -1268,6 +1268,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'NewExpression: [solidity-import:unsupported] hash input must be a supported ABI encoding'),
+        ('strings-hex-arrays-bitmaps-positive',
+         (root / 'Contracts/SolidityImportSmoke/StringsHexArraysBitmapsSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('strings-hex-arrays-bitmaps-decrement-for-step-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256 acc = 0;\n    for (uint256 i = x + 4; i > 1; i -= 2) {\n      acc += i;\n    }\n    return acc;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Assignment: [solidity-import:unsupported] a decrementing for loop must decrement its counter by one'),
+        ('strings-hex-arrays-bitmaps-byte-buffer-assignment-index-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    bytes memory buf = new bytes(x + 2);\n    buf[x = 0] = \"0\";\n    return buf.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'IndexAccess: [solidity-import:unsupported] stateful or assignment array index is unsupported'),
+        ('strings-hex-arrays-bitmaps-bytes16-to-bytes1-cast-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  bytes16 private constant HEX_DIGITS = \"0123456789abcdef\";\n  function checked(uint256 x) external pure returns (uint256) {\n    return uint256(uint8(bytes1(HEX_DIGITS))) + x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] unsupported cast source bytes16 for bytes1'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1307,6 +1327,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function summaryCard()\n  function bucketView(bytes32)\n  function position(bytes32,address)\n  function collateral(bytes32,address,uint256)\n  function settlementFee(bytes32,uint256)\n  function updatePositionView(bytes32,address,uint256)' if name == 'midnight-position-and-fee-positive'
             else 'checked(uint256)\n  function supportsInterface(bytes4)\n  function hashOperation(address,uint256,bytes,bytes32,bytes32)\n  function getTimestamp(bytes32)\n  function getOperationState(bytes32)\n  function isOperation(bytes32)\n  function isOperationPending(bytes32)\n  function isOperationReady(bytes32)\n  function isOperationDone(bytes32)\n  function getMinDelay()' if name == 'timelock-and-bytes4-cast-positive'
             else 'checked(uint256)\n  function tokenURI(uint256)\n  function publicTokenURIs(uint256)\n  function scopedPayloads(address,uint256)\n  function formatDecimal(uint256)\n  function formatHex(uint256)\n  function formatAddress(address)\n  function readFallbackTag()\n  function readFallbackTagLength()' if name == 'string-bytes-mappings-uri-storage-strings-positive'
+            else 'checked(uint256)\n  function formatHex(uint256)\n  function formatHexFixed(uint256,uint256)\n  function formatAddressHex(address)\n  function formatSignedDecimal(int256)\n  function checkStringEqual(string,string)\n  function upperBound(uint256)\n  function bitmapBit(uint256)' if name == 'strings-hex-arrays-bitmaps-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

@@ -297,6 +297,12 @@ def main():
         'formatAddress(address)',
         'readFallbackTag()',
         'readFallbackTagLength()',
+        'formatHexFixed(uint256,uint256)',
+        'formatAddressHex(address)',
+        'formatSignedDecimal(int256)',
+        'checkStringEqual(string,string)',
+        'upperBound(uint256)',
+        'bitmapBit(uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -800,6 +806,35 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(uri_storage_prefix[:remaining_budget])
+    if 'formatHexFixed(uint256,uint256)' in names:
+        strings_hex_prefix = [
+            ('formatHex(uint256)', [0]),
+            ('formatHex(uint256)', [0xdeadbeef]),
+            ('formatHexFixed(uint256,uint256)', [0x1234, 2]),
+            ('formatHexFixed(uint256,uint256)', [0x12345, 2]),
+            ('formatAddressHex(address)', [int(senders[0], 16)]),
+            ('formatAddressHex(address)', [1 << 160]),
+            ('formatSignedDecimal(int256)', [0]),
+            ('formatSignedDecimal(int256)', [42]),
+            ('formatSignedDecimal(int256)', [(1 << 256) - 42]),
+            ('checkStringEqual(string,string)', [64, 128, 3, 0x616263 << 232, 3, 0x616263 << 232]),
+            ('checkStringEqual(string,string)', [64, 128, 3, 0x616263 << 232, 3, 0x616264 << 232]),
+            ('upperBound(uint256)', [10]),
+            ('bitmapBit(uint256)', [0]),
+            ('change(uint256)', [0]),
+            ('upperBound(uint256)', [5]),
+            ('upperBound(uint256)', [10]),
+            ('upperBound(uint256)', [25]),
+            ('bitmapBit(uint256)', [0]),
+            ('change(uint256)', [1]),
+            ('upperBound(uint256)', [15]),
+            ('bitmapBit(uint256)', [1]),
+            ('change(uint256)', [2]),
+            ('bitmapBit(uint256)', [0]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(strings_hex_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1042,8 +1077,21 @@ def main():
             call_args = [rng.choice([0, 7, 42, 99999, 10**18, (1 << 256) - 1])]
         elif name == 'formatHex(uint256)':
             call_args = [rng.choice([0, 15, 255, 0x1234abcd, (1 << 128) - 1, (1 << 256) - 1])]
-        elif name == 'formatAddress(address)':
+        elif name in ('formatAddress(address)', 'formatAddressHex(address)'):
             call_args = [rng.choice([int(senders[0], 16), 0, 0xdeadbeef, 1 << 160])]
+        elif name == 'formatHexFixed(uint256,uint256)':
+            call_args = rng.choice([[0, 1], [0xab, 1], [0x1234, 2], [0x12345, 2], [0xdeadbeef, 4]])
+        elif name == 'formatSignedDecimal(int256)':
+            call_args = [rng.choice([0, 1, 42, (1 << 256) - 1, (1 << 256) - 9999, 1 << 255])]
+        elif name == 'checkStringEqual(string,string)':
+            call_args = rng.choice([
+                [64, 128, 0, 0],
+                [64, 128, 3, 0x616263 << 232, 3, 0x616263 << 232],
+                [64, 128, 3, 0x616263 << 232, 3, 0x616264 << 232],
+                [64, 128, 2, 0x6162 << 240, 3, 0x616263 << 232],
+            ])
+        elif name in ('upperBound(uint256)', 'bitmapBit(uint256)'):
+            call_args = [rng.choice([0, 1, 5, 10, 20, 50, 255, 256])]
         else:
             call_args = []
         calls.append((name, call_args))
