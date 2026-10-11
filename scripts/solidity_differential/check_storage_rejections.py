@@ -1128,6 +1128,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Identifier: [solidity-import:unsupported] storage or memory path used as a value'),
+        ('foundry-toml-remapping-and-escaped-keyword-positive',
+         "pragma solidity 0.8.34;\nimport \"@dep/Dep.sol\";\ncontract C {\n  uint256 public constant VERSION = 42;\n  bool public paused;\n  uint256 public end;\n  mapping(bool => mapping(address => bool)) public isWhitelister;\n  mapping(bool => mapping(address => mapping(address => uint256))) public nonces;\n  mapping(address => uint256[2]) public limits;\n  function checked(uint256 x) external returns (uint256) {\n    if (x == 99) revert(DepLib.REASON);\n    if (x == 98) revert();\n    require(x != 97, DepLib.REASON);\n    end = x + VERSION;\n    return end;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('revert-nonconstant-string-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    string memory s = \"bad\";\n    if (x == 0) revert(s);\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Identifier: [solidity-import:unsupported] revert currently needs a literal string message'),
+        ('public-struct-getter-nested-mapping-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; mapping(uint256 => uint256) m; }\n  S public s;\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] public struct getter for s with nested or non-scalar members is outside this slice'),
+        ('public-mapping-struct-getter-dynamic-array-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; uint256[] arr; }\n  mapping(address => S) public m;\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] public mapping struct getter for m with nested or non-scalar members is outside this slice'),
+        ('public-three-key-mapping-struct-getter-dynamic-array-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; uint256[] arr; }\n  mapping(uint256 => mapping(uint256 => mapping(uint256 => S))) public m;\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] public 3-key mapping struct getter for m with nested or non-scalar members is outside this slice'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1137,6 +1162,10 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         (directory / 'Fixture.sol').write_text(source_text)
         if dep_text is not None:
             (directory / 'Dep.sol').write_text(dep_text)
+        if name == 'foundry-toml-remapping-and-escaped-keyword-positive':
+            (directory / 'foundry.toml').write_text('[profile.default]\nremappings = [\n  "@dep/=sub/"\n]\n')
+            (directory / 'sub').mkdir()
+            (directory / 'sub' / 'Dep.sol').write_text('pragma solidity 0.8.34;\nlibrary DepLib { string internal constant REASON = "bad"; }\n')
         fn_sig = (
             'checked(bytes)' if name.startswith('bytes-param-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected'}
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
@@ -1154,6 +1183,10 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(«int128[]»)' if name == 'scalar-array-signed-element-rejected'
             else 'checked(Market,Uid,uint256)' if name == 'udvt-param-assign-hashmarket-positive'
             else 'checked(bytes4,uint256)' if name == 'struct-mapping-and-bytes4-interface-positive'
+            else 'VERSION()\n  function paused()\n  function «end»()\n  function isWhitelister(bool,address)\n  function nonces(bool,address,address)\n  function limits(address,uint256)\n  function checked(uint256)' if name == 'foundry-toml-remapping-and-escaped-keyword-positive'
+            else 's()' if name == 'public-struct-getter-nested-mapping-rejected'
+            else 'm(address)' if name == 'public-mapping-struct-getter-dynamic-array-rejected'
+            else 'm(uint256,uint256,uint256)' if name == 'public-three-key-mapping-struct-getter-dynamic-array-rejected'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'
