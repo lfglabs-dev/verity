@@ -2181,3 +2181,41 @@ def stateful_timelock_and_bytes4_cast_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown timelock-and-bytes4-cast variant: {variant}')
+
+
+def stateful_string_bytes_mappings_uri_storage_strings_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            '_baseMode', '_tokenURIs', '_fallbackTag', '_fallbackTagStore',
+            'totalScore', 'lastUriHash',
+            '_setTokenURI', '_clearTokenURI', '_writeScopedPayload', '_storedUriLength',
+            'decStr', 'hexStr', 'rawBuf', 'payloadSlot',
+            'resolvedUri', 'resolvedTag', 'tagLen', 'storedLen', 'payloadLen',
+            'uriDigest', 'tagDigest', 'payloadDigest', 'delta',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-string-bytes-mappings-uri-storage-strings':
+        replacements = {
+            'delete _tokenURIs[tokenId];':
+            '_tokenURIs[tokenId] = "";',
+            'delete publicTokenURIs[tokenId];':
+            'publicTokenURIs[tokenId] = "";',
+            'delete scopedPayloads[msg.sender][tokenId];':
+            'scopedPayloads[msg.sender][tokenId] = "";',
+            'totalScore += delta;':
+            'totalScore = totalScore + delta;',
+            'totalScore += 555;':
+            'totalScore = totalScore + 555;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('string-bytes-mappings-uri-storage-strings variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown string-bytes-mappings-uri-storage-strings variant: {variant}')
+

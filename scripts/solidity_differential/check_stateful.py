@@ -289,6 +289,14 @@ def main():
         'isOperationReady(bytes32)',
         'isOperationDone(bytes32)',
         'getMinDelay()',
+        'tokenURI(uint256)',
+        'publicTokenURIs(uint256)',
+        'scopedPayloads(address,uint256)',
+        'formatDecimal(uint256)',
+        'formatHex(uint256)',
+        'formatAddress(address)',
+        'readFallbackTag()',
+        'readFallbackTagLength()',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -760,6 +768,38 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(timelock_prefix[:remaining_budget])
+    if 'tokenURI(uint256)' in names:
+        uri_storage_prefix = [
+            ('readFallbackTag()', []),
+            ('readFallbackTagLength()', []),
+            ('formatDecimal(uint256)', [0]),
+            ('formatDecimal(uint256)', [42]),
+            ('formatDecimal(uint256)', [1234567890]),
+            ('formatHex(uint256)', [0]),
+            ('formatHex(uint256)', [0xdeadbeef]),
+            ('formatAddress(address)', [int(senders[0], 16)]),
+            ('formatAddress(address)', [1 << 160]),
+            ('tokenURI(uint256)', [0]),
+            ('change(uint256)', [0]),
+            ('tokenURI(uint256)', [1]),
+            ('tokenURI(uint256)', [2]),
+            ('publicTokenURIs(uint256)', [1]),
+            ('scopedPayloads(address,uint256)', [int(senders[0], 16), 1]),
+            ('scopedPayloads(address,uint256)', [1 << 160, 1]),
+            ('change(uint256)', [1]),
+            ('tokenURI(uint256)', [3]),
+            ('publicTokenURIs(uint256)', [3]),
+            ('scopedPayloads(address,uint256)', [int(senders[0], 16), 3]),
+            ('change(uint256)', [2]),
+            ('tokenURI(uint256)', [1]),
+            ('publicTokenURIs(uint256)', [1]),
+            ('scopedPayloads(address,uint256)', [int(senders[0], 16), 1]),
+            ('change(uint256)', [3]),
+            ('tokenURI(uint256)', [3]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(uri_storage_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -994,6 +1034,16 @@ def main():
         elif name in ('getTimestamp(bytes32)', 'getOperationState(bytes32)', 'isOperation(bytes32)',
                       'isOperationPending(bytes32)', 'isOperationReady(bytes32)', 'isOperationDone(bytes32)'):
             call_args = [rng.choice([0, 1, 2])]
+        elif name in ('tokenURI(uint256)', 'publicTokenURIs(uint256)'):
+            call_args = [rng.choice([1, 2, 3, 4, 8, 99])]
+        elif name == 'scopedPayloads(address,uint256)':
+            call_args = [rng.choice([int(senders[0], 16), int(senders[-1], 16), 0x3002, 1 << 160]), rng.choice([1, 2, 3, 4, 8])]
+        elif name == 'formatDecimal(uint256)':
+            call_args = [rng.choice([0, 7, 42, 99999, 10**18, (1 << 256) - 1])]
+        elif name == 'formatHex(uint256)':
+            call_args = [rng.choice([0, 15, 255, 0x1234abcd, (1 << 128) - 1, (1 << 256) - 1])]
+        elif name == 'formatAddress(address)':
+            call_args = [rng.choice([int(senders[0], 16), 0, 0xdeadbeef, 1 << 160])]
         else:
             call_args = []
         calls.append((name, call_args))

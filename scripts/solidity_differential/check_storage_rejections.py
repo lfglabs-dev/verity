@@ -1248,6 +1248,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] custom-error arguments currently require literals or scalar bindings'),
+        ('string-bytes-mappings-uri-storage-strings-positive',
+         (root / 'Contracts/SolidityImportSmoke/StringBytesMappingsUriStorageStringsSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('string-bytes-mappings-uri-storage-strings-stateful-rhs-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256 private nonce;\n  mapping(uint256 => string) private uris;\n  function _nextStr() internal returns (string memory) {\n    nonce += 1;\n    return \"item\";\n  }\n  function checked(uint256 x) external returns (uint256) {\n    uris[nonce] = _nextStr();\n    return bytes(uris[x]).length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'IndexAccess: [solidity-import:unsupported] mapping bytes/string write key prelude with stateful RHS is unsupported'),
+        ('string-bytes-mappings-uri-storage-strings-while-true-no-break-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    unchecked {\n      while (true) {\n        x /= 10;\n        x += 1;\n      }\n    }\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'ExpressionStatement: [solidity-import:unsupported] a while (true) loop must end with `if (v == 0) break;`'),
+        ('string-bytes-mappings-uri-storage-strings-new-bytes-outside-unchecked-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    bytes memory b = new bytes(x);\n    return b.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'NewExpression: [solidity-import:unsupported] hash input must be a supported ABI encoding'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1286,6 +1306,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function feeRecipient()\n  function lastMarketId()\n  function market(Id)\n  function position(Id,address)\n  function computeId(MarketParams)\n  function expectedMarketBalances(MarketParams,uint256)\n  function expectedTotalSupplyAssets(MarketParams,uint256)\n  function expectedSupplyAssets(MarketParams,address,uint256)\n  function expectedBorrowAssets(MarketParams,address,uint256)' if name == 'market-params-balances-positive'
             else 'checked(uint256)\n  function summaryCard()\n  function bucketView(bytes32)\n  function position(bytes32,address)\n  function collateral(bytes32,address,uint256)\n  function settlementFee(bytes32,uint256)\n  function updatePositionView(bytes32,address,uint256)' if name == 'midnight-position-and-fee-positive'
             else 'checked(uint256)\n  function supportsInterface(bytes4)\n  function hashOperation(address,uint256,bytes,bytes32,bytes32)\n  function getTimestamp(bytes32)\n  function getOperationState(bytes32)\n  function isOperation(bytes32)\n  function isOperationPending(bytes32)\n  function isOperationReady(bytes32)\n  function isOperationDone(bytes32)\n  function getMinDelay()' if name == 'timelock-and-bytes4-cast-positive'
+            else 'checked(uint256)\n  function tokenURI(uint256)\n  function publicTokenURIs(uint256)\n  function scopedPayloads(address,uint256)\n  function formatDecimal(uint256)\n  function formatHex(uint256)\n  function formatAddress(address)\n  function readFallbackTag()\n  function readFallbackTagLength()' if name == 'string-bytes-mappings-uri-storage-strings-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'
