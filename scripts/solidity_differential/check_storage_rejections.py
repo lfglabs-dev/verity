@@ -1288,6 +1288,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'FunctionCall: [solidity-import:unsupported] unsupported cast source bytes16 for bytes1'),
+        ('ecdsa-merkle-checkpoints-storage-slot-positive',
+         (root / 'Contracts/SolidityImportSmoke/EcdsaMerkleCheckpointsStorageSlotSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('ecdsa-merkle-checkpoints-storage-slot-unaligned-byte-mload-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256 r) {\n    bytes memory sig = abi.encode(x);\n    assembly {\n      r := mload(add(sig, 0x10))\n    }\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
+        ('ecdsa-merkle-checkpoints-storage-slot-zero-offset-byte-mload-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256 r) {\n    bytes memory sig = abi.encode(x);\n    assembly {\n      r := mload(add(sig, 0))\n    }\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
+        ('ecdsa-merkle-checkpoints-storage-slot-unbounded-narrow-yul-assign-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    bytes memory sig = abi.encode(x);\n    uint8 v;\n    assembly {\n      v := mload(add(sig, 0x20))\n    }\n    return uint256(v);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local v is unsupported'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1328,6 +1348,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function supportsInterface(bytes4)\n  function hashOperation(address,uint256,bytes,bytes32,bytes32)\n  function getTimestamp(bytes32)\n  function getOperationState(bytes32)\n  function isOperation(bytes32)\n  function isOperationPending(bytes32)\n  function isOperationReady(bytes32)\n  function isOperationDone(bytes32)\n  function getMinDelay()' if name == 'timelock-and-bytes4-cast-positive'
             else 'checked(uint256)\n  function tokenURI(uint256)\n  function publicTokenURIs(uint256)\n  function scopedPayloads(address,uint256)\n  function formatDecimal(uint256)\n  function formatHex(uint256)\n  function formatAddress(address)\n  function readFallbackTag()\n  function readFallbackTagLength()' if name == 'string-bytes-mappings-uri-storage-strings-positive'
             else 'checked(uint256)\n  function formatHex(uint256)\n  function formatHexFixed(uint256,uint256)\n  function formatAddressHex(address)\n  function formatSignedDecimal(int256)\n  function checkStringEqual(string,string)\n  function upperBound(uint256)\n  function bitmapBit(uint256)' if name == 'strings-hex-arrays-bitmaps-positive'
+            else 'checked(uint256)\n  function recoverFromBytes(bytes32,bytes)\n  function recoverFromCompact(bytes32,bytes32,bytes32)\n  function verifyMerkle(«bytes32[]»,bytes32,bytes32)\n  function rawSlotLabel()\n  function rawSlotPayload()\n  function checkpointUpperRecent(uint32)' if name == 'ecdsa-merkle-checkpoints-storage-slot-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

@@ -2254,3 +2254,36 @@ def stateful_strings_hex_arrays_bitmaps_source(fixture: str, variant: str) -> st
         return fixture
     raise ValueError(f'unknown strings-hex-arrays-bitmaps variant: {variant}')
 
+
+def stateful_ecdsa_merkle_checkpoints_storage_slot_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'RAW_LABEL_SLOT', 'RAW_PAYLOAD_SLOT',
+            '_trace', '_fallbackLabel', '_totalWeight', '_lastRecoveredHash',
+            '_throwError', '_hashPair', '_insert', '_upperBinaryLookup', '_lowerBinaryLookup', '_unsafeAccess',
+            'stepKey', 'stepVal', 'newVal', 'msgHash', 'sig65', 'signer1', 'signer2',
+            'badSig', 'badErr', 'badArg', 'labelSlot', 'payloadSlot', 'payloadLen',
+            'recentVal', 'lowerVal', 'sibling', 'leaf', 'pairRoot',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-ecdsa-merkle-checkpoints-storage-slot':
+        replacements = {
+            'uint8 v = (input & 1) == 0 ? 27 : 28;':
+            'uint8 v = (input & 1) != 0 ? 28 : 27;',
+            'delete payloadSlot.value;':
+            'payloadSlot.value = "";',
+            '_totalWeight += 777;':
+            '_totalWeight = _totalWeight + 777;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('ecdsa-merkle-checkpoints-storage-slot variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown ecdsa-merkle-checkpoints-storage-slot variant: {variant}')
+

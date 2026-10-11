@@ -2614,6 +2614,50 @@ private def yulMemoryStructHash? (ptrNode sizeNode : Json) (lowerYulFn : Json �
   let alloc := (AbiEncoding.staticWords pointer finish words).toArray
   return some { pre := pre ++ alloc, expr := .keccak256 (.localVar pointer) (.literal byteLen) }
 
+private def yulByteBufferByName? (node : Json) : M (Option EncodedBytes) := do
+  if (← mKind node) != "YulIdentifier" then return none
+  let name ← mStr (← mField node "name")
+  let env ← get
+  if env.yulNames.contains name then return none
+  let some declId := env.yulMemoryStructs.find? name | return none
+  return env.byteBuffers.find? declId <|> env.stringBuffers.find? declId
+
+private def yulPositiveWordOffsetLiteral? (node : Json) : M (Option Nat) := do
+  if (← mKind node) != "YulLiteral" then return none
+  unless optStr node "kind" == some "number" && optStr node "type" == some "" do
+    return none
+  let raw ← mStr (← mField node "value")
+  let some value := Compiler.Hex.parseHexNat? raw <|> raw.toNat? | return none
+  unless value ≥ 32 && value < 2^256 && value % 32 == 0 do return none
+  return some value
+
+private def yulByteBufferLoad? (addrNode : Json) : M (Option Val) := do
+  if let some buf ← yulByteBufferByName? addrNode then
+    return some { pre := buf.pre, expr := buf.size }
+  if (← mKind addrNode) != "YulFunctionCall" then return none
+  let outerFn ← mStr (← mField (← mField addrNode "functionName") "name")
+  unless outerFn == "add" do return none
+  let outerArgs ← mArr (← mField addrNode "arguments")
+  unless outerArgs.size == 2 do return none
+  let matched? ← do
+    if let some off ← yulPositiveWordOffsetLiteral? outerArgs[1]! then
+      if let some buf ← yulByteBufferByName? outerArgs[0]! then
+        pure (some (buf, off))
+      else
+        pure none
+    else if let some off ← yulPositiveWordOffsetLiteral? outerArgs[0]! then
+      if let some buf ← yulByteBufferByName? outerArgs[1]! then
+        pure (some (buf, off))
+      else
+        pure none
+    else
+      pure none
+  let some (buf, off) := matched? | return none
+  return some {
+    pre := buf.pre,
+    expr := .mload (.add buf.pointer (.literal (off - 32)))
+  }
+
 private partial def lowerYul (j : Json) : M Val := do
   match ← mKind j with
   | "YulLiteral" =>
@@ -2644,6 +2688,8 @@ private partial def lowerYul (j : Json) : M Val := do
       if fname == "mload" then
         if args.size == 1 then
           if let some v ← yulMemoryArrayElementLoad? args[0]! lowerYul then
+            return v
+          if let some v ← yulByteBufferLoad? args[0]! then
             return v
         failAt j "unsupported Yul builtin mload"
       let expectedArity? : Option Nat := match fname with
@@ -2778,6 +2824,26 @@ private def isFullWordYulScalar : ParamType → Bool
   | .uint256 | .int256 | .bytes32 => true
   | _ => false
 
+private def isProvablyBoundedYulExpr (scalarType : ParamType) (expr : Expr) : Bool :=
+  let bits? : Option Nat := match scalarType with
+    | .bool => some 1
+    | .uint8 => some 8
+    | .uint16 => some 16
+    | .uintN bits => some bits
+    | .address => some 160
+    | _ => none
+  match bits? with
+  | none => false
+  | some bits =>
+      match expr with
+      | .literal n => n < 2 ^ bits
+      | .byte _ _ => bits ≥ 8
+      | .lt _ _ | .gt _ _ | .slt _ _ | .sgt _ _ | .eq _ _ | .logicalNot _ => bits ≥ 1
+      | .bitAnd (.literal mask) _ | .bitAnd _ (.literal mask) => mask < 2 ^ bits
+      | .shr (.literal shift) _ => shift ≥ 256 - bits
+      | .mod _ (.literal m) => 0 < m && m ≤ 2 ^ bits
+      | _ => false
+
 private def cleanHelperResultExpr (ty : String) (v : Val) : Expr :=
   if ty == "bool" then Expr.logicalNot (.logicalNot v.expr)
   else if ty == "bytes4" then Expr.bitAnd v.expr (.literal ((2 ^ 32 - 1) * 16 ^ 56))
@@ -2853,6 +2919,8 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
       else failAt stmt s!"Yul assignment target {vname} is shadowed"
     let some scalarType := env.scalarTy.find? targetId
       | failAt stmt s!"unknown scalar type for Yul assignment target {vname}"
+    if isProvablyBoundedYulExpr scalarType rhsVal.expr then
+      return .assignVar binding rhsVal.expr
     unless isFullWordYulScalar scalarType do
       failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"
     return .assignVar binding rhsVal.expr
@@ -6880,6 +6948,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
         modify fun e =>
           { e with byteBuffers := e.byteBuffers.insert pid retained,
+                   yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
                    nonLiteralByteLocals := if e.nonLiteralByteLocals.contains pid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push pid }
         if pname != "" then
           yul := yul.erase pname
@@ -6893,6 +6962,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
           modify fun e =>
             { e with byteBuffers := e.byteBuffers.insert pid retained,
+                     yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
                      nonLiteralByteLocals := if e.nonLiteralByteLocals.contains pid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push pid }
         else
           unless pty == "string" && location == "memory" do
@@ -6904,6 +6974,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
             { pre := #[], pointer := .localVar ptrBinding, size := .localVar sizeBinding }
           modify fun e =>
             { e with stringBuffers := e.stringBuffers.insert pid retained,
+                     yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
                      nonLiteralByteLocals := if e.nonLiteralByteLocals.contains pid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push pid }
         if pname != "" then
           yul := yul.erase pname
@@ -6934,10 +7005,12 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           if descriptor.isString then
             modify fun e =>
               { e with stringBuffers := e.stringBuffers.insert pid retained,
+                       yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
                        nonLiteralByteLocals := if e.nonLiteralByteLocals.contains pid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push pid }
           else
             modify fun e =>
               { e with byteBuffers := e.byteBuffers.insert pid retained,
+                       yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
                        nonLiteralByteLocals := if e.nonLiteralByteLocals.contains pid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push pid }
         else
           failAt p s!"unsupported {pty} helper parameter location {location}"
@@ -7065,10 +7138,12 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           if isString then
             modify fun e =>
               { e with stringBuffers := e.stringBuffers.insert pid retained,
+                       yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
                        nonLiteralByteLocals := if e.nonLiteralByteLocals.contains pid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push pid }
           else
             modify fun e =>
               { e with byteBuffers := e.byteBuffers.insert pid retained,
+                       yulMemoryStructs := if pname == "" then e.yulMemoryStructs else e.yulMemoryStructs.insert pname pid,
                        nonLiteralByteLocals := if e.nonLiteralByteLocals.contains pid then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push pid }
           if pname != "" then
             yul := yul.erase pname
@@ -7813,19 +7888,39 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
           let prefixPre ← lowerYulStmtSlice s prefixYstmts refs ""
           let slotVal ← lowerYul rhs
           modify fun e => { e with yulNames := savedAsmYul, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
-          let rawInfo ← resolveRawStructInfo retStructId fn
-          if !prefixYstmts.isEmpty then
-            unless prefixYstmts.size == 1 do
-              failAt s "storage pointer helper assembly must be a single slot assignment"
-            unless rawInfo.wordCount == 1 do
-              failAt s "Checkpoints._unsafeAccess requires a 1-slot struct element array"
-          let slotBinding ← freshFor "raw_slot"
-          pre := pre ++ extPre ++ prefixPre ++ slotVal.pre |>.push (.letVar slotBinding slotVal.expr)
-          let rpath := SPath.rawSlot retStructId (.localVar slotBinding)
-          if idx + 1 == stmts.size then
-            retPath? := some rpath
+          let sMembers ← mArr (← mField retStructDecl "members")
+          let rawBytesString? ← if prefixYstmts.isEmpty && sMembers.size == 1 then do
+            let m0 := sMembers[0]!
+            let m0Name ← mStr (← mField m0 "name")
+            let m0Ty ← mType m0
+            if m0Name == "value" && (m0Ty == "string" || m0Ty == "bytes") then
+              pure (some (m0Ty == "string"))
+            else
+              pure none
           else
-            modify fun e => { e with paths := e.paths.insert retId rpath }
+            pure none
+          if let some isString := rawBytesString? then
+            let slotBinding ← freshFor "raw_slot"
+            pre := pre ++ extPre ++ prefixPre ++ slotVal.pre |>.push (.letVar slotBinding slotVal.expr)
+            let bpath := SPath.bytesSlot ("", .localVar slotBinding) isString
+            if idx + 1 == stmts.size then
+              retPath? := some bpath
+            else
+              modify fun e => { e with paths := e.paths.insert retId bpath }
+          else
+            let rawInfo ← resolveRawStructInfo retStructId fn
+            if !prefixYstmts.isEmpty then
+              unless prefixYstmts.size == 1 do
+                failAt s "storage pointer helper assembly must be a single slot assignment"
+              unless rawInfo.wordCount == 1 do
+                failAt s "Checkpoints._unsafeAccess requires a 1-slot struct element array"
+            let slotBinding ← freshFor "raw_slot"
+            pre := pre ++ extPre ++ prefixPre ++ slotVal.pre |>.push (.letVar slotBinding slotVal.expr)
+            let rpath := SPath.rawSlot retStructId (.localVar slotBinding)
+            if idx + 1 == stmts.size then
+              retPath? := some rpath
+            else
+              modify fun e => { e with paths := e.paths.insert retId rpath }
     | _ => failAt s "unsupported statement in storage pointer helper"
   let some finalPath := retPath?
     | failAt fn "storage pointer helper did not assign or return a storage slot"
@@ -11365,7 +11460,16 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
             if ← isThisAddressConv argument then
               pure true
             else
-              pure false
+              let convArgs ← mArr (← mField argument "arguments")
+              if convArgs.size == 1 then
+                let inner ← stripParens convArgs[0]!
+                if (← mKind inner) == "Identifier" then
+                  let innerId ← refInt inner
+                  pure (innerId ≥ 0 && (← get).values.contains innerId.toNat)
+                else
+                  pure false
+              else
+                pure false
           else if optStr argument "kind" == some "functionCall" then
             if (← mArr (← mField argument "arguments")).isEmpty then
               pure true
@@ -11521,14 +11625,14 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
                          nonLiteralByteLocals := if e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push id,
                          yulNames := e.yulNames.erase name,
                          yulMemoryArrays := e.yulMemoryArrays.erase name,
-                         yulMemoryStructs := e.yulMemoryStructs.erase name }
+                         yulMemoryStructs := e.yulMemoryStructs.insert name id }
             else
               modify fun e =>
                 { e with byteBuffers := e.byteBuffers.insert id retained,
                          nonLiteralByteLocals := if e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push id,
                          yulNames := e.yulNames.erase name,
                          yulMemoryArrays := e.yulMemoryArrays.erase name,
-                         yulMemoryStructs := e.yulMemoryStructs.erase name }
+                         yulMemoryStructs := e.yulMemoryStructs.insert name id }
       return out
     let mut expectedTypes : Array (Option String) := #[]
     for d in decls do
@@ -11604,7 +11708,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
         { e with byteBuffers := e.byteBuffers.insert id retained,
                  nonLiteralByteLocals := if e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals else e.nonLiteralByteLocals.push id,
                  encodingMemory := true,
-                 yulNames := e.yulNames.erase name }
+                 yulNames := e.yulNames.erase name,
+                 yulMemoryStructs := e.yulMemoryStructs.insert name id }
       return effects
     unless loc == "default" do
       failAt d "uninitialized reference locals are outside this slice"
@@ -11695,7 +11800,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       modify fun e =>
         { e with stringBuffers := e.stringBuffers.insert id retained,
                  nonLiteralByteLocals := if isNonLiteralInit && !e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals.push id else e.nonLiteralByteLocals,
-                 yulNames := e.yulNames.erase name }
+                 yulNames := e.yulNames.erase name,
+                 yulMemoryStructs := e.yulMemoryStructs.insert name id }
       return effects
     let effects := buffer.pre ++ #[.letVar pointer buffer.pointer, .letVar size buffer.size]
     let retained : EncodedBytes :=
@@ -11703,7 +11809,8 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
     modify fun e =>
       { e with byteBuffers := e.byteBuffers.insert id retained,
                nonLiteralByteLocals := if isNonLiteralInit && !e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals.push id else e.nonLiteralByteLocals,
-               yulNames := e.yulNames.erase name }
+               yulNames := e.yulNames.erase name,
+               yulMemoryStructs := e.yulMemoryStructs.insert name id }
     return effects
   if loc == "memory" && (← mType d).contains "[]" then
     let some (elemStr, elemPty, abiKind) := scalarArrayElement? (← mType d)
@@ -12289,7 +12396,12 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
               { pre := #[], pointer := .add (.localVar memoryPointer) (.literal 32), size := .localVar lengthBinding }
           else
             e.byteBuffers
-        { e with calldataBytes := e.calldataBytes.insert id bound, byteBuffers }
+        let yulMemoryStructs :=
+          if loc == "memory" && rawName != "" then
+            e.yulMemoryStructs.insert rawName id
+          else
+            e.yulMemoryStructs
+        { e with calldataBytes := e.calldataBytes.insert id bound, byteBuffers, yulMemoryStructs }
     else if ty == "string" then
       unless loc == "calldata" || loc == "memory" do
         failAt p s!"unsupported location {loc} for string"
@@ -12320,7 +12432,12 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
               { pre := #[], pointer := .add (.localVar memoryPointer) (.literal 32), size := .localVar lengthBinding }
           else
             e.stringBuffers
-        { e with calldataBytes := e.calldataBytes.insert id bound, stringBuffers }
+        let yulMemoryStructs :=
+          if loc == "memory" && rawName != "" then
+            e.yulMemoryStructs.insert rawName id
+          else
+            e.yulMemoryStructs
+        { e with calldataBytes := e.calldataBytes.insert id bound, stringBuffers, yulMemoryStructs }
     else if let some (elemStr, elemPty, abiKind) := scalarArrayElement? ty then
       unless loc == "calldata" || loc == "memory" do
         failAt p s!"unsupported location {loc} for {ty}"

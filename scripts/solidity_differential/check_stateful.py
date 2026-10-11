@@ -303,6 +303,12 @@ def main():
         'checkStringEqual(string,string)',
         'upperBound(uint256)',
         'bitmapBit(uint256)',
+        'recoverFromBytes(bytes32,bytes)',
+        'recoverFromCompact(bytes32,bytes32,bytes32)',
+        'verifyMerkle(bytes32[],bytes32,bytes32)',
+        'rawSlotLabel()',
+        'rawSlotPayload()',
+        'checkpointUpperRecent(uint32)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -835,6 +841,34 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(strings_hex_prefix[:remaining_budget])
+    if 'recoverFromBytes(bytes32,bytes)' in names:
+        ecdsa_merkle_prefix = [
+            ('recoverFromBytes(bytes32,bytes)', [0x1111, 64, 65, 0x2222, 0x3333, 27 << 248]),
+            ('recoverFromBytes(bytes32,bytes)', [0x1111, 64, 65, 0x2222, 0x3333, 28 << 248]),
+            ('recoverFromBytes(bytes32,bytes)', [0x1111, 64, 64, 0x2222, 0x3333]),
+            ('recoverFromBytes(bytes32,bytes)', [0x1111, 64, 65, 0x2222, (1 << 255) + 1, 27 << 248]),
+            ('recoverFromBytes(bytes32,bytes)', [0x1111, 64, 65, 0x2222, 0x3333, 26 << 248]),
+            ('recoverFromCompact(bytes32,bytes32,bytes32)', [0x1111, 0x2222, 0x3333]),
+            ('recoverFromCompact(bytes32,bytes32,bytes32)', [0x1111, 0x2222, 0x3333 | (1 << 255)]),
+            ('recoverFromCompact(bytes32,bytes32,bytes32)', [0x1111, 0, 0x3333]),
+            ('verifyMerkle(bytes32[],bytes32,bytes32)', [96, 0x1234, 0x1234, 0]),
+            ('verifyMerkle(bytes32[],bytes32,bytes32)', [96, 0x1234, 0x5678, 0]),
+            ('verifyMerkle(bytes32[],bytes32,bytes32)', [96, 0x9999, 0x1234, 1, 0x5678]),
+            ('rawSlotLabel()', []),
+            ('rawSlotPayload()', []),
+            ('checkpointUpperRecent(uint32)', [10]),
+            ('change(uint256)', [0]),
+            ('rawSlotLabel()', []),
+            ('rawSlotPayload()', []),
+            ('checkpointUpperRecent(uint32)', [5]),
+            ('change(uint256)', [2]),
+            ('rawSlotLabel()', []),
+            ('rawSlotPayload()', []),
+            ('checkpointUpperRecent(uint32)', [65]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(ecdsa_merkle_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1092,6 +1126,28 @@ def main():
             ])
         elif name in ('upperBound(uint256)', 'bitmapBit(uint256)'):
             call_args = [rng.choice([0, 1, 5, 10, 20, 50, 255, 256])]
+        elif name == 'recoverFromBytes(bytes32,bytes)':
+            call_args = rng.choice([
+                [0x1111, 64, 65, 0x2222, 0x3333, 27 << 248],
+                [0x1111, 64, 65, 0x2222, 0x3333, 28 << 248],
+                [0x1111, 64, 64, 0x2222, 0x3333],
+                [0x1111, 64, 65, 0x2222, (1 << 255) + 1, 27 << 248],
+                [0x1111, 64, 65, 0x2222, 0x3333, 26 << 248],
+            ])
+        elif name == 'recoverFromCompact(bytes32,bytes32,bytes32)':
+            call_args = rng.choice([
+                [0x1111, 0x2222, 0x3333],
+                [0x1111, 0x2222, 0x3333 | (1 << 255)],
+                [0x1111, 0, 0x3333],
+            ])
+        elif name == 'verifyMerkle(bytes32[],bytes32,bytes32)':
+            call_args = rng.choice([
+                [96, 0x1234, 0x1234, 0],
+                [96, 0x1234, 0x5678, 0],
+                [96, 0x9999, 0x1234, 1, 0x5678],
+            ])
+        elif name == 'checkpointUpperRecent(uint32)':
+            call_args = [rng.choice([0, 1, 5, 15, 35, 65, 100, 1 << 32])]
         else:
             call_args = []
         calls.append((name, call_args))
