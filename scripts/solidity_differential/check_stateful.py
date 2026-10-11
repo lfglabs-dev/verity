@@ -280,6 +280,15 @@ def main():
         'expectedTotalSupplyAssets((address,address,address,address,uint256),uint256)',
         'expectedSupplyAssets((address,address,address,address,uint256),address,uint256)',
         'expectedBorrowAssets((address,address,address,address,uint256),address,uint256)',
+        'supportsInterface(bytes4)',
+        'hashOperation(address,uint256,bytes,bytes32,bytes32)',
+        'getTimestamp(bytes32)',
+        'getOperationState(bytes32)',
+        'isOperation(bytes32)',
+        'isOperationPending(bytes32)',
+        'isOperationReady(bytes32)',
+        'isOperationDone(bytes32)',
+        'getMinDelay()',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -724,6 +733,33 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(midnight_prefix[:remaining_budget])
+    if 'hashOperation(address,uint256,bytes,bytes32,bytes32)' in names:
+        timelock_prefix = [
+            ('supportsInterface(bytes4)', [0x49064906 << 224]),
+            ('supportsInterface(bytes4)', [0x01ffc9a7 << 224]),
+            ('supportsInterface(bytes4)', [0]),
+            ('supportsInterface(bytes4)', [0xffffffff << 224]),
+            ('supportsInterface(bytes4)', [(0x49064906 << 224) | 1]),
+            ('hashOperation(address,uint256,bytes,bytes32,bytes32)', [0x3001, 100, 160, 0, 1, 0]),
+            ('hashOperation(address,uint256,bytes,bytes32,bytes32)', [0x3001, 100, 160, 0, 1, 4, 0x49064906 << 224]),
+            ('hashOperation(address,uint256,bytes,bytes32,bytes32)', [0x3002, 250, 160, 7, 9, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232]),
+            ('hashOperation(address,uint256,bytes,bytes32,bytes32)', [1 << 160, 100, 160, 0, 1, 0]),
+            ('getMinDelay()', []),
+            ('change(uint256)', [0]),
+            ('change(uint256)', [1]),
+            ('change(uint256)', [21]),
+            ('change(uint256)', [22]),
+            ('getMinDelay()', []),
+            ('getTimestamp(bytes32)', [0]),
+            ('getOperationState(bytes32)', [0]),
+            ('isOperation(bytes32)', [0]),
+            ('isOperationPending(bytes32)', [0]),
+            ('isOperationReady(bytes32)', [0]),
+            ('isOperationDone(bytes32)', [0]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(timelock_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -945,6 +981,19 @@ def main():
             call_args = [rng.choice([0, 1, 99]), rng.choice([0, 12 * 3600, 15 * 86400, 45 * 86400, 120 * 86400])]
         elif name == 'updatePositionView(bytes32,address,uint256)':
             call_args = [rng.choice([0, 1]), rng.choice([int(senders[0], 16), 0x6000, 1 << 160]), rng.choice([0, 1000000090, 1000000200, 1000864100])]
+        elif name == 'supportsInterface(bytes4)':
+            call_args = [rng.choice([0x49064906 << 224, 0x01ffc9a7 << 224, 0, 0xffffffff << 224, (0x49064906 << 224) | 1])]
+        elif name == 'hashOperation(address,uint256,bytes,bytes32,bytes32)':
+            call_args = rng.choice([
+                [0x3001, 100, 160, 0, 1, 0],
+                [0x3001, 100, 160, 0, 1, 4, 0x49064906 << 224],
+                [0x3002, 250, 160, 7, 9, 35, 0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232],
+                [1 << 160, 100, 160, 0, 1, 0],
+                [0x3001, 100, 128, 0, 1, 0],
+            ])
+        elif name in ('getTimestamp(bytes32)', 'getOperationState(bytes32)', 'isOperation(bytes32)',
+                      'isOperationPending(bytes32)', 'isOperationReady(bytes32)', 'isOperationDone(bytes32)'):
+            call_args = [rng.choice([0, 1, 2])]
         else:
             call_args = []
         calls.append((name, call_args))

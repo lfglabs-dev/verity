@@ -849,6 +849,44 @@ private def isOrderIndependentSibling : Expr → Bool
   | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin => true
   | _ => false
 
+private partial def evalConstExpr? (env : RBMap String Nat compare) : Expr → Option Nat
+  | .literal n => if n < 2 ^ 256 then some n else none
+  | .localVar name => env.find? name
+  | .shl shift val => do
+      let s ← evalConstExpr? env shift
+      let v ← evalConstExpr? env val
+      pure (if s >= 256 then 0 else (v * 2 ^ s) % (2 ^ 256))
+  | .shr shift val => do
+      let s ← evalConstExpr? env shift
+      let v ← evalConstExpr? env val
+      pure (if s >= 256 then 0 else v / (2 ^ s))
+  | .bitOr a b => do
+      let va ← evalConstExpr? env a
+      let vb ← evalConstExpr? env b
+      pure (Nat.lor va vb)
+  | .bitAnd a b => do
+      let va ← evalConstExpr? env a
+      let vb ← evalConstExpr? env b
+      pure (Nat.land va vb)
+  | .bitXor a b => do
+      let va ← evalConstExpr? env a
+      let vb ← evalConstExpr? env b
+      pure (Nat.xor va vb)
+  | .bitNot a => do
+      let va ← evalConstExpr? env a
+      pure ((2 ^ 256 - 1) - va)
+  | _ => none
+
+private def evalConstVal? (v : Val) : Option Nat := Id.run do
+  let mut env : RBMap String Nat compare := RBMap.empty
+  for stmt in v.pre do
+    match stmt with
+    | .letVar name rhs =>
+        let some val := evalConstExpr? env rhs | return none
+        env := env.insert name val
+    | _ => return none
+  evalConstExpr? env v.expr
+
 private def isStorageKeyCaptureExpr : Expr → Bool
   | .storage _
   | .logicalNot (.logicalNot (.storage _))
@@ -4560,6 +4598,16 @@ private partial def lowerCast (j : Json) : M Val := do
       let dest ← fresh
       let shifted := Stmt.letVar dest (.shl (.literal 224) (.bitAnd a.expr (.literal (2 ^ 32 - 1))))
       return { pre := a.pre.push shifted, expr := .localVar dest }
+    else if src.startsWith "int_const" && !src.startsWith "int_const -" then
+      let .literal n := v.expr
+        | failAt j s!"unsupported cast source {src} for bytes4"
+      let innerArg ← stripParens args[0]!
+      let raw := optStr innerArg "value" |>.getD ""
+      let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
+      unless v.pre.isEmpty && n < 2 ^ 32 &&
+          (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do
+        failAt j s!"unsupported cast source {src} for bytes4"
+      return { pre := #[], expr := .literal (n * 16 ^ 56) }
     else
       failAt j s!"unsupported cast source {src} for bytes4"
   if src == "bytes4" then
@@ -5864,6 +5912,70 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         pure false
       if isMemRoot then
         return ← lowerEncodedRoot args[0]!
+  let isDynamicBytesOrString (ty : String) : Bool :=
+    ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
+    ty == "bytes storage ref" || ty == "bytes storage pointer" ||
+    ty == "string" || ty == "string memory" || ty == "string calldata" ||
+    ty == "string storage ref" || ty == "string storage pointer" ||
+    ty.startsWith "literal_string "
+  let hasDynamicBytesOrString ← args.anyM fun arg => do
+    pure (isDynamicBytesOrString (← mType arg))
+  if hasDynamicBytesOrString then
+    let mut pre : Array Stmt := #[]
+    let mut headWords : Array (Option Expr) := #[]
+    let mut dynTails : Array (Nat × Expr × Expr) := #[]
+    for arg in args do
+      let ty ← mType arg
+      if isDynamicBytesOrString ty then
+        if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get) || jsonHasCustomRevert (← get) [] arg) then
+          failAt arg "effectful ABI encoding argument is unsupported"
+        let buf ← lowerEncodedBytes arg
+        let ptrVal ← if isAtom buf.pointer then pure { pre := #[], expr := buf.pointer } else atom { pre := #[], expr := buf.pointer }
+        let sizeVal ← if isAtom buf.size then pure { pre := #[], expr := buf.size } else atom { pre := #[], expr := buf.size }
+        pre := pre ++ buf.pre ++ ptrVal.pre ++ sizeVal.pre
+        let headIdx := headWords.size
+        headWords := headWords.push none
+        dynTails := dynTails.push (headIdx, ptrVal.expr, sizeVal.expr)
+      else if ty.startsWith "struct " && !ty.contains "[" then
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        pre := pre ++ sPre
+        for w in sWords do
+          headWords := headWords.push (some w)
+      else
+        unless (paramType ty).isSome do
+          failAt arg s!"unsupported ABI encoding argument type {ty}"
+        checkEncodingScalar arg
+        let raw ← lowerExpr arg
+        let value ← if raw.pre.isEmpty then pure raw else atom raw
+        pre := pre ++ value.pre
+        headWords := headWords.push (some value.expr)
+    let pointer ← fresh
+    let headFinish ← fresh
+    let base := Expr.localVar pointer
+    modify fun env => { env with encodingMemory := true }
+    pre := pre ++ (AbiEncoding.reserve pointer headFinish (.literal (32 * headWords.size))).toArray
+    for idx in [:headWords.size] do
+      if let some w := headWords[idx]! then
+        pre := pre.push (.mstore (.add base (.literal (32 * idx))) w)
+    for (headIdx, bufPtr, bufSize) in dynTails do
+      let tailPtr ← fresh
+      let tailLenEnd ← fresh
+      pre := pre ++ (AbiEncoding.reserve tailPtr tailLenEnd (.literal 32)).toArray
+      pre := pre ++ #[
+        .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),
+        .mstore (.localVar tailPtr) bufSize
+      ]
+      let payloadPtr ← fresh
+      let payloadEnd ← fresh
+      let clearIdx ← fresh
+      pre := pre ++ (AbiEncoding.packedBuffer payloadPtr payloadEnd clearIdx bufSize).toArray
+      let copyIdx ← fresh
+      let byteName ← fresh
+      let addrName ← fresh
+      pre := pre.push (AbiEncoding.copyBytes bufPtr (.localVar payloadPtr) (.literal 0) bufSize copyIdx byteName addrName)
+    let totalSize ← fresh
+    pre := pre.push (.letVar totalSize (.sub (.mload (.literal 64)) base))
+    return { pre, pointer := base, size := .localVar totalSize }
   let mut pre := #[]
   let mut words := []
   for arg in args do
@@ -10729,16 +10841,31 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
             failAt argument "custom-error arguments currently require literals or scalar bindings"
       | "FunctionCall" =>
           if optStr argument "kind" == some "typeConversion" then
+            if ← isThisAddressConv argument then
+              pure true
+            else
+              pure false
+          else if optStr argument "kind" == some "functionCall" then
+            if (← mArr (← mField argument "arguments")).isEmpty then
+              pure true
+            else if !(statefulCallIn argument (← get) || assignmentIn argument || jsonHasCustomRevert (← get) [] argument) then
+              pure false
+            else
+              failAt argument "custom-error arguments currently require literals or scalar bindings"
+          else
+            failAt argument "custom-error arguments currently require literals or scalar bindings"
+      | "BinaryOperation" =>
+          let op := optStr argument "operator" |>.getD ""
+          if ["|", "&", "^", "<<", ">>"].contains op &&
+              !(statefulCallIn argument (← get) || assignmentIn argument || jsonHasCustomRevert (← get) [] argument) then
             pure false
-          else if optStr argument "kind" == some "functionCall" &&
-              (← mArr (← mField argument "arguments")).isEmpty then
-            pure true
           else
             failAt argument "custom-error arguments currently require literals or scalar bindings"
       | "MemberAccess" =>
           let member ← mStr (← mField argument "memberName")
           let base ← mField argument "expression"
-          if member == "sender" || member == "timestamp" || member == "number" || member == "chainid" || member == "origin" then
+          if member == "sender" || member == "timestamp" || member == "number" || member == "chainid" || member == "origin" ||
+              (member == "balance" && (← isThisAddressConv base)) then
             pure true
           else if (← mKind base) == "Identifier" &&
               (member == "length" || ((← mType base).startsWith "struct " && !(← mType base).contains "[")) then
@@ -10756,7 +10883,13 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
               failAt argument "custom-error arguments currently require literals or scalar bindings"
             pure false
       | _ => failAt argument "custom-error arguments currently require literals or scalar bindings"
-    let converted ← convert ty (← mType argument) (← lowerExpr argument) argument
+    let rawConverted ← convert ty (← mType argument) (← lowerExpr argument) argument
+    let converted : Val :=
+      if isDirectScalar then
+        rawConverted
+      else match evalConstVal? rawConverted with
+        | some n => { pre := #[], expr := .literal n }
+        | none => rawConverted
     if isDirectScalar then
       let isScalarBinding := match converted.expr with
         | .localVar _ => true

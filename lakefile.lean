@@ -108,6 +108,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.EcrecoverAuthorizerArraysMapSequenceModel,
     .one `Contracts.SolidityImportSmoke.MarketParamsBalancesSequenceModel,
     .one `Contracts.SolidityImportSmoke.MidnightPositionAndFeeSequenceModel,
+    .one `Contracts.SolidityImportSmoke.TimelockAndBytes4CastSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,

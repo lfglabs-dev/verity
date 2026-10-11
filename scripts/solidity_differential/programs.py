@@ -2148,3 +2148,36 @@ def stateful_midnight_position_and_fee_source(fixture: str, variant: str) -> str
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown midnight-position-and-fee variant: {variant}')
+
+
+def stateful_timelock_and_bytes4_cast_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'ERC4906_INTERFACE_ID', 'ERC165_INTERFACE_ID', 'ZERO_INTERFACE_ID', '_DONE_TIMESTAMP',
+            '_timestamps', '_minDelay', 'totalScore', 'lastOperationId',
+            '_encodeStateBitmap', '_hashOperationMemory', '_schedule', '_cancel', '_beforeCall', '_afterCall',
+            'payload', 'opId', 'stateBonus', 'is4906', 'isZero', 'interfaceTag', 'summary',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-timelock-and-bytes4-cast':
+        replacements = {
+            'delete _timestamps[id];':
+            '_timestamps[id] = 0;',
+            'uint256 delay = (input & 1) == 0 ? 0 : _minDelay + (input & 0x7);':
+            'uint256 delay = (input & 1) != 0 ? _minDelay + (input & 0x7) : 0;',
+            'totalScore += summary;':
+            'totalScore = totalScore + summary;',
+            'totalScore += 777;':
+            'totalScore = totalScore + 777;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('timelock-and-bytes4-cast variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown timelock-and-bytes4-cast variant: {variant}')

@@ -1228,6 +1228,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] member write key prelude is unsupported'),
+        ('timelock-and-bytes4-cast-positive',
+         (root / 'Contracts/SolidityImportSmoke/TimelockAndBytes4CastSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('timelock-and-bytes4-cast-stateful-bytes-encode-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256 private nonce;\n  function _nextBytes() internal returns (bytes memory) {\n    nonce += 1;\n    return abi.encode(nonce);\n  }\n  function checked(uint256 x) external returns (bytes32) {\n    return keccak256(abi.encode(x, _nextBytes()));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] effectful ABI encoding argument is unsupported'),
+        ('timelock-and-bytes4-cast-nonconstant-error-helper-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  error Bad(bytes32 v);\n  function _shift(uint256 x) internal pure returns (bytes32) {\n    return bytes32(1 << x);\n  }\n  function checked(uint256 x) external pure returns (uint256) {\n    if (x > 0) revert Bad(_shift(x));\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] custom-error arguments currently require literals or scalar bindings'),
+        ('timelock-and-bytes4-cast-external-balance-error-arg-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  error Bad(uint256 bal);\n  function checked(uint256 x) external view returns (uint256) {\n    if (x == 0) revert Bad(msg.sender.balance);\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] custom-error arguments currently require literals or scalar bindings'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1265,6 +1285,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function verifyAndRecord(Authorization,Signature)\n  function batchCheckAndSum(«address[]»,«uint256[]»)' if name == 'ecrecover-authorizer-arrays-map-positive'
             else 'checked(uint256)\n  function feeRecipient()\n  function lastMarketId()\n  function market(Id)\n  function position(Id,address)\n  function computeId(MarketParams)\n  function expectedMarketBalances(MarketParams,uint256)\n  function expectedTotalSupplyAssets(MarketParams,uint256)\n  function expectedSupplyAssets(MarketParams,address,uint256)\n  function expectedBorrowAssets(MarketParams,address,uint256)' if name == 'market-params-balances-positive'
             else 'checked(uint256)\n  function summaryCard()\n  function bucketView(bytes32)\n  function position(bytes32,address)\n  function collateral(bytes32,address,uint256)\n  function settlementFee(bytes32,uint256)\n  function updatePositionView(bytes32,address,uint256)' if name == 'midnight-position-and-fee-positive'
+            else 'checked(uint256)\n  function supportsInterface(bytes4)\n  function hashOperation(address,uint256,bytes,bytes32,bytes32)\n  function getTimestamp(bytes32)\n  function getOperationState(bytes32)\n  function isOperation(bytes32)\n  function isOperationPending(bytes32)\n  function isOperationReady(bytes32)\n  function isOperationDone(bytes32)\n  function getMinDelay()' if name == 'timelock-and-bytes4-cast-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'
