@@ -3918,7 +3918,7 @@ private partial def lowerRef (j : Json) : M Ref := do
             let arg := args[0]!
             if !pre.isEmpty && (statefulCallIn arg (← get) || assignmentIn arg) then
               failAt arg "storage array push prelude with stateful argument is unsupported"
-            let (argSid, _, argPre, memberVals) ← lowerFlatStructValue arg (some elemSid) false
+            let (argSid, _, argPre, memberVals) ← lowerFlatStructValue arg (some elemSid) true
             unless argSid == elemSid do
               failAt arg "storage struct array push argument type mismatch"
             let (pushStmts, pushPath) ← pushStorageDynamicStructArray (pre ++ argPre) fieldName slotExpr elemSid (some memberVals) j
@@ -4582,6 +4582,13 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
       else
         failAt j "effectful ABI encoding argument is unsupported"
   | _ => failAt j "effectful ABI encoding argument is unsupported"
+
+private partial def checkEncodingStructArg (j : Json) : M Unit := do
+  if (← mKind j) == "FunctionCall" && optStr j "kind" == some "structConstructorCall" then
+    for arg in (← mArr (← mField j "arguments")) do
+      checkEncodingScalar arg
+  else
+    checkEncodingStructRef j
 
 /-- Encode one root tuple from its complete declaration schema. Array
 payloads contain inline scalar words, even when source memory holds pointers
@@ -5479,6 +5486,26 @@ private partial def lowerAbiDecodeItems (j : Json) : M (Array Stmt × Array AbiD
         headCursor := headCursor + 32
   return (pre, decoded)
 
+private partial def lowerEncodedStaticStructWords (arg : Json) : M (Array Stmt × List Expr) := do
+  let ty ← mType arg
+  let (sid, sDecl) ← resolveStructDeclFromType arg
+  let sMembers ← mArr (← mField sDecl "members")
+  if sMembers.isEmpty then
+    failAt arg s!"unsupported ABI encoding argument type {ty}"
+  for mNode in sMembers do
+    let mTy ← mType mNode
+    unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+      failAt arg s!"unsupported ABI encoding argument type {ty}"
+  checkEncodingStructArg arg
+  let (_, _, sPre, memberVals) ← lowerFlatStructValue arg (some sid) true
+  let mut pre : Array Stmt := sPre
+  let mut words : List Expr := []
+  for (_, _, expr) in memberVals do
+    let v ← atom { pre := #[], expr }
+    pre := pre ++ v.pre
+    words := words ++ [v.expr]
+  return (pre, words)
+
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   if (← mKind j) == "Conditional" then
@@ -5655,12 +5682,17 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     let mut words := []
     for arg in args.extract 1 args.size do
       let ty ← mType arg
-      unless (paramType ty).isSome do
-        failAt arg s!"unsupported ABI encoding argument type {ty}"
-      checkEncodingScalar arg
-      let value ← atom (← lowerExpr arg)
-      pre := pre ++ value.pre
-      words := words ++ [value.expr]
+      if ty.startsWith "struct " && !ty.contains "[" then
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        pre := pre ++ sPre
+        words := words ++ sWords
+      else
+        unless (paramType ty).isSome do
+          failAt arg s!"unsupported ABI encoding argument type {ty}"
+        checkEncodingScalar arg
+        let value ← atom (← lowerExpr arg)
+        pre := pre ++ value.pre
+        words := words ++ [value.expr]
     return ← encodeSelectorAndWords selBuffer pre words
   if optStr callee "memberName" == some "encodeWithSignature" then
     unless args.size ≥ 1 do
@@ -5684,12 +5716,17 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     let mut words := []
     for arg in args.extract 1 args.size do
       let ty ← mType arg
-      unless (paramType ty).isSome do
-        failAt arg s!"unsupported ABI encoding argument type {ty}"
-      checkEncodingScalar arg
-      let value ← atom (← lowerExpr arg)
-      pre := pre ++ value.pre
-      words := words ++ [value.expr]
+      if ty.startsWith "struct " && !ty.contains "[" then
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        pre := pre ++ sPre
+        words := words ++ sWords
+      else
+        unless (paramType ty).isSome do
+          failAt arg s!"unsupported ABI encoding argument type {ty}"
+        checkEncodingScalar arg
+        let value ← atom (← lowerExpr arg)
+        pre := pre ++ value.pre
+        words := words ++ [value.expr]
     return ← encodeSelectorAndWords selBuffer pre words
   if optStr callee "memberName" == some "encodeCall" then
     unless args.size == 2 do
@@ -5714,38 +5751,68 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       if arg.isNull then failAt args[1]! "empty abi.encodeCall tuple component"
       let pty ← mType p
       let argTy ← mType arg
-      unless (paramType pty).isSome do
-        failAt p s!"unsupported ABI encoding argument type {pty}"
-      checkEncodingScalar arg
-      let rawVal ← lowerExpr arg
-      let converted ← convert pty argTy rawVal arg
-      if let some b := bitsOf pty then
-        if b < 256 && (argTy.startsWith "int_const" && !argTy.startsWith "int_const -") then
-          if let .literal n := converted.expr then
-            unless n < 2 ^ b do
-              failAt arg s!"literal {n} exceeds width of {pty}"
-      let value ← atom converted
-      pre := pre ++ value.pre
-      words := words ++ [value.expr]
+      if pty.startsWith "struct " && !pty.contains "[" then
+        let (pSid, pDecl) ← resolveStructDeclFromType p
+        let pMembers ← mArr (← mField pDecl "members")
+        if pMembers.isEmpty then
+          failAt p s!"unsupported ABI encoding argument type {pty}"
+        for mNode in pMembers do
+          let mTy ← mType mNode
+          unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+            failAt p s!"unsupported ABI encoding argument type {pty}"
+        unless argTy.startsWith "struct " && !argTy.contains "[" do
+          failAt arg s!"abi.encodeCall argument type {argTy} does not match parameter {pty}"
+        let (argSid, _) ← resolveStructDeclFromType arg
+        unless pSid == argSid do
+          failAt arg s!"abi.encodeCall argument type {argTy} does not match parameter {pty}"
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        pre := pre ++ sPre
+        words := words ++ sWords
+      else
+        unless (paramType pty).isSome do
+          failAt p s!"unsupported ABI encoding argument type {pty}"
+        checkEncodingScalar arg
+        let rawVal ← lowerExpr arg
+        let converted ← convert pty argTy rawVal arg
+        if let some b := bitsOf pty then
+          if b < 256 && (argTy.startsWith "int_const" && !argTy.startsWith "int_const -") then
+            if let .literal n := converted.expr then
+              unless n < 2 ^ b do
+                failAt arg s!"literal {n} exceeds width of {pty}"
+        let value ← atom converted
+        pre := pre ++ value.pre
+        words := words ++ [value.expr]
     return ← encodeSelectorAndWords selBuffer pre words
   unless optStr callee "memberName" == some "encode" do
     failAt callee "unsupported ABI encoding builtin"
   if args.size == 1 then
     if (← mType args[0]!).startsWith "struct " && !(← mType args[0]!).contains "[" then
-      return ← lowerEncodedRoot args[0]!
+      let isMemRoot ← if (← mKind args[0]!) != "FunctionCall" && (← mKind args[0]!) != "Conditional" && (← mKind args[0]!) != "TupleExpression" then
+        match ← lowerRef args[0]! with
+        | .mem _ _ => pure true
+        | _ => pure false
+      else
+        pure false
+      if isMemRoot then
+        return ← lowerEncodedRoot args[0]!
   let mut pre := #[]
   let mut words := []
   for arg in args do
     let ty ← mType arg
-    unless (paramType ty).isSome do
-      failAt arg s!"unsupported ABI encoding argument type {ty}"
-    -- Avoid assigning an evaluation order to multiple effectful arguments.
-    -- Scalar paths and casts have no source-level writes or custom reverts.
-    checkEncodingScalar arg
-    let raw ← lowerExpr arg
-    let value ← if raw.pre.isEmpty then pure raw else atom raw
-    pre := pre ++ value.pre
-    words := words ++ [value.expr]
+    if ty.startsWith "struct " && !ty.contains "[" then
+      let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+      pre := pre ++ sPre
+      words := words ++ sWords
+    else
+      unless (paramType ty).isSome do
+        failAt arg s!"unsupported ABI encoding argument type {ty}"
+      -- Avoid assigning an evaluation order to multiple effectful arguments.
+      -- Scalar paths and casts have no source-level writes or custom reverts.
+      checkEncodingScalar arg
+      let raw ← lowerExpr arg
+      let value ← if raw.pre.isEmpty then pure raw else atom raw
+      pre := pre ++ value.pre
+      words := words ++ [value.expr]
   let pointer ← fresh
   let finish ← fresh
   modify fun env => { env with encodingMemory := true }
@@ -6662,7 +6729,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           yul := yul.erase pname
   pure (pre, yul)
 
-private partial def bindYulExternalConstants (j : Json) : M (Array Stmt) := do
+private partial def bindYulExternalConstants (j : Json) (allowAllStateVarSlots : Bool := true) : M (Array Stmt) := do
   let mut pre : Array Stmt := #[]
   let some extRefs := field? j "externalReferences" | return pre
   let refs ← mArr extRefs
@@ -6691,6 +6758,26 @@ private partial def bindYulExternalConstants (j : Json) : M (Array Stmt) := do
             let a ← atom value
             pre := pre ++ a.pre
             modify fun e => { e with constantStack := savedStack, yulNames := e.yulNames.insert ident a.expr }
+      else if let some decl := env.stateVars.find? n then
+        if !(← mBool (← mField r "isOffset")) && (← mBool (← mField r "isSlot")) &&
+           optStr r "suffix" == some "slot" && (← mNat (← mField r "valueSize")) == 1 then
+          let isConst := (field? decl "constant").bind (fun value => value.getBool?.toOption) == some true
+          let isImm := optStr decl "mutability" == some "immutable"
+          unless isConst || isImm do
+            let ident ← mStr (← mField decl "name")
+            let slotName := s!"{ident}.slot"
+            if !env.yulNames.contains ident && !env.yulNames.contains slotName then
+              if env.duplicateLayoutLabels.contains ident then
+                failAt j s!"shadowed storage declaration {ident} is outside this slice"
+              if let some item := env.layoutItems.find? ident then
+                unless (← mNat (← mField item "astId")) == n do
+                  failAt j s!"shadowed storage declaration {ident} is outside this slice"
+              let info ← resolveField ident j
+              if allowAllStateVarSlots || info.dynamicArrayElemType.isSome then
+                markField ident
+                modify fun e =>
+                  { e with yulNames := e.yulNames.insert slotName (.literal info.slot),
+                           usedRawStorage := e.usedRawStorage || info.dynamicArrayElemType.isSome }
   return pre
 
 private partial def lowerShortStringAllocAssembly? (declStmt asmStmt : Json) : M (Option (Array Stmt)) := do
@@ -7255,7 +7342,7 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
           let savedScratch0 := (← get).yulScratch0
           let savedScratch32 := (← get).yulScratch32
           modify fun e => { e with yulScratch0 := false, yulScratch32 := false }
-          let extPre ← bindYulExternalConstants s
+          let extPre ← bindYulExternalConstants s false
           let refs ← mArr (← mField s "externalReferences")
           let prefixPre ← lowerYulStmtSlice s prefixYstmts refs ""
           let slotVal ← lowerYul rhs
@@ -9211,6 +9298,71 @@ private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) 
         pre := pre ++ snap.pre
         memberVals := memberVals.push (mName, mTy, snap.expr)
       return (flat.structId, flat.structName, pre, memberVals)
+  | .mem srcId memPre =>
+      unless allowFlatLocalSource do
+        failAt j "memory struct local aliasing is outside this slice"
+      let some mem := (← get).mems.find? srcId
+        | failAt j "unknown memory struct local"
+      let (sid, sDecl) ← resolveStructDeclFromType j
+      if let some expectedSid := expectedSid? then
+        unless sid == expectedSid do
+          failAt j "struct source type mismatch"
+      let sName ← mStr (← mField sDecl "name")
+      let sMembers ← mArr (← mField sDecl "members")
+      let isStaticStruct := mem.staticTypes.isSome ||
+        match mem.schema with
+        | some s => s.all (fun item => match item with | .scalar _ => true | _ => false)
+        | none => false
+      unless isStaticStruct && mem.members.size == sMembers.size && !sMembers.isEmpty do
+        failAt j "struct value copy requires a static scalar-member struct"
+      let mut pre : Array Stmt := memPre
+      let mut memberVals : Array (String × String × Expr) := #[]
+      for mNode in sMembers do
+        let mName ← mStr (← mField mNode "name")
+        let mTy ← mType mNode
+        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+          failAt mNode s!"unsupported flat struct member type {mTy}"
+        let readVal ← atom (← readAbiMember srcId #[] mName j)
+        pre := pre ++ readVal.pre
+        memberVals := memberVals.push (mName, mTy, readVal.expr)
+      return (sid, sName, pre, memberVals)
+  | .abiElement id memberIndex pointer inMemory elemPre =>
+      unless allowFlatLocalSource do
+        failAt j "memory struct local aliasing is outside this slice"
+      let some mem := (← get).mems.find? id | failAt j "unknown ABI root"
+      let some schema := mem.schema | failAt j "missing ABI schema"
+      let some (.structArray _ fields) := schema[memberIndex]?
+        | failAt j "expected a struct-array element"
+      let (sid, sDecl) ← resolveStructDeclFromType j
+      if let some expectedSid := expectedSid? then
+        unless sid == expectedSid do
+          failAt j "struct source type mismatch"
+      let sName ← mStr (← mField sDecl "name")
+      let sMembers ← mArr (← mField sDecl "members")
+      unless fields.length == sMembers.size && !sMembers.isEmpty do
+        failAt j "struct value copy requires a static scalar-member struct"
+      let ptrAtom ← atom { pre := elemPre, expr := pointer }
+      let mut pre : Array Stmt := ptrAtom.pre
+      let mut memberVals : Array (String × String × Expr) := #[]
+      for idx in [:sMembers.size] do
+        let mNode := sMembers[idx]!
+        let mName ← mStr (← mField mNode "name")
+        let mTy ← mType mNode
+        unless !mTy.startsWith "enum " && (paramType mTy).isSome do
+          failAt mNode s!"unsupported flat struct member type {mTy}"
+        let some field := fields[idx]?
+          | failAt mNode "missing struct-array field"
+        unless field.name == mName do
+          failAt mNode s!"struct-array field mismatch {mName}"
+        let offset := Expr.add ptrAtom.expr (.literal (32 * idx))
+        let rawExpr := if !inMemory then Expr.calldataload offset else Expr.mload offset
+        let bound := SolidityAbi.scalarBound field.kind
+        let readPre := if !inMemory && bound < 2 ^ 256 then
+          #[AbiLowering.guard (.lt rawExpr (.literal bound))] else #[]
+        let readVal ← atom { pre := readPre, expr := rawExpr }
+        pre := pre ++ readVal.pre
+        memberVals := memberVals.push (mName, mTy, readVal.expr)
+      return (sid, sName, pre, memberVals)
   | _ => failAt j "unsupported struct value expression"
 
 private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (deleting : Bool)
@@ -9340,7 +9492,7 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
                 let arg := args[0]!
                 if !pre.isEmpty && (statefulCallIn arg (← get) || assignmentIn arg) then
                   failAt arg "storage array push prelude with stateful argument is unsupported"
-                let (argSid, _, argPre, memberVals) ← lowerFlatStructValue arg (some elemSid) false
+                let (argSid, _, argPre, memberVals) ← lowerFlatStructValue arg (some elemSid) true
                 unless argSid == elemSid do
                   failAt arg "storage struct array push argument type mismatch"
                 return (← pushStorageDynamicStructArray (pre ++ argPre) fieldName slotExpr elemSid (some memberVals) expression).1
@@ -10473,6 +10625,17 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
           let base ← mField argument "expression"
           if member == "sender" || member == "timestamp" || member == "number" || member == "chainid" || member == "origin" then
             pure true
+          else if (← mKind base) == "Identifier" &&
+              (member == "length" || ((← mType base).startsWith "struct " && !(← mType base).contains "[")) then
+            let baseId ← refInt base
+            let env ← get
+            if baseId ≥ 0 && (env.scalarArrays.contains baseId.toNat || env.calldataBytes.contains baseId.toNat ||
+                env.flatStructs.contains baseId.toNat || env.mems.contains baseId.toNat) then
+              pure true
+            else if baseId ≥ 0 && env.snapshots.contains baseId.toNat && member == "length" then
+              pure false
+            else
+              failAt argument "custom-error arguments currently require literals or scalar bindings"
           else
             unless member == "max" || member == "min" || member == "interfaceId" || member == "selector" || (← mType base).startsWith "type(enum " do
               failAt argument "custom-error arguments currently require literals or scalar bindings"

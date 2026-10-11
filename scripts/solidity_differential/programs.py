@@ -2028,3 +2028,40 @@ def stateful_public_getters_and_builtins_source(fixture: str, variant: str) -> s
     raise ValueError(f'unknown public-getters-and-builtins variant: {variant}')
 
 
+def stateful_ecrecover_authorizer_arrays_map_source(fixture: str, variant: str) -> str:
+    """Equivalent EcrecoverAuthorizer, Arrays, and EnumerableMap sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            '_scoreCheckpointSlot', '_scoreCheckpointsSlotWord', '_buildLocalAuthorization',
+            'digestScores', 'authorizerCredits', 'scoreCheckpoints', 'lastDigest',
+            'totalAuthorizedOps', 'mode', 'curNonce', 'auth', 'sig', 'bundleHash',
+            'selHash', 'sigHash', 'callHash', 'scoreVal', 'nextCheckpoint', 'pushed',
+            'cpVal', 'tail', 'firstKey', 'firstVal', 'memSum', 'picked', 'ub', 'ubNow',
+            'creditNow', 'metric', 'expectedNonce', 'structHash', 'pairHash', 'accSum',
+            'ubSum', 'credit', 'topCp',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-ecrecover-authorizer-arrays-map':
+        replacements = {
+            'nonces[authorizer] += 2;':
+            'nonces[authorizer] = nonces[authorizer] + 2;',
+            'totalAuthorizedOps += ub + memSum;':
+            'totalAuthorizedOps = totalAuthorizedOps + ub + memSum;',
+            'accSum += credit + ids[i] + (isAuthorized[accounts[i]][msg.sender] ? 100 : 0);':
+            'accSum = accSum + credit + ids[i] + (isAuthorized[accounts[i]][msg.sender] ? 100 : 0);',
+            'ubSum += scoreCheckpoints.findUpperBound(ids[i]);':
+            'ubSum = ubSum + scoreCheckpoints.findUpperBound(ids[i]);',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('ecrecover-authorizer-arrays-map variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown ecrecover-authorizer-arrays-map variant: {variant}')
+
+

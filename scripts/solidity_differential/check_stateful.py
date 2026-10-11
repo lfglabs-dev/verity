@@ -254,6 +254,18 @@ def main():
         'tiers(uint256)',
         'positions(address)',
         'probeBuiltins(uint256,uint256)',
+        'DOMAIN_TYPEHASH()',
+        'AUTHORIZATION_TYPEHASH()',
+        'domainSeparator()',
+        'hashAuthorization((address,address,bool,uint256,uint256))',
+        'hashTypedData((address,address,bool,uint256,uint256))',
+        'isAuthorized(address,address)',
+        'nonces(address)',
+        'latestAuthorization()',
+        'lastAuthorizationOf(address)',
+        'authorizationHistory(uint256)',
+        'verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))',
+        'batchCheckAndSum(address[],uint256[])',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -626,6 +638,33 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(getters_prefix[:remaining_budget])
+    if 'verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))' in source['methodIdentifiers']:
+        authorizer_prefix = [
+            ('DOMAIN_TYPEHASH()', []),
+            ('AUTHORIZATION_TYPEHASH()', []),
+            ('domainSeparator()', []),
+            ('hashAuthorization((address,address,bool,uint256,uint256))', [0x3000, 0x4000, 1, 0, 2000000000]),
+            ('hashTypedData((address,address,bool,uint256,uint256))', [0x3000, 0x4000, 1, 0, 2000000000]),
+            ('isAuthorized(address,address)', [0x3000, 0x4000]),
+            ('nonces(address)', [0x3000]),
+            ('latestAuthorization()', []),
+            ('lastAuthorizationOf(address)', [0x3000]),
+            ('authorizationHistory(uint256)', [0]),
+            ('authorizationHistory(uint256)', [99]),
+            ('verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))',
+             [0x3002, 0x4002, 1, 0, 2000000000, 27, 0x1111, 0x2222]),
+            ('verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))',
+             [0x3002, 0x4002, 1, 0, 100, 27, 0x1111, 0x2222]),
+            ('verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))',
+             [0x3002, 0x4002, 1, 99, 2000000000, 27, 0x1111, 0x2222]),
+            ('verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))',
+             [0x3002, 0x4002, 1, 0, 2000000000, 256, 0x1111, 0x2222]),
+            ('batchCheckAndSum(address[],uint256[])', [64, 160, 2, 0x3000, 0x3002, 2, 15, 50]),
+            ('batchCheckAndSum(address[],uint256[])', [64, 128, 1, 0x3000, 2, 15, 50]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(authorizer_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -788,6 +827,34 @@ def main():
             call_args = rng.choice([[0x3000, 0], [0x3000, 1], [0x3000, 2], [0x4000, 0], [1 << 160, 0]])
         elif name == 'probeBuiltins(uint256,uint256)':
             call_args = rng.choice([[0, 10], [1, 20], [96, 10], [97, 10], [98, 10], [99, 10], [0, 77]])
+        elif name in ('hashAuthorization((address,address,bool,uint256,uint256))', 'hashTypedData((address,address,bool,uint256,uint256))'):
+            call_args = rng.choice([
+                [0x3000, 0x4000, 1, 0, 2000000000],
+                [0x3001, 0x4001, 0, 2, 2000000500],
+                [1 << 160, 0x4000, 1, 0, 2000000000],
+                [0x3000, 0x4000, 2, 0, 2000000000],
+            ])
+        elif name == 'isAuthorized(address,address)':
+            call_args = rng.choice([[0x3000, 0x4000], [0x3001, 0x4001], [0x3002, 0x4002], [1 << 160, 0x4000]])
+        elif name in ('nonces(address)', 'lastAuthorizationOf(address)'):
+            call_args = [rng.choice([0x3000, 0x3001, 0x3002, 1 << 160])]
+        elif name == 'authorizationHistory(uint256)':
+            call_args = [rng.choice([0, 1, 2, 99])]
+        elif name == 'verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))':
+            call_args = rng.choice([
+                [0x3002, 0x4002, 1, 0, 2000000000, 27, 0x1111, 0x2222],
+                [0x3002, 0x4002, 0, 1, 2000000000, 28, 0x3333, 0x4444],
+                [0x3002, 0x4002, 1, 0, 100, 27, 0x1111, 0x2222],
+                [0x3002, 0x4002, 1, 99, 2000000000, 27, 0x1111, 0x2222],
+                [0x3002, 0x4002, 1, 0, 2000000000, 256, 0x1111, 0x2222],
+            ])
+        elif name == 'batchCheckAndSum(address[],uint256[])':
+            call_args = rng.choice([
+                [64, 96, 0, 0],
+                [64, 160, 2, 0x3000, 0x3002, 2, 15, 50],
+                [64, 128, 1, 0x3000, 2, 15, 50],
+                [64, 128, 1, 1 << 160, 1, 15],
+            ])
         else:
             call_args = []
         calls.append((name, call_args))

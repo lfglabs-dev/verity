@@ -1153,6 +1153,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'VariableDeclaration: [solidity-import:unsupported] public 3-key mapping struct getter for m with nested or non-scalar members is outside this slice'),
+        ('ecrecover-authorizer-arrays-map-positive',
+         (root / 'Contracts/SolidityImportSmoke/EcrecoverAuthorizerArraysMapSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('storage-ptr-asm-nonarray-statevar-slot-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; }\n  uint256 private v;\n  function _ptr() internal view returns (S storage r) {\n    assembly { r.slot := v.slot }\n  }\n  function checked(uint256 x) external view returns (uint256) {\n    return _ptr().a + x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulIdentifier: [solidity-import:unsupported] unbound Yul identifier v.slot'),
+        ('custom-error-storage-struct-member-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; }\n  S private s;\n  error Bad(uint256 a);\n  function checked(uint256 x) external view returns (uint256) {\n    if (x == 0) revert Bad(s.a);\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] custom-error arguments currently require literals or scalar bindings'),
+        ('custom-error-storage-array-length-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256[] private arr;\n  error Bad(uint256 n);\n  function checked(uint256 x) external view returns (uint256) {\n    if (x == 0) revert Bad(arr.length);\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] custom-error arguments currently require literals or scalar bindings'),
+        ('abi-encode-call-dynamic-struct-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint256 a; bytes b; }\n  function target(S calldata s) external pure {}\n  function checked(S calldata s) external pure returns (uint256) {\n    return uint256(keccak256(abi.encodeCall(C.target, (s))));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported ABI encoding argument type struct C.S'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1171,7 +1196,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
-            else 'checked(S)' if name in {'struct-local-reassigned-rejected', 'abi-encode-root-bytes-field-rejected', 'root-struct-return-calldata-location-rejected'}
+            else 'checked(S)' if name in {'struct-local-reassigned-rejected', 'abi-encode-root-bytes-field-rejected', 'root-struct-return-calldata-location-rejected', 'abi-encode-call-dynamic-struct-rejected'}
             else 'checked(Outer)' if name == 'abi-schema-static-nested-struct-rejected'
             else 'checked(Bundle,uint256)' if name == 'abi-encode-struct-array-effectful-index-rejected'
             else 'checked(Offer,uint256)' if name == 'offer-hash-and-domain-separator-positive'
@@ -1187,6 +1212,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 's()' if name == 'public-struct-getter-nested-mapping-rejected'
             else 'm(address)' if name == 'public-mapping-struct-getter-dynamic-array-rejected'
             else 'm(uint256,uint256,uint256)' if name == 'public-three-key-mapping-struct-getter-dynamic-array-rejected'
+            else 'checked(uint256)\n  function verifyAndRecord(Authorization,Signature)\n  function batchCheckAndSum(«address[]»,«uint256[]»)' if name == 'ecrecover-authorizer-arrays-map-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'
