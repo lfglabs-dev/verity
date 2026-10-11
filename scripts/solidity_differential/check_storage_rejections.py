@@ -1308,6 +1308,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'YulAssignment: [solidity-import:unsupported] Yul assignment to narrow local v is unsupported'),
+        ('create2-clones-msgdata-deque-positive',
+         (root / 'Contracts/SolidityImportSmoke/Create2ClonesMsgDataDequeSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('create2-clones-msgdata-deque-nonempty-pop-loop-body-rejected',
+         "pragma solidity 0.8.34;\nlibrary DoubleEndedQueue {\n  struct Bytes32Deque {\n    uint128 _begin;\n    uint128 _end;\n    mapping(uint128 index => bytes32) _data;\n  }\n  function popFront(Bytes32Deque storage deque) internal returns (bytes32 value) {\n    unchecked {\n      uint128 frontIndex = deque._begin;\n      value = deque._data[frontIndex];\n      delete deque._data[frontIndex];\n      deque._begin = frontIndex + 1;\n    }\n  }\n}\ncontract C {\n  using DoubleEndedQueue for DoubleEndedQueue.Bytes32Deque;\n  DoubleEndedQueue.Bytes32Deque private _q;\n  function checked(uint256 x) external returns (uint256) {\n    uint256 steps = 0;\n    while (_q.popFront() != bytes32(x)) {\n      steps += 1;\n    }\n    return steps;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'Block: [solidity-import:unsupported] deque pop while loop body must be empty'),
+        ('create2-clones-msgdata-deque-stateful-pop-loop-target-rejected',
+         "pragma solidity 0.8.34;\nlibrary DoubleEndedQueue {\n  struct Bytes32Deque {\n    uint128 _begin;\n    uint128 _end;\n    mapping(uint128 index => bytes32) _data;\n  }\n  function popFront(Bytes32Deque storage deque) internal returns (bytes32 value) {\n    unchecked {\n      uint128 frontIndex = deque._begin;\n      value = deque._data[frontIndex];\n      delete deque._data[frontIndex];\n      deque._begin = frontIndex + 1;\n    }\n  }\n}\ncontract C {\n  using DoubleEndedQueue for DoubleEndedQueue.Bytes32Deque;\n  DoubleEndedQueue.Bytes32Deque private _q;\n  uint256 private _n;\n  function _nextTarget() internal returns (bytes32) {\n    _n += 1;\n    return bytes32(_n);\n  }\n  function checked(uint256 x) external returns (uint256) {\n    while (_q.popFront() != _nextTarget()) {}\n    return x + _n;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] stateful or assignment deque pop loop target is unsupported'),
+        ('create2-clones-msgdata-deque-bad-create2-length-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external view returns (uint256) {\n    bytes32 salt = bytes32(x);\n    bytes32 bytecodeHash = bytes32(x + 1);\n    address deployer = address(this);\n    address addr;\n    assembly (\"memory-safe\") {\n      let ptr := mload(0x40)\n      mstore(add(ptr, 0x40), bytecodeHash)\n      mstore(add(ptr, 0x20), salt)\n      mstore(ptr, deployer)\n      let start := add(ptr, 0x0b)\n      mstore8(start, 0xff)\n      addr := keccak256(start, 84)\n    }\n    return uint256(uint160(addr));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1349,6 +1369,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function tokenURI(uint256)\n  function publicTokenURIs(uint256)\n  function scopedPayloads(address,uint256)\n  function formatDecimal(uint256)\n  function formatHex(uint256)\n  function formatAddress(address)\n  function readFallbackTag()\n  function readFallbackTagLength()' if name == 'string-bytes-mappings-uri-storage-strings-positive'
             else 'checked(uint256)\n  function formatHex(uint256)\n  function formatHexFixed(uint256,uint256)\n  function formatAddressHex(address)\n  function formatSignedDecimal(int256)\n  function checkStringEqual(string,string)\n  function upperBound(uint256)\n  function bitmapBit(uint256)' if name == 'strings-hex-arrays-bitmaps-positive'
             else 'checked(uint256)\n  function recoverFromBytes(bytes32,bytes)\n  function recoverFromCompact(bytes32,bytes32,bytes32)\n  function verifyMerkle(«bytes32[]»,bytes32,bytes32)\n  function rawSlotLabel()\n  function rawSlotPayload()\n  function checkpointUpperRecent(uint32)' if name == 'ecdsa-merkle-checkpoints-storage-slot-positive'
+            else 'checked(uint256)\n  function computeCreate2(bytes32,bytes32,address)\n  function predictClone(address,bytes32,address)\n  function currentMsgDataHash(uint256)\n  function executeGovernanceAction(uint256)\n  function queueLength()' if name == 'create2-clones-msgdata-deque-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

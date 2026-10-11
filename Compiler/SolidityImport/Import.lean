@@ -2836,7 +2836,6 @@ private def isProvablyBoundedYulExpr (scalarType : ParamType) (expr : Expr) : Bo
   | none => false
   | some bits =>
       match expr with
-      | .literal n => n < 2 ^ bits
       | .byte _ _ => bits ≥ 8
       | .lt _ _ | .gt _ _ | .slt _ _ | .sgt _ _ | .eq _ _ | .logicalNot _ => bits ≥ 1
       | .bitAnd (.literal mask) _ | .bitAnd _ (.literal mask) => mask < 2 ^ bits
@@ -3024,6 +3023,173 @@ private def lowerYulPrefixKeccakBlock? (j : Json) (stmts refs : Array Json) (ret
       .mstore (.localVar ptrBinding) (.bitOr (.literal prefixWord) (.shr (.literal shrBits) domVal.expr)),
       .mstore (.add (.localVar ptrBinding) (.literal 32)) (.bitOr (.shl (.literal shlBits) domVal.expr) (.shr (.literal shrBits) structVal.expr)),
       .mstore (.add (.localVar ptrBinding) (.literal 64)) (.shl (.literal shlBits) structVal.expr),
+      assignStmt
+    ])
+  if stmts.size == 7 then
+    let declStmt := stmts[0]!
+    if (← mKind declStmt) != "YulVariableDeclaration" then return none
+    let vars ← mArr (← mField declStmt "variables")
+    unless vars.size == 1 do return none
+    let varDecl := vars[0]!
+    unless optStr varDecl "type" == some "" do return none
+    let ptrName ← mStr (← mField varDecl "name")
+    unless ptrName.all (fun c => c.isAlphanum || c == '_') && ptrName != "" do return none
+    let some initNode := (field? declStmt "value").filter (!·.isNull) | return none
+    if (← mKind initNode) != "YulFunctionCall" then return none
+    let initFn ← mStr (← mField (← mField initNode "functionName") "name")
+    unless initFn == "mload" do return none
+    let initArgs ← mArr (← mField initNode "arguments")
+    unless initArgs.size == 1 do return none
+    let some 64 ← yulNatLit? initArgs[0]! | return none
+    let isIdentNamed (node : Json) (expected : String) : M Bool := do
+      if (← mKind node) != "YulIdentifier" then return false
+      return (← mStr (← mField node "name")) == expected
+    let isPtrAddConst (node : Json) (expectedOff : Nat) : M Bool := do
+      if (← mKind node) != "YulFunctionCall" then return false
+      let fn ← mStr (← mField (← mField node "functionName") "name")
+      unless fn == "add" do return false
+      let nargs ← mArr (← mField node "arguments")
+      unless nargs.size == 2 do return false
+      if ← isIdentNamed nargs[0]! ptrName then
+        return (← yulNatLit? nargs[1]!) == some expectedOff
+      else if ← isIdentNamed nargs[1]! ptrName then
+        return (← yulNatLit? nargs[0]!) == some expectedOff
+      else
+        return false
+    let some (ptrNode1, bytecodeHashNode) ← mstoreArgs? stmts[1]! | return none
+    unless ← isPtrAddConst ptrNode1 64 do return none
+    let some (ptrNode2, saltNode) ← mstoreArgs? stmts[2]! | return none
+    unless ← isPtrAddConst ptrNode2 32 do return none
+    let some (ptrNode3, deployerNode) ← mstoreArgs? stmts[3]! | return none
+    unless ← isIdentNamed ptrNode3 ptrName do return none
+    let startDecl := stmts[4]!
+    if (← mKind startDecl) != "YulVariableDeclaration" then return none
+    let startVars ← mArr (← mField startDecl "variables")
+    unless startVars.size == 1 do return none
+    let startVar := startVars[0]!
+    unless optStr startVar "type" == some "" do return none
+    let startName ← mStr (← mField startVar "name")
+    unless startName.all (fun c => c.isAlphanum || c == '_') && startName != "" && startName != ptrName do return none
+    let some startInit := (field? startDecl "value").filter (!·.isNull) | return none
+    unless ← isPtrAddConst startInit 11 do return none
+    let m8Stmt := stmts[5]!
+    if (← mKind m8Stmt) != "YulExpressionStatement" then return none
+    let m8Expr ← mField m8Stmt "expression"
+    if (← mKind m8Expr) != "YulFunctionCall" then return none
+    let m8Fn ← mStr (← mField (← mField m8Expr "functionName") "name")
+    unless m8Fn == "mstore8" do return none
+    let m8Args ← mArr (← mField m8Expr "arguments")
+    unless m8Args.size == 2 do return none
+    unless ← isIdentNamed m8Args[0]! startName do return none
+    let some prefixByte ← yulNatLit? m8Args[1]! | return none
+    unless prefixByte < 256 do return none
+    let some (varNode, kStartNode, kSizeNode) ← keccakAssign? stmts[6]! | return none
+    unless ← isIdentNamed kStartNode startName do return none
+    let some 85 ← yulNatLit? kSizeNode | return none
+    let vname ← mStr (← mField varNode "name")
+    if vname == ptrName || vname == startName then return none
+    let bytecodeHashVal ← lowerYul bytecodeHashNode
+    let saltVal ← lowerYul saltNode
+    let deployerVal ← lowerYul deployerNode
+    let ptrBinding ← freshFor ptrName
+    modify fun e => { e with encodingMemory := true }
+    let keccakExpr := Expr.keccak256 (.localVar ptrBinding) (.literal 85)
+    let assignStmt ← lowerYulDirectAssignmentTarget j stmts[6]! varNode refs retName { pre := #[], expr := keccakExpr }
+    let prefixWord := (prefixByte % 256) * (2 ^ 248)
+    let deployerMasked := Expr.bitAnd deployerVal.expr (.literal (2 ^ 160 - 1))
+    let word0 := Expr.bitOr (.literal prefixWord) (.bitOr (.shl (.literal 88) deployerMasked) (.shr (.literal 168) saltVal.expr))
+    let word1 := Expr.bitOr (.shl (.literal 88) saltVal.expr) (.shr (.literal 168) bytecodeHashVal.expr)
+    let word2 := Expr.shl (.literal 88) bytecodeHashVal.expr
+    return some (bytecodeHashVal.pre ++ saltVal.pre ++ deployerVal.pre ++ #[
+      .letVar ptrBinding (.mload (.literal 64)),
+      .mstore (.localVar ptrBinding) word0,
+      .mstore (.add (.localVar ptrBinding) (.literal 32)) word1,
+      .mstore (.add (.localVar ptrBinding) (.literal 64)) word2,
+      assignStmt
+    ])
+  if stmts.size == 8 then
+    let declStmt := stmts[0]!
+    if (← mKind declStmt) != "YulVariableDeclaration" then return none
+    let vars ← mArr (← mField declStmt "variables")
+    unless vars.size == 1 do return none
+    let varDecl := vars[0]!
+    unless optStr varDecl "type" == some "" do return none
+    let ptrName ← mStr (← mField varDecl "name")
+    unless ptrName.all (fun c => c.isAlphanum || c == '_') && ptrName != "" do return none
+    let some initNode := (field? declStmt "value").filter (!·.isNull) | return none
+    if (← mKind initNode) != "YulFunctionCall" then return none
+    let initFn ← mStr (← mField (← mField initNode "functionName") "name")
+    unless initFn == "mload" do return none
+    let initArgs ← mArr (← mField initNode "arguments")
+    unless initArgs.size == 1 do return none
+    let some 64 ← yulNatLit? initArgs[0]! | return none
+    let isPtrIdent (node : Json) : M Bool := do
+      if (← mKind node) != "YulIdentifier" then return false
+      return (← mStr (← mField node "name")) == ptrName
+    let isPtrAddConst (node : Json) (expectedOff : Nat) : M Bool := do
+      if (← mKind node) != "YulFunctionCall" then return false
+      let fn ← mStr (← mField (← mField node "functionName") "name")
+      unless fn == "add" do return false
+      let nargs ← mArr (← mField node "arguments")
+      unless nargs.size == 2 do return false
+      if ← isPtrIdent nargs[0]! then
+        return (← yulNatLit? nargs[1]!) == some expectedOff
+      else if ← isPtrIdent nargs[1]! then
+        return (← yulNatLit? nargs[0]!) == some expectedOff
+      else
+        return false
+    let some (ptrNode1, deployerNode) ← mstoreArgs? stmts[1]! | return none
+    unless ← isPtrAddConst ptrNode1 0x38 do return none
+    let some (ptrNode2, midConstNode) ← mstoreArgs? stmts[2]! | return none
+    unless ← isPtrAddConst ptrNode2 0x24 do return none
+    let some midConst ← yulNatLit? midConstNode | return none
+    unless midConst < 2 ^ 128 do return none
+    let some (ptrNode3, implNode) ← mstoreArgs? stmts[3]! | return none
+    unless ← isPtrAddConst ptrNode3 0x14 do return none
+    let some (ptrNode4, headConstNode) ← mstoreArgs? stmts[4]! | return none
+    unless ← isPtrIdent ptrNode4 do return none
+    let some headConst ← yulNatLit? headConstNode | return none
+    unless headConst < 2 ^ 160 do return none
+    let some (ptrNode5, saltNode) ← mstoreArgs? stmts[5]! | return none
+    unless ← isPtrAddConst ptrNode5 0x58 do return none
+    let some (ptrNode6, innerKeccakNode) ← mstoreArgs? stmts[6]! | return none
+    unless ← isPtrAddConst ptrNode6 0x78 do return none
+    if (← mKind innerKeccakNode) != "YulFunctionCall" then return none
+    let innerFn ← mStr (← mField (← mField innerKeccakNode "functionName") "name")
+    unless innerFn == "keccak256" do return none
+    let innerArgs ← mArr (← mField innerKeccakNode "arguments")
+    unless innerArgs.size == 2 do return none
+    unless ← isPtrAddConst innerArgs[0]! 0x0c do return none
+    let some 0x37 ← yulNatLit? innerArgs[1]! | return none
+    let some (varNode, outerPtrNode, outerSizeNode) ← keccakAssign? stmts[7]! | return none
+    unless ← isPtrAddConst outerPtrNode 0x43 do return none
+    let some 0x55 ← yulNatLit? outerSizeNode | return none
+    let vname ← mStr (← mField varNode "name")
+    if vname == ptrName then return none
+    let deployerVal ← lowerYul deployerNode
+    let implVal ← lowerYul implNode
+    let saltVal ← lowerYul saltNode
+    let ptrBinding ← freshFor ptrName
+    let initHashBinding ← fresh
+    modify fun e => { e with encodingMemory := true }
+    let keccakExpr := Expr.keccak256 (.add (.localVar ptrBinding) (.literal 64)) (.literal 85)
+    let assignStmt ← lowerYulDirectAssignmentTarget j stmts[7]! varNode refs retName { pre := #[], expr := keccakExpr }
+    let implMasked := Expr.bitAnd implVal.expr (.literal (2 ^ 160 - 1))
+    let initWord0 := Expr.bitOr (.literal (headConst * (2 ^ 96))) (.shr (.literal 64) implMasked)
+    let initWord1 := Expr.bitOr (.shl (.literal 192) implMasked) (.literal ((midConst / 256) * (2 ^ 72)))
+    let prefixWord := (midConst % 256) * (2 ^ 248)
+    let deployerMasked := Expr.bitAnd deployerVal.expr (.literal (2 ^ 160 - 1))
+    let c2Word0 := Expr.bitOr (.literal prefixWord) (.bitOr (.shl (.literal 88) deployerMasked) (.shr (.literal 168) saltVal.expr))
+    let c2Word1 := Expr.bitOr (.shl (.literal 88) saltVal.expr) (.shr (.literal 168) (.localVar initHashBinding))
+    let c2Word2 := Expr.shl (.literal 88) (.localVar initHashBinding)
+    return some (deployerVal.pre ++ implVal.pre ++ saltVal.pre ++ #[
+      .letVar ptrBinding (.mload (.literal 64)),
+      .mstore (.localVar ptrBinding) initWord0,
+      .mstore (.add (.localVar ptrBinding) (.literal 32)) initWord1,
+      .letVar initHashBinding (.keccak256 (.localVar ptrBinding) (.literal 55)),
+      .mstore (.add (.localVar ptrBinding) (.literal 64)) c2Word0,
+      .mstore (.add (.localVar ptrBinding) (.literal 96)) c2Word1,
+      .mstore (.add (.localVar ptrBinding) (.literal 128)) c2Word2,
       assignStmt
     ])
   return none
@@ -4864,7 +5030,9 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
       let args ← mArr (← mField j "arguments")
       if optStr j "kind" == some "typeConversion" then
         if (← mType j).startsWith "enum " then
-          unless args.size == 1 && (← mType args[0]!) == (← mType j) do
+          unless args.size == 1 do
+            failAt j "fallible enum conversion in ABI encoding argument is unsupported"
+          unless (← mType args[0]!) == (← mType j) do
             failAt j "fallible enum conversion in ABI encoding argument is unsupported"
         for arg in args do checkEncodingScalar arg
       else if optStr j "kind" == some "functionCall" then
@@ -5893,6 +6061,21 @@ private partial def lowerEncodedStaticStructWords (arg : Json) : M (Array Stmt �
     words := words ++ [v.expr]
   return (pre, words)
 
+private partial def lowerMsgDataBuffer : M EncodedBytes := do
+  let pointer ← fresh
+  let finish ← fresh
+  let copyIdx ← fresh
+  let wordCount := Expr.div (.add .calldatasize (.literal 31)) (.literal 32)
+  modify fun e => { e with encodingMemory := true }
+  let alloc := AbiEncoding.reserve pointer finish (.mul (.literal 32) wordCount)
+  let firstWord := Expr.bitOr (.calldataload (.literal 0)) (.shr (.literal 32) (.calldataload (.literal 4)))
+  let copyStmt := Stmt.forEach copyIdx wordCount
+    [.ite (.eq (.localVar copyIdx) (.literal 0))
+      [.mstore (.localVar pointer) firstWord]
+      [.mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
+        (.calldataload (.mul (.localVar copyIdx) (.literal 32)))]]
+  return { pre := (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := .calldatasize }
+
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   if (← mKind j) == "Conditional" then
@@ -6043,6 +6226,15 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       ((field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption)).any (· ≥ 0)
     if isHelperCall then
       let ty ← mType j
+      if ty == "bytes calldata" then
+        let names ← mArr (← mField j "names")
+        unless names.isEmpty do failAt j "named call arguments are outside this slice"
+        let callArgs ← mArr (← mField j "arguments")
+        unless callArgs.isEmpty do failAt j "msg.data helper call must take zero arguments"
+        let (fnId, vals) ← resolveCallTargetAndArgs j
+        let msgPre ← inlineMsgDataFn fnId vals j
+        let msgBuf ← lowerMsgDataBuffer
+        return { msgBuf with pre := msgPre ++ msgBuf.pre }
       if ty == "string memory" || ty == "string" || ty == "bytes memory" || ty == "bytes" then
         let (fnId, vals) ← resolveCallTargetAndArgs j
         return ← inlineStringFn fnId vals j
@@ -6691,11 +6883,11 @@ private partial def lowerCall (j : Json) : M Val := do
   let kind ← mStr (← mField j "kind")
   if kind == "typeConversion" then
     let args ← mArr (← mField j "arguments")
-    if (← mType j) == "address" && args.size == 1 &&
-        (← mKind args[0]!) == "Identifier" && optStr args[0]! "name" == some "this" then
-      unless (← refInt args[0]!) == -28 do
-        failAt args[0]! "this does not resolve to the current contract builtin"
-      return { pre := #[], expr := .contractAddress }
+    if (← mType j) == "address" && args.size == 1 then
+      if (← mKind args[0]!) == "Identifier" && optStr args[0]! "name" == some "this" then
+        unless (← refInt args[0]!) == -28 do
+          failAt args[0]! "this does not resolve to the current contract builtin"
+        return { pre := #[], expr := .contractAddress }
     lowerCast j
   else if kind == "functionCall" then
     let callee ← mField j "expression"
@@ -7470,7 +7662,10 @@ private partial def lowerStringHelperStmts (stmts : List Json) : M EncodedBytes 
       | "Return" =>
           let retExpr := field? s "expression" |>.getD Json.null
           if retExpr.isNull then failAt s "string helper return requires an expression"
-          lowerEncodedBytes retExpr
+          if ← isMsgDataNode retExpr then
+            lowerMsgDataBuffer
+          else
+            lowerEncodedBytes retExpr
       | "RevertStatement" =>
           let revStmts ← lowerRevert s
           return { pre := revStmts, pointer := .literal 0, size := .literal 0 }
@@ -7595,7 +7790,8 @@ private partial def lowerArrayReinterpretAssembly? (declStmt asmStmt : Json) (re
   let ys := ystmts[0]!
   unless (← mKind ys) == "YulAssignment" do return none
   let varNames ← mArr (← mField ys "variableNames")
-  unless varNames.size == 1 && (← mKind varNames[0]!) == "YulIdentifier" &&
+  unless varNames.size == 1 do return none
+  unless (← mKind varNames[0]!) == "YulIdentifier" &&
          optStr varNames[0]! "name" == some resName do
     return none
   let valNode ← mField ys "value"
@@ -8309,7 +8505,9 @@ private partial def inlineMsgDataFn (fnId : Nat) (args : Array CallArg) (at_ : J
   noteFn fn
   let (modStmts, modPost) ← lowerModifiers mods
   let stmts ← mArr (← mField body "statements")
-  unless stmts.size == 1 && (← mKind stmts[0]!) == "Return" do
+  unless stmts.size == 1 do
+    failAt fn "msg.data helper must be a single return statement"
+  unless (← mKind stmts[0]!) == "Return" do
     failAt fn "msg.data helper must be a single return statement"
   let retExpr := field? stmts[0]! "expression" |>.getD Json.null
   if retExpr.isNull then failAt stmts[0]! "msg.data helper return requires an expression"
@@ -9111,10 +9309,10 @@ private partial def unwrapLoopBodyStmts (j : Json) : M (Array Json) := do
   let kind ← mKind j
   if kind == "Block" || kind == "UncheckedBlock" then
     let stmts ← mArr (← mField j "statements")
-    if stmts.size == 1 && ((← mKind stmts[0]!) == "Block" || (← mKind stmts[0]!) == "UncheckedBlock") then
-      unwrapLoopBodyStmts stmts[0]!
-    else
-      pure stmts
+    if stmts.size == 1 then
+      if (← mKind stmts[0]!) == "Block" || (← mKind stmts[0]!) == "UncheckedBlock" then
+        return ← unwrapLoopBodyStmts stmts[0]!
+    pure stmts
   else
     pure #[j]
 
@@ -9124,8 +9322,9 @@ private partial def loopBodyUsesUnchecked (j : Json) : M Bool := do
     return true
   if kind == "Block" then
     let stmts ← mArr (← mField j "statements")
-    if stmts.size == 1 && ((← mKind stmts[0]!) == "Block" || (← mKind stmts[0]!) == "UncheckedBlock") then
-      return ← loopBodyUsesUnchecked stmts[0]!
+    if stmts.size == 1 then
+      if (← mKind stmts[0]!) == "Block" || (← mKind stmts[0]!) == "UncheckedBlock" then
+        return ← loopBodyUsesUnchecked stmts[0]!
   return false
 
 /-- Exact bounded while-loop lowering for:
@@ -9148,7 +9347,9 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
     unless (← mKind breakStmt) == "IfStatement" && (field? breakStmt "falseBody" |>.getD Json.null).isNull do
       failAt breakStmt "a while (true) loop must end with `if (v == 0) break;`"
     let breakTrueStmts ← unwrapLoopBodyStmts (← mField breakStmt "trueBody")
-    unless breakTrueStmts.size == 1 && (← mKind breakTrueStmts[0]!) == "Break" do
+    unless breakTrueStmts.size == 1 do
+      failAt breakStmt "a while (true) loop must end with `if (v == 0) break;`"
+    unless (← mKind breakTrueStmts[0]!) == "Break" do
       failAt breakStmt "a while (true) loop must end with `if (v == 0) break;`"
     let bCond ← stripParens (← mField breakStmt "condition")
     unless (← mKind bCond) == "BinaryOperation" && optStr bCond "operator" == some "==" do
@@ -9323,6 +9524,73 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
                        calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
                        writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
             return #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
+  if condOp == "!=" then
+    let isDequePopCall? (node : Json) : M (Option (Nat × Array CallArg × SPath)) := do
+      unless (← mKind node) == "FunctionCall" && optStr node "kind" == some "functionCall" &&
+             (← mType node) == "bytes32" do
+        return none
+      let some (fnId, 1) ← callTargetAndArity? node | return none
+      let some fn := (← get).funs.find? fnId | return none
+      let fname := optStr fn "name" |>.getD ""
+      unless fname == "popFront" || fname == "popBack" do return none
+      let params ← mArr (← mField (← mField fn "parameters") "parameters")
+      unless params.size == 1 && optStr params[0]! "storageLocation" == some "storage" do return none
+      let pty ← mType params[0]!
+      unless pty.startsWith "struct " && !pty.contains "[" do return none
+      let (_, sdecl) ← resolveStructDeclFromType params[0]!
+      let smembers ← mArr (← mField sdecl "members")
+      unless smembers.size == 3 do return none
+      let m0Name ← mStr (← mField smembers[0]! "name")
+      let m0Ty ← mType smembers[0]!
+      let m1Name ← mStr (← mField smembers[1]! "name")
+      let m1Ty ← mType smembers[1]!
+      unless m0Name == "_begin" && m0Ty == "uint128" && m1Name == "_end" && m1Ty == "uint128" do
+        return none
+      let (resolvedFnId, callArgs) ← resolveCallTargetAndArgs node
+      unless resolvedFnId == fnId do return none
+      let #[.storagePath _ dequePath dequePre] := callArgs | return none
+      unless dequePre.isEmpty do return none
+      return some (fnId, callArgs, dequePath)
+    let dequeMatch? ← do
+      if let some popInfo ← isDequePopCall? condLhs then
+        pure (some (condLhs, popInfo, condRhs, true))
+      else if let some popInfo ← isDequePopCall? condRhs then
+        pure (some (condRhs, popInfo, condLhs, false))
+      else
+        pure none
+    if let some (popNode, (fnId, callArgs, dequePath), targetNode, popLeft) := dequeMatch? then
+      unless (← mType targetNode) == "bytes32" do
+        failAt targetNode "deque pop loop comparison target must be bytes32"
+      let env ← get
+      if statefulCallIn targetNode env || assignmentIn targetNode then
+        failAt targetNode "stateful or assignment deque pop loop target is unsupported"
+      let body ← mField s "body"
+      let bodyStmts ← unwrapLoopBodyStmts body
+      if ← listContainsReturn bodyStmts then
+        failAt s "return inside a while loop is unsupported"
+      unless bodyStmts.isEmpty do
+        failAt body "deque pop while loop body must be empty"
+      let beginVal ← memberRead #[] dequePath "_begin" popNode
+      let endVal ← memberRead #[] dequePath "_end" popNode
+      let boundVar ← fresh
+      let doneVar ← fresh
+      let loopVar ← fresh
+      let boundExpr := Expr.add (.bitAnd (.sub endVal.expr beginVal.expr) (.literal (2 ^ 128 - 1))) (.literal 1)
+      let saved ← get
+      let popVal ← inlineFn fnId callArgs popNode
+      let targetVal ← lowerExpr targetNode
+      modify fun e =>
+        { e with values := saved.values, paths := saved.paths,
+                 snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements,
+                 calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+                 writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+      let iterPre := if popLeft then popVal.pre ++ targetVal.pre else targetVal.pre ++ popVal.pre
+      let iterStmts := iterPre.toList ++ [Stmt.ite (.eq popVal.expr targetVal.expr) [.assignVar doneVar (.literal 1)] []]
+      return beginVal.pre ++ endVal.pre ++ #[
+        .letVar boundVar boundExpr,
+        .letVar doneVar (.literal 0),
+        .forEach loopVar (.localVar boundVar) [.ite (.eq (.localVar doneVar) (.literal 0)) iterStmts []]
+      ]
   let varNode? ←
     if (condOp == "!=" || condOp == ">") && (← isZeroLiteral condRhs) then
       pure (some condLhs)
@@ -12343,10 +12611,12 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
                 if rloc == "memory" then
                   if let some body := (field? fn "body").filter (!·.isNull) then
                     let stmts ← mArr (← mField body "statements")
-                    if stmts.size == 1 && (← mKind stmts[0]!) == "Return" then
-                      let retExpr := field? stmts[0]! "expression" |>.getD Json.null
-                      if !retExpr.isNull && (← isMsgDataNode retExpr) then
-                        return false
+                    if stmts.size == 1 then
+                      if (← mKind stmts[0]!) == "Return" then
+                        let retExpr := field? stmts[0]! "expression" |>.getD Json.null
+                        if !retExpr.isNull then
+                          if ← isMsgDataNode retExpr then
+                            return false
                   return true
       return false
   | _ => return false

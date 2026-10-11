@@ -112,6 +112,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.StringBytesMappingsUriStorageStringsSequenceModel,
     .one `Contracts.SolidityImportSmoke.StringsHexArraysBitmapsSequenceModel,
     .one `Contracts.SolidityImportSmoke.EcdsaMerkleCheckpointsStorageSlotSequenceModel,
+    .one `Contracts.SolidityImportSmoke.Create2ClonesMsgDataDequeSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,

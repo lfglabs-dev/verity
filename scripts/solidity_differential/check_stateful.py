@@ -309,6 +309,11 @@ def main():
         'rawSlotLabel()',
         'rawSlotPayload()',
         'checkpointUpperRecent(uint32)',
+        'computeCreate2(bytes32,bytes32,address)',
+        'predictClone(address,bytes32,address)',
+        'currentMsgDataHash(uint256)',
+        'executeGovernanceAction(uint256)',
+        'queueLength()',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -869,6 +874,29 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(ecdsa_merkle_prefix[:remaining_budget])
+    if 'computeCreate2(bytes32,bytes32,address)' in names:
+        create2_clones_prefix = [
+            ('computeCreate2(bytes32,bytes32,address)', [0x1111, 0x2222, int(senders[0], 16)]),
+            ('computeCreate2(bytes32,bytes32,address)', [0xdeadbeef, 0xcafebabe, 0x3333]),
+            ('computeCreate2(bytes32,bytes32,address)', [0x1111, 0x2222, 1 << 160]),
+            ('predictClone(address,bytes32,address)', [0x4444, 0x5555, int(senders[0], 16)]),
+            ('predictClone(address,bytes32,address)', [1 << 160, 0x5555, int(senders[0], 16)]),
+            ('predictClone(address,bytes32,address)', [0x4444, 0x5555, 1 << 160]),
+            ('currentMsgDataHash(uint256)', [0]),
+            ('currentMsgDataHash(uint256)', [0x12345678]),
+            ('queueLength()', []),
+            ('executeGovernanceAction(uint256)', [42]),
+            ('change(uint256)', [0]),
+            ('queueLength()', []),
+            ('executeGovernanceAction(uint256)', [42]),
+            ('queueLength()', []),
+            ('executeGovernanceAction(uint256)', [99]),
+            ('change(uint256)', [1]),
+            ('executeGovernanceAction(uint256)', [42]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(create2_clones_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1148,6 +1176,22 @@ def main():
             ])
         elif name == 'checkpointUpperRecent(uint32)':
             call_args = [rng.choice([0, 1, 5, 15, 35, 65, 100, 1 << 32])]
+        elif name == 'computeCreate2(bytes32,bytes32,address)':
+            call_args = [
+                rng.choice([0, 0x1111, 0xdeadbeef, (1 << 256) - 1]),
+                rng.choice([0, 0x2222, 0xcafebabe, (1 << 256) - 1]),
+                rng.choice([int(senders[0], 16), 0x3333, 1 << 160]),
+            ]
+        elif name == 'predictClone(address,bytes32,address)':
+            call_args = [
+                rng.choice([0x4444, int(senders[0], 16), 1 << 160]),
+                rng.choice([0, 0x5555, 0xabcdef, (1 << 256) - 1]),
+                rng.choice([int(senders[0], 16), 0x6666, 1 << 160]),
+            ]
+        elif name == 'currentMsgDataHash(uint256)':
+            call_args = [rng.choice([0, 1, 42, 0x12345678, (1 << 256) - 1])]
+        elif name == 'executeGovernanceAction(uint256)':
+            call_args = [rng.choice([42, 99, 100])]
         else:
             call_args = []
         calls.append((name, call_args))

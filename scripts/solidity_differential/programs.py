@@ -2287,3 +2287,38 @@ def stateful_ecdsa_merkle_checkpoints_storage_slot_source(fixture: str, variant:
         return fixture
     raise ValueError(f'unknown ecdsa-merkle-checkpoints-storage-slot variant: {variant}')
 
+
+def stateful_create2_clones_msgdata_deque_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            '_governanceCall', '_backQueue', '_lockedExecutor', '_votingDelay',
+            '_totalDerivedScore', '_lastMsgDataHash',
+            '_executor', '_checkGovernance',
+            'salt', 'initHash', 'deployer', 'impl',
+            'c2Custom', 'c2Self', 'cloneCustom', 'cloneSelf',
+            'cHash', 'leadNoise', 'tailKeep', 'govActionHash', 'poppedTail',
+            'backKeep', 'backTarget', 'backNoise', 'remGov', 'remBack',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-create2-clones-msgdata-deque':
+        replacements = {
+            'while (backTarget != _backQueue.popBack()) {}':
+            'while (_backQueue.popBack() != backTarget) {}',
+            '_votingDelay += 999;':
+            '_votingDelay = _votingDelay + 999;',
+            '_totalDerivedScore += 888;':
+            '_totalDerivedScore = _totalDerivedScore + 888;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('create2-clones-msgdata-deque variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown create2-clones-msgdata-deque variant: {variant}')
+
+
