@@ -266,6 +266,15 @@ def main():
         'authorizationHistory(uint256)',
         'verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))',
         'batchCheckAndSum(address[],uint256[])',
+        'feeRecipient()',
+        'lastMarketId()',
+        'market(bytes32)',
+        'position(bytes32,address)',
+        'computeId((address,address,address,address,uint256))',
+        'expectedMarketBalances((address,address,address,address,uint256),uint256)',
+        'expectedTotalSupplyAssets((address,address,address,address,uint256),uint256)',
+        'expectedSupplyAssets((address,address,address,address,uint256),address,uint256)',
+        'expectedBorrowAssets((address,address,address,address,uint256),address,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -665,6 +674,26 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(authorizer_prefix[:remaining_budget])
+    if 'computeId((address,address,address,address,uint256))' in names:
+        mp_a = [0x1001, 0x2001, 0x3001, 0x4001, 800000000000000000]
+        mp_b = [0x1002, 0x2002, 0x3002, 0x4002, 860000000000000000]
+        market_params_prefix = [
+            ('computeId((address,address,address,address,uint256))', mp_a),
+            ('change(uint256)', [0]),
+            ('change(uint256)', [5]),
+            ('computeId((address,address,address,address,uint256))', mp_a),
+            ('expectedMarketBalances((address,address,address,address,uint256),uint256)', mp_a + [31709791983]),
+            ('expectedTotalSupplyAssets((address,address,address,address,uint256),uint256)', mp_a + [31709791983]),
+            ('expectedSupplyAssets((address,address,address,address,uint256),address,uint256)', mp_a + [int(senders[0], 16), 31709791983]),
+            ('expectedBorrowAssets((address,address,address,address,uint256),address,uint256)', mp_a + [int(senders[0], 16), 31709791983]),
+            ('expectedMarketBalances((address,address,address,address,uint256),uint256)', mp_b + [0]),
+            ('change(uint256)', [12]),
+            ('expectedMarketBalances((address,address,address,address,uint256),uint256)', mp_b + [63419583966]),
+            ('expectedBorrowAssets((address,address,address,address,uint256),address,uint256)', mp_b + [int(senders[0], 16), 63419583966]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(market_params_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -855,6 +884,31 @@ def main():
                 [64, 128, 1, 0x3000, 2, 15, 50],
                 [64, 128, 1, 1 << 160, 1, 15],
             ])
+        elif name == 'computeId((address,address,address,address,uint256))':
+            call_args = rng.choice([
+                [0x1001, 0x2001, 0x3001, 0x4001, 800000000000000000],
+                [0x1002, 0x2002, 0x3002, 0x4002, 860000000000000000],
+                [1 << 160, 0x2001, 0x3001, 0x4001, 800000000000000000],
+            ])
+        elif name in ('expectedMarketBalances((address,address,address,address,uint256),uint256)',
+                      'expectedTotalSupplyAssets((address,address,address,address,uint256),uint256)'):
+            mp = rng.choice([
+                [0x1001, 0x2001, 0x3001, 0x4001, 800000000000000000],
+                [0x1002, 0x2002, 0x3002, 0x4002, 860000000000000000],
+            ])
+            call_args = mp + [rng.choice([0, 31709791983, 63419583966])]
+        elif name in ('expectedSupplyAssets((address,address,address,address,uint256),address,uint256)',
+                      'expectedBorrowAssets((address,address,address,address,uint256),address,uint256)'):
+            mp = rng.choice([
+                [0x1001, 0x2001, 0x3001, 0x4001, 800000000000000000],
+                [0x1002, 0x2002, 0x3002, 0x4002, 860000000000000000],
+            ])
+            user = rng.choice([int(senders[0], 16), 0x3002, 1 << 160])
+            call_args = mp + [user, rng.choice([0, 31709791983, 63419583966])]
+        elif name == 'position(bytes32,address)':
+            call_args = [rng.choice([0, 1, 2]), rng.choice([int(senders[0], 16), 0x3002, 1 << 160])]
+        elif name == 'market(bytes32)':
+            call_args = [rng.choice([0, 1, 2])]
         else:
             call_args = []
         calls.append((name, call_args))

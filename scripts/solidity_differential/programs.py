@@ -2065,3 +2065,50 @@ def stateful_ecrecover_authorizer_arrays_map_source(fixture: str, variant: str) 
     raise ValueError(f'unknown ecrecover-authorizer-arrays-map variant: {variant}')
 
 
+def stateful_market_params_balances_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'MARKET_PARAMS_BYTES_LENGTH', 'VIRTUAL_SHARES', 'VIRTUAL_ASSETS',
+            'totalScore', 'lastDigest', '_simulatedMarket', 'marketParamsId',
+            'ratePerSecond', 'supplyDelta', 'borrowDelta', 'mintedSupplyShares',
+            'mintedBorrowShares', 'stepTag',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-market-params-balances':
+        replacements = {
+            'm.totalBorrowAssets += interest.toUint128();':
+            'm.totalBorrowAssets = m.totalBorrowAssets + interest.toUint128();',
+            'm.totalSupplyAssets += interest.toUint128();':
+            'm.totalSupplyAssets = m.totalSupplyAssets + interest.toUint128();',
+            'm.totalSupplyShares += feeShares.toUint128();':
+            'm.totalSupplyShares = m.totalSupplyShares + feeShares.toUint128();',
+            '++m.lastUpdate;':
+            'm.lastUpdate = m.lastUpdate + 1;',
+            'm.totalSupplyAssets += supplyDelta.toUint128();':
+            'm.totalSupplyAssets = m.totalSupplyAssets + supplyDelta.toUint128();',
+            'm.totalSupplyShares += mintedSupplyShares.toUint128();':
+            'm.totalSupplyShares = m.totalSupplyShares + mintedSupplyShares.toUint128();',
+            'm.totalBorrowAssets += borrowDelta.toUint128();':
+            'm.totalBorrowAssets = m.totalBorrowAssets + borrowDelta.toUint128();',
+            'm.totalBorrowShares += mintedBorrowShares.toUint128();':
+            'm.totalBorrowShares = m.totalBorrowShares + mintedBorrowShares.toUint128();',
+            'uint128 stepTag = m.lastUpdate++;':
+            'uint128 stepTag = m.lastUpdate; m.lastUpdate = m.lastUpdate + 1;',
+            'pos.supplyShares += mintedSupplyShares;':
+            'pos.supplyShares = pos.supplyShares + mintedSupplyShares;',
+            'pos.borrowShares += mintedBorrowShares.toUint128();':
+            'pos.borrowShares = pos.borrowShares + mintedBorrowShares.toUint128();',
+            'pos.collateral += uint128(supplyDelta * 2);':
+            'pos.collateral = pos.collateral + uint128(supplyDelta * 2);',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('market-params-balances variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown market-params-balances variant: {variant}')
