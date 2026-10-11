@@ -849,6 +849,19 @@ private def isOrderIndependentSibling : Expr → Bool
   | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin => true
   | _ => false
 
+private def isStorageKeyCaptureExpr : Expr → Bool
+  | .storage _
+  | .logicalNot (.logicalNot (.storage _))
+  | .structMember _ _ _
+  | .logicalNot (.logicalNot (.structMember _ _ _))
+  | .structMember2 _ _ _ _
+  | .logicalNot (.logicalNot (.structMember2 _ _ _ _)) => true
+  | _ => false
+
+private def isStorageKeyCaptureStmt : Stmt → Bool
+  | .letVar _ e => isStorageKeyCaptureExpr e
+  | _ => false
+
 private partial def assignmentIn (j : Json) : Bool :=
   match j with
   | .arr xs => xs.any assignmentIn
@@ -9861,7 +9874,13 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
             return ← deleteStorageDynamicArray (pre ++ slotPre) "" arrSlot dynInfo.elemType dynInfo.elemStructId
           failAt target s!"struct dynamic array member {member} requires an element index"
         -- Ordering between effectful key and RHS evaluation needs a separate rule.
-        unless pre.isEmpty do failAt target "member write key prelude is unsupported"
+        let hasInvalidKeyPrelude ← if pre.isEmpty then pure false
+          else if !pre.all isStorageKeyCaptureStmt then pure true
+          else if deleting then pure false
+          else do
+            let right ← mField expression "rightHandSide"
+            pure (assignmentIn right || statefulCallIn right (← get))
+        if hasInvalidKeyPrelude then failAt target "member write key prelude is unsupported"
         unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains qualMember do
           failAt target "member assignment requires a supported layout member"
         let ty ← mType target
@@ -9874,7 +9893,7 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
           let right ← mField expression "rightHandSide"
           atom (← convert ty (← mType right) (← lowerExpr right) right)
-        return value.pre.push (write value.expr)
+        return (pre ++ value.pre).push (write value.expr)
     | _ => failAt target "member assignment requires a mapping struct storage path"
   if (← mKind target) == "IndexAccess" then
     let baseNode ← mField target "baseExpression"
@@ -10188,7 +10207,9 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
           let combined ← combineCompound operator ty lhsVal.expr rhsVal.expr expression
           let writeStmts ← writeRawStructScalar #[] baseSlot mInfo combined.expr false
           return rhsVal.pre ++ lhsVal.pre ++ combined.pre ++ writeStmts
-        unless pre.isEmpty do failAt target "member write key prelude is unsupported"
+        if !pre.all isStorageKeyCaptureStmt ||
+            (!pre.isEmpty && (assignmentIn right || statefulCallIn right (← get))) then
+          failAt target "member write key prelude is unsupported"
         let (rawField, count, read, write) ← match path with
           | .zero rawField =>
               let (cField, subPrefix) := splitSPathField rawField
@@ -10223,7 +10244,7 @@ private partial def lowerCompoundAssignment (expression : Json) (operator : Stri
         let rhsVal ← lowerRhs ty
         let lhsVar ← fresh
         let combined ← combineCompound operator ty (.localVar lhsVar) rhsVal.expr expression
-        return rhsVal.pre.push (.letVar lhsVar read) ++ combined.pre |>.push (write combined.expr)
+        return (pre ++ rhsVal.pre).push (.letVar lhsVar read) ++ combined.pre |>.push (write combined.expr)
     | _ => failAt target "member assignment requires a mapping struct storage path"
   if (← mKind target) == "IndexAccess" then
     let reference ← lowerRef target
@@ -10390,7 +10411,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
           let stmts := (lhsVal.pre.push (.letVar oldVar lhsVal.expr) ++
             combined.pre).push (.letVar newVar combined.expr) ++ writeStmts
           return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
-        unless pre.isEmpty do failAt target "member write key prelude is unsupported"
+        unless pre.all isStorageKeyCaptureStmt do failAt target "member write key prelude is unsupported"
         let (rawField, count, read, write) ← match path with
           | .zero rawField =>
               let (cField, subPrefix) := splitSPathField rawField
@@ -10425,7 +10446,7 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
         let oldVar ← fresh
         let newVar ← fresh
         let combined ← combineCompound compoundOp ty (.localVar oldVar) (.literal 1) j
-        let stmts := #[Stmt.letVar oldVar read] ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (write (.localVar newVar))
+        let stmts := (pre.push (.letVar oldVar read)) ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (write (.localVar newVar))
         return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
     | _ => failAt target "member assignment requires a mapping struct storage path"
   if (← mKind target) == "IndexAccess" then
@@ -11957,7 +11978,7 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       { e with values, scalarTy, enumBounds, bytes4Params }
     srcParams := srcParams.push { name := pname, id := pid }
     paramExprs := paramExprs.push pexpr
-  let readPublicStructGetterMembers (path : SPath) (pre0 : Array Stmt) :
+  let readPublicStructGetterMembers (path : SPath) (pre0 : Array Stmt) (allowFixedArrays : Bool := false) :
       M (Array Stmt × Array Expr × Array ParamType) := do
     let sid ← refInt leafTypeNode
     unless sid ≥ 0 do
@@ -11972,6 +11993,10 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
     let mut retTypes : Array ParamType := #[]
     for mNode in sMembers do
       let mName ← mStr (← mField mNode "name")
+      let mTyNode ← mField mNode "typeName"
+      if allowFixedArrays && (← mKind mTyNode) == "ArrayTypeName" &&
+          info.structFixedArrays.any (·.member == mName) then
+        continue
       let mTy ← mType mNode
       let some mPty := paramType mTy
         | failAt mNode s!"unsupported public struct getter member {mName} of type {mTy}"
@@ -11981,6 +12006,8 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       pre := pre ++ a.pre
       retExprs := retExprs.push a.expr
       retTypes := retTypes.push mPty
+    unless !retExprs.isEmpty do
+      failAt varDecl s!"public struct getter for {name} must return at least one scalar member"
     return (pre, retExprs, retTypes)
   if paramSpecs.isEmpty then
     if info.bytesStorage then
@@ -11997,11 +12024,11 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
                  publicVarGetterReturns := #[if info.stringStorage then .string else .bytes] }
       let getterBindStmts := #[Stmt.letVar dataBinding buf.pointer, Stmt.letVar lenBinding buf.size]
       return ((buf.pre ++ getterBindStmts).push (.returnBytes memStem), srcParams)
-    if !info.structMembers.isEmpty && info.fixedArrayLength.isNone then
-      unless info.opaqueNames.isEmpty && info.structFixedArrays.isEmpty && info.structMappings.isEmpty &&
+    if (!info.structMembers.isEmpty || !info.structFixedArrays.isEmpty) && info.fixedArrayLength.isNone then
+      unless info.opaqueNames.isEmpty && info.structMappings.isEmpty &&
           info.structDynamicArrays.isEmpty && info.subStructs.isEmpty do
         failAt varDecl s!"public struct getter for {name} with nested or non-scalar members is outside this slice"
-      let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.zero name) #[]
+      let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.zero name) #[] true
       modify fun e => { e with publicVarGetterReturns := retTypes }
       return (pre.push (.returnValues retExprs.toList), srcParams)
     unless info.keyCount == 0 && info.structMembers.isEmpty && !info.bytesStorage &&
@@ -12064,10 +12091,10 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
         modify fun e => { e with publicVarGetterReturns := #[pty] }
         return (a.pre.push (.returnValues [a.expr]), srcParams)
       else
-        unless info.opaqueNames.isEmpty && info.structFixedArrays.isEmpty && info.structMappings.isEmpty &&
+        unless info.opaqueNames.isEmpty && info.structMappings.isEmpty &&
             info.structDynamicArrays.isEmpty && info.subStructs.isEmpty do
           failAt varDecl s!"public mapping struct getter for {name} with nested or non-scalar members is outside this slice"
-        let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.one name k0) #[]
+        let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.one name k0) #[] true
         modify fun e => { e with publicVarGetterReturns := retTypes }
         return (pre.push (.returnValues retExprs.toList), srcParams)
     failAt varDecl s!"unsupported public state variable getter layout for {name}"
@@ -12085,10 +12112,10 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
         modify fun e => { e with publicVarGetterReturns := #[pty] }
         return (a.pre.push (.returnValues [a.expr]), srcParams)
       else
-        unless info.opaqueNames.isEmpty && info.structFixedArrays.isEmpty && info.structMappings.isEmpty &&
+        unless info.opaqueNames.isEmpty && info.structMappings.isEmpty &&
             info.structDynamicArrays.isEmpty && info.subStructs.isEmpty do
           failAt varDecl s!"public mapping struct getter for {name} with nested or non-scalar members is outside this slice"
-        let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.two name k0 k1) #[]
+        let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.two name k0 k1) #[] true
         modify fun e => { e with publicVarGetterReturns := retTypes }
         return (pre.push (.returnValues retExprs.toList), srcParams)
     if info.keyCount == 1 && info.fixedArrayLength.isSome then

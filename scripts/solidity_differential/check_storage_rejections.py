@@ -1203,6 +1203,31 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] unsupported struct member compound assignment type bytes4'),
+        ('midnight-position-and-fee-positive',
+         (root / 'Contracts/SolidityImportSmoke/MidnightPositionAndFeeSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('public-struct-getter-signed-fixed-array-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct S { uint128 a; int128[4] arr; }\n  S public s;\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] public struct getter for s with nested or non-scalar members is outside this slice'),
+        ('member-write-storage-key-with-stateful-rhs-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Box { uint256 low; }\n  address public feeRecipient;\n  uint256 private nonce;\n  mapping(address => Box) private boxes;\n  function _bump() internal returns (uint256) { nonce += 1; return nonce; }\n  function checked(uint256) external returns (uint256) {\n    boxes[feeRecipient].low = _bump();\n    return boxes[feeRecipient].low;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] member write key prelude is unsupported'),
+        ('member-compound-storage-key-with-stateful-rhs-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Box { uint256 low; }\n  address public feeRecipient;\n  uint256 private nonce;\n  mapping(address => Box) private boxes;\n  function _bump() internal returns (uint256) { nonce += 1; return nonce; }\n  function checked(uint256) external returns (uint256) {\n    boxes[feeRecipient].low += _bump();\n    return boxes[feeRecipient].low;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] member write key prelude is unsupported'),
+        ('member-incdec-non-storage-key-prelude-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  struct Box { uint256 low; }\n  mapping(uint256 => Box) private boxes;\n  function checked(uint256 x) external returns (uint256) {\n    return boxes[x + 1].low++;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] member write key prelude is unsupported'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1234,11 +1259,12 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(Market,Uid,uint256)' if name == 'udvt-param-assign-hashmarket-positive'
             else 'checked(bytes4,uint256)' if name == 'struct-mapping-and-bytes4-interface-positive'
             else 'VERSION()\n  function paused()\n  function «end»()\n  function isWhitelister(bool,address)\n  function nonces(bool,address,address)\n  function limits(address,uint256)\n  function checked(uint256)' if name == 'foundry-toml-remapping-and-escaped-keyword-positive'
-            else 's()' if name == 'public-struct-getter-nested-mapping-rejected'
+            else 's()' if name in {'public-struct-getter-nested-mapping-rejected', 'public-struct-getter-signed-fixed-array-rejected'}
             else 'm(address)' if name == 'public-mapping-struct-getter-dynamic-array-rejected'
             else 'm(uint256,uint256,uint256)' if name == 'public-three-key-mapping-struct-getter-dynamic-array-rejected'
             else 'checked(uint256)\n  function verifyAndRecord(Authorization,Signature)\n  function batchCheckAndSum(«address[]»,«uint256[]»)' if name == 'ecrecover-authorizer-arrays-map-positive'
             else 'checked(uint256)\n  function feeRecipient()\n  function lastMarketId()\n  function market(Id)\n  function position(Id,address)\n  function computeId(MarketParams)\n  function expectedMarketBalances(MarketParams,uint256)\n  function expectedTotalSupplyAssets(MarketParams,uint256)\n  function expectedSupplyAssets(MarketParams,address,uint256)\n  function expectedBorrowAssets(MarketParams,address,uint256)' if name == 'market-params-balances-positive'
+            else 'checked(uint256)\n  function summaryCard()\n  function bucketView(bytes32)\n  function position(bytes32,address)\n  function collateral(bytes32,address,uint256)\n  function settlementFee(bytes32,uint256)\n  function updatePositionView(bytes32,address,uint256)' if name == 'midnight-position-and-fee-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

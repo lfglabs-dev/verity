@@ -268,8 +268,13 @@ def main():
         'batchCheckAndSum(address[],uint256[])',
         'feeRecipient()',
         'lastMarketId()',
+        'summaryCard()',
+        'bucketView(bytes32)',
         'market(bytes32)',
         'position(bytes32,address)',
+        'collateral(bytes32,address,uint256)',
+        'settlementFee(bytes32,uint256)',
+        'updatePositionView(bytes32,address,uint256)',
         'computeId((address,address,address,address,uint256))',
         'expectedMarketBalances((address,address,address,address,uint256),uint256)',
         'expectedTotalSupplyAssets((address,address,address,address,uint256),uint256)',
@@ -694,6 +699,31 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(market_params_prefix[:remaining_budget])
+    if 'settlementFee(bytes32,uint256)' in names:
+        midnight_prefix = [
+            ('change(uint256)', [7]),
+            ('position(bytes32,address)', [0, int(senders[0], 16)]),
+            ('position(bytes32,address)', [0, 0x6000]),
+            ('position(bytes32,address)', [0, 1 << 160]),
+            ('summaryCard()', []),
+            ('bucketView(bytes32)', [0]),
+            ('bucketView(bytes32)', [1]),
+            ('collateral(bytes32,address,uint256)', [0, int(senders[0], 16), 0]),
+            ('collateral(bytes32,address,uint256)', [0, int(senders[0], 16), 1]),
+            ('collateral(bytes32,address,uint256)', [0, int(senders[0], 16), 2]),
+            ('settlementFee(bytes32,uint256)', [99, 3600]),
+            ('settlementFee(bytes32,uint256)', [0, 12 * 3600]),
+            ('settlementFee(bytes32,uint256)', [0, 15 * 86400]),
+            ('settlementFee(bytes32,uint256)', [0, 45 * 86400]),
+            ('settlementFee(bytes32,uint256)', [0, 120 * 86400]),
+            ('updatePositionView(bytes32,address,uint256)', [0, int(senders[0], 16), 1000864100]),
+            ('change(uint256)', [0]),
+            ('position(bytes32,address)', [1, int(senders[0], 16)]),
+            ('updatePositionView(bytes32,address,uint256)', [1, int(senders[0], 16), 1000000050]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(midnight_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -906,9 +936,15 @@ def main():
             user = rng.choice([int(senders[0], 16), 0x3002, 1 << 160])
             call_args = mp + [user, rng.choice([0, 31709791983, 63419583966])]
         elif name == 'position(bytes32,address)':
-            call_args = [rng.choice([0, 1, 2]), rng.choice([int(senders[0], 16), 0x3002, 1 << 160])]
-        elif name == 'market(bytes32)':
-            call_args = [rng.choice([0, 1, 2])]
+            call_args = [rng.choice([0, 1, 2]), rng.choice([int(senders[0], 16), 0x3002, 0x6000, 1 << 160])]
+        elif name in ('market(bytes32)', 'bucketView(bytes32)'):
+            call_args = [rng.choice([0, 1])]
+        elif name == 'collateral(bytes32,address,uint256)':
+            call_args = [rng.choice([0, 1]), rng.choice([int(senders[0], 16), 0x6000, 1 << 160]), rng.choice([0, 1, 2])]
+        elif name == 'settlementFee(bytes32,uint256)':
+            call_args = [rng.choice([0, 1, 99]), rng.choice([0, 12 * 3600, 15 * 86400, 45 * 86400, 120 * 86400])]
+        elif name == 'updatePositionView(bytes32,address,uint256)':
+            call_args = [rng.choice([0, 1]), rng.choice([int(senders[0], 16), 0x6000, 1 << 160]), rng.choice([0, 1000000090, 1000000200, 1000864100])]
         else:
             call_args = []
         calls.append((name, call_args))

@@ -2112,3 +2112,39 @@ def stateful_market_params_balances_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown market-params-balances variant: {variant}')
+
+
+def stateful_midnight_position_and_fee_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'totalScore', 'lastDigest',
+            'addedCredit', 'addedFee', 'slotIdx',
+            'prevRecipDebt', 'nextRecipBitmap', 'timeToMat', 'sFee', 'weightSum',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-midnight-position-and-fee':
+        replacements = {
+            'position[id][feeRecipient].credit += accruedFee + 1;':
+            'position[id][feeRecipient].credit = position[id][feeRecipient].credit + accruedFee + 1;',
+            'delete position[id][feeRecipient].pendingFee;':
+            'position[id][feeRecipient].pendingFee = 0;',
+            'uint64 prevRecipDebt = bucketView[activeMarketId].tag++;':
+            'uint64 prevRecipDebt = bucketView[activeMarketId].tag; bucketView[activeMarketId].tag = prevRecipDebt + 1;',
+            'uint128 nextRecipBitmap = ++bucketView[activeMarketId].shareTotal;':
+            'uint128 nextRecipBitmap = bucketView[activeMarketId].shareTotal + 1; bucketView[activeMarketId].shareTotal = nextRecipBitmap;',
+            'summaryCard.totalCredited += newCredit;':
+            'summaryCard.totalCredited = summaryCard.totalCredited + newCredit;',
+            'summaryCard.activeCount += 1;':
+            'summaryCard.activeCount = summaryCard.activeCount + 1;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('midnight-position-and-fee variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown midnight-position-and-fee variant: {variant}')
