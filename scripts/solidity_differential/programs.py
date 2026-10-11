@@ -1996,3 +1996,35 @@ def stateful_votes_checkpoints_arrays_bitmaps_source(fixture: str, variant: str)
         return fixture
     raise ValueError(f'unknown votes-checkpoints-arrays-bitmaps variant: {variant}')
 
+
+def stateful_public_getters_and_builtins_source(fixture: str, variant: str) -> str:
+    """Equivalent public state variable getters and builtin revert/require sources."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            'ERR_PAUSED', 'ERR_BLOCKED', 'ERR_ROLLBACK', '_checkedScale',
+            'raw', 'mode', 'branch', 'user', 'delegate', 'pos', 'scaled',
+            'hLen', 'value', 'totalScore', 'lastDigest',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-public-getters-and-builtins':
+        replacements = {
+            'nonces[true][user][delegate] += 1;':
+            'nonces[true][user][delegate] = nonces[true][user][delegate] + 1;',
+            'nonces[false][user][delegate] += 2;':
+            'nonces[false][user][delegate] = nonces[false][user][delegate] + 2;',
+            'totalScore += metric;':
+            'totalScore = totalScore + metric;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('public-getters-and-builtins variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown public-getters-and-builtins variant: {variant}')
+
+

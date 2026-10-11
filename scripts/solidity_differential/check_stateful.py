@@ -247,6 +247,13 @@ def main():
         'latestTotalCheckpoint()',
         'pendingDefaultAdminView()',
         'voteWindow(uint256,uint256)',
+        'VAULT_NAME()',
+        'asset()',
+        'currentEpoch()',
+        'history(uint256)',
+        'tiers(uint256)',
+        'positions(address)',
+        'probeBuiltins(uint256,uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -599,6 +606,26 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(votes_prefix[:remaining_budget])
+    if 'probeBuiltins(uint256,uint256)' in source['methodIdentifiers']:
+        getters_prefix = [
+            ('VAULT_NAME()', []),
+            ('tiers(uint256)', [3]),
+            ('tiers(uint256)', [0]),
+            ('asset()', []),
+            ('currentEpoch()', []),
+            ('history(uint256)', [0]),
+            ('history(uint256)', [99]),
+            ('positions(address)', [0x3000]),
+            ('probeBuiltins(uint256,uint256)', [0, 10]),
+            ('probeBuiltins(uint256,uint256)', [96, 10]),
+            ('probeBuiltins(uint256,uint256)', [97, 10]),
+            ('probeBuiltins(uint256,uint256)', [98, 10]),
+            ('probeBuiltins(uint256,uint256)', [99, 10]),
+            ('probeBuiltins(uint256,uint256)', [0, 77]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(getters_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -747,6 +774,20 @@ def main():
             call_args = rng.choice([[0x4000, 0], [0x4001, 0], [0x4002, 0], [0x4000, 1], [0x4000, 99]])
         elif name == 'voteWindow(uint256,uint256)':
             call_args = rng.choice([[0, 0], [50, 0], [150, 1], [300, 0], [10, 97], [10, 98], [10, 99]])
+        elif name == 'history(uint256)':
+            call_args = [rng.choice([0, 1, 2, 99])]
+        elif name == 'tiers(uint256)':
+            call_args = [rng.choice([0, 1, 2, 3, 99])]
+        elif name == 'positions(address)':
+            call_args = [rng.choice([0x3000, 0x3001, 0x3002, 1 << 160])]
+        elif name == 'isWhitelister(bool,address)':
+            call_args = rng.choice([[1, 0x4000], [0, 0x4001], [2, 0x4000], [1, 1 << 160]])
+        elif name == 'nonces(bool,address,address)':
+            call_args = rng.choice([[1, 0x3000, 0x4000], [0, 0x3001, 0x4000], [2, 0x3000, 0x4000]])
+        elif name == 'limits(address,uint256)':
+            call_args = rng.choice([[0x3000, 0], [0x3000, 1], [0x3000, 2], [0x4000, 0], [1 << 160, 0]])
+        elif name == 'probeBuiltins(uint256,uint256)':
+            call_args = rng.choice([[0, 10], [1, 20], [96, 10], [97, 10], [98, 10], [99, 10], [0, 77]])
         else:
             call_args = []
         calls.append((name, call_args))

@@ -349,6 +349,7 @@ private structure Env where
   contractKinds : RBMap Nat String compare := RBMap.empty
   contractBases : RBMap Nat (Array Nat) compare := RBMap.empty
   contractFuns : RBMap Nat (Array Nat) compare := RBMap.empty
+  contractPublicVars : RBMap Nat (Array Nat) compare := RBMap.empty
   contractNodes : RBMap Nat (Array Json) compare := RBMap.empty
   linearizedBases : Array Nat := #[]
   duplicateLayoutLabels : Array String := #[]
@@ -391,6 +392,7 @@ private structure Env where
   rootFlatStructReturn : Option (Nat × String × Array (String × String × String) × Bool) := none
   rootMsgDataReturn : Bool := false
   rootDynamicBytesReturn : Option ParamType := none
+  publicVarGetterReturns : Array ParamType := #[]
   rootPost : Array Stmt := #[]
   modifiers : RBMap Nat Json compare := RBMap.empty
   unchecked : Bool := false
@@ -475,7 +477,7 @@ private def failAt (j : Json) (why : String) : M α := do
   let env ← get
   let frames := env.stack.reverse.map fun id =>
     let owner := env.funContract.find? id |>.getD "<free>"
-    let name := ((env.funs.find? id).orElse (fun _ => env.modifiers.find? id)).bind (fun fn => optStr fn "name") |>.getD s!"decl#{id}"
+    let name := (((env.funs.find? id).orElse (fun _ => env.modifiers.find? id)).orElse (fun _ => env.stateVars.find? id)).bind (fun fn => optStr fn "name") |>.getD s!"decl#{id}"
     s!"{owner}.{name}"
   let why := s!"[solidity-import:unsupported] {why}\nclosure: {String.intercalate " -> " frames}"
   let file :=
@@ -502,7 +504,7 @@ private def failAt (j : Json) (why : String) : M α := do
 private def baseFunctionClosure (env : Env) (fnId : Nat) : Array Nat := Id.run do
   let mut visited : Array Nat := #[fnId]
   let mut queue : List Nat := [fnId]
-  for _ in [:env.funs.size + 1] do
+  for _ in [:env.funs.size + env.stateVars.size + 1] do
     match queue with
     | [] => break
     | curr :: rest =>
@@ -814,7 +816,7 @@ mutual
           else if kind == some "FunctionCall" && optStr j "kind" == some "functionCall" then
             let callee := field? j "expression" |>.getD Json.null
             match (field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption) with
-            | some (-18) | some (-20) | some (-3) => true
+            | some (-18) | some (-19) | some (-20) | some (-3) => true
             | some id =>
                 if id >= 0 then
                   let natId := id.toNat
@@ -959,15 +961,34 @@ private def rootParamType? (env : Env) (name : String) : Option ParamType := do
       if s!"{memory.param}_{member}" == name then return ← paramType ty
   none
 
+private partial def publicVarGetterParamTypes (typeName : Json) : M (Array (String × Json) × Json) := do
+  match ← mKind typeName with
+  | "Mapping" =>
+      let kNode ← mField typeName "keyType"
+      let kTy ← liftM (typeString kNode)
+      let vNode ← mField typeName "valueType"
+      let (rest, leaf) ← publicVarGetterParamTypes vNode
+      return (#[(kTy, kNode)] ++ rest, leaf)
+  | "ArrayTypeName" =>
+      let bNode ← mField typeName "baseType"
+      let (rest, leaf) ← publicVarGetterParamTypes bNode
+      return (#[("uint256", typeName)] ++ rest, leaf)
+  | _ =>
+      return (#[], typeName)
+
 private def noteFn (fn : Json) : M Unit := do
   let id ← mNat (← mField fn "id")
   let env ← get
   unless env.included.any (·.declId == id) do
     let name ← mStr (← mField fn "name")
-    let params ← mArr (← mField (← mField fn "parameters") "parameters")
     let mut tys : Array String := #[]
-    for p in params do
-      tys := tys.push (← liftM (typeString p))
+    if (← mKind fn) == "VariableDeclaration" then
+      let (paramSpecs, _) ← publicVarGetterParamTypes (← mField fn "typeName")
+      tys := paramSpecs.map Prod.fst
+    else
+      let params ← mArr (← mField (← mField fn "parameters") "parameters")
+      for p in params do
+        tys := tys.push (← liftM (typeString p))
     let contract := env.funContract.find? id |>.getD "<free>"
     modify fun e =>
       let added := e.included.push ⟨contract, name, id, tys⟩
@@ -1813,7 +1834,8 @@ private def readStorageDynamicArrayLength (pre : Array Stmt) (fieldName : String
   pure { pre := pre.push (.letVar dest raw), expr := .localVar dest }
 
 private def storageDynamicStructElementPath (pre : Array Stmt) (fieldName : String) (slotExpr : Expr)
-    (elemSid : Nat) (indexExpr : Expr) (at_ : Json) : M (Array Stmt × SPath) := do
+    (elemSid : Nat) (indexExpr : Expr) (at_ : Json) (oobStmt : Stmt := .panicCode (.literal 0x32)) :
+    M (Array Stmt × SPath) := do
   modify fun e => { e with encodingMemory := true, usedRawStorage := true }
   if fieldName != "" then
     markField fieldName
@@ -1825,7 +1847,7 @@ private def storageDynamicStructElementPath (pre : Array Stmt) (fieldName : Stri
   let idxExpr := Expr.localVar capturedIdx
   let wordOff := if rawInfo.wordCount == 1 then idxExpr else Expr.mul idxExpr (.literal rawInfo.wordCount)
   let stmts : Array Stmt := #[
-    .ite (.lt idxExpr lenVal.expr) [] [.panicCode (.literal 0x32)],
+    .ite (.lt idxExpr lenVal.expr) [] [oobStmt],
     .mstore (.literal 0) slotExpr,
     .letVar baseDataSlot (.keccak256 (.literal 0) (.literal 32)),
     .letVar elemSlot (.add (.localVar baseDataSlot) wordOff)
@@ -1833,7 +1855,7 @@ private def storageDynamicStructElementPath (pre : Array Stmt) (fieldName : Stri
   return (lenVal.pre ++ stmts, .rawSlot elemSid (.localVar elemSlot))
 
 private def readStorageDynamicArrayElement (pre : Array Stmt) (fieldName : String) (slotExpr : Expr)
-    (elemTy : String) (indexExpr : Expr) : M Val := do
+    (elemTy : String) (indexExpr : Expr) (oobStmt : Stmt := .panicCode (.literal 0x32)) : M Val := do
   modify fun e => { e with encodingMemory := true, usedRawStorage := true }
   if fieldName != "" then
     markField fieldName
@@ -1852,7 +1874,7 @@ private def readStorageDynamicArrayElement (pre : Array Stmt) (fieldName : Strin
     else shifted
   let cleaned := if isBool then Expr.logicalNot (.logicalNot masked) else masked
   let stmts : Array Stmt := #[
-    .ite (.lt indexExpr lenVal.expr) [] [.panicCode (.literal 0x32)],
+    .ite (.lt indexExpr lenVal.expr) [] [oobStmt],
     .mstore (.literal 0) slotExpr,
     .letVar baseDataSlot (.keccak256 (.literal 0) (.literal 32)),
     .letVar elemSlot (.add (.localVar baseDataSlot) wordOff),
@@ -2944,6 +2966,75 @@ private partial def stmtContainsPlaceholder (s : Json) : M Bool := do
       stmtContainsPlaceholder (← mField s "body")
   | _ => pure false
 
+/-- Syntactic definite revert: every path through `s` unconditionally reverts,
+    including calls to builtin `revert(...)` and resolved internal/private helpers
+    whose bodies unconditionally revert. -/
+private partial def stmtAlwaysReverts (visited : List Nat) (s : Json) : M Bool := do
+  match ← mKind s with
+  | "RevertStatement" => pure true
+  | "Block" | "UncheckedBlock" =>
+      let stmts ← mArr (← mField s "statements")
+      stmts.anyM (stmtAlwaysReverts visited)
+  | "IfStatement" =>
+      let yes ← stmtAlwaysReverts visited (← mField s "trueBody")
+      let no ← match field? s "falseBody" with
+        | some j => if j.isNull then pure false else stmtAlwaysReverts visited j
+        | none => pure false
+      pure (yes && no)
+  | "ExpressionStatement" =>
+      let expr := field? s "expression" |>.getD Json.null
+      unless optStr expr "nodeType" == some "FunctionCall" && optStr expr "kind" == some "functionCall" do
+        return false
+      let callee := field? expr "expression" |>.getD Json.null
+      let calleeKind := optStr callee "nodeType"
+      if calleeKind == some "Identifier" && optStr callee "name" == some "revert" then
+        return (field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption) == some (-19)
+      let some refId := (field? callee "referencedDeclaration").bind (fun v => v.getInt?.toOption)
+        | return false
+      unless refId ≥ 0 do return false
+      let env ← get
+      let targetId? : Option Nat ← do
+        if calleeKind == some "Identifier" then
+          match env.funContractId.find? refId.toNat with
+          | some cid =>
+              if env.linearizedBases.contains cid then
+                pure (resolveInContracts env env.linearizedBases.toList refId.toNat)
+              else
+                pure (some refId.toNat)
+          | none => pure (some refId.toNat)
+        else if calleeKind == some "MemberAccess" then
+          let base := field? callee "expression" |>.getD Json.null
+          let baseTy ← mType base
+          if baseTy.startsWith "type(library " then
+            pure (some refId.toNat)
+          else if baseTy.startsWith "type(contract super " then
+            match env.stack.head?.bind env.funContractId.find? with
+            | some callerCid =>
+                match env.linearizedBases.findIdx? (· == callerCid) with
+                | some idx =>
+                    let superBases := (env.linearizedBases.extract (idx + 1) env.linearizedBases.size).toList
+                    pure (resolveInContracts env superBases refId.toNat)
+                | none => pure none
+            | none => pure none
+          else if baseTy.startsWith "type(contract " then
+            pure (some refId.toNat)
+          else
+            match env.funContractId.find? refId.toNat with
+            | some cid =>
+                if env.contractKinds.find? cid == some "library" then pure (some refId.toNat)
+                else pure none
+            | none => pure none
+        else
+          pure none
+      let some targetId := targetId? | return false
+      if visited.contains targetId then return false
+      let some fn := env.funs.find? targetId | return false
+      let vis := optStr fn "visibility" |>.getD ""
+      unless vis == "internal" || vis == "private" || vis == "public" do return false
+      let some body := (field? fn "body").filter (!·.isNull) | return false
+      stmtAlwaysReverts (targetId :: visited) body
+  | _ => pure false
+
 /-- Syntactic definite return: every path through `s` ends in a helper result.
     Assembly results count because `lowerHelperFrom` treats them as results. -/
 private partial def helperReturns (s : Json) : M Bool := do
@@ -2957,7 +3048,7 @@ private partial def helperReturns (s : Json) : M Bool := do
         | some j => if j.isNull then pure false else helperReturns j
         | none => pure false
       pure (yes && no)
-  | _ => pure false
+  | _ => stmtAlwaysReverts [] s
 
 private def helperListReturns (stmts : Array Json) : M Bool := do
   match stmts.back? with
@@ -6705,6 +6796,8 @@ private partial def lowerStringHelperStmts (stmts : List Json) : M EncodedBytes 
           let tailBuf ← lowerStringHelperStmts (asmStmt :: rest)
           return { tailBuf with pre := sPre ++ tailBuf.pre }
       | "ExpressionStatement" =>
+          if ← stmtAlwaysReverts [] declStmt then
+            failAt asmStmt "statement after string helper revert"
           let sPre ← lowerEffect declStmt
           let tailBuf ← lowerStringHelperStmts (asmStmt :: rest)
           return { tailBuf with pre := sPre ++ tailBuf.pre }
@@ -6751,6 +6844,15 @@ private partial def lowerStringHelperStmts (stmts : List Json) : M EncodedBytes 
           let retExpr := field? s "expression" |>.getD Json.null
           if retExpr.isNull then failAt s "string helper return requires an expression"
           lowerEncodedBytes retExpr
+      | "RevertStatement" =>
+          let revStmts ← lowerRevert s
+          return { pre := revStmts, pointer := .literal 0, size := .literal 0 }
+      | "ExpressionStatement" =>
+          if ← stmtAlwaysReverts [] s then
+            let effStmts ← lowerEffect s
+            return { pre := effStmts, pointer := .literal 0, size := .literal 0 }
+          else
+            failAt s "string helper must end with a return statement"
       | "Block" =>
           let inner ← mArr (← mField s "statements")
           lowerStringHelperStmts inner.toList
@@ -8572,8 +8674,12 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         -- Use the same exact assignment/delete and require rules as root bodies.
         -- The helper continuation still resumes only after these effects.
         let pre ← lowerEffect s
-        let (tail, result) ← lowerHelperFrom rest retName
-        pure (pre ++ tail, result)
+        if ← stmtAlwaysReverts [] s then
+          if let some next := rest.head? then failAt next "statement after helper revert"
+          pure (pre, some ((← get).helperResult.map (fun (b, _) => Expr.localVar b) |>.getD (.literal 0)))
+        else
+          let (tail, result) ← lowerHelperFrom rest retName
+          pure (pre ++ tail, result)
     | "EmitStatement" =>
         -- Preserve helper events before its scalar-result continuation.
         let emitted ← lowerEmit s
@@ -8662,7 +8768,10 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
                    scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays }
-        if !yesReturns && !noReturns then
+        let restReturns ← helperListReturns rest.toArray
+        let yesHasReturn ← listContainsReturn yes
+        let noHasReturn ← listContainsReturn no
+        if (!yesReturns && !noReturns) || (!rest.isEmpty && !restReturns && !yesHasReturn && !noHasReturn) then
           -- Neither branch returns: branch-local declarations stay scoped and
           -- the continuation is lowered once after the conditional.
           let (yesPre, _) ← lowerHelperFrom yes.toList retName
@@ -8702,7 +8811,7 @@ private partial def voidHelperReturns (s : Json) : M Bool := do
         | some j => if j.isNull then pure false else voidHelperReturns j
         | none => pure false
       pure (yes && no)
-  | _ => pure false
+  | _ => stmtAlwaysReverts [] s
 
 private partial def stmtContainsReturn (s : Json) : M Bool := do
   match ← mKind s with
@@ -8753,6 +8862,9 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
         let tailStmts ← kRest
         pure (localStmts ++ tailStmts)
     | "ExpressionStatement" =>
+        if ← stmtAlwaysReverts [] s then
+          if let some next := rest.head? then failAt next "statement after void helper revert"
+          return ← lowerEffect s
         let effStmts ← lowerEffect s
         let tailStmts ← kRest
         pure (effStmts ++ tailStmts)
@@ -9206,6 +9318,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     -- dedicated validator must run before strict user-declaration resolution.
     if (← mKind callee) == "Identifier" && optStr callee "name" == some "require" then
       return ← lowerRequire statement
+    if (← mKind callee) == "Identifier" && optStr callee "name" == some "revert" then
+      return ← lowerBuiltinRevert statement
     if (← mKind callee) == "FunctionCallOptions" then
       failAt callee "external contract calls are outside this slice"
     if (← mKind callee) == "MemberAccess" && (field? callee "referencedDeclaration").isNone then
@@ -10149,6 +10263,40 @@ private partial def lowerIncDecExpr (j : Json) : M Val := do
   let stmts := pre.push (.letVar oldVar (.storage name)) ++ combined.pre |>.push (.letVar newVar combined.expr) |>.push (.setStorage name (.localVar newVar))
   return { pre := stmts, expr := if isPrefix then .localVar newVar else .localVar oldVar }
 
+private partial def extractStringLiteralOrConstant (message : Json) (forRevert : Bool) : M String := do
+  let label := if forRevert then "revert" else "require"
+  let litNode ← match ← mKind message with
+    | "Literal" => pure message
+    | "Identifier" | "MemberAccess" =>
+        if (← mKind message) == "MemberAccess" then
+          let base ← mField message "expression"
+          let baseTy ← mType base
+          unless baseTy.startsWith "type(library " || baseTy.startsWith "type(contract " do
+            failAt message s!"{label} currently needs a literal string message"
+        let id ← refInt message
+        unless id ≥ 0 do
+          failAt message s!"{label} currently needs a literal string message"
+        let some decl := (← get).numericConstants.find? id.toNat
+          | failAt message s!"{label} currently needs a literal string message"
+        unless (← mType decl) == "string" do
+          failAt message s!"{label} currently needs a literal string message"
+        let initVal ← mField decl "value"
+        unless (← mKind initVal) == "Literal" do
+          failAt message s!"{label} currently needs a literal string message"
+        pure initVal
+    | _ => failAt message s!"{label} currently needs a literal string message"
+  let kind ← mStr (← mField litNode "kind")
+  unless kind == "string" || kind == "unicodeString" do
+    failAt message s!"{label} message must be a UTF-8 string literal"
+  let some value := optStr litNode "value"
+    | failAt message s!"{label} message bytes are not represented exactly by UTF-8"
+  let actual ← mStr (← mField litNode "hexValue")
+  let expected := value.toUTF8.data.foldl (init := "") fun acc byte =>
+    acc.push (hexDigit (byte.toNat / 16)) |>.push (hexDigit (byte.toNat % 16))
+  unless actual == expected do
+    failAt message s!"{label} message bytes are not represented exactly by UTF-8"
+  return value
+
 private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "expression"
   unless (← mKind call) == "FunctionCall" do
@@ -10176,19 +10324,33 @@ private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
     let condition ← atom (← lowerExpr args[0]!)
     let (pre, name, values) ← lowerErrorArguments message
     return condition.pre ++ pre |>.push (.requireError condition.expr name values)
-  unless (← mKind message) == "Literal" do
-    failAt message "require currently needs a literal string message"
-  let kind ← mStr (← mField message "kind")
-  unless kind == "string" || kind == "unicodeString" do
-    failAt message "require message must be a UTF-8 string literal"
-  let some value := optStr message "value"
-    | failAt message "require message bytes are not represented exactly by UTF-8"
-  let actual ← mStr (← mField message "hexValue")
-  let expected := value.toUTF8.data.foldl (init := "") fun acc byte =>
-    acc.push (hexDigit (byte.toNat / 16)) |>.push (hexDigit (byte.toNat % 16))
-  unless actual == expected do failAt message "require message bytes are not represented exactly by UTF-8"
+  let value ← extractStringLiteralOrConstant message false
   let condition ← atom (← lowerExpr args[0]!)
   return condition.pre.push (.require condition.expr value)
+
+private partial def lowerBuiltinRevert (statement : Json) : M (Array Stmt) := do
+  let call ← mField statement "expression"
+  unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
+    failAt call "revert must be a function call"
+  let callee ← mField call "expression"
+  unless (← mKind callee) == "Identifier" && optStr callee "name" == some "revert" do
+    failAt callee "only builtin revert calls are supported here"
+  let signature ← mType callee
+  unless (← mField callee "referencedDeclaration").getInt?.toOption == some (-19) &&
+      (signature == "function () pure" || signature == "function (string memory) pure") do
+    failAt callee "revert must resolve to a supported Solidity builtin signature"
+  unless (← mArr (← mField callee "overloadedDeclarations")).all
+      (fun declaration => declaration.getInt?.toOption == some (-19)) do
+    failAt callee "revert overload set contains a non-builtin declaration"
+  unless (← mArr (← mField call "names")).isEmpty do
+    failAt call "named revert arguments are unsupported"
+  let args ← mArr (← mField call "arguments")
+  if signature == "function () pure" then
+    unless args.isEmpty do failAt call "bare revert() takes no arguments"
+    return #[.revertReturndata]
+  unless args.size == 1 do failAt call "revert(string) requires one message argument"
+  let value ← extractStringLiteralOrConstant args[0]! true
+  return #[.require (.literal 0) value]
 
 private partial def lowerRevert (statement : Json) : M (Array Stmt) := do
   let call ← mField statement "errorCall"
@@ -11255,6 +11417,8 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
         out := out ++ (← lowerLocal s)
     | "ExpressionStatement" =>
         out := out ++ (← lowerEffect s)
+        if ← stmtAlwaysReverts [] s then
+          returned := true
     | "EmitStatement" =>
         out := out ++ (← lowerEmit s)
     | "RevertStatement" =>
@@ -11449,7 +11613,281 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
     | kind => failAt s s!"unsupported statement {kind}"
   pure (out, returned)
 
+private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcParam) := do
+  let rootId ← mNat (← mField varDecl "id")
+  modify fun e => { e with stack := [rootId] }
+  noteFn varDecl
+  let name ← mStr (← mField varDecl "name")
+  let isConstant := (field? varDecl "constant").bind (fun v => v.getBool?.toOption) == some true
+  let mutability := optStr varDecl "mutability" |>.getD "mutable"
+  if mutability == "immutable" then
+    failAt varDecl s!"immutable state variable {name} is outside this slice"
+  if isConstant || mutability == "constant" then
+    let declared ← mType varDecl
+    let initializer ← mField varDecl "value"
+    if declared == "string" || declared == "bytes" then
+      unless (← mKind initializer) == "Literal" do
+        failAt initializer "byte constant must have a literal initializer"
+      let buf ← lowerEncodedBytes initializer
+      let stem ← fresh
+      let memStem := s!"_verity_memret_{stem}"
+      let dataBinding := s!"{memStem}_data_offset"
+      let lenBinding := s!"{memStem}_length"
+      if (← get).sourceNames.contains dataBinding || (← get).sourceNames.contains lenBinding then
+        failAt varDecl s!"generated return buffer name {memStem} collides with a source identifier"
+      modify fun e =>
+        { e with encodingMemory := true,
+                 bound := dataBinding :: lenBinding :: e.bound,
+                 publicVarGetterReturns := #[if declared == "string" then .string else .bytes] }
+      let getterBindStmts := #[Stmt.letVar dataBinding buf.pointer, Stmt.letVar lenBinding buf.size]
+      return ((buf.pre ++ getterBindStmts).push (.returnBytes memStem), #[])
+    let some pty := paramType declared
+      | failAt varDecl s!"unsupported public constant type {declared}"
+    discard (validateEnumTypeIfNeeded varDecl declared)
+    unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
+        declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
+        declared == "int256" || declared == "int" ||
+        declared == "address" || declared == "address payable" ||
+        declared.startsWith "contract " || declared.startsWith "enum " do
+      failAt varDecl s!"unsupported public constant type {declared}"
+    modify fun e => { e with constantStack := [rootId] }
+    let rawValue ← lowerExpr initializer
+    let initTy ← mType initializer
+    let value ← convert declared initTy rawValue initializer
+    let a ← atom value
+    modify fun e => { e with constantStack := [], publicVarGetterReturns := #[pty] }
+    return (a.pre.push (.returnValues [a.expr]), #[])
+  let env ← get
+  if env.duplicateLayoutLabels.contains name then
+    failAt varDecl s!"shadowed storage declaration {name} is outside this slice"
+  if let some item := env.layoutItems.find? name then
+    unless (← mNat (← mField item "astId")) == rootId do
+      failAt varDecl s!"shadowed storage declaration {name} is outside this slice"
+  let info ← resolveField name varDecl
+  let (paramSpecs, leafTypeNode) ← publicVarGetterParamTypes (← mField varDecl "typeName")
+  let mut srcParams : Array SrcParam := #[]
+  let mut paramExprs : Array Expr := #[]
+  for idx in [:paramSpecs.size] do
+    let (rawParamTy, paramNode) := paramSpecs[idx]!
+    let resolvedParamTy ←
+      if (← mKind paramNode) == "ArrayTypeName" then pure "uint256" else mType paramNode
+    let some pty := paramType resolvedParamTy
+      | failAt paramNode s!"unsupported public getter parameter type {rawParamTy}"
+    let enumBound? ← validateEnumTypeIfNeeded paramNode resolvedParamTy
+    let pid := 100000000 + idx
+    let pname ← freshFor s!"arg{idx}"
+    let pexpr := Expr.param pname
+    modify fun e =>
+      let values := e.values.insert pid pexpr
+      let scalarTy := e.scalarTy.insert pid pty
+      let enumBounds := match enumBound? with
+        | some b => e.enumBounds.insert pid b
+        | none => e.enumBounds
+      let bytes4Params := if resolvedParamTy == "bytes4" then e.bytes4Params.push pid else e.bytes4Params
+      { e with values, scalarTy, enumBounds, bytes4Params }
+    srcParams := srcParams.push { name := pname, id := pid }
+    paramExprs := paramExprs.push pexpr
+  let readPublicStructGetterMembers (path : SPath) (pre0 : Array Stmt) :
+      M (Array Stmt × Array Expr × Array ParamType) := do
+    let sid ← refInt leafTypeNode
+    unless sid ≥ 0 do
+      failAt varDecl "unresolved struct in public state variable getter"
+    let some sDecl := (← get).structs.find? sid.toNat
+      | failAt varDecl "unresolved struct in public state variable getter"
+    let sMembers ← mArr (← mField sDecl "members")
+    unless !sMembers.isEmpty do
+      failAt varDecl "empty struct in public state variable getter is unsupported"
+    let mut pre := pre0
+    let mut retExprs : Array Expr := #[]
+    let mut retTypes : Array ParamType := #[]
+    for mNode in sMembers do
+      let mName ← mStr (← mField mNode "name")
+      let mTy ← mType mNode
+      let some mPty := paramType mTy
+        | failAt mNode s!"unsupported public struct getter member {mName} of type {mTy}"
+      discard (validateEnumTypeIfNeeded mNode mTy)
+      let v ← memberRead #[] path mName varDecl
+      let a ← atom v
+      pre := pre ++ a.pre
+      retExprs := retExprs.push a.expr
+      retTypes := retTypes.push mPty
+    return (pre, retExprs, retTypes)
+  if paramSpecs.isEmpty then
+    if info.bytesStorage then
+      let buf ← lowerStorageBytesRead name varDecl
+      let stem ← fresh
+      let memStem := s!"_verity_memret_{stem}"
+      let dataBinding := s!"{memStem}_data_offset"
+      let lenBinding := s!"{memStem}_length"
+      if (← get).sourceNames.contains dataBinding || (← get).sourceNames.contains lenBinding then
+        failAt varDecl s!"generated return buffer name {memStem} collides with a source identifier"
+      modify fun e =>
+        { e with encodingMemory := true,
+                 bound := dataBinding :: lenBinding :: e.bound,
+                 publicVarGetterReturns := #[if info.stringStorage then .string else .bytes] }
+      let getterBindStmts := #[Stmt.letVar dataBinding buf.pointer, Stmt.letVar lenBinding buf.size]
+      return ((buf.pre ++ getterBindStmts).push (.returnBytes memStem), srcParams)
+    if !info.structMembers.isEmpty && info.fixedArrayLength.isNone then
+      unless info.opaqueNames.isEmpty && info.structFixedArrays.isEmpty && info.structMappings.isEmpty &&
+          info.structDynamicArrays.isEmpty && info.subStructs.isEmpty do
+        failAt varDecl s!"public struct getter for {name} with nested or non-scalar members is outside this slice"
+      let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.zero name) #[]
+      modify fun e => { e with publicVarGetterReturns := retTypes }
+      return (pre.push (.returnValues retExprs.toList), srcParams)
+    unless info.keyCount == 0 && info.structMembers.isEmpty && !info.bytesStorage &&
+        info.dynamicArrayElemType.isNone && info.fixedArrayLength.isNone do
+      failAt varDecl s!"unsupported public state variable getter layout for {name}"
+    let ty ← mType leafTypeNode
+    let some pty := paramType ty
+      | failAt varDecl s!"unsupported public state variable type {ty}"
+    discard (validateEnumTypeIfNeeded varDecl ty)
+    markField name
+    let readExpr :=
+      if info.booleanScalar then Expr.logicalNot (.logicalNot (.storage name))
+      else Expr.storage name
+    modify fun e => { e with publicVarGetterReturns := #[pty] }
+    return (#[.returnValues [readExpr]], srcParams)
+  else if paramSpecs.size == 1 then
+    let k0 := paramExprs.getD 0 (.literal 0)
+    if let some elemSid := info.dynamicArrayStructId then
+      let rawInfo ← resolveRawStructInfo elemSid varDecl
+      unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty do
+        failAt varDecl s!"public struct array getter for {name} with nested or non-scalar members is outside this slice"
+      let (elemPre, elemPath) ← storageDynamicStructElementPath #[] name (.literal info.slot) elemSid k0 varDecl .revertReturndata
+      let (pre, retExprs, retTypes) ← readPublicStructGetterMembers elemPath elemPre
+      modify fun e => { e with publicVarGetterReturns := retTypes }
+      return (pre.push (.returnValues retExprs.toList), srcParams)
+    if let some (elemTy, _, _) := info.dynamicArrayElemType then
+      let resolvedElemTy ← mType leafTypeNode
+      let some pty := paramType resolvedElemTy
+        | failAt varDecl s!"unsupported public dynamic array element type {resolvedElemTy}"
+      discard (validateEnumTypeIfNeeded leafTypeNode resolvedElemTy)
+      let v ← readStorageDynamicArrayElement #[] name (.literal info.slot) elemTy k0 .revertReturndata
+      let a ← atom v
+      modify fun e => { e with publicVarGetterReturns := #[pty] }
+      return (a.pre.push (.returnValues [a.expr]), srcParams)
+    if info.keyCount == 0 && info.fixedArrayLength.isSome then
+      let some length := info.fixedArrayLength | failAt varDecl "missing fixed array layout"
+      let resolvedElemTy ← mType leafTypeNode
+      let some pty := paramType resolvedElemTy
+        | failAt varDecl s!"unsupported public fixed array element type {resolvedElemTy}"
+      discard (validateEnumTypeIfNeeded leafTypeNode resolvedElemTy)
+      let dest ← fresh
+      let mut pre : Array Stmt := #[
+        .ite (.lt k0 (.literal length)) [] [.revertReturndata],
+        .letVar dest (.literal 0)
+      ]
+      for i in [:length] do
+        let readExpr := Expr.storage (topStructMemberFieldName name s!"__solidity_element_{i}")
+        pre := pre.push (.ite (.eq k0 (.literal i)) [.assignVar dest readExpr] [])
+      markField name
+      modify fun e => { e with publicVarGetterReturns := #[pty] }
+      return (pre.push (.returnValues [.localVar dest]), srcParams)
+    if info.keyCount == 1 && info.fixedArrayLength.isNone then
+      if info.scalarMapping then
+        let resolvedValTy ← mType leafTypeNode
+        let some pty := paramType resolvedValTy
+          | failAt varDecl s!"unsupported public mapping value type {resolvedValTy}"
+        discard (validateEnumTypeIfNeeded leafTypeNode resolvedValTy)
+        let v ← scalarMappingRead #[] (.one name k0) varDecl
+        let a ← atom v
+        modify fun e => { e with publicVarGetterReturns := #[pty] }
+        return (a.pre.push (.returnValues [a.expr]), srcParams)
+      else
+        unless info.opaqueNames.isEmpty && info.structFixedArrays.isEmpty && info.structMappings.isEmpty &&
+            info.structDynamicArrays.isEmpty && info.subStructs.isEmpty do
+          failAt varDecl s!"public mapping struct getter for {name} with nested or non-scalar members is outside this slice"
+        let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.one name k0) #[]
+        modify fun e => { e with publicVarGetterReturns := retTypes }
+        return (pre.push (.returnValues retExprs.toList), srcParams)
+    failAt varDecl s!"unsupported public state variable getter layout for {name}"
+  else if paramSpecs.size == 2 then
+    let k0 := paramExprs.getD 0 (.literal 0)
+    let k1 := paramExprs.getD 1 (.literal 0)
+    if info.keyCount == 2 && info.fixedArrayLength.isNone && info.thirdKeyMapping.isNone then
+      if info.scalarMapping then
+        let resolvedValTy ← mType leafTypeNode
+        let some pty := paramType resolvedValTy
+          | failAt varDecl s!"unsupported public mapping value type {resolvedValTy}"
+        discard (validateEnumTypeIfNeeded leafTypeNode resolvedValTy)
+        let v ← scalarMappingRead #[] (.two name k0 k1) varDecl
+        let a ← atom v
+        modify fun e => { e with publicVarGetterReturns := #[pty] }
+        return (a.pre.push (.returnValues [a.expr]), srcParams)
+      else
+        unless info.opaqueNames.isEmpty && info.structFixedArrays.isEmpty && info.structMappings.isEmpty &&
+            info.structDynamicArrays.isEmpty && info.subStructs.isEmpty do
+          failAt varDecl s!"public mapping struct getter for {name} with nested or non-scalar members is outside this slice"
+        let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.two name k0 k1) #[]
+        modify fun e => { e with publicVarGetterReturns := retTypes }
+        return (pre.push (.returnValues retExprs.toList), srcParams)
+    if info.keyCount == 1 && info.fixedArrayLength.isSome then
+      let some length := info.fixedArrayLength | failAt varDecl "missing fixed array layout"
+      let resolvedElemTy ← mType leafTypeNode
+      let some pty := paramType resolvedElemTy
+        | failAt varDecl s!"unsupported public mapping array element type {resolvedElemTy}"
+      discard (validateEnumTypeIfNeeded leafTypeNode resolvedElemTy)
+      let dest ← fresh
+      let mut pre : Array Stmt := #[
+        .ite (.lt k1 (.literal length)) [] [.revertReturndata],
+        .letVar dest (.literal 0)
+      ]
+      for i in [:length] do
+        let readExpr := Expr.structMember name k0 s!"__solidity_element_{i}"
+        pre := pre.push (.ite (.eq k1 (.literal i)) [.assignVar dest readExpr] [])
+      markField name
+      modify fun e => { e with publicVarGetterReturns := #[pty] }
+      return (pre.push (.returnValues [.localVar dest]), srcParams)
+    failAt varDecl s!"unsupported public state variable getter layout for {name}"
+  else if paramSpecs.size == 3 then
+    let k0 := paramExprs.getD 0 (.literal 0)
+    let k1 := paramExprs.getD 1 (.literal 0)
+    let k2 := paramExprs.getD 2 (.literal 0)
+    if info.keyCount == 2 && info.thirdKeyMapping.isSome then
+      let some mapInfo := info.thirdKeyMapping | failAt varDecl "missing 3-key mapping info"
+      if let some valSid := mapInfo.valueStructId then
+        let rawInfo ← resolveRawStructInfo valSid varDecl
+        unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty do
+          failAt varDecl s!"public 3-key mapping struct getter for {name} with nested or non-scalar members is outside this slice"
+        markField name
+        markStructMapping name mapInfo.member
+        let (slotStmts, slotExpr) ← computeStructMappingLeafSlot (.two name k0 k1) info mapInfo k2 varDecl
+        let (pre, retExprs, retTypes) ← readPublicStructGetterMembers (.rawSlot valSid slotExpr) slotStmts
+        modify fun e => { e with publicVarGetterReturns := retTypes }
+        return (pre.push (.returnValues retExprs.toList), srcParams)
+      else
+        let resolvedValTy ← mType leafTypeNode
+        let some pty := paramType resolvedValTy
+          | failAt varDecl s!"unsupported public 3-key mapping value type {resolvedValTy}"
+        discard (validateEnumTypeIfNeeded leafTypeNode resolvedValTy)
+        let v ← readStructMappingElement #[] (.two name k0 k1) mapInfo k2 varDecl
+        let a ← atom v
+        modify fun e => { e with publicVarGetterReturns := #[pty] }
+        return (a.pre.push (.returnValues [a.expr]), srcParams)
+    if info.keyCount == 2 && info.fixedArrayLength.isSome then
+      let some length := info.fixedArrayLength | failAt varDecl "missing fixed array layout"
+      let resolvedElemTy ← mType leafTypeNode
+      let some pty := paramType resolvedElemTy
+        | failAt varDecl s!"unsupported public mapping array element type {resolvedElemTy}"
+      discard (validateEnumTypeIfNeeded leafTypeNode resolvedElemTy)
+      let dest ← fresh
+      let mut pre : Array Stmt := #[
+        .ite (.lt k2 (.literal length)) [] [.revertReturndata],
+        .letVar dest (.literal 0)
+      ]
+      for i in [:length] do
+        let readExpr := Expr.structMember2 name k0 k1 s!"__solidity_element_{i}"
+        pre := pre.push (.ite (.eq k2 (.literal i)) [.assignVar dest readExpr] [])
+      markField name
+      modify fun e => { e with publicVarGetterReturns := #[pty] }
+      return (pre.push (.returnValues [.localVar dest]), srcParams)
+    failAt varDecl s!"unsupported public state variable getter layout for {name}"
+  else
+    failAt varDecl s!"unsupported public state variable getter arity {paramSpecs.size} for {name}"
+
 private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
+  if (← mKind fn) == "VariableDeclaration" then
+    return ← lowerPublicVarGetter fn
   let rootId ← mNat (← mField fn "id")
   modify fun e => { e with stack := [rootId] }
   if optStr fn "stateMutability" == some "payable" then
@@ -11648,8 +12086,26 @@ private partial def index (file : String) (contract? : Option (Nat × String)) (
               let isState := match field? j "stateVariable" with
                 | some b => match b.getBool? with | .ok v => v | _ => false
                 | none => false
+              let baseIds ← match field? j "baseFunctions" with
+                | some b => (← mArr b).mapM mNat
+                | none => pure #[]
               if isState then
-                modify fun e => { e with stateVars := e.stateVars.insert id j }
+                let isPublic := optStr j "visibility" == some "public"
+                modify fun e =>
+                  let stateVars := e.stateVars.insert id j
+                  let funContract := e.funContract.insert id (contract?.map Prod.snd |>.getD "<free>")
+                  let funContractId := match contract? with
+                    | some (cid, _) => e.funContractId.insert id cid
+                    | none => e.funContractId
+                  let contractPublicVars := match contract? with
+                    | some (cid, _) =>
+                        if isPublic then
+                          let prev := e.contractPublicVars.find? cid |>.getD #[]
+                          e.contractPublicVars.insert cid (prev.push id)
+                        else e.contractPublicVars
+                    | none => e.contractPublicVars
+                  let funBases := if baseIds.isEmpty then e.funBases else e.funBases.insert id baseIds
+                  { e with stateVars, funContract, funContractId, contractPublicVars, funBases }
               let isConstant := (field? j "constant").bind (fun v => v.getBool?.toOption)
               if isConstant == some true then
                 modify fun e => { e with numericConstants := e.numericConstants.insert id j }
@@ -11703,17 +12159,78 @@ private def importSpecs (text : String) : Array String := Id.run do
           out := out.push singleParts[1]!
   pure out
 
-private def readRemappings (root : System.FilePath) : IO (Array (String × String)) := do
-  let path := root / "remappings.txt"
-  if !(← path.pathExists) then return #[]
-  let text ← IO.FS.readFile path
+private def extractQuotedStrings (s : String) : Array String := Id.run do
+  let mut out : Array String := #[]
+  let mut inQuote : Option Char := none
+  let mut current : String := ""
+  for c in s.toList do
+    match inQuote with
+    | none =>
+        if c == '"' || c == '\'' then
+          inQuote := some c
+          current := ""
+    | some q =>
+        if c == q then
+          out := out.push current
+          inQuote := none
+        else
+          current := current.push c
+  return out
+
+private def parseFoundryTomlRemappings (text : String) : Array (String × String) := Id.run do
   let mut out : Array (String × String) := #[]
+  let mut collecting := false
+  let mut buf := ""
   for line in text.splitOn "\n" do
-    let t := line.trimAscii.toString
-    if t == "" || t.startsWith "#" || t.startsWith "//" then continue
-    let parts := t.splitOn "="
-    if parts.length == 2 then
-      out := out.push (parts[0]!, parts[1]!)
+    let trimmed := line.trimAscii.toString
+    if trimmed.startsWith "#" then continue
+    let codeLine := (trimmed.splitOn "#").headD ""
+    if !collecting then
+      if codeLine.startsWith "remappings" then
+        let rest := (codeLine.drop 10).trimAscii.toString
+        if rest.startsWith "=" then
+          let rhs := (rest.drop 1).trimAscii.toString
+          if rhs.startsWith "[" then
+            let afterBracket := (rhs.drop 1).toString
+            if afterBracket.contains ']' then
+              let inside := (afterBracket.splitOn "]").headD ""
+              for item in extractQuotedStrings inside do
+                let parts := item.splitOn "="
+                if parts.length == 2 && parts[0]! != "" && parts[1]! != "" then
+                  out := out.push (parts[0]!, parts[1]!)
+            else
+              collecting := true
+              buf := afterBracket
+    else
+      if codeLine.contains ']' then
+        let inside := buf ++ "\n" ++ ((codeLine.splitOn "]").headD "")
+        for item in extractQuotedStrings inside do
+          let parts := item.splitOn "="
+          if parts.length == 2 && parts[0]! != "" && parts[1]! != "" then
+            out := out.push (parts[0]!, parts[1]!)
+        collecting := false
+        buf := ""
+      else
+        buf := buf ++ "\n" ++ codeLine
+  return out
+
+private def readRemappings (root : System.FilePath) : IO (Array (String × String)) := do
+  let mut out : Array (String × String) := #[]
+  let path := root / "remappings.txt"
+  if ← path.pathExists then
+    let text ← IO.FS.readFile path
+    for line in text.splitOn "\n" do
+      let t := line.trimAscii.toString
+      if t == "" || t.startsWith "#" || t.startsWith "//" then continue
+      let parts := t.splitOn "="
+      if parts.length == 2 then
+        out := out.push (parts[0]!, parts[1]!)
+  let foundryPath := root / "foundry.toml"
+  if ← foundryPath.pathExists then
+    let foundryText ← IO.FS.readFile foundryPath
+    for pair in parseFoundryTomlRemappings foundryText do
+      unless out.contains pair do
+        out := out.push pair
   pure out
 
 private partial def collectSources
@@ -11814,6 +12331,22 @@ private def selectFunction (contract functionName : String) (written : Array Str
       | some idx =>
           if !effective[idx]!.implemented && implemented then
             effective := effective.set! idx { id, fn, tys, canonicalTys, implemented }
+    for id in env.contractPublicVars.find? cid |>.getD #[] do
+      let some varDecl := env.stateVars.find? id | continue
+      let name ← mStr (← mField varDecl "name")
+      unless name == functionName do continue
+      let (paramSpecs, _) ← publicVarGetterParamTypes (← mField varDecl "typeName")
+      let tys := paramSpecs.map Prod.fst
+      let canonicalTys := tys.map sourceTypeName
+      let implemented := true
+      let matchIdx? := effective.findIdx? fun prev =>
+        sameVirtualFamily env prev.id id || prev.canonicalTys == canonicalTys
+      match matchIdx? with
+      | none =>
+          effective := effective.push { id, fn := varDecl, tys, canonicalTys, implemented }
+      | some idx =>
+          if !effective[idx]!.implemented && implemented then
+            effective := effective.set! idx { id, fn := varDecl, tys, canonicalTys, implemented }
   let mut hits : Array (Json × Array String × Bool) := #[]
   let mut described : Array String := #[]
   for cand in effective do
@@ -11932,7 +12465,7 @@ private def importSlice
     let rootFile := env.nodeFile.find? rootId |>.getD entry
     env := { env with currentFile := rootFile, next := 0, bound := [], values := RBMap.empty, paths := RBMap.empty,
                       snapshots := RBMap.empty, mems := RBMap.empty, flatStructs := RBMap.empty, abiElements := RBMap.empty, calldataBytes := RBMap.empty, scalarArrays := RBMap.empty, byteBuffers := RBMap.empty, stringBuffers := RBMap.empty, storageBytesVars := RBMap.empty, storageDynamicArrayVars := RBMap.empty, scalarTy := RBMap.empty, enumBounds := RBMap.empty, bytes4Params := #[], writableLocals := RBMap.empty, fnPtrs := RBMap.empty, bodyAssigned := [], zeroInitLocals := #[], yulNames := RBMap.empty, yulMemoryArrays := RBMap.empty,
-                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[] }
+                      projections := #[], rawBindings := RBMap.empty, explicitAbi := false, encodingMemory := false, helperResult := none, helperReturnId := none, multiHelperResults := none, flatStructHelperResult := none, helperPost := #[], rootIsVoid := false, rootReturns := #[], rootReturnTypes := #[], rootNamedReturn := none, rootFixedArrayReturn := none, rootFlatStructReturn := none, rootMsgDataReturn := false, rootDynamicBytesReturn := none, rootPost := #[], publicVarGetterReturns := #[] }
     let ((body, srcParams), env2) ← (lowerRoot fn).run env
     env := env2
     let mut modelParams : Array Param := #[]
@@ -12048,6 +12581,8 @@ private def importSlice
           abiGuards := abiGuards.push (.letVar binding (.calldataload (.literal offset)))
     let body := abiGuards ++ body
     let returns ← (do
+      if (← mKind fn) == "VariableDeclaration" then
+        return (← get).publicVarGetterReturns
       if let some arrayRetTy ← functionEmptyBodyArrayReturnType? fn then
         return #[arrayRetTy]
       if let some (_, elemPty, length) ← functionFixedArrayReturnType? fn then
@@ -12065,8 +12600,12 @@ private def importSlice
         let some pty := paramType ty | failAt r s!"unsupported return type {ty}"
         out := out.push pty
       pure out) |>.run' env
-    let mutability ← str (← field fn "stateMutability")
-    let isView := mutability == "view" || mutability == "pure"
+    let isView ←
+      if optStr fn "nodeType" == some "VariableDeclaration" then
+        pure true
+      else do
+        let mutability ← str (← field fn "stateMutability")
+        pure (mutability == "view" || mutability == "pure")
     specs := specs.push
       { name := functionName, params := modelParams.toList, returnType := none,
         returns := returns.toList, isView, body := body.toList,
@@ -12364,12 +12903,12 @@ def elabSolidityImport : CommandElab := fun stx => do
     discard <| liftTermElabM <| resolveSolcRelease profile
     let roots ← roots.mapM fun root => do
       let `(solidityRoot| function $fn ( $tys,* )) := root | throwUnsupportedSyntax
-      pure (fn.getId.toString, tys.getElems.map (·.getId.toString (escape := false)))
+      pure (fn.getId.toString (escape := false), tys.getElems.map (·.getId.toString (escape := false)))
     let pkg ← packageRoot
     let project := if root.getString.startsWith "/" then
       System.FilePath.mk root.getString else pkg / root.getString
     let (model, report) ← liftTermElabM <|
-      importSlice pkg project entry.getString contract.getId.toString roots profile
+      importSlice pkg project entry.getString (contract.getId.toString (escape := false)) roots profile
     let ns := (← getCurrNamespace) ++ alias.getId
     let name (suffix : Name) := mkIdent (`_root_ ++ ns ++ suffix)
     elabCommand (← `(set_option maxRecDepth 16384 in
