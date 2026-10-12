@@ -1328,6 +1328,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
+        ('governor-slice-proposer-delay-positive',
+         Path('Contracts/SolidityImportSmoke/GovernorSliceProposerDelaySequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(uint256 input)', 'function checked(uint256 input)'),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('governor-slice-proposer-delay-bytes12-cast-source-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external pure returns (uint256) {\n    bytes16 src = bytes16(\"0123456789abcdef\");\n    bytes12 b = bytes12(src);\n    return uint96(b);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] unsupported cast source bytes16 for bytes12'),
+        ('governor-slice-proposer-delay-bytes20-cast-target-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256) external view returns (uint256) {\n    bytes20 b = bytes20(msg.sender);\n    bytes16 dst = bytes16(b);\n    return uint128(dst);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'FunctionCall: [solidity-import:unsupported] unsupported cast target bytes16 from bytes20'),
+        ('governor-slice-proposer-delay-yul-tail-load-offset-over32-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function _bad(string memory description) internal pure returns (bytes12 marker) {\n    uint256 len = bytes(description).length;\n    assembly (\"memory-safe\") {\n      marker := mload(add(description, sub(len, 33)))\n    }\n  }\n  function checked(uint256) external pure returns (uint256) {\n    return uint96(_bad(\"hello\"));\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1370,6 +1390,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function formatHex(uint256)\n  function formatHexFixed(uint256,uint256)\n  function formatAddressHex(address)\n  function formatSignedDecimal(int256)\n  function checkStringEqual(string,string)\n  function upperBound(uint256)\n  function bitmapBit(uint256)' if name == 'strings-hex-arrays-bitmaps-positive'
             else 'checked(uint256)\n  function recoverFromBytes(bytes32,bytes)\n  function recoverFromCompact(bytes32,bytes32,bytes32)\n  function verifyMerkle(«bytes32[]»,bytes32,bytes32)\n  function rawSlotLabel()\n  function rawSlotPayload()\n  function checkpointUpperRecent(uint32)' if name == 'ecdsa-merkle-checkpoints-storage-slot-positive'
             else 'checked(uint256)\n  function computeCreate2(bytes32,bytes32,address)\n  function predictClone(address,bytes32,address)\n  function currentMsgDataHash(uint256)\n  function executeGovernanceAction(uint256)\n  function queueLength()' if name == 'create2-clones-msgdata-deque-positive'
+            else 'checked(uint256)\n  function checkProposerDescription(address,string)\n  function decodeSelectorAndTarget(bytes)\n  function setRoleGrantDelay(uint64,uint32,uint32)\n  function computeMulDivPair(uint256,uint256,uint256)\n  function inspectUnsafeMemoryAndTail(«address[]»,«uint256[]»,uint256)' if name == 'governor-slice-proposer-delay-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

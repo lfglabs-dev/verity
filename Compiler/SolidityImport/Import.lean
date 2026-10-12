@@ -942,6 +942,21 @@ private def paramType (ty : String) : Option ParamType :=
       | some n => if n != 256 && ty.startsWith "uint" then some (.uintN n) else none
       | none => none
 
+private def fixedBytesWidth? (ty : String) : Option Nat := do
+  guard (ty.startsWith "bytes")
+  let w ← (ty.drop 5).toNat?
+  guard (1 ≤ w && w ≤ 32)
+  some w
+
+private def localParamType (ty : String) : Option ParamType :=
+  match paramType ty with
+  | some p => some p
+  | none =>
+      match fixedBytesWidth? ty with
+      | some 32 => some .bytes32
+      | some w => some (.bytesN w)
+      | none => none
+
 private def scalarArrayElement? (ty : String) : Option (String × ParamType × SolidityAbi.ScalarKind) := do
   let ty := if ty.endsWith " calldata" then (ty.dropEnd 9).toString
     else if ty.endsWith " memory" then (ty.dropEnd 7).toString
@@ -2631,7 +2646,7 @@ private def yulPositiveWordOffsetLiteral? (node : Json) : M (Option Nat) := do
   unless value ≥ 32 && value < 2^256 && value % 32 == 0 do return none
   return some value
 
-private def yulByteBufferLoad? (addrNode : Json) : M (Option Val) := do
+private def yulByteBufferLoad? (addrNode : Json) (lowerYulFn : Json → M Val) : M (Option Val) := do
   if let some buf ← yulByteBufferByName? addrNode then
     return some { pre := buf.pre, expr := buf.size }
   if (← mKind addrNode) != "YulFunctionCall" then return none
@@ -2639,6 +2654,48 @@ private def yulByteBufferLoad? (addrNode : Json) : M (Option Val) := do
   unless outerFn == "add" do return none
   let outerArgs ← mArr (← mField addrNode "arguments")
   unless outerArgs.size == 2 do return none
+  let yulSubOffset? (node : Json) : M (Option (Json × Nat)) := do
+    if (← mKind node) != "YulFunctionCall" then return none
+    let fn ← mStr (← mField (← mField node "functionName") "name")
+    unless fn == "sub" do return none
+    let sargs ← mArr (← mField node "arguments")
+    unless sargs.size == 2 do return none
+    if (← mKind sargs[1]!) != "YulLiteral" then return none
+    unless optStr sargs[1]! "kind" == some "number" && optStr sargs[1]! "type" == some "" do
+      return none
+    let raw ← mStr (← mField sargs[1]! "value")
+    let some k := Compiler.Hex.parseHexNat? raw <|> raw.toNat? | return none
+    unless 1 ≤ k && k ≤ 32 do return none
+    return some (sargs[0]!, k)
+  let tailMatched? ← do
+    if let some (lhsNode, k) ← yulSubOffset? outerArgs[1]! then
+      if let some buf ← yulByteBufferByName? outerArgs[0]! then
+        pure (some (buf, lhsNode, k))
+      else
+        pure none
+    else if let some (lhsNode, k) ← yulSubOffset? outerArgs[0]! then
+      if let some buf ← yulByteBufferByName? outerArgs[1]! then
+        pure (some (buf, lhsNode, k))
+      else
+        pure none
+    else
+      pure none
+  if let some (buf, lhsNode, k) := tailMatched? then
+    let lhsVal ← lowerYulFn lhsNode
+    let addrVar ← fresh
+    let remVar ← fresh
+    let alignedVar ← fresh
+    let shiftVar ← fresh
+    let pre := buf.pre ++ lhsVal.pre ++ #[
+      .letVar addrVar (.add buf.pointer (.sub lhsVal.expr (.literal (32 + k)))),
+      .letVar remVar (.bitAnd (.localVar addrVar) (.literal 31)),
+      .letVar alignedVar (.bitAnd (.localVar addrVar) (.bitNot (.literal 31))),
+      .letVar shiftVar (.mul (.localVar remVar) (.literal 8))
+    ]
+    let wordExpr := Expr.bitOr
+      (.shl (.localVar shiftVar) (.mload (.localVar alignedVar)))
+      (.shr (.sub (.literal 256) (.localVar shiftVar)) (.mload (.add (.localVar alignedVar) (.literal 32))))
+    return some { pre, expr := wordExpr }
   let matched? ← do
     if let some off ← yulPositiveWordOffsetLiteral? outerArgs[1]! then
       if let some buf ← yulByteBufferByName? outerArgs[0]! then
@@ -2689,7 +2746,7 @@ private partial def lowerYul (j : Json) : M Val := do
         if args.size == 1 then
           if let some v ← yulMemoryArrayElementLoad? args[0]! lowerYul then
             return v
-          if let some v ← yulByteBufferLoad? args[0]! then
+          if let some v ← yulByteBufferLoad? args[0]! lowerYul then
             return v
         failAt j "unsupported Yul builtin mload"
       let expectedArity? : Option Nat := match fname with
@@ -2845,11 +2902,17 @@ private def isProvablyBoundedYulExpr (scalarType : ParamType) (expr : Expr) : Bo
 
 private def cleanHelperResultExpr (ty : String) (v : Val) : Expr :=
   if ty == "bool" then Expr.logicalNot (.logicalNot v.expr)
-  else if ty == "bytes4" then Expr.bitAnd v.expr (.literal ((2 ^ 32 - 1) * 16 ^ 56))
   else
-    match bitsOf ty with
-    | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
-    | none => v.expr
+    match fixedBytesWidth? ty with
+    | some byteW =>
+        if byteW < 32 then
+          Expr.bitAnd v.expr (.literal ((2 ^ (8 * byteW) - 1) * 2 ^ (256 - 8 * byteW)))
+        else
+          v.expr
+    | none =>
+        match bitsOf ty with
+        | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
+        | none => v.expr
 
 private def yulNatLit? (node : Json) : M (Option Nat) := do
   if (← mKind node) != "YulLiteral" then return none
@@ -2920,6 +2983,10 @@ private def lowerYulDirectAssignmentTarget (j stmt varNode : Json) (refs : Array
       | failAt stmt s!"unknown scalar type for Yul assignment target {vname}"
     if isProvablyBoundedYulExpr scalarType rhsVal.expr then
       return .assignVar binding rhsVal.expr
+    if let .bytesN byteW := scalarType then
+      if 1 ≤ byteW && byteW < 32 then
+        let mask := (2 ^ (8 * byteW) - 1) * 2 ^ (256 - 8 * byteW)
+        return .assignVar binding (.bitAnd rhsVal.expr (.literal mask))
     unless isFullWordYulScalar scalarType do
       failAt stmt s!"Yul assignment to narrow local {vname} is unsupported"
     return .assignVar binding rhsVal.expr
@@ -3496,7 +3563,7 @@ private def abiDecodeScalarGuard? (ty : String) (enumBound? : Option Nat) (word 
   else
     none
 
-set_option maxHeartbeats 800000 in
+set_option maxHeartbeats 1600000 in
 mutual
 
 private partial def lowerExpr (j : Json) : M Val := do
@@ -3594,6 +3661,53 @@ private partial def lowerExpr (j : Json) : M Val := do
   | "FunctionCall" => lowerCall j
   | "Assignment" => lowerAssignmentExpr j
   | "Identifier" | "MemberAccess" | "IndexAccess" =>
+      if (← mKind j) == "IndexAccess" && (← mType j) == "bytes1" then
+        let baseExpression ← mField j "baseExpression"
+        let baseTy ← mType baseExpression
+        if baseTy == "bytes" || baseTy == "bytes memory" || baseTy == "bytes calldata" ||
+           baseTy == "bytes storage pointer" || baseTy == "bytes storage ref" then
+          let indexExpression ← mField j "indexExpression"
+          let isWrappedOrNonIdent := (← mKind (← stripParens baseExpression)) != "Identifier"
+          let innerBase ← unwrapBytesConversion (← stripParens baseExpression)
+          let isKnownByteBase ← if isWrappedOrNonIdent then pure true else do
+            if (← mKind innerBase) == "Identifier" then
+              let id ← refInt innerBase
+              if id ≥ 0 then
+                let env ← get
+                pure (env.stringBuffers.contains id.toNat || env.calldataBytes.contains id.toNat)
+              else pure false
+            else pure false
+          if isKnownByteBase then
+            if statefulCallIn baseExpression (← get) || statefulCallIn indexExpression (← get) ||
+               assignmentIn baseExpression || assignmentIn indexExpression then
+              failAt j "stateful or assignment byte buffer index is unsupported"
+            let idxTy ← mType indexExpression
+            unless (idxTy.startsWith "uint" && (bitsOf idxTy).isSome) ||
+                (idxTy.startsWith "int_const" && !idxTy.startsWith "int_const -") do
+              failAt indexExpression "byte buffer index must be unsigned"
+            let key ← atom (← lowerExpr indexExpression)
+            if (← mKind innerBase) == "Identifier" then
+              let id ← refInt innerBase
+              if id ≥ 0 then
+                if let some cb := (← get).calldataBytes.find? id.toNat then
+                  if !cb.inMemory then
+                    let pre := key.pre.push (.ite (.lt key.expr (.localVar cb.lengthBinding)) [] [.panicCode (.literal 0x32)])
+                    let wordOff := AbiEncoding.byteWordOffset key.expr
+                    let lane := AbiEncoding.byteLane key.expr
+                    let word := Expr.calldataload (.add (.localVar cb.dataBinding) wordOff)
+                    return { pre, expr := .shl (.literal 248) (.byte lane word) }
+            let buf ← lowerEncodedBytes baseExpression
+            let ptrVar ← fresh
+            let lenVar ← fresh
+            let pre := buf.pre ++ key.pre ++ #[
+              .letVar ptrVar buf.pointer,
+              .letVar lenVar buf.size,
+              .ite (.lt key.expr (.localVar lenVar)) [] [.panicCode (.literal 0x32)]
+            ]
+            let wordOff := AbiEncoding.byteWordOffset key.expr
+            let lane := AbiEncoding.byteLane key.expr
+            let word := Expr.mload (.add (.localVar ptrVar) wordOff)
+            return { pre, expr := .shl (.literal 248) (.byte lane word) }
       match ← lowerRef j with
       | .expr v => pure v
       | .state name pre =>
@@ -4095,6 +4209,10 @@ private partial def lowerRef (j : Json) : M Ref := do
         pure (.expr { pre := buf.pre, expr := buf.size })
       else if member == "length" && (← isMsgDataNode base) then
         pure (.expr { pre := #[], expr := .calldatasize })
+      else if member == "length" && (← mKind (← stripParens base)) == "IndexRangeAccess" then
+        let some (slicePre, _, lenExpr, _) ← lowerCalldataSlice? base
+          | failAt base "unsupported slice base for .length"
+        pure (.expr { pre := slicePre, expr := lenExpr })
       else if member == "length" && (← mKind base) == "FunctionCall" &&
           optStr base "kind" == some "functionCall" &&
           ((← mType base) == "bytes calldata" || (← mType base) == "bytes memory" || (← mType base) == "bytes") then
@@ -4558,7 +4676,13 @@ private partial def lowerBinary (j : Json) : M Val := do
     let rightTy ← mType (← mField j "rightExpression")
     unless leftTy == "bytes4" && rightTy == "bytes4" do
       failAt j "implicit constant conversion to bytes4 is outside this slice"
-  unless (bitsOf common).isSome || common == "bool" || common == "bytes4" || isSigned do
+  else if let some bw := fixedBytesWidth? common then
+    if bw < 32 then
+      let leftTy ← mType (← mField j "leftExpression")
+      let rightTy ← mType (← mField j "rightExpression")
+      unless leftTy == common && rightTy == common do
+        failAt j s!"implicit constant conversion to {common} is outside this slice"
+  unless (bitsOf common).isSome || common == "bool" || (fixedBytesWidth? common).isSome || isSigned do
     failAt j s!"unsupported operand type {common}"
   match op with
   | "&&" | "||" =>
@@ -4669,7 +4793,7 @@ private partial def lowerBinary (j : Json) : M Val := do
       else
         failAt j s!"unsupported shift type {common}"
   | "&" | "|" | "^" =>
-      unless (common.startsWith "uint" && (bitsOf common).isSome) || common == "bytes32" || common == "bytes4" || isSigned do
+      unless (common.startsWith "uint" && (bitsOf common).isSome) || (fixedBytesWidth? common).isSome || isSigned do
         failAt j s!"unsupported bitwise operand type {common}"
       let a ← atom left
       let b ← atom right
@@ -4895,23 +5019,22 @@ private partial def lowerCast (j : Json) : M Val := do
     failAt j "unsupported cast"
   let tname ← mStr (← mField (← mField targetExpr "typeName") "name")
   let src ← mType args[0]!
-  if (tname == "bytes32" || tname == "bytes4") &&
-      (src == "bytes" || src == "bytes memory" || src == "bytes calldata" ||
-       src == "bytes storage ref" || src == "bytes storage pointer") then
-    return ← lowerBytesToFixedBytes args[0]! (if tname == "bytes32" then 32 else 4) j
-  if tname == "bytes1" then
+  if let some byteW := fixedBytesWidth? tname then
+    if src == "bytes" || src == "bytes memory" || src == "bytes calldata" ||
+       src == "bytes calldata slice" || src == "bytes storage ref" || src == "bytes storage pointer" then
+      return ← lowerBytesToFixedBytes args[0]! byteW j
     let innerArg ← stripParens args[0]!
-    if (← mKind innerArg) == "Literal" then
+    if byteW < 32 && (← mKind innerArg) == "Literal" then
       let kind ← mStr (← mField innerArg "kind")
       if kind == "string" || kind == "unicodeString" || kind == "hexString" then
         let hex ← mStr (← mField innerArg "hexValue")
-        unless hex.length == 2 || hex.length == 0 do
-          failAt j s!"bytes1 string literal cast requires at most 1 byte, found {hex.length / 2}"
-        let byteVal ← if hex.isEmpty then pure 0 else
+        unless hex.length % 2 == 0 && hex.length / 2 ≤ byteW do
+          failAt j s!"{tname} string literal cast requires at most {byteW} bytes, found {hex.length / 2}"
+        let word ← if hex.isEmpty then pure 0 else
           match Compiler.Hex.parseHexNat? ("0x" ++ hex) with
           | some n => pure n
-          | none => failAt j "invalid bytes1 literal hexValue"
-        return { pre := #[], expr := .literal (byteVal * 2 ^ 248) }
+          | none => failAt j s!"invalid {tname} literal hexValue"
+        return { pre := #[], expr := .literal (word * 16 ^ (64 - hex.length)) }
   let v ← lowerExpr args[0]!
   if src.startsWith "int" && src != "int256" && src != "int" && !src.startsWith "int_const" then
     failAt j s!"unsupported cast source {src}"
@@ -4990,6 +5113,56 @@ private partial def lowerCast (j : Json) : M Val := do
       return { pre := a.pre.push shifted, expr := .localVar dest }
     else
       failAt j s!"unsupported cast target {tname} from bytes4"
+  if tname == "bytes12" then
+    if src == "bytes12" then
+      return v
+    else if src == "bytes32" then
+      let a ← atom v
+      let dest ← fresh
+      let bound := Stmt.letVar dest (.bitAnd a.expr (.literal ((2 ^ 96 - 1) * 2 ^ 160)))
+      return { pre := a.pre.push bound, expr := .localVar dest }
+    else if src == "uint96" then
+      let a ← atom v
+      let dest ← fresh
+      let shifted := Stmt.letVar dest (.shl (.literal 160) (.bitAnd a.expr (.literal (2 ^ 96 - 1))))
+      return { pre := a.pre.push shifted, expr := .localVar dest }
+    else
+      failAt j s!"unsupported cast source {src} for bytes12"
+  if src == "bytes12" then
+    if tname == "bytes32" then
+      return v
+    else if tname == "uint96" then
+      let a ← atom v
+      let dest ← fresh
+      let shifted := Stmt.letVar dest (.shr (.literal 160) a.expr)
+      return { pre := a.pre.push shifted, expr := .localVar dest }
+    else
+      failAt j s!"unsupported cast target {tname} from bytes12"
+  if tname == "bytes20" then
+    if src == "bytes20" then
+      return v
+    else if src == "bytes32" then
+      let a ← atom v
+      let dest ← fresh
+      let bound := Stmt.letVar dest (.bitAnd a.expr (.literal ((2 ^ 160 - 1) * 2 ^ 96)))
+      return { pre := a.pre.push bound, expr := .localVar dest }
+    else if src == "uint160" || src == "address" || src == "address payable" then
+      let a ← atom v
+      let dest ← fresh
+      let shifted := Stmt.letVar dest (.shl (.literal 96) (.bitAnd a.expr (.literal (2 ^ 160 - 1))))
+      return { pre := a.pre.push shifted, expr := .localVar dest }
+    else
+      failAt j s!"unsupported cast source {src} for bytes20"
+  if src == "bytes20" then
+    if tname == "bytes32" then
+      return v
+    else if tname == "uint160" || tname == "address" || tname == "address payable" then
+      let a ← atom v
+      let dest ← fresh
+      let shifted := Stmt.letVar dest (.shr (.literal 96) a.expr)
+      return { pre := a.pre.push shifted, expr := .localVar dest }
+    else
+      failAt j s!"unsupported cast target {tname} from bytes20"
   let some bits := bitsOf tname | failAt j s!"unsupported cast target {tname}"
   let narrow : Bool :=
     match bitsOf src with
@@ -5448,9 +5621,102 @@ private partial def unwrapBytesConversion (j : Json) : M Json := do
         return ← unwrapBytesConversion args[0]!
   return j
 
+private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Expr × Expr × Bool)) := do
+  let j ← stripParens j
+  unless (← mKind j) == "IndexRangeAccess" do return none
+  let base ← stripParens (← mField j "baseExpression")
+  let baseInfo? ← if ← isMsgDataNode base then
+    pure (some (#[], Expr.literal 0, Expr.calldatasize, true))
+  else if (← mKind base) == "FunctionCall" && optStr base "kind" == some "functionCall" then
+    let names ← mArr (← mField base "names")
+    let args ← mArr (← mField base "arguments")
+    if names.isEmpty && args.isEmpty && (← mType base) == "bytes calldata" then
+      let (fnId, vals) ← resolveCallTargetAndArgs base
+      let pre ← inlineMsgDataFn fnId vals base
+      pure (some (pre, Expr.literal 0, Expr.calldatasize, true))
+    else
+      pure none
+  else if (← mKind base) == "Identifier" then
+    let id ← refInt base
+    if id ≥ 0 then
+      if let some cb := (← get).calldataBytes.find? id.toNat then
+        if !cb.inMemory then
+          pure (some (#[], Expr.localVar cb.dataBinding, Expr.localVar cb.lengthBinding, false))
+        else
+          pure none
+      else
+        pure none
+    else
+      pure none
+  else
+    pure none
+  let some (basePre, baseOff, baseLen, isMsgData) := baseInfo? | return none
+  let startVal ← match field? j "startExpression" with
+    | none => pure ({ pre := #[], expr := .literal 0 } : Val)
+    | some sNode =>
+        if sNode.isNull then
+          pure ({ pre := #[], expr := .literal 0 } : Val)
+        else
+          let sTy ← mType sNode
+          unless (sTy.startsWith "uint" && (bitsOf sTy).isSome) ||
+              (sTy.startsWith "int_const" && !sTy.startsWith "int_const -") do
+            failAt sNode s!"calldata slice start index must be unsigned, found {sTy}"
+          atom (← lowerExpr sNode)
+  let endVal ← match field? j "endExpression" with
+    | none => pure ({ pre := #[], expr := baseLen } : Val)
+    | some eNode =>
+        if eNode.isNull then
+          pure ({ pre := #[], expr := baseLen } : Val)
+        else
+          let eTy ← mType eNode
+          unless (eTy.startsWith "uint" && (bitsOf eTy).isSome) ||
+              (eTy.startsWith "int_const" && !eTy.startsWith "int_const -") do
+            failAt eNode s!"calldata slice end index must be unsigned, found {eTy}"
+          atom (← lowerExpr eNode)
+  let startVar ← fresh
+  let endVar ← fresh
+  let offVar ← fresh
+  let lenVar ← fresh
+  let offExpr := match baseOff with
+    | .literal 0 => Expr.localVar startVar
+    | _ => Expr.add baseOff (.localVar startVar)
+  let slicePre : Array Stmt := basePre ++ startVal.pre ++ endVal.pre ++ #[
+    .letVar startVar startVal.expr,
+    .letVar endVar endVal.expr,
+    AbiLowering.guard (.le (.localVar startVar) (.localVar endVar)),
+    AbiLowering.guard (.le (.localVar endVar) baseLen),
+    .letVar offVar offExpr,
+    .letVar lenVar (.sub (.localVar endVar) (.localVar startVar))
+  ]
+  return some (slicePre, .localVar offVar, .localVar lenVar, isMsgData)
+
 private partial def lowerBytesToFixedBytes (arg : Json) (byteWidth : Nat) (at_ : Json) : M Val := do
-  let fullMask : Nat := if byteWidth == 32 then 2 ^ 256 - 1 else (2 ^ 32 - 1) * 16 ^ 56
+  let fullMask : Nat :=
+    if byteWidth >= 32 then 2 ^ 256 - 1
+    else (2 ^ (8 * byteWidth) - 1) * (2 ^ (256 - 8 * byteWidth))
   let inner ← unwrapBytesConversion arg
+  if let some (slicePre, offsetExpr, lenExpr, isMsgData) ← lowerCalldataSlice? inner then
+    let rawWord ← fresh
+    let word ← fresh
+    let maskShift := Expr.shl (.mul (.literal 8) (.sub (.literal byteWidth) lenExpr)) (.literal fullMask)
+    let loadRaw : Array Stmt :=
+      if isMsgData then
+        #[ .letVar rawWord (.literal 0),
+           .ite (.lt offsetExpr (.literal 4))
+             [ .assignVar rawWord
+                 (.bitOr
+                   (.shl (.mul (.literal 8) offsetExpr) (.calldataload (.literal 0)))
+                   (.shr (.mul (.literal 8) (.sub (.literal 4) offsetExpr)) (.calldataload (.literal 4)))) ]
+             [ .assignVar rawWord (.calldataload offsetExpr) ] ]
+      else
+        #[ .letVar rawWord (.calldataload offsetExpr) ]
+    let stmts : Array Stmt := slicePre ++ loadRaw ++ #[
+      .letVar word (.bitAnd (.localVar rawWord) (.literal fullMask)),
+      .ite (.lt lenExpr (.literal byteWidth))
+        [.assignVar word (.bitAnd (.localVar word) maskShift)]
+        []
+    ]
+    return { pre := stmts, expr := .localVar word }
   if (← mKind inner) == "Identifier" then
     let id ← refInt inner
     if id ≥ 0 then
@@ -5814,6 +6080,8 @@ private partial def parseAbiDecodeItem (comp : Json) : M AbiDecodeTypeItem := do
 
 private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array Stmt × Bool × Expr × Expr) := do
   let inner ← unwrapBytesConversion (← stripParens rawNode)
+  if let some (slicePre, offsetExpr, lenExpr, _) ← lowerCalldataSlice? inner then
+    return (slicePre, true, offsetExpr, lenExpr)
   if (← mKind inner) == "Identifier" then
     let id ← refInt inner
     if id ≥ 0 then
@@ -6078,6 +6346,31 @@ private partial def lowerMsgDataBuffer : M EncodedBytes := do
 
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
+  if let some (slicePre, offsetExpr, lenExpr, isMsgData) ← lowerCalldataSlice? j then
+    let pointer ← fresh
+    let finish ← fresh
+    let copyIdx ← fresh
+    let wordAddr ← fresh
+    let wordVal ← fresh
+    let wordCount := Expr.div (.add lenExpr (.literal 31)) (.literal 32)
+    modify fun e => { e with encodingMemory := true }
+    let alloc := AbiEncoding.reserve pointer finish (.mul (.literal 32) wordCount)
+    let copyBody : List Stmt :=
+      if isMsgData then
+        [ .letVar wordAddr (.add offsetExpr (.mul (.localVar copyIdx) (.literal 32))),
+          .letVar wordVal (.literal 0),
+          .ite (.lt (.localVar wordAddr) (.literal 4))
+            [ .assignVar wordVal
+                (.bitOr
+                  (.shl (.mul (.literal 8) (.localVar wordAddr)) (.calldataload (.literal 0)))
+                  (.shr (.mul (.literal 8) (.sub (.literal 4) (.localVar wordAddr))) (.calldataload (.literal 4)))) ]
+            [ .assignVar wordVal (.calldataload (.localVar wordAddr)) ],
+          .mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32))) (.localVar wordVal) ]
+      else
+        [ .mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
+            (.calldataload (.add offsetExpr (.mul (.localVar copyIdx) (.literal 32)))) ]
+    let copyStmt := Stmt.forEach copyIdx wordCount copyBody
+    return { pre := slicePre ++ (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := lenExpr }
   if (← mKind j) == "Conditional" then
     let condNode ← mField j "condition"
     unless (← mType condNode) == "bool" do failAt condNode "conditional condition must be bool"
@@ -8395,7 +8688,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
     let declaration := rets[0]!
     let id ← mNat (← mField declaration "id")
     let ty ← mType declaration
-    let some scalar := paramType ty
+    let some scalar := localParamType ty
       | failAt declaration s!"unsupported named helper result type {ty}"
     let binding ← freshFor retName
     let expr := Expr.localVar binding
@@ -8407,7 +8700,7 @@ private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : 
   else if stmts.isEmpty then
     let declaration := rets[0]!
     let ty ← mType declaration
-    unless (paramType ty).isSome do
+    unless (localParamType ty).isSome do
       failAt declaration s!"unsupported helper result type {ty}"
     let binding ← fresh
     pre := pre ++ #[.letVar binding (.literal 0)]
@@ -8549,7 +8842,7 @@ private partial def inlineMultiFn (fnId : Nat) (args : Array CallArg) (at_ : Jso
     let rid ← mNat (← mField r "id")
     let rty ← mType r
     discard (validateEnumTypeIfNeeded r rty)
-    let some scalar := paramType rty
+    let some scalar := localParamType rty
       | failAt r s!"unsupported multi-return helper result type {rty}"
     let binding ← if rname != "" then freshFor rname else fresh
     let expr := Expr.localVar binding
@@ -9244,8 +9537,28 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
         [.assignVar countBinding (.sub startVal.expr lowerVal.expr)] [],
       .forEach iterIdx (.localVar countBinding) loopBodyStmts
     ]
+  let isTailWindowStart ← match (field? init "initialValue").filter (!·.isNull) with
+    | some startRaw => do
+        let start ← stripParens startRaw
+        if (← mKind start) == "BinaryOperation" && optStr start "operator" == some "-" &&
+           (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" then
+          let sLeft ← stripParens (← mField start "leftExpression")
+          let sRight ← stripParens (← mField start "rightExpression")
+          let cRight ← stripParens (← mField cond "rightExpression")
+          let sRightTy ← mType sRight
+          if (← mKind sLeft) == "Identifier" && (← mKind cRight) == "Identifier" &&
+             sRightTy.startsWith "int_const " && !sRightTy.startsWith "int_const -" then
+            let lId ← refInt sLeft
+            let rId ← refInt cRight
+            pure (lId ≥ 0 && lId == rId && !writes.contains lId.toNat)
+          else
+            pure false
+        else
+          pure false
+    | none => pure false
   if let some start := (field? init "initialValue").filter (!·.isNull) then
-    unless (← mType start) == "int_const 0" do failAt start "a for loop counter must start at 0"
+    unless (← mType start) == "int_const 0" || isTailWindowStart do
+      failAt start "a for loop counter must start at 0"
   if writes.contains counter then
     failAt d "a for loop counter must not be assigned in the loop body"
   let step ← mField (← mField s "loopExpression") "expression"
@@ -9281,6 +9594,30 @@ private partial def lowerFor (s : Json) (lowerBody : Json → M (Array Stmt)) : 
     | _ => pure false
   unless abiLength || (bound.pre.isEmpty && invariant) do
     failAt boundNode "a for loop bound must be a literal, a parameter or an unassigned local"
+  if isTailWindowStart then
+    let some startNode := (field? init "initialValue").filter (!·.isNull)
+      | failAt init "missing for loop counter initializer"
+    let startVal ← atom (← lowerExpr startNode)
+    let countBinding ← fresh
+    let iterIdx ← fresh
+    let counterBinding ← freshFor counterName
+    let saved ← get
+    modify fun e =>
+      { e with values := e.values.insert counter (.localVar counterBinding),
+               yulNames := e.yulNames.insert counterName (.localVar counterBinding) }
+    let bodyOut ← lowerBody body
+    modify fun e =>
+      { e with values := saved.values, paths := saved.paths,
+               snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy,
+               writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!writes.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+    let loopBodyStmts : List Stmt :=
+      [.letVar counterBinding (.add startVal.expr (.localVar iterIdx))] ++ bodyOut.toList
+    return startVal.pre ++ bound.pre ++ #[
+      .letVar countBinding (.literal 0),
+      .ite (.lt startVal.expr bound.expr)
+        [.assignVar countBinding (.sub bound.expr startVal.expr)] [],
+      .forEach iterIdx (.localVar countBinding) loopBodyStmts
+    ]
   let binding ← freshFor counterName
   let saved ← get
   modify fun e =>
@@ -9743,6 +10080,95 @@ private partial def lowerHelperLoopBody (body : Json) : M (Array Stmt) := do
     | kind => failAt statement s!"unsupported helper loop statement {kind}"
   pure out
 
+private partial def isTailWindowFor (s : Json) : M Bool := do
+  unless (← mKind s) == "ForStatement" do return false
+  let init ← mField s "initializationExpression"
+  unless (← mKind init) == "VariableDeclarationStatement" do return false
+  let some startRaw := (field? init "initialValue").filter (!·.isNull) | return false
+  let start ← stripParens startRaw
+  let cond ← mField s "condition"
+  unless (← mKind start) == "BinaryOperation" && optStr start "operator" == some "-" &&
+         (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "<" do
+    return false
+  let sLeft ← stripParens (← mField start "leftExpression")
+  let sRight ← stripParens (← mField start "rightExpression")
+  let cRight ← stripParens (← mField cond "rightExpression")
+  let sRightTy ← mType sRight
+  if (← mKind sLeft) == "Identifier" && (← mKind cRight) == "Identifier" &&
+     sRightTy.startsWith "int_const " && !sRightTy.startsWith "int_const -" then
+    let lId ← refInt sLeft
+    let rId ← refInt cRight
+    return lId ≥ 0 && lId == rId
+  return false
+
+private partial def lowerHelperLoopStmtsWithReturn (retFlag retVal : String) (stmts : List Json) : M (Array Stmt) := do
+  match stmts with
+  | [] => pure #[]
+  | statement :: rest =>
+      let stmtOut ← match ← mKind statement with
+        | "Block" =>
+            let saved ← get
+            let bStmts ← mArr (← mField statement "statements")
+            let bOut ← lowerHelperLoopStmtsWithReturn retFlag retVal bStmts.toList
+            modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+            pure bOut
+        | "UncheckedBlock" =>
+            let saved ← get
+            modify fun e => { e with unchecked := true }
+            let bStmts ← mArr (← mField statement "statements")
+            let bOut ← lowerHelperLoopStmtsWithReturn retFlag retVal bStmts.toList
+            modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs, unchecked := saved.unchecked }
+            pure bOut
+        | "VariableDeclarationStatement" => lowerLocal statement
+        | "ExpressionStatement" => lowerEffect statement
+        | "EmitStatement" => lowerEmit statement
+        | "RevertStatement" => lowerRevert statement
+        | "InlineAssembly" =>
+            let savedAsmYul := (← get).yulNames
+            let extPre ← bindYulExternalConstants statement
+            let asmStmts ← lowerAssemblyStmts statement ""
+            modify fun e => { e with yulNames := savedAsmYul }
+            pure (extPre ++ asmStmts)
+        | "IfStatement" =>
+            let (condition, _yes, no) ← ifParts statement
+            let saved ← get
+            let restore : M Unit := modify fun e => { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs, scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+            let yesBody ← mField statement "trueBody"
+            let yesStmts ← if (← mKind yesBody) == "Block" then mArr (← mField yesBody "statements") else pure #[yesBody]
+            let yesOut ← lowerHelperLoopStmtsWithReturn retFlag retVal yesStmts.toList
+            restore
+            let noOut ← if no.isEmpty then pure #[] else do
+              let noBody ← mField statement "falseBody"
+              let noStmts ← if (← mKind noBody) == "Block" then mArr (← mField noBody "statements") else pure #[noBody]
+              lowerHelperLoopStmtsWithReturn retFlag retVal noStmts.toList
+            restore
+            pure (condition.pre.push (.ite condition.expr yesOut.toList noOut.toList))
+        | "Return" =>
+            if let some next := rest.head? then failAt next "statement after helper result"
+            let expression := field? statement "expression" |>.getD Json.null
+            if expression.isNull then
+              if let some (retBinding, _) := (← get).helperResult then
+                pure #[.assignVar retVal (.localVar retBinding), .assignVar retFlag (.literal 1)]
+              else
+                failAt statement "bare helper returns are unsupported"
+            else
+              let v ← lowerExpr expression
+              pure (v.pre ++ #[.assignVar retVal v.expr, .assignVar retFlag (.literal 1)])
+        | kind => failAt statement s!"unsupported helper loop statement {kind}"
+      if rest.isEmpty then
+        pure stmtOut
+      else
+        let restOut ← lowerHelperLoopStmtsWithReturn retFlag retVal rest
+        if ← stmtContainsReturn statement then
+          pure (stmtOut.push (.ite (.eq (.localVar retFlag) (.literal 0)) restOut.toList []))
+        else
+          pure (stmtOut ++ restOut)
+
+private partial def lowerHelperLoopBodyWithReturn (retFlag retVal : String) (body : Json) : M (Array Stmt) := do
+  let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
+  let inner ← lowerHelperLoopStmtsWithReturn retFlag retVal statements.toList
+  return #[.ite (.eq (.localVar retFlag) (.literal 0)) inner.toList []]
+
 /-- Lowers helper statements to a prelude and, when the list returns, its
     result. A returning `if` branch ends the list; the continuation after the
     `if` is lowered once, inside the branch that falls through. -/
@@ -9800,9 +10226,21 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let revStmts ← lowerRevert s
         pure (revStmts, some ((← get).helperResult.map (fun (b, _) => Expr.localVar b) |>.getD (.literal 0)))
     | "ForStatement" =>
-        let pre ← lowerFor s lowerHelperLoopBody
-        let (tail, result) ← lowerHelperFrom rest retName
-        pure (pre ++ tail, result)
+        if (← isTailWindowFor s) && (← stmtContainsReturn s) then
+          let retFlag ← fresh
+          let retVal ← fresh
+          let loopPre ← lowerFor s (lowerHelperLoopBodyWithReturn retFlag retVal)
+          let (tail, result) ← lowerHelperFrom rest retName
+          let some tailExpr := result
+            | failAt s "inlined helper does not return on every path"
+          let tailBranch := tail.push (.assignVar retVal tailExpr)
+          let stmts := #[.letVar retFlag (.literal 0), .letVar retVal (.literal 0)] ++
+            loopPre ++ #[.ite (.eq (.localVar retFlag) (.literal 0)) tailBranch.toList []]
+          pure (stmts, some (.localVar retVal))
+        else
+          let pre ← lowerFor s lowerHelperLoopBody
+          let (tail, result) ← lowerHelperFrom rest retName
+          pure (pre ++ tail, result)
     | "WhileStatement" =>
         let pre ← lowerWhile s lowerHelperLoopBody
         let (tail, result) ← lowerHelperFrom rest retName
@@ -10664,32 +11102,91 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
     for i in [:cs.size] do
       let c := cs[i]!
       if c.isNull then continue
-      unless (← mKind c) == "Identifier" do
-        failAt c "tuple assignment target must be a scalar local or storage identifier"
-      let cid ← refInt c
-      unless cid ≥ 0 && !seenIds.contains cid.toNat do
-        failAt c "duplicate or invalid target in tuple assignment"
-      seenIds := seenIds.push cid.toNat
-      let cty ← mType c
-      let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
-      let converted ← atom (← convert cty retTy { pre := #[], expr := retExpr } c)
-      if let some bound := (← get).values.find? cid.toNat then
-        let .localVar binding := bound
-          | failAt c "only materialized scalar locals are writable"
-        unless (← get).writableLocals.find? cid.toNat == some binding do
-          failAt c "only declaration-bound scalar locals are writable"
-        unless (paramType cty).isSome do
-          failAt c s!"unsupported scalar local assignment type {cty}"
-        assigns := assigns ++ converted.pre |>.push (.assignVar binding converted.expr)
-      else
-        let .state name pre ← lowerRef c
-          | failAt c "assignment target is not scalar storage"
-        let info ← resolveField name c
-        unless info.keyCount == 0 do failAt c "whole mapping assignment is unsupported"
-        if info.bytesStorage then failAt c "bytes or string storage tuple assignment is outside this slice"
-        markField name
-        let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot converted.expr) else converted.expr
-        assigns := assigns ++ pre ++ converted.pre |>.push (.setStorage name storedExpr)
+      if (← mKind c) == "MemberAccess" then
+        let cty ← mType c
+        let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
+        let converted ← atom (← convert cty retTy { pre := #[], expr := retExpr } c)
+        let member ← mStr (← mField c "memberName")
+        match ← lowerRef (← mField c "expression") with
+        | .flatStruct structLocalId =>
+            let some flat := (← get).flatStructs.find? structLocalId
+              | failAt c "unknown flat struct local"
+            let some (_, mTy, binding) := flat.members.find? (fun (mName, _, _) => mName == member)
+              | failAt c s!"unknown flat struct member {member}"
+            let stored := if mTy == "bool" then Expr.logicalNot (.logicalNot converted.expr) else converted.expr
+            assigns := assigns ++ converted.pre |>.push (.assignVar binding stored)
+        | .path pre path =>
+            if let .rawSlot structId baseSlot := path then
+              let rawInfo ← resolveRawStructInfo structId c
+              let some mInfo := rawInfo.scalars.find? (·.member == member)
+                | failAt c s!"member {member} is unsupported in raw-slot struct"
+              let writeStmts ← writeRawStructScalar #[] baseSlot mInfo converted.expr false
+              assigns := assigns ++ converted.pre ++ pre ++ writeStmts
+            else
+              let (rawField, count, write) ← match path with
+                | .zero rawField =>
+                    let (field, subPrefix) := splitSPathField rawField
+                    let qualMember := qualifySPathMember subPrefix member
+                    pure (rawField, 0, fun (value : Expr) => Stmt.setStorage (topStructMemberFieldName field qualMember) value)
+                | .one rawField key =>
+                    let (field, subPrefix) := splitSPathField rawField
+                    let qualMember := qualifySPathMember subPrefix member
+                    pure (rawField, 1, fun (value : Expr) => Stmt.setStructMember field key qualMember value)
+                | .two rawField key1 key2 =>
+                    let (field, subPrefix) := splitSPathField rawField
+                    let qualMember := qualifySPathMember subPrefix member
+                    pure (rawField, 2, fun (value : Expr) => Stmt.setStructMember2 field key1 key2 qualMember value)
+                | .outer _ _ => failAt c "member assignment requires both mapping keys"
+                | .rawSlot _ _ | .bytesSlot _ _ => failAt c "member assignment requires a mapping struct storage path"
+              let (name, subPrefix) := splitSPathField rawField
+              let qualMember := qualifySPathMember subPrefix member
+              let info ← resolveField name c
+              if info.structMappings.any (·.member == qualMember) then
+                failAt c s!"struct mapping member {member} requires a mapping key"
+              if info.opaqueNames.contains qualMember then failAt c s!"member {member} is opaque in this slice"
+              if info.structFixedArrays.any (·.member == qualMember) then
+                failAt c s!"struct fixed array member {member} requires an element index"
+              if info.structDynamicArrays.any (·.member == qualMember) then
+                failAt c s!"struct dynamic array member {member} requires an element index"
+              if !pre.isEmpty && !pre.all isStorageKeyCaptureStmt then
+                failAt c "member write key prelude is unsupported"
+              unless !info.scalarMapping && info.keyCount == count && info.memberNames.contains qualMember do
+                failAt c "member assignment requires a supported layout member"
+              unless (paramType cty).isSome && !cty.startsWith "enum " do
+                failAt c "member assignment requires a supported scalar member"
+              let write := if info.booleanMembers.contains qualMember then
+                fun (value : Expr) => write (.logicalNot (.logicalNot value))
+              else write
+              markField name
+              assigns := assigns ++ pre ++ converted.pre |>.push (write converted.expr)
+        | _ => failAt c "member assignment requires a mapping struct storage path"
+      else do
+        unless (← mKind c) == "Identifier" do
+          failAt c "tuple assignment target must be a scalar local or storage identifier"
+        let cid ← refInt c
+        unless cid ≥ 0 && !seenIds.contains cid.toNat do
+          failAt c "duplicate or invalid target in tuple assignment"
+        seenIds := seenIds.push cid.toNat
+        let cty ← mType c
+        let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
+        let converted ← atom (← convert cty retTy { pre := #[], expr := retExpr } c)
+        if let some bound := (← get).values.find? cid.toNat then
+          let .localVar binding := bound
+            | failAt c "only materialized scalar locals are writable"
+          unless (← get).writableLocals.find? cid.toNat == some binding do
+            failAt c "only declaration-bound scalar locals are writable"
+          unless (localParamType cty).isSome do
+            failAt c s!"unsupported scalar local assignment type {cty}"
+          assigns := assigns ++ converted.pre |>.push (.assignVar binding converted.expr)
+        else
+          let .state name pre ← lowerRef c
+            | failAt c "assignment target is not scalar storage"
+          let info ← resolveField name c
+          unless info.keyCount == 0 do failAt c "whole mapping assignment is unsupported"
+          if info.bytesStorage then failAt c "bytes or string storage tuple assignment is outside this slice"
+          markField name
+          let storedExpr := if info.booleanScalar then Expr.logicalNot (.logicalNot converted.expr) else converted.expr
+          assigns := assigns ++ pre ++ converted.pre |>.push (.setStorage name storedExpr)
     return callPre ++ assigns
   if (← mKind target) == "Identifier" then
     let id ← refInt target
@@ -10718,7 +11215,7 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
         unless (← get).writableLocals.find? id.toNat == some binding do
           failAt target "only declaration-bound scalar locals are writable"
         let ty ← mType target
-        unless (paramType ty).isSome do
+        unless (localParamType ty).isSome do
           failAt target s!"unsupported scalar local assignment type {ty}"
         let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do
           let right ← mField expression "rightHandSide"
@@ -11834,7 +12331,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
             unless loc == "default" do
               failAt d "scalar abi.decode component requires a default-location local"
             discard (validateEnumTypeIfNeeded d dTy)
-            let some scalarType := paramType dTy
+            let some scalarType := localParamType dTy
               | failAt d s!"unsupported tuple local type {dTy}"
             let converted ← convert dTy retTy { pre := #[], expr := retExpr } d
             let binding ← freshFor name
@@ -11924,7 +12421,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
         failAt d "tuple variable declaration only supports scalar locals"
       let ty ← mType d
       discard (validateEnumTypeIfNeeded d ty)
-      let some scalarType := paramType ty
+      let some scalarType := localParamType ty
         | failAt d s!"unsupported tuple local type {ty}"
       let (retExpr, retTy) := retExprs.getD i (.literal 0, "")
       let converted ← convert ty retTy { pre := #[], expr := retExpr } d
@@ -11983,7 +12480,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       failAt d "uninitialized reference locals are outside this slice"
     let ty ← mType d
     discard (validateEnumTypeIfNeeded d ty)
-    let some scalarType := paramType ty
+    let some scalarType := localParamType ty
       | failAt d s!"unsupported default local type {ty}"
     let binding ← freshFor name
     let expr := Expr.localVar binding
@@ -12430,7 +12927,7 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       failAt d s!"unsupported local storage location {loc}"
     let ty ← mType d
     discard (validateEnumTypeIfNeeded d ty)
-    let some scalarType := paramType ty
+    let some scalarType := localParamType ty
       | failAt d s!"unsupported scalar local type {ty}"
     let converted ← convert ty (← mType init) v init
     let binding ← freshFor name

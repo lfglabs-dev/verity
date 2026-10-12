@@ -2322,3 +2322,38 @@ def stateful_create2_clones_msgdata_deque_source(fixture: str, variant: str) -> 
     raise ValueError(f'unknown create2-clones-msgdata-deque variant: {variant}')
 
 
+def stateful_governor_slice_proposer_delay_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            '_roles', '_accumulatedScore', '_lastDigest', '_lastEffect',
+            '_tryHexToUint', '_isValidDescriptionForProposer',
+            'roleId', 'newDelay', 'effect', 'expectedProposer',
+            'validTagged', 'shortUntagged', 'matchValid', 'mismatchOther', 'allowShort',
+            'bigX', 'bigY', 'denom', 'floorMd', 'ceilMd',
+            'calldataLength', 'tailSender', 'tailBytes',
+            'tag12', 'tagWord', 'sender20', 'senderWord', 'activeDelay',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-governor-slice-proposer-delay':
+        replacements = {
+            'recovered = (recovered << 4) | value;':
+            'recovered = uint160((recovered << 4) | uint160(value));',
+            '_accumulatedScore += 777;':
+            '_accumulatedScore = _accumulatedScore + 777;',
+            '_lastEffect += 111;':
+            '_lastEffect = _lastEffect + 111;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('governor-slice-proposer-delay variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown governor-slice-proposer-delay variant: {variant}')
+
+
+

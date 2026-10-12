@@ -363,10 +363,16 @@ MUTANTS.update({
     'import-create2-clones-msgdata-deque-clones-init-hash-zero': ('      .mstore (.localVar ptrBinding) initWord0,\n      .mstore (.add (.localVar ptrBinding) (.literal 32)) initWord1,\n      .letVar initHashBinding (.keccak256 (.localVar ptrBinding) (.literal 55)),', '      .mstore (.localVar ptrBinding) initWord0,\n      .mstore (.add (.localVar ptrBinding) (.literal 32)) initWord1,\n      .letVar initHashBinding (.literal 0),'),
     'import-create2-clones-msgdata-deque-pop-loop-done-immediately': ('      let iterPre := if popLeft then popVal.pre ++ targetVal.pre else targetVal.pre ++ popVal.pre\n      let iterStmts := iterPre.toList ++ [Stmt.ite (.eq popVal.expr targetVal.expr) [.assignVar doneVar (.literal 1)] []]', '      let iterPre := if popLeft then popVal.pre ++ targetVal.pre else targetVal.pre ++ popVal.pre\n      let _ := (popVal.expr, targetVal.expr)\n      let iterStmts := iterPre.toList ++ [Stmt.assignVar doneVar (.literal 1)]'),
     'import-create2-clones-msgdata-deque-nonempty-pop-loop-body-guard': ('      unless bodyStmts.isEmpty do\n        failAt body "deque pop while loop body must be empty"', '      if false then\n        failAt body "deque pop while loop body must be empty"'),
+    'import-governor-slice-proposer-delay-calldata-slice-fixed-zero': ('    let stmts : Array Stmt := slicePre ++ loadRaw ++ #[\n      .letVar word (.bitAnd (.localVar rawWord) (.literal fullMask)),', '    let stmts : Array Stmt := slicePre ++ loadRaw ++ #[\n      .letVar word (.literal 0),'),
+    'import-governor-slice-proposer-delay-tail-mload-zero': ('    let wordExpr := Expr.bitOr\n      (.shl (.localVar shiftVar) (.mload (.localVar alignedVar)))\n      (.shr (.sub (.literal 256) (.localVar shiftVar)) (.mload (.add (.localVar alignedVar) (.literal 32))))\n    return some { pre, expr := wordExpr }', '    let wordExpr := Expr.bitOr\n      (.shl (.localVar shiftVar) (.mload (.localVar alignedVar)))\n      (.shr (.sub (.literal 256) (.localVar shiftVar)) (.mload (.add (.localVar alignedVar) (.literal 32))))\n    let _ := wordExpr\n    return some { pre, expr := .literal 0 }'),
+    'import-governor-slice-proposer-delay-tuple-member-write-skip': ('              markField name\n              assigns := assigns ++ pre ++ converted.pre |>.push (write converted.expr)', '              let _ := write\n              markField name\n              assigns := assigns ++ pre ++ converted.pre'),
+    'import-governor-slice-proposer-delay-unaligned-tail-offset-guard': ('    let some k := Compiler.Hex.parseHexNat? raw <|> raw.toNat? | return none\n    unless 1 ≤ k && k ≤ 32 do return none', '    let some k := Compiler.Hex.parseHexNat? raw <|> raw.toNat? | return none\n    unless 1 ≤ k && k ≤ 64 do return none'),
 })
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-governor-slice-proposer-delay-"):
+        fixture = "GovernorSliceProposerDelaySequence"
     if name.startswith("import-create2-clones-msgdata-deque-"):
         fixture = "Create2ClonesMsgDataDequeSequence"
     if name.startswith("import-ecdsa-merkle-checkpoints-storage-slot-"):
@@ -1075,10 +1081,23 @@ contract C {
  DoubleEndedQueue.Bytes32Deque private _q;
  function checked(uint256 x) external returns (uint256) {
   uint256 steps = 0;
-  while (_q.popFront() != bytes32(x)) {
-   steps += 1;
+   while (_q.popFront() != bytes32(x)) {
+    steps += 1;
+   }
+   return steps;
   }
-  return steps;
+ }
+''')
+    elif name == 'import-governor-slice-proposer-delay-unaligned-tail-offset-guard':
+        diagnostic = 'unsupported Yul builtin mload'
+        (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
+contract C {
+ function checked(uint256 x) external pure returns (uint256 r) {
+  bytes memory buf = abi.encode(x, x);
+  uint256 len = buf.length;
+  assembly {
+   r := mload(add(buf, sub(len, 33)))
+  }
  }
 }
 ''')
@@ -1173,7 +1192,8 @@ def mutation_campaign(output, selected=None):
                                   'import-string-bytes-mappings-uri-storage-strings-mapping-write-stateful-rhs-guard',
                                   'import-strings-hex-arrays-bitmaps-stateful-fixed-bytes-index-guard',
                                   'import-ecdsa-merkle-checkpoints-storage-slot-unaligned-byte-mload-guard',
-                                  'import-create2-clones-msgdata-deque-nonempty-pop-loop-body-guard'}
+                                  'import-create2-clones-msgdata-deque-nonempty-pop-loop-body-guard',
+                                  'import-governor-slice-proposer-delay-unaligned-tail-offset-guard'}
             if order_guard:
                 helper_order_control(directory, name, False)
             source = directory / ('Compiler/SolidityImport/SequenceRunner.lean' if name.startswith('observe-event-')

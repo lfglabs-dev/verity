@@ -314,6 +314,11 @@ def main():
         'currentMsgDataHash(uint256)',
         'executeGovernanceAction(uint256)',
         'queueLength()',
+        'checkProposerDescription(address,string)',
+        'decodeSelectorAndTarget(bytes)',
+        'setRoleGrantDelay(uint64,uint32,uint32)',
+        'computeMulDivPair(uint256,uint256,uint256)',
+        'inspectUnsafeMemoryAndTail(address[],uint256[],uint256)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -897,6 +902,33 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(create2_clones_prefix[:remaining_budget])
+    if 'checkProposerDescription(address,string)' in names:
+        tagged_w0 = 0x2370726f706f7365723d30783131313132323232333333333434343435353535
+        tagged_w1 = 0x3636363637373737383838383939393961416161 << 96
+        badhex_w1 = 0x363636363737373738383838393939396141617a << 96
+        proposer_addr = 0x111122223333444455556666777788889999aaaa
+        governor_slice_prefix = [
+            ('checkProposerDescription(address,string)', [proposer_addr, 64, 4, 0x74657374 << 224]),
+            ('checkProposerDescription(address,string)', [proposer_addr, 64, 52, tagged_w0, tagged_w1]),
+            ('checkProposerDescription(address,string)', [0x2222, 64, 52, tagged_w0, tagged_w1]),
+            ('checkProposerDescription(address,string)', [0x2222, 64, 52, tagged_w0, badhex_w1]),
+            ('decodeSelectorAndTarget(bytes)', [32, 4, 0x12345678 << 224]),
+            ('decodeSelectorAndTarget(bytes)', [32, 36, 0xaabbccdd << 224, 0x00000042 << 224]),
+            ('decodeSelectorAndTarget(bytes)', [32, 36, (0xaabbccdd << 224) | 0x1111, 0x00000042 << 224]),
+            ('setRoleGrantDelay(uint64,uint32,uint32)', [1, 15, 7]),
+            ('setRoleGrantDelay(uint64,uint32,uint32)', [1, 5, 10]),
+            ('setRoleGrantDelay(uint64,uint32,uint32)', [1 << 64, 5, 10]),
+            ('computeMulDivPair(uint256,uint256,uint256)', [100, 200, 3]),
+            ('computeMulDivPair(uint256,uint256,uint256)', [(1 << 192) + 7, (1 << 128) + 9, (1 << 128) + 3]),
+            ('computeMulDivPair(uint256,uint256,uint256)', [1 << 255, 1 << 255, 1]),
+            ('inspectUnsafeMemoryAndTail(address[],uint256[],uint256)', [96, 192, 0, 2, 0x1111, 0x2222, 2, 100, 200]),
+            ('inspectUnsafeMemoryAndTail(address[],uint256[],uint256)', [96, 192, 1, 2, 0x1111, 0x2222, 2, 100, 200]),
+            ('change(uint256)', [0]),
+            ('change(uint256)', [1]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(governor_slice_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1192,6 +1224,39 @@ def main():
             call_args = [rng.choice([0, 1, 42, 0x12345678, (1 << 256) - 1])]
         elif name == 'executeGovernanceAction(uint256)':
             call_args = [rng.choice([42, 99, 100])]
+        elif name == 'checkProposerDescription(address,string)':
+            tagged_w0 = 0x2370726f706f7365723d30783131313132323232333333333434343435353535
+            tagged_w1 = 0x3636363637373737383838383939393961416161 << 96
+            proposer_addr = 0x111122223333444455556666777788889999aaaa
+            call_args = rng.choice([
+                [proposer_addr, 64, 4, 0x74657374 << 224],
+                [proposer_addr, 64, 52, tagged_w0, tagged_w1],
+                [0x2222, 64, 52, tagged_w0, tagged_w1],
+                [1 << 160, 64, 4, 0x74657374 << 224],
+            ])
+        elif name == 'decodeSelectorAndTarget(bytes)':
+            call_args = rng.choice([
+                [32, 4, 0x12345678 << 224],
+                [32, 36, 0xaabbccdd << 224, 0x00000042 << 224],
+                [32, 36, (0xaabbccdd << 224) | 0x1111, 0x00000042 << 224],
+            ])
+        elif name == 'setRoleGrantDelay(uint64,uint32,uint32)':
+            call_args = rng.choice([
+                [1, 15, 7],
+                [2, 25, 3],
+                [1 << 64, 5, 10],
+            ])
+        elif name == 'computeMulDivPair(uint256,uint256,uint256)':
+            call_args = rng.choice([
+                [100, 200, 3],
+                [(1 << 192) + 7, (1 << 128) + 9, (1 << 128) + 3],
+                [1 << 255, 1 << 255, 1],
+            ])
+        elif name == 'inspectUnsafeMemoryAndTail(address[],uint256[],uint256)':
+            call_args = rng.choice([
+                [96, 192, 0, 2, 0x1111, 0x2222, 2, 100, 200],
+                [96, 192, 1, 2, 0x1111, 0x2222, 2, 100, 200],
+            ])
         else:
             call_args = []
         calls.append((name, call_args))
