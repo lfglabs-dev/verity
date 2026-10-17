@@ -614,6 +614,8 @@ end Verity.AxiomAudit
   -- Contracts/SolidityImportSmoke/AbiCoverageChecks.lean
   SolidityImportSmoke.AbiCoverageChecks.memory_root_is_executable
   SolidityImportSmoke.AbiCoverageChecks.calldata_root_is_executable
+  SolidityImportSmoke.AbiCoverageChecks.offer_memory_root_is_executable
+  SolidityImportSmoke.AbiCoverageChecks.offer_calldata_root_is_executable
   SolidityImportSmoke.AbiCoverageChecks.memory_write_is_not_read_only
   SolidityImportSmoke.AbiCoverageChecks.loop_is_not_read_only
 
@@ -7952,4 +7954,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7315 theorems/lemmas (5264 public, 2051 private, 0 sorry'd)
+-- Total: 7317 theorems/lemmas (5266 public, 2051 private, 0 sorry'd)
