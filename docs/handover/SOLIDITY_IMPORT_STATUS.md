@@ -152,4 +152,8 @@ Ordered by the Midnight coverage histogram (most Midnight functions unlocked or 
 
 ## 5. Active Subagent Missions
 
-*(To be updated as subagents are launched)*
+| Track | Machine (`node_id`) | Mission ID | Backend / Model | Target PRs / Branches | Status |
+| --- | --- | --- | --- | --- | --- |
+| `pr-2508-physical-byte-memory` | `sepolia` | `1dbb43b3-0525-430b-85f2-f8e601991311` | `claudecode` / `claude-opus-5-5` (`high`) | `#2508` (`feat/solidity-import-byte-call-physical`) + `rescue/verity-proofs-20261017` (`18a0c739e`) + `#2507` (`51992ad76`) | Running (built `repl` v4.31.0, finishing `FunctionBody/Stmt.lean` physical `mstore` proof & merge gates) |
+| `pr-2504-2505-create2-storage-bridge` | `old-agent` | `64aa91b8-278c-408c-a943-96ed34826250` | `claudecode` / `claude-opus-5-5` (`high`) | `#2504` (`feat/solidity-import-create2-parent-gas-linux`) + `#2505` (`feat/solidity-import-account-storage-bridge-linux`) | Running (verifying `#2504` merge gates & fixing `#2505` `GenericInduction/Storage.lean` physical-slot write proofs) |
+
