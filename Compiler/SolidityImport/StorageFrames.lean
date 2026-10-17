@@ -16,13 +16,13 @@ theorem writeUintFieldSlots_storage_frame (fields : List Field) (name : String)
       dsimp only
       split
       · exact congrFun (Verity.ContractState.storage_writeTransientSlots world _ _) slot
-      · exact Verity.ContractState.storage_writeSlots_not_mem world _ _ outside
+      · exact Verity.ContractState.storage_writePhysicalSlots_not_mem world _ _ outside
     | some bits =>
       dsimp only
       split
       · exact congrFun (Verity.ContractState.storage_modifyTransientSlots world _ _) slot
-      · exact Verity.ContractState.storage_modifySlots_not_mem world _ _ outside
-  · exact Verity.ContractState.storage_writeSlots_not_mem world _ _ outside
+      · exact Verity.ContractState.storage_modifyPhysicalSlots_not_mem world _ _ outside
+  · exact Verity.ContractState.storage_writePhysicalSlots_not_mem world _ _ outside
 
 /-- Lift the physical slot frame rule to a successful actual statement step. -/
 theorem execStmt_setStorage_storage_frame (oracle : DenoteOracle) (fields : List Field)
@@ -52,12 +52,12 @@ theorem writeUintFieldSlots_memory_frame (fields : List Field) (name : String)
     | none =>
         dsimp only
         split <;> simp [writeTransientTargets, writeUintSlots,
-          Verity.ContractState.writeSlots, Verity.ContractState.writeTransientSlots]
+          Verity.ContractState.writePhysicalSlots, Verity.ContractState.writeTransientSlots]
     | some bits =>
         dsimp only
-        split <;> simp [Verity.ContractState.modifySlots,
+        split <;> simp [Verity.ContractState.modifyPhysicalSlots,
           Verity.ContractState.modifyTransientSlots]
-  · simp [writeUintSlots, Verity.ContractState.writeSlots]
+  · simp [writeUintSlots, Verity.ContractState.writePhysicalSlots]
 
 /-- The actual scalar storage statement preserves memory on success. -/
 theorem execStmt_setStorage_memory_frame (oracle : DenoteOracle) (fields : List Field)
@@ -159,7 +159,7 @@ theorem writeMappingTargets_memory_frame (fields : List Field) (name : String)
     (world : Verity.ContractState) (targets : List Nat) (value : Nat) :
     (writeMappingTargets fields name world targets value).memory = world.memory := by
   unfold writeMappingTargets
-  split <;> simp [writeTransientTargets, Verity.ContractState.writeSlots,
+  split <;> simp [writeTransientTargets, Verity.ContractState.writePhysicalSlots,
     Verity.ContractState.writeTransientSlots]
 
 theorem writeAddressKeyedMappingWordFieldSlots_memory_frame (oracle : DenoteOracle)
@@ -185,7 +185,7 @@ theorem writeAddressKeyedMappingPackedWordFieldSlots_memory_frame (oracle : Deno
       world.memory := by
   unfold writeAddressKeyedMappingPackedWordFieldSlots
   split <;> simp [writeAddressKeyedMappingPackedWordSlots,
-    Verity.ContractState.modifySlots, Verity.ContractState.modifyTransientSlots]
+    Verity.ContractState.modifyPhysicalSlots, Verity.ContractState.modifyTransientSlots]
 
 theorem writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame (oracle : DenoteOracle)
     (fields : List Field) (name : String) (world : Verity.ContractState)
@@ -194,7 +194,7 @@ theorem writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame (oracle : Den
       world.memory := by
   unfold writeAddressKeyedMapping2PackedWordFieldSlots
   split <;> simp [writeAddressKeyedMapping2PackedWordSlots,
-    Verity.ContractState.modifySlots, Verity.ContractState.modifyTransientSlots]
+    Verity.ContractState.modifyPhysicalSlots, Verity.ContractState.modifyTransientSlots]
 
 /-- Memory frame for the one-key member-write statement, including packed
 writes and failure to resolve a field, member or argument. -/
@@ -207,14 +207,10 @@ theorem execStmt_setStructMember_memory_frame (oracle : DenoteOracle) (fields : 
   all_goals split
   all_goals simp only [preservesMemory]
   all_goals try split
-  all_goals try simp_all only [writeAddressKeyedMappingWordFieldSlots_memory_frame,
-    writeAddressKeyedMappingPackedWordFieldSlots_memory_frame, preservesMemory]
-  all_goals split at * <;> simp_all [StmtOutcome.continue.injEq,
-    writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
-    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
+  all_goals try simp_all only [writeAddressKeyedMappingWordFieldSlots_memory_frame]
+  all_goals split at * <;> simp_all [StmtOutcome.continue.injEq]
   all_goals subst_vars
-  all_goals simp [writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
-    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
+  all_goals simp [writeAddressKeyedMappingPackedWordFieldSlots_memory_frame]
 
 /-- The same memory frame for the two-key member-write statement. -/
 theorem execStmt_setStructMember2_memory_frame (oracle : DenoteOracle) (fields : List Field)
@@ -226,13 +222,9 @@ theorem execStmt_setStructMember2_memory_frame (oracle : DenoteOracle) (fields :
   all_goals split
   all_goals simp only [preservesMemory]
   all_goals try split
-  all_goals try simp_all only [writeAddressKeyedMapping2WordFieldSlots_memory_frame,
-    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame, preservesMemory]
-  all_goals split at * <;> simp_all [StmtOutcome.continue.injEq,
-    writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
-    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
+  all_goals try simp_all only [writeAddressKeyedMapping2WordFieldSlots_memory_frame]
+  all_goals split at * <;> simp_all [StmtOutcome.continue.injEq]
   all_goals subst_vars
-  all_goals simp [writeAddressKeyedMappingPackedWordFieldSlots_memory_frame,
-    writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
+  all_goals simp [writeAddressKeyedMapping2PackedWordFieldSlots_memory_frame]
 
 end Compiler.CompilationModel.Denote
