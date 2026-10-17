@@ -14,6 +14,7 @@ import Verity.Core.Uint256
 import Verity.Core.FiniteSet
 import Verity.Core.Intrinsics
 import Verity.Core.StorageAttr
+import Verity.Core.ByteMemory
 
 namespace Verity
 
@@ -404,6 +405,10 @@ structure ContractState where
       Compiled dispatch packs it in the high 4 bytes of the first word. -/
   selector : Nat := 0
   memory : Nat → Uint256 := fun _ => 0     -- EVM memory (word-addressed, zero-initialized)
+  /-- Byte-backed memory carrier for the physical-memory migration. Current
+      execution still uses `memory`; these views are not implicitly coherent. -/
+  byteMemory : Compiler.CompilationModel.DenoteMemory.Memory :=
+    Compiler.CompilationModel.DenoteMemory.Memory.empty
   knownAddresses : Nat → FiniteAddressSet  -- Tracked addresses per storage slot (for sum properties)
   events : List Event := []  -- Emitted events, append-only log (#153)
   /-- Observed external calls, append-only journal. Journaled call

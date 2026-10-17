@@ -1589,3 +1589,172 @@ trailing bytes of the final word on long writes, and zero out stale long-storage
 words when shrinking or transitioning from long (`>= 32` bytes) to short (`< 32`
 bytes) encoding. Storage `bytes` indexing (`b[i]`), `.push` / `.pop`, and
 storage-pointer locals remain rejected with located diagnostics.
+
+### Physical memory migration carrier
+
+`ContractState.byteMemory` and the pure operations in `PhysicalMemory` provide
+byte-addressed memory with exact overlapping-write and outside-byte frame proofs.
+Current executors still use the legacy `memory` field. The two fields are not
+automatically coherent: preservation of legacy word observations requires the
+explicit `PhysicalMemory.Coherent` predicate. These carrier proofs do not expand
+the importer support set or establish physical-memory execution equivalence.
+
+# Byte-exact external-call boundary prototype
+
+`Verity.Core.Model.ByteExternalCall` defines requests and responses using
+`List UInt8`, retaining arbitrary-length return and revert payloads. Its
+adversary is an explicit parameter with a proved static-success world
+preservation obligation. Failure has no committed world by construction;
+access traces survive call failure and outer rollback. The world parameter
+must contain all account state and logs, and accesses must identify accounts
+and slots when connected to execution.
+
+`Verity.Core.Model.DenoteByteExternalCalls` attaches that carrier to the actual
+`DenoteState`, `ContractState` and account-qualified `StorageKey` types. Its
+executable call step preserves caller bindings, retains failed-call accesses,
+and rolls back all storage keys and events on an outer frame failure. Raw
+returndata remains in a separate byte buffer; it does not update the legacy
+word-valued `ContractState.returndata`.
+
+`Compiler.SolidityImport.ByteCallTransactions.bubble` connects failed raw
+responses to the existing `Transactions.finishFrame` using
+`StmtOutcome.revertWithData`. It restores the entire entry world and retains
+the touched-access trace. A successful child response is explicitly rejected
+by this bubbling operation. It does not decode a successful interface return
+or implement a call instruction.
+
+`Compiler.Modules.SolidityStaticCall.uint256Module` is a development ECM
+transport for static interface calls with one `uint256` result. Unlike the
+exact-size Oracle module, it accepts at least 32 return bytes, decodes the
+first word, rejects shorter successful data and bubbles failure bytes. No
+callee interface behavior is assumed (`axioms := []`); the adversary determines
+the response. Its compilation `proofStatus` remains `.assumed`: 17 real-EVM
+solc-versus-generated-Yul cases validate the transport, but no Yul translation
+proof or importer integration is claimed. Quotation reconstructs the closed descriptor. Canonical Denote dispatch is
+being validated on the physical-memory branch; importer admission is still absent.
+
+`DenoteByteExternalCalls.decodeStaticUint256` now uses the byte response to
+produce the canonical Denote return/revert outcome. Through the unchanged
+transaction finisher, its status and exact return/revert bytes agree with all
+17 recorded A/C oracle-transport cases. Three compiled decoder mutations are
+detected. This is a response-decoder check; B request construction, adversary
+dispatch, cross-account traces, and complete imported-function A/B/C execution
+are still unverified.
+
+The composed static step now constructs the request using bounded selector,
+address and ABI-word types and supplies it to the adversary. The readonly mock
+constructor can depend on the complete request and current world, and preserves
+the world by construction. Focused tests check calldata encoding, request-dependent
+target dispatch, raw failure bytes and account-qualified touched slots. The separate helper is retained for boundary proofs. The physical-memory
+branch now also dispatches the closed descriptor through canonical Denote;
+the full imported-function replay adapter is still incomplete.
+
+Closed ECM transport data now participate in module identity, quotation and
+canonical compiler dispatch. Metadata must match the descriptor's canonical
+module; for tagged modules the compiler ignores the opaque closure and compiles
+from the descriptor. Quotation reconstructs that same module. This closes the
+function-quotation gap without selecting semantics by module name. Canonical Denote dispatch uses an explicit byte adversary and gas allowance,
+not the legacy word-return/call-index oracle. Missing instrumentation and
+contradictory descriptor metadata fail closed. Scratch names avoid capturing
+argument identifiers; ordinary transport output retains its original names.
+
+This is an independent boundary prototype. The importer, EVM gas accounting, full cross-account replay adapter, and
+compiled-model equivalence proof remain incomplete. No new external Solidity construct
+is admitted by this module, and its lemmas do not prove an external contract's
+behavior. Real-EVM observations remain separate validation evidence until
+the same requests and responses execute through all three routes.
+
+On the physical-memory branch, the canonical staticcall arm performs selector
+and argument stores in emitted-Yul order, updates the allocation word, evaluates
+the target afterwards and constructs calldata from the resulting physical bytes.
+It copies the first response word into the same scratch region and retains the
+entire raw response separately. Raw returndata size, optional-bool checks,
+returndata copying and revert forwarding use that buffer; legacy calls clear it.
+Transaction initialization clears both byte memory and its word observation.
+The trace instrument observes argument expressions in their actual intermediate
+states and retains explicit foreign accesses even on failure or short success.
+
+Gas is a required explicit boundary input, not a computed gas() value or a
+proof of EIP-150/allocation/OOG behavior. Memory address-space/resource limits
+are not yet related to real EVM execution. Canonical replay fixtures use explicit
+request-dependent response/access mocks; comparing against preserved real-EVM
+observations does not independently verify the foreign callee's implementation
+or trace generation. Full source-import A/B/C and mutation/generator/rejection
+registration remain prerequisites to publishing new supported Solidity calls.
+
+The public function, transaction, and sequence runners now accept an explicit
+byte-call environment. Foreign initial storage and account-qualified observations
+are permitted only with that environment; neither callee code nor responses are
+inferred from a reference execution. `StaticOracleMocks` supplies a deliberately
+limited fallback-only program: three storage reads produce the return value,
+failure flag and byte length, and a fresh private memory produces the response.
+Its 66-case real-EVM check covers exact success/revert bytes, all three accesses,
+unchanged storage and absent events, including bytes crossing the Solidity memory
+preamble. Other configured behavior still requires a separate program model.
+The mock request domain explicitly lists oracle code and known empty accounts.
+Unknown targets, the caller, and reserved precompiles (1–17 and 256) are rejected
+as instrumentation errors, never synthesized as Solidity success or revert.
+Canonical Denote execution checks this domain before invoking the response
+program. The total response algebra used by generic frame proofs does not
+establish that a request belongs to a configured program's domain.
+This functional check does not establish gas/resource equivalence, callbacks,
+arbitrary external code or imported-function correctness. The manual whole-model
+sequence fixture explicitly records an unchecked local obligation for its ABI memory preamble;
+that development fixture is not source-import admission or a proof discharge.
+
+`Stmt.revertEmpty` is a separate terminating instruction whose compiler emits
+`revert(0,0)` and whose Denote arm returns `revertWithData []`, without reading
+memory or either return-data carrier. The byte-level frame finisher restores the
+complete entry world. Generic payload/frame lemmas kernel-check without project
+axioms, and a compiled mutant that propagates stale bytes is detected by the
+runtime fixture. The manual whole-model A/B/C caller also exercises this revert
+after a successful staticcall. ABI guards and bare builtin `revert()` now use the
+new instruction, retaining their original conditions and evaluation positions.
+The proof grammar also has a direct empty-revert singleton, requiring no
+no-call/empty-buffer premise. Kernel-checked equations cover compilation in every
+context, source and IR reverted status, exact Denote bytes, and whole-world frame
+rollback. The source/IR status observations erase payloads; their equations do
+not establish byte-exact EVMYulLean equivalence. General byte-call agreement and
+broader proof consumers still require migration and full exact-head validation
+before release; the unchanged golden and boundary tests are not that gate.
+
+### Imported typed-interface `uint256` staticcall
+
+`solidity_import` now admits exactly one external-call form: `I(a).f()` where
+`f` is a parameterless `view` function declared in an interface returning one
+`uint256`, `a` has type `address`, and the call is a whole single-variable
+initializer, the right-hand side of `=` to an identifier, or an expression
+statement. Every other external call, call option, receiver form or placement
+still fails closed with a located diagnostic. The call lowers to the closed
+`SolidityStaticCall.uint256Module` transport with solc's `functionSelector`; its
+Denote arm (pinned by `execStmt_ecm_staticUint256_arm` and admitted by the
+`staticUint256Covered` coverage predicate) runs the byte request against the
+explicit adversary and reports instrumentation failures as a payload-free
+`.revert`, never as a Solidity revert observation.
+
+Trust boundary changes:
+- The callee is arbitrary: no interface behavior is assumed (`axioms := []`).
+  Denote is parameterised by the adversary; validation uses explicit mocks
+  (`checked-static-oracle-v1`, whose bytes, status and accesses are compared with
+  real EVM by `check_checked_static_oracle_mock.py`) and one account without
+  code. The mocks do not establish behavior of any deployed oracle.
+- Gas is not modelled. Solidity forwards `gas()` (all but 1/64); Denote passes
+  the instrument's explicit allowance. Callee out-of-gas, call-depth and
+  memory-expansion failures are outside the validated domain.
+- solc 0.8.34's omission of the code-existence check for calls with return data
+  is relied on: an account without code is a successful empty response, hence a
+  zero-byte revert. This is checked differentially, not proved.
+- Evaluation order is only admitted where it is source order by construction
+  (whole statement values); helper composition such as `q(a) + q(b)` relies on
+  left-to-right inlining, which matches via-IR and is exercised by the fixture's
+  failing/overflowing oracle pairs in both orders.
+- Verity's CEI checker counts every ECM as an interaction barrier. Imported
+  functions whose only barriers are these closed staticcalls (erasing them leaves
+  a CEI-clean body) carry `allowPostInteractionWrites` and the unchecked local
+  obligation `solidity_static_call_cei`: STATICCALL cannot change state, so no
+  reentrant write window opens. Such functions consequently do not qualify for
+  `CEIProofBackedExecution`. The cross-function reentrancy gate already exempts
+  staticcall-summarised ECMs and is unchanged.
+- The transport's compilation `proofStatus` remains `.assumed`; agreement of the
+  compiled model with solc and Denote is differential evidence
+  (`InterfaceStaticCallSequence`, three equivalent variants), not a proof.

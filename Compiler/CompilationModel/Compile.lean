@@ -482,7 +482,7 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       let ctx : ECM.CompilationContext := {
         isDynamicFromCalldata := dynamicSource == .calldata
       }
-      let generated ← mod.compile ctx compiledArgs
+      let generated ← mod.compileCanonical ctx compiledArgs
       pure (ecmYulRegion generated)
   | Stmt.returnValues values => do
       if isInternal then
@@ -623,6 +623,8 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
         ← compileExprWithInternals fields dynamicSource internalFunctions sourceOffset,
         ← compileExprWithInternals fields dynamicSource internalFunctions size
       ])]
+  | Stmt.revertEmpty =>
+      pure [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]
   | Stmt.revertReturndata =>
       pure [YulStmt.block [
         YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),

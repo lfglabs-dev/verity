@@ -8,8 +8,9 @@ Term syntax for the `CompilationModel` values the importer builds.
 The importer lowers Solidity to ordinary `CompilationModel` values and quotes
 them here, so the elaborated definitions are the same terms a user would write.
 Only the fragment the importer emits is quoted; anything else is an internal
-error rather than a silently dropped field. `Stmt.ecm` holds functions and
-cannot be quoted at all.
+error rather than a silently dropped field. Legacy `Stmt.ecm` closures cannot
+be quoted. Closed byte transports are reconstructed from their data descriptor;
+canonical compilation ignores their opaque closure.
 -/
 
 open Lean
@@ -81,6 +82,15 @@ private def quotePanic : Verity.Core.PanicCode → m Term
   | .divisionByZero => `(Verity.Core.PanicCode.divisionByZero)
 
 partial def quoteStmt : Stmt → m Term
+  | .revertEmpty => `(Compiler.CompilationModel.Stmt.revertEmpty)
+  | .ecm module args => do
+      let some (.staticUint256 resultVar selector numStaticArgs) := module.byteTransport
+        | throwError "internal: the importer cannot quote an opaque ECM"
+      unless module == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs do
+        throwError "internal: closed ECM metadata differs from its descriptor"
+      `(Compiler.CompilationModel.Stmt.ecm
+        (Compiler.ECM.SolidityStaticCall.uint256Module $(quote resultVar) $(quote selector) $(quote numStaticArgs))
+        $(← list (← args.mapM quoteExpr)))
   | .mstore offset value => do
       `(Compiler.CompilationModel.Stmt.mstore $(← quoteExpr offset) $(← quoteExpr value))
   | .tstore offset value => do
@@ -183,6 +193,7 @@ def quoteFunction (f : FunctionSpec) : m Term := do
          proofStatus := $status } : Compiler.CompilationModel.LocalObligation))
   `(({ name := $(quote f.name), params := $(← list params), abiDecoding := $abiDecoding, returnType := none,
        returns := $(← list (← f.returns.mapM quoteParamType)), isView := $(quote f.isView),
+       allowPostInteractionWrites := $(quote f.allowPostInteractionWrites),
        body := $(← list (← f.body.mapM quoteStmt)), localObligations := $(← list obligations) } : Compiler.CompilationModel.FunctionSpec))
 
 def quoteModel (model : CompilationModel) : m Term := do

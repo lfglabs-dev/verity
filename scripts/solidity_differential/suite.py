@@ -12,7 +12,8 @@ def stateful_campaign(output, transactions, seed):
     output.mkdir(parents=True, exist_ok=False)
     # Finish all compilation before taking executable snapshots in adapters.
     command(['lake', 'build', 'SolidityImportSmoke', 'Compiler.Codegen',
-             'Compiler.Yul.PrettyPrint'], timeout=1800, log=output / 'build.log')
+             'Compiler.Yul.PrettyPrint', 'Compiler.SolidityImport.SequenceRunner',
+             'Compiler.SolidityImport.StaticOracleMocks'], timeout=1800, log=output / 'build.log')
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/Transactions.lean'],
             log=output / 'transaction-smoke.log')
@@ -109,6 +110,13 @@ def stateful_campaign(output, transactions, seed):
         '--source-fixture', 'scripts/solidity_differential/fixtures/ErrorSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/ErrorSequenceModel.lean',
         '--output', str(output / 'errors')]))
+    checks.append(('checked-oracle-mock', ['-m', 'solidity_differential.check_checked_static_oracle_mock']))
+    checks.append(('interface-static-call', ['-m', 'solidity_differential.check_interface_static_call',
+        '--transactions', str(max(64, transactions)), '--seed', str(seed),
+        '--output', str(output / 'interface-static-call')]))
+    checks.append(('interface-static-call-rejections', ['-m',
+        'solidity_differential.check_interface_static_call_rejections',
+        '--output', str(output / 'interface-static-call-rejections')]))
     return run_checks(output, checks, transactions, seed)
 
 

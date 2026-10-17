@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
+import Compiler.Proofs.IRGeneration.EmptyRevert
 import Compiler.CompilationModel.ReservedScratchNames
 
 set_option linter.unnecessarySeqFocus false
@@ -3375,6 +3376,24 @@ theorem compiledStmtStep_returndatacopy_bounded_single
   preserves := compiledStmtStep_returndatacopy_bounded_single_preserves
     hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize
     hdestIR hsourceIR hsizeIR
+
+/-- Direct empty revert has no memory or returndata premise. This coarse IR
+step agreement complements the byte-exact Denote/frame lemmas. -/
+theorem compiledStmtStep_revertEmpty_single
+    {fields : List Field} {scope : List String} :
+    CompiledStmtStep fields scope .revertEmpty
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] where
+  compileOk := by
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      pure, Except.pure]
+  preserves := by
+    intro runtime state extraFuel _ _ _ _ _
+    refine ⟨.revert, .revert state, rfl, ?_, trivial⟩
+    have hfuel : 1 + extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by omega
+    change execIRStmts (1 + extraFuel + 1) state
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] = .revert state
+    rw [hfuel]
+    exact EmptyRevert.ir_exact state extraFuel
 
 /-- `revertReturndata` bubbles the callee's revert reason.  The compiler's
 temporary is exactly `returndatasize()`; whichever branch the copy takes for the
@@ -8168,6 +8187,12 @@ theorem stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_su
     (scope := scope)
     (hcoreDest := hcoreDest)
     (hinScopeDest := hinScopeDest)
+
+theorem stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
+    {fields : List Field} {scope : List String} :
+    StmtListGenericCore fields scope [Stmt.revertEmpty] :=
+  StmtListGenericCore.cons compiledStmtStep_revertEmpty_single
+    StmtListGenericCore.nil
 
 theorem stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
     {fields : List Field} {scope : List String} :

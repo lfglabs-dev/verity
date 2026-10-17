@@ -93,6 +93,7 @@ import Compiler.Proofs.IRGeneration.DispatchGeneric
 import Compiler.Proofs.IRGeneration.DispatchStringParam
 import Compiler.Proofs.IRGeneration.DynamicAbiRefinement
 import Compiler.Proofs.IRGeneration.DynamicParamLoading
+import Compiler.Proofs.IRGeneration.EmptyRevert
 import Compiler.Proofs.IRGeneration.ErrorStringPayloadIR
 import Compiler.Proofs.IRGeneration.EventObservable
 import Compiler.Proofs.IRGeneration.FragmentCheck
@@ -127,6 +128,7 @@ import Compiler.Proofs.IRGeneration.HelperBodyShape
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.IRGeneration.HelperVoidCallCatalogRegression
 import Compiler.Proofs.IRGeneration.IRInterpreter
+import Compiler.Proofs.IRGeneration.IRRuntimeTypes
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
@@ -452,6 +454,8 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.execStmt_tstore_arm
   Compiler.CompilationModel.SolidityImport.execStmt_panicCode_arm
   Compiler.CompilationModel.SolidityImport.execStmt_forEach_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_ecm_staticUint256_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_revertEmpty_arm
   Compiler.CompilationModel.SolidityImport.execStmt_revertReturndata_arm
   Compiler.CompilationModel.SolidityImport.execStmt_stop_arm
   Compiler.CompilationModel.SolidityImport.execStmt_setStorage_arm
@@ -614,6 +618,8 @@ end Verity.AxiomAudit
   -- Contracts/SolidityImportSmoke/AbiCoverageChecks.lean
   SolidityImportSmoke.AbiCoverageChecks.memory_root_is_executable
   SolidityImportSmoke.AbiCoverageChecks.calldata_root_is_executable
+  SolidityImportSmoke.AbiCoverageChecks.offer_memory_root_is_executable
+  SolidityImportSmoke.AbiCoverageChecks.offer_calldata_root_is_executable
   SolidityImportSmoke.AbiCoverageChecks.memory_write_is_not_read_only
   SolidityImportSmoke.AbiCoverageChecks.loop_is_not_read_only
 
@@ -3067,6 +3073,14 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.scalars_of_bindSupportedParams  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_genParamLoads_external
 
+  -- Compiler/Proofs/IRGeneration/EmptyRevert.lean
+  Compiler.Proofs.IRGeneration.EmptyRevert.compile_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.source_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.ir_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.denote_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.frame_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.supported
+
   -- Compiler/Proofs/IRGeneration/ErrorStringPayloadIR.lean
   Compiler.Proofs.IRGeneration.applyWrites_not_written
   Compiler.Proofs.IRGeneration.MstoreWrites.append
@@ -4221,6 +4235,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single
+  Compiler.Proofs.IRGeneration.compiledStmtStep_revertEmpty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
@@ -4291,6 +4306,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/StorageWord.lean
@@ -4661,6 +4677,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_storage
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_returnValue
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_events
+
+  -- Compiler/Proofs/IRGeneration/IRRuntimeTypes.lean
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_at
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_storage
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_events
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_vars
 
   -- Compiler/Proofs/IRGeneration/IRStorageWord.lean
   Compiler.Proofs.IRGeneration.IRStorageWord.toNat_ofNat
@@ -6133,6 +6155,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_tstoreSingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_calldatacopySingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore
+  Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_revertEmptySingle
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_revertReturndataEmptySingle
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingSingleSlot
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingUintSingleSlot
@@ -7922,6 +7945,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.StateBridge.uint256_roundtrip
 
   -- Compiler/Proofs/YulGeneration/Calldata.lean
+  Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus
   -- Compiler.Proofs.YulGeneration.calldatacopyWritesAt_of_index  -- private
   Compiler.Proofs.YulGeneration.calldatacopyMemory_at_index
   Compiler.Proofs.YulGeneration.calldatacopyMemory_outside
@@ -7952,4 +7976,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7315 theorems/lemmas (5264 public, 2051 private, 0 sorry'd)
+-- Total: 7333 theorems/lemmas (5282 public, 2051 private, 0 sorry'd)

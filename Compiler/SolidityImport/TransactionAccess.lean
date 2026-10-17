@@ -33,7 +33,7 @@ private def mappingMemberKeys (oracle : DenoteOracle) (fields : List Field)
 def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) : Expr → Except String (List Verity.StorageKey)
   | .literal _ | .param _ | .localVar _ => .ok []
-  | .caller | .contractAddress | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber | .chainid | .calldatasize => .ok []
+  | .caller | .contractAddress | .selfBalance | .txOrigin | .blockTimestamp | .blockNumber | .chainid | .calldatasize | .returndataSize => .ok []
   | .storage name => do
       let some (field, slot) := findFieldWithResolvedSlot fields name
         | throw s!"unknown observed field {name}"
@@ -45,7 +45,7 @@ def expressionAccesses (oracle : DenoteOracle) (fields : List Field)
   | .slt left right | .sgt left right | .sdiv left right | .smod left right
   | .byte left right | .signextend left right => do
       return (← expressionAccesses oracle fields state left) ++ (← expressionAccesses oracle fields state right)
-  | .calldataload value | .mload value => expressionAccesses oracle fields state value
+  | .calldataload value | .mload value | .returndataOptionalBoolAt value => expressionAccesses oracle fields state value
   | .tload value => do
       let reads ← expressionAccesses oracle fields state value
       let some slot := evalExpr oracle fields state value
@@ -90,7 +90,17 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
       let some slot := evalExpr oracle fields state address
         | throw "transient store observation could not evaluate the slot"
       return addressReads ++ valueReads ++ [.transient (wordNormalize slot)]
-  | .revertReturndata | .stop | .returnBytes _ => pure []
+  | .ecm mod args => do
+      let some (.staticUint256 resultVar selector numStaticArgs) := mod.byteTransport
+        | throw "unsupported legacy ECM storage observation"
+      let preparation ← prepareByteStaticCall oracle fields state resultVar selector numStaticArgs args
+      let reads ← preparation.reads.mapM fun (input, expr) =>
+        expressionAccesses oracle fields input expr
+      let (_, touched) ← executeByteStaticCall oracle fields state mod resultVar selector numStaticArgs args
+      return reads.flatten ++ touched
+  | .returndataCopy destination source size => do
+      return (← [destination, source, size].mapM (expressionAccesses oracle fields state)).flatten
+  | .revertEmpty | .revertReturndata | .stop | .returnBytes _ => pure []
   | .returnValues values => do
       return (← values.mapM (expressionAccesses oracle fields state)).flatten
   | .panic _ => .ok []
@@ -230,10 +240,12 @@ structure TracedFrameResult where
 world is suitable as the persistent input to the next transaction. -/
 def executeTracedBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
-    (events : List EventDef := []) (errors : List ErrorDef := []) (selector : Nat := 0) :
-    Except String TracedFrameResult := do
+    (events : List EventDef := []) (errors : List ErrorDef := []) (selector : Nat := 0)
+    (byteCalls : ByteCallEnvironment := {}) : Except String TracedFrameResult := do
   let initial := beginTransaction world
-  let traced ← traceStraightLine oracle fields { world := initial, bindings, errors, selector } body events
+  let traced ← traceStraightLine oracle fields
+    { world := initial, bindings, errors, selector,
+      byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body events
   let frame ← finishFrame initial traced.outcome
   return ⟨frame, traced.touched⟩
 

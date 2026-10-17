@@ -13,6 +13,11 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('empty-revert-positive', 'uint256 value;', 'value = x; revert();', 'uint256', None),
+        ('empty-revert-dynamic-message', 'string private reason;', 'revert(reason);', 'uint256',
+         'revert currently needs a literal string message'),
+        ('empty-revert-computed-message', '', 'revert(string(abi.encodePacked(x)));', 'uint256',
+         'revert currently needs a literal string message'),
         ('yul-result-shadowed-target', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { uint256 result = n; assembly { result := xor(n,n) } } return result; }', 'return h(x);', 'uint256', 'not the return declaration result'),
         ('yul-result-shadowed-else-target', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { result = 1; } else { uint256 result = n; assembly { result := xor(n,n) } } return result; }', 'return h(x);', 'uint256', 'not the return declaration result'),
         ('yul-result-shadowed-branch-solidity', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { uint256 result = n; result = result + 1; } assembly { result := add(result, 1) } }', 'return h(x);', 'uint256', None),

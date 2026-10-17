@@ -102,6 +102,8 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Default scalar locals (development; validation pending) | Uninitialized unsigned integers, address, bool and bytes32 bind a fresh local to zero; reference and unsupported scalar defaults reject at the declaration |
 | Scalar local writes (development; validation pending) | `=` and `delete` on materialized scalar locals; converted RHS evaluated before assignment; lexical shadowing retains declaration identity; compound writes and parameter writes reject |
 | Invariant scalar `for` (development; validation pending) | uint256 counter from zero, strict `<`, increment by one; literal/parameter/unwritten-local bounds; body return/revert preserved; body counter writes, mutable bounds, break/continue reject |
+| Empty `revert()` and ABI rejection payloads (development; full release gates pending) | Explicit `Stmt.revertEmpty` compiles to `revert(0,0)` and Denote observes exactly zero bytes, independent of memory and the current return-data buffer. Source scalar/struct guards, getter bounds and bare builtin revert keep their existing conditions and source-position rejections. Other external calls remain outside admitted source support. |
+| Typed-interface `uint256` staticcall (development; full release gates pending) | `I(addr).f()` where `f` is a parameterless `view` function of an interface returning one `uint256`, `addr` has type `address`, and the call is a whole single-variable initializer, the right-hand side of `=` to an identifier, or an expression statement. Lowers to the closed `SolidityStaticCall.uint256Module` ECM: selector stored at the free pointer, `staticcall(gas(), addr, p, 4, p, 32)`, a failed call's complete return data forwarded as the revert payload, fewer than 32 success bytes revert with no data (including accounts without code), the first word decoded and extra bytes ignored. Denote executes the same request against an explicit byte adversary. Non-view/pure callees, arguments, other return shapes, call options, non-interface receivers, `address payable`/typed-local receivers, `return`/operand/compound/indexed-target placement and `try` reject with `file:line:column`. `InterfaceStaticCallSequence` runs three equivalent variants A/B/C against selector-checked oracle mocks and an account without code. |
 | Schema ABI array-length `for` (development; validation pending) | Memory/calldata array length captured after its exact initial decoder; recursively checked body preserves memory headers; memory writes and external calls reject |
 | Local declarations and storage aliases | Bindings named after the Solidity local (suffixed `_1`, `_2`, ... on collision), or resolved read paths |
 | Scalar storage reads, `=`, and `delete` | Resolved uint8–uint256, address, bool, and bytes32 fields; exact solc slots and packed offsets; masked writes preserve neighboring bits and bool reads/writes normalize to 0/1 |
@@ -133,7 +135,8 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 
 Non-empty roots with unnamed return parameters must return explicitly on every non-reverting path. Payable roots are rejected until value-transfer
 semantics are supported. Other `msg`, `block`, and `tx` context members are
-rejected when reached. Loops, mapping-to-struct writes, compound assignments, external calls,
+rejected when reached. Loops, mapping-to-struct writes, compound assignments, external calls
+(other than the typed-interface staticcall row above),
 modifiers, recursion, named call arguments, signed
 operations, and any other construct reached from a root are rejected with
 `file:line:column`, the construct, the reason, and the call path from the root

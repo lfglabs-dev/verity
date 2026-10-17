@@ -64,16 +64,32 @@ private def pair (j : Json) : Except String (Nat × Nat) := do
   | _ => throw "expected pair of decimal words"
 
 /-- Replay one pinned initial storage world through real Denote execution. -/
-def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
-    Except String Json := do
+def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
+    (byteCalls : ByteCallEnvironment := {}) : Except String Json := do
   let account ← getWord input "account"
   unless account < 2^160 do throw "model account exceeds address width"
   let storage ← (← (← input.getObjVal? "storage").getArr?).toList.mapM pair
   unless (storage.map Prod.fst).eraseDups.length == storage.length do
     throw "duplicate initial model storage slot"
+  let externalStorage ← match input.getObjVal? "externalStorage" with
+    | .error _ => pure []
+    | .ok rows => (← rows.getArr?).toList.mapM fun row => do
+        match (← row.getArr?).toList with
+        | [owner, slot, value] =>
+            let owner ← word owner
+            unless owner < 2^160 do throw "foreign storage account exceeds address width"
+            unless owner != account do throw "caller storage must use the caller storage input"
+            return ((owner, ← word slot), ← word value)
+        | _ => throw "expected foreign storage account/slot/value triple"
+  unless (externalStorage.map Prod.fst).eraseDups.length == externalStorage.length do
+    throw "duplicate foreign initial storage slot"
+  unless externalStorage.isEmpty || byteCalls.adversary.isSome do
+    throw "foreign initial storage requires an explicit byte-call environment"
   let mut world := Verity.defaultState.withStorageWords fun key =>
     match key with
     | .slot slot => Uint256.ofNat ((storage.find? (·.1 == slot)).map Prod.snd |>.getD 0)
+    | .contractSlot owner slot => Uint256.ofNat
+        ((externalStorage.find? (·.1 == (owner, slot))).map Prod.snd |>.getD 0)
     | _ => 0
   let externalFns := model.functions.filter fun fn =>
     !fn.isInternal && !isInteropEntrypointName fn.name
@@ -107,20 +123,22 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
     let timestamp ← getWord transaction "timestamp"
     let number ← getWord transaction "blockNumber"
     let observed ← (← (← transaction.getObjVal? "observe").getArr?).toList.mapM pair
-    unless observed.all (fun p => p.1 == account) do
+    unless observed.all (fun p => p.1 < 2^160) do
+      throw "observed storage account exceeds address width"
+    unless byteCalls.adversary.isSome || observed.all (fun p => p.1 == account) do
       throw "foreign storage observation not supported by scalar adapter"
     let tx : DenoteTransaction :=
       { sender, txOrigin := sender, thisAddress := account, msgValue := value,
         blockTimestamp := timestamp, blockNumber := number, chainId := 31337,
         functionSelector := selector, args }
     let initial := beginTransaction (withTransactionContext world tx)
-    let publicResult := denoteFunction oracle model fn tx initial
+    let publicResult := denoteFunction oracle model fn tx initial (byteCalls := byteCalls)
     let result : TracedFrameResult ←
       match bindExternalParams selector fn.bindingParams args with
       | none => pure ⟨⟨false, [], initial⟩, []⟩
       | some bindings =>
           executeTracedBody oracle (effectiveFields model) initial
-            bindings fn.body model.events model.errors selector
+            bindings fn.body model.events model.errors selector byteCalls
     unless result.frame.success == publicResult.success do
       throw "traced execution status differs from public Denote"
     if publicResult.success then
@@ -128,29 +146,40 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
         else publicResult.returnWords
       unless result.frame.data == returned.flatMap wordBytes do
         throw "traced return data differs from public Denote"
+    if !publicResult.success then
+      if let some bytes := publicResult.revertData then
+        unless result.frame.data == bytes do throw "traced revert bytes differ from public Denote"
     let emitted ← result.frame.world.events.mapM (encodeEvent account model.events)
     let touched ← result.touched.filterMapM fun key =>
       match key with
-      | .slot slot => pure (some slot)
+      | .slot slot => pure (some (account, slot))
+      | .contractSlot owner slot => do
+          unless owner < 2^160 && slot < 2^256 do throw "invalid byte-call storage access"
+          unless owner != account do throw "byte-call caller access must use caller storage key"
+          pure (some (owner, slot))
       | .transient _ => pure none
       | _ => throw "unencoded model storage key"
     let touched := touched.eraseDups
-    let slots := (touched ++ observed.map Prod.snd).eraseDups
+    let slots := (touched ++ observed).eraseDups
     world := result.frame.world
     rows := rows.push (Json.mkObj [
       ("id", toJson ident), ("status", toJson (if result.frame.success then "ok" else "revert")),
       ("data", toJson (hexBytes result.frame.data)),
-      ("touched", toJson (touched.map fun slot => [hexAddress account, hexWord slot])),
-      ("storage", toJson (slots.map fun slot =>
-        [hexAddress account, hexWord slot, hexWord (world.readSlot slot).val])),
+      ("touched", toJson (touched.map fun (owner, slot) => [hexAddress owner, hexWord slot])),
+      ("storage", toJson (slots.map fun (owner, slot) =>
+        let key := if owner == account then Verity.StorageKey.slot slot
+          else Verity.StorageKey.contractSlot owner slot
+        [hexAddress owner, hexWord slot, hexWord (world.storageWords key).val])),
       ("events", toJson emitted)])
   return Json.arr rows
 
 /-- The generated model driver supplies the actual model and hash oracle. -/
-def run (model : CompilationModel) (oracle : DenoteOracle) (args : List String) : IO UInt32 := do
+def run (model : CompilationModel) (oracle : DenoteOracle) (args : List String)
+    (configure : Json → Except String ByteCallEnvironment := fun _ => pure {}) : IO UInt32 := do
   let [input, output] := args | throw (IO.userError "expected INPUT OUTPUT")
   let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile input))
-  let result ← IO.ofExcept (execute model oracle parsed)
+  let byteCalls ← IO.ofExcept (configure parsed)
+  let result ← IO.ofExcept (execute model oracle parsed byteCalls)
   IO.FS.writeFile output (Json.compress result)
   return 0
 end Compiler.CompilationModel.SolidityImport.SequenceRunner

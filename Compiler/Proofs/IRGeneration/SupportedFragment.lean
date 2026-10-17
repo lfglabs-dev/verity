@@ -119,6 +119,11 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       FunctionBody.exprBoundNamesInScope destOffset scope →
       SupportedStmtList fields scope
         [Stmt.returndataCopy destOffset (Expr.literal 0) (Expr.literal 0)]
+  /-- Explicit empty revert needs no assumption about the current returndata
+  buffer: the compiler emits `revert(0, 0)` directly. -/
+  | revertEmptySingle
+      {scope : List String} :
+      SupportedStmtList fields scope [Stmt.revertEmpty]
   /-- In a frame with no call-family instruction, EIP-211 leaves returndata
   empty. `revertReturndata` therefore has the exact first-class meaning of an
   empty revert; its generated copy is the in-range zero-extent copy. -/

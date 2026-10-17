@@ -3,10 +3,9 @@ import Compiler.SolidityImport.SolidityAbi
 
 namespace Compiler.CompilationModel.SolidityImport.AbiLowering
 
-/-- ABI failure is an empty revert at external entry, where EIP-211 guarantees
-an empty return-data buffer. Callers must retain the explicit local obligation
-for these low-level operations, and may not move them after an external call. -/
-def guard (condition : Expr) : Stmt := .ite condition [] [.revertReturndata]
+/-- ABI failure always reverts with zero bytes, including lazy field decoding
+after an external call has populated EIP-211's return-data buffer. -/
+def guard (condition : Expr) : Stmt := .ite condition [] [.revertEmpty]
 
 /-- Source-compatible calldata tuple-head checks as executable model code.
 The caller supplies a fresh binding name and a schema-checked head size/index.

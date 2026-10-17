@@ -6540,7 +6540,10 @@ a `BridgedExpr` via `bridgedBuiltins`), the `revert` maps to
 `BridgedStraightStmt.expr_revert`, and the `returndatacopy` is handled via
 `BridgedStmt.userCallExpr` with all three arguments `BridgedExpr`. -/
 
+/-- First-class reverts: direct empty payload or explicit returndata forwarding.
+The historical name is retained for existing consumers. -/
 inductive BridgedSourceRevertReturndataStmt : Stmt → Prop
+  | revertEmpty : BridgedSourceRevertReturndataStmt .revertEmpty
   | revertReturndata : BridgedSourceRevertReturndataStmt .revertReturndata
 
 def BridgedSourceRevertReturndataStmts (stmts : List Stmt) : Prop :=
@@ -6615,6 +6618,16 @@ theorem compileStmt_revertReturndata_fragment_bridged
         BridgedStmts out := by
   intro stmt hStmt out hOk
   cases hStmt with
+  | revertEmpty =>
+      simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure,
+        Except.ok.injEq] at hOk
+      subst out
+      intro yulStmt hMem
+      simp only [List.mem_singleton] at hMem
+      subst yulStmt
+      exact BridgedStmt.straight _
+        (BridgedStraightStmt.expr_revert (Compiler.Yul.YulExpr.lit 0)
+          (Compiler.Yul.YulExpr.lit 0))
   | revertReturndata =>
       exact compileStmt_revertReturndata_bridged fields events errors dynamicSource
         internalRetNames isInternal inScopeNames hOk
@@ -6630,6 +6643,11 @@ theorem compileStmt_revertReturndata_fragment_noFuncDefs
         Native.yulStmtsContainFuncDef out = false := by
   intro stmt hStmt out hOk
   cases hStmt with
+  | revertEmpty =>
+      simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure,
+        Except.ok.injEq] at hOk
+      subst out
+      simp [Native.yulStmtContainsFuncDef]
   | revertReturndata =>
       exact compileStmt_revertReturndata_noFuncDefs fields events errors dynamicSource
         internalRetNames isInternal inScopeNames hOk

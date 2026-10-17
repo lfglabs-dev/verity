@@ -64,6 +64,7 @@ theorem abiHeaderPreservingStmt_memory (oracle : DenoteOracle) (fields : List Fi
   case emit name args => exact execStmt_emit_memory_frame oracle fields state name args
   case returnValues args => exact execStmt_returnValues_memory_frame oracle fields state args
   case stop => simp [execStmt, preservesMemory]
+  case revertEmpty => simp [execStmt, preservesMemory]
   case revertReturndata => simp [execStmt, preservesMemory]
   case panicCode code =>
     cases evaluated : evalExpr oracle fields state code <;> simp [execStmt, evaluated, preservesMemory]

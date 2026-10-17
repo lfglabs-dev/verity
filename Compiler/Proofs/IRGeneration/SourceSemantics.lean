@@ -5,6 +5,7 @@ import Compiler.CompilationModel.LayoutValidation
 import Compiler.Keccak.Sponge
 import Compiler.Proofs.IRGeneration.Returndata
 import Verity.Core.Model.Denote
+import Verity.Core.Model.PhysicalMemory
 import Verity.Core.Model.DynamicAbi
 
 set_option linter.unnecessarySimpa false
@@ -2665,11 +2666,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -2734,8 +2731,7 @@ mutual
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -2775,7 +2771,7 @@ mutual
               (fun loopState => execStmtListWithEvents fields events loopState body)
               256 state bits
         | none => .revert
-    | _, .revertReturndata => .revert
+    | _, .revertEmpty | _, .revertReturndata => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -3057,11 +3053,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -3126,8 +3118,7 @@ mutual
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -3167,7 +3158,7 @@ mutual
               (fun loopState => execStmtList fields loopState body)
               256 state bits
         | none => .revert
-    | _, .revertReturndata => .revert
+    | _, .revertEmpty | _, .revertReturndata => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -4666,11 +4657,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | .tstore offset value =>
@@ -4736,8 +4723,7 @@ mutual
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | .stop => .stop state
     | .ite cond thenBranch elseBranch =>
@@ -4809,7 +4795,7 @@ mutual
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               256 state bits
         | none => .revert
-    | .revertReturndata => .revert
+    | .revertEmpty | .revertReturndata => .revert
     | .externalCallBind resultVars _externalName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>
@@ -6524,7 +6510,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .returndataCopy destOffset sourceOffset size =>
       exact execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_returndataCopy
         spec fields fuel state destOffset sourceOffset size hsurface
-  | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .revertEmpty | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
   | .emit _ args =>
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
       have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by

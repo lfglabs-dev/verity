@@ -472,7 +472,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    "denote-custom-require-argument",
                    "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
                    "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
-                   "denote-scalar-sibling-mask",
+                   "denote-scalar-sibling-mask", "import-bare-empty-revert",
                    'import-mapping-layout',
                    'import-mapping-read-one',
                    'import-mapping-read-two',
@@ -636,6 +636,27 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                and r["witness"]["transactions"] for r in hashing["results"]):
         raise SystemExit("hashing mutants require minimal reproduced runtime witnesses")
     print("pass ABI hashing mutations")
+    subprocess.run([sys.executable,
+                    str(ROOT / "scripts/solidity_differential/check_byte_call_mutations.py")],
+                   cwd=ROOT, check=True, timeout=1800)
+    print("pass canonical byte-call and exact empty-revert mutations")
+    output = Path(tempfile.mkdtemp(prefix="interface-static-call-rejections-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_interface_static_call_rejections",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=1800)
+    print("pass interface staticcall located rejections")
+    output = Path(tempfile.mkdtemp(prefix="interface-static-call-mutations-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                'runpy.run_module("solidity_differential.check_interface_static_call_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=14400)
+    interface = json.loads((output / "complete.json").read_text())
+    from solidity_differential.check_interface_static_call_mutations import MUTANTS as INTERFACE_MUTANTS
+    if (interface["exit"] != 0 or {r["mutant"] for r in interface["results"]} != set(INTERFACE_MUTANTS)
+            or not all(r["detected"] and r["baselinePassed"] for r in interface["results"])):
+        raise SystemExit("interface staticcall mutation coverage incomplete")
+    print("pass interface staticcall mutations")
     print("import mutations passed")
 
 

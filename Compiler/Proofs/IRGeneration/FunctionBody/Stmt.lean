@@ -1240,7 +1240,7 @@ private theorem compileStmt_ok_any_scope_aux
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | panicCode | panic | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
-      | returndataCopy | revertReturndata | stop | emit | internalCall
+      | returndataCopy | revertEmpty | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog
       | unsafeYul =>
           simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hok ⊢; exact hok
@@ -1383,7 +1383,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | panicCode | panic | «return» | returnValues | returnArray
       | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
-      | returndataCopy | revertReturndata | stop | emit | internalCall
+      | returndataCopy | revertEmpty | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind
       | ecm | rawLog | unsafeYul =>
           simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hok ⊢; exact hok

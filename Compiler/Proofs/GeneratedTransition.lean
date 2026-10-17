@@ -145,7 +145,7 @@ private partial def stmtSummary : Stmt → TransitionSummary
   | .matchAdt adtName scrutinee branches =>
       merge { reads := dedup (exprReads scrutinee), guards := ["match:" ++ adtName] }
         (branches.foldl (fun acc (_, _, body) => merge acc (stmtsSummary body)) {})
-  | .stop | .revertReturndata => {}
+  | .stop | .revertEmpty | .revertReturndata => {}
 
 private partial def stmtsSummary (stmts : List Stmt) : TransitionSummary :=
   stmts.foldl (fun acc stmt => merge acc (stmtSummary stmt)) {}

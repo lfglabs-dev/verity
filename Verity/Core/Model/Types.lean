@@ -1119,6 +1119,9 @@ inductive Stmt
   | calldatacopy (destOffset sourceOffset size : Expr)
   /-- First-class `returndatacopy(destOffset, sourceOffset, size)` statement. -/
   | returndataCopy (destOffset sourceOffset size : Expr)
+  /-- Revert with exactly zero bytes, independently of memory and EIP-211's
+      current return-data buffer. Required for source ABI decoding failures. -/
+  | revertEmpty
   /-- Forward current returndata as revert payload (`returndatacopy` + `revert`). -/
   | revertReturndata
   | stop
@@ -1246,6 +1249,8 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := [destOffset, sourceOffset, size], lowLevelMechanics := [.calldatacopy] }
   | .returndataCopy destOffset sourceOffset size =>
       { subexpressions := [destOffset, sourceOffset, size], lowLevelMechanics := [.returndataCopy] }
+  | .revertEmpty =>
+      { termination := .alwaysTerminates, controlFlow := .reverts }
   | .revertReturndata =>
       { termination := .alwaysTerminates, controlFlow := .reverts, lowLevelMechanics := [.revertReturndata] }
   | .stop =>
@@ -1387,7 +1392,7 @@ mutual
 def controlFlow : Stmt → ControlFlowSummary
   | .require _ _ | .requireError _ _ _ =>
       .mayReverting
-  | .revertError _ _ | .panicCode _ | .panic _ | .revertReturndata =>
+  | .revertError _ _ | .panicCode _ | .panic _ | .revertEmpty | .revertReturndata =>
       .reverts
   | .return _ | .returnValues _ | .returnArray _ | .returnBytes _ | .returnStorageWords _ | .returnCodeData _ =>
       .returns

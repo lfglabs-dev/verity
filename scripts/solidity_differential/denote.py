@@ -31,16 +31,29 @@ def _calldata(tx):
 
 
 class SequenceAdapter:
-    def __init__(self, directory, driver, account, initial_storage=(), identity=None):
+    def __init__(self, directory, driver, account, initial_storage=(), identity=None, byte_call_environment=None,
+                 lean_command=('lake', 'env', 'lean', '--run')):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
+        if not isinstance(lean_command, (list, tuple)) or not lean_command or any(
+                not isinstance(part, str) or not part for part in lean_command):
+            raise HarnessError('explicit nonempty Lean invocation required')
+        self.lean_command = tuple(lean_command)
         self.account = _bytes(account, 20)
         self.initial_storage = []
+        self.external_storage = []
+        if byte_call_environment is not None and not isinstance(byte_call_environment, dict):
+            raise HarnessError('byte-call environment must be an explicit configuration object')
+        self.byte_call_environment = json.loads(json.dumps(byte_call_environment))
         for owner, slot, value in initial_storage:
-            if _bytes(owner, 20) != self.account:
-                raise HarnessError('foreign initial storage unsupported by scalar model adapter')
-            self.initial_storage.append([str(int(_bytes(slot, 32), 16)),
-                                         str(int(_bytes(value, 32), 16))])
+            owner = _bytes(owner, 20)
+            row = [str(int(_bytes(slot, 32), 16)), str(int(_bytes(value, 32), 16))]
+            if owner != self.account:
+                if self.byte_call_environment is None:
+                    raise HarnessError('foreign initial storage unsupported by scalar model adapter')
+                self.external_storage.append([str(int(owner, 16)), *row])
+            else:
+                self.initial_storage.append(row)
         self.digest = hashlib.sha256(self.driver.read_bytes()).hexdigest()
         self.identity = identity or ImplementationIdentity(self.driver)
         self.runs = 0
@@ -71,9 +84,13 @@ class SequenceAdapter:
                 'timestamp': _uint(tx['timestamp']), 'blockNumber': _uint(tx['blockNumber']),
                 'observe': [[str(int(_bytes(owner, 20), 16)), str(int(_bytes(slot, 32), 16))]
                             for owner, slot in slots]})
-        write_json(directory / 'input.json', {'account': str(int(self.account, 16)),
-            'storage': self.initial_storage, 'transactions': converted})
-        argv = ['lake', 'env', 'lean', '--run', self.driver, directory / 'input.json', directory / 'output.json']
+        payload = {'account': str(int(self.account, 16)),
+                   'storage': self.initial_storage, 'transactions': converted}
+        if self.byte_call_environment is not None:
+            payload['externalStorage'] = self.external_storage
+            payload['byteCallEnvironment'] = self.byte_call_environment
+        write_json(directory / 'input.json', payload)
+        argv = [*self.lean_command, self.driver, directory / 'input.json', directory / 'output.json']
         command(argv, log=directory / 'lean.log')
         self.identity.verify()
         rows = json.loads((directory / 'output.json').read_text())

@@ -98,6 +98,9 @@ inductive StmtListScopeDiscipline (fieldNames : List String) : List String → L
       StmtListScopeDiscipline fieldNames
         (stmtNextScope scope (.returndataCopy destOffset sourceOffset size)) rest →
       StmtListScopeDiscipline fieldNames scope (.returndataCopy destOffset sourceOffset size :: rest)
+  | revertEmpty {scope : List String} {rest : List Stmt} :
+      StmtListScopeDiscipline fieldNames scope rest →
+      StmtListScopeDiscipline fieldNames scope (.revertEmpty :: rest)
   | revertReturndata {scope : List String} {rest : List Stmt} :
       StmtListScopeDiscipline fieldNames scope rest →
       StmtListScopeDiscipline fieldNames scope (.revertReturndata :: rest)
@@ -181,6 +184,9 @@ inductive StmtListScopeCore (fieldNames : List String) : List Stmt → Prop wher
       FunctionBody.ExprCompileCore size →
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.returndataCopy destOffset sourceOffset size :: rest)
+  | revertEmpty {rest : List Stmt} :
+      StmtListScopeCore fieldNames rest →
+      StmtListScopeCore fieldNames (.revertEmpty :: rest)
   | revertReturndata {rest : List Stmt} :
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.revertReturndata :: rest)
@@ -538,6 +544,8 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
             ihRest
+      | revertEmpty =>
+          exact .revertEmpty ihRest
       | revertReturndata =>
           exact .revertReturndata ihRest
       | ite cond thenBranch elseBranch =>
@@ -700,6 +708,8 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
             (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
             (ih hrestSurface htail)
+      | revertEmpty =>
+          exact StmtListScopeCore.revertEmpty (ih hrestSurface htail)
       | revertReturndata =>
           exact StmtListScopeCore.revertReturndata (ih hrestSurface htail)
       | ite cond thenBranch elseBranch =>
@@ -1659,6 +1669,15 @@ private theorem stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers
                 (by intro other hmem
                     exact mem_stmtNextScope_of_mem_scope (hlocalsInScope other hmem))
                 (constructorArgsInScope_stmtNextScope hconstructorArgsInScope))
+  | revertEmpty hrest ih =>
+      rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
+        ⟨nextLocalScope, hstmt, hrestValidate⟩
+      have hstmt' := hstmt
+      unfold validateScopedStmtIdentifiers at hstmt'
+      simp only [pure, Except.pure] at hstmt'
+      cases hstmt'
+      exact StmtListScopeDiscipline.revertEmpty
+        (ih hrestValidate hparamsInScope hlocalsInScope hconstructorArgsInScope)
   | revertReturndata hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -2097,6 +2116,16 @@ private theorem scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListI
               (by intro name hname
                   exact mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname))
               other hmem
+  | revertEmpty hrest ih =>
+      rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
+        ⟨nextLocalScope, hstmt, hrestValidate⟩
+      have hstmt' := hstmt
+      unfold validateScopedStmtIdentifiers at hstmt'
+      simp only [pure, Except.pure] at hstmt'
+      cases hstmt'
+      intro other hmem
+      simp only [List.foldl, stmtNextScope, collectStmtBindNames] at hmem ⊢
+      exact ih hrestValidate hparamsInScope hlocalsInScope other hmem
   | revertReturndata hrest ih =>
       rcases validateScopedStmtListIdentifiers_cons_ok_inv hvalidate with
         ⟨nextLocalScope, hstmt, hrestValidate⟩
@@ -2469,6 +2498,13 @@ theorem stmtListScopeDiscipline_scope_names
       · right; left; exact hbind
       · right; right; left; exact hassign
       · right; right; right; exact hfld
+  | revertEmpty _ ih =>
+      intro other hmem
+      simp only [List.foldl, stmtNextScope, collectStmtBindNames, List.nil_append] at hmem
+      have htail := ih other hmem
+      simp [collectStmtListBindNames, collectStmtBindNames,
+        collectStmtListAssignedNames, collectStmtAssignedNames] at htail ⊢
+      exact htail
   | revertReturndata _ ih =>
       intro other hmem
       simp only [List.foldl, stmtNextScope, collectStmtBindNames, List.nil_append] at hmem

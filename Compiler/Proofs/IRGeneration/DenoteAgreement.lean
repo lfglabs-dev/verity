@@ -688,7 +688,7 @@ theorem execStmt_eq (fields : List Field) :
         toRuntimeState_bindings]
       cases DynamicAbi.dynamicArrayBinding? st.bindings name <;> rfl
   | _, .returnArray .. | _, .returnStorageWords ..
-  | _, .returnCodeData .. | _, .revertReturndata .. | _, .internalCall ..
+  | _, .returnCodeData .. | _, .revertEmpty | _, .revertReturndata .. | _, .internalCall ..
   | _, .internalCallAssign .. | _, .rawLog ..
   | _, .unsafeBlock .. | _, .unsafeYul .. | _, .matchAdt .. => rfl
 

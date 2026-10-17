@@ -97,7 +97,7 @@ mutual
     | .ite condition yes no =>
         exprCovered condition && abiHeaderPreservingList yes && abiHeaderPreservingList no
     | .panicCode code => exprCovered code
-    | .revertReturndata | .stop => true
+    | .revertEmpty | .revertReturndata | .stop => true
     | .emit _ args => exprListCovered args
     | .setStorage _ value => exprCovered value
     | .setStructMember _ key _ value => exprCovered key && exprCovered value
@@ -109,6 +109,17 @@ mutual
     | head :: tail => abiHeaderPreservingStmt head && abiHeaderPreservingList tail
 end
 
+/-- The only admitted External Call Module: the closed Solidity typed-interface
+`staticcall` with one `uint256` return. Its Denote arm runs the byte transport
+against the explicit adversary; metadata must equal the canonical module, so the
+data descriptor rather than an opaque closure fixes both Denote and compilation. -/
+def staticUint256Covered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
+  match mod.byteTransport with
+  | some (.staticUint256 resultVar selector numStaticArgs) =>
+      mod == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs &&
+        decide (selector < 2 ^ 32) && args.length == numStaticArgs + 1 && exprListCovered args
+  | none => false
+
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
 meaning and its original world-preservation theorems. -/
 mutual
@@ -117,7 +128,8 @@ mutual
     | .tstore offset value => exprCovered offset && exprCovered value
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
-    | .revertReturndata => true
+    | .revertEmpty | .revertReturndata => true
+    | .ecm mod args => staticUint256Covered mod args
     | .emit _ args => exprListCovered args
     | .stop => true
     | .returnBytes _ => true
@@ -235,8 +247,10 @@ theorem execStmt_mstore_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (offset value : Expr) :
     execStmt oracle fields state (.mstore offset value) =
       (match evalExpr oracle fields state offset, evalExpr oracle fields state value with
-       | some address, some resolved => .continue { state with world := { state.world with
-           memory := fun o => if o = address then resolved else state.world.memory o } }
+       | some address, some resolved =>
+           .continue { state with world :=
+             (state.world.writePhysicalMemoryValue address
+               (Verity.Core.Uint256.ofNat resolved)) }
        | _, _ => .revert) := rfl
 
 theorem execStmt_tstore_arm (oracle : DenoteOracle) (fields : List Field)
@@ -264,9 +278,28 @@ theorem execStmt_forEach_arm (oracle : DenoteOracle) (fields : List Field)
            { state with bindings := bindValue state.bindings name (wordNormalize 0) } 0 bound
        | none => .revert) := rfl
 
+/-- The closed typed-interface `staticcall` arm: execution is exactly the byte
+transport, and an instrumentation error (no adversary, no gas allowance, or a
+request outside the adversary's domain) is a payload-free `.revert`, never a
+Solidity revert observation. -/
+theorem execStmt_ecm_staticUint256_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector numStaticArgs : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs) args) =
+      (match executeByteStaticCall oracle fields state
+          (Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs)
+          resultVar selector numStaticArgs args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+theorem execStmt_revertEmpty_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    execStmt oracle fields state .revertEmpty = .revertWithData [] := rfl
+
 theorem execStmt_revertReturndata_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :
-    execStmt oracle fields state .revertReturndata = .revertWithData (state.world.returndata.flatMap wordBytes) := rfl
+    execStmt oracle fields state .revertReturndata = .revertWithData
+      (state.rawReturndata.getD (state.world.returndata.flatMap wordBytes)) := rfl
 
 theorem execStmt_stop_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :
