@@ -1,7 +1,7 @@
 # Solidity Import Campaign Status (`coord/status`)
 
-Last updated: 2026-10-17T10:08:00Z
-Coordinator mission: `300051ac-f398-4e6b-b2da-412dbc470673` (replaces `ebb2f1fe`)
+Last updated: 2026-10-17T10:53:00Z
+Coordinator mission: `608d2555-9c5e-462c-b1c3-2c232703ccd9` (replaces `aae68584` / `300051ac` / `ebb2f1fe`)
 Current `main` HEAD: `10f697bbb` (`#2503`)
 
 ---
@@ -73,87 +73,79 @@ Current `main` HEAD: `10f697bbb` (`#2503`)
 
 ---
 
-## 3. Open PRs (`#2504`–`#2515`) and Rescue/Feature Branches Inventory
+## 3. Open PRs (`#2504`–`#2516`) and Rescue/Feature Branches Inventory
 
 ### Open PRs
 
 | PR | Branch | Head SHA | Base | Status | Relationship / Overlap | Next Step |
 | --- | --- | --- | --- | --- | --- | --- |
-| `#2504` | `feat/solidity-import-create2-parent-gas-linux` | `18a6f9af9` | `main` | Open (Draft) | Foundation for `#2505` (CREATE2 execution derived from parent gas and byte memory + `InitCodeExecution` + `BytesObjectMemory`). | Rebase/integrate with `#2508` physical memory, run full exact-head gates (`make check`, mutations, smoke/loss/programs, `PrintAxioms`, Midnight pilot), and merge with merge commit. |
-| `#2505` | `feat/solidity-import-account-storage-bridge-linux` | `ce0f194e4` | `feat/solidity-import-create2-parent-gas-linux` | Open (Draft) | Stacked on `#2504`. Synchronizes persistent flat writes with finite account storage (`AccountStorageBridge`). Fails `GenericInduction/Storage.lean` until physical-slot write lemmas are updated. | Rebase on `#2504` + `#2508`, fix `Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean` for `writePhysicalSlot`/`writePhysicalMap`/`writePhysicalMap2`, run full merge gates, and merge. |
-| `#2506` | `fix/ci-main-green` | `1c0913470` | `main` | Open (Ready) | Shards `scripts/solidity_import_mutations.py` (`--shard`, `--jobs`) into a 6-way CI matrix job (`import-mutations`) so `build` stays well under 120m. | Verify exact-head local merge gates (`make check`, mutations, smoke/loss/programs, `PrintAxioms`, Midnight pilot) and merge first among CI/instrument PRs. |
-| `#2507` | `feat/solidity-import-contractstate-byte-memory` | `51992ad76` | `main` | Open (Draft) | Shares base commits `49a7b9cc7..4321b29eb` with `#2508`. Contains `58c9774b4` (broad dirty-worktree rescue dump of 949 files including `PROGRESS.md`) plus `51992ad76` (`NativeSourceElementFreePointer.lean`). | Fold `NativeSourceElementFreePointer.lean` (`51992ad76`) and any unique validated proof/test modules from `#2507` into `#2508` (or a clean follow-up proof PR without `PROGRESS.md`), then close `#2507` with a link once its content is merged. |
-| `#2508` | `feat/solidity-import-byte-call-physical` | `ac92387cd` | `main` | Open (Draft) | Clean physical byte memory carrier (`ContractState.byteMemory`) + closed byte external-call boundary (`ByteExternalCall`, `DenoteByteExternalCalls`, `SolidityStaticCall.uint256Module`, `Stmt.revertEmpty`) + physical ABI/Panic/`Error(string)` proof repairs. Supersedes `rescue/verity-import-byte-call-boundary-20261017`. | Fold `DenoteAgreement.lean` and `EvmYulLeanCallClosure.lean` repairs from `rescue/verity-proofs-20261017` (`18a0c739e`), finish `Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean` physical `mstore` proof migration, fold `51992ad76` (`NativeSourceElementFreePointer.lean`) from `#2507`, run full merge gates, and merge first (dependency root). |
+| `#2504` | `feat/solidity-import-create2-parent-gas-linux` | `18a6f9af9` | `main` | Open (Draft) | Foundation for `#2505` (CREATE2 execution derived from parent gas and byte memory + `InitCodeExecution` + `BytesObjectMemory`). | Active on `old-agent` (`938bba18`): verify exact-head merge gates and merge with merge commit. |
+| `#2505` | `feat/solidity-import-account-storage-bridge-linux` | `ce0f194e4` | `feat/solidity-import-create2-parent-gas-linux` | Open (Draft) | Stacked on `#2504`. Synchronizes persistent flat writes with finite account storage (`AccountStorageBridge`). | Active on `old-agent` (`938bba18`): finish `Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean` via persistent REPL daemon, run full merge gates, and merge. |
+| `#2506` | `fix/ci-main-green` | `1c0913470` | `main` | Open (Ready) | Shards `scripts/solidity_import_mutations.py` (`--shard`, `--jobs`) into a 6-way CI matrix job (`import-mutations`). | Verify exact-head local merge gates and merge. |
+| `#2507` | `feat/solidity-import-contractstate-byte-memory` | `51992ad76` | `main` | Open (Draft) | Shares base commits `49a7b9cc7..4321b29eb` with `#2508`. Contains `58c9774b4` (dirty-worktree dump) plus `51992ad76` (`NativeSourceElementFreePointer.lean`). | Fold `NativeSourceElementFreePointer.lean` (`51992ad76`) into `#2508`, then close `#2507` with a link once merged. |
+| `#2508` | `feat/solidity-import-byte-call-physical` | `ac92387cd` | `main` | Open (Draft) | Clean physical byte memory carrier (`ContractState.byteMemory`) + closed byte external-call boundary (`ByteExternalCall`, `DenoteByteExternalCalls`, `SolidityStaticCall.uint256Module`, `Stmt.revertEmpty`). Supersedes `rescue/verity-import-byte-call-boundary-20261017`. | Active on `sepolia` (`2b9a4c4f`): finish `FunctionBody/Stmt.lean` physical `mstore` proof using `scripts/lean_repl_daemon.py`, fold `rescue/verity-proofs-20261017` (`18a0c739e`) + `#2507` (`51992ad76`), run full merge gates, and merge. |
 | `#2509` | `feat/solidity-import-slice-43` | `0dd5e5def` | `main` | Open (Draft) | Solidity 0.8.10 and `AccessManagerTargetRoleSequence` importer work (`Import.lean`, `AbiLowering.lean`, `AccessManagerTargetRoleSequence.sol`). | Rebase on `main`, complete per-family checklist and exact-head merge gates, and merge. |
-| `#2510` | `wip/solidity-import-tuples` | `35c1dd9d4` | `main` (conflicting, merge-base `9d0d56a67`) | Open (Draft, Conflicting) | Contains `ConstantSequence`, `ArithmeticSequence`, `MemberWriteSequence`, `LoopSequence`, `UncheckedSequence`, and `TupleSequence` fixtures/mutations/variants plus tuple assignment lowering in `Import.lean`. | Rebase onto current `main`, resolve conflicts keeping all sequence fixtures/mutations and any unique `Import.lean` tuple improvements from both sides, run full merge gates, and merge. |
+| `#2510` | `wip/solidity-import-tuples` | `35c1dd9d4` | `main` (conflicting, merge-base `9d0d56a67`) | Open (Draft, Conflicting) | Contains `ConstantSequence`, `ArithmeticSequence`, `MemberWriteSequence`, `LoopSequence`, `UncheckedSequence`, and `TupleSequence` fixtures/mutations/variants plus tuple assignment lowering in `Import.lean`. | Rebase onto current `main`, resolve conflicts keeping all sequence fixtures/mutations and unique `Import.lean` tuple improvements from both sides, run full merge gates, and merge. |
 | `#2511` | `recovered/verity-translation-dispatcher` | `7c839dc36` | `main` (merge-base `6e275b4d3`) | Open (Draft) | Extends `experiments/solidity-translation-validation` with `MemoryGuardExtension.lean`, `DispatcherDecoder.lean`, `DispatcherExecution.lean`, and `DispatcherNodes.lean`. Supersedes `rescue/verity-solidity-import-20261017`. | Rebase onto current `main`, verify all translation-validation scripts and full merge gates, and merge. |
 | `#2512` | `proof/solidity-import-adversarial-sequences` | `3b5355392` | `main` | Open (Draft) | Adds `Compiler/SolidityImport/AdversarialEntryPointInvariants.lean` proving invariant preservation across per-call adversarial oracle choices. | Verify full exact-head merge gates and merge. |
 | `#2513` | `fix/solidity-differential-head-identity` | `6c5b8abc3` | `main` | Open (Draft) | Rejects Git HEAD commit switches during stateful differential replay (`scripts/solidity_differential/identity.py`). | Verify full exact-head merge gates and merge. |
-| `#2514` | `test/solidity-import-midnight-stateful` | `d65d930cb` | `main` | Open (Draft) | Adds `scripts/solidity_differential/check_midnight_admin.py` exercising 10 pinned Midnight entry points across 256 stateful A/B/C transactions. Fails `make check` in CI when `eth_abi` is absent from the system unittest environment. | Guard/lazy-load `eth_abi`/`eth_utils` imports for unit tests (`scripts/test_midnight_stateful_inputs.py`) so `make check` passes without external venv packages, run full merge gates, and merge. |
+| `#2514` | `test/solidity-import-midnight-stateful` | `d65d930cb` | `main` | Open (Draft) | Stateful multi-entry-point differential harness. Currently uses Midnight-specific naming (`check_midnight_admin.py`, `docs/MIDNIGHT_STATEFUL.md`) and top-level `eth_abi` import. | Refactor in Track M2 into a generic multi-entrypoint stateful differential runner (with lazy `eth_abi`/`eth_utils` imports), run full merge gates, and merge. |
 | `#2515` | `feat/solidity-import-interface-static-call` | `8b803cd65` | `main` | Open (Draft) | Lowers typed-interface `uint256` view staticcalls (`I(addr).f()`) onto `#2508`'s closed byte transport. Unlocks Midnight `isHealthy` (**33/45 = 73.33%**). | Rebase on merged `#2508` (folding `rescue/verity-proofs-20261017`), finish the 9-mutant `check_interface_static_call_mutations.py` run and full merge gates, and merge. |
+| `#2516` | `docs/agents-repl-mathlib-guide` | `4156c5e7a` | `main` | Open (Ready) | Restores `AGENTS.md`, syncs `CLAUDE.md`, and adds persistent Unix-socket Lean REPL daemon (`scripts/lean_repl_daemon.py` + `scripts/test_lean_repl_daemon.py`), Mathlib4 code style rules, generic-construct rules, and proof abstraction guidelines. | Run full merge gates and merge onto `main`. |
 
 ### Named Rescue and Feature Branches
 
 | Branch | Head SHA | Status & Disposition |
 | --- | --- | --- |
-| `rescue/verity-import-byte-call-boundary-20261017` | `494a4b2d8` | Fully contained in and superseded by `#2508` (`feat/solidity-import-byte-call-physical`), which integrates physical byte memory and `execByteExternalCall` on top of all 16 files from this rescue commit. |
-| `rescue/verity-solidity-import-20261017` | `94edef54a` | Pre-`#2451` rescue of `experiments/solidity-translation-validation` (20/22 files identical to `main`; remaining 2 files have newer revisions on `main` and in `#2511` `recovered/verity-translation-dispatcher`). Superseded by `main` + `#2511`. |
-| `rescue/verity-proofs-20261017` | `18a0c739e` | Continuation of `#2515` (`feat/solidity-import-interface-static-call`) + `#2508` (`de48c1d10`) with commit `18a0c739e` repairing `Compiler/Proofs/IRGeneration/DenoteAgreement.lean` and `Compiler/Proofs/YulGeneration/Backends/EvmYulLeanCallClosure.lean`. Fold `18a0c739e` into `#2508` / `#2515`. |
-| `feat/solidity-import-byte-call-physical` | `ac92387cd` | Tracked by open PR `#2508` (see above). |
-| `feat/solidity-import-interface-static-call` | `8b803cd65` | Tracked by open PR `#2515` (see above). |
-
-### Step 1b Dependency Merge Order for Open PRs
-1. **Wave 1 (Foundations, Proofs, and CI/Harness Instruments)**:
-   - `#2506` (`fix/ci-main-green`) — mutation sharding and runner fixes
-   - `#2513` (`fix/solidity-differential-head-identity`) — stateful replay Git HEAD check
-   - `#2512` (`proof/solidity-import-adversarial-sequences`) — per-call adversarial oracle invariant proofs
-   - `#2508` (`feat/solidity-import-byte-call-physical` + `rescue/verity-proofs-20261017` `18a0c739e` + `#2507` `51992ad76`) — physical byte memory & byte external-call boundary
-2. **Wave 2 (CREATE2 Account World, Interface Staticcall, Midnight Stateful, Rescue Branches)**:
-   - `#2504` (`feat/solidity-import-create2-parent-gas-linux`) & `#2505` (`feat/solidity-import-account-storage-bridge-linux`) — CREATE2 parent gas, byte memory initcode execution, and finite account storage bridge
-   - `#2515` (`feat/solidity-import-interface-static-call` + `rescue/verity-proofs-20261017`) — typed-interface `uint256` view staticcalls (brings Midnight coverage to **33/45 = 73.33%**)
-   - `#2514` (`test/solidity-import-midnight-stateful`) — stateful Midnight 10-entry-point differential harness
-   - `#2509` (`feat/solidity-import-slice-43`), `#2510` (`wip/solidity-import-tuples`), `#2511` (`recovered/verity-translation-dispatcher`)
+| `rescue/verity-import-byte-call-boundary-20261017` | `494a4b2d8` | Fully contained in and superseded by `#2508` (`feat/solidity-import-byte-call-physical`). |
+| `rescue/verity-solidity-import-20261017` | `94edef54a` | Pre-`#2451` rescue of `experiments/solidity-translation-validation`; superseded by `main` + `#2511`. |
+| `rescue/verity-proofs-20261017` | `18a0c739e` | Continuation of `#2515` + `#2508` repairing `DenoteAgreement.lean` and `EvmYulLeanCallClosure.lean`. Fold `18a0c739e` into `#2508` / `#2515`. |
+| `feat/solidity-import-byte-call-physical` | `ac92387cd` | Tracked by open PR `#2508`. |
+| `feat/solidity-import-interface-static-call` | `8b803cd65` | Tracked by open PR `#2515`. |
 
 ---
 
-## 4. Ordered Remaining Construct Families for Midnight (33/45 → 45/45)
+## 4. Scheduled Refactor Campaign (Midnight Decoupling + Mathlib4 Style & Abstractions)
 
-Ordered by the Midnight coverage histogram (most Midnight functions unlocked or advanced first):
-
-1. **Family A — SSTORE2 `create2` Deployment (`IdLib.storeInCode`) & Struct Event Emission (`EventsLib.MarketCreated(Market, bytes32 indexed)`)**:
-   - **Source locations**: `src/libraries/IdLib.sol:40:28` (`create2Address := create2(0, add(creationCode, 0x20), mload(creationCode), 0)` on `abi.encodePacked(SSTORE2_PREFIX, abi.encode(market))`) and `src/Midnight.sol:784:18` (`emit EventsLib.MarketCreated(market, id)`).
-   - **Histogram impact**: First blocker for **9 functions** (`touchMarket`, `updatePosition`, `claimContinuousFee`, `withdraw`, `withdrawCollateral`, `supplyCollateral`, `repay`, `liquidate`, `take`).
-   - **Immediate unlocks**: `touchMarket(Market)` and `updatePosition(Market,address)` → **35 / 45 (77.78%)**.
-
-2. **Family B — External Code Size (`token.code.length`) & ERC-20 Low-Level Call with Optional-Bool Decode (`SafeTransferLib.safeTransfer` / `safeTransferFrom`)**:
-   - **Source locations**: `src/libraries/SafeTransferLib.sol:13:17` (`token.code.length > 0` → `extcodesize`), `SafeTransferLib.sol:15:46` / `26:46` (`(bool success, bytes memory returndata) = token.call(abi.encodeCall(IERC20.transfer / transferFrom, ...))`), `SafeTransferLib.sol:17-19` (`revert(add(returndata, 0x20), mload(returndata))`), and `SafeTransferLib.sol:21` (`returndata.length == 0 || abi.decode(returndata, (bool))`).
-   - **Histogram impact**: Reached by **9 functions** (`claimSettlementFee`, `claimContinuousFee`, `withdraw`, `withdrawCollateral`, `supplyCollateral`, `repay`, `flashLoan`, `liquidate`, `take`).
-   - **Immediate unlocks** (after `#2515` + Family A): `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `withdrawCollateral`, `supplyCollateral` → **40 / 45 (88.89%)**.
-
-3. **Family C — External Runtime Code Read (`<addr>.code`) & Dynamic Struct `abi.decode(..., (Market))` with Root Struct Return (`toMarket`)**:
-   - **Source locations**: `src/Midnight.sol:902:16` (`return abi.decode(create2Address.code, (Market))` reading SSTORE2 payload after 1-byte `0x00` stop prefix or full runtime code per `IdLib.SSTORE2_PREFIX` which deploys `abi.encode(market)` directly as runtime code).
-   - **Immediate unlocks**: `toMarket(bytes32)` → **41 / 45 (91.11%)**.
-
-4. **Family D — Typed-Interface View Staticcalls Returning `bool` (`IEnterGate`, `ILiquidatorGate`) and `bytes32` (`IRatifier.isRatified`)**:
-   - **Source locations**:
-     - `src/Midnight.sol:591:51`: `ILiquidatorGate(market.liquidatorGate).canLiquidate(msg.sender)` (`address -> view returns (bool)`)
-     - `src/Midnight.sol:385:20`, `390:20`: `IEnterGate(offer.market.enterGate).canIncreaseCredit(buyer)` / `canIncreaseDebt(seller)` (`address -> view returns (bool)`)
-     - `src/Midnight.sol:343:17`: `IRatifier(offer.ratifier).isRatified(offer, ratifierData, taker)` (`(Offer, bytes, address) -> view returns (bytes32)`)
-   - **Histogram impact**: Unblocks gate and ratifier checks in `liquidate` and `take`.
-
-5. **Family E — Typed-Interface State-Changing Callbacks Returning `bytes32` (`onRepay`, `onFlashLoan`, `onLiquidate`, `onBuy`, `onSell`) & Dynamic/Signed Event Emissions (`FlashLoan`, `Take`)**:
-   - **Source locations**:
-     - `src/Midnight.sol:508:17`: `IRepayCallback(callback).onRepay(id, market, units, onBehalf, data)` → unlocks `repay` (**42 / 45 = 93.33%**)
-     - `src/Midnight.sol:735:14` (`emit EventsLib.FlashLoan(msg.sender, tokens, assets, callback)`) + `740:13` (`IFlashLoanCallback(callback).onFlashLoan(...)`) → unlocks `flashLoan` (**43 / 45 = 95.56%**)
-     - `src/Midnight.sol:694:17`: `ILiquidateCallback(callback).onLiquidate(...)` → unlocks `liquidate` (**44 / 45 = 97.78%**)
-     - `src/Midnight.sol:414:14` (`emit EventsLib.Take(...)` with `bytes ratifierData` and `int256`) + `440:17` (`IBuyCallback.onBuy`) + `453:17` (`ISellCallback.onSell`) → unlocks `take` (**45 / 45 = 100.00%**)
+1. **Track M1 — Decouple Midnight Specifics from Importer, Stdlib, Proofs & Coverage (`refactor/decouple-midnight-core`)** — **ACTIVE on `ashur` (`8ebd2cbf`)**:
+   - Remove hardcoded `fname == "popFront" || fname == "popBack"` and `_begin`/`_end` field checks in `Compiler/SolidityImport/Import.lean` (`isDequePopCall?`), and remove `m0Name == "value"` in raw-slot string/bytes struct wrapper recognition in favor of structural AST checks.
+   - Rename `enoughForMidnightRcfTotalUnits` → `TransitionSummary.isNonEmpty` in `Compiler/Proofs/GeneratedTransition.lean` and `GeneratedTransitionTest.lean`.
+   - Move Midnight-specific tick constants (`WEXP_TICK_LN_ONE_PLUS_DELTA`, `WEXP_MAX_TICK_HALF`, `WEXP_PRICE_ROUNDING_STEP`, `tickToPriceReference`) out of `Verity/Stdlib/Math.lean`.
+   - Replace hardcoded `if project['id'] == 'midnight':` in `scripts/solidity_import_coverage.py` with a generic optional `"exclude_functions"` field in `scripts/solidity_import_corpus/manifest.json`.
+2. **Track M2 — Replace `pinned-midnight`, `MarketAbi`, `MidnightPositionAndFeeSequence` & PR `#2514` with Construct-Generic Fixtures (`refactor/decouple-midnight-fixtures`)** — **QUEUED NEXT**:
+   - Replace `Contracts/SolidityImportSmoke/pinned-midnight/` and `MarketAbi.sol` with generic multi-file nested dynamic struct ABI fixtures (`NestedDynamicStructAbi.sol`, `check_nested_dynamic_struct_abi.py`).
+   - Rename `MidnightPositionAndFeeSequence` → `PackedStructMappingAndTernaryTupleSequence` with generic domain-free struct/function names.
+   - Rework PR `#2514` (`test/solidity-import-midnight-stateful`) into a generic multi-entrypoint stateful differential harness (`check_stateful_admin.py` with lazy `eth_abi`/`eth_utils` imports).
+3. **Track S1 — Mathlib4 Code Style, Naming & Compositional State/Frame Lenses (`refactor/mathlib-style-and-frame-lenses`)** — **SCHEDULED**:
+   - Enforce Mathlib4 conventions across `Compiler/Proofs/` and `Compiler/SolidityImport/`: `UpperCamelCase` types/Props, `lowerCamelCase` defs/terms, descriptive `snake_case` theorems/lemmas (`_of_`, `_iff`, `_eq`, `_ne`, `_lt`, `_le`), structured `· ` focusing dots, `<100` chars/line, `<30` lines/proof.
+   - Introduce reusable `@[simp]` frame/lens combinators for `ContractState` updates (`storage`, `transientStorage`, `memory`, `byteMemory`, `returndata`, `events`) and `irreducible` / step-equation barriers so proofs compose without unfolding giant interpreter definitions.
+4. **Track S2 — Modular File Decomposition & Heartbeat Reduction (`refactor/modular-split-and-heartbeat-reduction`)** — **SCHEDULED**:
+   - Split monolithic files (`Compiler/SolidityImport/Import.lean`, `Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean`, `Compiler/Proofs/IRGeneration/SourceSemantics.lean`) by construct family / semantic layer with minimal `import` cones to speed up parallel `lake build` and REPL header loading.
+   - Eliminate `set_option maxHeartbeats` escalations by replacing unconstrained `simp` with `simp only` / `rw` and extracting `<30`-line helper lemmas.
 
 ---
 
-## 5. Active Subagent Missions
+## 5. Ordered Remaining Construct Families (All Implemented Generically, Prioritized by Corpus Histogram: 33/45 → 45/45)
+
+1. **Family A — Generic Yul `create2(v, ptr, len, salt)` Byte-Payload Deployment & Struct Event Emission (`emit Event(Struct, bytes32 indexed)`)**:
+   - Unlocks 2 functions immediately (**35 / 45 = 77.78%**) and unblocks 9 total.
+2. **Family B — External Code Size (`<addr>.code.length` / `extcodesize`) & Low-Level `.call` with Optional-Bool Returndata Decode**:
+   - Unlocks 5 additional functions (**40 / 45 = 88.89%**).
+3. **Family C — External Runtime Code Read (`<addr>.code`) & Dynamic Struct `abi.decode` with Root Struct Return**:
+   - Unlocks 1 function (**41 / 45 = 91.11%**).
+4. **Family D — Typed-Interface View Staticcalls Returning `bool` and `bytes32` (with Dynamic Struct/Bytes Args)**:
+   - Unblocks gate and ratifier staticcalls.
+5. **Family E — Typed-Interface State-Changing External Callbacks Returning `bytes32` & Dynamic/Signed Event Emissions**:
+   - Unlocks remaining 4 functions (**45 / 45 = 100.00%**).
+
+---
+
+## 6. Active Subagent Missions
 
 | Track | Machine (`node_id`) | Mission ID | Backend / Model | Target PRs / Branches | Status |
 | --- | --- | --- | --- | --- | --- |
-| `pr-2508-physical-byte-memory` | `sepolia` | `1dbb43b3-0525-430b-85f2-f8e601991311` | `claudecode` / `claude-opus-5-5` (`high`) | `#2508` (`feat/solidity-import-byte-call-physical`) + `rescue/verity-proofs-20261017` (`18a0c739e`) + `#2507` (`51992ad76`) | Running (built `repl` v4.31.0, finishing `FunctionBody/Stmt.lean` physical `mstore` proof & merge gates) |
-| `pr-2504-2505-create2-storage-bridge` | `old-agent` | `64aa91b8-278c-408c-a943-96ed34826250` | `claudecode` / `claude-opus-5-5` (`high`) | `#2504` (`feat/solidity-import-create2-parent-gas-linux`) + `#2505` (`feat/solidity-import-account-storage-bridge-linux`) | Running (verifying `#2504` merge gates & fixing `#2505` `GenericInduction/Storage.lean` physical-slot write proofs) |
+| `refactor-decouple-midnight-core-v2` | `ashur` | `8ebd2cbf-7610-4abc-8404-cda470f0ddf3` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/decouple-midnight-core` (Track M1: `Import.lean`, `GeneratedTransition.lean`, `Verity/Stdlib/Math.lean`, `solidity_import_coverage.py`) | Running (`AGENTS.md` + `lean_repl_daemon.py` installed; refactoring `isDequePopCall?`, raw-slot wrapper, `Math.lean`, and coverage manifest) |
+| `adopt-sepolia-repl-v1` | `sepolia` | `2b9a4c4f-00d3-4ab1-b450-f15d78417cf5` | `claudecode` / `claude-opus-5-5` (`high`) | `#2508` (`feat/solidity-import-byte-call-physical`) + `rescue/verity-proofs-20261017` (`18a0c739e`) + `#2507` (`51992ad76`) | Running (adopted `1dbb43b3` worktree on `sepolia` with 1-process enforcement, installed `AGENTS.md` + `scripts/lean_repl_daemon.py`, finishing `Stmt.lean` physical `mstore` proof) |
+| `adopt-worker-repl-v1` | `old-agent` | `938bba18-dd96-4ea9-9133-f72bbbd3f15b` | `claudecode` / `claude-opus-5-5` (`high`) | `#2504` (`feat/solidity-import-create2-parent-gas-linux`) + `#2505` (`feat/solidity-import-account-storage-bridge-linux`) | Running (adopted `64aa91b8` worktree on `old-agent` with 1-process enforcement, installed `AGENTS.md` + `scripts/lean_repl_daemon.py`, finishing `#2504` gates & `#2505` `Storage.lean` proofs) |
+
 
