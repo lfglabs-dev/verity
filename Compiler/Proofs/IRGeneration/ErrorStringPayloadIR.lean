@@ -2,20 +2,20 @@ import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgeLemmas
 import Verity.Core.Model.ECM
 import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringWords
 
 /-!
-# Proof-side observable for the Error(string) revert payload
+# Physical Error(string) payload execution
 
-Companion to the `Panic(uint256)` observable (#2280): the ECM helper
-`revertWithMessage` emits `mstore` writes (selector, ABI offset, length, data
-chunks) followed by a `revert`.  This module proves the emitted statements
-execute to exactly those writes applied to memory (`execIRStmts_mstoreWrites`
-over the syntactic `MstoreWrites` characterization), with
-`applyWrites_not_written` projecting unshadowed keys.  Connecting this to
-`revertWithMessage`'s full chunk layout needs its private chunker exposed —
-the tracked follow-up; the header projections (selector at 0, ABI offset at 4,
-length at 36) follow from these lemmas once the emitted list is
-characterized.
+Literal and pointer-relative mstore blocks update the real byte carrier and
+its overlapping word view. The complete payload theorem retains all three
+header assertions and gives the exact physical state under a nonwrapping extent.
+PhysicalErrorStringBytes.payload_slice separately proves every payload byte;
+the current interpreter has no revert-byte carrier, so no captured-byte execution
+claim is made here.
+The pure applyWrites facts below describe the historical word-map algorithm;
+they are not a model of physical mstore and are not used to certify execution.
 -/
 namespace Compiler.Proofs.IRGeneration
 
@@ -75,37 +75,18 @@ theorem execIRStmts_mstoreWrites :
     ∀ {stmts : List YulStmt} {writes : List (Nat × Nat)},
       MstoreWrites stmts writes → ∀ (fuel : Nat) (state : IRState),
         execIRStmts (stmts.length + fuel + 1) state stmts =
-          .continue { state with memory := applyWrites state.memory writes }
-  | _, _, .nil, fuel, state => by simp [execIRStmts, applyWrites]
+          .continue (PhysicalPayloadStores.applyStores state writes)
+  | _, _, .nil, fuel, state => by
+      simp [execIRStmts, PhysicalPayloadStores.applyStores]
   | _, _, @MstoreWrites.consLit tail wtail o w htail, fuel, state => by
       rw [show (YulStmt.exprStmt (.call "mstore" [.lit o, .lit w]) :: tail).length +
-        fuel + 1 = (tail.length + fuel + 1) + 1 from by simp [List.length]; omega]
-      show (match execIRStmt (tail.length + fuel + 1) state
-          (.exprStmt (.call "mstore" [.lit o, .lit w])) with
-        | .continue s₁ => execIRStmts (tail.length + fuel + 1) s₁ tail
-        | .return v s => .return v s
-        | .stop s => .stop s
-        | .revert s => .revert s) = _
-      rw [show execIRStmt (tail.length + fuel + 1) state
-          (.exprStmt (.call "mstore" [.lit o, .lit w])) =
-        .continue { state with
-          memory := fun x => if x = o then w else state.memory x } from by
-        simp [execIRStmt, evalIRExpr]]
+        fuel + 1 = (tail.length + fuel + 1) + 1 by simp only [List.length_cons]; omega]
+      simp only [execIRStmts, execIRStmt, evalIRExpr, PhysicalPayloadStores.applyStores]
       exact execIRStmts_mstoreWrites htail fuel _
   | _, _, @MstoreWrites.consHex tail wtail o w htail, fuel, state => by
       rw [show (YulStmt.exprStmt (.call "mstore" [.lit o, .hex w]) :: tail).length +
-        fuel + 1 = (tail.length + fuel + 1) + 1 from by simp [List.length]; omega]
-      show (match execIRStmt (tail.length + fuel + 1) state
-          (.exprStmt (.call "mstore" [.lit o, .hex w])) with
-        | .continue s₁ => execIRStmts (tail.length + fuel + 1) s₁ tail
-        | .return v s => .return v s
-        | .stop s => .stop s
-        | .revert s => .revert s) = _
-      rw [show execIRStmt (tail.length + fuel + 1) state
-          (.exprStmt (.call "mstore" [.lit o, .hex w])) =
-        .continue { state with
-          memory := fun x => if x = o then w else state.memory x } from by
-        simp [execIRStmt, evalIRExpr]]
+        fuel + 1 = (tail.length + fuel + 1) + 1 by simp only [List.length_cons]; omega]
+      simp only [execIRStmts, execIRStmt, evalIRExpr, PhysicalPayloadStores.applyStores]
       exact execIRStmts_mstoreWrites htail fuel _
 
 /-- The write list `revertWithMessage` performs: three header words then one
@@ -230,39 +211,84 @@ theorem errorStringWrites_mem36 (message : String) (mem : Nat → Nat) :
       (fun ow how => errorStringWrites_tail_keys message 36 (by omega) ow how)]
   simp
 
-/-- End-to-end observable: `revertWithMessage` deterministically reverts and
-the reverted state's memory carries the canonical Error(string) header —
-selector word at 0, ABI offset 32 at 4, byte length at 36. -/
-theorem execIRStmts_revertWithMessage (message : String) (fuel : Nat)
+theorem MstoreWrites.storeTrace {stmts : List YulStmt} {writes : List (Nat × Nat)}
+    (trace : MstoreWrites stmts writes) : PhysicalPayloadStores.StoreTrace stmts writes := by
+  induction trace with
+  | nil => exact .nil
+  | consLit offset value trace ih => exact .consLit offset value ih
+  | consHex offset value trace ih => exact .consHex offset value ih
+
+/-- Actual execution retains the complete physical state at REVERT, including
+overlapping header stores. No revert-byte observer is assumed. -/
+theorem execIRStmts_revertWithMessage_physical (message : String) (fuel : Nat)
     (state : IRState) :
+    execIRStmts ((errorStringStmts message).length + fuel + 2) state
+      (revertWithMessage message) =
+      .revert (PhysicalPayloadStores.applyStores state (errorStringWrites message)) := by
+  rw [revertWithMessage_shape, (errorStringStmts_mstoreWrites message).length_eq]
+  exact PhysicalPayloadStores.exec_trace_revert
+    (errorStringStmts_mstoreWrites message).storeTrace state fuel 0 _
+
+private theorem ecm_chunker_eq (bytes : List UInt8) :
+    Compiler.ECM.chunkBytes32 bytes = Compiler.CompilationModel.chunkBytes32 bytes := by
+  rw [Compiler.ECM.chunkBytes32, Compiler.CompilationModel.chunkBytes32]
+  by_cases empty : bytes.isEmpty = true
+  · rw [if_pos empty, if_pos empty]
+  · rw [if_neg empty, if_neg empty, ecm_chunker_eq (bytes.drop 32)]
+termination_by bytes.length
+decreasing_by
+  simp_wf
+  cases bytes with
+  | nil => simp at empty
+  | cons head tail => simp
+
+private theorem errorStringWrites_physical (message : String) :
+    errorStringWrites message = PhysicalErrorStringExecution.writes message := by
+  simp only [errorStringWrites, PhysicalErrorStringExecution.writes,
+    PhysicalErrorStringExecution.dataWrites, Compiler.ECM.bytesFromString,
+    Compiler.CompilationModel.bytesFromString, ecm_chunker_eq]
+  rfl
+
+/-- The original header assertions are retained on actual physical memory;
+nonwrapping payload extent bounds the unbounded logical length as well. -/
+theorem execIRStmts_revertWithMessage (message : String) (fuel : Nat)
+    (state : IRState)
+    (extent : 68 + 32 * (Compiler.CompilationModel.chunkBytes32
+      (Compiler.CompilationModel.bytesFromString message)).length ≤ Verity.Core.Uint256.modulus) :
     ∃ finalState,
       execIRStmts ((errorStringStmts message).length + fuel + 2) state
           (revertWithMessage message) = .revert finalState ∧
       finalState.memory 0 = Compiler.Constants.errorStringSelectorWord ∧
       finalState.memory 4 = 32 ∧
-      finalState.memory 36 = (bytesFromString message).length := by
-  rw [revertWithMessage_shape,
-    show (errorStringStmts message).length + fuel + 2 =
-      (errorStringStmts message).length + (fuel + 1) + 1 from by omega,
-    execIRStmts_append_continue _ (errorStringStmts message) _ state _
-      (execIRStmts_mstoreWrites (errorStringStmts_mstoreWrites message)
-        (fuel + 1) state)]
-  refine ⟨{ state with
-      memory := applyWrites state.memory (errorStringWrites message) },
-    ?_, errorStringWrites_mem0 message state.memory,
-    errorStringWrites_mem4 message state.memory,
-    errorStringWrites_mem36 message state.memory⟩
-  rw [show (errorStringStmts message).length + (fuel + 1) + 1 -
-    (errorStringStmts message).length = (fuel + 1) + 1 from by omega]
-  show (match execIRStmt (fuel + 1)
-      { state with memory := applyWrites state.memory (errorStringWrites message) }
-      (YulStmt.exprStmt (.call "revert" [.lit 0,
-        .lit (68 + ((bytesFromString message).length + 31) / 32 * 32)])) with
-    | .continue s₁ => execIRStmts (fuel + 1) s₁ []
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s) = _
-  simp [execIRStmt]
+      finalState.memory 36 = (bytesFromString message).length ∧
+      finalState = PhysicalPayloadStores.applyStores state (errorStringWrites message) := by
+  refine ⟨_, execIRStmts_revertWithMessage_physical message fuel state, ?_, ?_, ?_, ?_⟩
+  · change (PhysicalPayloadStores.applyStores state (errorStringWrites message)).memory 0 = _
+    rw [errorStringWrites_physical]
+    exact PhysicalErrorStringWords.selector_word state message extent
+  · change (PhysicalPayloadStores.applyStores state (errorStringWrites message)).memory 4 = _
+    rw [errorStringWrites_physical]
+    exact PhysicalErrorStringWords.offset_word state message extent
+  · change (PhysicalPayloadStores.applyStores state (errorStringWrites message)).memory 36 = _
+    rw [errorStringWrites_physical]
+    exact PhysicalErrorStringWords.length_word state message extent
+  · rfl
+
+/-- Complete UTF-8 ABI payload in the actual reverted physical memory.
+This observes memory directly; it does not invent an IR revert-data carrier. -/
+theorem execIRStmts_revertWithMessage_payload_slice (message : String) (fuel : Nat)
+    (state : IRState)
+    (extent : 68 + 32 * (Compiler.CompilationModel.chunkBytes32
+      (Compiler.CompilationModel.bytesFromString message)).length ≤ Verity.Core.Uint256.modulus) :
+    ∃ finalState,
+      execIRStmts ((errorStringStmts message).length + fuel + 2) state
+        (revertWithMessage message) = .revert finalState ∧
+      (List.range (68 + ((bytesFromString message).length + 31) / 32 * 32)).map
+        (fun query => UInt8.ofNat (finalState.byteMemory.readByte query).val) =
+        Compiler.CompilationModel.Denote.errorStringBytes message := by
+  refine ⟨_, execIRStmts_revertWithMessage_physical message fuel state, ?_⟩
+  rw [errorStringWrites_physical]
+  exact PhysicalErrorStringBytes.payload_slice state message extent
 
 /-! ## Pointer-based stores
 
@@ -279,11 +305,12 @@ theorem execIRStmt_mstore_ptr (fuel : Nat) (state : IRState)
     execIRStmt (fuel + 1) state
         (.exprStmt (.call "mstore"
           [.call "add" [.ident ptrName, .lit off], .hex w])) =
-      .continue { state with
-        memory := fun x => if x = (p + off) % Compiler.Constants.evmModulus then w
-          else state.memory x } := by
+      .continue (state.writePhysicalMemoryValue
+        ((p + off) % Compiler.Constants.evmModulus) w) := by
   simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hptr,
-    YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+    YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Verity.Core.Uint256.val_ofNat, Compiler.Constants.evmModulus,
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS, Nat.mod_mod]
 
 /-- A block of pointer-offset stores applies its writes at the pointer. -/
 theorem execIRStmts_mstore_ptr_block (ptrName : String) (p : Nat) :
@@ -293,11 +320,10 @@ theorem execIRStmts_mstore_ptr_block (ptrName : String) (p : Nat) :
           (writes.map fun ow =>
             YulStmt.exprStmt (.call "mstore"
               [.call "add" [.ident ptrName, .lit ow.1], .hex ow.2])) =
-        .continue { state with
-          memory := applyWrites state.memory
-            (writes.map fun ow =>
-              ((p + ow.1) % Compiler.Constants.evmModulus, ow.2)) }
-  | [], _, state, _ => by simp [execIRStmts, applyWrites]
+        .continue (PhysicalPayloadStores.applyStores state
+          (writes.map fun ow =>
+            ((p + ow.1) % Compiler.Constants.evmModulus, ow.2)))
+  | [], _, state, _ => by simp [execIRStmts, PhysicalPayloadStores.applyStores]
   | (o, w) :: rest, fuel, state, hptr => by
       rw [show ((o, w) :: rest).length + fuel + 1 =
         (rest.length + fuel + 1) + 1 from by simp [List.length]; omega]
@@ -312,10 +338,13 @@ theorem execIRStmts_mstore_ptr_block (ptrName : String) (p : Nat) :
         | .stop s => .stop s
         | .revert s => .revert s) = _
       rw [execIRStmt_mstore_ptr (rest.length + fuel) state ptrName p o w hptr]
-      have hptr' : ({ state with
-          memory := fun x => if x = (p + o) % Compiler.Constants.evmModulus then w
-            else state.memory x } : IRState).getVar ptrName = some p := hptr
-      exact execIRStmts_mstore_ptr_block ptrName p rest fuel _ hptr' 
+      have hptr' : (state.writePhysicalMemoryValue
+          ((p + o) % Compiler.Constants.evmModulus) w).getVar ptrName = some p := hptr
+      change execIRStmts (rest.length + fuel + 1) _ _ = _
+      simpa only [List.map_cons, PhysicalPayloadStores.applyStores,
+        Verity.Core.Uint256.val_ofNat, Compiler.Constants.evmModulus,
+        Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS, Nat.mod_mod] using
+        execIRStmts_mstore_ptr_block ptrName p rest fuel _ hptr'
 
 /-- The log observable: a log builtin whose arguments evaluate appends
 exactly the encoded event and changes nothing else. -/

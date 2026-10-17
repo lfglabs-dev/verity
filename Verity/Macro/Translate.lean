@@ -579,7 +579,7 @@ private partial def validateEffectStmtExprTypes
       validateLinkedExternalCallArgs fields constDecls immutableDecls externalDecls params locals
         extName ext.params args
       let _ ← translateLinkedExternalCallArgs fields constDecls immutableDecls params locals args
-  | `(term| revertReturndata) =>
+  | `(term| revertEmpty) | `(term| revertReturndata) =>
       pure ()
   | _ =>
       -- a typed interface call in statement position is only valid when the
@@ -1095,6 +1095,8 @@ private def translateEffectStmt
           $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals destOffset)
           $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals sourceOffset)
           $(← translateDeclaredPureExpr fields constDecls immutableDecls externalDecls params locals size))
+  | `(term| revertEmpty) =>
+      `(Compiler.CompilationModel.Stmt.revertEmpty)
   | `(term| revertReturndata) =>
       `(Compiler.CompilationModel.Stmt.revertReturndata)
   | `(term| returnValues $values:term) =>

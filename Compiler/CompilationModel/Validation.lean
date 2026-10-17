@@ -810,6 +810,7 @@ def stmtReadsStateOrEnvNode : Stmt → Bool
   | Stmt.mstore offset value | Stmt.tstore offset value =>
       exprReadsStateOrEnv offset || exprReadsStateOrEnv value
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
+  | Stmt.revertEmpty => false
   | Stmt.revertReturndata =>
       true
   | Stmt.stop =>
@@ -988,6 +989,7 @@ def stmtReadsStateOrEnvWithFunctionEffectsNode
       exprReadsStateOrEnvWithFunctionEffects effects offset ||
         exprReadsStateOrEnvWithFunctionEffects effects value
   | Stmt.calldatacopy _ _ _ | Stmt.returndataCopy _ _ _ => true
+  | Stmt.revertEmpty => false
   | Stmt.revertReturndata =>
       true
   | Stmt.stop =>
@@ -1310,7 +1312,7 @@ def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
           exprContainsAdtConstruct size then
         throw "Compilation error: ADT construction cannot be used in copy offsets or sizes."
   | Stmt.storageArrayPop _ | Stmt.returnArray _ | Stmt.returnBytes _
-  | Stmt.returnStorageWords _ | Stmt.returnCodeData _ | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.returnStorageWords _ | Stmt.returnCodeData _ | Stmt.revertEmpty | Stmt.revertReturndata | Stmt.stop =>
       pure ()
   | Stmt.unsafeYul fragment =>
       if fragment.obligations.isEmpty then

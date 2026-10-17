@@ -4,6 +4,8 @@ import Verity.Core.Int256
 import Verity.Core.Model.Constants
 import Verity.Core.Model.DynamicAbi
 import Verity.Core.Model.Types
+import Verity.Core.Model.PhysicalMemory
+import Verity.Core.Model.ByteExternalCall
 
 
 /-!
@@ -259,6 +261,12 @@ def lookupValue (bindings : Env) (name : String) : Nat :=
 def lookupBinding? (bindings : Env) (name : String) : Option Nat :=
   bindings.find? (fun entry => entry.1 == name) |>.map Prod.snd
 
+/-- Explicit external execution boundary shared by public and traced callers.
+The default supplies no adversary: unsupported/unconfigured calls fail closed. -/
+structure ByteCallEnvironment where
+  adversary : Option (ByteExternalCall.Adversary Verity.ContractState Verity.StorageKey) := none
+  gas : Option Nat := none
+
 /-- Mirrors `SourceSemantics.RuntimeState`. -/
 structure DenoteState where
   world : Verity.ContractState
@@ -269,6 +277,13 @@ structure DenoteState where
   externalCallReturnValues : Nat → List Nat := fun _ => []
   externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none
   externalCallIndex : Nat := 0
+  /-- Explicit byte-call environment. Missing instrumentation fails closed. -/
+  byteCallAdversary : Option (ByteExternalCall.Adversary Verity.ContractState Verity.StorageKey) := none
+  /-- Gas allowance supplied by the call-boundary instrument, not estimated. -/
+  byteCallGas : Option Nat := none
+  /-- Exact EIP-211 buffer for byte transports; none selects the legacy lane. -/
+  rawReturndata : Option (List UInt8) := none
+  byteCallAccesses : List Verity.StorageKey := []
   /-- Words produced by `Stmt.returnValues`, in source order.
       `none` means this frame has not executed a multi-value return.
       The proof semantics records the words here and finishes with `.stop`;
@@ -899,7 +914,7 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .blobbasefee => some state.world.blobBaseFee.val
   | .calldatasize => some state.world.calldataSize.val
   -- Mirrors `SourceSemantics.evalExpr`: `returndatasize()` in bytes.
-  | .returndataSize => some state.world.returndataSize
+  | .returndataSize => some (state.rawReturndata.map List.length |>.getD state.world.returndataSize)
   | .localVar name => some (lookupValue state.bindings name)
   | .add a b => do
       let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields state a
@@ -1168,7 +1183,10 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
       some (state.world.codeSize (resolvedAddr % Compiler.Constants.addressModulus)).val
   | .returndataOptionalBoolAt offset => do
       let resolvedOffset ← evalExpr oracle fields state offset
-      some (state.world.returndataOptionalBool resolvedOffset)
+      match state.rawReturndata with
+      | none => some (state.world.returndataOptionalBool resolvedOffset)
+      | some bytes => some (if bytes.length = 0 then 1
+          else if bytes.length = 32 ∧ (state.world.memory resolvedOffset).val = 1 then 1 else 0)
   -- The reserved `exp` builtin lane: pure arithmetic wearing an `externalCall`
   -- node, so it needs no oracle. Genuine foreign calls stay undenoted.
   | .externalCall name [base, exponent] =>
@@ -1199,6 +1217,89 @@ def evalExprList (oracle : DenoteOracle) (fields : List Field) (state : DenoteSt
       let value ← evalExpr oracle fields state expr
       let values ← evalExprList oracle fields state rest
       pure (value :: values)
+
+/-- Exact UInt8-to-physical-byte conversion. -/
+def rawPhysicalByte (bytes : List UInt8) (index : Nat) : DenoteMemory.Byte :=
+  ⟨(bytes.getD index 0).toNat, UInt8.toNat_lt _⟩
+
+/-- Evaluate the generated mstores in order, including memory-dependent
+arguments. Each argument sees earlier selector/argument stores. -/
+def byteStaticArgumentStores (oracle : DenoteOracle) (fields : List Field)
+    (pointer : Nat) : DenoteState → Nat → List Expr →
+      Option (DenoteState × List (DenoteState × Expr))
+  | state, _, [] => some (state, [])
+  | state, index, argument :: rest => do
+      let value ← evalExpr oracle fields state argument
+      let world := state.world.writePhysicalMemoryValue
+        (wordNormalize (pointer + 4 + index * 32)) (Verity.Core.Uint256.ofNat value)
+      let next := { state with world }
+      let (final, reads) ← byteStaticArgumentStores oracle fields pointer next (index + 1) rest
+      return (final, (state, argument) :: reads)
+
+structure ByteStaticPreparation where
+  request : ByteExternalCall.Request
+  frame : DenoteState
+  pointer : Nat
+  /-- Expression observation uses the same intermediate state as execution. -/
+  reads : List (DenoteState × Expr)
+
+/-- Prepare precisely the scratch writes made by the canonical Yul transport.
+The target is evaluated after scratch writes, as in the emitted staticcall.
+Calldata is read from physical memory, so overlapping writes are observable. -/
+def prepareByteStaticCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector numStaticArgs : Nat)
+    (args : List Expr) : Except String ByteStaticPreparation := do
+  unless selector < 2^32 do throw "byte staticcall selector exceeds four bytes"
+  unless args.length == numStaticArgs + 1 do throw "byte staticcall argument count differs"
+  let some gas := state.byteCallGas | throw "byte staticcall gas environment missing"
+  let some targetExpr := args.head? | throw "byte staticcall target missing"
+  let pointer := (state.world.memory 64).val
+  let initialized := { state with bindings := bindValue state.bindings resultVar 0 }
+  let selectorWorld := initialized.world.writePhysicalMemoryValue
+    pointer (Verity.Core.Uint256.ofNat (selector * 2^224))
+  let selectorState := { initialized with world := selectorWorld }
+  let some (stored, reads) := byteStaticArgumentStores oracle fields pointer selectorState 0 (args.drop 1)
+    | throw "byte staticcall argument evaluation unsupported"
+  let dataSize := 4 + numStaticArgs * 32
+  let preparedWorld := stored.world.writePhysicalMemoryValue 64
+    (Verity.Core.Uint256.ofNat (pointer + ((dataSize + 31) / 32) * 32))
+  let prepared := { stored with world := preparedWorld }
+  let some target := evalExpr oracle fields prepared targetExpr
+    | throw "byte staticcall target evaluation unsupported"
+  let request : ByteExternalCall.Request :=
+    { kind := .staticcall, caller := prepared.world.thisAddress.val,
+      target := target % 2^160, value := 0, gas,
+      calldata := (List.range dataSize).map fun index =>
+        UInt8.ofNat (prepared.world.physicalByte (pointer + index)).val }
+  return { request, frame := prepared, pointer, reads := reads ++ [(prepared, targetExpr)] }
+
+/-- Canonical closed byte-call dispatch and its cancelled-access observation.
+An absent adversary is an instrumentation error, distinct from an EVM revert.
+Static validity is proved by the supplied adversary; no behavior is invented. -/
+def executeByteStaticCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (selector numStaticArgs : Nat) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs do
+    throw "closed byte staticcall metadata differs"
+  let some adversary := state.byteCallAdversary | throw "byte staticcall adversary missing"
+  let preparation ← prepareByteStaticCall oracle fields state resultVar selector numStaticArgs args
+  let prepared := preparation.frame
+  let pointer := preparation.pointer
+  let observed ← ByteExternalCall.executeChecked adversary preparation.request prepared.world
+  if !observed.success then return (.revertWithData observed.returndata, observed.touched)
+  if observed.returndata.length < 32 then return (.revertWithData [], observed.touched)
+  let world := observed.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+    pointer 0 32
+  let value := (world.memory pointer).val
+  let next := {
+    prepared with
+    world := world
+    bindings := bindValue prepared.bindings resultVar value
+    rawReturndata := some observed.returndata
+    byteCallAccesses := state.byteCallAccesses ++ observed.touched
+  }
+  return (.continue next, observed.touched)
 
 /-! ## Statement denotation (mirrors event-less `SourceSemantics.execStmt`) -/
 
@@ -1449,11 +1550,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -1485,19 +1582,26 @@ mutual
         match evalExpr oracle fields state destOffset, evalExpr oracle fields state sourceOffset,
             evalExpr oracle fields state size with
         | some dst, some src, some sz =>
-            -- Same bounded-copy semantics as `SourceSemantics.execStmt` and the
-            -- IR interpreter: in-bounds extents copy complete words and merge
-            -- a final partial word; out-of-bounds extents revert identically.
-            if src + sz ≤ 32 * state.world.returndata.length then
-              .continue {
-                state with
-                world := {
-                  state.world with
-                  memory := returndatacopyMemoryPaddedUint256
-                    state.world.returndata dst src sz state.world.memory
-                }
-              }
-            else .revert
+            match state.rawReturndata with
+            | some bytes =>
+                if src + sz ≤ bytes.length then
+                  let world := state.world.copyPhysicalMemory (rawPhysicalByte bytes) dst src sz
+                  .continue { state with world }
+                else .revert
+            | none =>
+                -- Same bounded-copy semantics as `SourceSemantics.execStmt` and the
+                -- IR interpreter: in-bounds extents copy complete words and merge
+                -- a final partial word; out-of-bounds extents revert identically.
+                if src + sz ≤ 32 * state.world.returndata.length then
+                  .continue {
+                    state with
+                    world := {
+                      state.world with
+                      memory := returndatacopyMemoryPaddedUint256
+                        state.world.returndata dst src sz state.world.memory
+                    }
+                  }
+                else .revert
         | _, _, _ => .revert
     | state, .require cond message =>
         match evalExpr oracle fields state cond with
@@ -1533,8 +1637,7 @@ mutual
         match evalExpr oracle fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop { state with observedStop := true }
     | state, .ite cond thenBranch elseBranch =>
@@ -1587,7 +1690,7 @@ mutual
                         state.world with returndata := retVals.map wordNormalize }
                       bindings := bindValues state.bindings resultVars
                         (retVals.map wordNormalize)
-                      externalCallIndex := state.externalCallIndex + 1 }
+                      externalCallIndex := state.externalCallIndex + 1, rawReturndata := none }
             else .revert
         | none => .revert
     | state, .tryExternalCallBind successVar resultVars _externalName args =>
@@ -1604,7 +1707,7 @@ mutual
                       bindings := bindValues
                         (bindValue state.bindings successVar 1)
                         resultVars (retVals.map wordNormalize)
-                      externalCallIndex := state.externalCallIndex + 1 }
+                      externalCallIndex := state.externalCallIndex + 1, rawReturndata := none }
             else
               .continue
                 { state with
@@ -1613,26 +1716,34 @@ mutual
                     bindings := bindValues
                       (bindValue state.bindings successVar 0)
                       resultVars (retVals.map wordNormalize)
-                    externalCallIndex := state.externalCallIndex + 1 }
+                    externalCallIndex := state.externalCallIndex + 1, rawReturndata := none }
         | none => .revert
     | state, .ecm mod args =>
-        match evalExprList oracle fields state args with
-        | some _ =>
-            if state.externalCallSucceeded state.externalCallIndex then
-              let retVals := state.externalCallReturnValues state.externalCallIndex
-              if retVals.length != mod.resultVars.length then .revert
-              else
-                .continue
-                  { state with
-                      world := { mod.committedWorld
-                        (state.externalCallPostWorld state.externalCallIndex) state.world with
-                        returndata := retVals.map wordNormalize }
-                      bindings := bindValues state.bindings mod.resultVars
-                        (retVals.map wordNormalize)
-                      externalCallIndex := state.externalCallIndex + 1 }
-            else .revert
-        | none => .revert
-    | state, .revertReturndata => .revertWithData (state.world.returndata.flatMap wordBytes)
+        match mod.byteTransport with
+        | some (.staticUint256 resultVar selector numStaticArgs) =>
+            match executeByteStaticCall oracle fields state mod resultVar selector numStaticArgs args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | none =>
+            match evalExprList oracle fields state args with
+            | some _ =>
+                if state.externalCallSucceeded state.externalCallIndex then
+                  let retVals := state.externalCallReturnValues state.externalCallIndex
+                  if retVals.length != mod.resultVars.length then .revert
+                  else
+                    .continue
+                      { state with
+                          world := { mod.committedWorld
+                            (state.externalCallPostWorld state.externalCallIndex) state.world with
+                            returndata := retVals.map wordNormalize }
+                          bindings := bindValues state.bindings mod.resultVars
+                            (retVals.map wordNormalize)
+                          externalCallIndex := state.externalCallIndex + 1, rawReturndata := none }
+                else .revert
+            | none => .revert
+    | _, .revertEmpty => .revertWithData []
+    | state, .revertReturndata => .revertWithData
+        (state.rawReturndata.getD (state.world.returndata.flatMap wordBytes))
     | state, .returnValues values =>
         match evalExprList oracle fields state values with
         | some resolved =>
@@ -1684,6 +1795,8 @@ structure DenoteResult where
       Empty when the frame returned a single word or no word.
       Order is the source order of the return expressions. -/
   returnWords : List Nat := []
+  /-- Exact bytes from an observed revert; none is not an invented empty payload. -/
+  revertData : Option (List UInt8) := none
   finalStorage : Nat → Nat
   events : List (List Nat)
 
@@ -1778,7 +1891,8 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
     (tx : DenoteTransaction) (initialWorld : Verity.ContractState)
     (externalCallSucceeded : Nat → Bool := fun _ => false)
     (externalCallReturnValues : Nat → List Nat := fun _ => [])
-    (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none) : DenoteResult :=
+    (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none)
+    (byteCalls : ByteCallEnvironment := {}) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
@@ -1789,7 +1903,9 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
             errors := spec.errors,
             externalCallSucceeded := externalCallSucceeded,
             externalCallReturnValues := externalCallReturnValues,
-            externalCallPostWorld := externalCallPostWorld }
+            externalCallPostWorld := externalCallPostWorld,
+            byteCallAdversary := byteCalls.adversary,
+            byteCallGas := byteCalls.gas }
           fn.body with
       | .continue state => successResult oracle spec state.world none
       | .stop state =>
@@ -1803,7 +1919,9 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
           successResult oracle spec state.world none
             (returnWords := state.observedReturnWords.getD [])
       | .return value state => successResult oracle spec state.world (some value)
-      | .revert | .revertWithData _ => revertedResult oracle spec worldWithTx
+      | .revert => revertedResult oracle spec worldWithTx
+      | .revertWithData bytes =>
+          { (revertedResult oracle spec worldWithTx) with revertData := some bytes }
 
 /-! ## Smoke checks (oracle-independent scenarios) -/
 

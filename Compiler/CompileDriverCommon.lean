@@ -370,7 +370,7 @@ private partial def collectIntrinsicUsesStmt : Stmt → List IntrinsicUse
       collectIntrinsicUsesExpr scrutinee ++
         branches.flatMap fun (_, _, body) => body.flatMap collectIntrinsicUsesStmt
   | .storageArrayPop _ | .returnArray _ | .returnBytes _ | .returnStorageWords _
-  | .revertReturndata | .stop =>
+  | .revertEmpty | .revertReturndata | .stop =>
       []
   | .unsafeYul _ =>
       []

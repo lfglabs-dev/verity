@@ -1,4 +1,10 @@
 import Compiler.Proofs.IRGeneration.IRStorageWord
+import Verity.Core.ByteMemory
+import Verity.Core.Model.ByteMemoryRoundtrip
+
+open Compiler.CompilationModel
+open Compiler.CompilationModel.DenoteMemory
+open Verity.Core
 
 namespace Compiler.Proofs.IRGeneration
 
@@ -15,6 +21,9 @@ structure IRState where
   transientStorage : Nat → Nat := fun _ => 0
   /-- Memory words (offset -> value). -/
   memory : Nat → Nat
+  /-- Physical byte-backed memory carrier.  The word view above is kept as an
+      executable compatibility projection until all IR proofs have migrated. -/
+  byteMemory : Memory := Memory.empty
   /-- Calldata words. -/
   calldata : List Nat
   /-- Return value, if any. -/
@@ -63,6 +72,33 @@ def IRState.initial (sender : Nat) : IRState :=
     txOrigin := 0
     selector := 0
     events := [] }
+
+/-- Exact EVM `mstore` update for the IR state.  The legacy word view is
+    recomputed from the byte carrier, so overlapping and unaligned reads are
+    represented without approximation. -/
+def IRState.installPhysicalMemory (state : IRState) (physical : Memory) : IRState :=
+  { state with
+      byteMemory := physical
+      memory := fun query => (wordValue (physical.readWord query)).val }
+
+def IRState.writePhysicalMemoryValue (state : IRState) (offset value : Nat) : IRState :=
+  state.installPhysicalMemory
+    (state.byteMemory.writeWord offset (valueWord (Uint256.ofNat value)))
+
+@[simp] theorem IRState.writePhysicalMemoryValue_at (state : IRState) (offset value : Nat) :
+    (state.writePhysicalMemoryValue offset value).memory offset = (Uint256.ofNat value).val := by
+  change (wordValue ((state.byteMemory.writeWord offset
+    (valueWord (Uint256.ofNat value))).readWord offset)).val = _
+  rw [Memory.readWord_writeWord_at, wordValue_valueWord]
+
+@[simp] theorem IRState.writePhysicalMemoryValue_storage (state : IRState) (offset value : Nat) :
+    (state.writePhysicalMemoryValue offset value).storage = state.storage := rfl
+
+@[simp] theorem IRState.writePhysicalMemoryValue_events (state : IRState) (offset value : Nat) :
+    (state.writePhysicalMemoryValue offset value).events = state.events := rfl
+
+@[simp] theorem IRState.writePhysicalMemoryValue_vars (state : IRState) (offset value : Nat) :
+    (state.writePhysicalMemoryValue offset value).vars = state.vars := rfl
 
 /-- Lookup variable in state. -/
 def IRState.getVar (s : IRState) (name : String) : Option Nat :=

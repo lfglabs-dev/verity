@@ -582,7 +582,7 @@ def validateScopedStmtIdentifiers
       else
         pure localScope
   | Stmt.returnStorageWords _
-  | Stmt.revertReturndata | Stmt.stop =>
+  | Stmt.revertEmpty | Stmt.revertReturndata | Stmt.stop =>
       pure localScope
   | Stmt.unsafeYul fragment => do
       let mut scope := localScope

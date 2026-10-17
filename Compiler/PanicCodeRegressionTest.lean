@@ -123,14 +123,12 @@ example (fuel : Nat) (state : IRState) (code offset size : Nat) :
 -- for an empty revert, despite the emitted-AST checks above requiring 36 bytes.
 example (fuel : Nat) (state : IRState) :
     execIRStmts (fuel + 4) state (panicPayloadWithRevertRange 0x11 0 0) =
-      .revert { state with memory := fun o =>
-        if o = 4 then 0x11 else if o = 0 then panicSelectorWord else state.memory o } := by
+      .revert (panicPayloadState state 0x11) := by
   exact execIRStmts_arithmeticOverflowPanicPayload fuel state
 
 example (fuel : Nat) (state : IRState) :
     execIRStmts (fuel + 4) state (panicPayloadWithRevertRange 0x12 0 0) =
-      .revert { state with memory := fun o =>
-        if o = 4 then 0x12 else if o = 0 then panicSelectorWord else state.memory o } := by
+      .revert (panicPayloadState state 0x12) := by
   exact execIRStmts_divisionByZeroPanicPayload fuel state
 
 private def expectedPanicBytesForTest (code : UInt8) : ByteArray :=

@@ -39,9 +39,9 @@ def snapshot(destination):
     # directory, not that link, or mutants overwrite the parent's compiled code.
     build = (WORKSPACE / ".lake/build").resolve(strict=True)
     if sys.platform == "darwin":
-        command(["/bin/cp", "-cR", build, cache / "build"], timeout=300)
+        command(["/bin/cp", "-cRL", build, cache / "build"], timeout=300)
     else:
-        command(["cp", "-a", "--reflink=auto", build, cache / "build"], timeout=300)
+        command(["cp", "-aL", "--reflink=auto", build, cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
     for compiler_name in ("solc-0.8.34", "solc-0.8.10"):
         compiler_src = WORKSPACE / ".lake/solidity-import" / compiler_name

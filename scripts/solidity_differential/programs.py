@@ -258,6 +258,20 @@ def stateful_environment_source(original, variant):
     raise ValueError('unknown environment variant: ' + variant)
 
 
+def stateful_empty_revert_source(original, variant):
+    """Equivalent bare-revert programs, including persisted/rolled-back writes."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        return original.replace('next', 'replacement').replace('saved', 'stored')
+    if variant == 'expression':
+        old = 'if (next % 2 != 0) revert();'
+        if original.count(old) != 1:
+            raise ValueError('nonunique empty-revert variant anchor')
+        return original.replace(old, 'if ((next & 1) == 1) revert();')
+    raise ValueError('unknown empty-revert program variant')
+
+
 def stateful_storage_source(original, variant):
     """Equivalent packed scalar writes/deletes, imported independently per variant."""
     if variant == 'baseline':

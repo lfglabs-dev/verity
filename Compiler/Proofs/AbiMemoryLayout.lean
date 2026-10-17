@@ -189,6 +189,137 @@ theorem applyWrites_abiBlockWrites_getElem
   simpa [yulLogDataWords, hcount, List.getElem?_map, List.getElem?_range, hindex,
     List.getElem?_eq_getElem] using this
 
+/-! ## Physical word blocks
+
+The compiled `mstore` block writes 32 physical bytes per word. The legacy word
+view is recomputed from those bytes, so an aligned, non-wrapping block reads
+back each written word reduced to the EVM word size. -/
+
+/-- After at least one physical store the word view is the decoded byte view. -/
+theorem applyStores_write_memory (state : IRState) (offset value : Nat) :
+    ∀ (rest : List (Nat × Nat)),
+      (PhysicalPayloadStores.applyStores (state.writePhysicalMemoryValue offset value) rest).memory =
+        fun query => (DenoteMemory.wordValue
+          ((PhysicalPayloadStores.applyStores (state.writePhysicalMemoryValue offset value)
+            rest).byteMemory.readWord query)).val
+  | [] => rfl
+  | (o, v) :: rest => by
+      simp only [PhysicalPayloadStores.applyStores]
+      exact applyStores_write_memory _ _ _ rest
+
+/-- Stores of a fitting block all land at or above its base. -/
+private theorem abiBlockWrites_extent_ge :
+    ∀ (words : List Nat) (base : Nat),
+      base + 32 * words.length ≤ Compiler.Constants.evmModulus →
+      ∀ ow ∈ abiBlockWrites base words,
+        base ≤ (Verity.Core.Uint256.ofNat ow.1).val := by
+  intro words
+  induction words with
+  | nil => intro base _ ow hmem; simp at hmem
+  | cons word rest ih =>
+      intro base hfit ow hmem
+      have hbase : base < Compiler.Constants.evmModulus := by
+        simp only [List.length_cons] at hfit
+        omega
+      simp only [abiBlockWrites_cons, List.mem_cons] at hmem
+      rcases hmem with rfl | hmem
+      · have hkey : (Verity.Core.Uint256.ofNat (base % Compiler.Constants.evmModulus)).val = base := by
+          simp only [Verity.Core.Uint256.val_ofNat, Nat.mod_eq_of_lt hbase]
+          exact Nat.mod_eq_of_lt hbase
+        show base ≤ (Verity.Core.Uint256.ofNat (base % Compiler.Constants.evmModulus)).val
+        rw [hkey]
+      · have hfit' : base + 32 + 32 * rest.length ≤ Compiler.Constants.evmModulus := by
+          simp only [List.length_cons] at hfit
+          omega
+        have := ih (base + 32) hfit' ow hmem
+        omega
+
+/-- The head word of a fitting block survives every later store of the block. -/
+theorem applyStores_abiBlockWrites_head (state : IRState) (word : Nat) (rest : List Nat)
+    (base : Nat)
+    (hfit : base + 32 + 32 * rest.length ≤ Compiler.Constants.evmModulus) :
+    (PhysicalPayloadStores.applyStores state (abiBlockWrites base (word :: rest))).memory
+        (base % Compiler.Constants.evmModulus) = word % Compiler.Constants.evmModulus := by
+  have hbase : base < Compiler.Constants.evmModulus := by omega
+  have hkey : (Verity.Core.Uint256.ofNat base).val = base := by
+    simp only [Verity.Core.Uint256.val_ofNat]
+    exact Nat.mod_eq_of_lt hbase
+  rw [abiBlockWrites_cons]
+  simp only [PhysicalPayloadStores.applyStores]
+  rw [applyStores_write_memory, Nat.mod_eq_of_lt hbase]
+  have hword :
+      (PhysicalPayloadStores.applyStores
+          (state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat base).val word)
+          (abiBlockWrites (base + 32) rest)).byteMemory.readWord base =
+        DenoteMemory.valueWord (Verity.Core.Uint256.ofNat word) := by
+    funext index
+    have hbyte := PhysicalPayloadStores.applyStores_byte_written state
+      base word (abiBlockWrites (base + 32) rest) index
+      (fun ow hmem => by
+        have := abiBlockWrites_extent_ge rest (base + 32) hfit ow hmem
+        rw [hkey]
+        have := index.isLt
+        omega)
+    rw [hkey] at hbyte
+    simpa only [PhysicalPayloadStores.applyStores, DenoteMemory.Memory.readWord] using hbyte
+  beta_reduce
+  rw [hword, DenoteMemory.wordValue_valueWord]
+  simp [Verity.Core.Uint256.val_ofNat, Verity.Core.Uint256.modulus,
+    Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS]
+
+/-- **Physical memory layout of a word block.** Reading `words.length`
+consecutive words back from `base` returns the written words reduced to EVM
+words, provided the block does not wrap the 256-bit address space. -/
+theorem yulLogDataWords_applyStores_abiBlockWrites :
+    ∀ (words : List Nat) (base : Nat) (state : IRState),
+      base + 32 * words.length ≤ Compiler.Constants.evmModulus →
+      yulLogDataWords
+          (PhysicalPayloadStores.applyStores state (abiBlockWrites base words)).memory base
+          (32 * words.length) = words.map (· % Compiler.Constants.evmModulus) := by
+  intro words
+  induction words with
+  | nil => intro base state _; simp [yulLogDataWords]
+  | cons word rest ih =>
+      intro base state hfit
+      have hfit' : base + 32 + 32 * rest.length ≤ Compiler.Constants.evmModulus := by
+        simp only [List.length_cons] at hfit
+        omega
+      have hcount : 32 * (word :: rest).length / 32 = rest.length + 1 := by
+        simp only [List.length_cons]
+        omega
+      set shadowed := state.writePhysicalMemoryValue
+        (Verity.Core.Uint256.ofNat (base % Compiler.Constants.evmModulus)).val word
+      have hsplit :
+          PhysicalPayloadStores.applyStores state (abiBlockWrites base (word :: rest)) =
+            PhysicalPayloadStores.applyStores shadowed (abiBlockWrites (base + 32) rest) := rfl
+      have hhead := applyStores_abiBlockWrites_head state word rest base hfit'
+      have htail := ih (base + 32) shadowed hfit'
+      rw [yulLogDataWords, hcount, List.range_succ_eq_map]
+      simp only [List.map_cons, List.map_map, Nat.zero_mul, Nat.add_zero, hhead,
+        List.cons.injEq, true_and]
+      rw [yulLogDataWords,
+        show 32 * rest.length / 32 = rest.length from by omega] at htail
+      refine Eq.trans ?_ htail
+      apply List.map_congr_left
+      intro i _
+      show (PhysicalPayloadStores.applyStores state (abiBlockWrites base (word :: rest))).memory
+          ((base + (i + 1) * 32) % Compiler.Constants.evmModulus) =
+        (PhysicalPayloadStores.applyStores shadowed (abiBlockWrites (base + 32) rest)).memory
+          ((base + 32 + i * 32) % Compiler.Constants.evmModulus)
+      rw [hsplit, show base + (i + 1) * 32 = base + 32 + i * 32 from by omega]
+
+/-- Bounded words read back exactly. -/
+theorem yulLogDataWords_applyStores_abiBlockWrites_of_lt (words : List Nat) (base : Nat)
+    (state : IRState)
+    (hfit : base + 32 * words.length ≤ Compiler.Constants.evmModulus)
+    (hwords : ∀ word ∈ words, word < Compiler.Constants.evmModulus) :
+    yulLogDataWords
+        (PhysicalPayloadStores.applyStores state (abiBlockWrites base words)).memory base
+        (32 * words.length) = words := by
+  rw [yulLogDataWords_applyStores_abiBlockWrites words base state hfit]
+  conv => rhs; rw [← List.map_id words]
+  exact List.map_congr_left fun word hmem => Nat.mod_eq_of_lt (hwords word hmem)
+
 /-! ## The slice-1 and slice-2 encoders in memory -/
 
 @[simp] theorem abiEncodeScalarHeads_length (args : List (ParamType × Nat)) :

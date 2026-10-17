@@ -21,6 +21,7 @@ open Compiler.CompilationModel (Expr Field Stmt)
 small: footprint computation will produce lists of these resources in a later
 PR, while this module only proves the frame algebra over explicit write sets. -/
 inductive Resource where
+  /-- Half-open interval of physical byte addresses, not word starting offsets. -/
   | mem (lo hi : Nat)
   | binding (name : String)
   | static
@@ -50,15 +51,30 @@ theorem disjoint_comm {r w : Resource} (h : Disjoint r w) : Disjoint w r := by
     · exact Or.inl h
   · exact fun heq => h heq.symm
 
-/-- Agreement of two runtime states on one resource. -/
+/-- Agreement on physical byte ranges, local bindings, or static context.
+Memory resources do not compare arbitrary incompatible legacy word maps. -/
 def OwnedEq (r : Resource) (st s : RuntimeState) : Prop :=
   match r with
   | .mem lo hi =>
-      ∀ i, lo ≤ i → i < hi → s.world.memory i = st.world.memory i
+      ∀ i, lo ≤ i → i < hi → s.world.physicalByte i = st.world.physicalByte i
   | .binding name =>
       lookupValue s.bindings name = lookupValue st.bindings name
   | .static =>
       s.selector = st.selector ∧ s.world.calldata = st.world.calldata
+
+/-- A physical byte frame recovers every complete word window in its range.
+Coherence is explicit for both legacy word observations; no such hypothesis is
+needed for the byte frame itself. -/
+theorem ownedEq_word_window {lo hi address : Nat} {before after : RuntimeState}
+    (same : OwnedEq (.mem lo hi) before after)
+    (inside : lo ≤ address ∧ address + 32 ≤ hi)
+    (beforeCoherent : Compiler.CompilationModel.PhysicalMemory.Coherent before.world)
+    (afterCoherent : Compiler.CompilationModel.PhysicalMemory.Coherent after.world) :
+    after.world.memory address = before.world.memory address := by
+  rw [afterCoherent address, beforeCoherent address]
+  congr 1
+  funext index
+  exact same (address + index.val) (by omega) (by have := index.isLt; omega)
 
 theorem ownedEq_refl (r : Resource) (st : RuntimeState) : OwnedEq r st st := by
   cases r <;> simp [OwnedEq]
@@ -230,7 +246,7 @@ theorem stmtWritesOnly_mstore
     (hoff : ∀ ⦃st s : RuntimeState⦄,
       execStmt fields st (.mstore offset value) = .continue s →
       evalExpr fields st offset = some resolvedOffset) :
-    StmtWritesOnly fields (.mstore offset value) [.mem resolvedOffset (resolvedOffset + 1)] := by
+    StmtWritesOnly fields (.mstore offset value) [.mem resolvedOffset (resolvedOffset + 32)] := by
   intro st s h r hdisj
   have hoff' := hoff h
   cases r with
@@ -240,13 +256,14 @@ theorem stmtWritesOnly_mstore
       cases hval : evalExpr fields st value <;> simp [hval] at h
       cases h
       intro i hlo hhi
-      have hne : i ≠ resolvedOffset := by
-        intro heq
-        have hdisj' := hdisj (.mem resolvedOffset (resolvedOffset + 1)) (by simp)
-        subst i
-        simp [Disjoint] at hdisj'
-        rcases hdisj' with hleft | hright <;> omega
-      simp [hne]
+      have separated := hdisj (.mem resolvedOffset (resolvedOffset + 32)) (by simp)
+      have outside : i < resolvedOffset ∨ resolvedOffset + 32 ≤ i := by
+        simp only [Disjoint] at separated
+        rcases separated with left | right
+        · exact Or.inl (by omega)
+        · exact Or.inr (by omega)
+      exact Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryValue_byte_outside
+        st.world resolvedOffset _ i outside
   | binding key =>
       simp [OwnedEq, execStmt] at h ⊢
       rw [hoff'] at h
@@ -318,7 +335,7 @@ mutual
     | .assignVar name _ => some [.binding name]
     | .mstore offset _ => do
         let resolvedOffset ← Expr.staticValue offset
-        some [.mem resolvedOffset (resolvedOffset + 1)]
+        some [.mem resolvedOffset (resolvedOffset + 32)]
     | .tstore _ _ => some []
     | .require _ _ => some []
     | .return _ => some []
@@ -891,8 +908,7 @@ theorem execStmt_mstore_preserves_bindings_except
     (h : execStmt [] st (.mstore off val) = .continue s) :
     PreservesBindingsExcept st s [] := by
   rw [show execStmt [] st (.mstore off val) = (match evalExpr [] st off, evalExpr [] st val with
-    | some ro, some rv => .continue { st with world := { st.world with
-        memory := fun o => if o = ro then rv else st.world.memory o } }
+    | some ro, some rv => .continue { st with world := st.world.writePhysicalMemoryValue ro rv }
     | _, _ => .revert) from rfl] at h
   cases hoff : evalExpr [] st off with
   | none => rw [hoff] at h; exact absurd h (by simp)
@@ -925,8 +941,7 @@ theorem execStmt_mstore_preserves_selector_calldata
     (h : execStmt [] st (.mstore off val) = .continue s) :
     PreservesSelectorCalldata st s := by
   rw [show execStmt [] st (.mstore off val) = (match evalExpr [] st off, evalExpr [] st val with
-    | some ro, some rv => .continue { st with world := { st.world with
-        memory := fun o => if o = ro then rv else st.world.memory o } }
+    | some ro, some rv => .continue { st with world := st.world.writePhysicalMemoryValue ro rv }
     | _, _ => .revert) from rfl] at h
   cases hoff : evalExpr [] st off with
   | none => rw [hoff] at h; exact absurd h (by simp)

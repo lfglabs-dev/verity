@@ -597,6 +597,19 @@ theorem bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore
     subst stmt
     exact bridgedSourceReturndatacopyStmt_of_exprCompileCore hDest)
 
+/-- Direct empty revert is a native safe body with no expression parameters. -/
+theorem bridgedSafeStmts_revertEmptySingle
+    {fields : List Field} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} :
+    BridgedSafeStmts fields errors dynamicSource internalRetNames isInternal
+      [Stmt.revertEmpty] :=
+  BridgedSafeStmts.revertReturndata (by
+    intro stmt hMem
+    simp only [List.mem_singleton] at hMem
+    subst stmt
+    exact BridgedSourceRevertReturndataStmt.revertEmpty)
+
 /-- `Stmt.revertReturndata` is a native safe body unconditionally — it has
     no expression parameters. -/
 theorem bridgedSafeStmts_revertReturndataEmptySingle

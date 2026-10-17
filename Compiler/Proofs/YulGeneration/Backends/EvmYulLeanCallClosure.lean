@@ -591,12 +591,14 @@ Concrete modules (e.g., `Compiler.Modules.SafeTransfer`) can be added to
 the closure once their compilation output is shown to satisfy the
 obligation. -/
 
-/-- Bridge obligation for an ECM module: whenever the args presented to
-`mod.compile` are all `BridgedExpr`, the emitted Yul-statement list is
-`BridgedStmts`. -/
+/-- Bridge obligation for an ECM module: whenever the args presented to the
+compiler's `mod.compileCanonical` are all `BridgedExpr`, the emitted
+Yul-statement list is `BridgedStmts`. For modules without a closed byte
+transport `compileCanonical` is `mod.compile`; a closed transport is compiled
+from its descriptor, so the obligation is stated for the code actually emitted. -/
 def ECMBridgeable (mod : ECM.ExternalCallModule) : Prop :=
   ∀ (ctx : ECM.CompilationContext) (args : List YulExpr) (out : List YulStmt),
-    (∀ a ∈ args, BridgedExpr a) → mod.compile ctx args = .ok out → BridgedStmts out
+    (∀ a ∈ args, BridgedExpr a) → mod.compileCanonical ctx args = .ok out → BridgedStmts out
 
 /-- A source `Stmt.ecm` whose argument expressions are `BridgedSourceExpr`
 and whose target module satisfies `ECMBridgeable`. -/
@@ -630,7 +632,7 @@ theorem compileStmt_ecm_bridged
         simp [hExprs] at hOk
         have hArgsBridged : ∀ y ∈ argExprs, BridgedExpr y :=
           compileExprList_bridgedSource fields dynamicSource hArgs hExprs
-        cases hModule : mod.compile
+        cases hModule : mod.compileCanonical
             { isDynamicFromCalldata := dynamicSource == .calldata } argExprs with
         | error _ => simp [hModule] at hOk
         | ok generated =>

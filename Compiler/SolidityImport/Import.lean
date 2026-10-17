@@ -657,7 +657,7 @@ private def convertStructCalldataToMemory (descriptor : MemParam) (at_ : Json) :
       if let some bound := limit then
         checks := checks.push (.ite
           (.lt (.calldataload (.add (.localVar descriptor.headBinding) (.literal (32*j)))) (.literal bound))
-          [] [.revertReturndata])
+          [] [.revertEmpty])
     return (checks, { descriptor with calldataLocation := false })
   failAt at_ "struct reference has no supported complete ABI schema"
 
@@ -2572,7 +2572,7 @@ private def readAbiMember (id : Nat) (pre : Array Stmt) (member : String) (at_ :
       if let some bound := limit then
         pre := pre.push (.ite
           (.lt (.calldataload (.add (.localVar mem.headBinding) (.literal (32*idx))))
-            (.literal bound)) [] [.revertReturndata])
+            (.literal bound)) [] [.revertEmpty])
     return { pre, expr := .param modelParam }
   failAt at_ "struct member has no supported complete ABI schema"
 
@@ -8599,7 +8599,7 @@ private partial def trySignFlipSelfCall? (fnId : Nat) (args : Array CallArg) (at
              multiHelperResults := none, flatStructHelperResult := none }
   let some boundParamExpr := (← get).values.find? pid
     | failAt at_ "unbound sign-flip parameter"
-  pre := pre.push (.ite (.slt boundParamExpr (.literal 0)) [.revertReturndata] [])
+  pre := pre.push (.ite (.slt boundParamExpr (.literal 0)) [.revertEmpty] [])
   noteFn fn
   let resultType ← mType rets[0]!
   discard (validateEnumTypeIfNeeded rets[0]! resultType)
@@ -12260,7 +12260,7 @@ private partial def lowerBuiltinRevert (statement : Json) : M (Array Stmt) := do
   let args ← mArr (← mField call "arguments")
   if signature == "function () pure" then
     unless args.isEmpty do failAt call "bare revert() takes no arguments"
-    return #[.revertReturndata]
+    return #[.revertEmpty]
   unless args.size == 1 do failAt call "revert(string) requires one message argument"
   let value ← extractStringLiteralOrConstant args[0]! true
   return #[.require (.literal 0) value]
@@ -13828,7 +13828,7 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       let rawInfo ← resolveRawStructInfo elemSid varDecl
       unless rawInfo.mappings.isEmpty && rawInfo.dynamicArrays.isEmpty && rawInfo.subStructs.isEmpty do
         failAt varDecl s!"public struct array getter for {name} with nested or non-scalar members is outside this slice"
-      let (elemPre, elemPath) ← storageDynamicStructElementPath #[] name (.literal info.slot) elemSid k0 varDecl .revertReturndata
+      let (elemPre, elemPath) ← storageDynamicStructElementPath #[] name (.literal info.slot) elemSid k0 varDecl .revertEmpty
       let (pre, retExprs, retTypes) ← readPublicStructGetterMembers elemPath elemPre
       modify fun e => { e with publicVarGetterReturns := retTypes }
       return (pre.push (.returnValues retExprs.toList), srcParams)
@@ -13837,7 +13837,7 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       let some pty := paramType resolvedElemTy
         | failAt varDecl s!"unsupported public dynamic array element type {resolvedElemTy}"
       discard (validateEnumTypeIfNeeded leafTypeNode resolvedElemTy)
-      let v ← readStorageDynamicArrayElement #[] name (.literal info.slot) elemTy k0 .revertReturndata
+      let v ← readStorageDynamicArrayElement #[] name (.literal info.slot) elemTy k0 .revertEmpty
       let a ← atom v
       modify fun e => { e with publicVarGetterReturns := #[pty] }
       return (a.pre.push (.returnValues [a.expr]), srcParams)
@@ -13849,7 +13849,7 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       discard (validateEnumTypeIfNeeded leafTypeNode resolvedElemTy)
       let dest ← fresh
       let mut pre : Array Stmt := #[
-        .ite (.lt k0 (.literal length)) [] [.revertReturndata],
+        .ite (.lt k0 (.literal length)) [] [.revertEmpty],
         .letVar dest (.literal 0)
       ]
       for i in [:length] do
@@ -13934,7 +13934,7 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       discard (validateEnumTypeIfNeeded leafTypeNode resolvedElemTy)
       let dest ← fresh
       let mut pre : Array Stmt := #[
-        .ite (.lt k1 (.literal length)) [] [.revertReturndata],
+        .ite (.lt k1 (.literal length)) [] [.revertEmpty],
         .letVar dest (.literal 0)
       ]
       for i in [:length] do
@@ -13977,7 +13977,7 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
       discard (validateEnumTypeIfNeeded leafTypeNode resolvedElemTy)
       let dest ← fresh
       let mut pre : Array Stmt := #[
-        .ite (.lt k2 (.literal length)) [] [.revertReturndata],
+        .ite (.lt k2 (.literal length)) [] [.revertEmpty],
         .letVar dest (.literal 0)
       ]
       for i in [:length] do
@@ -14635,7 +14635,7 @@ private def importSlice
               if let some bound := limit then
                 abiGuards := abiGuards.push (.ite
                   (.lt (.calldataload (.literal (offset + 32*j))) (.literal bound))
-                  [] [.revertReturndata])
+                  [] [.revertEmpty])
       if let some cb := env.calldataBytes.find? p.id then
         let some i := modelParamNames.findIdx? (· == p.name)
           | throwError "missing calldata bytes model parameter {p.name}"
@@ -14671,16 +14671,16 @@ private def importSlice
             | .bool => some 2
             | _ => none
         if let some bound := limit then
-          -- At entry the EVM return-data buffer is empty. This guard is placed
-          -- before every source statement, so the rejection has empty bytes.
+          -- Source scalar validation precedes every source statement and
+          -- uses an explicit empty revert, independent of EIP-211 state.
           abiGuards := abiGuards.push (.ite
             (.lt (.calldataload (.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0))) (.literal bound))
-            [] [.revertReturndata])
+            [] [.revertEmpty])
         if env.bytes4Params.contains p.id then
           let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
           abiGuards := abiGuards.push (.ite
             (.eq (.bitAnd (.calldataload (.literal offset)) (.literal (2 ^ 224 - 1))) (.literal 0))
-            [] [.revertReturndata])
+            [] [.revertEmpty])
         if let some binding := env.rawBindings.find? p.id then
           let some i := modelParamNames.findIdx? (· == p.name) | throwError "missing raw scalar parameter"
           let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
@@ -14718,7 +14718,7 @@ private def importSlice
         abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
         localObligations := if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
           name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
-          obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Within this fragment without external calls the fresh EIP-211 returndata buffer stays empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved."
+          obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved."
           proofStatus := .unchecked }] }
     for proj in env.projections do
       let ignored :=

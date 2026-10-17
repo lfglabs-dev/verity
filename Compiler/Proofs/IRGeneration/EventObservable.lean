@@ -35,39 +35,81 @@ end
 
 mutual
 
-/-- Memory-insensitive expressions evaluate identically under any memory. -/
-theorem evalIRExpr_mem_insensitive :
-    ∀ (e : YulExpr), MemInsensitiveExpr e → ∀ (state : IRState) (m : Nat → Nat),
-      evalIRExpr { state with memory := m } e = evalIRExpr state e
-  | .lit _, _, _, _ => by simp [evalIRExpr]
-  | .hex _, _, _, _ => by simp [evalIRExpr]
-  | .str _, _, _, _ => by simp [evalIRExpr]
-  | .ident _, _, _, _ => by simp [evalIRExpr, IRState.getVar]
-  | .call f args, h, state, m => by
+/-- Memory-insensitive expressions evaluate identically under any word view and
+physical carrier. -/
+theorem evalIRExpr_memory_insensitive :
+    ∀ (e : YulExpr), MemInsensitiveExpr e →
+      ∀ (state : IRState) (m : Nat → Nat) (bytes : DenoteMemory.Memory),
+        evalIRExpr { state with memory := m, byteMemory := bytes } e = evalIRExpr state e
+  | .lit _, _, _, _, _ => by simp [evalIRExpr]
+  | .hex _, _, _, _, _ => by simp [evalIRExpr]
+  | .str _, _, _, _, _ => by simp [evalIRExpr]
+  | .ident _, _, _, _, _ => by simp [evalIRExpr, IRState.getVar]
+  | .call f args, h, state, m, bytes => by
       obtain ⟨hml, hkec, hargs⟩ := h
       simp only [evalIRExpr]
       rw [evalIRCall, evalIRCall,
-        evalIRExprs_mem_insensitive args hargs state m]
+        evalIRExprs_memory_insensitive args hargs state m bytes]
       cases hv : evalIRExprs state args with
       | none => simp
       | some argVals => simp [hml, hkec]
 
-theorem evalIRExprs_mem_insensitive :
+theorem evalIRExprs_memory_insensitive :
     ∀ (es : List YulExpr), MemInsensitiveExprs es →
-      ∀ (state : IRState) (m : Nat → Nat),
-        evalIRExprs { state with memory := m } es = evalIRExprs state es
-  | [], _, _, _ => by simp [evalIRExprs]
-  | e :: rest, h, state, m => by
+      ∀ (state : IRState) (m : Nat → Nat) (bytes : DenoteMemory.Memory),
+        evalIRExprs { state with memory := m, byteMemory := bytes } es = evalIRExprs state es
+  | [], _, _, _, _ => by simp [evalIRExprs]
+  | e :: rest, h, state, m, bytes => by
       obtain ⟨he, hrest⟩ := h
       simp only [evalIRExprs]
-      rw [evalIRExpr_mem_insensitive e he state m,
-        evalIRExprs_mem_insensitive rest hrest state m]
+      rw [evalIRExpr_memory_insensitive e he state m bytes,
+        evalIRExprs_memory_insensitive rest hrest state m bytes]
 
 end
 
+theorem evalIRExpr_mem_insensitive (e : YulExpr) (h : MemInsensitiveExpr e)
+    (state : IRState) (m : Nat → Nat) :
+    evalIRExpr { state with memory := m } e = evalIRExpr state e :=
+  evalIRExpr_memory_insensitive e h state m state.byteMemory
+
+theorem evalIRExprs_mem_insensitive (es : List YulExpr) (h : MemInsensitiveExprs es)
+    (state : IRState) (m : Nat → Nat) :
+    evalIRExprs { state with memory := m } es = evalIRExprs state es :=
+  evalIRExprs_memory_insensitive es h state m state.byteMemory
+
+/-- A physical `mstore` cannot change a memory-insensitive evaluation. -/
+theorem evalIRExprs_writePhysicalMemoryValue (es : List YulExpr) (h : MemInsensitiveExprs es)
+    (state : IRState) (offset value : Nat) :
+    evalIRExprs (state.writePhysicalMemoryValue offset value) es = evalIRExprs state es :=
+  evalIRExprs_memory_insensitive es h state _ _
+
+/-- A physical store sequence only replaces the word view and the byte carrier. -/
+theorem applyStores_eq_memory_update :
+    ∀ (state : IRState) (writes : List (Nat × Nat)),
+      PhysicalPayloadStores.applyStores state writes =
+        { state with
+            memory := (PhysicalPayloadStores.applyStores state writes).memory
+            byteMemory := (PhysicalPayloadStores.applyStores state writes).byteMemory }
+  | _, [] => rfl
+  | state, (offset, value) :: rest => by
+      simp only [PhysicalPayloadStores.applyStores]
+      rw [applyStores_eq_memory_update _ rest]
+      rfl
+
+theorem applyStores_getVar (state : IRState) (writes : List (Nat × Nat)) (name : String) :
+    (PhysicalPayloadStores.applyStores state writes).getVar name = state.getVar name := by
+  rw [applyStores_eq_memory_update]
+  rfl
+
+theorem evalIRExprs_applyStores (es : List YulExpr) (h : MemInsensitiveExprs es)
+    (state : IRState) (writes : List (Nat × Nat)) :
+    evalIRExprs (PhysicalPayloadStores.applyStores state writes) es = evalIRExprs state es := by
+  rw [applyStores_eq_memory_update]
+  exact evalIRExprs_memory_insensitive es h state _ _
+
 /-- Pointer-offset stores with memory-insensitive expression values: the block
-executes to its evaluated writes applied at the pointer, evaluations taken in
-the initial state (the values commute with the block's own writes). -/
+executes to its evaluated physical writes applied at the pointer, evaluations
+taken in the initial state (the values commute with the block's own writes). -/
 theorem execIRStmts_mstore_ptr_expr_block (ptrName : String) (p : Nat) :
     ∀ (stores : List (Nat × YulExpr)) (vals : List Nat) (fuel : Nat)
       (state : IRState),
@@ -78,14 +120,13 @@ theorem execIRStmts_mstore_ptr_expr_block (ptrName : String) (p : Nat) :
           (stores.map fun ov =>
             YulStmt.exprStmt (.call "mstore"
               [.call "add" [.ident ptrName, .lit ov.1], ov.2])) =
-        .continue { state with
-          memory := applyWrites state.memory
-            ((stores.map (fun ov => (p + ov.1) % Compiler.Constants.evmModulus)).zip vals) }
+        .continue (PhysicalPayloadStores.applyStores state
+            ((stores.map (fun ov => (p + ov.1) % Compiler.Constants.evmModulus)).zip vals))
   | [], vals, fuel, state, _, _, hvals => by
       have hnil : vals = [] := by
         simpa [evalIRExprs] using hvals.symm
       subst hnil
-      simp [execIRStmts, applyWrites]
+      simp [execIRStmts, PhysicalPayloadStores.applyStores]
   | (o, v) :: rest, vals, fuel, state, hptr, hmi, hvals => by
       obtain ⟨hv, hrest⟩ : MemInsensitiveExpr v ∧
           MemInsensitiveExprs (rest.map (fun (x : Nat × YulExpr) => x.2)) := hmi
@@ -99,6 +140,8 @@ theorem execIRStmts_mstore_ptr_expr_block (ptrName : String) (p : Nat) :
           | some ws =>
               rw [hevs] at hvals
               obtain rfl : w :: ws = vals := by simpa using hvals
+              let next := state.writePhysicalMemoryValue
+                (Verity.Core.Uint256.ofNat ((p + o) % Compiler.Constants.evmModulus)).val w
               rw [show ((o, v) :: rest).length + fuel + 1 =
                 (rest.length + fuel + 1) + 1 from by simp [List.length]; omega]
               show (match execIRStmt (rest.length + fuel + 1) state
@@ -113,22 +156,12 @@ theorem execIRStmts_mstore_ptr_expr_block (ptrName : String) (p : Nat) :
                 | .revert s => .revert s) = _
               rw [show execIRStmt (rest.length + fuel + 1) state
                   (.exprStmt (.call "mstore"
-                    [.call "add" [.ident ptrName, .lit o], v])) =
-                .continue { state with
-                  memory := fun x =>
-                    if x = (p + o) % Compiler.Constants.evmModulus then w
-                    else state.memory x } from by
-                simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hptr, hev,
+                    [.call "add" [.ident ptrName, .lit o], v])) = .continue next from by
+                simp [next, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hptr, hev,
                   YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]]
-              have hptr' : ({ state with
-                  memory := fun x =>
-                    if x = (p + o) % Compiler.Constants.evmModulus then w
-                    else state.memory x } : IRState).getVar ptrName = some p := hptr
-              have hevs' : evalIRExprs { state with
-                  memory := fun x =>
-                    if x = (p + o) % Compiler.Constants.evmModulus then w
-                    else state.memory x } (rest.map (·.2)) = some ws := by
-                rw [evalIRExprs_mem_insensitive (rest.map (·.2)) hrest state _]
+              have hptr' : next.getVar ptrName = some p := hptr
+              have hevs' : evalIRExprs next (rest.map (·.2)) = some ws := by
+                rw [evalIRExprs_writePhysicalMemoryValue (rest.map (·.2)) hrest state _ _]
                 exact hevs
               exact execIRStmts_mstore_ptr_expr_block ptrName p rest ws fuel _
                 hptr' hrest hevs'

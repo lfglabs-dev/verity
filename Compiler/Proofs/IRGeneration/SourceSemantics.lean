@@ -5,6 +5,7 @@ import Compiler.CompilationModel.LayoutValidation
 import Compiler.Keccak.Sponge
 import Compiler.Proofs.IRGeneration.Returndata
 import Verity.Core.Model.Denote
+import Verity.Core.Model.PhysicalMemory
 import Verity.Core.Model.DynamicAbi
 
 set_option linter.unnecessarySimpa false
@@ -170,41 +171,37 @@ theorem exists_eventFromResolvedArgs?_of_supported_length
               (eventSignatureTopic eventDef : Verity.Core.Uint256) :: indexedArgs }, ?_⟩
   simp [eventFromResolvedArgs?, hfind, hsplit]
 
-/-- Sequential scratch stores of the signature chunk words, starting at word
-index `wordIdx`. Write keys wrap mod `2^256`, mirroring the compiled code's
-wrapping `add` offset arithmetic. -/
+/-- Sequential physical scratch stores of the signature chunk words, starting
+at word index `wordIdx`. Each store is a full 32-byte EVM `mstore`; write keys
+wrap mod `2^256`, mirroring the compiled code's wrapping `add` offset
+arithmetic. -/
 def writeEventSignatureScratchFrom :
-    List Nat → Nat → Nat → (Nat → Verity.Core.Uint256) → (Nat → Verity.Core.Uint256)
-  | [], _, _, memory => memory
-  | word :: words, ptr, wordIdx, memory =>
+    List Nat → Nat → Nat → Verity.ContractState → Verity.ContractState
+  | [], _, _, world => world
+  | word :: words, ptr, wordIdx, world =>
       writeEventSignatureScratchFrom words ptr (wordIdx + 1)
-        (fun offset =>
-          if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
-            (word : Verity.Core.Uint256)
-          else
-            memory offset)
+        (world.writePhysicalMemoryValue
+          ((ptr + wordIdx * 32) % Compiler.Constants.evmModulus) (word : Verity.Core.Uint256))
 
 def writeEventSignatureScratch (eventDef : EventDef)
-    (ptr : Nat) (memory : Nat → Verity.Core.Uint256) : Nat → Verity.Core.Uint256 :=
+    (ptr : Nat) (world : Verity.ContractState) : Verity.ContractState :=
   writeEventSignatureScratchFrom
     ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
-    ptr 0 memory
+    ptr 0 world
 
 def writeUnindexedEventScratchFrom :
-    List EventParam → List Nat → Nat → Nat → (Nat → Verity.Core.Uint256) →
-      Option (Nat → Verity.Core.Uint256)
-  | [], [], _, _, memory => some memory
-  | param :: params, value :: values, ptr, wordIdx, memory =>
+    List EventParam → List Nat → Nat → Nat → Verity.ContractState →
+      Option Verity.ContractState
+  | [], [], _, _, world => some world
+  | param :: params, value :: values, ptr, wordIdx, world =>
       let normalized := normalizeEventValue param.ty value
       let next :=
         if param.kind == EventParamKind.unindexed then
-          fun offset =>
-            if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
-              (normalized : Verity.Core.Uint256)
-            else
-              memory offset
+          world.writePhysicalMemoryValue
+            ((ptr + wordIdx * 32) % Compiler.Constants.evmModulus)
+            (normalized : Verity.Core.Uint256)
         else
-          memory
+          world
       writeUnindexedEventScratchFrom params values ptr
         (if param.kind == EventParamKind.unindexed then wordIdx + 1 else wordIdx)
         next
@@ -212,90 +209,91 @@ def writeUnindexedEventScratchFrom :
 
 def writeUnindexedEventScratch
     (params : List EventParam) (values : List Nat)
-    (ptr : Nat) (memory : Nat → Verity.Core.Uint256) : Option (Nat → Verity.Core.Uint256) :=
-  writeUnindexedEventScratchFrom params values ptr 0 memory
+    (ptr : Nat) (world : Verity.ContractState) : Option Verity.ContractState :=
+  writeUnindexedEventScratchFrom params values ptr 0 world
 
 theorem exists_writeUnindexedEventScratch_of_length :
     ∀ {params : List EventParam} {values : List Nat}
-      {ptr wordIdx : Nat} {memory : Nat → Verity.Core.Uint256},
+      {ptr wordIdx : Nat} {world : Verity.ContractState},
       values.length = params.length →
-        ∃ memory',
-          writeUnindexedEventScratchFrom params values ptr wordIdx memory = some memory'
-  | [], [], _, _, memory, _ => by
-      exact ⟨memory, rfl⟩
+        ∃ world',
+          writeUnindexedEventScratchFrom params values ptr wordIdx world = some world'
+  | [], [], _, _, world, _ => by
+      exact ⟨world, rfl⟩
   | [], _ :: _, _, _, _, hlen => by
       simp at hlen
   | _ :: _, [], _, _, _, hlen => by
       simp at hlen
-  | param :: params, value :: values, ptr, wordIdx, memory, hlen => by
+  | param :: params, value :: values, ptr, wordIdx, world, hlen => by
       have htail : values.length = params.length := by
         simpa using Nat.succ.inj hlen
       by_cases hkind : param.kind == EventParamKind.unindexed
       · rcases exists_writeUnindexedEventScratch_of_length
             (params := params) (values := values) (ptr := ptr)
             (wordIdx := wordIdx + 1)
-            (memory := fun offset =>
-              if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
-                (normalizeEventValue param.ty value : Verity.Core.Uint256)
-              else
-                memory offset)
+            (world := world.writePhysicalMemoryValue
+              ((ptr + wordIdx * 32) % Compiler.Constants.evmModulus)
+              (normalizeEventValue param.ty value : Verity.Core.Uint256))
             htail with
-          ⟨memory', hmem⟩
-        refine ⟨memory', ?_⟩
-        simpa [writeUnindexedEventScratchFrom, hkind] using hmem
+          ⟨world', hworld⟩
+        refine ⟨world', ?_⟩
+        simpa [writeUnindexedEventScratchFrom, hkind] using hworld
       · rcases exists_writeUnindexedEventScratch_of_length
             (params := params) (values := values) (ptr := ptr)
             (wordIdx := wordIdx)
-            (memory := memory)
+            (world := world)
             htail with
-          ⟨memory', hmem⟩
-        refine ⟨memory', ?_⟩
-        simpa [writeUnindexedEventScratchFrom, hkind] using hmem
+          ⟨world', hworld⟩
+        refine ⟨world', ?_⟩
+        simpa [writeUnindexedEventScratchFrom, hkind] using hworld
 
 theorem exists_writeUnindexedEventScratch_of_length_zero
     {params : List EventParam} {values : List Nat}
-    {ptr : Nat} {memory : Nat → Verity.Core.Uint256}
+    {ptr : Nat} {world : Verity.ContractState}
     (hlen : values.length = params.length) :
-    ∃ memory', writeUnindexedEventScratch params values ptr memory = some memory' := by
+    ∃ world', writeUnindexedEventScratch params values ptr world = some world' := by
   simpa [writeUnindexedEventScratch] using
     (exists_writeUnindexedEventScratch_of_length
       (params := params) (values := values) (ptr := ptr) (wordIdx := 0)
-      (memory := memory) hlen)
+      (world := world) hlen)
 
-def eventScratchMemoryAfterEmit? (events : List EventDef)
+/-- The world after the compiled scalar `emit` scratch stores: the signature
+chunk words, then the unindexed heads, written physically from the free memory
+pointer. -/
+def eventScratchWorldAfterEmit? (events : List EventDef)
     (eventName : String) (values : List Nat)
-    (memory : Nat → Verity.Core.Uint256) : Option (Nat → Verity.Core.Uint256) :=
+    (world : Verity.ContractState) : Option Verity.ContractState :=
   match events.find? (·.name == eventName) with
-  | none => some memory
+  | none => some world
   | some eventDef =>
       if eventDefScalarProofSupported eventDef then
-        let ptr := (memory Compiler.Constants.freeMemoryPointer).val
+        let ptr := (world.memory Compiler.Constants.freeMemoryPointer).val
         writeUnindexedEventScratch eventDef.params values ptr
-          (writeEventSignatureScratch eventDef ptr memory)
+          (writeEventSignatureScratch eventDef ptr world)
       else
-        some memory
+        some world
 
-theorem exists_eventScratchMemoryAfterEmit?_of_supported_length
+theorem exists_eventScratchWorldAfterEmit?_of_supported_length
     {events : List EventDef}
     {eventName : String}
     {exprArgs : List Expr}
     {values : List Nat}
-    {memory : Nat → Verity.Core.Uint256}
+    {world : Verity.ContractState}
     (hsupport : eventEmissionProofSupported events eventName exprArgs = true)
     (hlen : values.length = exprArgs.length) :
-    ∃ memory',
-      eventScratchMemoryAfterEmit? events eventName values memory = some memory' := by
+    ∃ world',
+      eventScratchWorldAfterEmit? events eventName values world = some world' := by
   rcases exists_eventDef_of_eventEmissionProofSupported hsupport with
     ⟨eventDef, hfind, hscalar, hargsLen⟩
   have hvalueLen : values.length = eventDef.params.length := by
     rw [hlen, hargsLen]
-  unfold eventScratchMemoryAfterEmit?
+  unfold eventScratchWorldAfterEmit?
   simp [hfind, hscalar]
   exact exists_writeUnindexedEventScratch_of_length_zero
     (params := eventDef.params) (values := values)
-    (ptr := (memory Compiler.Constants.freeMemoryPointer).val)
-    (memory := writeEventSignatureScratch eventDef
-      (memory Compiler.Constants.freeMemoryPointer).val memory)
+    (ptr := (world.memory Compiler.Constants.freeMemoryPointer).val)
+    (world := writeEventSignatureScratch eventDef
+      (world.memory Compiler.Constants.freeMemoryPointer).val world)
     hvalueLen
 
 def effectiveFields (spec : CompilationModel) : List Field :=
@@ -2665,11 +2663,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -2734,8 +2728,7 @@ mutual
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -2750,12 +2743,11 @@ mutual
         match evalExprList fields state args with
         | some resolved =>
             match eventFromResolvedArgs? events eventName resolved,
-                eventScratchMemoryAfterEmit? events eventName resolved state.world.memory with
-            | some event, some memory =>
+                eventScratchWorldAfterEmit? events eventName resolved state.world with
+            | some event, some world =>
                 .continue { state with
                   world := {
-                    state.world with
-                    memory := memory
+                    world with
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
         | none => .revert
@@ -2775,7 +2767,7 @@ mutual
               (fun loopState => execStmtListWithEvents fields events loopState body)
               256 state bits
         | none => .revert
-    | _, .revertReturndata => .revert
+    | _, .revertEmpty | _, .revertReturndata => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -3057,11 +3049,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -3126,8 +3114,7 @@ mutual
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -3142,12 +3129,11 @@ mutual
         match evalExprList fields state args with
         | some resolved =>
             match eventFromResolvedArgs? [] eventName resolved,
-                eventScratchMemoryAfterEmit? [] eventName resolved state.world.memory with
-            | some event, some memory =>
+                eventScratchWorldAfterEmit? [] eventName resolved state.world with
+            | some event, some world =>
                 .continue { state with
                   world := {
-                    state.world with
-                    memory := memory
+                    world with
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
         | none => .revert
@@ -3167,7 +3153,7 @@ mutual
               (fun loopState => execStmtList fields loopState body)
               256 state bits
         | none => .revert
-    | _, .revertReturndata => .revert
+    | _, .revertEmpty | _, .revertReturndata => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -4666,11 +4652,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | .tstore offset value =>
@@ -4736,8 +4718,7 @@ mutual
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | .stop => .stop state
     | .ite cond thenBranch elseBranch =>
@@ -4784,12 +4765,11 @@ mutual
         match evalExprListWithHelpers spec fields fuel state args with
         | some resolved =>
             match eventFromResolvedArgs? spec.events eventName resolved,
-                eventScratchMemoryAfterEmit? spec.events eventName resolved state.world.memory with
-            | some event, some memory =>
+                eventScratchWorldAfterEmit? spec.events eventName resolved state.world with
+            | some event, some world =>
                 .continue { state with
                   world := {
-                    state.world with
-                    memory := memory
+                    world with
                     events := state.world.events ++ [event] } }
             | _, _ => .revert
         | none => .revert
@@ -4809,7 +4789,7 @@ mutual
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               256 state bits
         | none => .revert
-    | .revertReturndata => .revert
+    | .revertEmpty | .revertReturndata => .revert
     | .externalCallBind resultVars _externalName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>
@@ -4954,23 +4934,22 @@ theorem execStmtWithHelpers_emit_supported_continues
     {values : List Nat}
     (heval : evalExprListWithHelpers spec fields fuel state args = some values)
     (hsupport : eventEmissionProofSupported spec.events eventName args = true) :
-    ∃ event memory,
+    ∃ event world,
       eventFromResolvedArgs? spec.events eventName values = some event ∧
-      eventScratchMemoryAfterEmit? spec.events eventName values state.world.memory = some memory ∧
+      eventScratchWorldAfterEmit? spec.events eventName values state.world = some world ∧
       execStmtWithHelpers spec fields fuel state (.emit eventName args) =
         .continue { state with
           world := {
-            state.world with
-            memory := memory
+            world with
             events := state.world.events ++ [event] } } := by
   have hlen : values.length = args.length :=
     evalExprListWithHelpers_length_of_some heval
   rcases exists_eventFromResolvedArgs?_of_supported_length hsupport hlen with
     ⟨event, hevent⟩
-  rcases exists_eventScratchMemoryAfterEmit?_of_supported_length hsupport hlen with
-    ⟨memory, hmemory⟩
-  exact ⟨event, memory, hevent, hmemory, by
-    simp [execStmtWithHelpers, heval, hevent, hmemory]⟩
+  rcases exists_eventScratchWorldAfterEmit?_of_supported_length hsupport hlen with
+    ⟨world, hworld⟩
+  exact ⟨event, world, hevent, hworld, by
+    simp [execStmtWithHelpers, heval, hevent, hworld]⟩
 
 @[simp] theorem interpretInternalFunctionFuel_zero
     (spec : CompilationModel)
@@ -6524,7 +6503,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .returndataCopy destOffset sourceOffset size =>
       exact execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_returndataCopy
         spec fields fuel state destOffset sourceOffset size hsurface
-  | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .revertEmpty | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
   | .emit _ args =>
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
       have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by

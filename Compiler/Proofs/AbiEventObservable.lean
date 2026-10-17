@@ -15,8 +15,9 @@ where `abi` is the slice-1 scalar head encoder `abiEncodeScalarHeads`.
 
 The chain is: `scalarEventUnindexedStoresFrom_shape` (the emitted block is a
 pointer-offset `mstore` block) → `execIRStmts_mstore_ptr_expr_block` (it runs to
-its evaluated writes) → `abiBlockWrites_eq_zip` (those writes are an ABI word
-block) → `yulLogDataWords_abiBlockWrites` (the log payload reads them back).
+its evaluated physical writes) → `abiBlockWrites_eq_zip` (those writes are an ABI
+word block) → `yulLogDataWords_applyStores_abiBlockWrites` (the log payload reads
+them back as 256-bit words).
 
 Dynamic (`bytes`/`string`/array) event payloads and typed revert payloads are
 **not** covered here: `compileEmit`'s dynamic lane writes a separate
@@ -305,8 +306,8 @@ theorem scalarEventWrites_zip_eq_abiBlockWrites
   intro i _
   simp only [Function.comp_apply, Nat.zero_add]
 
-/-- Running the compiled unindexed-store block from `__evt_ptr = p` leaves
-memory holding the slice-1 ABI head block of the unindexed arguments. -/
+/-- Running the compiled unindexed-store block from `__evt_ptr = p` stores the
+slice-1 ABI head block of the unindexed arguments into physical memory. -/
 theorem scalarEventUnindexedStores_exec
     (unindexed : List (EventParam × Expr × YulExpr)) (values : List Nat)
     (fuel : Nat) (state : IRState) (p : Nat)
@@ -317,9 +318,8 @@ theorem scalarEventUnindexedStores_exec
     (hvals : evalIRExprs state (unindexed.map (fun entry => entry.2.2)) = some values) :
     execIRStmts (unindexed.length + fuel + 1) state
         (scalarEventUnindexedStores unindexed) =
-      .continue { state with
-        memory := applyWrites state.memory
-          (abiBlockWrites p (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values))) } := by
+      .continue (PhysicalPayloadStores.applyStores state
+          (abiBlockWrites p (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values)))) := by
   have hlen : values.length = unindexed.length :=
     (evalIRExprs_length _ state values hvals).trans (by simp)
   have hheads := abiEncodeScalarHeads_eventAbiScalarArgs_length unindexed values hlen
@@ -340,7 +340,7 @@ theorem scalarEventUnindexedStores_exec
     hblock, scalarEventWrites_zip_eq_abiBlockWrites unindexed _ p hsize hheads]
 
 /-- The log data payload of the compiled scalar `emit` block is exactly the
-slice-1 ABI encoding of the unindexed arguments. -/
+slice-1 ABI encoding of the unindexed arguments, as 256-bit memory words. -/
 theorem scalarEventUnindexedStores_logDataWords
     (unindexed : List (EventParam × Expr × YulExpr)) (values : List Nat)
     (fuel : Nat) (state : IRState) (p : Nat) (final : IRState)
@@ -353,7 +353,8 @@ theorem scalarEventUnindexedStores_logDataWords
     (hexec : execIRStmts (unindexed.length + fuel + 1) state
       (scalarEventUnindexedStores unindexed) = .continue final) :
     yulLogDataWords final.memory p (32 * unindexed.length) =
-      abiEncodeScalarHeads (eventAbiScalarArgs unindexed values) := by
+      (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values)).map
+        (· % Compiler.Constants.evmModulus) := by
   have hlen : values.length = unindexed.length :=
     (evalIRExprs_length _ state values hvals).trans (by simp)
   have hheads := abiEncodeScalarHeads_eventAbiScalarArgs_length unindexed values hlen
@@ -361,11 +362,8 @@ theorem scalarEventUnindexedStores_logDataWords
     hsize hmi hvals
   rw [hexec] at hrun
   injection hrun with hstate
-  have hmem : final.memory = applyWrites state.memory
-      (abiBlockWrites p (abiEncodeScalarHeads (eventAbiScalarArgs unindexed values))) := by
-    rw [hstate]
-  rw [hmem, ← hheads]
-  exact yulLogDataWords_abiBlockWrites _ p state.memory (by rw [hheads]; exact hfit)
+  rw [hstate, ← hheads]
+  exact yulLogDataWords_applyStores_abiBlockWrites _ p state (by rw [hheads]; exact hfit)
 
 /-! ## Threading through the LOG opcodes -/
 
@@ -500,31 +498,30 @@ theorem scalarEmitPayload_log_observable
             (scalarEventIndexedTopicParts indexed)))]) = .continue final) :
     final.events = state.events ++
       [(topic0 :: abiEncodeScalarHeads (eventAbiScalarArgs indexed indexedValues)) ++
-        abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues)] := by
-  have hrunStores : execIRStmts (unindexed.length + fuel + 2) state
-      (scalarEventUnindexedStores unindexed) = .continue { state with
-        memory := applyWrites state.memory (abiBlockWrites p
-          (abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues))) } :=
-    scalarEventUnindexedStores_exec unindexed unindexedValues (fuel + 1) state p hptr
-      hsupportUnindexed hsizeUnindexed hmiUnindexed hunindexedVals
-  obtain ⟨mid, hmid⟩ : ∃ m : IRState, m = { state with
-      memory := applyWrites state.memory (abiBlockWrites p
-        (abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues))) } := ⟨_, rfl⟩
+        (abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues)).map
+          (· % Compiler.Constants.evmModulus)] := by
+  have hrunStores := scalarEventUnindexedStores_exec unindexed unindexedValues (fuel + 1)
+    state p hptr hsupportUnindexed hsizeUnindexed hmiUnindexed hunindexedVals
+  obtain ⟨mid, hmid⟩ : ∃ m : IRState, m = PhysicalPayloadStores.applyStores state
+      (abiBlockWrites p
+        (abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues))) := ⟨_, rfl⟩
   rw [← hmid] at hrunStores
   have hdata : yulLogDataWords mid.memory p (eventUnindexedHeadSize unindexed) =
-      abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues) := by
+      (abiEncodeScalarHeads (eventAbiScalarArgs unindexed unindexedValues)).map
+        (· % Compiler.Constants.evmModulus) := by
     rw [eventUnindexedHeadSize_scalar unindexed hsizeUnindexed]
     exact scalarEventUnindexedStores_logDataWords unindexed unindexedValues (fuel + 1) state p
       mid hptr hsupportUnindexed hsizeUnindexed hmiUnindexed hunindexedVals hfit hrunStores
   have hrunLog := eventLogStmt_exec indexed
     (abiEncodeScalarHeads (eventAbiScalarArgs indexed indexedValues)) mid p
-    (eventUnindexedHeadSize unindexed) topic0 fuel (by rw [hmid]; exact hptr)
-    (by rw [hmid]; exact htopic0) hindexedLen
+    (eventUnindexedHeadSize unindexed) topic0 fuel (by rw [hmid, applyStores_getVar]; exact hptr)
+    (by rw [hmid, applyStores_getVar]; exact htopic0) hindexedLen
     (scalarEventIndexedTopicParts_eval indexed indexedValues mid hsupportIndexed
-      (by rw [hmid, evalIRExprs_mem_insensitive _ hmiIndexed state _]; exact hindexedVals))
+      (by rw [hmid, evalIRExprs_applyStores _ hmiIndexed state _]; exact hindexedVals))
   rw [execIRStmts_block_then_stmt _ _ _ _ _ _ _ _
     (scalarEventUnindexedStores_length unindexed) hrunStores hrunLog hexec]
   simp only [IRState.appendYulLog_events, encodeYulLogEvent, hdata,
-    show mid.events = state.events from by rw [hmid]]
+    show mid.events = state.events from by
+      rw [hmid, PhysicalPayloadStores.applyStores_events]]
 
 end Compiler.Proofs.AbiEventObservable

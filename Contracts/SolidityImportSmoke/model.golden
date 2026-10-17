@@ -80,13 +80,13 @@
                                    (Compiler.CompilationModel.Expr.literal 4))
                                  (Compiler.CompilationModel.Expr.literal 96)))
                              []
-                             [Compiler.CompilationModel.Stmt.revertReturndata],
+                             [Compiler.CompilationModel.Stmt.revertEmpty],
                            Compiler.CompilationModel.Stmt.ite
                              (Compiler.CompilationModel.Expr.le
                                (Compiler.CompilationModel.Expr.calldataload (Compiler.CompilationModel.Expr.literal 4))
                                (Compiler.CompilationModel.Expr.literal 18446744073709551615))
                              []
-                             [Compiler.CompilationModel.Stmt.revertReturndata],
+                             [Compiler.CompilationModel.Stmt.revertEmpty],
                            Compiler.CompilationModel.Stmt.letVar
                              "_verity_slice_tmp_0_calldata"
                              (Compiler.CompilationModel.Expr.add
@@ -101,7 +101,7 @@
                                    (Compiler.CompilationModel.Expr.localVar "_verity_slice_tmp_0_calldata"))
                                  (Compiler.CompilationModel.Expr.literal 96)))
                              []
-                             [Compiler.CompilationModel.Stmt.revertReturndata],
+                             [Compiler.CompilationModel.Stmt.revertEmpty],
                            Compiler.CompilationModel.Stmt.letVar
                              "_verity_slice_tmp_0_memory"
                              (Compiler.CompilationModel.Expr.mload (Compiler.CompilationModel.Expr.literal 64)),
@@ -144,7 +144,7 @@
                                    (Compiler.CompilationModel.Expr.literal 32)))
                                (Compiler.CompilationModel.Expr.literal 18446744073709551615))
                              []
-                             [Compiler.CompilationModel.Stmt.revertReturndata],
+                             [Compiler.CompilationModel.Stmt.revertEmpty],
                            Compiler.CompilationModel.Stmt.letVar
                              "_verity_slice_tmp_0_array1_header"
                              (Compiler.CompilationModel.Expr.add
@@ -160,7 +160,7 @@
                                  (Compiler.CompilationModel.Expr.literal 31))
                                (Compiler.CompilationModel.Expr.calldatasize))
                              []
-                             [Compiler.CompilationModel.Stmt.revertReturndata],
+                             [Compiler.CompilationModel.Stmt.revertEmpty],
                            Compiler.CompilationModel.Stmt.letVar
                              "_verity_slice_tmp_0_array1_length"
                              (Compiler.CompilationModel.Expr.calldataload
@@ -206,7 +206,7 @@
                                    (Compiler.CompilationModel.Expr.localVar "_verity_slice_tmp_0_array1_length")))
                                (Compiler.CompilationModel.Expr.calldatasize))
                              []
-                             [Compiler.CompilationModel.Stmt.revertReturndata],
+                             [Compiler.CompilationModel.Stmt.revertEmpty],
                            Compiler.CompilationModel.Stmt.mstore
                              (Compiler.CompilationModel.Expr.localVar "_verity_slice_tmp_0_array1_memory")
                              (Compiler.CompilationModel.Expr.localVar "_verity_slice_tmp_0_array1_length"),
@@ -227,7 +227,7 @@
                                         (Compiler.CompilationModel.Expr.literal 32))))
                                   (Compiler.CompilationModel.Expr.literal 340282366920938463463374607431768211456))
                                 []
-                                [Compiler.CompilationModel.Stmt.revertReturndata],
+                                [Compiler.CompilationModel.Stmt.revertEmpty],
                               Compiler.CompilationModel.Stmt.mstore
                                 (Compiler.CompilationModel.Expr.add
                                   (Compiler.CompilationModel.Expr.add
@@ -265,7 +265,7 @@
                                (Compiler.CompilationModel.Expr.literal
                                  1461501637330902918203684832716283019655932542976))
                              []
-                             [Compiler.CompilationModel.Stmt.revertReturndata],
+                             [Compiler.CompilationModel.Stmt.revertEmpty],
                            Compiler.CompilationModel.Stmt.letVar
                              "_verity_slice_tmp_2"
                              (Compiler.CompilationModel.Expr.calldataload (Compiler.CompilationModel.Expr.literal 68)),
@@ -714,7 +714,7 @@
                   requiresRole := none,
                   isInternal := false,
                   localObligations := [{ name := "solidity_explicit_abi",
-                                         obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Within this fragment without external calls the fresh EIP-211 returndata buffer stays empty, so failed guards revert with no bytes. The solc-to-model boundary is checked differentially, not proved.",
+                                         obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved.",
                                          proofStatus := Compiler.ProofStatus.unchecked }] }],
   events := [],
   errors := [],

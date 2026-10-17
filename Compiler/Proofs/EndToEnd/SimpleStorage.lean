@@ -3423,15 +3423,18 @@ private theorem interpretIR_simpleStorage_retrieveHit
          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] =
           .return ((s.storage (IRStorageSlot.ofNat 0)).toNat)
-            { s with memory := fun o =>
-                if o = 0 then (s.storage (IRStorageSlot.ofNat 0)).toNat else s.memory o } := by
+            (s.writePhysicalMemoryValue 0 (s.storage (IRStorageSlot.ofNat 0)).toNat) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
+    have hword : (s.writePhysicalMemoryValue 0 (s.storage (IRStorageSlot.ofNat 0)).toNat).memory 0 =
+        (s.storage (IRStorageSlot.ofNat 0)).toNat := by
+      rw [IRState.writePhysicalMemoryValue_at, Verity.Core.Uint256.val_ofNat]
+      exact Nat.mod_eq_of_lt (IRStorageWord.toNat_lt_size _)
     -- Fuel `k + 2 + 1 = k + 3` is `Nat.succ (Nat.succ (Nat.succ k))`, allowing
     -- both the outer `execIRStmts` and the inner `execIRStmt` to step.
     simp +decide only [execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
       Compiler.Proofs.abstractLoadStorageOrMapping,
-      Option.bind_some, ↓reduceIte]
+      Option.bind_some, ↓reduceIte, Verity.Core.Uint256.val_ofNat, Nat.zero_mod, hword]
   -- The retrieve body has at least 2 statements, so `sizeOf body ≥ 2` by
   -- direct computation on the auto-derived size measure.
   have hsize : 2 ≤ sizeOf
@@ -4956,6 +4959,7 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_sload0_return32_mark
 private theorem execIRFunction_zeroParam_mstore0_lit_return32
     (fn : IRFunction) (tx : IRTransaction) (initialState : IRState)
     (value : Nat)
+    (hValueRange : value < EvmYul.UInt256.size)
     (hParams : fn.params = [])
     (hNoWrap : 4 + tx.args.length * 32 < EvmYul.UInt256.size)
     (hBody : fn.body =
@@ -5056,9 +5060,7 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
           (applyIRTransactionContext tx initialState) [])
         rest =
         .return value
-          { (applyIRTransactionContext tx initialState) with
-            memory := fun o => if o = 0 then value else
-              (applyIRTransactionContext tx initialState).memory o } := by
+          ((applyIRTransactionContext tx initialState).writePhysicalMemoryValue 0 value) := by
     have hEnough : 2 ≤ rest.length + (sizeOf body - body.length) := by
       simp [rest]
     obtain ⟨k, hk⟩ :
@@ -5067,6 +5069,7 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
     rw [hk]
     simp +decide [Compiler.Proofs.IRGeneration.ParamLoading.applyBindingsToIRState,
       rest, execIRStmts, execIRStmt, evalIRExpr]
+    exact hValueRange
   rw [hFuel, hParam, hRaw]
   simp [applyIRTransactionContext]
 
@@ -5177,11 +5180,9 @@ private theorem execIRFunction_zeroParam_mstore0_sload0_return32
         .return
           (((applyIRTransactionContext tx initialState).storage
             (IRStorageSlot.ofNat 0)).toNat)
-          { (applyIRTransactionContext tx initialState) with
-            memory := fun o => if o = 0 then
-              (((applyIRTransactionContext tx initialState).storage
-                (IRStorageSlot.ofNat 0)).toNat)
-              else (applyIRTransactionContext tx initialState).memory o } := by
+          ((applyIRTransactionContext tx initialState).writePhysicalMemoryValue 0
+            (((applyIRTransactionContext tx initialState).storage
+              (IRStorageSlot.ofNat 0)).toNat)) := by
     have hEnough : 2 ≤ rest.length + (sizeOf body - body.length) := by
       simp [rest]
     obtain ⟨k, hk⟩ :
@@ -5191,6 +5192,7 @@ private theorem execIRFunction_zeroParam_mstore0_sload0_return32
     simp +decide [Compiler.Proofs.IRGeneration.ParamLoading.applyBindingsToIRState,
       rest, execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
       Compiler.Proofs.abstractLoadStorageOrMapping]
+    exact IRStorageWord.toNat_lt_size _
   rw [hFuel, hParam, hRaw]
   simp [applyIRTransactionContext]
 
@@ -5978,6 +5980,7 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_lit_return32_markedP
   rw [hIR, hProject]
   refine ⟨rfl, ?_, ?_, ?_⟩
   · simp [hValueNat]
+    exact hValueRange
   · intro slot hslot
     have hslot' : slot ∈ slots := by
       simp [slots, Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots,
@@ -6059,7 +6062,7 @@ private theorem nativeResultsMatchOn_execIRFunction_zeroParam_mstore0_lit_return
   intro yulTx slots markedStore shared shared1 shared2
   have hIR :=
     execIRFunction_zeroParam_mstore0_lit_return32
-      fn tx state value hParams hNoWrap hBody
+      fn tx state value hValueRange hParams hNoWrap hBody
   have hProject :
       Compiler.Proofs.YulGeneration.Backends.Native.projectResult
           yulTx state.storage state.events
@@ -8546,7 +8549,7 @@ theorem simpleStorage_source_endToEnd_native_evmYulLean_of_sourceIR
         hselector hNoWrap hdispatchGuardSafe)
 
 /-- Denote-headed SimpleStorage native theorem: the compiler-free denotation of
-an event-free function matches the projected `EvmYul.Yul.callDispatcher` result
+an event-free, byte-transport-free function matches the projected `EvmYul.Yul.callDispatcher` result
 whenever the trusted source interpretation matches the IR result. -/
 theorem simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR
     (tx : IRTransaction) (initialState : IRState) (observableSlots : List Nat)
@@ -8554,6 +8557,7 @@ theorem simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR
     (fn : CompilationModel.FunctionSpec)
     (initialWorld : Verity.ContractState)
     (hnoEvents : spec.events = [])
+    (hbyteFree : DenoteAgreement.stmtListByteFree fn.body = true)
     (hselector : tx.functionSelector < selectorModulus)
     (hNoWrap : 4 + tx.args.length * 32 < evmModulus)
     (hdispatchGuardSafe : ∀ fn', fn' ∈ simpleStorageIRContract.functions →
@@ -8568,7 +8572,7 @@ theorem simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR
       (nativeGeneratedCallDispatcherResultOf simpleStorageIRContract tx
         initialState observableSlots
         Compiler.SimpleStorageNativeWitness.nativeContract) :=
-  denoteResultMatchesNativeOn_of_sourceResultMatchesNativeOn hnoEvents
+  denoteResultMatchesNativeOn_of_sourceResultMatchesNativeOn hnoEvents hbyteFree
     (simpleStorage_source_endToEnd_native_evmYulLean_of_sourceIR tx initialState
       observableSlots _ hselector hNoWrap hdispatchGuardSafe hSourceIR)
 

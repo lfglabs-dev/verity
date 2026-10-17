@@ -28,6 +28,24 @@ def calldataloadWord (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat
       let lo := calldata.getD (q + 1) 0 % evmModulus
       ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) % evmModulus
 
+theorem calldataloadWord_lt_modulus (selector : Nat) (calldata : List Nat) (offset : Nat) :
+    calldataloadWord selector calldata offset < evmModulus := by
+  have hmod : 0 < evmModulus := by decide
+  unfold calldataloadWord
+  split
+  · unfold selectorWord
+    calc
+      (selector % selectorModulus) * 2 ^ selectorShift <
+          selectorModulus * 2 ^ selectorShift :=
+        Nat.mul_lt_mul_of_pos_right (Nat.mod_lt _ (by decide)) (by decide)
+      _ = evmModulus := by rfl
+  split
+  · exact hmod
+  dsimp
+  split
+  · exact Nat.mod_lt _ hmod
+  · exact Nat.mod_lt _ hmod
+
 /-- Memory word offsets written by `calldatacopy dst src size` under the
 word-addressed memory model used by the source semantics and the IR
 interpreter: the `size / 32` aligned words `dst, dst + 32, …`. -/

@@ -7,8 +7,8 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgeLemmas
 The compiler owns panic emission (`solidityPanicPayload` in
 `Compiler/CompilationModel/DynamicData.lean`); this module supplies the
 matching abstract IR result: the emitted statements deterministically revert
-with selector word `0x4e487b71 << 224` at memory offset 0 and the panic code at
-offset 4. This interpreter does not retain revert offsets, lengths, or returned
+after storing selector `0x4e487b71 << 224` at offset 0 and the panic code
+at offset 4, retaining the complete physical poststate. This interpreter does not retain revert offsets, lengths, or returned
 bytes. `PanicPayloadBytes` separately proves the actual 36-byte payload using
 EVMYulLean's byte-addressed memory operations and the emitted Yul AST.
 -/
@@ -20,51 +20,40 @@ open Compiler.CompilationModel
 /-- The 32-byte word holding the left-aligned `Panic(uint256)` selector. -/
 def panicSelectorWord : Nat := 0x4e487b71 * 2 ^ 224
 
-/-- The emitted panic sequence reverts with the selector word at abstract
-memory entry 0 and the code at entry 4; other entries are unchanged.
-This result does not describe the returned byte array. -/
+/-- Exact physical world after the two overlapping panic stores. Revert
+bytes remain the separate native observation in `PanicPayloadBytes`. -/
+def panicPayloadState (state : IRState) (code : Nat) : IRState :=
+  (state.writePhysicalMemoryValue 0 panicSelectorWord).writePhysicalMemoryValue 4 code
+
+/-- The emitted panic sequence updates actual bytes and every overlapping word
+window before reverting; it does not leave unrelated word-map entries frozen. -/
 theorem execIRStmts_solidityPanicPayload (fuel : Nat) (state : IRState)
     (code : Nat) (hcode : code < Compiler.Constants.evmModulus) :
     execIRStmts (fuel + 4) state (solidityPanicPayload code) =
-      .revert { state with
-        memory := fun o =>
-          if o = 4 then code
-          else if o = 0 then panicSelectorWord
-          else state.memory o } := by
+      .revert (panicPayloadState state code) := by
+  have offset : 4 % Compiler.Constants.evmModulus = 4 := by decide
+  have offsetWord : 4 % Verity.Core.Uint256.modulus = 4 := by decide
+  have selector :
+      (if 224 % Compiler.Constants.evmModulus < 256 then
+        0x4e487b71 * 2 ^ (224 % Compiler.Constants.evmModulus) % Compiler.Constants.evmModulus
+       else 0) = panicSelectorWord := by decide
   simp [solidityPanicPayload, solidityPanicPayloadExpr, execIRStmts, execIRStmt,
     evalIRExpr, evalIRCall, evalIRExprs,
     YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-    panicSelectorWord, Nat.mod_eq_of_lt hcode]
-  funext o
-  by_cases h4 : o = 4
-  · simp [h4]
-  · by_cases h0 : o = 0
-    · have h224 : (224 : Nat) % Compiler.Constants.evmModulus = 224 := by decide
-      simp [h4, h0, h224]
-    · simp [h4, h0]
+    panicPayloadState, offset, offsetWord, selector]
 
-/-- A typed arithmetic-overflow panic reverts with code `0x11` in abstract
-memory; all entries other than 0 and 4 are preserved. -/
+/-- The arithmetic-overflow panic retains its complete physical poststate. -/
 theorem execIRStmts_arithmeticOverflowPanicPayload (fuel : Nat) (state : IRState) :
     execIRStmts (fuel + 4) state
         (solidityPanicPayload Verity.Core.PanicCode.arithmeticOverflow.toNat) =
-      .revert { state with
-        memory := fun o =>
-          if o = 4 then 0x11
-          else if o = 0 then panicSelectorWord
-          else state.memory o } := by
+      .revert (panicPayloadState state 0x11) := by
   simpa using execIRStmts_solidityPanicPayload fuel state 0x11 (by decide)
 
-/-- A typed division-by-zero panic reverts with code `0x12` (`18`) in abstract
-memory; all entries other than 0 and 4 are preserved. -/
+/-- The division-by-zero panic retains its complete physical poststate. -/
 theorem execIRStmts_divisionByZeroPanicPayload (fuel : Nat) (state : IRState) :
     execIRStmts (fuel + 4) state
         (solidityPanicPayload Verity.Core.PanicCode.divisionByZero.toNat) =
-      .revert { state with
-        memory := fun o =>
-          if o = 4 then 0x12
-          else if o = 0 then panicSelectorWord
-          else state.memory o } := by
+      .revert (panicPayloadState state 0x12) := by
   simpa using execIRStmts_solidityPanicPayload fuel state 0x12 (by decide)
 
 end Compiler.Proofs.IRGeneration

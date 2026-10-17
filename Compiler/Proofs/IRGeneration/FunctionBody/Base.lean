@@ -120,7 +120,8 @@ def runtimeStateMatchesIR
   state.returnValue = none ∧
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
-  state.returndata = runtime.world.returndata
+  state.returndata = runtime.world.returndata ∧
+  runtime.world.byteMemory = state.byteMemory
 
 /-- Runtime/IR alignment for constructor execution, whose calldata is not
 selector-prefixed. This is the constructor-shaped analogue of
@@ -148,7 +149,8 @@ def constructorRuntimeStateMatchesIR
   state.returnValue = none ∧
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
-  state.returndata = runtime.world.returndata
+  state.returndata = runtime.world.returndata ∧
+  runtime.world.byteMemory = state.byteMemory
 
 theorem runtimeStateMatchesIR_returndata
     {fields : List Field}
@@ -157,7 +159,16 @@ theorem runtimeStateMatchesIR_returndata
     (h : runtimeStateMatchesIR fields runtime state) :
     state.returndata = runtime.world.returndata := by
   obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, h⟩ := h
-  exact h
+  exact h.1
+
+/-- Byte correspondence is an independent obligation: legacy word projections
+alone do not constrain the physical carrier of an arbitrary input state. -/
+theorem runtimeStateMatchesIR_byteMemory
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (h : runtimeStateMatchesIR fields runtime state) :
+    runtime.world.byteMemory = state.byteMemory := by
+  rcases h with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hbytes⟩
+  exact hbytes
 
 def initialIRStateForTx
     (spec : CompilationModel)
@@ -168,6 +179,7 @@ def initialIRStateForTx
       (SourceSemantics.encodeStorage spec initialWorld s.toNat)
     transientStorage := fun slot => (initialWorld.transientStorage slot).val
     memory := fun o => (initialWorld.memory o).val
+    byteMemory := initialWorld.byteMemory
     calldata := tx.args
     returnValue := none
     sender := tx.sender
@@ -2312,7 +2324,7 @@ private theorem eval_compileExpr_returndataOptionalBoolAt_of_compiled
       some (SourceSemantics.evalExpr fields runtime (.returndataOptionalBoolAt offset)) := by
   rw [compileExpr_returndataOptionalBoolAt_ok hoffset]
   simp only [Except.toOption, Option.getD]
-  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, hmem, -, -, -, hrd⟩ := hruntime
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, hmem, -, -, -, hrd, -⟩ := hruntime
   rcases hIR : evalIRExpr state offsetIR with _ | irVal
   · simp [hIR] at hEvalOffset
   · simp only [hIR] at hEvalOffset
@@ -2450,7 +2462,7 @@ theorem runtimeStateMatchesIR_returndatacopyBothMemory
   simp only [runtimeStateMatchesIR] at hmatch ⊢
   obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
     hmem, hret, hevt⟩ := hmatch
-  have hrd := hevt.2.2
+  have hrd := hevt.2.2.1
   refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
     ?_, hret, hevt⟩
   · rw [hstor]

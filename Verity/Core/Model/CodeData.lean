@@ -109,6 +109,21 @@ end CodeData
 
 namespace Create2
 
+/-- Read one byte from the canonical big-endian word view used by the
+    compilation model.  This is the memory-side counterpart of `wordBytes`.
+    It deliberately takes the complete requested slice, including zero-filled
+    bytes beyond the currently materialized word map. -/
+def memoryByteAt (memory : Nat → Uint256) (offset index : Nat) : UInt8 :=
+  UInt8.ofNat ((memory (offset + 32 * (index / 32))).val /
+    (256 ^ (31 - index % 32)) % 256)
+
+def memoryBytes (memory : Nat → Uint256) (offset size : Nat) : ByteArray :=
+  ⟨((List.range size).map (memoryByteAt memory offset)).toArray⟩
+
+@[simp] theorem memoryBytes_size (memory : Nat → Uint256) (offset size : Nat) :
+    (memoryBytes memory offset size).size = size := by
+  change ((List.range size).map (memoryByteAt memory offset)).length = size
+  simp
 /-- Big-endian byte representation of `n`, padded/truncated to `width` bytes. -/
 def natBytesBE (width n : Nat) : ByteArray :=
   ⟨Array.ofFn fun i : Fin width =>
@@ -150,6 +165,15 @@ def Preimage.address (preimage : Preimage) : Address :=
 /-- Model-level CREATE2 address derivation from typed fields. -/
 def create2Address (salt initcodeHash : Uint256) (deployer : Address) : Address :=
   ({ deployer, salt, initcodeHash } : Preimage).address
+
+/-- Exact CREATE2 address derivation for an initcode slice already represented
+    in the model's word-addressed memory.  The caller remains responsible for
+    proving that the word view corresponds to the physical EVM byte memory. -/
+def create2AddressFromMemory (memory : Nat → Uint256)
+    (offset size salt : Uint256) (deployer : Address) : Address :=
+  create2Address salt
+    (Uint256.ofNat (KeccakEngine.byteArrayToNatBE
+      (memoryBytes memory offset.val size.val))) deployer
 
 @[simp] theorem natBytesBE_size (width n : Nat) :
     (natBytesBE width n).size = width := by

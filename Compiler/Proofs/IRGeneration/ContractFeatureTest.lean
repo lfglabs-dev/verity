@@ -1159,15 +1159,14 @@ private def eventTrackingRuntime : SourceSemantics.RuntimeState :=
 example :
     SourceSemantics.execStmtWithHelpers eventTrackingSpec [] 0 eventTrackingRuntime
       (.emit "Evt" [.literal 11, .literal 22]) =
-    match SourceSemantics.eventScratchMemoryAfterEmit?
+    match SourceSemantics.eventScratchWorldAfterEmit?
         eventTrackingSpec.events "Evt"
         [11 % Compiler.Constants.evmModulus, 22 % Compiler.Constants.evmModulus]
-        eventTrackingRuntime.world.memory with
-    | some memory =>
+        eventTrackingRuntime.world with
+    | some world =>
         .continue
           { eventTrackingRuntime with
-            world := { eventTrackingRuntime.world with
-                memory := memory
+            world := { world with
                 events := eventTrackingRuntime.world.events ++
                   [{ name := "Evt"
                      args := [Verity.Core.Uint256.ofNat (22 % Compiler.Constants.evmModulus)]
@@ -1188,7 +1187,7 @@ example :
       (EventParamKind.indexed == EventParamKind.indexed) = true := by
     native_decide
   generalize hscratch :
-      SourceSemantics.eventScratchMemoryAfterEmit?
+      SourceSemantics.eventScratchWorldAfterEmit?
         [{ name := "Evt"
            params := [
              { name := "topic", ty := .uint256, kind := .indexed },
@@ -1196,7 +1195,7 @@ example :
            ] }]
         "Evt"
         [11 % Compiler.Constants.evmModulus, 22 % Compiler.Constants.evmModulus]
-        Verity.defaultState.memory = scratch
+        Verity.defaultState = scratch
   cases scratch <;>
   simp [eventTrackingSpec, eventTrackingRuntime, SourceSemantics.execStmtWithHelpers,
     SourceSemantics.evalExprListWithHelpers, SourceSemantics.evalExprWithHelpers,

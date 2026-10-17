@@ -134,8 +134,10 @@ theorem copyFrom_readByte_at (memory : Memory) (source : Nat → Byte)
     (destOffset sourceOffset size : Nat) (index : Fin size) :
     (memory.copyFrom source destOffset sourceOffset size).readByte (destOffset + index) =
       source (sourceOffset + index) := by
-  have he : destOffset + size ≤ (memory.copyFrom source destOffset sourceOffset size).size :=
-    Nat.le_trans (expandedLength_ge _) (Nat.le_max_right _ _)
+  have hn : size ≠ 0 := by have := index.isLt; omega
+  have he : destOffset + size ≤ (memory.copyFrom source destOffset sourceOffset size).size := by
+    simp only [Memory.copyFrom, if_neg hn, Memory.expand]
+    exact Nat.le_trans (expandedLength_ge _) (Nat.le_max_right _ _)
   have hi : destOffset + index.val < (memory.copyFrom source destOffset sourceOffset size).size :=
     Nat.lt_of_lt_of_le (Nat.add_lt_add_left index.isLt _) he
   rw [Memory.readByte, if_pos hi]
@@ -146,12 +148,16 @@ theorem copyFrom_readByte_outside (memory : Memory) (source : Nat → Byte)
     (destOffset sourceOffset size address : Nat)
     (outside : address < destOffset ∨ destOffset + size ≤ address) :
     (memory.copyFrom source destOffset sourceOffset size).readByte address = memory.readByte address := by
+  by_cases hn : size = 0
+  · subst hn
+    rfl
   have ho : ¬(destOffset ≤ address ∧ address < destOffset + size) := by omega
-  have hg : memory.size ≤ (memory.copyFrom source destOffset sourceOffset size).size :=
-    Nat.le_max_left _ _
+  have hg : memory.size ≤ (memory.copyFrom source destOffset sourceOffset size).size := by
+    simp only [Memory.copyFrom, if_neg hn, Memory.expand]
+    exact Nat.le_max_left _ _
   by_cases hi : address < (memory.copyFrom source destOffset sourceOffset size).size
   · rw [Memory.readByte, if_pos hi]
-    simp only [Memory.copyFrom, dif_neg ho]
+    simp only [Memory.copyFrom, if_neg hn, dif_neg ho]
   · have hOld : ¬ address < memory.size := by omega
     rw [Memory.readByte, if_neg hi, Memory.readByte, if_neg hOld]
 

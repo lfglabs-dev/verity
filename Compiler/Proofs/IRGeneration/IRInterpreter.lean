@@ -656,10 +656,8 @@ def execIRStmtWithInternals
           | .call "mstore" [offsetExpr, valExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, valExpr] with
               | .values [offset, val] state' =>
-                  .continue {
-                    state' with
-                    memory := fun o => if o = offset then val else state'.memory o
-                  }
+                  .continue (state'.writePhysicalMemoryValue
+                    (Verity.Core.Uint256.ofNat offset).val val)
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
@@ -990,7 +988,7 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
           | .call "mstore" [offsetExpr, valExpr] =>
               match evalIRExpr state offsetExpr, evalIRExpr state valExpr with
               | some offset, some val =>
-                .continue { state with memory := fun o => if o = offset then val else state.memory o }
+                .continue (state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat offset).val val)
               | _, _ => .revert state
           | .call "tstore" [offsetExpr, valExpr] =>
               match evalIRExpr state offsetExpr, evalIRExpr state valExpr with
@@ -1673,7 +1671,7 @@ theorem IRStmtPreservesObsAt_of_mstore
       (.exprStmt (.call "mstore" [offsetExpr, valExpr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨v, hv⟩ := hValEval
-  refine ⟨{ state with memory := fun x => if x = o then v else state.memory x },
+  refine ⟨state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat o).val v,
     fun _ => ?_⟩
   simp [execIRStmt, ho, hv]
 
@@ -5546,14 +5544,17 @@ theorem execIRFunction_mstore0_calldataload4_return32_of_args_cons
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return (Compiler.Proofs.YulGeneration.calldataloadWord
               s.selector s.calldata 4)
-            { s with memory := fun o =>
-                if o = 0 then (Compiler.Proofs.YulGeneration.calldataloadWord
-                    s.selector s.calldata 4)
-                else s.memory o } := by
+            (s.writePhysicalMemoryValue 0
+              (Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata 4)) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr,
-      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte]
+    have bounded : Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata 4 <
+        Verity.Core.Uint256.modulus :=
+      Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus s.selector s.calldata 4
+    simp only [execIRStmts, execIRStmt, evalIRExpr,
+      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+      Nat.mod_eq_of_lt bounded]
   have hsize : 2 ≤ sizeOf
       ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0, YulExpr.call "calldataload" [YulExpr.lit 4]]),
@@ -5598,14 +5599,17 @@ theorem execIRFunction_mstore0_calldataload_aligned_return32
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return (Compiler.Proofs.YulGeneration.calldataloadWord
               s.selector s.calldata (4 + 32 * idx))
-            { s with memory := fun o =>
-                if o = 0 then (Compiler.Proofs.YulGeneration.calldataloadWord
-                    s.selector s.calldata (4 + 32 * idx))
-                else s.memory o } := by
+            (s.writePhysicalMemoryValue 0
+              (Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata (4 + 32 * idx))) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr,
-      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte]
+    have bounded : Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata (4 + 32 * idx) <
+        Verity.Core.Uint256.modulus :=
+      Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus s.selector s.calldata (4 + 32 * idx)
+    simp only [execIRStmts, execIRStmt, evalIRExpr,
+      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+      Nat.mod_eq_of_lt bounded]
   have hsize : 2 ≤ sizeOf
       ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0,
@@ -5646,13 +5650,16 @@ theorem execIRFunction_mstore0_sload0_return32
          YulStmt.exprStmt (YulExpr.call "return"
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return ((s.storage (IRStorageSlot.ofNat 0)).toNat)
-            { s with memory := fun o =>
-                if o = 0 then (s.storage (IRStorageSlot.ofNat 0)).toNat else s.memory o } := by
+            (s.writePhysicalMemoryValue 0 (s.storage (IRStorageSlot.ofNat 0)).toNat) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
-      Compiler.Proofs.abstractLoadStorageOrMapping,
-      Option.bind_some, ↓reduceIte]
+    have bounded : (s.storage (IRStorageSlot.ofNat 0)).toNat < Verity.Core.Uint256.modulus := by
+      simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+        EvmYul.UInt256.size] using IRStorageWord.toNat_lt_size (s.storage (IRStorageSlot.ofNat 0))
+    simp only [execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
+      Compiler.Proofs.abstractLoadStorageOrMapping, Option.bind_some, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+      Nat.mod_eq_of_lt bounded]
   have hsize : 2 ≤ sizeOf
       ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
@@ -5666,6 +5673,9 @@ theorem execIRFunction_mstore0_sload0_return32
     IRState.foldl_setParamVars_events]
   simp [applyIRTransactionContext]
 
+/-- Exact EVM result, including modulo normalization for every Nat literal.
+The old word-map helper returned the literal unbounded; physical memory stores
+only its 256-bit representation. Bounded literal callers retain the same value. -/
 theorem execIRFunction_mstore0_lit_return32
     (fn : IRFunction) (tx : IRTransaction) (initialState : IRState)
     (value : Nat)
@@ -5674,7 +5684,7 @@ theorem execIRFunction_mstore0_lit_return32
       YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
-        returnValue := some value
+        returnValue := some (Verity.Core.Uint256.ofNat value).val
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
         events := initialState.events } := by
@@ -5683,10 +5693,11 @@ theorem execIRFunction_mstore0_lit_return32
         [YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
          YulStmt.exprStmt (YulExpr.call "return"
             [YulExpr.lit 0, YulExpr.lit 32])] =
-          .return value { s with memory := fun o => if o = 0 then value else s.memory o } := by
+          .return (Verity.Core.Uint256.ofNat value).val (s.writePhysicalMemoryValue 0 value) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr, ↓reduceIte]
+    simp only [execIRStmts, execIRStmt, evalIRExpr, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at]
   have hsize : 2 ≤ sizeOf
       ([YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
         YulStmt.exprStmt (YulExpr.call "return"

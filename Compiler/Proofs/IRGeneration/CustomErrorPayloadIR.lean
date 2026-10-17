@@ -104,8 +104,7 @@ theorem NonEscaping.mstore (offset value : YulExpr) :
           cases hval : evalIRExpr state value with
           | none => exact Or.inr ⟨state, by simp [execIRStmt, hoff, hval]⟩
           | some v =>
-              exact Or.inl ⟨{ state with
-                memory := fun x => if x = o then v else state.memory x },
+              exact Or.inl ⟨state.writePhysicalMemoryValue (o % Verity.Core.Uint256.modulus) v,
                 by simp [execIRStmt, hoff, hval]⟩
 
 /-- The list-level counterpart of `NonEscaping`: running the whole list can only

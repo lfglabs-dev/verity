@@ -69,6 +69,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.SymbolicExecutionChecks,
     .one `Contracts.SolidityImportSmoke.SolidityAbiPrimitiveChecks,
     .one `Contracts.SolidityImportSmoke.AbiLoweringChecks,
+    .one `Contracts.SolidityImportSmoke.PhysicalMemoryFrameChecks,
     .one `Contracts.SolidityImportSmoke.AbiCoverageChecks,
     .one `Contracts.SolidityImportSmoke.ExplicitAbiChecks,
     .one `Contracts.SolidityImportSmoke.SelectorIdentityChecks,

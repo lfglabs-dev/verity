@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
+import Compiler.Proofs.IRGeneration.EmptyRevert
 import Compiler.CompilationModel.ReservedScratchNames
 
 set_option linter.unnecessarySeqFocus false
@@ -2733,23 +2734,23 @@ private theorem compiledStmtStep_mstore_single_preserves
       -- Source execution: mstore updates source-level memory
       set runtime' := {
         runtime with
-        world := {
-          runtime.world with
-          memory := fun o =>
-            if o = offsetNat then valueNat else runtime.world.memory o
-        }
+        world := runtime.world.writePhysicalMemoryValue offsetNat valueNat
       }
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.mstore offset value) = .continue runtime' := by
         simp [SourceSemantics.execStmt, hOffsetSrc, hValueSrc, runtime']
       -- IR execution: mstore updates IR-level memory
-      set state' := { state with
-          memory := fun o => if o = offsetNat then valueNat else state.memory o }
+      set state' := state.writePhysicalMemoryValue offsetNat valueNat
+      have hOffsetLt : offsetNat < Compiler.Constants.evmModulus := by
+        have := FunctionBody.evalExpr_lt_evmModulus_core_of_scope
+          hcoreOffset hexact hinScopeOffset hbounded
+          (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeOffset) hruntime
+        rw [hOffsetSrc] at this; exact this
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
             (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) =
               .continue state' := by
-        simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+        simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', Nat.mod_eq_of_lt hOffsetLt]
       have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
       have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
           .continue state' := by
@@ -2772,14 +2773,9 @@ private theorem compiledStmtStep_mstore_single_preserves
         FunctionBody.scopeNamesPresent_of_included hscope hincl
       have hbounded' : FunctionBody.bindingsBounded runtime'.bindings := by
         simpa [runtime'] using hbounded
-      have hValueLt : valueNat < Verity.Core.Uint256.modulus := by
-        have := FunctionBody.evalExpr_lt_evmModulus_core_of_scope
-          hcoreValue hexact hinScopeValue hbounded
-          (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeValue) hruntime
-        rw [hValueSrc] at this; exact this
       have hruntime' : FunctionBody.runtimeStateMatchesIR fields runtime' state' := by
         show FunctionBody.runtimeStateMatchesIR fields _ _
-        exact FunctionBody.runtimeStateMatchesIR_setBothMemory hruntime offsetNat valueNat hValueLt
+        exact FunctionBody.runtimeStateMatchesIR_writePhysicalMemoryValue hruntime offsetNat valueNat
       exact ⟨_, _, hSrcExec, hIRExec,
         hruntime', hexact', hbounded', hscope'⟩
 
@@ -3375,6 +3371,24 @@ theorem compiledStmtStep_returndatacopy_bounded_single
   preserves := compiledStmtStep_returndatacopy_bounded_single_preserves
     hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize
     hdestIR hsourceIR hsizeIR
+
+/-- Direct empty revert has no memory or returndata premise. This coarse IR
+step agreement complements the byte-exact Denote/frame lemmas. -/
+theorem compiledStmtStep_revertEmpty_single
+    {fields : List Field} {scope : List String} :
+    CompiledStmtStep fields scope .revertEmpty
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] where
+  compileOk := by
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      pure, Except.pure]
+  preserves := by
+    intro runtime state extraFuel _ _ _ _ _
+    refine ⟨.revert, .revert state, rfl, ?_, trivial⟩
+    have hfuel : 1 + extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by omega
+    change execIRStmts (1 + extraFuel + 1) state
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] = .revert state
+    rw [hfuel]
+    exact EmptyRevert.ir_exact state extraFuel
 
 /-- `revertReturndata` bubbles the callee's revert reason.  The compiler's
 temporary is exactly `returndatasize()`; whichever branch the copy takes for the
@@ -4989,6 +5003,11 @@ private theorem uint256_shl_val_eq_mul_pow_mod
     Nat.mod_eq_of_lt hshiftLt]
   rw [Nat.shiftLeft_eq]
 
+/-- Transient writes leave the physical memory carrier untouched. -/
+private theorem byteMemory_modifyTransientSlots (s : Verity.ContractState) (targets : List Nat)
+    (f : Verity.Core.Uint256 → Verity.Core.Uint256) :
+    (s.modifyTransientSlots targets f).byteMemory = s.byteMemory := rfl
+
 set_option maxHeartbeats 0 in
 set_option maxRecDepth 10000 in
 private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves
@@ -5825,7 +5844,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
             · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
                 state4, state3, state2, state1] using hret
             · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
-                state4, state3, state2, state1] using hevents
+                state4, state3, state2, state1, byteMemory_modifyTransientSlots] using hevents
           simpa [state', htrans] using hmatch
         · have htransFalse : SourceSemantics.fieldIsTransient fields fieldName = false := by
             cases h : SourceSemantics.fieldIsTransient fields fieldName <;> simp [h] at htrans ⊢
@@ -8168,6 +8187,12 @@ theorem stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_su
     (scope := scope)
     (hcoreDest := hcoreDest)
     (hinScopeDest := hinScopeDest)
+
+theorem stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
+    {fields : List Field} {scope : List String} :
+    StmtListGenericCore fields scope [Stmt.revertEmpty] :=
+  StmtListGenericCore.cons compiledStmtStep_revertEmpty_single
+    StmtListGenericCore.nil
 
 theorem stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
     {fields : List Field} {scope : List String} :

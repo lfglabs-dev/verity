@@ -1067,7 +1067,7 @@ theorem initialIRStateForTx_matches_runtime
     rw [this]
     rfl
   · -- codeSize and returndata
-    refine ⟨funext fun addr => ?_, rfl⟩
+    refine ⟨funext fun addr => ?_, rfl, rfl⟩
     simp [FunctionBody.initialIRStateForTx, SourceSemantics.withTransactionContext]
 
 /-- An address-ranged transaction-context word survives the word/address

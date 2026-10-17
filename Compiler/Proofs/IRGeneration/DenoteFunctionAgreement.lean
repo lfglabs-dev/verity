@@ -172,6 +172,10 @@ theorem findDynamicArrayElementAtSlot_go_eq
   simp only [Denote.encodeStorage, SourceSemantics.encodeStorage, effectiveFields_eq]
   exact encodeStorageAt_eq (SourceSemantics.effectiveFields spec) world slot
 
+/-- Exact revert bytes are a Denote-only observation. -/
+theorem toSourceResult_revertData (r : Denote.DenoteResult) (data : Option (List UInt8)) :
+    toSourceResult { r with revertData := data } = toSourceResult r := rfl
+
 @[simp] theorem toSourceResult_revertedResult
     (spec : CompilationModel) (world : Verity.ContractState) :
     toSourceResult (Denote.revertedResult sourceOracle spec world) =
@@ -185,15 +189,16 @@ theorem findDynamicArrayElementAtSlot_go_eq
       SourceSemantics.successResult spec world ret := by
   simp [toSourceResult, Denote.successResult, SourceSemantics.successResult]
 
-/-- Function-level agreement: on the event-free fragment, the compiler-free
-denotation of an external function coincides with the trusted source
-interpretation. -/
+/-- Function-level agreement: on the event-free, byte-transport-free fragment,
+the compiler-free denotation of an external function coincides with the
+trusted source interpretation. -/
 theorem denoteFunction_eq
     (spec : CompilationModel)
     (fn : FunctionSpec)
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
-    (hnoEvents : spec.events = []) :
+    (hnoEvents : spec.events = [])
+    (hbyteFree : stmtListByteFree fn.body = true) :
     toSourceResult
         (Denote.denoteFunction sourceOracle spec fn (ofIRTransaction tx) initialWorld) =
       SourceSemantics.interpretFunction spec fn tx initialWorld := by
@@ -208,7 +213,7 @@ theorem denoteFunction_eq
       have hexec := execStmtList_eq (SourceSemantics.effectiveFields spec)
         { world := SourceSemantics.withTransactionContext initialWorld tx,
           immutable := fun _ => 0, bindings := bindings,
-          selector := tx.functionSelector, errors := spec.errors } fn.body
+          selector := tx.functionSelector, errors := spec.errors } fn.body hbyteFree rfl
       simp only [toRuntimeState] at hexec
       simp only
       rw [← hexec]
@@ -216,7 +221,7 @@ theorem denoteFunction_eq
           { world := SourceSemantics.withTransactionContext initialWorld tx,
             immutable := fun _ => 0, bindings := bindings,
             selector := tx.functionSelector, errors := spec.errors } fn.body <;>
-        simp [toStmtResult, toRuntimeState]
+        simp [toStmtResult, toRuntimeState, toSourceResult_revertData]
 
 end DenoteAgreement
 

@@ -63,7 +63,8 @@ theorem denote_sound
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hbyteFree : DenoteAgreement.stmtListByteFree fn.body = true) :
     ∃ sourceResult irExec,
       DenoteAgreement.toStmtResult
         (Denote.execStmtList DenoteAgreement.sourceOracle
@@ -79,7 +80,7 @@ theorem denote_sound
       hstateRuntime hstateBindings with
     ⟨sourceResult, irExec, hsource, hexec, hmatch⟩
   refine ⟨sourceResult, irExec, ?_, hexec, hmatch⟩
-  rw [DenoteAgreement.execStmtList_eq]
+  rw [DenoteAgreement.execStmtList_eq _ _ _ hbyteFree rfl]
   exact hsource
 
 /-- Helper-aware denote-headed soundness: same hypotheses as
@@ -121,7 +122,8 @@ theorem denote_sound_with_helpers
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hbyteFree : DenoteAgreement.stmtListByteFree fn.body = true) :
     ∃ sourceResult irExec,
       DenoteAgreement.toStmtResult
         (Denote.execStmtList DenoteAgreement.sourceOracle
@@ -152,7 +154,7 @@ theorem denote_sound_with_helpers
         bindings := bindings
         selector := tx.functionSelector }
       fn.body hhelperSurface
-  rw [DenoteAgreement.execStmtList_eq]
+  rw [DenoteAgreement.execStmtList_eq _ _ _ hbyteFree rfl]
   simp only [SourceSemantics.ExecStmtListWithHelpersConservativeExtensionGoal, hnoEvents,
     SourceSemantics.execStmtListWithEvents_nil_eq_execStmtList] at hcons
   exact hcons.symm.trans hwithHelpers

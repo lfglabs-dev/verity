@@ -22,43 +22,108 @@ abbrev sourceOracle := DenoteAgreement.sourceOracle
 abbrev toRuntimeState := DenoteAgreement.toRuntimeState
 abbrev toStmtResult := DenoteAgreement.toStmtResult
 
-/-! Constructor families used by the compositional statement proof. -/
+/-! Constructor families used by the compositional statement proof. Expression
+agreement holds on frames without a raw byte-call return buffer; statement
+agreement additionally excludes closed byte transports, which only `Denote`
+executes. -/
 
 theorem arithmetic_constructor
-    (fields : List Field) (state : DenoteState) (expr : Expr) :
+    (fields : List Field) (state : DenoteState) (expr : Expr)
+    (hraw : state.rawReturndata = none) :
     Denote.evalExpr sourceOracle fields state expr =
       SourceSemantics.evalExpr fields (toRuntimeState state) expr :=
-  DenoteAgreement.denote_evalExpr_eq fields state expr
+  DenoteAgreement.denote_evalExpr_eq fields state hraw expr
 
 theorem storage_read_constructor
-    (fields : List Field) (state : DenoteState) (expr : Expr) :
+    (fields : List Field) (state : DenoteState) (expr : Expr)
+    (hraw : state.rawReturndata = none) :
     Denote.evalExpr sourceOracle fields state expr =
       SourceSemantics.evalExpr fields (toRuntimeState state) expr :=
-  DenoteAgreement.denote_evalExpr_eq fields state expr
+  DenoteAgreement.denote_evalExpr_eq fields state hraw expr
 
 theorem storage_write_constructor
-    (fields : List Field) (state : DenoteState) (stmt : Stmt) :
+    (fields : List Field) (state : DenoteState) (stmt : Stmt)
+    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true)
+    (hraw : state.rawReturndata = none) :
     toStmtResult (Denote.execStmt sourceOracle fields state stmt) =
       SourceSemantics.execStmt fields (toRuntimeState state) stmt :=
-  DenoteAgreement.execStmt_eq fields state stmt
+  DenoteAgreement.execStmt_eq fields state stmt hbyteFree hraw
 
 theorem control_flow_constructor
-    (fields : List Field) (state : DenoteState) (stmt : Stmt) :
+    (fields : List Field) (state : DenoteState) (stmt : Stmt)
+    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true)
+    (hraw : state.rawReturndata = none) :
     toStmtResult (Denote.execStmt sourceOracle fields state stmt) =
       SourceSemantics.execStmt fields (toRuntimeState state) stmt :=
-  DenoteAgreement.execStmt_eq fields state stmt
+  DenoteAgreement.execStmt_eq fields state stmt hbyteFree hraw
 
 theorem revert_constructor
-    (fields : List Field) (state : DenoteState) (stmt : Stmt) :
+    (fields : List Field) (state : DenoteState) (stmt : Stmt)
+    (hbyteFree : DenoteAgreement.stmtByteFree stmt = true)
+    (hraw : state.rawReturndata = none) :
     toStmtResult (Denote.execStmt sourceOracle fields state stmt) =
       SourceSemantics.execStmt fields (toRuntimeState state) stmt :=
-  DenoteAgreement.execStmt_eq fields state stmt
+  DenoteAgreement.execStmt_eq fields state stmt hbyteFree hraw
 
 theorem statement_list_composition
-    (fields : List Field) (state : DenoteState) (stmts : List Stmt) :
+    (fields : List Field) (state : DenoteState) (stmts : List Stmt)
+    (hbyteFree : DenoteAgreement.stmtListByteFree stmts = true)
+    (hraw : state.rawReturndata = none) :
     toStmtResult (Denote.execStmtList sourceOracle fields state stmts) =
       SourceSemantics.execStmtList fields (toRuntimeState state) stmts :=
-  DenoteAgreement.execStmtList_eq fields state stmts
+  DenoteAgreement.execStmtList_eq fields state stmts hbyteFree hraw
+
+mutual
+
+/-- The plain contract surface rejects every ECM, so supported bodies carry no
+closed byte transport. -/
+theorem stmtByteFree_of_contractSurfaceClosed :
+    ∀ stmt : Stmt, stmtTouchesUnsupportedContractSurface stmt = false →
+      DenoteAgreement.stmtByteFree stmt = true
+  | .ite _ thenBranch elseBranch, h => by
+      simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at h
+      simp only [DenoteAgreement.stmtByteFree, Bool.and_eq_true]
+      exact ⟨stmtListByteFree_of_contractSurfaceClosed thenBranch h.1.2,
+        stmtListByteFree_of_contractSurfaceClosed elseBranch h.2⟩
+  | .forEach _ count body, h => by
+      simp only [DenoteAgreement.stmtByteFree]
+      cases count with
+      | literal n =>
+          cases n with
+          | zero =>
+              simp only [stmtTouchesUnsupportedContractSurface] at h
+              exact stmtListByteFree_of_contractSurfaceClosed body h
+          | succ n =>
+              cases body with
+              | nil => rfl
+              | cons _ _ => simp [stmtTouchesUnsupportedContractSurface] at h
+      | _ => simp [stmtTouchesUnsupportedContractSurface] at h
+  | .ecm _ _, h | .forEachSetBit _ _ _, h | .unsafeBlock _ _, h | .matchAdt _ _ _, h => by
+      simp [stmtTouchesUnsupportedContractSurface] at h
+  | .letVar .., _ | .assignVar .., _ | .setStorage .., _ | .setStorageAddr .., _
+  | .setImmutable .., _ | .setStorageWord .., _ | .setMapping .., _ | .setMappingWord .., _
+  | .setMappingPackedWord .., _ | .setMapping2 .., _ | .setMapping2Word .., _
+  | .setMappingUint .., _ | .setMappingChain .., _ | .setStructMember .., _
+  | .setStructMember2 .., _ | .storageArrayPush .., _ | .storageArrayPop .., _
+  | .setStorageArrayElement .., _ | .mstore .., _ | .tstore .., _ | .calldatacopy .., _
+  | .returndataCopy .., _ | .require .., _ | .requireError .., _ | .revertError .., _
+  | .panicCode .., _ | .panic .., _ | .return .., _ | .stop, _ | .emit .., _
+  | .externalCallBind .., _ | .tryExternalCallBind .., _ | .returnValues .., _
+  | .returnBytes .., _ | .returnArray .., _ | .returnStorageWords .., _
+  | .returnCodeData .., _ | .revertEmpty, _ | .revertReturndata, _ | .internalCall .., _
+  | .internalCallAssign .., _ | .rawLog .., _ | .unsafeYul .., _ => rfl
+
+theorem stmtListByteFree_of_contractSurfaceClosed :
+    ∀ stmts : List Stmt, stmtListTouchesUnsupportedContractSurface stmts = false →
+      DenoteAgreement.stmtListByteFree stmts = true
+  | [], _ => rfl
+  | stmt :: rest, h => by
+      simp only [stmtListTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at h
+      simp only [DenoteAgreement.stmtListByteFree, Bool.and_eq_true]
+      exact ⟨stmtByteFree_of_contractSurfaceClosed stmt h.1,
+        stmtListByteFree_of_contractSurfaceClosed rest h.2⟩
+
+end
 
 /-! Function-boundary conversions and observable-result agreement. -/
 
@@ -122,8 +187,7 @@ theorem denote_eq_sourceSemantics
       SourceSemantics.interpretFunction spec fn (toIRTransaction tx) initialWorld := by
   have hsurface : stmtListTouchesUnsupportedContractSurface fn.body = false :=
     stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed fn.body
-      hsupported.body.core.surfaceClosed
-      hsupported.body.state.surfaceClosed
+      hsupported.body.core.surfaceClosed hsupported.body.state.surfaceClosed
       (SupportedBodyCallInterface.surfaceClosed (hBody := hsupported.body))
       hsupported.body.effects.surfaceClosed
   simp only [Denote.denoteFunction, SourceSemantics.interpretFunction,
@@ -156,11 +220,13 @@ theorem denote_eq_sourceSemantics
             { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
               bindings := bindings
               selector := tx.functionSelector, errors := spec.errors } fn.body
+            (stmtListByteFree_of_contractSurfaceClosed fn.body hsurface) rfl
       rw [← hagree]
       cases Denote.execStmtList sourceOracle (SourceSemantics.effectiveFields spec)
           { world := SourceSemantics.withTransactionContext initialWorld (toIRTransaction tx)
             bindings := bindings
             selector := tx.functionSelector, errors := spec.errors } fn.body <;>
-        simp [DenoteAgreement.toStmtResult, DenoteAgreement.toRuntimeState]
+        simp [DenoteAgreement.toStmtResult, DenoteAgreement.toRuntimeState,
+          DenoteAgreement.toSourceResult_revertData]
 
 end Compiler.Proofs.IRGeneration.DenoteEquivalence

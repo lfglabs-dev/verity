@@ -28,7 +28,8 @@ they agree with `abiEncodeArgHeads` is what pins the ABI head/tail arithmetic
 at the IR level.  The chain reuses the slice-3 infrastructure unchanged —
 `execIRStmts_mstore_ptr_expr_block` runs the block, `abiBlockWrites_eq_zip`
 identifies its writes with an ABI word block, and
-`yulLogDataWords_abiBlockWrites` reads the block back.
+`yulLogDataWords_applyStores_abiBlockWrites` reads the physical block back as
+256-bit words.
 
 Two gaps remain and are deliberately *not* claimed here; both are recorded in
 `docs/VERIFICATION_STATUS.md`:
@@ -350,8 +351,8 @@ theorem dynEmitPayloadExprs_length (args : List DynEmitArg) (abiArgs : List AbiA
     (dynEmitPayloadExprs args).length = (abiEncodeArgs abiArgs).length :=
   (evalIRExprs_length _ state _ (dynEmitPayloadExprs_eval args abiArgs state h)).symm
 
-/-- Running the dynamic unindexed block from `__evt_ptr = p` leaves memory
-holding the slice-2 ABI head/tail block of the unindexed arguments. -/
+/-- Running the dynamic unindexed block from `__evt_ptr = p` stores the slice-2
+ABI head/tail block of the unindexed arguments into physical memory. -/
 theorem dynEmitUnindexedStores_exec (args : List DynEmitArg) (abiArgs : List AbiArg)
     (fuel : Nat) (state : IRState) (p : Nat)
     (hptr : state.getVar "__evt_ptr" = some p)
@@ -359,9 +360,8 @@ theorem dynEmitUnindexedStores_exec (args : List DynEmitArg) (abiArgs : List Abi
     (hden : DynEmitDenotes state args abiArgs) :
     execIRStmts ((abiEncodeArgs abiArgs).length + fuel + 1) state
         (dynEmitUnindexedStores args) =
-      .continue { state with
-        memory := applyWrites state.memory
-          (abiBlockWrites p (abiEncodeArgs abiArgs)) } := by
+      .continue (PhysicalPayloadStores.applyStores state
+          (abiBlockWrites p (abiEncodeArgs abiArgs))) := by
   have hlen := dynEmitPayloadExprs_length args abiArgs state hden
   have hvals : evalIRExprs state ((abiWordWrites 0 (dynEmitPayloadExprs args)).map (·.2)) =
       some (abiEncodeArgs abiArgs) := by
@@ -377,7 +377,8 @@ theorem dynEmitUnindexedStores_exec (args : List DynEmitArg) (abiArgs : List Abi
     hblock, abiWordWrites_zip_eq_abiBlockWrites _ _ p 0 hlen.symm,
     Nat.add_zero]
 
-/-- The log data payload of the dynamic block is exactly `abiEncodeArgs`. -/
+/-- The log data payload of the dynamic block is exactly `abiEncodeArgs`, as
+256-bit memory words. -/
 theorem dynEmitUnindexedStores_logDataWords (args : List DynEmitArg) (abiArgs : List AbiArg)
     (fuel : Nat) (state : IRState) (p : Nat) (final : IRState)
     (hptr : state.getVar "__evt_ptr" = some p)
@@ -387,14 +388,12 @@ theorem dynEmitUnindexedStores_logDataWords (args : List DynEmitArg) (abiArgs : 
     (hexec : execIRStmts ((abiEncodeArgs abiArgs).length + fuel + 1) state
       (dynEmitUnindexedStores args) = .continue final) :
     yulLogDataWords final.memory p (32 * (abiEncodeArgs abiArgs).length) =
-      abiEncodeArgs abiArgs := by
+      (abiEncodeArgs abiArgs).map (· % Compiler.Constants.evmModulus) := by
   have hrun := dynEmitUnindexedStores_exec args abiArgs fuel state p hptr hmi hden
   rw [hexec] at hrun
   injection hrun with hstate
-  have hmem : final.memory = applyWrites state.memory
-      (abiBlockWrites p (abiEncodeArgs abiArgs)) := by rw [hstate]
-  rw [hmem]
-  exact yulLogDataWords_abiBlockWrites _ p state.memory hfit
+  rw [hstate]
+  exact yulLogDataWords_applyStores_abiBlockWrites _ p state hfit
 
 /-! ## Threading through the LOG opcodes -/
 
@@ -508,28 +507,29 @@ theorem dynamicEmitPayload_log_observable
             (scalarEventIndexedTopicParts indexed)))]) = .continue final) :
     final.events = state.events ++
       [(topic0 :: abiEncodeScalarHeads (eventAbiScalarArgs indexed indexedValues)) ++
-        abiEncodeArgs abiArgs] := by
+        (abiEncodeArgs abiArgs).map (· % Compiler.Constants.evmModulus)] := by
   have hlen := dynEmitPayloadExprs_length args abiArgs state hden
   have hrunStores := dynEmitUnindexedStores_exec args abiArgs (fuel + 1) state p hptr
     hmiPayload hden
-  obtain ⟨mid, hmid⟩ : ∃ m : IRState, m = { state with
-      memory := applyWrites state.memory
-        (abiBlockWrites p (abiEncodeArgs abiArgs)) } := ⟨_, rfl⟩
+  obtain ⟨mid, hmid⟩ : ∃ m : IRState, m = PhysicalPayloadStores.applyStores state
+      (abiBlockWrites p (abiEncodeArgs abiArgs)) := ⟨_, rfl⟩
   rw [← hmid] at hrunStores
   have hdata : yulLogDataWords mid.memory p (32 * (abiEncodeArgs abiArgs).length) =
-      abiEncodeArgs abiArgs :=
+      (abiEncodeArgs abiArgs).map (· % Compiler.Constants.evmModulus) :=
     dynEmitUnindexedStores_logDataWords args abiArgs (fuel + 1) state p mid hptr hmiPayload
       hden hfit hrunStores
   have hrunLog := eventLogStmt_exec_dataExpr indexed
     (abiEncodeScalarHeads (eventAbiScalarArgs indexed indexedValues)) mid
     (YulExpr.ident "__evt_data_tail") p (32 * (abiEncodeArgs abiArgs).length) topic0 fuel
-    (by rw [hmid]; exact hptr) (by rw [hmid]; exact htopic0)
-    (by rw [hmid]; simpa [evalIRExpr, IRState.getVar] using hdataTail) hindexedLen
+    (by rw [hmid, applyStores_getVar]; exact hptr) (by rw [hmid, applyStores_getVar]; exact htopic0)
+    (by rw [hmid, applyStores_eq_memory_update]; simpa [evalIRExpr, IRState.getVar] using hdataTail)
+    hindexedLen
     (scalarEventIndexedTopicParts_eval indexed indexedValues mid hsupportIndexed
-      (by rw [hmid, evalIRExprs_mem_insensitive _ hmiIndexed state _]; exact hindexedVals))
+      (by rw [hmid, evalIRExprs_applyStores _ hmiIndexed state _]; exact hindexedVals))
   rw [execIRStmts_block_then_stmt _ _ _ _ _ _ _ _
     (by rw [dynEmitUnindexedStores_length, hlen]) hrunStores hrunLog hexec]
   simp only [IRState.appendYulLog_events, encodeYulLogEvent, hdata,
-    show mid.events = state.events from by rw [hmid]]
+    show mid.events = state.events from by
+      rw [hmid, PhysicalPayloadStores.applyStores_events]]
 
 end Compiler.Proofs.AbiDynamicEventObservable

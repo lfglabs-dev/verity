@@ -1670,6 +1670,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface
   | returndataCopyEmptySingle hcoreDest hinScopeDest =>
       exact stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
         (fields := fields) hcoreDest hinScopeDest
+  | revertEmptySingle =>
+      exact stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
+        (fields := fields)
   | revertReturndataEmptySingle =>
       exact stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
         (fields := fields)
@@ -1788,6 +1791,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   | returndataCopyEmptySingle hcoreDest hinScopeDest =>
       exact stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
         (fields := fields) hcoreDest hinScopeDest
+  | revertEmptySingle =>
+      exact stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
+        (fields := fields)
   | revertReturndataEmptySingle =>
       exact stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
         (fields := fields)
@@ -2065,6 +2071,9 @@ theorem stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_
   | returndataCopyEmptySingle hcoreDest hinScopeDest =>
       exact stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
         (fields := fields) hcoreDest hinScopeDest
+  | revertEmptySingle =>
+      exact stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
+        (fields := fields)
   | revertReturndataEmptySingle =>
       exact stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
         (fields := fields)

@@ -487,7 +487,7 @@ DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    "denote-custom-require-argument",
                    "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
                    "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
-                   "denote-scalar-sibling-mask",
+                   "denote-scalar-sibling-mask", "import-bare-empty-revert",
                    'import-mapping-layout',
                    'import-mapping-read-one',
                    'import-mapping-read-two',
@@ -719,6 +719,13 @@ def reference_location_mutation() -> None:
     print("pass reference-location", flush=True)
 
 
+def byte_call_mutations() -> None:
+    subprocess.run([sys.executable,
+                    str(ROOT / "scripts/solidity_differential/check_byte_call_mutations.py")],
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    print("pass canonical byte-call and exact empty-revert mutations", flush=True)
+
+
 def tasks(update_golden: bool) -> list:
     """Independent work items, most expensive first (each runs in its own snapshot).
 
@@ -735,6 +742,7 @@ def tasks(update_golden: bool) -> list:
              ("block-drop", 1, block_mutation),
              ("reference-wrong-root", 1, reference_mutation),
              ("reference-location", 1, reference_location_mutation),
+             ("byte-call", 1, byte_call_mutations),
              ("deployment-world", 1, deployment_world_mutations),
              ("create2-opcode", 1, create2_opcode_mutations),
              ("account-storage", 1, account_storage_mutations)]

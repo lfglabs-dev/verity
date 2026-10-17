@@ -16,9 +16,11 @@ emit them for the supported source fragment.  Gas accounting and the EVM's
 address-space limit are also deliberately outside the canonical functional
 model.
 
-`Denote` historically stores a whole word at each byte offset.  The final
-section gives the exact composition boundary for that existing source model;
-clients needing byte-level overlap use `Memory` below.
+`Denote` maintains physical bytes together with their complete overlapping word
+observation. The final section states its exact source-store boundary. The
+isolated-word helpers remain historical algebraic utilities, not the canonical
+store semantics. Byte-memory definitions and their basic laws live in
+`Verity.Core.ByteMemory` and are shared rather than redeclared here.
 -/
 
 namespace Compiler.CompilationModel.DenoteMemory
@@ -27,90 +29,8 @@ open Compiler.CompilationModel
 open Compiler.CompilationModel.Denote
 open Compiler.CompilationModel.DenoteExternalCalls
 
-abbrev Byte := Fin 256
-abbrev Word := Fin 32 → Byte
-
-def zeroByte : Byte := ⟨0, by decide⟩
-
-/-- Runtime EVM memory. `size` is the expanded byte length and is always
-intended to be a multiple of 32; `bytes` is total to expose zero-filled reads
-without partial indexing. -/
-structure Memory where
-  bytes : Nat → Byte
-  size : Nat
-
-def Memory.empty : Memory :=
-  { bytes := fun _ => zeroByte, size := 0 }
-
-def expandedLength (endOffset : Nat) : Nat :=
-  if endOffset = 0 then 0 else 32 * ((endOffset + 31) / 32)
-
-def Memory.expand (memory : Memory) (endOffset : Nat) : Memory :=
-  { memory with size := Nat.max memory.size (expandedLength endOffset) }
-
-def Memory.readByte (memory : Memory) (offset : Nat) : Byte :=
-  if offset < memory.size then memory.bytes offset else zeroByte
-
-def Memory.writeByte (memory : Memory) (offset : Nat) (value : Byte) : Memory :=
-  let expanded := memory.expand (offset + 1)
-  { expanded with bytes := fun address => if address = offset then value else memory.readByte address }
-
-def Memory.readWord (memory : Memory) (offset : Nat) : Word :=
-  fun index => memory.readByte (offset + index)
-
-def Memory.writeWord (memory : Memory) (offset : Nat) (value : Word) : Memory :=
-  let expanded := memory.expand (offset + 32)
-  { expanded with
-    bytes := fun address =>
-      if h : offset ≤ address ∧ address < offset + 32 then
-        value ⟨address - offset, by omega⟩
-      else
-        memory.readByte address }
-
-def Memory.copyFrom (memory : Memory) (source : Nat → Byte)
-    (destOffset sourceOffset size : Nat) : Memory :=
-  let expanded := memory.expand (destOffset + size)
-  { expanded with
-    bytes := fun address =>
-      if _h : destOffset ≤ address ∧ address < destOffset + size then
-        source (sourceOffset + (address - destOffset))
-      else
-        memory.readByte address }
-
-theorem expandedLength_aligned (endOffset : Nat) :
-    expandedLength endOffset % 32 = 0 := by
-  by_cases h : endOffset = 0
-  · simp [expandedLength, h]
-  · simp [expandedLength, h]
-
-theorem Memory.expand_size_ge (memory : Memory) (endOffset : Nat) :
-    memory.size ≤ (memory.expand endOffset).size := by
-  exact Nat.le_max_left _ _
-
-theorem Memory.writeByte_at (memory : Memory) (offset : Nat) (value : Byte) :
-    (memory.writeByte offset value).bytes offset = value := by
-  simp [Memory.writeByte]
-
-theorem Memory.writeWord_at (memory : Memory) (offset : Nat) (value : Word)
-    (index : Fin 32) :
-    (memory.writeWord offset value).bytes (offset + index) = value index := by
-  simp only [Memory.writeWord]
-  split
-  · congr
-    omega
-  · rename_i h
-    exact False.elim (h ⟨by omega, by omega⟩)
-
-theorem Memory.copyFrom_at (memory : Memory) (source : Nat → Byte)
-    (destOffset sourceOffset size : Nat) (index : Fin size) :
-    (memory.copyFrom source destOffset sourceOffset size).bytes (destOffset + index) =
-      source (sourceOffset + index) := by
-  simp only [Memory.copyFrom]
-  split
-  · congr
-    omega
-  · rename_i h
-    exact False.elim (h ⟨by omega, by omega⟩)
+/-! Byte-memory types, operations and their basic laws are shared with
+`Verity.Core.ByteMemory`, imported through the canonical world. -/
 
 /-! ## Operations and their result -/
 
@@ -238,21 +158,18 @@ theorem canonicalMload_mstore (memory : CanonicalWordMemory) (offset value : Nat
       (Verity.Core.Uint256.ofNat value).val := by
   simp [canonicalMload, canonicalMstore]
 
-/-- Soundness for the source `Stmt.mstore` arm: the canonical statement
-denotation is exactly the word update exposed by this module. -/
+/-- The canonical source store updates both the physical bytes and the full
+ overlapping word observation. The legacy isolated-word update above is not
+ the semantics of a physical store. -/
 theorem execStmt_literal_mstore_source_sound
     (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
     (offset value : Nat) :
     execStmt oracle fields state (.mstore (.literal offset) (.literal value)) =
       .continue
         { state with
-          world :=
-            { state.world with
-              memory := canonicalMstore state.world.memory
-                (wordNormalize offset) (wordNormalize value) } } := by
+          world := state.world.writePhysicalMemoryValue
+            (wordNormalize offset) (Verity.Core.Uint256.ofNat (wordNormalize value)) } := by
   simp [execStmt, evalExpr]
-  funext address
-  simp [canonicalMstore]
 
 /-- Soundness for the corresponding source `Expr.mload` arm. -/
 theorem evalExpr_literal_mload_source_sound

@@ -344,26 +344,24 @@ theorem compiledStmtStep_return
           omega
         omega
       -- Provide explicit witnesses
-      set state' := { state with memory := fun o => if o = 0 then v else state.memory o }
+      set state' := state.writePhysicalMemoryValue 0 v
       have hlt : v < Verity.Core.Uint256.modulus := by
         have := FunctionBody.evalExpr_lt_evmModulus_core_of_scope hcore hexact hinScope hbounded
           (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope) hruntime
         rw [hEvalSrc] at this; exact this
       set runtime' : SourceSemantics.RuntimeState :=
-        { runtime with world := { runtime.world with
-            memory := fun o => if o = 0 then v else runtime.world.memory o } }
+        { runtime with world := runtime.world.writePhysicalMemoryValue 0 v }
       refine ⟨.return v runtime', .return v state', ?_, ?_, ?_⟩
       · show SourceSemantics.execStmt fields runtime (.return value) = .return v runtime'
         have hunfold : SourceSemantics.execStmt fields runtime (.return value) =
           match SourceSemantics.evalExpr fields runtime value with
           | some resolved => .return resolved
-              { runtime with world := { runtime.world with
-                  memory := fun o => if o = 0 then resolved else runtime.world.memory o } }
+              { runtime with world := runtime.world.writePhysicalMemoryValue 0 resolved }
           | none => .revert := rfl
         rw [hunfold, hEvalSrc]
       · rw [hRetVal] at hwhole; rw [hfuelEq]; exact hwhole
       · simp [stmtStepMatchesIRExec, stmtNextScope, collectStmtNames]
-        exact FunctionBody.runtimeStateMatchesIR_setBothMemory hruntime 0 v hlt
+        exact FunctionBody.runtimeStateMatchesIR_writePhysicalMemoryValue hruntime 0 v
 
 theorem compiledStmtStep_stop
     {fields : List Field}
