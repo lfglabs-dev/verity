@@ -1,9 +1,11 @@
 """Batch A/B/C execution with explicit infrastructure failures and replay artifacts."""
 import hashlib
+import os
 import json
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 import time
 
 from .cases import canonical, generate, materialize
@@ -13,8 +15,17 @@ WORKSPACE = Path.cwd().resolve()
 SOLC = WORKSPACE / ".lake/solidity-import/solc-0.8.34"
 
 
+# Mutant campaigns recompile `Compiler.SolidityImport.Import` (and dependents) in a
+# private snapshot. That module alone takes ~5 minutes of single-threaded codegen,
+# so CI workers running campaigns in parallel need more than the old 600s budget.
+MUTANT_BUILD_TIMEOUT = int(os.environ.get("VERITY_MUTANT_BUILD_TIMEOUT", "1800"))
+
+
 class HarnessError(RuntimeError):
     pass
+
+
+BUILD_LOCK = threading.Lock()
 
 
 def write_json(path, obj):
@@ -73,8 +84,10 @@ def prepare(config_path, output):
                "metadata": {"bytecodeHash": "none"}, **settings}
     if profile["evmVersion"] != "osaka":
         raise HarnessError("fixture_unsupported: this runner currently targets Osaka")
-    command(["lake", "build", "Compiler.SolidityImport.Import", "Compiler.SolidityImport.Differential"],
-            timeout=1800, log=output / "build.log")
+    # Parallel campaigns share one workspace: let one `lake build` run at a time.
+    with BUILD_LOCK:
+        command(["lake", "build", "Compiler.SolidityImport.Import", "Compiler.SolidityImport.Differential"],
+                timeout=1800, log=output / "build.log")
     # Keep the importer and reference compiler profile identical.
     driver = output / "Driver.lean"
     runs = f'some {profile["optimizer"]["runs"]}' if profile["optimizer"]["enabled"] else "none"

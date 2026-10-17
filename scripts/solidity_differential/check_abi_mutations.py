@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from .engine import HarnessError, command, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from .mutations import snapshot
 
 # Source-ordinal mutation restores one-word-per-source-parameter addressing;
@@ -24,8 +24,8 @@ MUTANTS = {'import-abi-source-offset': ('(.literal (4 + (modelParams.toList.take
                               '\n            | .address => some (2^161)'),
  'import-abi-bool-bound': ('\n            | .bool => some 2', '\n            | .bool => some 3'),
  'import-abi-inclusive': ('\n            (.lt (.calldataload', '\n            (.le (.calldataload'),
- 'import-abi-revert': ('\n            [] [.revertReturndata])',
-                       '\n            [] [.panic .arithmeticOverflow])')}
+ 'import-abi-revert': ('(.literal bound))\n            [] [.revertReturndata])',
+                       '(.literal bound))\n            [] [.panic .arithmeticOverflow])')}
 
 
 def run(directory, output):
@@ -58,7 +58,7 @@ def mutation_campaign(output, selected=None):
             raise HarnessError(f'{name}: nonunique mutation anchor')
         source.write_text(text.replace(before, after))
         command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-            timeout=600, log=directory / 'build.log')
+            timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
         campaign = directory / '.lake/mutated'
         code, report = run(directory, campaign)
         if not code or not report['divergences']:

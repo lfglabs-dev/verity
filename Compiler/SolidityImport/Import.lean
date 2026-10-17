@@ -4280,7 +4280,7 @@ private partial def lowerRef (j : Json) : M Ref := do
               else
                 failAt j s!"{member} is not a supported member of {rawInfo.structName}"
             else if let .bytesSlot (fieldName, slotExpr) isString := path then
-              if member == "value" then
+              if ← isStorageStructBytesMember j then
                 if fieldName != "" then
                   pure (.state fieldName pre)
                 else
@@ -5544,7 +5544,7 @@ private partial def lowerStorageBytesLength (pre : Array Stmt) (fieldName : Stri
   return { pre := pre ++ stmts, expr := .localVar len }
 
 private partial def resolveStorageBytesTarget? (j : Json) : M (Option (Array Stmt × String × Expr × Bool)) := do
-  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "value" then
+  if ← isStorageStructBytesMember j then
     let base ← mField j "expression"
     let baseTy ← mType base
     if baseTy.startsWith "struct " &&
@@ -6394,7 +6394,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     return ← lowerLiteralBytes j
   if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "selector" then
     return ← lowerSelectorBytes j
-  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "value" then
+  if ← isStorageStructBytesMember j then
     if let some (pre, name, slotExpr, _) ← resolveStorageBytesTarget? j then
       return ← lowerStorageBytesRead pre name slotExpr j
   if (← mKind j) == "IndexAccess" then
@@ -8356,11 +8356,9 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
                   let sMembers ← mArr (← mField retStructDecl "members")
                   unless sMembers.size == 1 do
                     failAt r "StorageSlot bytes/string wrapper struct must have a single value member"
-                  let m0 := sMembers[0]!
-                  let m0Name ← mStr (← mField m0 "name")
-                  let m0Ty ← mType m0
-                  unless m0Name == "value" && (m0Ty == "string" || m0Ty == "bytes") do
-                    failAt r "StorageSlot bytes/string wrapper struct must have a single string or bytes member named value"
+                  let m0Ty ← mType sMembers[0]!
+                  unless m0Ty == "string" || m0Ty == "bytes" do
+                    failAt r "StorageSlot bytes/string wrapper struct must have a single string or bytes member"
                   matchedBytesSlot := some (.bytesSlot (storageName, slotExpr) (m0Ty == "string"))
         if let some bpath := matchedBytesSlot then
           if idx + 1 == stmts.size then
@@ -8379,10 +8377,8 @@ private partial def inlineStorageRefFn (fnId : Nat) (args : Array CallArg) (at_ 
           modify fun e => { e with yulNames := savedAsmYul, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
           let sMembers ← mArr (← mField retStructDecl "members")
           let rawBytesString? ← if prefixYstmts.isEmpty && sMembers.size == 1 then do
-            let m0 := sMembers[0]!
-            let m0Name ← mStr (← mField m0 "name")
-            let m0Ty ← mType m0
-            if m0Name == "value" && (m0Ty == "string" || m0Ty == "bytes") then
+            let m0Ty ← mType sMembers[0]!
+            if m0Ty == "string" || m0Ty == "bytes" then
               pure (some (m0Ty == "string"))
             else
               pure none
@@ -9664,6 +9660,156 @@ private partial def loopBodyUsesUnchecked (j : Json) : M Bool := do
         return ← loopBodyUsesUnchecked stmts[0]!
   return false
 
+/-- Member name when `j` is the member access `param.member` on storage parameter `paramId`. -/
+private partial def paramMemberName? (j : Json) (paramId : Nat) : M (Option String) := do
+  let j ← stripParens j
+  unless (← mKind j) == "MemberAccess" do return none
+  unless ← isIdentId (← mField j "expression") paramId do return none
+  return optStr j "memberName"
+
+/-- Whether `j` is the mapping entry `param.dataMember[idx]` for the local `idxId`. -/
+private partial def isParamMappingEntry (j : Json) (paramId : Nat) (dataMember : String)
+    (idxId : Nat) : M Bool := do
+  let j ← stripParens j
+  unless (← mKind j) == "IndexAccess" do return false
+  let some idx := field? j "indexExpression" | return false
+  if idx.isNull then return false
+  unless ← isIdentId idx idxId do return false
+  return (← paramMemberName? (← mField j "baseExpression") paramId) == some dataMember
+
+/-- Whether `s` always reverts: a `revert E(...)` statement, optionally wrapped in a block. -/
+private partial def isRevertOnlyStmt (s : Json) : M Bool := do
+  match ← mKind s with
+  | "RevertStatement" => pure true
+  | "Block" | "UncheckedBlock" =>
+      let stmts ← mArr (← mField s "statements")
+      if stmts.size == 1 then isRevertOnlyStmt stmts[0]! else pure false
+  | _ => pure false
+
+/-- The expression of an `ExpressionStatement`, or `none` for any other statement. -/
+private partial def exprStmt? (s : Json) : M (Option Json) := do
+  if (← mKind s) == "ExpressionStatement" then
+    return some (← mField s "expression")
+  return none
+
+/-- Whether `s` decrements the local `idxId` by one (`--i`, `i--`, `i -= 1`, `i = i - 1`). -/
+private partial def isDecrementStmt (s : Json) (idxId : Nat) : M Bool := do
+  let some e ← exprStmt? s | return false
+  match ← mKind e with
+  | "UnaryOperation" =>
+      if optStr e "operator" != some "--" then return false
+      isIdentId (← mField e "subExpression") idxId
+  | "Assignment" =>
+      let op ← mStr (← mField e "operator")
+      unless ← isIdentId (← mField e "leftHandSide") idxId do return false
+      let rhs ← stripParens (← mField e "rightHandSide")
+      if op == "-=" then return ← isOneLiteral rhs
+      unless op == "=" && (← mKind rhs) == "BinaryOperation" &&
+          optStr rhs "operator" == some "-" do
+        return false
+      unless ← isIdentId (← mField rhs "leftExpression") idxId do return false
+      isOneLiteral (← mField rhs "rightExpression")
+  | _ => pure false
+
+/-- Whether `s` is `if (i == param.bound) revert ...;` (either operand order, no `else`). -/
+private partial def isEmptyRangeRevert (s : Json) (paramId idxId : Nat) (bound : String) :
+    M Bool := do
+  unless (← mKind s) == "IfStatement" do return false
+  if let some f := field? s "falseBody" then
+    unless f.isNull do return false
+  unless ← isRevertOnlyStmt (← mField s "trueBody") do return false
+  let cond ← stripParens (← mField s "condition")
+  unless (← mKind cond) == "BinaryOperation" && optStr cond "operator" == some "==" do
+    return false
+  let lhs ← mField cond "leftExpression"
+  let rhs ← mField cond "rightExpression"
+  if ← isIdentId lhs idxId then
+    return (← paramMemberName? rhs paramId) == some bound
+  if ← isIdentId rhs idxId then
+    return (← paramMemberName? lhs paramId) == some bound
+  return false
+
+/-- Whether `s` is `value = param.dataMember[i];` for the single return variable `retId`. -/
+private partial def isPoppedEntryRead (s : Json) (retId paramId : Nat) (dataMember : String)
+    (idxId : Nat) : M Bool := do
+  let some e ← exprStmt? s | return false
+  unless (← mKind e) == "Assignment" && optStr e "operator" == some "=" do return false
+  unless ← isIdentId (← mField e "leftHandSide") retId do return false
+  isParamMappingEntry (← mField e "rightHandSide") paramId dataMember idxId
+
+/-- Whether `s` is `delete param.dataMember[i];`. -/
+private partial def isPoppedEntryDelete (s : Json) (paramId : Nat) (dataMember : String)
+    (idxId : Nat) : M Bool := do
+  let some e ← exprStmt? s | return false
+  unless (← mKind e) == "UnaryOperation" && optStr e "operator" == some "delete" do
+    return false
+  isParamMappingEntry (← mField e "subExpression") paramId dataMember idxId
+
+/-- Whether `s` writes the popped bound back: `param.bound = i` after a decrement
+    (`fromHigh`), or `param.bound = i + 1` otherwise. -/
+private partial def isBoundAdvance (s : Json) (paramId : Nat) (bound : String) (idxId : Nat)
+    (fromHigh : Bool) : M Bool := do
+  let some e ← exprStmt? s | return false
+  unless (← mKind e) == "Assignment" && optStr e "operator" == some "=" do return false
+  unless (← paramMemberName? (← mField e "leftHandSide") paramId) == some bound do
+    return false
+  let rhs ← stripUintCast (← mField e "rightHandSide") 128
+  if fromHigh then return ← isIdentId rhs idxId
+  unless (← mKind rhs) == "BinaryOperation" && optStr rhs "operator" == some "+" do
+    return false
+  unless ← isIdentId (← mField rhs "leftExpression") idxId do return false
+  isOneLiteral (← mField rhs "rightExpression")
+
+/-- Recognizes a bounded-range pop helper over a storage struct whose members are two
+    `uint128` bounds and one `mapping(uint128 => bytes32)`, returning the `(low, high)`
+    bound member names. The helper takes the struct as its only parameter, returns one
+    `bytes32`, and its (optionally `unchecked`) body is exactly either
+    `uint128 i = s.low; if (i == s.high) revert ...; value = s.data[i];
+     [delete s.data[i];] s.low = i + 1;`
+    or
+    `uint128 i = s.high; if (i == s.low) revert ...; --i; value = s.data[i];
+     [delete s.data[i];] s.high = i;`.
+    Every non-reverting call thus shrinks `(high - low) mod 2^128` by exactly one, and a
+    call on an empty range reverts. Member and helper names are irrelevant; modifiers are
+    rejected because they could change the range around the body. -/
+private partial def boundedRangePopBounds? (fn sdecl : Json) : M (Option (String × String)) := do
+  if let some mods := field? fn "modifiers" then
+    unless (← mArr mods).isEmpty do return none
+  let params ← mArr (← mField (← mField fn "parameters") "parameters")
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless params.size == 1 && rets.size == 1 do return none
+  let paramId ← mNat (← mField params[0]! "id")
+  let retId ← mNat (← mField rets[0]! "id")
+  let members ← (← mArr (← mField sdecl "members")).mapM fun m => do
+    pure ((← mStr (← mField m "name")), (← mType m))
+  let boundNames := members.filterMap fun (n, ty) => if ty == "uint128" then some n else none
+  let dataNames := members.filterMap fun (n, ty) =>
+    if ty == "mapping(uint128 => bytes32)" then some n else none
+  unless members.size == 3 && boundNames.size == 2 && dataNames.size == 1 do return none
+  let dataMember := dataNames[0]!
+  let some body := field? fn "body" | return none
+  if body.isNull then return none
+  let stmts ← unwrapLoopBodyStmts body
+  unless stmts.size ≥ 4 && (← mKind stmts[0]!) == "VariableDeclarationStatement" do
+    return none
+  let decls ← mArr (← mField stmts[0]! "declarations")
+  let some init := field? stmts[0]! "initialValue" | return none
+  unless decls.size == 1 && !decls[0]!.isNull && !init.isNull do return none
+  unless (← mType decls[0]!) == "uint128" do return none
+  let idxId ← mNat (← mField decls[0]! "id")
+  let some popped ← paramMemberName? init paramId | return none
+  unless boundNames.contains popped do return none
+  let other := if boundNames[0]! == popped then boundNames[1]! else boundNames[0]!
+  unless ← isEmptyRangeRevert stmts[1]! paramId idxId other do return none
+  let fromHigh ← isDecrementStmt stmts[2]! idxId
+  let rest := stmts.extract (if fromHigh then 3 else 2) stmts.size
+  unless rest.size == 2 || rest.size == 3 do return none
+  unless ← isPoppedEntryRead rest[0]! retId paramId dataMember idxId do return none
+  if rest.size == 3 then
+    unless ← isPoppedEntryDelete rest[1]! paramId dataMember idxId do return none
+  unless ← isBoundAdvance rest.back! paramId popped idxId fromHigh do return none
+  return some (if fromHigh then (other, popped) else (popped, other))
+
 /-- Exact bounded while-loop lowering for:
     1. unsigned bit-clearing (`msb` + `clearBit` or `v &= v - 1`) and positive constant right-shift (`v >>= k`)
     2. binary-search `while (low < high)` / `while (high > low)` / `while (low != high)` (with `low == 0` at entry)
@@ -9862,40 +10008,33 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
                        writableLocals := saved.writableLocals, zeroInitLocals := saved.zeroInitLocals.filter (!loopWrites.contains ·), fnPtrs := saved.fnPtrs, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
             return #[.forEach loopVar (.literal bits) [.ite condVal.expr bodyOut.toList []]]
   if condOp == "!=" then
-    let isDequePopCall? (node : Json) : M (Option (Nat × Array CallArg × SPath)) := do
+    let isBoundedRangePopCall? (node : Json) :
+        M (Option (Nat × Array CallArg × SPath × String × String)) := do
       unless (← mKind node) == "FunctionCall" && optStr node "kind" == some "functionCall" &&
              (← mType node) == "bytes32" do
         return none
       let some (fnId, 1) ← callTargetAndArity? node | return none
       let some fn := (← get).funs.find? fnId | return none
-      let fname := optStr fn "name" |>.getD ""
-      unless fname == "popFront" || fname == "popBack" do return none
       let params ← mArr (← mField (← mField fn "parameters") "parameters")
       unless params.size == 1 && optStr params[0]! "storageLocation" == some "storage" do return none
       let pty ← mType params[0]!
       unless pty.startsWith "struct " && !pty.contains "[" do return none
       let (_, sdecl) ← resolveStructDeclFromType params[0]!
-      let smembers ← mArr (← mField sdecl "members")
-      unless smembers.size == 3 do return none
-      let m0Name ← mStr (← mField smembers[0]! "name")
-      let m0Ty ← mType smembers[0]!
-      let m1Name ← mStr (← mField smembers[1]! "name")
-      let m1Ty ← mType smembers[1]!
-      unless m0Name == "_begin" && m0Ty == "uint128" && m1Name == "_end" && m1Ty == "uint128" do
-        return none
+      let some (lowMember, highMember) ← boundedRangePopBounds? fn sdecl | return none
       let (resolvedFnId, callArgs) ← resolveCallTargetAndArgs node
       unless resolvedFnId == fnId do return none
       let #[.storagePath _ dequePath dequePre] := callArgs | return none
       unless dequePre.isEmpty do return none
-      return some (fnId, callArgs, dequePath)
+      return some (fnId, callArgs, dequePath, lowMember, highMember)
     let dequeMatch? ← do
-      if let some popInfo ← isDequePopCall? condLhs then
+      if let some popInfo ← isBoundedRangePopCall? condLhs then
         pure (some (condLhs, popInfo, condRhs, true))
-      else if let some popInfo ← isDequePopCall? condRhs then
+      else if let some popInfo ← isBoundedRangePopCall? condRhs then
         pure (some (condRhs, popInfo, condLhs, false))
       else
         pure none
-    if let some (popNode, (fnId, callArgs, dequePath), targetNode, popLeft) := dequeMatch? then
+    if let some (popNode, (fnId, callArgs, dequePath, lowMember, highMember), targetNode,
+        popLeft) := dequeMatch? then
       unless (← mType targetNode) == "bytes32" do
         failAt targetNode "deque pop loop comparison target must be bytes32"
       let env ← get
@@ -9907,8 +10046,8 @@ private partial def lowerWhile (s : Json) (lowerBody : Json → M (Array Stmt)) 
         failAt s "return inside a while loop is unsupported"
       unless bodyStmts.isEmpty do
         failAt body "deque pop while loop body must be empty"
-      let beginVal ← memberRead #[] dequePath "_begin" popNode
-      let endVal ← memberRead #[] dequePath "_end" popNode
+      let beginVal ← memberRead #[] dequePath lowMember popNode
+      let endVal ← memberRead #[] dequePath highMember popNode
       let boundVar ← fresh
       let doneVar ← fresh
       let loopVar ← fresh
@@ -10575,6 +10714,20 @@ private partial def resolveStructDeclFromType (j : Json) : M (Nat × Json) := do
   if matchedDecls.size == 1 then
     return matchedDecls[0]!
   failAt j s!"unable to resolve struct declaration for {rawTy}"
+
+/-- Whether `j` is a storage `string`/`bytes` member access `w.m` on a storage struct `w`,
+    whatever the member is called. Storage-slot wrappers such as `StorageSlot.StringSlot`
+    are then identified by their `SPath.bytesSlot` path, which is only built for structs
+    whose single member is `string` or `bytes`. -/
+private partial def isStorageStructBytesMember (j : Json) : M Bool := do
+  unless (← mKind j) == "MemberAccess" do return false
+  let ty ← mType j
+  unless ty == "string storage ref" || ty == "string storage pointer" ||
+      ty == "bytes storage ref" || ty == "bytes storage pointer" do
+    return false
+  let baseTy ← mType (← mField j "expression")
+  return baseTy.startsWith "struct " && !baseTy.contains "[" &&
+    (baseTy.endsWith " storage pointer" || baseTy.endsWith " storage ref")
 
 private partial def lowerFlatStructValue (j : Json) (expectedSid? : Option Nat) (allowFlatLocalSource : Bool) :
     M (Nat × String × Array Stmt × Array (String × String × Expr)) := do
@@ -11273,7 +11426,7 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
           let writeStmts ← writeRawStructScalar #[] baseSlot mInfo value.expr false
           return value.pre ++ pre ++ writeStmts
         if let .bytesSlot (fieldName, slotExpr) isString := path then
-          unless member == "value" do
+          unless ← isStorageStructBytesMember target do
             failAt target s!"unsupported StorageSlot bytes/string member {member}"
           if deleting then
             return ← lowerStorageBytesDelete pre fieldName slotExpr
@@ -13061,7 +13214,7 @@ private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
       let ty ← mType j
       return ty == "string storage ref" || ty == "bytes storage ref"
   | "MemberAccess" =>
-      if optStr j "memberName" == some "value" then
+      if ← isStorageStructBytesMember j then
         let ty ← mType j
         return ty == "string storage ref" || ty == "string storage pointer" ||
                ty == "bytes storage ref" || ty == "bytes storage pointer"

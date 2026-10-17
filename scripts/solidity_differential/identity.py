@@ -8,7 +8,8 @@ from .engine import HarnessError, command
 class ImplementationIdentity:
     """Hash sources/artifacts once; reject any inventory or filesystem change.
 
-    Stat checks include inode and ctime, so ordinary edits, replacements and
+    HEAD is checked independently of source contents. Stat checks include
+    inode and ctime, so ordinary edits, replacements and
     rebuilds invalidate the snapshot even when size or mtime are preserved.
     This guards concurrent local work, not a malicious filesystem/kernel.
     """
@@ -20,7 +21,7 @@ class ImplementationIdentity:
         self.paths = self._inventory()
         self.stats = {str(p): self._stat(p) for p in self.paths}
         self.manifest = {
-            'revision': command(['git', 'rev-parse', 'HEAD']).strip(),
+            'revision': command(['git', '-C', self.workspace, 'rev-parse', 'HEAD']).strip(),
             'files': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in self.paths}}
         self.verify()
 
@@ -51,6 +52,9 @@ class ImplementationIdentity:
         return sorted(files)
 
     def verify(self):
+        revision = command(['git', '-C', self.workspace, 'rev-parse', 'HEAD']).strip()
+        if revision != self.manifest['revision']:
+            raise HarnessError('Git revision changed during sequence campaign')
         try:
             current = self._inventory()
             unchanged = current == self.paths and all(

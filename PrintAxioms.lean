@@ -3,6 +3,15 @@
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
+import Verity.Core.Model.BytesObjectMemory
+import Verity.Core.AccountState
+import Verity.Core.Model.DenoteCreate2
+import Verity.Core.Model.Create2ParentGas
+import Verity.Core.Model.Create2Opcode
+import Verity.Core.Model.AccountStorageBridge
+import Contracts.SolidityImportSmoke.DeploymentWorldChecks
+import Verity.Core.Model.InitCodeExecution
+import Contracts.SolidityImportSmoke.InitCodeExecutionChecks
 import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
@@ -310,12 +319,114 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
 
+  -- Verity/Core/Model/BytesObjectMemory.lean
+  Compiler.CompilationModel.BytesObjectMemory.writeWord_readByte_at
+  Compiler.CompilationModel.BytesObjectMemory.writeWord_readByte_outside
+  Compiler.CompilationModel.BytesObjectMemory.materialize_header
+  Compiler.CompilationModel.BytesObjectMemory.materialize_payload
+  Compiler.CompilationModel.BytesObjectMemory.materialize_padding
+  Compiler.CompilationModel.BytesObjectMemory.materialize_represents
+  Compiler.CompilationModel.BytesObjectMemory.materialize_outside
+  Compiler.CompilationModel.BytesObjectMemory.materialize_preserves_before
+
+  -- Verity/Core/AccountState.lean
+  Verity.Core.AccountState.storageAt_writeStorage
+  Verity.Core.AccountState.storageAt_writeStorage_same
+  Verity.Core.AccountState.storageAt_writeStorage_other
+  Verity.Core.AccountState.storageAt_writeStorageValues
+  Verity.Core.AccountState.storage_only_not_collision
+  Verity.Core.AccountWorld.write_at
+  Verity.Core.AccountWorld.write_other
+
+  -- Verity/Core/Model/DenoteCreate2.lean
+  Compiler.CompilationModel.DenoteCreate2.static_aborts_without_effect
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_other
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_storageWords
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_events
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_target_code
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_target_nonce
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_clears_storage
+
+  -- Verity/Core/Model/Create2ParentGas.lean
+  Compiler.CompilationModel.Create2ParentGas.memoryCost_monotone
+  Compiler.CompilationModel.Create2ParentGas.resultingWords_ge
+  Compiler.CompilationModel.Create2ParentGas.opcodeCost_zero_size
+  Compiler.CompilationModel.Create2ParentGas.charge_of_enough
+  Compiler.CompilationModel.Create2ParentGas.charge_of_insufficient
+  Compiler.CompilationModel.Create2ParentGas.charge_conserves_gas
+  Compiler.CompilationModel.Create2ParentGas.finish_of_within
+  Compiler.CompilationModel.Create2ParentGas.finish_of_excess
+  Compiler.CompilationModel.Create2ParentGas.finished_gas_bound
+
+  -- Verity/Core/Model/Create2Opcode.lean
+  Compiler.CompilationModel.Create2Opcode.expand_before
+  Compiler.CompilationModel.Create2Opcode.expand_new_zero
+  Compiler.CompilationModel.Create2Opcode.static_aborts
+  Compiler.CompilationModel.Create2Opcode.oversized_aborts
+
+  -- Verity/Core/Model/AccountStorageBridge.lean
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_account_same
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_account_other
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_word_same
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.writePhysicalSlots_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.modifyPhysicalSlots_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_balance_view_frame
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_code_view_frame
+  Compiler.CompilationModel.AccountStorageBridge.commitRuntime_preserves_coherent
+
+  -- Contracts/SolidityImportSmoke/DeploymentWorldChecks.lean
+  SolidityImportSmoke.DeploymentWorldChecks.nonce_limit_returns_zero_without_increment
+  SolidityImportSmoke.DeploymentWorldChecks.insufficient_balance_does_not_increment
+  SolidityImportSmoke.DeploymentWorldChecks.depth_limit_does_not_increment
+  SolidityImportSmoke.DeploymentWorldChecks.unsupported_initcode_is_instrument_error
+  SolidityImportSmoke.DeploymentWorldChecks.metadata_survives_storage_write
+
+  -- Verity/Core/Model/InitCodeExecution.lean
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_zero
+  Compiler.CompilationModel.InitCodeExecution.run_succ
+  Compiler.CompilationModel.InitCodeExecution.run_after_step
+  Compiler.CompilationModel.InitCodeExecution.midnightInitcode_length
+  Compiler.CompilationModel.InitCodeExecution.hasMidnightPrefix_initcode
+  Compiler.CompilationModel.InitCodeExecution.expandedLength_ge
+  Compiler.CompilationModel.InitCodeExecution.copyFrom_readByte_at
+  Compiler.CompilationModel.InitCodeExecution.copyFrom_readByte_outside
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_readByte_at
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_readByte_outside
+  Compiler.CompilationModel.InitCodeExecution.prefix_sub_length
+  -- Compiler.CompilationModel.InitCodeExecution.step1  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step2  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step3  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step4  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step5  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step6  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step7  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step8  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step9  -- private
+  Compiler.CompilationModel.InitCodeExecution.midnight_run
+  Compiler.CompilationModel.InitCodeExecution.midnight_codeByte
+  Compiler.CompilationModel.InitCodeExecution.midnight_slice
+  Compiler.CompilationModel.InitCodeExecution.midnight_returns_payload
+
+  -- Contracts/SolidityImportSmoke/InitCodeExecutionChecks.lean
+  SolidityImportSmoke.InitCodeExecutionChecks.unsupported_opcode_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.subtract_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.copy_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.return_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.duplicate_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.fuel_exhaustion_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.truncated_push_zero_extends
+  SolidityImportSmoke.InitCodeExecutionChecks.empty_code_stops
+  SolidityImportSmoke.InitCodeExecutionChecks.zero_copy_preserves_memory
+
   -- Compiler/CompilationModel/ReservedScratchNames.lean
   Compiler.CompilationModel.compatScratch_startsWith_reserved
   Compiler.CompilationModel.compatScratch_not_internalImmutable
 
   -- Compiler/SolidityImport/Transactions.lean
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_storage
+  Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_accounts
+  Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_revert_accounts
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_foreignStorage
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_transient
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_parkedTransient
@@ -7959,4 +8070,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7319 theorems/lemmas (5268 public, 2051 private, 0 sorry'd)
+-- Total: 7403 theorems/lemmas (5343 public, 2060 private, 0 sorry'd)

@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from solidity_differential.engine import HarnessError, command, write_json
+from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
@@ -25,7 +25,7 @@ def run(directory, output):
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
     result = subprocess.run(argv, cwd=directory, env=environment,
-                            text=True, capture_output=True, timeout=600)
+                            text=True, capture_output=True, timeout=MUTANT_BUILD_TIMEOUT)
     output.with_suffix('.log').write_text(result.stdout + result.stderr)
     report = json.loads((output / 'campaign.json').read_text())
     return result.returncode, report
@@ -53,7 +53,7 @@ def mutation_campaign(output, selected=None):
                 raise HarnessError(f'{name}: nonunique mutation anchor')
             source.write_text(text.replace(before, after))
             command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-                    timeout=600, log=directory / 'build.log')
+                    timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
             campaign = directory / '.lake/mutated'
             code, result = run(directory, campaign)
             if code == 0 or not result['divergences']:

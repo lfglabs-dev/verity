@@ -8,12 +8,16 @@ Reaching that `for` must be rejected with a source position, and the failed
 process must not leave an olean.
 """
 
+import argparse
+import os
 import shutil
 import json
 import re
 import subprocess
 import sys
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +25,8 @@ SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
 WORK = ROOT / ".lake/import-mutations"
 SMOKE = ROOT / "Contracts/SolidityImportSmoke"
 GOLDEN = SMOKE / "model.golden"
+# Provisioned by `setup()`; campaign modules import eth_hash/eth_abi from it.
+VENV_PYTHON = ROOT / ".lake/slice-testing-venv/bin/python"
 
 HEADER = """
 import Compiler.SolidityImport.Import
@@ -296,20 +302,27 @@ def digest_of(blob: str) -> str:
     return lines[-1]
 
 
-def main() -> None:
+def setup() -> None:
+    """Serial preparation shared by every task (builds and venvs must not race)."""
     if not SOLC.is_file():
         raise SystemExit(f"missing {SOLC}")
     # The checks import the status driver, which `lake build SolidityImportSmoke` does not build.
     subprocess.run(["lake", "build", "Compiler.SolidityImport.Differential"], cwd=ROOT, check=True)
-    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_require_rejections.py")],
-                   cwd=ROOT, check=True)
     WORK.mkdir(parents=True, exist_ok=True)
+    # Provision the differential venv and pinned compilers once, before workers share them.
+    subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"), "--help"],
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+
+
+def prefix_checks(update_golden: bool) -> None:
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_require_rejections.py")],
+                   cwd=ROOT, check=True)
     snapshot = WORK / "model.txt"
     snapshot.unlink(missing_ok=True)
     base = expect_success("unreached-for", write_project("base", unchanged), witness=True,
                           extra=f'\n#eval IO.FS.writeFile "{snapshot}" (toString (repr imported.model) ++ "\\n")\n')
     # Refactors of the importer must reproduce the imported model exactly.
-    if "--update-golden" in sys.argv:
+    if update_golden:
         shutil.copy(snapshot, GOLDEN)
     elif snapshot.read_text() != GOLDEN.read_text():
         raise SystemExit(f"imported model differs from {GOLDEN}; review, then rerun with --update-golden")
@@ -462,9 +475,11 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
     if digest_of(base) == digest_of(rounding):
         raise SystemExit("helper change did not move the digest")
     print("pass helper-digest")
-    # Compile and execute actual Denote mutants: a build failure is invalid,
-    # not a detected semantic mutation. These regressions compare EVM bytes.
-    for mutant in ("denote-panic-selector", "denote-panic-endian",
+
+
+# Compile and execute actual Denote mutants: a build failure is invalid,
+# not a detected semantic mutation. These regressions compare EVM bytes.
+DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    "import-msg-sender", "import-address-this",
                    "import-block-number", "import-block-chainid",
                    "import-require-condition", "denote-require-selector",
@@ -531,112 +546,305 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    'import-market-calldata-scalar-read',
                    'import-market-calldata-root-validation',
                    'import-market-calldata-index-bounds',
-                   'import-dynamic-root-parameter-offset'):
-        output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
-        subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
-                        "--mutations", "--mutant", mutant, "--output", str(output)],
-                       cwd=ROOT, check=True, timeout=900)
-        results = json.loads((output / "mutation-results.json").read_text())
-        if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
-            raise SystemExit(f"{mutant}: expected a runtime differential divergence")
-        print(f"pass {mutant}")
-    # Removing an order guard must change a located rejection to admission.
-    for mutant in ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard'):
-        output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
-        subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
-                        "--mutations", "--mutant", mutant, "--output", str(output)],
-                       cwd=ROOT, check=True, timeout=900)
-        results = json.loads((output / "mutation-results.json").read_text())
-        if (len(results) != 1 or results[0]['mutant'] != mutant
-                or not results[0]['detected'] or not results[0]['baselinePassed']
-                or results[0]['kind'] != 'unsupported-order-admission'):
-            raise SystemExit(f'{mutant}: exact negative control guard mutation escaped detection')
-        print(f'pass {mutant} exact rejection guard')
-    # Quotation corruption is rejected before an executable model exists.
-    quote_output = Path(tempfile.mkdtemp(prefix="modulo-quote-integrity-", dir=WORK))
+                   'import-dynamic-root-parameter-offset')
+
+# Removing an order guard must change a located rejection to admission.
+GUARD_MUTANTS = ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard')
+
+# Each isolated campaign recompiles `Compiler.SolidityImport.Import` in a private
+# snapshot. With one worker per core that build alone takes ~14 minutes, on top of
+# the baseline and mutated campaign runs, so 40 minutes was too tight. The nested
+# harness steps keep their own timeouts; this one only bounds a whole task.
+MUTANT_TIMEOUT = 3600
+
+
+def run_differential_mutant(mutant: str) -> list:
+    output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
     subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
-                    "--mutations", "--mutant", "import-modulo-quote", "--output", str(quote_output)],
-                   cwd=ROOT, check=True, timeout=900)
-    quote_results = json.loads((quote_output / "mutation-results.json").read_text())
+                    "--mutations", "--mutant", mutant, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    return json.loads((output / "mutation-results.json").read_text())
+
+
+def differential_mutant(mutant: str) -> None:
+    results = run_differential_mutant(mutant)
+    if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
+        raise SystemExit(f"{mutant}: expected a runtime differential divergence")
+    print(f"pass {mutant}", flush=True)
+
+
+def guard_mutant(mutant: str) -> None:
+    results = run_differential_mutant(mutant)
+    if (len(results) != 1 or results[0]['mutant'] != mutant
+            or not results[0]['detected'] or not results[0]['baselinePassed']
+            or results[0]['kind'] != 'unsupported-order-admission'):
+        raise SystemExit(f'{mutant}: exact negative control guard mutation escaped detection')
+    print(f'pass {mutant} exact rejection guard', flush=True)
+
+
+def module_campaign(module: str, label: str, timeout: int, *extra: str) -> dict:
+    output = module_campaign_output(module, label, timeout, *extra)
+    return json.loads((output / "complete.json").read_text())
+
+
+HASHING_MUTANTS = (
+    "hash-word-stride", "hash-root-offset", "hash-root-field", "hash-static-root-field",
+    "hash-array-length", "hash-array-destination-stride", "hash-literal-value",
+    "hash-literal-length", "hash-packed-address-width", "hash-packed-scalar-value",
+    "hash-copy-byte-shift", "hash-copy-zero-fill", "hash-buffer-identity",
+    "hash-keccak-length", "hash-hex-number")
+
+
+def hashing_mutant(mutant: str) -> None:
+    hashing = module_campaign("check_hashing_mutations", f"hashing-{mutant}", MUTANT_TIMEOUT,
+                              "--mutant", mutant)
+    if hashing["exit"] != 0 or [r["mutant"] for r in hashing["results"]] != [mutant]:
+        raise SystemExit(f"{mutant}: hashing mutation coverage incomplete")
+    if not all(r["detected"] and r["baselinePassed"] and r["witness"]["deletion_minimal"]
+               and r["witness"]["transactions"] for r in hashing["results"]):
+        raise SystemExit(f"{mutant}: hashing mutants require minimal reproduced runtime witnesses")
+    print(f"pass ABI hashing mutation {mutant}", flush=True)
+
+
+def quote_integrity_check() -> None:
+    # Quotation corruption is rejected before an executable model exists.
+    quote_results = run_differential_mutant("import-modulo-quote")
     if (len(quote_results) != 1 or quote_results[0]["mutant"] != "import-modulo-quote"
             or not quote_results[0]["baselinePassed"]
             or quote_results[0]["kind"] != "model-integrity-rejection"
             or quote_results[0]["diagnostic"] != "internal: the elaborated model differs from the imported value"):
         raise SystemExit("modulo quotation corruption escaped the exact integrity check")
-    print("pass import-modulo-quote integrity rejection")
-    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
-                   cwd=ROOT, check=True, timeout=300)
-    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_storage_rejections.py")],
-                   cwd=ROOT, check=True, timeout=300)
-    output = Path(tempfile.mkdtemp(prefix="scalar-array-rejections-", dir=WORK)) / "cases"
+    print("pass import-modulo-quote integrity rejection", flush=True)
+
+
+def environment_rejections() -> None:
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
+                   cwd=ROOT, check=True, timeout=900)
+    print("pass environment rejection campaign", flush=True)
+
+
+# ~420 located rejections, one `lean` elaboration each (~20 min serially on an
+# idle host): split into parts so shards can spread them.
+STORAGE_REJECTION_PARTS = 4
+
+
+def storage_rejections(part: int) -> None:
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_storage_rejections.py"),
+                    "--part", f"{part}/{STORAGE_REJECTION_PARTS}"],
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    print(f"pass storage rejection campaign part {part}/{STORAGE_REJECTION_PARTS}", flush=True)
+
+
+def abi_rejections() -> None:
+    module_campaign_output("check_scalar_array_abi_rejections", "scalar-array-rejections", 900)
+    module_campaign_output("check_market_abi_rejections", "market-rejections", 900)
+    print("pass ABI rejection campaigns", flush=True)
+
+
+def module_campaign_output(module: str, label: str, timeout: int, *extra: str) -> Path:
+    output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
     launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
-                'runpy.run_module("solidity_differential.check_scalar_array_abi_rejections",run_name="__main__")')
-    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
-                   cwd=ROOT, check=True, timeout=300)
-    output = Path(tempfile.mkdtemp(prefix="market-rejections-", dir=WORK)) / "cases"
-    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
-                'runpy.run_module("solidity_differential.check_market_abi_rejections",run_name="__main__")')
-    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
-                   cwd=ROOT, check=True, timeout=300)
-    output = Path(tempfile.mkdtemp(prefix="block-mutations-", dir=WORK)) / "cases"
-    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
-                'runpy.run_module("solidity_differential.check_block_mutations",run_name="__main__")')
-    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
-                   cwd=ROOT, check=True, timeout=1800)
-    block_result = json.loads((output / "complete.json").read_text())
+                f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
+    subprocess.run([str(VENV_PYTHON), "-c", launcher, "--output", str(output), *extra],
+                   cwd=ROOT, check=True, timeout=timeout)
+    return output
+
+
+def deployment_world_mutations() -> None:
+    results = json.loads((module_campaign_output("check_deployment_world_mutations", "deployment-world-mutations",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"denote-create2-drop-nonce", "denote-create2-empty-code", "denote-create2-drop-value",
+             "denote-create2-drop-deposit", "denote-create2-ignore-collision"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] for row in results)):
+        raise SystemExit("deployment-world mutations require actual minimal EVM/Lean witnesses")
+    print("pass five deployment-world runtime mutations (A/B foundation; compiled route pending)", flush=True)
+
+
+def create2_opcode_mutations() -> None:
+    results = json.loads((module_campaign_output("check_create2_opcode_mutations", "create2-opcode-mutations",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"create2-initcode-word-cost", "create2-eip150-divisor", "create2-parent-refund",
+             "create2-memory-expansion"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] and len(row['witnessCaseIds']) == 1 for row in results)):
+        raise SystemExit("CREATE2 opcode mutants require executed minimal EVM/Lean witnesses")
+    print("pass four CREATE2 opcode runtime mutations (A/B foundation; compiled route pending)", flush=True)
+
+
+def account_storage_mutations() -> None:
+    results = json.loads((module_campaign_output("check_account_storage_mutations", "account-storage-conformance",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"denote-physical-slot-account", "denote-physical-batch-account", "denote-physical-modify-account"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['implementationCompiles']
+                       and row['kind'] == 'kernel-conformance-rejection' for row in results)):
+        raise SystemExit("account storage mutations require valid implementations rejected by unchanged kernel assertions")
+    print("pass three account storage kernel conformance mutations (not runtime witnesses)", flush=True)
+
+
+def block_mutation() -> None:
+    block_result = module_campaign("check_block_mutations", "block-mutations", MUTANT_TIMEOUT)
     if (block_result["mutant"] != "import-block-drop" or not block_result["detected"]
             or not block_result["baselinePassed"] or not block_result["witness"]["deletion_minimal"]):
         raise SystemExit("block mutation requires detected minimal runtime witness")
-    print("pass import-block-drop")
-    output = Path(tempfile.mkdtemp(prefix="reference-mutations-", dir=WORK)) / "cases"
-    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
-                'runpy.run_module("solidity_differential.check_reference_argument_mutations",run_name="__main__")')
-    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
-                   cwd=ROOT, check=True, timeout=1800)
-    reference = json.loads((output / "complete.json").read_text())
+    print("pass import-block-drop", flush=True)
+
+
+def reference_mutation() -> None:
+    reference = module_campaign("check_reference_argument_mutations", "reference-mutations", MUTANT_TIMEOUT)
     if (reference["mutant"] != "import-reference-wrong-root" or not reference["detected"]
             or not reference["baselinePassed"] or not reference["witness"]["deletion_minimal"]):
         raise SystemExit("reference mutation requires detected minimal runtime witness")
-    print("pass import-reference-wrong-root")
-    for module, label in [
-        ("check_reference_boundary_mutations", "reference-boundary"),
-        ("check_reference_location_mutation", "reference-location"),
-    ]:
-        output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
-        launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
-                    f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
-        subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
-                       cwd=ROOT, check=True, timeout=2400)
-        result = json.loads((output / "complete.json").read_text())
-        if label == "reference-boundary":
-            controls = result["results"]
-            if result["exit"] != 0 or {c["mutant"] for c in controls} != {"external-library", "yul-shadow"}:
-                raise SystemExit("reference boundary mutation coverage incomplete")
-            if not all(c["detected"] and c["baselinePassed"] and c["unsupportedInputImported"] for c in controls):
-                raise SystemExit("reference boundary mutants require actual unsupported admission")
-        elif (result["mutant"] != "import-reference-location-guard" or not result["detected"]
-              or not result["baselinePassed"] or not result["unsupportedCopyImported"]):
-            raise SystemExit("reference location mutant requires actual unsupported copy admission")
-        print("pass " + label)
-    output = Path(tempfile.mkdtemp(prefix="hashing-mutations-", dir=WORK)) / "cases"
-    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
-                'runpy.run_module("solidity_differential.check_hashing_mutations",run_name="__main__")')
-    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
-                   cwd=ROOT, check=True, timeout=7200)
-    hashing = json.loads((output / "complete.json").read_text())
-    expected_hashing_mutants = {
-        "hash-word-stride", "hash-root-offset", "hash-root-field", "hash-static-root-field",
-        "hash-array-length", "hash-array-destination-stride", "hash-literal-value",
-        "hash-literal-length", "hash-packed-address-width", "hash-packed-scalar-value",
-        "hash-copy-byte-shift", "hash-copy-zero-fill", "hash-buffer-identity",
-        "hash-keccak-length", "hash-hex-number"}
-    if hashing["exit"] != 0 or {r["mutant"] for r in hashing["results"]} != expected_hashing_mutants:
-        raise SystemExit("hashing mutation coverage incomplete")
-    if not all(r["detected"] and r["baselinePassed"] and r["witness"]["deletion_minimal"]
-               and r["witness"]["transactions"] for r in hashing["results"]):
-        raise SystemExit("hashing mutants require minimal reproduced runtime witnesses")
-    print("pass ABI hashing mutations")
-    print("import mutations passed")
+    print("pass import-reference-wrong-root", flush=True)
+
+
+def reference_boundary_mutations() -> None:
+    result = module_campaign("check_reference_boundary_mutations", "reference-boundary", 2 * MUTANT_TIMEOUT)
+    controls = result["results"]
+    if result["exit"] != 0 or {c["mutant"] for c in controls} != {"external-library", "yul-shadow"}:
+        raise SystemExit("reference boundary mutation coverage incomplete")
+    if not all(c["detected"] and c["baselinePassed"] and c["unsupportedInputImported"] for c in controls):
+        raise SystemExit("reference boundary mutants require actual unsupported admission")
+    print("pass reference-boundary", flush=True)
+
+
+def reference_location_mutation() -> None:
+    result = module_campaign("check_reference_location_mutation", "reference-location", MUTANT_TIMEOUT)
+    if (result["mutant"] != "import-reference-location-guard" or not result["detected"]
+            or not result["baselinePassed"] or not result["unsupportedCopyImported"]):
+        raise SystemExit("reference location mutant requires actual unsupported copy admission")
+    print("pass reference-location", flush=True)
+
+
+def tasks(update_golden: bool) -> list:
+    """Independent work items, most expensive first (each runs in its own snapshot).
+
+    Weights count importer rebuilds (~14 minutes each under full parallel load),
+    the unit of cost; campaigns without a rebuild are weighted by their runtime.
+    """
+    items = [("prefix-checks", 2, lambda: prefix_checks(update_golden)),
+             ("reference-boundary", 2, reference_boundary_mutations)]
+    items += [(f"storage-rejections-{part}", 1, (lambda part=part: storage_rejections(part)))
+              for part in range(STORAGE_REJECTION_PARTS)]
+    items += [("quote-integrity", 1, quote_integrity_check),
+             ("environment-rejections", 1, environment_rejections),
+             ("abi-rejections", 1, abi_rejections),
+             ("block-drop", 1, block_mutation),
+             ("reference-wrong-root", 1, reference_mutation),
+             ("reference-location", 1, reference_location_mutation),
+             ("deployment-world", 1, deployment_world_mutations),
+             ("create2-opcode", 1, create2_opcode_mutations),
+             ("account-storage", 1, account_storage_mutations)]
+    items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
+    items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
+    items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
+    return items
+
+
+def auto_jobs() -> int:
+    """One worker per usable core minus two, bounded by memory.
+
+    Each worker is a single-threaded Lean rebuild of the importer (~2.7 GiB
+    peak) plus its campaign; budget 4 GiB per worker so hosts with less memory
+    than cores (or a cgroup cap) do not swap. Campaigns also run their own
+    `lean --run` and anvil processes, so two cores stay free for them: with one
+    worker per core, campaign subprocesses overran their time budgets.
+    """
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    limits = []
+    try:
+        with open("/proc/meminfo") as meminfo:
+            limits += [int(line.split()[1]) * 1024 for line in meminfo if line.startswith("MemAvailable:")]
+    except OSError:
+        pass
+    try:
+        cap = Path("/sys/fs/cgroup/memory.max").read_text().strip()
+        if cap != "max":
+            limits.append(int(cap))
+    except (OSError, ValueError):
+        pass
+    by_memory = min(limits) // (4 << 30) if limits else cores
+    return max(1, min(cores - 2, by_memory))
+
+
+def shard_of(items: list, index: int, count: int) -> list:
+    """Deterministic longest-processing-time assignment of tasks to shards."""
+    loads = [0] * count
+    chosen = []
+    for item in items:
+        target = min(range(count), key=lambda s: (loads[s], s))
+        loads[target] += item[1]
+        if target == index:
+            chosen.append(item)
+    return chosen
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--update-golden", action="store_true")
+    parser.add_argument("--shard", default="0/1", help="run shard I of N, written I/N")
+    parser.add_argument("--jobs", default="1", help="parallel isolated campaigns, or 'auto' to size by cores and memory")
+    parser.add_argument("--list", action="store_true", help="print the selected tasks and exit")
+    parser.add_argument("--task", action="append", help="run only the named task (repeatable)")
+    args = parser.parse_args()
+    try:
+        index, count = (int(part) for part in args.shard.split("/"))
+    except ValueError:
+        parser.error("--shard must be I/N with 0 <= I < N")
+    if not 0 <= index < count:
+        parser.error("--shard must be I/N with 0 <= I < N")
+    if args.jobs == "auto":
+        jobs = auto_jobs()
+    elif args.jobs.isdigit() and int(args.jobs) > 0:
+        jobs = int(args.jobs)
+    else:
+        parser.error("--jobs must be a positive integer or 'auto'")
+    selected = shard_of(tasks(args.update_golden), index, count)
+    if args.task:
+        unknown = set(args.task) - {name for name, _, _ in tasks(args.update_golden)}
+        if unknown:
+            parser.error(f"unknown task: {', '.join(sorted(unknown))}")
+        selected = [item for item in selected if item[0] in args.task]
+        if not selected:
+            parser.error("--task names no task in this shard; check --list for the right shard")
+    if args.list:
+        for name, _, _ in selected:
+            print(name)
+        return
+    print(f"import mutation shard {args.shard}: {len(selected)} tasks, {jobs} parallel", flush=True)
+    setup()
+    failures = []
+
+    def timed(name, run):
+        # Durations feed the shard weights in `tasks()`. A failed task runs once
+        # more in a fresh snapshot: a surviving mutant fails both attempts, while
+        # a campaign that overran a time budget on a loaded host gets a retry.
+        start = time.monotonic()
+        try:
+            try:
+                run()
+            except (Exception, SystemExit) as error:
+                print(f"RETRY {name} after failure: {error}", file=sys.stderr, flush=True)
+                run()
+        finally:
+            print(f"task {name}: {time.monotonic() - start:.0f}s", flush=True)
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = {pool.submit(timed, name, run): name for name, _, run in selected}
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except KeyboardInterrupt:
+                raise
+            except (Exception, SystemExit) as error:
+                failures.append(futures[future])
+                print(f"FAIL {futures[future]}: {error}", file=sys.stderr, flush=True)
+    if failures:
+        raise SystemExit(f"import mutation shard {args.shard} failed: {', '.join(sorted(failures))}")
+    print(f"import mutations passed (shard {args.shard}, {len(selected)} tasks)")
 
 
 if __name__ == "__main__":

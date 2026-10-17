@@ -1591,3 +1591,106 @@ bytes) encoding. Storage `bytes` indexing (`b[i]`), `.push` / `.pop`, and
 storage-pointer locals remain rejected with located diagnostics.
 
 `Compiler.SolidityImport.AdversarialEntryPointInvariants` lifts explicit per-entry-point invariants to finite sequences with a separately selected permitted Denote oracle at each call. Permission and context preservation are hypotheses, not trusted axioms or claims that arbitrary external behavior preserves an invariant. The execution relation is the real `Transactions.executeBody`; unobserved instrumentation failures cannot form steps. This is a frame-level rule, with ABI/dispatch/value-transfer obligations left explicit.
+# Initcode execution prerequisite
+
+The bounded functional executor in `Verity/Core/Model/InitCodeExecution.lean`
+decodes actual opcode bytes and does not accept an oracle-supplied runtime code.
+Its nine-step theorem proves the pinned Midnight prefix returns its payload;
+it does not prove equivalence with the full EVM or complete deployment semantics.
+The EVM/Lean instrument tests actual runtime bytes and a semantically identical
+PUSH1-zero variant. It is not an A/B/C campaign and does not extend the import
+trust boundary. Gas, call depth, size/deposit/prefix checks, collisions, nonce
+changes and rollback are separate deployment-transition obligations. The new
+transition below addresses them as a prerequisite; its integration is still
+required before source admission. CODECOPY with zero size preserves memory
+without expansion.
+
+`DenoteCreate2` now supplies a concrete account transition using typed
+`ContractState.accountWorld` metadata. Its byte-hash parameter is instantiated
+with the actual Keccak implementation; runtime code and successful deployment
+are computed, not supplied by an adversary. The calibration derives child gas
+from actual CREATE2 opcode stack/memory/gas and validates the EIP-150 allowance,
+including prechecks without a traced child frame. It threads the model from the
+same initial ledger and compares code, nonce, balance, sampled storage, status,
+returned address and observed child gas with the real EVM. It does not yet
+compare fixture ABI revert bytes/events or a model-compiled C route. Parent
+opcode charging and the source-storage/account-storage representation bridge
+remain explicit integration obligations; no CREATE2 importer admission is made.
+
+The pinned Foundry 1.5.0 Osaka EVM permits creation at an address with nonzero
+storage and empty code/nonce, then clears its storage. EVMYulLean at
+`f7e4ee0dc8f8d5265ce822a937ab5be771f182e9` instead applies the EIP-7610
+storage-collision rule in its creation semantics. This measured fork mismatch
+prevents reusing that creation rule as an Osaka translation-validation target
+without a fork-correct refinement. The account transition follows the pinned
+real Osaka EVM and rejects only nonzero nonce/code as collisions.
+
+`BytesObjectMemory.materialize` writes a bytes object's length, payload and
+zero padding into the byte-memory layer at a supplied base address. Kernel
+lemmas prove the representation and frames for later disjoint objects. The
+base is not claimed to equal solc's allocator result: EVM/Lean calibration
+compares relative object bytes, without establishing numeric pointer equality,
+free-memory-pointer behavior, allocation overflow/panic/gas ordering, canonical
+Denote word-memory refinement or a compiled-model C route. The importer still
+rejects these unsupported pointer observations. A length word is encoded in
+256 bits; importer integration must prove the length bound before using it.
+
+
+The immutable bytes-header Yul rule exposes only the object's logical length,
+resolved by the identifier occurrence's solc declaration reference. It does not
+use an encoding payload pointer as an object pointer: the descriptor observes
+the length word justified by `BytesObjectMemory.materialize_header`. Existing
+encoding allocation and failure checks execute at the source declaration; no
+header read moves or repeats those effects. Objects remain immutable, and
+unrestricted numeric pointer observations and memory writes are rejected.
+This does not establish a source allocator identity or admit CREATE2; the
+world/account/storage/gas/compiler integration obligations remain unchanged.
+
+
+### CREATE2 parent opcode composition prerequisite
+
+`Create2ParentGas` charges the Osaka base cost, six-gas Keccak and two-gas
+EIP-3860 initcode words, and quadratic memory expansion. Zero-length ranges
+do not expand memory. Kernel lemmas establish the EIP-150 gas split,
+conservation and bounded child refunds. `Create2Opcode.execute` derives the
+child allowance from parent gas, reads initcode from actual byte memory,
+executes the concrete account transition and refunds unused child gas. The
+expanded memory zero-extends inactive bytes; no backing-function contents
+beyond the old active range become visible. Static/size violations abort,
+parent out-of-gas aborts, and nonaligned instrument memory is rejected.
+
+`check_deployment_world --parent-opcode` compares actual EVM opcode memory,
+parent continuation gas, child allowance and account transitions against Lean,
+including nonce-limit prechecks. It supplies neither initcode bytes nor a child
+gas allowance to the Lean opcode driver. This remains A/B calibration, not an
+imported or compiled-model C campaign. Canonical Stmt integration, complete
+frame gas tracking, source allocator/memory refinement, account/storage bridge,
+ABI/revert/event observations and all exact-head release gates remain required.
+No new Solidity construct or whole-EVM equivalence is claimed here.
+
+
+### Canonical flat-storage/account coherence
+
+Concrete account storage uses `Std.TreeMap` with kernel-checked read-after-write
+and outside-frame laws. `writePhysicalSlot`, `writePhysicalSlots` and
+`modifyPhysicalSlots` update flat persistent storage and the self account's
+finite storage together. Batch transformers read the original world, including
+when targets alias. These APIs preserve code, nonce, balance, caller metadata,
+transient keys and legacy shadow channels. Legacy `writeSlot` and bulk lenses
+retain their previous account-world frame; their regression is unchanged.
+
+Canonical Denote flat scalar, packed, mapping-word and fixed-array write helpers
+use the physical APIs. The reference `SourceSemantics` uses the same exact
+physical transitions; the statements of `DenoteAgreement` and
+`DenoteFunctionAgreement` are unchanged. `AccountStorageBridge` proves coherence
+for single/batch/transformed writes and runtime-code commits to another account.
+Old shadow-mapping/channel-wide compatibility operations are not asserted to
+preserve this relation and must not be used as an exact deployment bridge.
+
+The scalar differential adapters initialize finite storage through the physical
+API. The sequence adapter verifies flat/account agreement for every touched or
+requested persistent slot after each transaction, including rollback. This
+seeds storage only: it does not fabricate creator nonce, balance or code, model
+external account effects, admit CREATE2, or establish full deployment A/B/C
+equivalence. Those account inputs, complete gas/memory integration and the
+remaining source-admission obligations still have to be implemented.

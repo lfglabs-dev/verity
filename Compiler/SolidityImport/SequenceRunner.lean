@@ -71,10 +71,9 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
   let storage ← (← (← input.getObjVal? "storage").getArr?).toList.mapM pair
   unless (storage.map Prod.fst).eraseDups.length == storage.length do
     throw "duplicate initial model storage slot"
-  let mut world := Verity.defaultState.withStorageWords fun key =>
-    match key with
-    | .slot slot => Uint256.ofNat ((storage.find? (·.1 == slot)).map Prod.snd |>.getD 0)
-    | _ => 0
+  let mut world := storage.foldl
+    (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
+    { Verity.defaultState with thisAddress := Address.ofNat account }
   let externalFns := model.functions.filter fun fn =>
     !fn.isInternal && !isInteropEntrypointName fn.name
   let dispatch := externalFns.map fun fn =>
@@ -137,6 +136,9 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
     let touched := touched.eraseDups
     let slots := (touched ++ observed.map Prod.snd).eraseDups
     world := result.frame.world
+    unless slots.all (fun slot => world.readSlot slot ==
+        (world.accountWorld (Address.ofNat account)).storageAt slot) do
+      throw "model flat/account storage observations are incoherent"
     rows := rows.push (Json.mkObj [
       ("id", toJson ident), ("status", toJson (if result.frame.success then "ok" else "revert")),
       ("data", toJson (hexBytes result.frame.data)),

@@ -1,11 +1,12 @@
 """Repository/CI entry point for the stateful differential instrument."""
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
 
 from .engine import HarnessError, command, write_json
 
 
-def stateful_campaign(output, transactions, seed):
+def stateful_campaign(output, transactions, seed, jobs=1):
     if transactions < 3:
         raise HarnessError('stateful campaign requires at least three transactions')
     output = Path(output).resolve()
@@ -40,6 +41,8 @@ def stateful_campaign(output, transactions, seed):
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
         ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
     ]
+    checks.append(('create2-parent-opcode', ['-m', 'solidity_differential.check_deployment_world',
+        '--parent-opcode', '--output', str(output / 'create2-parent-opcode')]))
     checks.append(('hashing-programs', ['-m', 'solidity_differential.check_hashing_programs',
         '--output', str(output / 'hashing-programs')]))
     checks.append(('hashing-rejections', ['-m', 'solidity_differential.check_hashing_rejections',
@@ -109,28 +112,43 @@ def stateful_campaign(output, transactions, seed):
         '--source-fixture', 'scripts/solidity_differential/fixtures/ErrorSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/ErrorSequenceModel.lean',
         '--output', str(output / 'errors')]))
-    return run_checks(output, checks, transactions, seed)
+    return run_checks(output, checks, transactions, seed, jobs)
 
 
-def run_checks(output, checks, transactions, seed):
-    """Run named checks in order, printing each one before it starts.
+def run_checks(output, checks, transactions, seed, jobs=1):
+    """Run named checks, printing each one before it starts.
 
     ``command`` captures subprocess output until the process exits, so a
     multi-check campaign otherwise looks idle for its whole wall time.
+    Checks write separate output directories and only read the shared Lake
+    build (prepared up front by ``stateful_campaign``), so up to ``jobs`` of
+    them run at once. Completion is still recorded in check order, and the
+    first failure in that order is raised once every started check finished.
     """
     completed = []
     total = len(checks)
-    for index, (name, args) in enumerate(checks, start=1):
+    # The primary script installs scripts/ on sys.path, but subprocess modules
+    # need it explicitly; use a small launcher without altering caller state.
+    launcher = ('import os,runpy,sys; sys.path.insert(0,"scripts"); '
+                'os.environ["PYTHONPATH"]=os.path.abspath("scripts")+os.pathsep+os.environ.get("PYTHONPATH",""); '
+                'module=sys.argv.pop(1); runpy.run_module(module,run_name="__main__")')
+
+    def run(index, name, args):
         print(f'stateful check {index}/{total}: {name}', flush=True)
-        # The primary script installs scripts/ on sys.path, but subprocess modules
-        # need it explicitly; use a small launcher without altering caller state.
-        launcher = ('import os,runpy,sys; sys.path.insert(0,"scripts"); '
-                    'os.environ["PYTHONPATH"]=os.path.abspath("scripts")+os.pathsep+os.environ.get("PYTHONPATH",""); '
-                    'module=sys.argv.pop(1); runpy.run_module(module,run_name="__main__")')
         argv = [sys.executable, '-c', launcher, args[1], *args[2:]]
         command(argv, timeout=1800, log=output / f'{name}.log')
-        completed.append(name)
-        write_json(output / 'completed.json', completed)
         print(f'stateful check {index}/{total}: {name} done', flush=True)
+
+    with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        futures = [pool.submit(run, index, name, args)
+                   for index, (name, args) in enumerate(checks, start=1)]
+        try:
+            for (name, _), future in zip(checks, futures):
+                future.result()
+                completed.append(name)
+                write_json(output / 'completed.json', completed)
+        finally:
+            for future in futures:
+                future.cancel()
     return {'checks': completed, 'transactionsPerVariant': transactions, 'seed': seed,
             'divergences': []}

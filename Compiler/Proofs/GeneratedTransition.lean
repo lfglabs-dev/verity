@@ -154,7 +154,9 @@ end
 def extract (stmts : List Stmt) : TransitionSummary :=
   stmts.foldl (fun acc stmt => merge acc (stmtSummary stmt)) {}
 
-def enoughForMidnightRcfTotalUnits (summary : TransitionSummary) : Bool :=
-  !summary.reads.isEmpty || !summary.writes.isEmpty || !summary.guards.isEmpty || !summary.events.isEmpty
+/-- Whether the summary records at least one storage read, write, guard, or event. -/
+def TransitionSummary.isNonEmpty (summary : TransitionSummary) : Bool :=
+  !summary.reads.isEmpty || !summary.writes.isEmpty || !summary.guards.isEmpty ||
+    !summary.events.isEmpty
 
 end Compiler.Proofs.GeneratedTransition

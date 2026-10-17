@@ -941,3 +941,28 @@ SPEC["expected_uploaded_artifact_paths"]["compiler-regressions"] = [".lake/impor
 for _key in ("expected_uploaded_artifacts", "expected_uploaded_artifact_paths"):
     _profile = SPEC[_key].pop("lean-profile")
     SPEC[_key]["lean-profile"] = _profile
+
+# Importer/Denote mutation campaigns: ~180 isolated snapshots, each recompiling
+# Compiler.SolidityImport.Import, sharded off the proof `build` job.
+SPEC['expected_jobs'].insert(SPEC['expected_jobs'].index('build-audits') + 1, 'import-mutations')
+SPEC['medium_runner_jobs'].insert(1, 'import-mutations')
+SPEC['expected_job_needs']['import-mutations'] = ['changes', 'checks', 'build']
+SPEC['expected_job_needs']['failure-hints'].insert(
+    SPEC['expected_job_needs']['failure-hints'].index('build-audits') + 1, 'import-mutations')
+SPEC['expected_job_if_conditions']['import-mutations'] = (
+    "needs.checks.result == 'success' && needs.build.result == 'success' && "
+    "needs.changes.outputs.build == 'true'")
+SPEC['expected_job_runs_on']['import-mutations'] = '[self-hosted, linux, x64, verity, build]'
+SPEC['expected_job_timeouts']['import-mutations'] = 210
+SPEC['expected_job_strategy_fail_fast']['import-mutations'] = False
+SPEC['expected_build_commands'].remove('solidity_import_mutations.py')
+SPEC['expected_downloaded_artifacts'] = {
+    'build-audits': SPEC['expected_downloaded_artifacts']['build-audits'],
+    'import-mutations': ['lean-workspace-build'],
+    **{k: v for k, v in SPEC['expected_downloaded_artifacts'].items() if k != 'build-audits'},
+}
+SPEC['expected_downloaded_artifact_paths'] = {
+    'build-audits': SPEC['expected_downloaded_artifact_paths']['build-audits'],
+    'import-mutations': [None],
+    **{k: v for k, v in SPEC['expected_downloaded_artifact_paths'].items() if k != 'build-audits'},
+}

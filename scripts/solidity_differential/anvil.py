@@ -127,11 +127,12 @@ class SequenceAdapter:
     initial storage is installed verbatim from the fixture. ABI values and
     emitted events are observed without normalization.
     """
-    def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data'):
+    def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data', observer=None):
         self.directory = Path(directory)
         self.bytecodes = tuple(bytecodes)
         self.initial_storage = tuple(tuple(row) for row in initial_storage)
         self.calldata_key = calldata_key
+        self.observer = observer
         self.runs = 0
 
     def __call__(self, transactions, plan):
@@ -172,7 +173,8 @@ class SequenceAdapter:
                 block = node.rpc('eth_getBlockByHash', result['receipt']['blockHash'], False)
                 if int(block['timestamp'], 16) != timestamp or int(block['number'], 16) != number:
                     raise HarnessError('mined transaction environment changed')
-                observations.append(node.observe(result, transaction['id'], slots))
+                observations.append(node.observe(result, transaction['id'], slots) if self.observer is None
+                                    else self.observer(node, result, transaction['id'], slots))
                 receipts.append({'id': transaction['id'], 'transactionHash': result['receipt']['transactionHash']})
         (directory / 'sequence.json').write_text(json.dumps(
             {'bytecodes': self.bytecodes, 'initialStorage': self.initial_storage,

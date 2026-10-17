@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from .engine import HarnessError, command, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from .mutations import snapshot
 
 
@@ -35,9 +35,9 @@ def main():
     anchor = 'e.mems.insert pid descriptor'
     if text.count(anchor) != 1:
         raise HarnessError('reference mutation anchor not unique')
-    source.write_text(text.replace(anchor, 'e.mems.insert pid ((saved.mems.toList.head?.map Prod.snd).getD descriptor)'))
+    source.write_text(text.replace(anchor, 'e.mems.insert pid ((e.mems.toList.head?.map Prod.snd).getD descriptor)'))
     command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-            timeout=600, log=output / 'build.log')
+            timeout=MUTANT_BUILD_TIMEOUT, log=output / 'build.log')
     code, campaign = run('mutated')
     if not (campaign / 'campaign.json').is_file():
         raise HarnessError('reference mutation tool failure is not detection')

@@ -6,6 +6,7 @@
 -/
 
 import Verity.Core.Address
+import Verity.Core.AccountState
 import Verity.Core.Int256
 import Verity.Core.NarrowTypes
 import Verity.Core.Panic
@@ -417,12 +418,53 @@ structure ContractState where
       raising a monadic revert. -/
   calls : List ExternalCall := []
   codeSize : Nat → Uint256 := fun _ => 0
+  /-- Concrete code, nonce, balance and storage for deployment-world modeling.
+      Existing source storage remains in storageWords; deployment admission
+      additionally requires the account/slot representation bridge. -/
+  accountWorld : Verity.Core.AccountWorld := Verity.Core.AccountWorld.empty
   /-- EIP-211 returndata buffer, as 32-byte words. Empty at frame entry and
       overwritten by each call-family instruction with the callee's return
       data; `returndatasize()` is `32 * returndata.length`. -/
   returndata : List Nat := []
 
 namespace ContractState
+
+/-- Commit one account while synchronizing the existing code-size and caller
+balance views. Raw address aliases are normalized exactly as EVM addresses. -/
+def writeAccount (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) : ContractState :=
+  { state with
+    accountWorld := Verity.Core.AccountWorld.write state.accountWorld address account
+    codeSize := fun raw => if Verity.Core.Address.ofNat raw = address then Verity.Core.Uint256.ofNat account.code.length
+                          else state.codeSize raw
+    selfBalance := if address = state.thisAddress then account.balance else state.selfBalance }
+
+@[simp] theorem writeAccount_at (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).accountWorld address = account := by
+  simp [writeAccount]
+
+theorem writeAccount_other (state : ContractState) (address query : Address)
+    (account : Verity.Core.AccountState) (different : query ≠ address) :
+    (state.writeAccount address account).accountWorld query = state.accountWorld query := by
+  simp [writeAccount, Verity.Core.AccountWorld.write_other, different]
+
+@[simp] theorem writeAccount_storageWords (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).storageWords = state.storageWords := rfl
+
+@[simp] theorem writeAccount_events (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).events = state.events := rfl
+
+theorem writeAccount_codeSize (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) (raw : Nat) (same : Verity.Core.Address.ofNat raw = address) :
+    (state.writeAccount address account).codeSize raw = Verity.Core.Uint256.ofNat account.code.length := by
+  simp [writeAccount, same]
+
+theorem writeAccount_selfBalance (state : ContractState) (account : Verity.Core.AccountState) :
+    (state.writeAccount state.thisAddress account).selfBalance = account.balance := by
+  simp [writeAccount]
 
 /-!
 ## Canonical storage lens API (P5-A)
@@ -482,6 +524,15 @@ def readSlot (s : ContractState) (slot : Nat) : Uint256 := s.storage slot
 
 def writeSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
   { s with storageWords := fun key => if key == .slot slot then value else s.storageWords key }
+
+/-- Physical persistent self-slot write. Unlike the legacy source-channel
+lens, this also synchronizes the concrete self account's finite storage.
+Code-size and balance views are preserved even if metadata is not coherent. -/
+def writePhysicalSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => if key == .slot slot then value else s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorage slot value) }
 
 /-- Read a word from a contract-separated storage world. Contract id `0`
     deliberately denotes the legacy, unqualified `storage` world. -/
@@ -657,6 +708,9 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (s.writeSlot slot value).calls = s.calls := rfl
 @[simp] theorem codeSize_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).codeSize = s.codeSize := rfl
+
+@[simp] theorem accountWorld_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).accountWorld = s.accountWorld := rfl
 @[simp] theorem returndata_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).returndata = s.returndata := rfl
 
@@ -1513,6 +1567,28 @@ def modifySlots (s : ContractState) (targets : List Nat)
       | .slot slot => if targets.contains slot then f (s.storageWords key) else s.storageWords key
       | _ => s.storageWords key }
 
+/-- Physical batch write, retaining all legacy storage-channel projections
+while synchronizing the self account. Duplicate targets remain aliases. -/
+def writePhysicalSlots (s : ContractState) (targets : List Nat) (value : Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => match key with
+      | .slot slot => if targets.contains slot then value else s.storageWords key
+      | _ => s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorageValues targets (fun _ => value)) }
+
+/-- Every physical transformed value is computed from the original world,
+including duplicate targets, matching the atomic legacy bulk operation. -/
+def modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => match key with
+      | .slot slot => if targets.contains slot then f (s.storageWords key) else s.storageWords key
+      | _ => s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorageValues targets
+        (fun slot => f (s.storageWords (.slot slot)))) }
+
 /-- Write `value` at every transient slot in `targets`. -/
 def writeTransientSlots (s : ContractState) (targets : List Nat)
     (value : Uint256) : ContractState :=
@@ -1746,6 +1822,112 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
     (s.modifySlots targets f).transientStorage = s.transientStorage := by
   funext slot
   simp [transientStorage, modifySlots]
+
+/-! Physical-slot lenses agree with the legacy lenses on every storage channel;
+they additionally synchronize the self account, which these views ignore. -/
+
+@[simp] theorem sender_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).thisAddress = s.thisAddress := rfl
+@[simp] theorem selfBalance_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).selfBalance = s.selfBalance := rfl
+@[simp] theorem calldata_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).calldata = s.calldata := rfl
+@[simp] theorem calldataSize_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).calldataSize = s.calldataSize := rfl
+@[simp] theorem msgValue_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).msgValue = s.msgValue := rfl
+@[simp] theorem codeSize_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).returndata = s.returndata := rfl
+@[simp] theorem storageArray_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).storageArray = s.storageArray := rfl
+@[simp] theorem sender_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).sender = s.sender := rfl
+@[simp] theorem thisAddress_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).thisAddress = s.thisAddress := rfl
+@[simp] theorem selfBalance_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).selfBalance = s.selfBalance := rfl
+@[simp] theorem calldata_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).calldata = s.calldata := rfl
+@[simp] theorem calldataSize_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).calldataSize = s.calldataSize := rfl
+@[simp] theorem msgValue_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).msgValue = s.msgValue := rfl
+@[simp] theorem codeSize_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).returndata = s.returndata := rfl
+@[simp] theorem storageArray_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).storageArray = s.storageArray := rfl
+
+@[simp] theorem storage_writePhysicalSlots_mem (s : ContractState) (targets : List Nat)
+    (value : Uint256) {slot : Nat} (h : targets.contains slot = true) :
+    (s.writePhysicalSlots targets value).storage slot = value := by
+  have hmem := mem_of_contains_true h
+  simp [storage, writePhysicalSlots, hmem]
+
+@[simp] theorem storage_writePhysicalSlots_not_mem (s : ContractState) (targets : List Nat)
+    (value : Uint256) {slot : Nat} (h : targets.contains slot = false) :
+    (s.writePhysicalSlots targets value).storage slot = s.storage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storage, writePhysicalSlots, hmem]
+
+@[simp] theorem storageAddr_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, writePhysicalSlots]
+
+@[simp] theorem transientStorage_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, writePhysicalSlots]
+
+@[simp] theorem storage_modifyPhysicalSlots_not_mem (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) {slot : Nat} (h : targets.contains slot = false) :
+    (s.modifyPhysicalSlots targets f).storage slot = s.storage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storage, modifyPhysicalSlots, hmem]
+
+@[simp] theorem storage_modifyPhysicalSlots_mem (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) {slot : Nat} (h : targets.contains slot = true) :
+    (s.modifyPhysicalSlots targets f).storage slot = f (s.storage slot) := by
+  have hmem := mem_of_contains_true h
+  simp [storage, modifyPhysicalSlots, hmem]
+
+@[simp] theorem storageAddr_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, modifyPhysicalSlots]
+
+@[simp] theorem transientStorage_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, modifyPhysicalSlots]
 
 @[simp] theorem storage_modifyTransientSlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :

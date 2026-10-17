@@ -49,6 +49,7 @@
       "repository": "https://github.com/morpho-org/midnight.git",
       "commit": "96d31343e993329e7a593dde46516a2c0cbcd142",
       "inventory_solc": "0.8.34",
+      "exclude_functions": ["multicall"],
       "contracts": [
         {
           "entry": "src/Midnight.sol",

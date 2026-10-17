@@ -160,6 +160,14 @@ fetch_artifact() {
   local source_dir="${ARTIFACT_ROOT}/${run_id}/${name}"
   local ready_marker="${source_dir}/.ready"
 
+  # Consumers start only after their producer job finished, so an artifact
+  # directory that does not exist here means the producer ran on another host:
+  # waiting cannot help, fall back to the GitHub artifact at once.
+  if [ ! -d "$source_dir" ]; then
+    echo "::notice::Local artifact '${name}' was published on another runner host; using the GitHub artifact"
+    return 2
+  fi
+
   local waited=0
   while [ ! -f "$ready_marker" ] && [ "$waited" -lt "$timeout" ]; do
     sleep 2

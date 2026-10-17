@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from solidity_differential.engine import HarnessError, command, write_json
+from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from solidity_differential.mutations import snapshot
 
 
@@ -30,7 +30,7 @@ def main():
         raise HarnessError('location mutation anchor not unique')
     source.write_text(original.replace(anchor, 'else if true then'))
     command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-            timeout=600, log=output / 'build.log')
+            timeout=MUTANT_BUILD_TIMEOUT, log=output / 'build.log')
     # A tool error is not detection: require that the unsupported copy actually
     # imports successfully with the guard deleted.
     driver = baseline / 'copy/Check.lean'

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from .engine import HarnessError, command, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from .mutations import snapshot
 
 
@@ -37,7 +37,7 @@ def main():
         raise HarnessError('block mutation anchor not unique')
     source.write_text(text.replace(anchor, '        out := out ++ #[]\n'))
     command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-            timeout=600, log=output / 'build.log')
+            timeout=MUTANT_BUILD_TIMEOUT, log=output / 'build.log')
     code, campaign = run('mutated')
     if not (campaign / 'campaign.json').is_file():
         raise HarnessError('block mutation tool failure is not detection')

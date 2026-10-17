@@ -59,10 +59,9 @@ private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : 
   unless (storage.map Prod.fst).eraseDups.length == storage.length do
     throw "duplicate initial storage slot"
   let timestamp ← word (← j.getObjVal? "timestamp")
-  let world := Verity.defaultState.withStorageWords fun slot =>
-    match slot with
-    | .slot n => Uint256.ofNat ((storage.find? (fun p => p.1 == n)).map Prod.snd |>.getD 0)
-    | _ => Verity.defaultState.storageWords slot
+  let world := storage.foldl
+    (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
+    Verity.defaultState
   let tx : DenoteTransaction :=
     { sender := 0, functionSelector := 0x12345678, args := args,
       blockTimestamp := Uint256.ofNat timestamp }

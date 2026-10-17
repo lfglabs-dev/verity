@@ -53,7 +53,9 @@ contract SequenceFixture {
             result = input + 4;
         }
         require(input != 70, "named branch continuation");
-        result = result + 5;
+        // An explicit final return makes the continuation itself return, so
+        // treating the assembly branch as a helper result changes the lowering.
+        return result + 5;
     }
 
     function shadowedAssembly(uint256 input) internal pure returns (uint256 result) {

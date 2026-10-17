@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 
-from .engine import ROOT, WORKSPACE, HarnessError, command, write_json
+from .engine import ROOT, WORKSPACE, MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 
 MUTANTS = {
     "import-require-condition": ("Compiler/SolidityImport/Import.lean", 'return condition.pre.push (.require condition.expr value)', 'return condition.pre.push (.require (.literal 1) value)'),
@@ -140,7 +140,7 @@ def mutation_campaign(output, selected=None):
             baseline_argv = [str(directory / ".lake/baseline") if arg == str(directory / ".lake/campaign")
                              else arg for arg in argv]
             baseline = subprocess.run(baseline_argv, cwd=directory, text=True,
-                                      capture_output=True, timeout=600)
+                                      capture_output=True, timeout=MUTANT_BUILD_TIMEOUT)
             (directory / "baseline.log").write_text(baseline.stdout + baseline.stderr)
             baseline_file = directory / ".lake/baseline/results.json"
             baseline_report = json.loads(baseline_file.read_text()) if baseline_file.exists() else {}
@@ -152,7 +152,7 @@ def mutation_campaign(output, selected=None):
                     + (baseline.stdout + baseline.stderr)[-4000:])
             source.write_text(text.replace(before, after))
             try:
-                result = subprocess.run(argv, cwd=directory, text=True, capture_output=True, timeout=600)
+                result = subprocess.run(argv, cwd=directory, text=True, capture_output=True, timeout=MUTANT_BUILD_TIMEOUT)
                 (directory / "mutation.log").write_text(result.stdout + result.stderr)
                 report_file = directory / ".lake/campaign/results.json"
                 report = json.loads(report_file.read_text()) if report_file.exists() else {}

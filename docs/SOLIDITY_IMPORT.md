@@ -213,7 +213,7 @@ compilation and tool failures are harness errors, never reverts.
 ```sh
 scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential.json \
   --output .lake/d/smoke --seed 2438 --cases 128        # inputs
-scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 \
+scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 \
   --output .lake/d/programs                             # generated programs
 scripts/check_solidity_differential.sh --mutations --output .lake/d/mutants
 scripts/check_solidity_differential.sh --replay --output .lake/d/smoke
@@ -236,6 +236,10 @@ scripts/check_solidity_differential.sh --reduce --reduce-seconds 120 --output .l
   checks the golden model (`--update-golden` after review), hygiene,
   determinism, rejections with diagnostics, multi-root independence, and that
   source changes move the witness results and the digest.
+  `--shard I/N --jobs J` runs a deterministic share of the independent
+  campaigns with `J` parallel isolated snapshots (`--jobs auto` sizes `J` by
+  cores and available memory; `--task NAME` selects single campaigns); CI's
+  `import-mutations` job runs six shards from the prepared `build` workspace.
 
 CI runs fixed seeds on every PR (10 minutes) and longer input, program and
 mutant campaigns nightly and on demand (60 minutes), archiving the evidence.
@@ -273,8 +277,9 @@ reported against the declaration that the importer cannot select. Each probe
 checks the root's declaring contract in the import report, so a same-named
 private helper cannot stand in for an inherited implementation.
 Fallback/receive bodies remain counted and are rejected as unnamed roots.
-Midnight is reported both in full and with only `multicall` removed for the
-milestone. This is function-import coverage, not whole-contract ABI or EVM
+A project may list optional `"exclude_functions"` (function names) in the
+manifest; it is then reported both in full and as a milestone with only those
+functions removed (Midnight currently excludes `multicall`). This is function-import coverage, not whole-contract ABI or EVM
 coverage. Historical reports made before removal of scalar struct projections
 may count projected imports; rerun the instrument on the current importer
 before using those reports to assess complete ABI support.
@@ -864,7 +869,7 @@ prerequisite for the measured IdLib path, not an implementation of `storeInCode`
 | Yul byte-buffer header and word loads (`mload(b)` and `mload(add(b, offset))`, `ECDSA.tryRecover(bytes32, bytes memory)`, `yulByteBufferLoad?`) | `bindRoot`, `bindHelperParams`, and `lowerLocal` record unshadowed `bytes memory` and `string memory` variables in `Env.yulMemoryStructs`. When `b` is not bound in `Env.yulNames` (`yulByteBufferByName?`), `lowerYul` lowers `mload(b)` to `{ pre := buf.pre, expr := buf.size }` and `mload(add(b, offset))` / `mload(add(offset, b))` for 32-byte-aligned positive word offsets (`offset >= 32 && offset % 32 == 0`, `yulPositiveWordOffsetLiteral?`) to `Expr.mload (.add buf.pointer (.literal (offset - 32)))`. Zero or unaligned offsets fail closed (`unsupported Yul builtin mload`). |
 | Yul assignments of provably-bounded expressions to narrow non-enum scalar locals (`uint8 v; assembly { v := byte(0, mload(add(signature, 0x60))) }`, `isProvablyBoundedYulExpr`) | `lowerYulDirectAssignmentTarget` admits Yul assignments to narrow non-enum scalar locals/parameters (`bool`, `uint8`–`uint248`, `address`) when the lowered RHS expression is provably bounded by `2^bits` (`isProvablyBoundedYulExpr`: `.literal n` with `n < 2^bits`, `.byte _ _` for `bits >= 8`, `.lt`/`.gt`/`.slt`/`.sgt`/`.eq`/`.logicalNot` for `bits >= 1`, `.bitAnd` with a mask `< 2^bits`, `.shr` by `>= 256 - bits`, or `.mod` by `0 < m <= 2^bits`). Arbitrary unmasked Yul expressions (`narrow := add(narrow, 1)`, `v := mload(...)`) continue to fail closed (`Yul assignment to narrow local <name> is unsupported`). |
 | Scalar `typeConversion` casts in custom-error revert arguments (`revert ECDSAInvalidSignatureLength(uint256(errorArg))`) | `lowerErrorArguments` accepts single-argument `typeConversion` calls whose inner expression is an identifier bound in `Env.values` (such as `uint256(errorArg)` where `errorArg` is `bytes32`), lowering and converting the argument via `convert errorParamType (← mType argument) (← lowerExpr argument) argument`. |
-| Raw `bytes32` slot wrappers `StorageSlot.getStringSlot(bytes32 slot)` and `StorageSlot.getBytesSlot(bytes32 slot)` (`inlineStorageStructFn`) | When an internal/private/library storage-pointer helper returns a 1-member wrapper struct `struct { string value; }` or `struct { bytes value; }` via a 1-statement `r.slot := slot` assembly block (`prefixYstmts.isEmpty && sMembers.size == 1 && m0Name == "value"`), `inlineStorageStructFn` binds `slot` to a fresh local and returns `SPath.bytesSlot ("", .localVar slotBinding) isString`, enabling `.value` reads, `.value.length`, `.value = ...` writes, `delete ...value`, and `string storage` / `bytes storage` helper arguments on raw `bytes32` slots. |
+| Raw `bytes32` slot wrappers `StorageSlot.getStringSlot(bytes32 slot)` and `StorageSlot.getBytesSlot(bytes32 slot)` (`inlineStorageStructFn`) | When an internal/private/library storage-pointer helper returns a 1-member wrapper struct whose only member has type `string` or `bytes` (any member name, e.g. `struct { string value; }`) via a 1-statement `r.slot := slot` assembly block (`prefixYstmts.isEmpty && sMembers.size == 1` and the member type is `string`/`bytes`), `inlineStorageStructFn` binds `slot` to a fresh local and returns `SPath.bytesSlot ("", .localVar slotBinding) isString`, enabling member reads, `.length`, writes, `delete`, and `string storage` / `bytes storage` helper arguments on raw `bytes32` slots. |
 
 ### Development slice: `Create2.computeAddress`, `Clones.predictDeterministicAddress`, `keccak256(_msgData())`, and bounded `DoubleEndedQueue.Bytes32Deque` `popFront` / `popBack` `while` loops (`Governor._checkGovernance`)
 
@@ -873,7 +878,7 @@ prerequisite for the measured IdLib path, not an implementation of `storeInCode`
 | `Create2.computeAddress(bytes32, bytes32, address)` and `Create2.computeAddress(bytes32, bytes32)` (`lowerYulPrefixKeccakBlock?`) | Recognizes the 7-statement Yul block `let ptr := mload(0x40); mstore(add(ptr, 0x40), bytecodeHash); mstore(add(ptr, 0x20), salt); mstore(ptr, deployer); let start := add(ptr, 0x0b); mstore8(start, 0xff); addr := and(keccak256(start, 85), 0xffffffffffffffffffffffffffffffffffffffff)` and lowers it to 3 word-aligned 32-byte writes at `ptr = mload(64)` (`word0 = (prefixByte << 248) \| ((deployer & (2^160 - 1)) << 88) \| (salt >> 168)`, `word1 = (salt << 88) \| (bytecodeHash >> 168)`, `word2 = bytecodeHash << 88`) followed by `keccak256(ptr, 85)` and the target assignment. Mismatched offsets, prefix widths, or hash lengths fail closed. |
 | `Clones.predictDeterministicAddress(address, bytes32, address)` and `Clones.predictDeterministicAddress(address, bytes32)` (`lowerYulPrefixKeccakBlock?`) | Recognizes the 8-statement Yul block `let ptr := mload(0x40); mstore(add(ptr, 0x38), deployer); mstore(add(ptr, 0x24), 0x5af43d82803e903d91602b57fd5bf3ff); mstore(add(ptr, 0x14), implementation); mstore(ptr, 0x3d602d80600a3d3981f3363d3d373d3d3d363d73); mstore(add(ptr, 0x58), salt); mstore(add(ptr, 0x78), keccak256(add(ptr, 0x0c), 0x37)); predicted := and(keccak256(add(ptr, 0x43), 0x55), 0xffffffffffffffffffffffffffffffffffffffff)`, packing the 55-byte EIP-1167 creation code into 2 aligned words at `ptr` and `ptr + 32`, binding `initHash := keccak256(ptr, 55)`, packing the 85-byte CREATE2 preimage into 3 aligned words at `ptr + 64`, `ptr + 96`, and `ptr + 128`, and evaluating `keccak256(ptr + 64, 85)`. |
 | `keccak256(_msgData())` and zero-argument `bytes calldata` / `bytes memory` `msg.data` helpers (`lowerMsgDataBuffer`, `lowerEncodedBytes`, `lowerStringHelperStmts`) | `lowerEncodedBytes` and `lowerStringHelperStmts` accept zero-argument internal/private/public helper calls returning `bytes calldata` or `bytes memory` whose single `return` expression resolves to `msg.data` (via `inlineMsgDataFn`), materializing the full `calldatasize`-byte transaction calldata (selector word plus calldata words) into an aligned memory buffer via `lowerMsgDataBuffer` while keeping direct `keccak256(msg.data)` rejected at `msg.data`. |
-| Bounded `DoubleEndedQueue.Bytes32Deque` `popFront` / `popBack` `while` loops (`while (_governanceCall.popFront() != msgDataHash) {}`, `Governor._checkGovernance`, `lowerWhile`) | `lowerWhile` recognizes `while (deque.popFront() != target) {}` and `while (deque.popBack() != target) {}` (with `popFront` / `popBack` on either side of `!=`) when `deque` resolves to a storage `Bytes32Deque` path (`struct { uint128 _begin; uint128 _end; mapping(uint128 => bytes32) _data; }`) with an empty key prelude, `target` is a pure/stateless `bytes32` expression (`!statefulCallIn target && !assignmentIn target`), and the loop body is empty (`bodyStmts.isEmpty`). Lowers to `bound := ((_end - _begin) & (2^128 - 1)) + 1`, `done := 0`, and `Stmt.forEach loopVar bound [ite (done == 0) (popPre ++ targetPre ++ [ite (popVal == targetVal) [done := 1] []]) []]`, so matching elements terminate the loop and missing elements pop until `_begin == _end` and revert with `QueueEmpty()` on the `(len + 1)`-th iteration. Non-empty loop bodies or stateful/non-`bytes32` targets fail closed with located diagnostics. |
+| Bounded-range pop `while` loops such as `DoubleEndedQueue.Bytes32Deque` `popFront` / `popBack` (`while (_governanceCall.popFront() != msgDataHash) {}`, `Governor._checkGovernance`, `lowerWhile`, `boundedRangePopBounds?`) | `lowerWhile` recognizes `while (q.pop() != target) {}` (the call on either side of `!=`) when `pop` is a 1-argument storage helper over a struct of two `uint128` bounds and one `mapping(uint128 => bytes32)` (any helper, struct, and member names) whose body is structurally a range pop: `uint128 i = q.lo; if (i == q.hi) revert ...; value = q.data[i]; [delete q.data[i];] q.lo = i + 1;` (low end) or `uint128 i = q.hi; if (i == q.lo) revert ...; --i; value = q.data[i]; [delete q.data[i];] q.hi = i;` (high end). The low/high bound members are derived from that body. `q` must resolve to a storage path with an empty key prelude, `target` is a pure/stateless `bytes32` expression (`!statefulCallIn target && !assignmentIn target`), and the loop body is empty (`bodyStmts.isEmpty`). Lowers to `bound := ((hi - lo) & (2^128 - 1)) + 1`, `done := 0`, and `Stmt.forEach loopVar bound [ite (done == 0) (popPre ++ targetPre ++ [ite (popVal == targetVal) [done := 1] []]) []]`, so matching elements terminate the loop and missing elements pop until `lo == hi` and revert (e.g. `QueueEmpty()`) on the `(len + 1)`-th iteration. Helpers without the empty-range revert or bound advance are not recognized; non-empty loop bodies or stateful/non-`bytes32` targets fail closed with located diagnostics. |
 
 ### Development slice: `bytes calldata` / `msg.data` slices (`data[start:end]`), `Governor._isValidDescriptionForProposer` (unaligned Yul tail `mload`, `bytes` element reads, bounded tail-window `for` loops), `bytes1`–`bytes31` locals/helpers/casts (`bytes12`, `bytes20`, `ERC2771Context`), and `MemberAccess` tuple assignments (`AccessManager`)
 
@@ -886,3 +891,81 @@ prerequisite for the measured IdLib path, not an implementation of `storeInCode`
 
 
 Whole-contract frame proofs can use `Transactions.AdversarialEntryPointSequence` and `invariant_of_adversarial_entry_points` to vary both the transaction context and permitted oracle at each public call. Every permitted oracle must satisfy the actual per-entry-point execution obligation. The rule includes observed reverting frames through rollback; ABI decoding, dispatch and value transfers remain separate obligations. `adversarial_sequence_append` composes observed prefixes.
+# Initcode execution groundwork
+
+`Verity/Core/Model/InitCodeExecution.lean` executes the bytecode instructions in
+Midnight's eleven-byte deployment prefix with an explicit instruction bound.
+The kernel proof `midnight_returns_payload` composes nine intermediate
+instruction lemmas and proves that the returned bytes equal the appended
+payload. Byte-copy frame lemmas preserve reads outside the destination range.
+This is deployment proof infrastructure: it adds no supported Solidity or Yul
+construct to the importer. `CREATE2` remains rejected until exact object-memory
+provenance, account-world transitions and full A/B/C checks are integrated.
+
+The account-world prerequisite now stores bounded nonces, balances, exact code
+bytes and finite storage in `ContractState.accountWorld`. `DenoteCreate2`
+executes the checked initcode templates and handles transfers, nonce increments,
+collisions, deposit rules and child gas. Account frames and existing transaction
+rollback include this metadata. The source-storage/account-storage bridge,
+parent opcode charging, ABI/events, compiled-model route and importer lowering
+remain required before CREATE2 is supported. Unsupported initcode is an
+instrument error, never a fabricated successful deployment or Solidity revert.
+
+`BytesObjectMemory` provides a byte-level immutable object representation:
+big-endian length header, payload at base+32, zero padding and disjoint-write
+frame proofs. Its EVM/Lean instrument observes source-created objects and
+aliases after another allocation. This is a prerequisite, not new supported
+Solidity: allocator/pointer identity, overflow and gas behavior, declaration
+provenance, the canonical word-memory bridge and compiled-model integration
+remain mandatory before admitting object-pointer Yul expressions.
+
+
+### CREATE2 parent opcode composition prerequisite
+
+`Create2ParentGas` charges the Osaka base cost, six-gas Keccak and two-gas
+EIP-3860 initcode words, and quadratic memory expansion. Zero-length ranges
+do not expand memory. Kernel lemmas establish the EIP-150 gas split,
+conservation and bounded child refunds. `Create2Opcode.execute` derives the
+child allowance from parent gas, reads initcode from actual byte memory,
+executes the concrete account transition and refunds unused child gas. The
+expanded memory zero-extends inactive bytes; no backing-function contents
+beyond the old active range become visible. Static/size violations abort,
+parent out-of-gas aborts, and nonaligned instrument memory is rejected.
+
+`check_deployment_world --parent-opcode` compares actual EVM opcode memory,
+parent continuation gas, child allowance and account transitions against Lean,
+including nonce-limit prechecks. It supplies neither initcode bytes nor a child
+gas allowance to the Lean opcode driver. This remains A/B calibration, not an
+imported or compiled-model C campaign. Canonical Stmt integration, complete
+frame gas tracking, source allocator/memory refinement, account/storage bridge,
+ABI/revert/event observations and all exact-head release gates remain required.
+No new Solidity construct or whole-EVM equivalence is claimed here.
+
+
+### Canonical flat-storage/account coherence
+
+Concrete account storage uses `Std.TreeMap` with kernel-checked read-after-write
+and outside-frame laws. `writePhysicalSlot`, `writePhysicalSlots` and
+`modifyPhysicalSlots` update flat persistent storage and the self account's
+finite storage together. Batch transformers read the original world, including
+when targets alias. These APIs preserve code, nonce, balance, caller metadata,
+transient keys and legacy shadow channels. Legacy `writeSlot` and bulk lenses
+retain their previous account-world frame; their regression is unchanged.
+
+Canonical Denote flat scalar, packed, mapping-word and fixed-array write helpers
+use the physical APIs. The reference `SourceSemantics` uses the same exact
+physical transitions; the statements of `DenoteAgreement` and
+`DenoteFunctionAgreement` are unchanged. `AccountStorageBridge` proves coherence
+for single/batch/transformed writes and runtime-code commits to another account.
+Old shadow-mapping/channel-wide compatibility operations are not asserted to
+preserve this relation and must not be used as an exact deployment bridge.
+
+The scalar differential adapters initialize finite storage through the physical
+API. The sequence adapter verifies flat/account agreement for every touched or
+requested persistent slot after each transaction, including rollback. This
+seeds storage only: it does not fabricate creator nonce, balance or code, model
+external account effects, admit CREATE2, or establish full deployment A/B/C
+equivalence. Those account inputs, complete gas/memory integration and the
+remaining source-admission obligations still have to be implemented.
+
+Stateful differential implementation snapshots bind the recorded Git HEAD to the campaign workspace and recheck it during replay. A commit switch with byte-identical sources still invalidates the campaign; an unavailable Git revision is an instrumentation error. This supplements source/artifact identity checks and does not certify unexecuted test phases.

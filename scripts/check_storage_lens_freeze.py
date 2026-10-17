@@ -63,7 +63,10 @@ BASELINE = {
     # The count also covers the `*_set_storageWords` projection simp lemmas,
     # whose *statements* mention `{ s with storageWords := f }` and so read as
     # raw sites here; they are lens metatheory, not storage bypasses.
-    "Verity/Core.lean": 33,
+    # +3: the physical-slot lenses (`writePhysicalSlot`, `writePhysicalSlots`,
+    # `modifyPhysicalSlots`) that also synchronize the self account's finite
+    # storage; they are lens implementations, not caller bypasses.
+    "Verity/Core.lean": 36,
     # IRState fixture literals (field-name collision false positives).
 }
 

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from .engine import HarnessError, command, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from .mutations import snapshot
 
 MUTANTS = {'import-dynamic-root-parameter-offset': ('Compiler/SolidityImport/AbiRootLowering.lean',
@@ -45,7 +45,7 @@ def mutation_campaign(output, selected=None):
             raise HarnessError(f'{name}: nonunique mutation anchor')
         source.write_text(text.replace(before, after))
         command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-            timeout=600, log=directory / 'build.log')
+            timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
         campaign = directory / '.lake/mutated'
         code, report = run(directory, campaign)
         if not code or not report['divergences']:

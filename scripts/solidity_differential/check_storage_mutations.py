@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from solidity_differential.engine import HarnessError, command, write_json
+from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
@@ -25,10 +25,10 @@ MUTANTS.update({'import-mapping-layout': ('if width == 256 then none else some {
                              'Expr.structMember field (.literal 0) "__solidity_value"'),
  'import-mapping-read-two': ('Expr.structMember2 field key1 key2 "__solidity_value"',
                              'Expr.structMember2 field key2 key1 "__solidity_value"'),
- 'import-mapping-write-one': ('Stmt.setStructMember field key "__solidity_value" value',
-                              'Stmt.setStructMember field key "__solidity_value" (.literal 0)'),
- 'import-mapping-write-two': ('Stmt.setStructMember2 field key1 key2 "__solidity_value" value',
-                              'Stmt.setStructMember2 field key2 key1 "__solidity_value" value'),
+ 'import-mapping-write-one': ('Stmt.setStructMember (splitSPathField field).1 key "__solidity_value" value',
+                              'Stmt.setStructMember (splitSPathField field).1 key "__solidity_value" (.literal 0)'),
+ 'import-mapping-write-two': ('Stmt.setStructMember2 (splitSPathField field).1 key1 key2 "__solidity_value" value',
+                              'Stmt.setStructMember2 (splitSPathField field).1 key2 key1 "__solidity_value" value'),
  'import-mapping-delete': ('    unless info.scalarMapping && info.keyCount == count do\n      failAt target "only scalar mapping values are writable"\n    markField name\n    let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do', '    unless info.scalarMapping && info.keyCount == count do\n      failAt target "only scalar mapping values are writable"\n    markField name\n    let value ← if deleting then pure ({ pre := #[], expr := (.literal 1 : Expr) } : Val) else do'),
  'import-mapping-bool-literal': ('| "true" => pure 1', '| "true" => pure 0'),
  'import-mapping-bool-read': ('if info.booleanMapping then Expr.logicalNot (.logicalNot read) else read', 'if info.booleanMapping then Expr.logicalNot read else read')})
@@ -134,14 +134,14 @@ MUTANTS.update({
     'import-helper-effect-argument-guard': ('if statefulCallIn arg (← get) then', 'if false then'),
     'import-helper-effect-classifier': ('| some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")', '| some _ => false'),
     'import-helper-effect-drop': ('-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre ← lowerEffect s', '-- Use the same exact assignment/delete and require rules as root bodies.\n        -- The helper continuation still resumes only after these effects.\n        let pre : Array Stmt := #[]'),
-    'import-packed-member-delete': ('        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          atom (← convert ty (← mType right) (← lowerExpr right) right)\n        return value.pre.push (write value.expr)', '        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          atom (← convert ty (← mType right) (← lowerExpr right) right)\n        return value.pre.push (write value.expr)'),
-    'import-packed-member-value': ('return value.pre.push (write value.expr)', 'return value.pre.push (write (.literal 0))'),
-    'import-packed-member-target': ('      | .one field key => pure (field, 1, fun (value : Expr) => Stmt.setStructMember field key member value)', '      | .one field key => pure (field, 1, fun (value : Expr) => Stmt.setStructMember field key "middle" value)'),
-    'import-packed-member-two-keys': ('      | .two field key1 key2 => pure (field, 2, fun (value : Expr) => Stmt.setStructMember2 field key1 key2 member value)', '      | .two field key1 key2 => pure (field, 2, fun (value : Expr) => Stmt.setStructMember2 field key2 key1 member value)'),
-    'import-packed-member-capture': ('pure (#[.letVar binding key], .localVar binding)', 'pure (#[], key)'),
+    'import-packed-member-delete': ('        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 0 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          atom (← convert ty (← mType right) (← lowerExpr right) right)\n        return (pre ++ value.pre).push (write value.expr)', '        markField name\n        let value ← if deleting then pure ({ pre := #[], expr := .literal 1 } : Val) else do\n          let right ← mField expression "rightHandSide"\n          atom (← convert ty (← mType right) (← lowerExpr right) right)\n        return (pre ++ value.pre).push (write value.expr)'),
+    'import-packed-member-value': ('return (pre ++ value.pre).push (write value.expr)', 'return (pre ++ value.pre).push (write (.literal 0))'),
+    'import-packed-member-target': ('\n              pure (rawField, 1, fun (value : Expr) => Stmt.setStructMember field key qualMember value)', '\n              pure (rawField, 1, fun (value : Expr) => Stmt.setStructMember field key "middle" value)'),
+    'import-packed-member-two-keys': ('\n              pure (rawField, 2, fun (value : Expr) => Stmt.setStructMember2 field key1 key2 qualMember value)', '\n              pure (rawField, 2, fun (value : Expr) => Stmt.setStructMember2 field key2 key1 qualMember value)'),
+    'import-packed-member-capture': ('\n          pure (#[.letVar binding key], .localVar binding)', '\n          pure (#[], key)'),
 })
 
-MUTANTS.update({'import-fixed-array-word': ('wordOffset := index / perWord, packed', 'wordOffset := (index / perWord) * 2, packed'), 'import-fixed-array-bit': ('let offset := (index % perWord) * width', 'let offset := ((index % perWord + 1) % perWord) * width'), 'import-fixed-array-capture': ('pure (.fixedElement ((pre ++ key.pre).push (.letVar captured key.expr))', 'pure (.fixedElement ((pre ++ key.pre).push (.letVar captured (.literal 0)))'), 'import-fixed-array-read': ('[.assignVar dest (read s!"__solidity_element_{i}")]', '[.assignVar dest (read "__solidity_element_0")]'), 'import-fixed-array-bound': ('(valuePre ++ pre).push (.ite (.lt index (.literal length))', '(valuePre ++ pre).push (.ite (.lt index (.literal (length + 1)))'), 'import-fixed-array-write': ('[write s!"__solidity_element_{i}" (.localVar capturedValue)]', '[write s!"__solidity_element_{i}" (.literal 0)]'), 'import-fixed-array-two-keys': ('        | .two name key1 key2 => pure (name, 2, fun member value => Stmt.setStructMember2 name key1 key2 member value)\n        | .outer _ _ => failAt target "fixed array write requires both mapping keys"\n      let info ← resolveField name target\n      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"', '        | .two name key1 key2 => pure (name, 2, fun member value => Stmt.setStructMember2 name key2 key1 member value)\n        | .outer _ _ => failAt target "fixed array write requires both mapping keys"\n      let info ← resolveField name target\n      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"'), 'import-fixed-array-snapshot': ('          result := result.push (.letVar binding (read s!"__solidity_element_{i}"))\n          elements := elements.push (.localVar binding)', '          result := result.push (.letVar binding (read s!"__solidity_element_{i}"))\n          elements := elements.push (read s!"__solidity_element_{i}")'), 'import-fixed-array-delete': ('      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"\n      unless info.keyCount == count do failAt target "fixed array mapping key count differs"\n      let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do\n        let right ← mField expression "rightHandSide"', '      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"\n      unless info.keyCount == count do failAt target "fixed array mapping key count differs"\n      let value ← if deleting then pure ({ pre := #[], expr := (.literal 1 : Expr) } : Val) else do\n        let right ← mField expression "rightHandSide"')})
+MUTANTS.update({'import-fixed-array-word': ('let member : StructMember := { name := s!"__solidity_element_{index}", ty := .uint256, wordOffset := index / perWord, packed }', 'let member : StructMember := { name := s!"__solidity_element_{index}", ty := .uint256, wordOffset := (index / perWord) * 2, packed }'), 'import-fixed-array-bit': ('\n      let offset := (index % perWord) * width', '\n      let offset := ((index % perWord + 1) % perWord) * width'), 'import-fixed-array-capture': ('pure (.fixedElement ((pre ++ key.pre).push (.letVar captured key.expr))', 'pure (.fixedElement ((pre ++ key.pre).push (.letVar captured (.literal 0)))'), 'import-fixed-array-read': ('[.assignVar dest (read s!"__solidity_element_{i}")]', '[.assignVar dest (read "__solidity_element_0")]'), 'import-fixed-array-bound': ('(valuePre ++ pre).push (.ite (.lt index (.literal length))', '(valuePre ++ pre).push (.ite (.lt index (.literal (length + 1)))'), 'import-fixed-array-write': ('[write s!"__solidity_element_{i}" (.localVar capturedValue)]', '[write s!"__solidity_element_{i}" (.literal 0)]'), 'import-fixed-array-two-keys': ('        | .two name key1 key2 => pure (name, 2, fun member value => Stmt.setStructMember2 name key1 key2 member value)\n        | .outer _ _ => failAt target "fixed array write requires both mapping keys"\n        | .rawSlot _ _ | .bytesSlot _ _ => failAt target "fixed array write on raw-slot struct is outside this slice"\n      let info ← resolveField name target\n      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"', '        | .two name key1 key2 => pure (name, 2, fun member value => Stmt.setStructMember2 name key2 key1 member value)\n        | .outer _ _ => failAt target "fixed array write requires both mapping keys"\n        | .rawSlot _ _ | .bytesSlot _ _ => failAt target "fixed array write on raw-slot struct is outside this slice"\n      let info ← resolveField name target\n      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"'), 'import-fixed-array-snapshot': ('          result := result.push (.letVar binding (read s!"__solidity_element_{i}"))\n          elements := elements.push (.localVar binding)', '          result := result.push (.letVar binding (read s!"__solidity_element_{i}"))\n          elements := elements.push (read s!"__solidity_element_{i}")'), 'import-fixed-array-delete': ('      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"\n      unless info.keyCount == count do failAt target "fixed array mapping key count differs"\n      let value ← if deleting then pure ({ pre := #[], expr := (.literal 0 : Expr) } : Val) else do\n        let right ← mField expression "rightHandSide"', '      let some length := info.fixedArrayLength | failAt target "missing fixed array layout"\n      unless info.keyCount == count do failAt target "fixed array mapping key count differs"\n      let value ← if deleting then pure ({ pre := #[], expr := (.literal 1 : Expr) } : Val) else do\n        let right ← mField expression "rightHandSide"')})
 
 
 MUTANTS.update({'import-fixed-array-snapshot-read': ('[.assignVar dest element] [])', '[.assignVar dest (.literal 0)] [])'), 'import-fixed-array-read-bound': ('let mut pre := pre.push (.ite (.lt index (.literal length))', 'let mut pre := pre.push (.ite (.lt index (.literal 0))'), 'import-fixed-array-snapshot-bound': ('let mut pre := key.pre.push (.ite (.lt key.expr (.literal elements.size))', 'let mut pre := key.pre.push (.ite (.lt key.expr (.literal 0))')})
@@ -164,12 +164,12 @@ MUTANTS.update({
 })
 
 MUTANTS.update({
-    'import-named-helper-default': ('pre := pre.push (.letVar binding (.literal 0))', 'pre := pre.push (.letVar binding (.literal 1))'),
+    'import-named-helper-default': ('let some scalar := localParamType ty\n      | failAt declaration s!"unsupported named helper result type {ty}"\n    let binding ← freshFor retName\n    let expr := Expr.localVar binding\n    pre := pre.push (.letVar binding (.literal 0))', 'let some scalar := localParamType ty\n      | failAt declaration s!"unsupported named helper result type {ty}"\n    let binding ← freshFor retName\n    let expr := Expr.localVar binding\n    pre := pre.push (.letVar binding (.literal 1))'),
     'import-named-helper-fallthrough': ('(← get).helperResult.map fun (binding, _) => Expr.localVar binding', '(← get).helperResult.map fun (_binding, _) => Expr.literal 0'),
-    'import-named-helper-assembly': ('pure (v.pre.push (.assignVar binding cleaned) ++ tail, result)', 'pure (v.pre.push (.assignVar binding (.literal 0)) ++ tail, result)'),
+    'import-named-helper-assembly': ('pure ((extPre ++ v.pre).push (.assignVar binding cleaned) ++ tail, result)', 'pure ((extPre ++ v.pre).push (.assignVar binding (.literal 0)) ++ tail, result)'),
     'import-named-helper-width': ('if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr', 'if width < 256 then v.expr else v.expr'),
     'import-named-helper-bool': ('if ty == "bool" then Expr.logicalNot (.logicalNot v.expr)', 'if ty == "bool" then v.expr'),
-    'import-named-helper-frame': ('helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, helperPost := saved.helperPost, scalarTy := saved.scalarTy }\n  pure finalResult', 'helperResult := e.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, helperPost := saved.helperPost, scalarTy := saved.scalarTy }\n  pure finalResult'),
+    'import-named-helper-frame': ('helperResult := saved.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }\n  pure finalResult', 'helperResult := e.helperResult, helperReturnId := saved.helperReturnId, multiHelperResults := saved.multiHelperResults, flatStructHelperResult := saved.flatStructHelperResult, helperPost := saved.helperPost, scalarTy := saved.scalarTy }\n  pure finalResult'),
     'import-named-helper-branch': ('| "InlineAssembly" => pure (← get).helperResult.isNone', '| "InlineAssembly" => pure true'),
 })
 
@@ -547,8 +547,10 @@ def run(directory, output, name):
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts') + os.pathsep + environment.get('PYTHONPATH', '')
+    # Compiles the model against the (possibly mutated) importer, then replays up
+    # to --shrink-attempts candidate sequences, each through a fresh `lean --run`.
     result = subprocess.run(argv, cwd=directory, env=environment,
-                            text=True, capture_output=True, timeout=600)
+                            text=True, capture_output=True, timeout=MUTANT_BUILD_TIMEOUT)
     output.with_suffix('.log').write_text(result.stdout + result.stderr)
     report_path = output / 'campaign.json'
     if not report_path.exists():
@@ -1062,6 +1064,7 @@ contract C {
         diagnostic = 'deque pop while loop body must be empty'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 library DoubleEndedQueue {
+ error QueueEmpty();
  struct Bytes32Deque {
   uint128 _begin;
   uint128 _end;
@@ -1070,6 +1073,7 @@ library DoubleEndedQueue {
  function popFront(Bytes32Deque storage deque) internal returns (bytes32 value) {
   unchecked {
    uint128 frontIndex = deque._begin;
+   if (frontIndex == deque._end) revert QueueEmpty();
    value = deque._data[frontIndex];
    delete deque._data[frontIndex];
    deque._begin = frontIndex + 1;
@@ -1206,7 +1210,7 @@ def mutation_campaign(output, selected=None):
                 raise HarnessError(f'{name}: nonunique mutation anchor')
             source.write_text(text.replace(before, after))
             command(['lake', 'build', 'Compiler.SolidityImport.Import', 'Compiler.SolidityImport.SequenceRunner'], cwd=directory,
-                    timeout=600, log=directory / 'build.log')
+                    timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
             if order_guard:
                 diagnostic, log_path = helper_order_control(directory, name, True)
                 reports.append({'mutant': name, 'status': 'detected', 'detected': True,

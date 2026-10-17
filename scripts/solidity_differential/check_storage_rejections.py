@@ -9,7 +9,13 @@ import tempfile
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--only', default=None)
+    parser.add_argument('--part', default='0/1', help='check only cases I, I+N, I+2N, ... written I/N')
     args = parser.parse_args()
+    part, parts = (int(n) for n in args.part.split('/'))
+    if not 0 <= part < parts:
+        parser.error('--part must be I/N with 0 <= I < N')
+    # One index across both case lists, so parts partition every case.
+    ordinal = iter(range(10**9))
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
@@ -215,6 +221,8 @@ def main():
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', None),
     ]
     for name, fields, body, returns, expected in cases:
+        if next(ordinal) % parts != part:
+            continue
         if args.only and args.only not in name:
             continue
         directory = output / name
@@ -1314,15 +1322,35 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
         ('create2-clones-msgdata-deque-nonempty-pop-loop-body-rejected',
-         "pragma solidity 0.8.34;\nlibrary DoubleEndedQueue {\n  struct Bytes32Deque {\n    uint128 _begin;\n    uint128 _end;\n    mapping(uint128 index => bytes32) _data;\n  }\n  function popFront(Bytes32Deque storage deque) internal returns (bytes32 value) {\n    unchecked {\n      uint128 frontIndex = deque._begin;\n      value = deque._data[frontIndex];\n      delete deque._data[frontIndex];\n      deque._begin = frontIndex + 1;\n    }\n  }\n}\ncontract C {\n  using DoubleEndedQueue for DoubleEndedQueue.Bytes32Deque;\n  DoubleEndedQueue.Bytes32Deque private _q;\n  function checked(uint256 x) external returns (uint256) {\n    uint256 steps = 0;\n    while (_q.popFront() != bytes32(x)) {\n      steps += 1;\n    }\n    return steps;\n  }\n}\n",
+         "pragma solidity 0.8.34;\nlibrary DoubleEndedQueue {\n  error QueueEmpty();\n  struct Bytes32Deque {\n    uint128 _begin;\n    uint128 _end;\n    mapping(uint128 index => bytes32) _data;\n  }\n  function popFront(Bytes32Deque storage deque) internal returns (bytes32 value) {\n    unchecked {\n      uint128 frontIndex = deque._begin;\n      if (frontIndex == deque._end) revert QueueEmpty();\n      value = deque._data[frontIndex];\n      delete deque._data[frontIndex];\n      deque._begin = frontIndex + 1;\n    }\n  }\n}\ncontract C {\n  using DoubleEndedQueue for DoubleEndedQueue.Bytes32Deque;\n  DoubleEndedQueue.Bytes32Deque private _q;\n  function checked(uint256 x) external returns (uint256) {\n    uint256 steps = 0;\n    while (_q.popFront() != bytes32(x)) {\n      steps += 1;\n    }\n    return steps;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'Block: [solidity-import:unsupported] deque pop while loop body must be empty'),
         ('create2-clones-msgdata-deque-stateful-pop-loop-target-rejected',
-         "pragma solidity 0.8.34;\nlibrary DoubleEndedQueue {\n  struct Bytes32Deque {\n    uint128 _begin;\n    uint128 _end;\n    mapping(uint128 index => bytes32) _data;\n  }\n  function popFront(Bytes32Deque storage deque) internal returns (bytes32 value) {\n    unchecked {\n      uint128 frontIndex = deque._begin;\n      value = deque._data[frontIndex];\n      delete deque._data[frontIndex];\n      deque._begin = frontIndex + 1;\n    }\n  }\n}\ncontract C {\n  using DoubleEndedQueue for DoubleEndedQueue.Bytes32Deque;\n  DoubleEndedQueue.Bytes32Deque private _q;\n  uint256 private _n;\n  function _nextTarget() internal returns (bytes32) {\n    _n += 1;\n    return bytes32(_n);\n  }\n  function checked(uint256 x) external returns (uint256) {\n    while (_q.popFront() != _nextTarget()) {}\n    return x + _n;\n  }\n}\n",
+         "pragma solidity 0.8.34;\nlibrary DoubleEndedQueue {\n  error QueueEmpty();\n  struct Bytes32Deque {\n    uint128 _begin;\n    uint128 _end;\n    mapping(uint128 index => bytes32) _data;\n  }\n  function popFront(Bytes32Deque storage deque) internal returns (bytes32 value) {\n    unchecked {\n      uint128 frontIndex = deque._begin;\n      if (frontIndex == deque._end) revert QueueEmpty();\n      value = deque._data[frontIndex];\n      delete deque._data[frontIndex];\n      deque._begin = frontIndex + 1;\n    }\n  }\n}\ncontract C {\n  using DoubleEndedQueue for DoubleEndedQueue.Bytes32Deque;\n  DoubleEndedQueue.Bytes32Deque private _q;\n  uint256 private _n;\n  function _nextTarget() internal returns (bytes32) {\n    _n += 1;\n    return bytes32(_n);\n  }\n  function checked(uint256 x) external returns (uint256) {\n    while (_q.popFront() != _nextTarget()) {}\n    return x + _n;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'FunctionCall: [solidity-import:unsupported] stateful or assignment deque pop loop target is unsupported'),
+        ('bounded-range-pop-renamed-members-positive',
+         "pragma solidity 0.8.34;\nlibrary RingBuf {\n  error Drained();\n  struct Ring {\n    mapping(uint128 => bytes32) slots;\n    uint128 head;\n    uint128 tail;\n  }\n  function push(Ring storage r, bytes32 v) internal {\n    unchecked { r.slots[r.tail] = v; r.tail = r.tail + 1; }\n  }\n  function takeLast(Ring storage r) internal returns (bytes32 out) {\n    unchecked {\n      uint128 cursor = r.tail;\n      if (r.head == cursor) revert Drained();\n      cursor -= 1;\n      out = r.slots[cursor];\n      r.tail = cursor;\n    }\n  }\n  function takeFirst(Ring storage r) internal returns (bytes32 out) {\n    unchecked {\n      uint128 cursor = r.head;\n      if (cursor == r.tail) revert Drained();\n      out = r.slots[cursor];\n      delete r.slots[cursor];\n      r.head = cursor + 1;\n    }\n  }\n}\ncontract C {\n  using RingBuf for RingBuf.Ring;\n  RingBuf.Ring private _ring;\n  function checked(uint256 x) external returns (uint256) {\n    _ring.push(bytes32(x));\n    _ring.push(bytes32(x + 1));\n    _ring.push(bytes32(x + 2));\n    _ring.push(bytes32(x + 3));\n    while (_ring.takeFirst() != bytes32(x + 1)) {}\n    while (bytes32(x + 2) != _ring.takeLast()) {}\n    return uint256(_ring.tail - _ring.head);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('bounded-range-pop-missing-empty-revert-rejected',
+         "pragma solidity 0.8.34;\nlibrary RingBuf {\n  struct Ring {\n    uint128 head;\n    uint128 tail;\n    mapping(uint128 => bytes32) slots;\n  }\n  function takeFirst(Ring storage r) internal returns (bytes32 out) {\n    unchecked {\n      uint128 cursor = r.head;\n      out = r.slots[cursor];\n      r.head = cursor + 1;\n    }\n  }\n}\ncontract C {\n  using RingBuf for RingBuf.Ring;\n  RingBuf.Ring private _ring;\n  function checked(uint256 x) external returns (uint256) {\n    while (_ring.takeFirst() != bytes32(x)) {}\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'BinaryOperation: [solidity-import:unsupported] a while loop condition must test v != 0 or v > 0'),
+        ('bounded-range-pop-nonadvancing-bound-rejected',
+         "pragma solidity 0.8.34;\nlibrary RingBuf {\n  error Drained();\n  struct Ring {\n    uint128 head;\n    uint128 tail;\n    mapping(uint128 => bytes32) slots;\n  }\n  function takeFirst(Ring storage r) internal returns (bytes32 out) {\n    unchecked {\n      uint128 cursor = r.head;\n      if (cursor == r.tail) revert Drained();\n      out = r.slots[cursor];\n      r.head = cursor;\n    }\n  }\n}\ncontract C {\n  using RingBuf for RingBuf.Ring;\n  RingBuf.Ring private _ring;\n  function checked(uint256 x) external returns (uint256) {\n    while (_ring.takeFirst() != bytes32(x)) {}\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'BinaryOperation: [solidity-import:unsupported] a while loop condition must test v != 0 or v > 0'),
+        ('bounded-range-pop-modifier-rejected',
+         "pragma solidity 0.8.34;\nlibrary RingBuf {\n  error Drained();\n  struct Ring {\n    uint128 head;\n    uint128 tail;\n    mapping(uint128 => bytes32) slots;\n  }\n  modifier refill(Ring storage r) {\n    r.tail = r.tail + 1;\n    _;\n  }\n  function takeFirst(Ring storage r) internal refill(r) returns (bytes32 out) {\n    unchecked {\n      uint128 cursor = r.head;\n      if (cursor == r.tail) revert Drained();\n      out = r.slots[cursor];\n      r.head = cursor + 1;\n    }\n  }\n}\ncontract C {\n  using RingBuf for RingBuf.Ring;\n  RingBuf.Ring private _ring;\n  function checked(uint256 x) external returns (uint256) {\n    while (_ring.takeFirst() != bytes32(x)) {}\n    return x;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'BinaryOperation: [solidity-import:unsupported] a while loop condition must test v != 0 or v > 0'),
         ('create2-clones-msgdata-deque-bad-create2-length-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external view returns (uint256) {\n    bytes32 salt = bytes32(x);\n    bytes32 bytecodeHash = bytes32(x + 1);\n    address deployer = address(this);\n    address addr;\n    assembly (\"memory-safe\") {\n      let ptr := mload(0x40)\n      mstore(add(ptr, 0x40), bytecodeHash)\n      mstore(add(ptr, 0x20), salt)\n      mstore(ptr, deployer)\n      let start := add(ptr, 0x0b)\n      mstore8(start, 0xff)\n      addr := keccak256(start, 84)\n    }\n    return uint256(uint160(addr));\n  }\n}\n",
          None,
@@ -1350,6 +1378,8 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
+        if next(ordinal) % parts != part:
+            continue
         if args.only and args.only not in name:
             continue
         directory = output / name

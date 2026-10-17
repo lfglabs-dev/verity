@@ -372,9 +372,10 @@ jobs:
 
   build:
     runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
-    # The 26 isolated mutation campaigns run after the proof/audit prebuilds
-    # (~16 min). On the CI runner the full mutation step takes ~76 min
-    # (run 36599239119 was cut at 90 min two cases before the end).
+    # Proof build + audit prebuilds + smoke imports (~30-45 min). The importer
+    # mutation campaigns (~180 isolated snapshots, each recompiling
+    # Compiler.SolidityImport.Import) moved to the sharded `import-mutations` job:
+    # serially they no longer fit any single-job budget.
     timeout-minutes: 120
     needs: [changes, checks]
     if: needs.checks.result == 'success' && needs.changes.outputs.build == 'true'
@@ -444,17 +445,10 @@ jobs:
             exit "${build_status}"
           fi
 
-      # The differential controls execute EVM bytecode via forge in this job,
-      # before the downstream Foundry jobs can provision their own toolchains.
-      - name: Setup Foundry for Solidity differential controls
-        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
-        with:
-          version: v1.5.0
-
-      - name: Check Solidity slice imports and mutation regressions
-        run: |
-          lake build SolidityImportSmoke
-          python3 scripts/solidity_import_mutations.py
+      # The isolated importer/Denote mutation campaigns run in the sharded
+      # `import-mutations` job from this job's prepared workspace build.
+      - name: Build Solidity slice import smoke models
+        run: lake build SolidityImportSmoke Compiler.SolidityImport.Differential
 
       - name: Check storage layout audit artifacts (#1897)
         run: make verify-storage-layout
@@ -563,6 +557,82 @@ jobs:
           path: |
             axiom-report.md
             axiom-report-raw.log
+
+  import-mutations:
+    # Each shard restores the prepared workspace and runs its share of the
+    # isolated importer/Denote mutation campaigns with parallel workers. A
+    # campaign is dominated by a single-threaded rebuild of
+    # Compiler.SolidityImport.Import (~2.7 GiB peak), so `--jobs auto` runs one
+    # worker per core, capped by available memory (build-medium hosts differ).
+    runs-on: [self-hosted, linux, x64, verity, build, build-medium]
+    # A shard measured 100-122 minutes on idle hosts and over 150 on nippur
+    # (6 workers) while other runs shared the pool; more shards would only queue
+    # behind the same three build-medium runners.
+    timeout-minutes: 210
+    needs: [changes, checks, build]
+    if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    env:
+      LEAN_NUM_THREADS: 2
+      IMPORT_MUTATION_SHARDS: 6
+      IMPORT_MUTATION_JOBS: auto
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          submodules: recursive
+
+      - name: Setup Lean
+        uses: ./.github/actions/setup-lean
+        with:
+          cache-key-prefix: lake
+          use-sticky-disks: ${{ env.VERIFY_USE_STICKY_DISKS }}
+          sticky-disk-key-prefix: verify
+          lake-packages-sticky-key: lake-packages-verify-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
+          lake-packages-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('lake-packages-verify-{0}-{1}-{2}-{3}-{4}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
+          disable-lake-cache-restore: ${{ env.VERIFY_DISABLE_LAKE_CACHE_RESTORE }}
+          cache-primary-key: lake-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}
+
+      - name: Restore prepared Lean workspace build (local)
+        id: local-restore-lean-workspace
+        continue-on-error: true
+        run: |
+          scripts/ci_local_persistence.sh fetch \
+            --run-id "${{ github.run_id }}" \
+            --name lean-workspace-build \
+            --timeout 60
+
+      - name: Download prepared Lean workspace build
+        if: steps.local-restore-lean-workspace.outcome != 'success'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: lean-workspace-build
+
+      - name: Restore prepared Lean workspace build
+        if: steps.local-restore-lean-workspace.outcome != 'success'
+        run: tar -xf lean-workspace-build.tar
+
+      - name: Setup pinned solc for Solidity import
+        run: python3 scripts/setup_solc_import.py
+
+      # The differential controls execute EVM bytecode via forge/anvil.
+      - name: Setup Foundry for Solidity differential controls
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.5.0
+
+      - name: Check Solidity import mutation regressions
+        run: |
+          rm -rf .lake/import-mutations
+          python3 scripts/solidity_import_mutations.py \
+            --shard "${{ matrix.shard }}/${IMPORT_MUTATION_SHARDS}" \
+            --jobs "${IMPORT_MUTATION_JOBS}"
+
+      - name: Remove mutation snapshots
+        if: always()
+        run: rm -rf .lake/import-mutations
 
   build-compiler-binaries:
     # Secondary compiler binaries fit the medium class; compiler-regressions
@@ -1270,12 +1340,15 @@ jobs:
         run: |
           scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential.json --output .lake/import-differential/smoke --cases 128 --seed 2438
           scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential-loss.json --output .lake/import-differential/loss --cases 64 --seed 2438
-          scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --output .lake/import-differential/programs
+          # Generated programs are independent campaigns of ~16s each (two `lean --run`
+          # passes over the importer); run them 4-wide to stay inside the step budget.
+          scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 --output .lake/import-differential/programs
 
       - name: Stateful Solidity instrument checks
         timeout-minutes: 45
         run: |
-          scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --output .lake/import-differential/stateful
+          # 46 independent checks, ~90 minutes back to back; run them 6-wide.
+          scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --jobs 6 --output .lake/import-differential/stateful
 
       - name: Extended Solidity slice campaigns
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -1803,7 +1876,7 @@ jobs:
 
   failure-hints:
     runs-on: [self-hosted, linux, verity, fastlane]
-    needs: [checks, build, build-audits, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
+    needs: [checks, build, build-audits, import-mutations, build-compiler-binaries, compiler-audits, compiler-regressions, foundry-gas-calibration, foundry, foundry-patched, foundry-multi-seed]
     if: always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')
     permissions:
       contents: read

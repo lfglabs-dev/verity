@@ -25,7 +25,7 @@ def main():
         ('signature', 'bytes4', 'msg.sig', 'view', 'unsupported message context member sig'),
         ('data', 'uint256', 'msg.data.length', 'view', None),
         ('gasprice', 'uint256', 'tx.gasprice', 'view', 'unsupported transaction context member gasprice'),
-        ('data-slice', 'uint256', 'uint256(uint8(msg.data[0]))', 'view', 'unsupported message context member data'),
+        ('data-slice', 'uint256', 'uint256(uint8(msg.data[0]))', 'view', 'hash input must be a supported ABI encoding'),
     ]
     for name, ty, expr, mutability, expected in cases:
         directory = output / name

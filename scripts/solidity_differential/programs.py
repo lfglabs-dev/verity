@@ -1,10 +1,35 @@
 """Small typed source programs; solc/EVM supplies the expected behavior."""
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
 from pathlib import Path
 import random
 
 from .engine import campaign, write_json
+
+
+def initcode_execution_programs(seed=2500, random_cases=16):
+    """Two bytecode variants returning the same payload on the real EVM.
+
+    The pinned variant uses PUSH0 and an eleven-byte prefix; the expanded
+    variant uses PUSH1 0 and a thirteen-byte prefix, with offsets adjusted.
+    This tests initcode execution, not importer or whole-deployment support.
+    """
+    rng = random.Random(seed)
+    lengths = [0, 1, 31, 32, 33, 63, 64, 65, 255, 256, 257, 512]
+    lengths += [rng.randrange(513) for _ in range(random_cases)]
+    prefixes = [('midnight', bytes.fromhex('600b380380600b5f395ff3')),
+                ('push1-zero', bytes.fromhex('600d380380600d6000396000f3'))]
+    programs = []
+    for index, length in enumerate(lengths):
+        # Avoid EIP-3541 failure when checking execution's returned bytes by
+        # observing deployed code. Deposit failures are a separate world rule.
+        payload = bytes([0] + [rng.randrange(256) for _ in range(length - 1)]) if length else b''
+        for variant, prefix in prefixes:
+            assert prefix[1] == len(prefix)
+            programs.append({'id': f'{index}-{variant}', 'group': index, 'variant': variant,
+                             'fuel': 16, 'code': list(prefix + payload), 'payload': list(payload)})
+    return programs
 
 
 def expression(rng, depth, bits):
@@ -107,11 +132,41 @@ def smaller_expressions(node):
         yield {"kind": "literal", "value": 0}
 
 
-def generated_campaign(output, count, cases, seed):
+def generated_program(output, count, cases, seed, i, tree, bits):
+    """Run the three equivalent forms of program i; stop at its first divergence."""
+    reports = []
+    reference = None
+    for variant in (0, 1, 2):
+        spec = {"bits": bits, "expression": tree, "renamed": variant == 1, "helper": variant != 0, "projection_collision": variant == 2}
+        if count <= i < 2 * count:
+            spec["require_message"] = ["", "échec", "x" * 33][(i - count) % 3]
+        elif i >= 2 * count:
+            kind = (i - 2 * count) % 3
+            spec["require_error"] = ["EmptyFailure", "Failure", "AnErrorWhoseSignatureCrossesAThirtyTwoByteWordBoundary"][kind]
+            spec["error_arguments"] = kind != 0
+        directory = output / f"program-{i}-{variant}"
+        fixture = write_program(directory, spec)
+        report = campaign(fixture, directory / "run", cases, seed + i)
+        reports.append({"program": i, "variant": variant, **{k: v for k, v in report.items() if k != "divergences"}})
+        if report["divergences"]:
+            return reports, report["divergences"]
+        # Renaming + helper extraction must preserve the observed behavior.
+        rows = (directory / "run/out/source.txt").read_text()
+        if reference is not None and reference != rows:
+            divergence = {"metamorphic": str(directory), "reference": str(reference_dir),
+                          "rows": [{"line": k, "reference": a, "variant": b} for k, (a, b)
+                                   in enumerate(zip(reference.splitlines(), rows.splitlines())) if a != b]}
+            return reports, [divergence]
+        reference, reference_dir = rows, directory
+    return reports, []
+
+
+def generated_campaign(output, count, cases, seed, jobs=1):
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
-    reports = []
+    # Draw every program first so the generated corpus does not depend on --jobs.
+    programs = []
     # Preserve every original arithmetic program, then add guarded programs.
     # Each guarded program retains all three equivalent extraction/name forms.
     for i in range(3 * count):
@@ -120,31 +175,26 @@ def generated_campaign(output, count, cases, seed):
         # First five explicitly exercise each checked width, especially uint248.
         if i < 5:
             tree = {"kind": "binary", "op": "*", "left": {"kind": "x"}, "right": {"kind": "y"}}
-        reference = None
-        for variant in (0, 1, 2):
-            spec = {"bits": bits, "expression": tree, "renamed": variant == 1, "helper": variant != 0, "projection_collision": variant == 2}
-            if count <= i < 2 * count:
-                spec["require_message"] = ["", "échec", "x" * 33][(i - count) % 3]
-            elif i >= 2 * count:
-                kind = (i - 2 * count) % 3
-                spec["require_error"] = ["EmptyFailure", "Failure", "AnErrorWhoseSignatureCrossesAThirtyTwoByteWordBoundary"][kind]
-                spec["error_arguments"] = kind != 0
-            directory = output / f"program-{i}-{variant}"
-            fixture = write_program(directory, spec)
-            report = campaign(fixture, directory / "run", cases, seed + i)
-            reports.append({"program": i, "variant": variant, **{k: v for k, v in report.items() if k != "divergences"}})
-            write_json(output / "program-results.json", reports)
-            if report["divergences"]:
-                return {"programs": len(reports), "divergences": report["divergences"]}
-            # Renaming + helper extraction must preserve the observed behavior.
-            rows = (directory / "run/out/source.txt").read_text()
-            if reference is not None and reference != rows:
-                divergence = {"metamorphic": str(directory), "reference": str(reference_dir),
-                              "rows": [{"line": k, "reference": a, "variant": b} for k, (a, b)
-                                       in enumerate(zip(reference.splitlines(), rows.splitlines())) if a != b]}
-                write_json(output / "metamorphic-divergence.json", divergence)
-                return {"programs": len(reports), "divergences": [divergence]}
-            reference, reference_dir = rows, directory
+        programs.append((i, tree, bits))
+    # Programs are independent; each one's metamorphic variants stay sequential.
+    reports = []
+    with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        futures = [pool.submit(generated_program, output, count, cases, seed, i, tree, bits)
+                   for i, tree, bits in programs]
+        try:
+            for future in futures:
+                program_reports, divergences = future.result()
+                reports.extend(program_reports)
+                write_json(output / "program-results.json", reports)
+                if divergences:
+                    # Only the reported (first in program order) divergence is archived;
+                    # concurrent workers never share this file.
+                    if "metamorphic" in divergences[0]:
+                        write_json(output / "metamorphic-divergence.json", divergences[0])
+                    return {"programs": len(reports), "divergences": divergences}
+        finally:
+            for future in futures:
+                future.cancel()
     return {"programs": len(reports), "cases": sum(r["cases"] for r in reports), "divergences": []}
 
 
@@ -871,8 +921,6 @@ def stateful_named_helper_return_source(fixture: str, variant: str) -> str:
             '        result = result + 3;\n        return result;\n    }',
             '        result = result + 1;\n    }':
             '        result = result + 1;\n        return result;\n    }',
-            '        result = result + 5;\n    }':
-            '        result = result + 5;\n        return result;\n    }',
             '        result = result + 6;\n    }':
             '        result = result + 6;\n        return result;\n    }',
             '        result = result + zero;\n    }':
@@ -2267,10 +2315,22 @@ def stateful_ecdsa_merkle_checkpoints_storage_slot_source(fixture: str, variant:
             'stepKey', 'stepVal', 'newVal', 'msgHash', 'sig65', 'signer1', 'signer2',
             'badSig', 'badErr', 'badArg', 'labelSlot', 'payloadSlot', 'payloadLen',
             'recentVal', 'lowerVal', 'sibling', 'leaf', 'pairRoot',
+            # Wrapper struct, helper, and library names are recognized structurally.
+            'StorageSlotSlice40', 'StringSlot', 'BytesSlot', 'getStringSlot', 'getBytesSlot',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
-        return re.sub(token, lambda m: m.group(0) + '_renamed'
-                      if m.group(0) in names else m.group(0), fixture)
+        renamed = re.sub(token, lambda m: m.group(0) + '_renamed'
+                         if m.group(0) in names else m.group(0), fixture)
+        # The single `string`/`bytes` wrapper member need not be called `value`.
+        for before, after in {'string value;': 'string contents;',
+                              'bytes value;': 'bytes contents;'}.items():
+            if renamed.count(before) != 1:
+                raise ValueError('ecdsa-merkle-checkpoints-storage-slot variant anchor changed')
+            renamed = renamed.replace(before, after)
+        member_reads = len(re.findall(r'\.value\b', renamed))
+        if member_reads < 10:
+            raise ValueError('ecdsa-merkle-checkpoints-storage-slot variant anchor changed')
+        return re.sub(r'\.value\b', '.contents', renamed)
     if variant == 'expanded-ecdsa-merkle-checkpoints-storage-slot':
         replacements = {
             'uint8 v = (input & 1) == 0 ? 27 : 28;':
@@ -2301,6 +2361,9 @@ def stateful_create2_clones_msgdata_deque_source(fixture: str, variant: str) -> 
             'c2Custom', 'c2Self', 'cloneCustom', 'cloneSelf',
             'cHash', 'leadNoise', 'tailKeep', 'govActionHash', 'poppedTail',
             'backKeep', 'backTarget', 'backNoise', 'remGov', 'remBack',
+            # Bounded-range pop helpers are recognized structurally, not by name.
+            'DoubleEndedQueueSlice41', 'Bytes32Deque', '_begin', '_end', '_data',
+            'popFront', 'popBack', 'pushFront', 'pushBack', 'frontIndex', 'backIndex',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'

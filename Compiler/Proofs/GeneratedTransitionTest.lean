@@ -12,14 +12,15 @@ private def assert (label : String) (ok : Bool) : IO Unit := do
 
 #eval! do
   let summary := extract
-    [ Stmt.require (Expr.gt (Expr.storage "totalUnits") (Expr.literal 0)) "nonzero"
-    , Stmt.setMapping "position" (Expr.param "borrower") (Expr.storage "totalUnits")
-    , Stmt.emit "Take" [Expr.param "borrower", Expr.storage "totalUnits"] ]
-  assert "extracts reads" (summary.reads.contains "totalUnits")
-  assert "extracts writes" (summary.writes.contains "position")
+    [ Stmt.require (Expr.gt (Expr.storage "totalSupply") (Expr.literal 0)) "nonzero"
+    , Stmt.setMapping "balances" (Expr.param "account") (Expr.storage "totalSupply")
+    , Stmt.emit "Transfer" [Expr.param "account", Expr.storage "totalSupply"] ]
+  assert "extracts reads" (summary.reads.contains "totalSupply")
+  assert "extracts writes" (summary.writes.contains "balances")
   assert "extracts guards" (summary.guards.contains "nonzero")
-  assert "extracts events" (summary.events.contains "Take")
-  assert "non-empty summary can feed later Midnight RCF/totalUnits" (enoughForMidnightRcfTotalUnits summary)
+  assert "extracts events" (summary.events.contains "Transfer")
+  assert "non-empty summary reports isNonEmpty" summary.isNonEmpty
+  assert "empty summary is not isNonEmpty" (!(extract []).isNonEmpty)
   let failingRequireError := extract
     [Stmt.requireError (Expr.literal 0) "InsufficientBalance" [Expr.storage "balance"]]
   assert "failing requireError includes payload storage reads"

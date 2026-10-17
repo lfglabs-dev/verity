@@ -945,7 +945,7 @@ theorem writeUintSlots_preserves_storage_except
   have hcontains : (slots.map wordNormalize).contains slot = false := by
     simpa [List.elem_eq_contains] using hslot
   simpa [writeUintSlots] using
-    Verity.ContractState.storage_writeSlots_not_mem world (slots.map wordNormalize)
+    Verity.ContractState.storage_writePhysicalSlots_not_mem world (slots.map wordNormalize)
       (value : Verity.Core.Uint256) hcontains
 
 theorem writeStorageWordSlots_preserves_storage_except
@@ -956,7 +956,7 @@ theorem writeStorageWordSlots_preserves_storage_except
       (slots.map (fun base => wordNormalize (base + wordOffset))).contains slot = false := by
     simpa [List.elem_eq_contains] using hslot
   simp [writeStorageWordSlots, Verity.ContractState.storage_writeAddrSlots]
-  exact Verity.ContractState.storage_writeSlots_not_mem world
+  exact Verity.ContractState.storage_writePhysicalSlots_not_mem world
     (slots.map (fun base => wordNormalize (base + wordOffset)))
     (value : Verity.Core.Uint256) hcontains
 
@@ -968,9 +968,9 @@ theorem writeStorageWordSlots_preserves_address_except
   have hcontains :
       (slots.map (fun base => wordNormalize (base + wordOffset))).contains slot = false := by
     simpa [List.elem_eq_contains] using hslot
-  simp [writeStorageWordSlots, Verity.ContractState.storageAddr_writeSlots]
+  simp [writeStorageWordSlots, Verity.ContractState.storageAddr_writePhysicalSlots]
   exact Verity.ContractState.storageAddr_writeAddrSlots_not_mem
-    (world.writeSlots (slots.map (fun base => wordNormalize (base + wordOffset)))
+    (world.writePhysicalSlots (slots.map (fun base => wordNormalize (base + wordOffset)))
       (value : Verity.Core.Uint256))
     (slots.map (fun base => wordNormalize (base + wordOffset)))
     (Verity.wordToAddress (value : Verity.Core.Uint256)) hcontains
@@ -1010,7 +1010,7 @@ theorem writeUintFieldSlots_preserves_storage_except
           simp only [writeUintFieldSlots, hfind, hpacked]
           split
           · simp [Verity.ContractState.storage_modifyTransientSlots]
-          · exact Verity.ContractState.storage_modifySlots_not_mem world
+          · exact Verity.ContractState.storage_modifyPhysicalSlots_not_mem world
               (slots.map wordNormalize)
               (fun current => packedWordWrite current.val value packedBits) hcontains
 

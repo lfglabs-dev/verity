@@ -56,6 +56,15 @@ def executeBody (oracle : DenoteOracle) (fields : List Field)
 @[simp] theorem beginTransaction_storage (world : Verity.ContractState) (slot : Nat) :
     (beginTransaction world).storageWords (.slot slot) = world.storageWords (.slot slot) := rfl
 
+@[simp] theorem beginTransaction_accounts (world : Verity.ContractState) :
+    (beginTransaction world).accountWorld = world.accountWorld := rfl
+
+/-- The existing canonical frame rollback restores code/nonces/balances along
+with storage, rather than retaining a successful child creation. -/
+theorem finishFrame_revert_accounts (initial : Verity.ContractState) (bytes : List UInt8) :
+    (finishFrame initial (.revertWithData bytes)).map (fun result => result.world.accountWorld) =
+      .ok initial.accountWorld := rfl
+
 @[simp] theorem beginTransaction_foreignStorage (world : Verity.ContractState)
     (account slot : Nat) :
     (beginTransaction world).storageWords (.contractSlot account slot) =
