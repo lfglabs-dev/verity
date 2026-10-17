@@ -37,6 +37,7 @@ TRUST_BOUNDARY_FILES = [
     ROOT / "Contracts" / "SolidityImportSmoke" / "Smoke.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "StaticAbiChecks.lean",
     ROOT / "Compiler" / "SolidityImport" / "EntryPointInvariants.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AdversarialEntryPointInvariants.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "EntryPointInvariantChecks.lean",
 
     ROOT / "Compiler" / "SolidityImport" / "LoopInvariants.lean",

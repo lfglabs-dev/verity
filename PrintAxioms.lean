@@ -20,6 +20,7 @@ import Compiler.SolidityImport.TransactionAccess
 import Contracts.SolidityImportSmoke.Smoke
 import Contracts.SolidityImportSmoke.StaticAbiChecks
 import Compiler.SolidityImport.EntryPointInvariants
+import Compiler.SolidityImport.AdversarialEntryPointInvariants
 import Contracts.SolidityImportSmoke.EntryPointInvariantChecks
 import Compiler.SolidityImport.LoopInvariants
 import Compiler.SolidityImport.SymbolicExecution
@@ -511,6 +512,10 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.Transactions.all_entry_points_preserve_of_success
   Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_all_entry_points
   Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_contextual_entry_points
+
+  -- Compiler/SolidityImport/AdversarialEntryPointInvariants.lean
+  Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_adversarial_entry_points
+  Compiler.CompilationModel.SolidityImport.Transactions.adversarial_sequence_append
 
   -- Contracts/SolidityImportSmoke/EntryPointInvariantChecks.lean
   SolidityImportSmoke.EntryPointInvariantChecks.zero_exec
@@ -8065,4 +8070,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7401 theorems/lemmas (5341 public, 2060 private, 0 sorry'd)
+-- Total: 7403 theorems/lemmas (5343 public, 2060 private, 0 sorry'd)
