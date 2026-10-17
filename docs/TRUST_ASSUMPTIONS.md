@@ -2,6 +2,21 @@
 
 This document states what Verity proves and what it still trusts.
 
+## Experimental Solidity translation validation
+
+The prototype in `experiments/solidity-translation-validation` proves scoped
+properties of captured solc Yul and imported model execution; it does not prove
+whole-function equivalence. Its `MemoryGuardExtension` retains a distinct
+`memoryguard` declaration and specifies literal binding semantics. Kernel proofs
+show that lowering this extension to native literal declarations preserves the
+complete EVMYulLean result, and that native statements keep their original
+semantics. The correspondence between that specified extension and solc's C++
+`appendConstant` generator is justified by inspected, pinned source, not a Lean
+proof of the C++ compiler. The pinned native EVMYulLean interpreter itself still
+has no `memoryguard` builtin. The exact captured AST remains unchanged. Complete
+ABI/dispatcher composition and failure-byte equivalence remain unproved; see
+[the feasibility memo](SOLIDITY_TRANSLATION_VALIDATION.md).
+
 ## Solidity import
 
 `Compiler/SolidityImport/Import.lean` selects functions from a solc project,

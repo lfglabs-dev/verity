@@ -1,0 +1,11 @@
+{
+  "compiler_commit": "80d5c5362b5d41697fd62ef36cf6abd8d5a68cc4",
+  "source_url": "https://raw.githubusercontent.com/argotorg/solidity/80d5c5362b5d41697fd62ef36cf6abd8d5a68cc4/libyul/backends/evm/EVMBuiltins.cpp",
+  "source_sha256": "fbe50c1a30e65f9afceafb7be07edfea738472fd1ea937707454ace00efce993",
+  "memoryguard_function_byte_range": [
+    2998,
+    3458
+  ],
+  "memoryguard_function_sha256": "ee045f39119ce403c47e30eea5ed45fc3287705b4dc754ac71909bb5eb8a3af9",
+  "observed_behavior": "One numeric literal argument, one result, no effects; appends the literal as a constant. This source inspection is not a kernel proof of the C++ implementation."
+}

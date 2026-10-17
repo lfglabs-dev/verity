@@ -1,0 +1,159 @@
+{
+  "base_revision": "71cde07744bea1c264dc678b8ec3e23d964894ce",
+  "branch": "feat/solidity-translation-dispatcher",
+  "lean_banner": "Lean (version 4.31.0, arm64-apple-darwin24.6.0, commit 68218e876d2a38b1985b8590fff244a83c321783, Release)",
+  "lake_manifest_sha256": "ae4b6d9fc8f787005515ba1e20c85e2f80fe0446795489fac1641c4ecbc7eff6",
+  "dependencies": [
+    {
+      "name": "evmyul",
+      "revision": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9"
+    },
+    {
+      "name": "mathlib",
+      "revision": "fabf563a7c95a166b8d7b6efca11c8b4dc9d911f"
+    },
+    {
+      "name": "plausible",
+      "revision": "63045536fe95024e6c18fc7b48e03f506701c5bc"
+    },
+    {
+      "name": "LeanSearchClient",
+      "revision": "c5d5b8fe6e5158def25cd28eb94e4141ad97c843"
+    },
+    {
+      "name": "importGraph",
+      "revision": "5c7542ed018c78194f1e2b903eaf6a792b74c03d"
+    },
+    {
+      "name": "proofwidgets",
+      "revision": "24b0d9dc081c5423f8eec7e866c441e5184f29d9"
+    },
+    {
+      "name": "aesop",
+      "revision": "e3cb2f741431ce31bf73549fb52316a57368b06f"
+    },
+    {
+      "name": "Qq",
+      "revision": "f46324995fca5f0483b742e4eb4daec7f4ee50d2"
+    },
+    {
+      "name": "batteries",
+      "revision": "fa08db58b30eb033edcdab331bba000827f9f785"
+    },
+    {
+      "name": "Cli",
+      "revision": "92564e5770e4d09f2d86dfbf8ada1e9c715b384c"
+    }
+  ],
+  "cache": "Private APFS clone of frozen verity-translation-memoryguard/.lake; normal six-target prerequisite build passed (1185 jobs). No donor writes.",
+  "statement_scope": "Actual selected ten-statement function branch: value/length guards, byte-level ABI loads, checked arithmetic, exact returned bytes. Initial shared state and explicit _1=128 premise; outer selector/prologue composition remains pending.",
+  "prototype_source_sha256": {
+    "Arithmetic.lean": "c0974374e1ec49878145f285fbd1f18b0df03494e4ff2b720165ec586a4b8a12",
+    "AstDecoder.lean": "af3e852cf471772942d6624f3b16793e381016f87b2745ac15241f71c3ae29e2",
+    "CapturedExecution.lean": "aa69202856f6ad60a816c73f0fa09e4e9dbfbdf86c413036fe9b4139efe6791e",
+    "CapturedNodes.lean": "cd1adc0f9b7aa06245959dcf8891860688a7610920dea14d9d7b670374893b6a",
+    "DispatcherBoundary.lean": "3f1fe90d4a2d18bd1faa22bd39d2094247730b932ec82feec880067523234d2c",
+    "DispatcherDecoder.lean": "d1046cfb74d4d1677bd850e63c2e17af623b52da4459e1c7a2a4aef88d17a30a",
+    "DispatcherExecution.lean": "78ba9c813a5ea9a59e12e21ada2c20639ec648a9336e91a20a99a1cd6fcdb1e0",
+    "DispatcherNodes.lean": "e7c8a313212a12623d4989dc59541bb10716276675abd745f1cd3ee849ff93d9",
+    "GuardedExecution.lean": "b493b40261195852db84be3b015626c4c094f2d6f554c3b2a2c49c238f00a92a",
+    "Imported.lean": "bedc6b1d9250473773977f27dc111250ee2cc33c393877d6bdaf4e40bfcc28b2",
+    "MemoryGuardExtension.lean": "fcab599aa128118157d6641c451b85b1df512178d58778a419b68f20d3511572",
+    "ReturnObservation.lean": "6d570eed6539c62baa1f2fb5167b78850d92ea79ae67a0218e41d5b2503133f2",
+    "capture.py": "bc4e4fc71d5a4ffef92eeffa0af191f8c41e26e867672930f616af2eb654a626",
+    "check_arithmetic.py": "2b8f706e8ff8216905dc0d0313c08010118f29ad9132c8944d47c50f6222dc24",
+    "check_ast_bridge.py": "a5dc9f5f60901e759539d1b27bc13bafe21e92ec9e8f904c25ebd6ecdd9f06b7",
+    "check_dispatcher_boundary.py": "8b462b14645123697b4a17aefeb380a2b218ddb7d30fc635e0db20afc5341e0f",
+    "check_dispatcher_execution.py": "2b1c4a290b537f0788d29bb70a8c12afc55e336b5bfdeb66a117a10ae4b07571",
+    "check_memoryguard_extension.py": "f4f3d38f0b1149a69e2289de98dca8b273d4f363034f8d579794d9e16a5ca52e",
+    "check_return_observation.py": "1f94ba685cb55ba974473d9b8676a63aa21ebafd11b0c7ab4f86658b7c639024",
+    "generate_ast_bridge.py": "3ca4f877854385a60a614954930c197cfaf4fc4589ac4834e2569832ca3ec864",
+    "generate_dispatcher_bridge.py": "c7cf0d8d3c4f4e1446a8920504e7159ee6db57e8f563952eae2bdea1a7174ddb"
+  },
+  "artifact_sha256": {
+    "input.json": "5579a967002c55ffb453e435d69a984d762836ce7ce0e67576a517775a6827c1",
+    "manifest.json": "72e747baa6fef8c7dfdf0f1ca4fd24ee503a052c5a986f82a69103ff40e95561",
+    "MulDivDown.optimized.yul": "42533dc6d3b36a3aac988012250647bf21fa1be3908e0b104524cd6636913851",
+    "MulDivDown.optimized-ast.json": "60059226825f5eea534dad2f8a705fa81bd1924011a308f428181dc694d9f92c",
+    "CapturedNodes.lean": "cd1adc0f9b7aa06245959dcf8891860688a7610920dea14d9d7b670374893b6a",
+    "DispatcherBoundary.lean": "3f1fe90d4a2d18bd1faa22bd39d2094247730b932ec82feec880067523234d2c",
+    "DispatcherNodes.lean": "e7c8a313212a12623d4989dc59541bb10716276675abd745f1cd3ee849ff93d9"
+  },
+  "commands_exit_codes": {
+    "lake build Compiler.SolidityImport.Import Compiler.SolidityImport.Access Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativePrimOps Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Foundation Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeCalldata": 0,
+    "python3 experiments/solidity-translation-validation/capture.py --midnight-repo /Users/thomas/work/morpho-midnight-verity/vendor/midnight --solc /Users/thomas/work/morpho-pilot/bin/solc-0.8.34 --check": 0,
+    "python3 experiments/solidity-translation-validation/generate_dispatcher_bridge.py --check": 0,
+    "python3 experiments/solidity-translation-validation/check_dispatcher_execution.py": 1,
+    "python3 -m py_compile experiments/solidity-translation-validation/check_dispatcher_execution.py": 0,
+    "nice -n 15 python3 -u experiments/solidity-translation-validation/check_dispatcher_execution.py --dispatcher-only": 1
+  },
+  "expected_new_checks": {
+    "standard_only_axiom_receipts": 20,
+    "kernel_decoder_rejections": 12,
+    "semantic_mutations": 9
+  },
+  "previous_checkers": "All memoryguard, return observation, arithmetic, AST and native-boundary checks are rerun unchanged by the new checker.",
+  "failed_campaign_source_sha256": {
+    "Arithmetic.lean": "c0974374e1ec49878145f285fbd1f18b0df03494e4ff2b720165ec586a4b8a12",
+    "AstDecoder.lean": "af3e852cf471772942d6624f3b16793e381016f87b2745ac15241f71c3ae29e2",
+    "CapturedExecution.lean": "aa69202856f6ad60a816c73f0fa09e4e9dbfbdf86c413036fe9b4139efe6791e",
+    "CapturedNodes.lean": "cd1adc0f9b7aa06245959dcf8891860688a7610920dea14d9d7b670374893b6a",
+    "DispatcherBoundary.lean": "3f1fe90d4a2d18bd1faa22bd39d2094247730b932ec82feec880067523234d2c",
+    "DispatcherDecoder.lean": "d1046cfb74d4d1677bd850e63c2e17af623b52da4459e1c7a2a4aef88d17a30a",
+    "DispatcherExecution.lean": "78ba9c813a5ea9a59e12e21ada2c20639ec648a9336e91a20a99a1cd6fcdb1e0",
+    "DispatcherNodes.lean": "e7c8a313212a12623d4989dc59541bb10716276675abd745f1cd3ee849ff93d9",
+    "GuardedExecution.lean": "b493b40261195852db84be3b015626c4c094f2d6f554c3b2a2c49c238f00a92a",
+    "Imported.lean": "bedc6b1d9250473773977f27dc111250ee2cc33c393877d6bdaf4e40bfcc28b2",
+    "MemoryGuardExtension.lean": "fcab599aa128118157d6641c451b85b1df512178d58778a419b68f20d3511572",
+    "ReturnObservation.lean": "6d570eed6539c62baa1f2fb5167b78850d92ea79ae67a0218e41d5b2503133f2",
+    "capture.py": "bc4e4fc71d5a4ffef92eeffa0af191f8c41e26e867672930f616af2eb654a626",
+    "check_arithmetic.py": "2b8f706e8ff8216905dc0d0313c08010118f29ad9132c8944d47c50f6222dc24",
+    "check_ast_bridge.py": "a5dc9f5f60901e759539d1b27bc13bafe21e92ec9e8f904c25ebd6ecdd9f06b7",
+    "check_dispatcher_boundary.py": "8b462b14645123697b4a17aefeb380a2b218ddb7d30fc635e0db20afc5341e0f",
+    "check_dispatcher_execution.py": "13afad18b4a390a9277d084d8b215f635cef8e03b749bfc0414c0d80f7abb27f",
+    "check_memoryguard_extension.py": "f4f3d38f0b1149a69e2289de98dca8b273d4f363034f8d579794d9e16a5ca52e",
+    "check_return_observation.py": "1f94ba685cb55ba974473d9b8676a63aa21ebafd11b0c7ab4f86658b7c639024",
+    "generate_ast_bridge.py": "3ca4f877854385a60a614954930c197cfaf4fc4589ac4834e2569832ca3ec864",
+    "generate_dispatcher_bridge.py": "c7cf0d8d3c4f4e1446a8920504e7159ee6db57e8f563952eae2bdea1a7174ddb"
+  },
+  "failed_campaign": {
+    "reason": "SHR opcode mutant subprocess timed out at unchanged120-second limit under host load; no proof failure reported",
+    "log_sha256": "c554b32e19a21d2a3e1509a59a787a223a88b40feaeb72fcf56c0dffed4bea68",
+    "completed_new_positive_receipts": 20,
+    "completed_new_decoder_rejections": 12,
+    "detected_new_opcode_mutants": [
+      "CALLDATALOAD",
+      "CALLDATASIZE",
+      "CALLVALUE",
+      "LT",
+      "SLT"
+    ]
+  },
+  "current_campaign_status": "Final checks are not green. Sequential nice-15 focused attempts retained all 11 equations and original 120-second limit. One cached optimized positive control passed; subsequent negative checks timed out. SHR, ADD, NOT and return mutation remain unvalidated; no timeouts count as semantic detections. Further heavy work stopped while higher-priority campaigns run.",
+  "focused_attempts": [
+    {
+      "command": "nice -n 15 python3 -u experiments/solidity-translation-validation/check_dispatcher_execution.py --dispatcher-only",
+      "exit_code": 1,
+      "checker_sha256": "71c917128be9d04a788d74264c5d64ca455ee008787871d7abb23673bd8a12ea",
+      "log": "/tmp/verity-dispatcher-focused.log",
+      "result": "ReturnObservation and DispatcherDecoder passed; baseline DispatcherNodes timed out at 120 seconds before mutations.",
+      "log_sha256": "76c697f38cdbcb597128b32c3ad5cda82581132b6300de0ee05f9b5d0b56be50"
+    },
+    {
+      "command": "nice -n 15 python3 -u - (import check_dispatcher_execution; verify generate.render(); call check_mutations())",
+      "exit_code": 1,
+      "checker_sha256": "2b1c4a290b537f0788d29bb70a8c12afc55e336b5bfdeb66a117a10ae4b07571",
+      "log": "/tmp/verity-dispatcher-cached-mutations.log",
+      "result": "Cached focused checks: unmutated fresh-namespace control passed all 11 equations; CALLDATALOAD mutant timed out at 120 seconds. No mutant detection claimed.",
+      "log_sha256": "3bde5c141cbd86ff881baabdb99bdaa31ca70b72adef42326b7f552b53872d43"
+    },
+    {
+      "command": "same cached focused checks with diagnostic-only pp.maxSteps=1000",
+      "exit_code": 1,
+      "checker_sha256": "37317a19b8b2e3d99ffe7c8156ae228a63bb72d872c89d694bb60a5c029f3d06",
+      "log": "/tmp/verity-dispatcher-cached-bounded-diagnostics.log",
+      "result": "Unmutated control timed out at 120 seconds before any mutant. Diagnostic experiment reverted; no mutant detection claimed.",
+      "log_sha256": "a5fd6f98e2cbe6ab65cd69aea81584cdcfcc10abbc3075d78c230cc0d36b1fb7"
+    }
+  ]
+}
