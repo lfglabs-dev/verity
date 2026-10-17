@@ -1348,6 +1348,26 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
+        ('access-manager-target-role-positive',
+         Path('Contracts/SolidityImportSmoke/AccessManagerTargetRoleSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(uint256 input)', 'function checked(uint256 input)').replace('this.change.selector', 'this.checked.selector'),
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('access-manager-target-role-bytes2-mapping-key-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  mapping(bytes2 => uint256) private _m;\n  function checked(uint256) external view returns (uint256) {\n    return _m[bytes2(\"ab\")];\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'IndexAccess: [solidity-import:unsupported] unsupported mapping key t_bytes2'),
+        ('access-manager-target-role-bytes4-storage-array-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  bytes4[] private _sels;\n  function checked(uint256) external view returns (uint256) {\n    return _sels.length;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'MemberAccess: [solidity-import:unsupported] unsupported storage encoding dynamic_array for _sels'),
+        ('access-manager-target-role-bytes2-root-param-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(bytes2 x) external pure returns (uint256) {\n    return uint16(x);\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'VariableDeclaration: [solidity-import:unsupported] unsupported parameter type bytes2'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
         if args.only and args.only not in name:
@@ -1363,6 +1383,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             (directory / 'sub' / 'Dep.sol').write_text('pragma solidity 0.8.34;\nlibrary DepLib { string internal constant REASON = "bad"; }\n')
         fn_sig = (
             'checked(bytes)' if name.startswith('bytes-param-') or name in {'abi-decode-dynamic-struct-rejected', 'abi-decode-nested-array-rejected'}
+            else 'checked(bytes2)' if name == 'access-manager-target-role-bytes2-root-param-rejected'
             else 'checked(uint256)\n  function checked(uint256, uint256)' if name == 'overload-root-collision-rejected'
             else 'echoMsgData()\n  function checked(Mode,uint256)' if name == 'msg-data-and-enum-positive'
             else 'checked(Pack,uint256)' if name == 'while-clz-and-struct-loc-positive'
@@ -1391,6 +1412,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'checked(uint256)\n  function recoverFromBytes(bytes32,bytes)\n  function recoverFromCompact(bytes32,bytes32,bytes32)\n  function verifyMerkle(«bytes32[]»,bytes32,bytes32)\n  function rawSlotLabel()\n  function rawSlotPayload()\n  function checkpointUpperRecent(uint32)' if name == 'ecdsa-merkle-checkpoints-storage-slot-positive'
             else 'checked(uint256)\n  function computeCreate2(bytes32,bytes32,address)\n  function predictClone(address,bytes32,address)\n  function currentMsgDataHash(uint256)\n  function executeGovernanceAction(uint256)\n  function queueLength()' if name == 'create2-clones-msgdata-deque-positive'
             else 'checked(uint256)\n  function checkProposerDescription(address,string)\n  function decodeSelectorAndTarget(bytes)\n  function setRoleGrantDelay(uint64,uint32,uint32)\n  function computeMulDivPair(uint256,uint256,uint256)\n  function inspectUnsafeMemoryAndTail(«address[]»,«uint256[]»,uint256)' if name == 'governor-slice-proposer-delay-positive'
+            else 'checked(uint256)\n  function getTargetFunctionRole(address,bytes4)\n  function setSingleTargetFunctionRole(address,bytes4,uint64)\n  function setTargetFunctionRole(address,«bytes4[]»,uint64)\n  function decodeSelectorsAndRole(bytes)\n  function canCall(address,address,bytes4)\n  function checkCallPermission(address,address,bytes)\n  function configureMemberAndTarget(address,address,uint64,uint32,uint32,bool)\n  function parseHexByte(bytes1,bytes)' if name == 'access-manager-target-role-positive'
             else 'checked(uint256)'
         )
         driver = directory / 'Check.lean'

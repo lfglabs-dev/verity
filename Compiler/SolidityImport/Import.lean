@@ -934,6 +934,7 @@ private def paramType (ty : String) : Option ParamType :=
   | "address" | "address payable" => some .address
   | "bytes32" => some .bytes32
   | "bytes4" => some (.bytesN 4)
+  | "bytes1" => some (.bytesN 1)
   | "bool" => some .bool
   | _ =>
       if ty.startsWith "contract " then some .address
@@ -974,7 +975,7 @@ private def scalarArrayElement? (ty : String) : Option (String × ParamType × S
         some .address
       else if elemStr == "bool" then
         some .bool
-      else if elemStr == "bytes32" || elemStr == "int256" || elemStr == "int" then
+      else if elemStr == "bytes32" || elemStr == "bytes4" || elemStr == "int256" || elemStr == "int" then
         some .bytes32
       else if elemStr == "uint" || elemStr == "uint256" then
         some (.uint ⟨31, by decide⟩)
@@ -1111,7 +1112,7 @@ private def markStructDynamicArray (fieldName memberName : String) : M Unit := d
 
 private def dynamicStorageArrayElement? (elemType : String) :
     Option (String × ParamType × SolidityAbi.ScalarKind) :=
-  scalarArrayElement? (elemType ++ "[]")
+  if elemType == "bytes4" then none else scalarArrayElement? (elemType ++ "[]")
 
 private def dynamicStorageArrayElemLayout (elemTy : String) : (Nat × Nat × Bool) :=
   if elemTy == "bool" then (8, 32, true)
@@ -1143,7 +1144,7 @@ private def normalizeSolcLayoutType (env : Env) (solcType : String) : String :=
 
 private def mappingKey (ty : String) : MetaM MappingKeyType :=
   match ty with
-  | "t_bytes32" => pure .bytes32
+  | "t_bytes32" | "t_bytes4" => pure .bytes32
   | "t_address" | "t_address_payable" => pure .address
   | "t_uint256" | "t_int256" | "t_bool" => pure .uint256
   | _ =>
@@ -1203,7 +1204,7 @@ private partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawSt
           pure MappingKeyType.address
         else if kTy == "uint256" || kTy == "uint" then
           pure MappingKeyType.uint256
-        else if kTy == "bytes32" then
+        else if kTy == "bytes32" || kTy == "bytes4" then
           pure MappingKeyType.bytes32
         else
           failAt mNode s!"unsupported struct mapping key type {kTy}"
@@ -2586,7 +2587,7 @@ private def yulMemoryStructHash? (ptrNode sizeNode : Json) (lowerYulFn : Json �
   let mut words : List Expr := []
   if let some flat := env.flatStructs.find? declId then
     for (_, mTy, binding) in flat.members do
-      unless !mTy.startsWith "enum " && mTy != "bytes4" && (paramType mTy).isSome do
+      unless !mTy.startsWith "enum " && mTy != "bytes4" && mTy != "bytes1" && (paramType mTy).isSome do
         failAt ptrNode s!"unsupported Yul struct keccak256 member type {mTy}"
       words := words ++ [.localVar binding]
   else if let some mem := env.mems.find? declId then
@@ -2598,7 +2599,7 @@ private def yulMemoryStructHash? (ptrNode sizeNode : Json) (lowerYulFn : Json �
     unless (mem.staticTypes.isSome || allScalarSchema) && !mem.members.isEmpty do
       failAt ptrNode "Yul struct keccak256 requires a static scalar-member memory struct"
     for (mName, mTy) in mem.members do
-      unless !mTy.startsWith "enum " && mTy != "bytes4" && (paramType mTy).isSome do
+      unless !mTy.startsWith "enum " && mTy != "bytes4" && mTy != "bytes1" && (paramType mTy).isSome do
         failAt ptrNode s!"unsupported Yul struct keccak256 member type {mTy}"
       let v ← atom (← readAbiMember declId #[] mName ptrNode)
       pre := pre ++ v.pre
@@ -3408,6 +3409,15 @@ private def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := d
         (n == 0 || (raw.startsWith "0x" && hexDigits.length == 8)) do
       failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
     return { pre := #[], expr := .literal (n * 16 ^ 56) }
+  if paramTy == "bytes1" && argTy.startsWith "int_const" && !argTy.startsWith "int_const -" then
+    let .literal n := v.expr
+      | failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+    let raw := optStr at_ "value" |>.getD ""
+    let hexDigits := ((raw.drop 2).toString.splitOn "_").foldl (· ++ ·) ""
+    unless v.pre.isEmpty && n < 2 ^ 8 &&
+        (n == 0 || (raw.startsWith "0x" && hexDigits.length == 2)) do
+      failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
+    return { pre := #[], expr := .literal (n * 16 ^ 62) }
   if argTy.startsWith "int_const" && !argTy.startsWith "int_const -" && !paramTy.startsWith "enum " && (bitsOf paramTy).isSome then
     return v
   failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
@@ -3553,6 +3563,8 @@ private def abiDecodeScalarGuard? (ty : String) (enumBound? : Option Nat) (word 
     some (AbiLowering.guard (.lt word (.literal (2 ^ 160))))
   else if ty == "bytes4" then
     some (AbiLowering.guard (.eq (.bitAnd word (.literal (2 ^ 224 - 1))) (.literal 0)))
+  else if ty == "bytes1" then
+    some (AbiLowering.guard (.eq (.bitAnd word (.literal (2 ^ 248 - 1))) (.literal 0)))
   else if ty.startsWith "enum " then
     enumBound?.map fun bound => AbiLowering.guard (.lt word (.literal bound))
   else if ty.startsWith "uint" then
@@ -3957,7 +3969,13 @@ private partial def lowerRef (j : Json) : M Ref := do
           return .expr { pre, expr := .localVar dest }
       let base ← lowerRef baseExpression
       let indexExpression ← mField j "indexExpression"
-      let key ← atom (← lowerExpr indexExpression)
+      let baseTy ← mType baseExpression
+      let rawKey ← lowerExpr indexExpression
+      let convKey ← if baseTy.startsWith "mapping(bytes4 =>" then
+        convert "bytes4" (← mType indexExpression) rawKey indexExpression
+      else
+        pure rawKey
+      let key ← atom convKey
       match base with
       | .state name pre =>
           let info ← resolveField name j
@@ -4147,8 +4165,11 @@ private partial def lowerRef (j : Json) : M Ref := do
               [] [.panicCode (.literal 0x32)]]
             let value := Expr.calldataload (.add (.localVar arr.dataBinding) (.mul key.expr (.literal 32)))
             let bound := SolidityAbi.scalarBound arr.abiKind
-            let pre := if bound < 2^256 then
-              pre.push (AbiLowering.guard (.lt value (.literal bound))) else pre
+            let pre := if arr.elementType == "bytes4" then
+              pre.push (AbiLowering.guard (.eq (.bitAnd value (.literal (2 ^ 224 - 1))) (.literal 0)))
+            else if bound < 2^256 then
+              pre.push (AbiLowering.guard (.lt value (.literal bound)))
+            else pre
             return .expr { pre, expr := value }
           else
             let pre := (pre ++ key.pre).push (.ite (.lt key.expr (.localVar arr.lengthBinding)) [] [.panicCode (.literal 0x32)])
@@ -4210,7 +4231,7 @@ private partial def lowerRef (j : Json) : M Ref := do
       else if member == "length" && (← isMsgDataNode base) then
         pure (.expr { pre := #[], expr := .calldatasize })
       else if member == "length" && (← mKind (← stripParens base)) == "IndexRangeAccess" then
-        let some (slicePre, _, lenExpr, _) ← lowerCalldataSlice? base
+        let some (slicePre, _, lenExpr, _, _) ← lowerCalldataSlice? base
           | failAt base "unsupported slice base for .length"
         pure (.expr { pre := slicePre, expr := lenExpr })
       else if member == "length" && (← mKind base) == "FunctionCall" &&
@@ -5372,11 +5393,11 @@ private partial def lowerPackedArgument (j : Json) : M EncodedBytes := do
         hashCall := (← refInt callee) == -8
     unless hashCall do checkEncodingScalar j
     let value ← atom (← lowerExpr j)
-    let size := if ty == "bool" then 1 else if ty == "bytes4" then 4 else (bitsOf ty).getD 256 / 8
+    let size := if ty == "bool" || ty == "bytes1" then 1 else if ty == "bytes4" then 4 else (bitsOf ty).getD 256 / 8
     let pointer ← fresh
     let finish ← fresh
     modify fun env => { env with encodingMemory := true }
-    let padded := if ty == "bytes4" then value.expr else Expr.mul value.expr (.literal (2^(8*(32-size))))
+    let padded := if ty == "bytes4" || ty == "bytes1" then value.expr else Expr.mul value.expr (.literal (2^(8*(32-size))))
     let pre := value.pre ++ (AbiEncoding.staticWords pointer finish [padded]).toArray
     return { pre, pointer := .localVar pointer, size := .literal size }
   lowerEncodedBytes j
@@ -5621,19 +5642,19 @@ private partial def unwrapBytesConversion (j : Json) : M Json := do
         return ← unwrapBytesConversion args[0]!
   return j
 
-private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Expr × Expr × Bool)) := do
+private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Expr × Expr × Bool × Bool)) := do
   let j ← stripParens j
   unless (← mKind j) == "IndexRangeAccess" do return none
   let base ← stripParens (← mField j "baseExpression")
   let baseInfo? ← if ← isMsgDataNode base then
-    pure (some (#[], Expr.literal 0, Expr.calldatasize, true))
+    pure (some (#[], Expr.literal 0, Expr.calldatasize, true, true))
   else if (← mKind base) == "FunctionCall" && optStr base "kind" == some "functionCall" then
     let names ← mArr (← mField base "names")
     let args ← mArr (← mField base "arguments")
     if names.isEmpty && args.isEmpty && (← mType base) == "bytes calldata" then
       let (fnId, vals) ← resolveCallTargetAndArgs base
       let pre ← inlineMsgDataFn fnId vals base
-      pure (some (pre, Expr.literal 0, Expr.calldatasize, true))
+      pure (some (pre, Expr.literal 0, Expr.calldatasize, true, true))
     else
       pure none
   else if (← mKind base) == "Identifier" then
@@ -5641,7 +5662,14 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
     if id ≥ 0 then
       if let some cb := (← get).calldataBytes.find? id.toNat then
         if !cb.inMemory then
-          pure (some (#[], Expr.localVar cb.dataBinding, Expr.localVar cb.lengthBinding, false))
+          pure (some (#[], Expr.localVar cb.dataBinding, Expr.localVar cb.lengthBinding, true, false))
+        else if (← mType base) == "bytes calldata" then
+          pure (some (#[], Expr.add (.localVar cb.memoryPointer) (.literal 32), Expr.localVar cb.lengthBinding, false, false))
+        else
+          pure none
+      else if let some buf := (← get).byteBuffers.find? id.toNat then
+        if (← mType base) == "bytes calldata" then
+          pure (some (buf.pre, buf.pointer, buf.size, false, false))
         else
           pure none
       else
@@ -5650,7 +5678,7 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
       pure none
   else
     pure none
-  let some (basePre, baseOff, baseLen, isMsgData) := baseInfo? | return none
+  let some (basePre, baseOff, baseLen, fromCalldata, isMsgData) := baseInfo? | return none
   let startVal ← match field? j "startExpression" with
     | none => pure ({ pre := #[], expr := .literal 0 } : Val)
     | some sNode =>
@@ -5688,14 +5716,14 @@ private partial def lowerCalldataSlice? (j : Json) : M (Option (Array Stmt × Ex
     .letVar offVar offExpr,
     .letVar lenVar (.sub (.localVar endVar) (.localVar startVar))
   ]
-  return some (slicePre, .localVar offVar, .localVar lenVar, isMsgData)
+  return some (slicePre, .localVar offVar, .localVar lenVar, fromCalldata, isMsgData)
 
 private partial def lowerBytesToFixedBytes (arg : Json) (byteWidth : Nat) (at_ : Json) : M Val := do
   let fullMask : Nat :=
     if byteWidth >= 32 then 2 ^ 256 - 1
     else (2 ^ (8 * byteWidth) - 1) * (2 ^ (256 - 8 * byteWidth))
   let inner ← unwrapBytesConversion arg
-  if let some (slicePre, offsetExpr, lenExpr, isMsgData) ← lowerCalldataSlice? inner then
+  if let some (slicePre, offsetExpr, lenExpr, fromCalldata, isMsgData) ← lowerCalldataSlice? inner then
     let rawWord ← fresh
     let word ← fresh
     let maskShift := Expr.shl (.mul (.literal 8) (.sub (.literal byteWidth) lenExpr)) (.literal fullMask)
@@ -5709,7 +5737,7 @@ private partial def lowerBytesToFixedBytes (arg : Json) (byteWidth : Nat) (at_ :
                    (.shr (.mul (.literal 8) (.sub (.literal 4) offsetExpr)) (.calldataload (.literal 4)))) ]
              [ .assignVar rawWord (.calldataload offsetExpr) ] ]
       else
-        #[ .letVar rawWord (.calldataload offsetExpr) ]
+        #[ .letVar rawWord (readAbiDecodeWord fromCalldata offsetExpr) ]
     let stmts : Array Stmt := slicePre ++ loadRaw ++ #[
       .letVar word (.bitAnd (.localVar rawWord) (.literal fullMask)),
       .ite (.lt lenExpr (.literal byteWidth))
@@ -6080,8 +6108,8 @@ private partial def parseAbiDecodeItem (comp : Json) : M AbiDecodeTypeItem := do
 
 private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array Stmt × Bool × Expr × Expr) := do
   let inner ← unwrapBytesConversion (← stripParens rawNode)
-  if let some (slicePre, offsetExpr, lenExpr, _) ← lowerCalldataSlice? inner then
-    return (slicePre, true, offsetExpr, lenExpr)
+  if let some (slicePre, offsetExpr, lenExpr, fromCalldata, _) ← lowerCalldataSlice? inner then
+    return (slicePre, fromCalldata, offsetExpr, lenExpr)
   if (← mKind inner) == "Identifier" then
     let id ← refInt inner
     if id ≥ 0 then
@@ -6248,7 +6276,9 @@ private partial def lowerAbiDecodeItems (j : Json) : M (Array Stmt × Array AbiD
         let elemAddr := Expr.add (.localVar arrData) (.mul (.localVar copyIdx) (.literal 32))
         let bound := SolidityAbi.scalarBound abiKind
         let elemChecks : List Stmt :=
-          if bound == 2 ^ 256 then []
+          if elemStr == "bytes4" then
+            [AbiLowering.guard (.eq (.bitAnd (.localVar elemVal) (.literal (2 ^ 224 - 1))) (.literal 0))]
+          else if bound == 2 ^ 256 then []
           else [AbiLowering.guard (.lt (.localVar elemVal) (.literal bound))]
         let loopBody : List Stmt :=
           [ .letVar elemVal (readAbiDecodeWord fromCalldata elemAddr) ] ++
@@ -6346,7 +6376,7 @@ private partial def lowerMsgDataBuffer : M EncodedBytes := do
 
 /-- Encode complete admitted byte schemas, without name-based library rules. -/
 private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
-  if let some (slicePre, offsetExpr, lenExpr, isMsgData) ← lowerCalldataSlice? j then
+  if let some (slicePre, offsetExpr, lenExpr, fromCalldata, isMsgData) ← lowerCalldataSlice? j then
     let pointer ← fresh
     let finish ← fresh
     let copyIdx ← fresh
@@ -6368,7 +6398,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           .mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32))) (.localVar wordVal) ]
       else
         [ .mstore (.add (.localVar pointer) (.mul (.localVar copyIdx) (.literal 32)))
-            (.calldataload (.add offsetExpr (.mul (.localVar copyIdx) (.literal 32)))) ]
+            (readAbiDecodeWord fromCalldata (.add offsetExpr (.mul (.localVar copyIdx) (.literal 32)))) ]
     let copyStmt := Stmt.forEach copyIdx wordCount copyBody
     return { pre := slicePre ++ (alloc ++ [copyStmt]).toArray, pointer := .localVar pointer, size := lenExpr }
   if (← mKind j) == "Conditional" then
@@ -6502,7 +6532,7 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
           let argTy ← mType arg
           unless argTy == "bytes" || argTy == "bytes memory" || argTy == "bytes calldata" ||
               argTy == "bytes storage ref" || argTy == "bytes storage pointer" ||
-              argTy == "bytes32" || argTy == "bytes4" || argTy.startsWith "literal_string " do
+              argTy == "bytes32" || argTy == "bytes4" || argTy == "bytes1" || argTy.startsWith "literal_string " do
             failAt arg s!"unsupported bytes.concat argument type {argTy}"
         return ← lowerPacked args
       if tname == "string" then
@@ -7400,6 +7430,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           let convStmts := AbiLowering.materializeCalldataScalarArray
             (.localVar descriptor.dataBinding) (.localVar descriptor.lengthBinding)
             arrayPtr nextFree namePrefix descriptor.abiKind
+            (if descriptor.elementType == "bytes4" then 2 ^ 224 - 1 else 0)
           let memDesc : ScalarArrayParam :=
             { descriptor with
               param := pname
@@ -7424,7 +7455,7 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
           yul := yul.erase pname
     | .byteBuffer buffer =>
         let location := optStr p "storageLocation" |>.getD "default"
-        unless pty == "bytes" && location == "memory" do
+        unless pty == "bytes" && (location == "memory" || (location == "calldata" && argTy == "bytes calldata")) do
           failAt p "byte buffer argument requires a bytes memory parameter"
         let ptrBinding ← freshFor (if pname == "" then "bytes_ptr" else pname)
         let sizeBinding ← fresh
@@ -12141,7 +12172,7 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
     let ty ← mType parameter
     discard (validateEnumTypeIfNeeded parameter ty)
     let some modelType := paramType ty | failAt parameter s!"unsupported event parameter type {ty}"
-    unless (Denote.errorScalarType modelType).isSome do
+    unless (Denote.errorScalarType modelType).isSome || modelType == .bytesN 4 || modelType == .bytesN 1 do
       failAt parameter s!"unsupported event parameter type {ty}"
     let indexed ← mBool (← mField parameter "indexed")
     let parameterName ← mStr (← mField parameter "name")
@@ -12157,7 +12188,7 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
           | failAt argument "unresolved event model parameter type"
         if actualType != modelType then
           match modelType with
-          | .uintN _ => failAt argument "event direct parameter type differs from its declaration"
+          | .uintN _ | .bytesN _ => failAt argument "event direct parameter type differs from its declaration"
           | _ =>
               -- Materialize a converted value so a type-preserving word cast
               -- or unsigned widening does not masquerade as a typed parameter.
@@ -12169,6 +12200,11 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
         unless (match value.expr with
                 | .param _ => true
                 | .literal n => n < 2 ^ bits
+                | _ => false) && value.pre.isEmpty do
+          failAt argument "narrow event arguments currently require a matching direct parameter"
+    | .bytesN _ =>
+        unless (match value.expr with
+                | .param _ => true
                 | _ => false) && value.pre.isEmpty do
           failAt argument "narrow event arguments currently require a matching direct parameter"
     | _ => pure ()
@@ -12961,7 +12997,7 @@ private def functionEmptyBodyArrayReturnType? (fn : Json) : M (Option ParamType)
   let rty ← mType r
   unless rty.endsWith "[]" do return none
   let elemStr := (rty.dropEnd 2).toString
-  unless !elemStr.startsWith "enum " && elemStr != "bytes4" do return none
+  unless !elemStr.startsWith "enum " && elemStr != "bytes4" && elemStr != "bytes1" do return none
   let some elemTy := paramType elemStr | return none
   unless isCanonicalReturnArrayParam (.array elemTy) do return none
   return some (.array elemTy)
@@ -12979,7 +13015,7 @@ private def functionFixedArrayReturnType? (fn : Json) : M (Option (String × Par
     | return none
   unless suffix.endsWith "]" && suffix != "]" do return none
   let some length := (suffix.dropEnd 1).toNat? | return none
-  unless length > 0 && !elemStr.startsWith "enum " && elemStr != "bytes4" do return none
+  unless length > 0 && !elemStr.startsWith "enum " && elemStr != "bytes4" && elemStr != "bytes1" do return none
   let some elemPty := paramType elemStr | return none
   return some (elemStr, elemPty, length)
 
@@ -13243,7 +13279,7 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
       let some decl := (← get).structs.find? sid.toNat | failAt p s!"unresolved struct {ty}"
       let members ← structMemberList decl
       let sname ← mStr (← mField decl "name")
-      let staticTypes := members.toList.mapM (fun (_, ty) => if ty.startsWith "enum " || ty == "bytes4" then none else paramType ty)
+      let staticTypes := members.toList.mapM (fun (_, ty) => if ty.startsWith "enum " || ty == "bytes4" || ty == "bytes1" then none else paramType ty)
       let schema ← if staticTypes.isSome then pure none else do
         let structs := (← get).structs
         match AbiSchema.root (fun id => structs.find? id) decl with
@@ -14500,6 +14536,7 @@ private def importSlice
         let checks :=
           if arr.inMemory then
             AbiLowering.scalarArrayMemoryHead arr.memoryPointer arr.offsetBinding arr.headerBinding arr.lengthBinding arr.dataBinding arr.nextFreeBinding arr.namePrefix rootHeadWords headOffset arr.abiKind
+              (if arr.elementType == "bytes4" then 2 ^ 224 - 1 else 0)
           else
             AbiLowering.scalarArrayCalldataHead arr.offsetBinding arr.headerBinding arr.lengthBinding arr.dataBinding rootHeadWords headOffset
         abiGuards := abiGuards ++ checks.toArray
@@ -14527,6 +14564,11 @@ private def importSlice
           let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
           abiGuards := abiGuards.push (.ite
             (.eq (.bitAnd (.calldataload (.literal offset)) (.literal (2 ^ 224 - 1))) (.literal 0))
+            [] [.revertReturndata])
+        if ty == .bytesN 1 then
+          let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+          abiGuards := abiGuards.push (.ite
+            (.eq (.bitAnd (.calldataload (.literal offset)) (.literal (2 ^ 248 - 1))) (.literal 0))
             [] [.revertReturndata])
         if let some binding := env.rawBindings.find? p.id then
           let some i := modelParamNames.findIdx? (· == p.name) | throwError "missing raw scalar parameter"
@@ -14748,6 +14790,7 @@ private def paramTypeTerm? : ParamType → Option (CommandElabM Term)
   | .address => some `(Verity.Core.Address)
   | .bytes32 => some `(Verity.Core.BytesN 32)
   | .bytesN 4 => some `(Verity.Core.BytesN 4)
+  | .bytesN 1 => some `(Verity.Core.BytesN 1)
   | .bool => some `(Bool)
   | _ => none
 
@@ -14849,6 +14892,7 @@ def elabSolidityImport : CommandElab := fun stx => do
   let `(solidity_import $alias from $root entry $entry using $prof contract $contract
       $roots:solidityRoot*) := stx | throwUnsupportedSyntax
   let saved ← getEnv
+  let initErrorCount := ((← get).messages.toList.filter (·.severity == .error)).length
   try
     if debug.skipKernelTC.get (← getOptions) then
       throwError "kernel checking must be enabled"
@@ -14881,14 +14925,14 @@ def elabSolidityImport : CommandElab := fun stx => do
     if let some dup := generated.find? (fun n => (generated.filter (· == n)).length > 1) then
       throwError "generated accessor {dup} is defined twice"
     -- The quoted definitions must denote exactly the values the importer built.
-    unless (← get).messages.hasErrors do
+    unless ((← get).messages.toList.filter (·.severity == .error)).length > initErrorCount do
       let back ← liftTermElabM <| evalModel (ns ++ `model)
       unless toString (repr back) == toString (repr model) do
         throwError "internal: the elaborated model differs from the imported value"
       let backReport ← liftTermElabM <| evalReport (ns ++ `report)
       unless backReport == report do
         throwError "internal: the elaborated report differs from the imported value"
-    if (← get).messages.hasErrors then
+    if ((← get).messages.toList.filter (·.severity == .error)).length > initErrorCount then
       throwError "Solidity import failed to check"
   catch e =>
     setEnv saved

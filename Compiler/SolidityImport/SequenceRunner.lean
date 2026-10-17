@@ -36,6 +36,8 @@ private def eventWord (ty : ParamType) (value : Nat) : Except String Nat := do
   | .uintN bits =>
       unless 0 < bits && bits ≤ 256 && bits % 8 == 0 do throw "invalid event integer width"
       pure (value % 2^bits)
+  | .bytesN 4 => pure ((value % 2^256) &&& ((2^32 - 1) * 2^224))
+  | .bytesN 1 => pure ((value % 2^256) &&& ((2^8 - 1) * 2^248))
   | .address => pure (value % 2^160)
   | .bool => pure (if value == 0 then 0 else 1)
   | _ => throw "unsupported event observation parameter type"

@@ -109,11 +109,15 @@ def materializeStaticStructArray (data length arrayPointer nextFree : Expr)
 /-- Fill a validated scalar-array allocation. Unlike an array of structs,
 scalar elements occupy the array payload directly, without element pointers. -/
 def materializeStaticScalarArray (data length arrayPointer nextFree : Expr)
-    (namePrefix : String) (kind : SolidityAbi.ScalarKind) : List Stmt :=
+    (namePrefix : String) (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat := 0) : List Stmt :=
   let index := namePrefix ++ "_index"
   let value := Expr.calldataload (.add data (.mul (.localVar index) (.literal 32)))
   let bound := SolidityAbi.scalarBound kind
-  let checks := if bound = 2^256 then [] else [guard (.lt value (.literal bound))]
+  let checks :=
+    if rightPadMask != 0 then
+      [guard (.eq (.bitAnd value (.literal rightPadMask)) (.literal 0))]
+    else if bound = 2^256 then []
+    else [guard (.lt value (.literal bound))]
   [.mstore arrayPointer length,
    .mstore (.literal 64) nextFree,
    .forEach index length (checks ++
@@ -138,7 +142,7 @@ def scalarArrayCalldataHead (offsetBinding headerBinding lengthBinding dataBindi
 matching `solc`'s `abi_decode_t_array_*_memory_ptr`. -/
 def scalarArrayMemoryHead
     (memoryPointer offsetBinding headerBinding lengthBinding dataBinding nextFreeBinding namePrefix : String)
-    (rootHeadWords headOffset : Nat) (kind : SolidityAbi.ScalarKind) : List Stmt :=
+    (rootHeadWords headOffset : Nat) (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat := 0) : List Stmt :=
   let freePointer := Expr.localVar memoryPointer
   let allocationGuard := fun condition =>
     Stmt.ite condition [] [.panicCode (.literal 0x41)]
@@ -157,7 +161,7 @@ def scalarArrayMemoryHead
   , .letVar dataBinding (.add (.localVar headerBinding) (.literal 32))
   , guard (.le (.add (.localVar dataBinding) (.mul (.localVar lengthBinding) (.literal 32))) .calldatasize) ] ++
   materializeStaticScalarArray (.localVar dataBinding) (.localVar lengthBinding)
-    freePointer (.localVar nextFreeBinding) namePrefix kind
+    freePointer (.localVar nextFreeBinding) namePrefix kind rightPadMask
 
 /-- Source-compatible `bytes memory` / `string memory` root parameter checks as
 executable model code, matching `solc`'s `abi_decode_t_bytes_memory_ptr`. -/
@@ -194,7 +198,7 @@ def bytesMemoryHead
 passed to a `T[] memory` helper parameter. -/
 def materializeCalldataScalarArray (data length : Expr)
     (arrayPointerBinding nextFreeBinding namePrefix : String)
-    (kind : SolidityAbi.ScalarKind) : List Stmt :=
+    (kind : SolidityAbi.ScalarKind) (rightPadMask : Nat := 0) : List Stmt :=
   let allocationGuard := fun condition =>
     Stmt.ite condition [] [.panicCode (.literal 0x41)]
   [ .letVar arrayPointerBinding (.mload (.literal 64))
@@ -203,7 +207,7 @@ def materializeCalldataScalarArray (data length : Expr)
       (.add (.localVar arrayPointerBinding) (.mul (.literal 32) (.add length (.literal 1))))
   , allocationGuard (.le (.localVar nextFreeBinding) (.literal (2^64-1)))
   , allocationGuard (.ge (.localVar nextFreeBinding) (.localVar arrayPointerBinding)) ] ++
-  materializeStaticScalarArray data length (.localVar arrayPointerBinding) (.localVar nextFreeBinding) namePrefix kind
+  materializeStaticScalarArray data length (.localVar arrayPointerBinding) (.localVar nextFreeBinding) namePrefix kind rightPadMask
 
 /-- Eager memory materialization of a `bytes` field inside a dynamic struct,
 matching `solc`'s `abi_decode_t_bytes_memory_ptr` at a tuple member offset. -/

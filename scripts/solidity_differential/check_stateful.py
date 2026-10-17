@@ -319,6 +319,14 @@ def main():
         'setRoleGrantDelay(uint64,uint32,uint32)',
         'computeMulDivPair(uint256,uint256,uint256)',
         'inspectUnsafeMemoryAndTail(address[],uint256[],uint256)',
+        'getTargetFunctionRole(address,bytes4)',
+        'setSingleTargetFunctionRole(address,bytes4,uint64)',
+        'setTargetFunctionRole(address,bytes4[],uint64)',
+        'decodeSelectorsAndRole(bytes)',
+        'canCall(address,address,bytes4)',
+        'checkCallPermission(address,address,bytes)',
+        'configureMemberAndTarget(address,address,uint64,uint32,uint32,bool)',
+        'parseHexByte(bytes1,bytes)',
     ):
         if extra_name in source['methodIdentifiers']:
             names.append(extra_name)
@@ -929,6 +937,34 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(governor_slice_prefix[:remaining_budget])
+    if 'getTargetFunctionRole(address,bytes4)' in names:
+        sel0 = 0x11223340 << 224
+        sel1 = 0x11223341 << 224
+        set_role_sel = int(source['methodIdentifiers']['setTargetFunctionRole(address,bytes4[],uint64)'], 16) << 224
+        check_perm_sel = int(source['methodIdentifiers']['checkCallPermission(address,address,bytes)'], 16) << 224
+        access_manager_prefix = [
+            ('configureMemberAndTarget(address,address,uint64,uint32,uint32,bool)', [0xdead0000, 0xbeef0000, 1, 0, 5, 0]),
+            ('setSingleTargetFunctionRole(address,bytes4,uint64)', [0xdead0000, sel0, 1]),
+            ('setSingleTargetFunctionRole(address,bytes4,uint64)', [0xdead0000, sel0 | 1, 1]),
+            ('setTargetFunctionRole(address,bytes4[],uint64)', [0xdead0000, 96, 1, 2, sel0, sel1]),
+            ('setTargetFunctionRole(address,bytes4[],uint64)', [0xdead0000, 96, 1, 1, sel0 | 1]),
+            ('getTargetFunctionRole(address,bytes4)', [0xdead0000, sel0]),
+            ('getTargetFunctionRole(address,bytes4)', [0xdead0000, sel0 | 1]),
+            ('canCall(address,address,bytes4)', [0xbeef0000, 0xdead0000, sel0]),
+            ('checkCallPermission(address,address,bytes)', [0xbeef0000, 0xdead0000, 96, 4, sel0]),
+            ('checkCallPermission(address,address,bytes)', [0xbeef0000, int(account, 16), 96, 36, set_role_sel, 0xdead0000 << 224]),
+            ('checkCallPermission(address,address,bytes)', [0xbeef0000, int(account, 16), 96, 68, check_perm_sel, 0xdead0000 << 224, 1 << 224]),
+            ('decodeSelectorsAndRole(bytes)', [32, 96, 32, 1, sel0]),
+            ('decodeSelectorsAndRole(bytes)', [32, 96, 32, 1, sel0 | 1]),
+            ('parseHexByte(bytes1,bytes)', [0x61 << 248, 64, 32, 0x66 << 248]),
+            ('parseHexByte(bytes1,bytes)', [(0x61 << 248) | 1, 64, 32, 0x66 << 248]),
+            ('parseHexByte(bytes1,bytes)', [0x61 << 248, 64, 32, (0x66 << 248) | 1]),
+            ('change(uint256)', [0]),
+            ('change(uint256)', [1]),
+            ('read()', []),
+        ]
+        remaining_budget = max(0, args.transactions - len(calls))
+        calls.extend(access_manager_prefix[:remaining_budget])
     while len(calls) < args.transactions:
         name = rng.choice(names)
         if name == names[0]:
@@ -1256,6 +1292,51 @@ def main():
             call_args = rng.choice([
                 [96, 192, 0, 2, 0x1111, 0x2222, 2, 100, 200],
                 [96, 192, 1, 2, 0x1111, 0x2222, 2, 100, 200],
+            ])
+        elif name == 'getTargetFunctionRole(address,bytes4)':
+            call_args = rng.choice([
+                [0xdead0000, 0x11223340 << 224],
+                [0xdead0000, (0x11223340 << 224) | 1],
+                [1 << 160, 0x11223340 << 224],
+            ])
+        elif name == 'setSingleTargetFunctionRole(address,bytes4,uint64)':
+            call_args = rng.choice([
+                [0xdead0000, 0x11223340 << 224, 1],
+                [0xdead0000, (0x11223340 << 224) | 1, 1],
+                [0xdead0000, 0x11223340 << 224, 1 << 64],
+            ])
+        elif name == 'setTargetFunctionRole(address,bytes4[],uint64)':
+            call_args = rng.choice([
+                [0xdead0000, 96, 1, 2, 0x11223340 << 224, 0x11223341 << 224],
+                [0xdead0000, 96, 1, 1, (0x11223340 << 224) | 1],
+                [0xdead0000, 96, 1 << 64, 1, 0x11223340 << 224],
+            ])
+        elif name == 'decodeSelectorsAndRole(bytes)':
+            call_args = rng.choice([
+                [32, 96, 32, 1, 0x11223340 << 224],
+                [32, 96, 32, 1, (0x11223340 << 224) | 1],
+            ])
+        elif name == 'canCall(address,address,bytes4)':
+            call_args = rng.choice([
+                [0xbeef0000, 0xdead0000, 0x11223340 << 224],
+                [0xbeef0000, 0xdead0000, (0x11223340 << 224) | 1],
+            ])
+        elif name == 'checkCallPermission(address,address,bytes)':
+            call_args = rng.choice([
+                [0xbeef0000, 0xdead0000, 96, 4, 0x11223340 << 224],
+                [0xbeef0000, int(account, 16), 96, 4, 0x11223340 << 224],
+            ])
+        elif name == 'configureMemberAndTarget(address,address,uint64,uint32,uint32,bool)':
+            call_args = rng.choice([
+                [0xdead0000, 0xbeef0000, 1, 0, 5, 0],
+                [0xdead0001, 0xbeef0001, 2, 10, 15, 1],
+                [0xdead0000, 0xbeef0000, 1, 0, 5, 2],
+            ])
+        elif name == 'parseHexByte(bytes1,bytes)':
+            call_args = rng.choice([
+                [0x61 << 248, 64, 32, 0x66 << 248],
+                [(0x61 << 248) | 1, 64, 32, 0x66 << 248],
+                [0x61 << 248, 64, 32, (0x66 << 248) | 1],
             ])
         else:
             call_args = []

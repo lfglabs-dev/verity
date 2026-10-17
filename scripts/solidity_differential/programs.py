@@ -2356,4 +2356,33 @@ def stateful_governor_slice_proposer_delay_source(fixture: str, variant: str) ->
     raise ValueError(f'unknown governor-slice-proposer-delay variant: {variant}')
 
 
-
+def stateful_access_manager_target_role_source(fixture: str, variant: str) -> str:
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {
+            '_targets', '_roles', '_selectorExecCount', '_accumulatedScore', '_lastDigest', '_lastRoleId',
+            '_checkSelector', '_getAdminRestrictions', '_canCallExtended', '_canCallSelf',
+            '_storeTargetFunctionRole', '_setTargetFunctionRole', '_hashSelectors', '_hashCalldataSlice', '_inspectMsgData',
+            'assignedRole', 'callDelay', 'msgSel', 'msgArg', 'sliceDigest',
+            'selfRestricted', 'selfAdminRole', 'hexChar', 'okHex', 'nib', 'byteDigest',
+        }
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'expanded-access-manager-target-role':
+        replacements = {
+            '_selectorExecCount[selector] += 1;':
+            '_selectorExecCount[selector] = _selectorExecCount[selector] + 1;',
+            '_accumulatedScore += 888;':
+            '_accumulatedScore = _accumulatedScore + 888;',
+            '_lastRoleId += 77;':
+            '_lastRoleId = _lastRoleId + 77;',
+        }
+        for before, after in replacements.items():
+            if fixture.count(before) != 1:
+                raise ValueError('access-manager-target-role variant anchor changed')
+            fixture = fixture.replace(before, after)
+        return fixture
+    raise ValueError(f'unknown access-manager-target-role variant: {variant}')

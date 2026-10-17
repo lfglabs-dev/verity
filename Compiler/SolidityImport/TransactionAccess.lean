@@ -98,7 +98,7 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
       let [definition] := events.filter (·.name == name)
         | throw s!"observed event must resolve uniquely: {name}"
       unless definition.params.length == values.length do throw "event argument count differs"
-      unless definition.params.all (fun p => (Denote.errorScalarType p.ty).isSome) do
+      unless definition.params.all (fun p => (Denote.errorScalarType p.ty).isSome || p.ty == .bytesN 4 || p.ty == .bytesN 1) do
         throw "unsupported event observation parameter type"
       unless (definition.params.filter (fun p => p.kind == .indexed)).length ≤ 3 do
         throw "event has more than three indexed parameters"
