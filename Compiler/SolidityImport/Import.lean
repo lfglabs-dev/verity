@@ -342,6 +342,15 @@ private def freshAbiStem (schema : List AbiSchema.Member) (inMemory : Bool) : M 
       return stem
   throwError "unable to allocate hygienic ABI bindings"
 
+/-- Component types of a `tuple(...)` type string; component types that
+    themselves contain parentheses are outside this slice. -/
+private def tupleTypes (at_ : Json) (ty : String) : M (Array String) := do
+  unless ty.startsWith "tuple(" && ty.endsWith ")" do
+    failAt at_ s!"expected a tuple value, found {ty}"
+  let inner := ((ty.drop 6).dropEnd 1).toString
+  if inner.any (· == '(') then failAt at_ s!"tuple component types of {ty} are outside this slice"
+  pure (inner.splitOn ",").toArray
+
 private def isAtom : Expr → Bool
   | .literal _ | .localVar _ | .param _ | .blockTimestamp | .blockNumber
   | .caller | .contractAddress | .chainid => true
@@ -1342,7 +1351,8 @@ private partial def lowerCall (j : Json) : M Val := do
       let bytes ← lowerEncodedBytes args[0]!
       return { pre := bytes.pre, expr := .keccak256 bytes.pointer bytes.size }
     let (pre, values) ← lowerHelperCall j 1
-    pure { pre, expr := values[0]! }
+    let some expr := values[0]? | failAt j "helper produced no value"
+    pure { pre, expr }
   else
     failAt j s!"unsupported call kind {kind}"
 
@@ -1871,7 +1881,7 @@ private partial def lowerAssembly (j : Json) (retName : String) : M Val := do
 
 private partial def lowerLocal (s : Json) : M (Array Stmt) := do
   let decls ← mArr (← mField s "declarations")
-  unless decls.size == 1 do failAt s "only a single declaration is supported"
+  unless decls.size == 1 do return ← lowerTupleLocal s decls
   if decls[0]!.isNull then failAt s "empty declaration"
   let d := decls[0]!
   let name ← mStr (← mField d "name")
@@ -1918,13 +1928,85 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
           unless (bitsOf ty).isSome || ty == "bool" do
             failAt d s!"uninitialized local of type {ty} is outside this slice"
           pure { pre := #[], expr := .literal 0 }
-    let binding ← freshFor name
-    let expr := Expr.localVar binding
-    modify fun e =>
-      { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr }
-    if (← get).assigned.contains id then
-      modify fun e => { e with mutables := e.mutables.insert id binding }
-    pure (v.pre.push (.letVar binding v.expr))
+    bindLocal d v
+
+/-- Binds value-type local `d` to `v`, reassignable when the body assigns it. -/
+private partial def bindLocal (d : Json) (v : Val) : M (Array Stmt) := do
+  let name ← mStr (← mField d "name")
+  let id ← mNat (← mField d "id")
+  let binding ← freshFor name
+  let expr := Expr.localVar binding
+  modify fun e =>
+    { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr }
+  if (← get).assigned.contains id then
+    modify fun e => { e with mutables := e.mutables.insert id binding }
+  pure (v.pre.push (.letVar binding v.expr))
+
+/-- `(T a, , T c) = rhs`: every component of `rhs` is evaluated left to
+    right, then the named components are bound. -/
+private partial def lowerTupleLocal (s : Json) (decls : Array Json) : M (Array Stmt) := do
+  let some init := (field? s "initialValue").filter (!·.isNull)
+    | failAt s "tuple declarations require an initializer"
+  let types ← tupleTypes init (← mType init)
+  unless types.size == decls.size do
+    failAt s s!"tuple of {types.size} values declares {decls.size} components"
+  for d in decls do
+    if d.isNull then continue
+    let name ← mStr (← mField d "name")
+    unless name.all (fun c => c.isAlphanum || c == '_') && name != "" do
+      failAt d s!"unsupported local name {name}"
+    let ty ← mType d
+    let loc := optStr d "storageLocation" |>.getD "default"
+    unless loc == "default" && ((bitsOf ty).isSome || ty == "bool") do
+      failAt d s!"tuple component of type {ty} is outside this slice"
+  let (pre, values) ← lowerTuple init decls.size
+  let mut out := pre
+  for i in [:decls.size] do
+    let d := decls[i]!
+    if d.isNull then continue
+    let some value := values[i]? | failAt d "missing tuple component"
+    let v ← convert (← mType d) types[i]! { pre := #[], expr := value } d
+    out := out ++ (← bindLocal d v)
+  pure out
+
+/-- Lowers a tuple-valued expression to `want` component values. Components
+    are evaluated left to right, as solc does, and snapshotted. -/
+private partial def lowerTuple (j : Json) (want : Nat) : M (Array Stmt × Array Expr) := do
+  match ← mKind j with
+  | "TupleExpression" =>
+      if ← mBool (← mField j "isInlineArray") then
+        failAt j "inline arrays are outside this slice"
+      let cs ← mArr (← mField j "components")
+      unless cs.size == want do
+        failAt j s!"tuple has {cs.size} components where {want} are expected"
+      let mut pre : Array Stmt := #[]
+      let mut values : Array Expr := #[]
+      for c in cs do
+        if c.isNull then failAt j "empty tuple component"
+        if (← mType c).startsWith "tuple(" then failAt c "nested tuples are outside this slice"
+        let v ← atom (← lowerExpr c)
+        pre := pre ++ v.pre
+        values := values.push v.expr
+      pure (pre, values)
+  | "FunctionCall" =>
+      unless (← mStr (← mField j "kind")) == "functionCall" do
+        failAt j "only internal helper calls produce tuples in this slice"
+      unless (← mArr (← mField j "names")).isEmpty do
+        failAt j "named call arguments are outside this slice"
+      lowerHelperCall j want
+  | "Conditional" =>
+      let cond ← atom (← lowerExpr (← mField j "condition"))
+      let (yesPre, yes) ← lowerTuple (← mField j "trueExpression") want
+      let (noPre, no) ← lowerTuple (← mField j "falseExpression") want
+      let mut dests : Array String := #[]
+      for _ in [:want] do
+        dests := dests.push (← fresh)
+      let assign (pre : Array Stmt) (values : Array Expr) : List Stmt :=
+        (pre ++ (dests.zip values).map fun (d, e) => Stmt.assignVar d e).toList
+      let ite := Stmt.ite cond.expr (assign yesPre yes) (assign noPre no)
+      pure (cond.pre ++ dests.map (fun d => Stmt.letVar d (.literal 0)) |>.push ite,
+        dests.map Expr.localVar)
+  | kind => failAt j s!"unsupported tuple expression {kind}"
 
 end
 
@@ -2116,6 +2198,10 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
             pres := pres ++ v.pre
             exprs := exprs.push v.expr
           out := out ++ pres |>.push (.returnValues exprs.toList)
+        else if (← mType expr).startsWith "tuple(" then
+          let types ← tupleTypes expr (← mType expr)
+          let (pre, values) ← lowerTuple expr types.size
+          out := out ++ pre |>.push (.returnValues values.toList)
         else
           let v ← atom (← lowerExpr expr)
           out := out ++ v.pre |>.push (.returnValues [v.expr])

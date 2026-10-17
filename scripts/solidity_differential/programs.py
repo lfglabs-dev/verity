@@ -738,3 +738,51 @@ def stateful_unchecked_source(original, variant):
             raise ValueError(f'missing unchecked source anchor: {before}')
         original = original.replace(before, after)
     return original
+
+
+def stateful_tuple_source(original, variant):
+    """Tuple declarations and returns spelled as scalar locals and branches."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'expanded': {
+            '(uint128 a, , uint128 c) = split(value);': '(uint128 a, uint128 unused, uint128 c) = split(value);',
+            """        (uint256 start, uint256 end, uint256 lo, uint256 hi) =
+            t < 1 days ? (0 days, 1 days, uint256(a) * 3, uint256(c)) :
+            t < 7 days ? (1 days, 7 days, uint256(c), uint256(a) + 5) :
+                         (7 days, 8 days, a, c);
+""": """        uint256 start;
+        uint256 end;
+        uint256 lo;
+        uint256 hi;
+        if (t < 1 days) {
+            end = 1 days;
+            lo = uint256(a) * 3;
+            hi = c;
+        } else if (t < 7 days) {
+            start = 1 days;
+            end = 7 days;
+            lo = c;
+            hi = uint256(a) + (t - 1 days);
+        } else {
+            start = 7 days;
+            end = 8 days;
+            lo = a;
+            hi = c;
+        }
+""",
+        },
+        'inline': {
+            '(uint256 p, uint256 q) = pair(value % 1000);': '(uint256 p, uint256 q) = (value % 1000, value % 1000 + 1);',
+            '        return triple(total);\n': """        if (total % 2 == 0) return (total, m[0], m[1]);
+        return (m[2], total + 1, m[3]);
+""",
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(variant)
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing tuple source anchor: {before}')
+        original = original.replace(before, after)
+    return original

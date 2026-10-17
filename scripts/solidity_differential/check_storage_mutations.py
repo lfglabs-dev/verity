@@ -124,6 +124,21 @@ MUTANTS.update({
 })
 
 
+MUTANTS.update({
+    'import-tuple-order': ('        pre := pre ++ v.pre\n        values := values.push v.expr',
+                           '        pre := v.pre ++ pre\n        values := values.push v.expr'),
+    'import-tuple-skip': ('let some value := values[i]? | failAt d "missing tuple component"',
+                          'let some value := values[decls.size - 1 - i]? | failAt d "missing tuple component"'),
+    'import-tuple-branch': ('let ite := Stmt.ite cond.expr (assign yesPre yes) (assign noPre no)',
+                            'let ite := Stmt.ite cond.expr (assign noPre no) (assign yesPre yes)'),
+    'import-tuple-lazy': ('(assign yesPre yes) (assign noPre no)\n      pure (cond.pre ++ dests.map',
+                          '(assign yesPre yes) (assign #[] no)\n      pure (cond.pre ++ noPre ++ dests.map'),
+    'import-tuple-helper-if': ('| some exprs => pre ++ (dests.zip exprs).map', '| some exprs => pre ++ (dests.zip exprs.reverse).map'),
+    'import-tuple-return': ('out := out ++ pre |>.push (.returnValues values.toList)',
+                            'out := out ++ pre |>.push (.returnValues values.reverse.toList)'),
+})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-mapping-"):
@@ -142,6 +157,8 @@ def run(directory, output, name):
         fixture = 'LoopSequence'
     if name.startswith('import-unchecked-'):
         fixture = 'UncheckedSequence'
+    if name.startswith('import-tuple-'):
+        fixture = 'TupleSequence'
     if name.startswith(('import-event-', 'observe-event-')):
         fixture = 'NarrowEventSequence' if name == 'observe-event-narrow' else 'ImportedEventSequence'
     argv = [sys.executable, '-m', 'solidity_differential.check_stateful',

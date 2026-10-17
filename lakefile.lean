@@ -90,6 +90,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.MemberWriteSequenceModel,
     .one `Contracts.SolidityImportSmoke.LoopSequenceModel,
     .one `Contracts.SolidityImportSmoke.UncheckedSequenceModel,
+    .one `Contracts.SolidityImportSmoke.TupleSequenceModel,
     .one `Contracts.SolidityImportSmoke.ImportedEventSequenceModel,
     .one `Contracts.SolidityImportSmoke.NarrowEventSequenceModel,
     .one `Contracts.SolidityImportSmoke.MappingDirtySequenceModel,
