@@ -1,4 +1,6 @@
 import Compiler.SolidityImport.TransactionAccess
+import Compiler.SolidityImport.AccountsInput
+import Compiler.SolidityImport.CallerInput
 import Compiler.Hex
 import Compiler.Keccak.Sponge
 import Compiler.CompilationModel.AbiHelpers
@@ -71,17 +73,26 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
   let storage ← (← (← input.getObjVal? "storage").getArr?).toList.mapM pair
   unless (storage.map Prod.fst).eraseDups.length == storage.length do
     throw "duplicate initial model storage slot"
-  let mut world := Verity.defaultState.withStorageWords fun key =>
+  let transactions ← (← input.getObjVal? "transactions").getArr?
+  let senders ← transactions.toList.mapM fun transaction => getWord transaction "sender"
+  let accountsJson := (input.getObjVal? "accounts").toOption.getD (Json.arr #[])
+  let accounts ← AccountsInput.parseAccounts accountsJson (account :: senders)
+  let initialWorld := Verity.defaultState.withStorageWords fun key =>
     match key with
     | .slot slot => Uint256.ofNat ((storage.find? (·.1 == slot)).map Prod.snd |>.getD 0)
     | _ => 0
+  let callerWorld ← match input.getObjVal? "callerAccount" with
+    | .error _ => pure initialWorld
+    | .ok json => do
+        let caller ← CallerInput.parse json account senders
+        pure (CallerInput.install initialWorld caller)
+  let mut world := AccountsInput.install callerWorld accounts
   let externalFns := model.functions.filter fun fn =>
     !fn.isInternal && !isInteropEntrypointName fn.name
   let dispatch := externalFns.map fun fn =>
     (fn, (KeccakEngine.keccak256_selector (functionSignature fn)).toNat)
   unless (dispatch.map Prod.snd).eraseDups.length == dispatch.length do
     throw "ambiguous model function selectors"
-  let transactions ← (← input.getObjVal? "transactions").getArr?
   let mut rows := #[]
   let mut ids : List String := []
   for transaction in transactions do
@@ -115,6 +126,8 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
         functionSelector := selector, args }
     let initial := beginTransaction (withTransactionContext world tx)
     let publicResult := denoteFunction oracle model fn tx initial
+    if let some message := publicResult.interpretationError then
+      throw s!"Denote interpretation error: {message}"
     let result : TracedFrameResult ←
       match bindExternalParams selector fn.bindingParams args with
       | none => pure ⟨⟨false, [], initial⟩, []⟩

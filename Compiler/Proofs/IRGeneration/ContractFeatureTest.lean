@@ -84,21 +84,21 @@ private def literalMappingWrite_supported_function :
                   summaryOf := by
                     intro calleeName hmem
                     exfalso
-                    simpa [literalMappingWriteFunction, helperCallNames,
+                    simp [literalMappingWriteFunction, helperCallNames,
                       stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
-                      exprInternalHelperCallNames] using hmem
+                      exprInternalHelperCallNames] at hmem
                   calleeRanksDecrease := by
                     intro calleeName hmem
                     exfalso
-                    simpa [literalMappingWriteFunction, helperCallNames,
+                    simp [literalMappingWriteFunction, helperCallNames,
                       stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
-                      exprInternalHelperCallNames] using hmem
+                      exprInternalHelperCallNames] at hmem
                   exprCallsPreserveWorld := by
                     intro calleeName hmem
                     exfalso
-                    simpa [literalMappingWriteFunction, exprHelperCallNames,
+                    simp [literalMappingWriteFunction, exprHelperCallNames,
                       stmtListExprHelperCallNames, stmtExprHelperCallNames,
-                      exprInternalHelperCallNames] using hmem }
+                      exprInternalHelperCallNames] at hmem }
               foreign := by decide
               lowLevel := by decide }
           effects := { surfaceClosed := by decide }
@@ -146,7 +146,7 @@ private def literalMappingWrite_supported_spec :
 
 private theorem literalMappingWrite_noConflict :
     firstFieldWriteSlotConflict literalMappingWriteSpec.fields = none := by
-  native_decide
+  decide
 
 private def literalMappingWriteTx : IRTransaction :=
   { sender := 9
@@ -214,21 +214,21 @@ private def constructorOnlySupported :
                 summaryOf := by
                   intro calleeName hmem
                   exfalso
-                  simpa [helperCallNames, constructorAsFunctionSpec, constructorOnlyCtor,
+                  simp [helperCallNames, constructorAsFunctionSpec, constructorOnlyCtor,
                     stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
-                    exprInternalHelperCallNames] using hmem
+                    exprInternalHelperCallNames] at hmem
                 calleeRanksDecrease := by
                   intro calleeName hmem
                   exfalso
-                  simpa [helperCallNames, constructorAsFunctionSpec, constructorOnlyCtor,
+                  simp [helperCallNames, constructorAsFunctionSpec, constructorOnlyCtor,
                     stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
-                    exprInternalHelperCallNames] using hmem
+                    exprInternalHelperCallNames] at hmem
                 exprCallsPreserveWorld := by
                   intro calleeName hmem
                   exfalso
-                  simpa [exprHelperCallNames, constructorAsFunctionSpec, constructorOnlyCtor,
+                  simp [exprHelperCallNames, constructorAsFunctionSpec, constructorOnlyCtor,
                     stmtListExprHelperCallNames, stmtExprHelperCallNames,
-                    exprInternalHelperCallNames] using hmem }
+                    exprInternalHelperCallNames] at hmem }
             foreign := by decide
             lowLevel := by decide }
         effects := { surfaceClosed := by decide }
@@ -282,13 +282,13 @@ example :
     (SourceSemantics.withConstructorTransactionContext
       Verity.defaultState
       constructorCalldataTx).calldataSize.val = 32 := by
-  native_decide
+  decide
 
 example :
     (SourceSemantics.withTransactionContext
       Verity.defaultState
       constructorCalldataTx).calldataSize.val = 36 := by
-  native_decide
+  decide
 
 private def constructorRightCalldataCtor : ConstructorSpec :=
   { params := [{ name := "initialValue", ty := .uint256 }]
@@ -524,7 +524,7 @@ private theorem stopOnly_calldataFits :
 
 private theorem constructorOnly_noConflict :
     firstFieldWriteSlotConflict constructorOnlySpec.fields = none := by
-  native_decide
+  decide
 
 private theorem constructorOnly_compileBody_empty_surfaces_withFork :
     ∃ bodyStmts,
@@ -694,6 +694,34 @@ example :
     [] [] [] identityInternalHelper returns retNames bodyStmts
     hvalidate hreturns hretNames hbody
 
+private theorem constSeven_result (spec : CompilationModel) (world : Verity.ContractState) :
+    SourceSemantics.interpretInternalFunctionFuel spec 0 constSevenInternalHelper world [] =
+      SourceSemantics.successInternalResult
+        (world.writePhysicalMemoryValue 0 (Verity.Core.Uint256.ofNat 7)) (some 7) := by
+  simp only [SourceSemantics.interpretInternalFunctionFuel, constSevenInternalHelper,
+    SourceSemantics.bindInternalArgs, SourceSemantics.execStmtListWithHelpers,
+    SourceSemantics.execStmtWithHelpers, SourceSemantics.evalExprWithHelpers]
+  rfl
+
+private theorem constructorArgSeventeen_eval
+    (spec : CompilationModel) (fields : List Field) (fuel : Nat)
+    (state : SourceSemantics.RuntimeState)
+    (hbindings : state.bindings = [("arg0", 17), ("initialValue", 17)]) :
+    SourceSemantics.evalExprListWithHelpers spec fields fuel state [.constructorArg 0] =
+      some [17] := by
+  simp only [SourceSemantics.evalExprListWithHelpers, SourceSemantics.evalExprWithHelpers,
+    hbindings]
+  decide +kernel +revert
+
+private theorem identitySeventeen_result (spec : CompilationModel) (world : Verity.ContractState) :
+    SourceSemantics.interpretInternalFunctionFuel spec 0 identityInternalHelper world [17] =
+      SourceSemantics.successInternalResult
+        (world.writePhysicalMemoryValue 0 (Verity.Core.Uint256.ofNat 17)) (some 17) := by
+  simp only [SourceSemantics.interpretInternalFunctionFuel, identityInternalHelper,
+    SourceSemantics.bindInternalArgs, SourceSemantics.execStmtListWithHelpers,
+    SourceSemantics.execStmtWithHelpers, SourceSemantics.evalExprWithHelpers]
+  rfl
+
 example :
     (SourceSemantics.interpretInternalFunctionFuel
       helperFuelAlignSpec
@@ -701,7 +729,8 @@ example :
       constSevenInternalHelper
       Verity.defaultState
       []).returnValue = some 7 := by
-  native_decide
+  rw [constSeven_result]
+  rfl
 
 example :
     (SourceSemantics.interpretFunctionWithHelpers
@@ -710,7 +739,16 @@ example :
       helperCallerFunction
       helperCallerTx
       Verity.defaultState).returnValue = some 7 := by
-  native_decide
+  have hfilter : helperCallSpec.functions.filter
+      (fun fn => fn.isInternal && fn.name == "constSeven") = [constSevenInternalHelper] := by
+    rfl
+  simp only [SourceSemantics.interpretFunctionWithHelpers,
+    helperCallerFunction, SourceSemantics.execStmtListWithHelpers,
+    SourceSemantics.execStmtWithHelpers, SourceSemantics.evalExprWithHelpers,
+    SourceSemantics.evalExprListWithHelpers, constSeven_result,
+    SourceSemantics.successInternalResult, SourceSemantics.successResult,
+    SourceSemantics.execStmtWithHelpers_internalCallAssign_of_function_filter hfilter]
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructor
@@ -718,7 +756,7 @@ example :
       constructorArgCtor
       constructorArgTx
       Verity.defaultState).success = true := by
-  native_decide
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructor
@@ -726,7 +764,7 @@ example :
       constructorArgCtor
       constructorArgTx
       Verity.defaultState).finalStorage 0 = 13 := by
-  native_decide
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructorWithHelpers
@@ -735,7 +773,11 @@ example :
       constructorArgCtor
       constructorArgTx
       Verity.defaultState).success = true := by
-  native_decide
+  simp only [SourceSemantics.interpretConstructorWithHelpers,
+      constructorArgCtor,
+    SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+    SourceSemantics.evalExprWithHelpers, SourceSemantics.successResult]
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructorWithHelpers
@@ -744,7 +786,11 @@ example :
       constructorArgCtor
       constructorArgTx
       Verity.defaultState).finalStorage 0 = 13 := by
-  native_decide
+  simp only [SourceSemantics.interpretConstructorWithHelpers,
+      constructorArgCtor,
+    SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+    SourceSemantics.evalExprWithHelpers, SourceSemantics.successResult]
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructor
@@ -752,7 +798,7 @@ example :
       constructorArgCtor
       constructorArgTrailingTx
       Verity.defaultState).success = true := by
-  native_decide
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructor
@@ -760,14 +806,14 @@ example :
       constructorArgCtor
       constructorArgTrailingTx
       Verity.defaultState).finalStorage 0 = 13 := by
-  native_decide
+  decide +kernel +revert
 
 example :
     SourceSemantics.constructorExecutionBindings
       constructorHelperArgCtor
       constructorHelperArgTx.args =
       some [("arg0", 17), ("initialValue", 17)] := by
-  native_decide
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructorWithHelpers
@@ -776,7 +822,21 @@ example :
       constructorHelperArgCtor
       constructorHelperArgTx
       Verity.defaultState).success = true := by
-  native_decide
+  have hraw : SourceSemantics.constructorTouchesUnsupportedRawCalldataSurface
+      constructorHelperArgSpec constructorHelperArgCtor = false := by decide +kernel
+  have hbind : SourceSemantics.constructorExecutionBindings constructorHelperArgCtor
+      constructorHelperArgTx.args = some [("arg0", 17), ("initialValue", 17)] := by decide +kernel
+  have hfilter : constructorHelperArgSpec.functions.filter
+      (fun fn => fn.isInternal && fn.name == "identity") = [identityInternalHelper] := by rfl
+  simp only [SourceSemantics.interpretConstructorWithHelpers, hraw, hbind,
+    Bool.false_eq_true, if_false]
+  simp only [constructorHelperArgCtor,
+    SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+    SourceSemantics.evalExprWithHelpers,
+    identitySeventeen_result, SourceSemantics.successInternalResult,
+    SourceSemantics.successResult, constructorArgSeventeen_eval,
+    SourceSemantics.execStmtWithHelpers_internalCallAssign_of_function_filter hfilter]
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructorWithHelpers
@@ -785,27 +845,41 @@ example :
       constructorHelperArgCtor
       constructorHelperArgTx
       Verity.defaultState).finalStorage 0 = 17 := by
-  native_decide
+  have hraw : SourceSemantics.constructorTouchesUnsupportedRawCalldataSurface
+      constructorHelperArgSpec constructorHelperArgCtor = false := by decide +kernel
+  have hbind : SourceSemantics.constructorExecutionBindings constructorHelperArgCtor
+      constructorHelperArgTx.args = some [("arg0", 17), ("initialValue", 17)] := by decide +kernel
+  have hfilter : constructorHelperArgSpec.functions.filter
+      (fun fn => fn.isInternal && fn.name == "identity") = [identityInternalHelper] := by rfl
+  simp only [SourceSemantics.interpretConstructorWithHelpers, hraw, hbind,
+    Bool.false_eq_true, if_false]
+  simp only [constructorHelperArgCtor,
+    SourceSemantics.execStmtListWithHelpers, SourceSemantics.execStmtWithHelpers,
+    SourceSemantics.evalExprWithHelpers,
+    identitySeventeen_result, SourceSemantics.successInternalResult,
+    SourceSemantics.successResult, constructorArgSeventeen_eval,
+    SourceSemantics.execStmtWithHelpers_internalCallAssign_of_function_filter hfilter]
+  decide +kernel +revert
 
 example :
     SourceSemantics.directHelperTouchesUnsupportedConstructorRawCalldataSurface
       constructorHelperRawCalldataSpec
       (constructorAsFunctionSpec constructorHelperRawCalldataCtor) = true := by
-  native_decide
+  decide +kernel +revert
 
 example :
     SourceSemantics.helperClosureTouchesUnsupportedConstructorRawCalldataSurface
       constructorNestedHelperRawCalldataSpec
       (constructorNestedHelperRawCalldataSpec.functions.length + 1)
       (constructorAsFunctionSpec constructorNestedHelperRawCalldataCtor) = true := by
-  native_decide
+  decide +kernel +revert
 
 example :
     SourceSemantics.helperClosureTouchesUnsupportedConstructorRawCalldataSurface
       constructorRecursiveNoRawSpec
       (constructorRecursiveNoRawSpec.functions.length + 1)
       (constructorAsFunctionSpec constructorRecursiveNoRawCtor) = false := by
-  native_decide
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructorWithHelpers
@@ -814,7 +888,7 @@ example :
       constructorHelperRawCalldataCtor
       constructorHelperArgTx
       Verity.defaultState).success = false := by
-  native_decide
+  decide +kernel +revert
 
 example :
     (SourceSemantics.interpretConstructorWithHelpers
@@ -823,11 +897,11 @@ example :
       constructorNestedHelperRawCalldataCtor
       constructorHelperArgTx
       Verity.defaultState).success = false := by
-  native_decide
+  decide +kernel +revert
 
 example :
     stmtListTouchesUnsupportedConstructorRawCalldataSurface constructorCalldataCtor.body = true := by
-  native_decide
+  decide
 
 example :
     (SourceSemantics.interpretConstructor
@@ -835,7 +909,7 @@ example :
       constructorCalldataCtor
       constructorCalldataTx
       Verity.defaultState).success = false := by
-  native_decide
+  decide
 
 example :
     (SourceSemantics.interpretConstructorWithHelpers
@@ -844,11 +918,11 @@ example :
       constructorCalldataCtor
       constructorCalldataTx
       Verity.defaultState).success = false := by
-  native_decide
+  decide
 
 example :
     stmtListTouchesUnsupportedConstructorRawCalldataSurface constructorRightCalldataCtor.body = true := by
-  native_decide
+  decide
 
 example :
     (SourceSemantics.interpretConstructor
@@ -856,11 +930,11 @@ example :
       constructorRightCalldataCtor
       constructorCalldataTx
       Verity.defaultState).success = false := by
-  native_decide
+  decide
 
 example :
     stmtListTouchesUnsupportedConstructorRawCalldataSurface constructorRightCalldataloadCtor.body = true := by
-  native_decide
+  decide
 
 example :
     (SourceSemantics.interpretConstructorWithHelpers
@@ -869,7 +943,7 @@ example :
       constructorRightCalldataloadCtor
       constructorCalldataTx
       Verity.defaultState).success = false := by
-  native_decide
+  decide
 
 example
     (ir : IRContract)
@@ -956,14 +1030,14 @@ example :
         [{ name := "initialOwner", ty := .address }]
         constructorOnlyTx.args =
       some [("initialOwner", Compiler.Constants.addressMask &&& 11)] := by
-    native_decide
+    decide
   have hconstructorBindings :
       SourceSemantics.constructorExecutionBindings
         constructorOnlyCtor
         constructorOnlyTx.args =
       some [("arg0", Compiler.Constants.addressMask &&& 11),
         ("initialOwner", Compiler.Constants.addressMask &&& 11)] := by
-    native_decide
+    decide +kernel +revert
   simpa [constructorOnlySpec, constructorOnlyCtor, constructorOnlyTx,
     constructorOnlySupported, Function.execResultToIRResult] using
     Function.supported_constructor_body_correct_with_body_interface
@@ -973,6 +1047,7 @@ example :
       (hnormalized := rfl)
       (hfunctionNamesNodup := by decide)
       (hSupported := constructorOnlySupported)
+      (hvalidated := by decide +kernel)
       (hnoConflict := constructorOnly_noConflict)
       (hsafety := by
         intro stmt hmem
@@ -1024,7 +1099,7 @@ example :
   let bindings := [("arg0", Compiler.Constants.addressMask &&& 11),
     ("initialOwner", Compiler.Constants.addressMask &&& 11)]
   refine ⟨bodyStmts, bindings, ?_, ?_⟩
-  · native_decide
+  · decide +kernel +revert
   · have hbodyCompile :
         compileStmtList constructorOnlySpec.fields constructorOnlySpec.events constructorOnlySpec.errors
           .memory [] false (constructorBodyScope constructorOnlyCtor.params) [] constructorOnlyCtor.body [] =
@@ -1038,11 +1113,11 @@ example :
         SourceSemantics.bindSupportedParams constructorOnlyCtor.params
             (constructorOnlyTrailingTx.args.take constructorOnlyCtor.params.length) =
           some [("initialOwner", Compiler.Constants.addressMask &&& 11)] := by
-      native_decide
+      decide
     have hconstructorBindings :
         SourceSemantics.constructorExecutionBindings constructorOnlyCtor constructorOnlyTrailingTx.args =
           some bindings := by
-      native_decide
+      decide +kernel +revert
     simpa [constructorOnlySpec, constructorOnlyTrailingTx, constructorOnlyTx, constructorOnlySupported,
       Function.execResultToIRResult] using
       Function.supported_constructor_body_correct_with_body_interface
@@ -1052,6 +1127,7 @@ example :
         (hnormalized := rfl)
         (hfunctionNamesNodup := by decide)
         (hSupported := constructorOnlySupported)
+        (hvalidated := by decide +kernel)
         (hnoConflict := constructorOnly_noConflict)
         (hsafety := by
           intro stmt hmem
@@ -1159,15 +1235,14 @@ private def eventTrackingRuntime : SourceSemantics.RuntimeState :=
 example :
     SourceSemantics.execStmtWithHelpers eventTrackingSpec [] 0 eventTrackingRuntime
       (.emit "Evt" [.literal 11, .literal 22]) =
-    match SourceSemantics.eventScratchMemoryAfterEmit?
+    match SourceSemantics.eventScratchWorldAfterEmit?
         eventTrackingSpec.events "Evt"
         [11 % Compiler.Constants.evmModulus, 22 % Compiler.Constants.evmModulus]
-        eventTrackingRuntime.world.memory with
-    | some memory =>
+        eventTrackingRuntime.world with
+    | some scratchWorld =>
         .continue
           { eventTrackingRuntime with
-            world := { eventTrackingRuntime.world with
-                memory := memory
+            world := { scratchWorld with
                 events := eventTrackingRuntime.world.events ++
                   [{ name := "Evt"
                      args := [Verity.Core.Uint256.ofNat (22 % Compiler.Constants.evmModulus)]
@@ -1183,12 +1258,12 @@ example :
     | none => .revert := by
   have hunindexed :
       (EventParamKind.unindexed == EventParamKind.indexed) = false := by
-    native_decide
+    rfl
   have hindexed :
       (EventParamKind.indexed == EventParamKind.indexed) = true := by
-    native_decide
+    rfl
   generalize hscratch :
-      SourceSemantics.eventScratchMemoryAfterEmit?
+      SourceSemantics.eventScratchWorldAfterEmit?
         [{ name := "Evt"
            params := [
              { name := "topic", ty := .uint256, kind := .indexed },
@@ -1196,7 +1271,7 @@ example :
            ] }]
         "Evt"
         [11 % Compiler.Constants.evmModulus, 22 % Compiler.Constants.evmModulus]
-        Verity.defaultState.memory = scratch
+        Verity.defaultState = scratch
   cases scratch <;>
   simp [eventTrackingSpec, eventTrackingRuntime, SourceSemantics.execStmtWithHelpers,
     SourceSemantics.evalExprListWithHelpers, SourceSemantics.evalExprWithHelpers,
@@ -1218,7 +1293,6 @@ private def eventNormalizationSpec : CompilationModel :=
     ]
     functions := [] }
 
-set_option maxRecDepth 2000 in
 example :
     SourceSemantics.eventFromResolvedArgs? eventNormalizationSpec.events "Evt"
       [2, Compiler.Constants.addressMask + 18, 300] =
@@ -1240,15 +1314,17 @@ example :
           Verity.Core.Uint256.ofNat 1] } := by
   have hunindexed :
       (EventParamKind.unindexed == EventParamKind.indexed) = false := by
-    native_decide
+    rfl
   have hindexed :
       (EventParamKind.indexed == EventParamKind.indexed) = true := by
-    native_decide
+    rfl
+  have hflag : SourceSemantics.normalizeEventValue .bool 2 = 1 := by rfl
+  have howner : SourceSemantics.normalizeEventValue .address
+      (Compiler.Constants.addressMask + 18) = 17 := by rfl
+  have hsmall : SourceSemantics.normalizeEventValue .uint8 300 = 44 := by rfl
   simp [eventNormalizationSpec, SourceSemantics.eventFromResolvedArgs?,
-    SourceSemantics.splitEventArgsByParams, SourceSemantics.normalizeEventValue,
-    SourceSemantics.wordNormalize, SourceSemantics.uint8Modulus,
-    Compiler.Constants.addressMask, Compiler.Constants.evmModulus,
-    Verity.Core.Uint256.ofNat, hunindexed, hindexed]
+    SourceSemantics.splitEventArgsByParams, hflag, howner, hsmall,
+    hunindexed, hindexed]
 
 private def scalarEventSmokeFunction : FunctionSpec :=
   { name := "ping"

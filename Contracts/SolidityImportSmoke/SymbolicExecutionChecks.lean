@@ -63,4 +63,18 @@ theorem bind_then_stop (o : DenoteOracle) (fs : List Field)
     (show execStmt o fs next .stop = .stop { next with observedStop := true } from rfl)
     (by intro state impossible; cases impossible)
 
+/-- Interpretation refusal is terminal and keeps its precise message. -/
+theorem refusal_skips_suffix (o : DenoteOracle) (fs : List Field)
+    (initial : DenoteState) (stmt : Stmt) (suffix : List Stmt) (message : String)
+    (h : execStmt o fs initial stmt = .interpretationError message) :
+    execStmtList o fs initial (stmt :: suffix) = .interpretationError message := by
+  exact step_terminal h (by intro next impossible; cases impossible)
+
+/-- Exceptional execution preserves its actual terminal state. -/
+theorem exceptional_skips_suffix (o : DenoteOracle) (fs : List Field)
+    (initial final : DenoteState) (stmt : Stmt) (suffix : List Stmt)
+    (h : execStmt o fs initial stmt = .exceptional final) :
+    execStmtList o fs initial (stmt :: suffix) = .exceptional final := by
+  exact step_terminal h (by intro next impossible; cases impossible)
+
 end Compiler.CompilationModel.SolidityImport.SymbolicExecution.Checks

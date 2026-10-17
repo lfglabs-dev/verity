@@ -1145,6 +1145,14 @@ def mutation_campaign(output, selected=None):
         directory = output / name
         snapshot(directory)
         try:
+            if name == 'import-named-helper-branch':
+                # An implicit helper fallthrough takes the shared-continuation
+                # path even under this mutant. The equivalent explicit return
+                # exposes whether assembly incorrectly skips that continuation.
+                from .programs import stateful_named_helper_return_source
+                fixture = directory / 'Contracts/SolidityImportSmoke/NamedHelperReturnSequence.sol'
+                fixture.write_text(stateful_named_helper_return_source(
+                    fixture.read_text(), 'explicit-fallthrough'))
             baseline_code, baseline = run(directory, directory / '.lake/baseline', name)
             if baseline_code or not baseline['transactions'] or baseline['divergences']:
                 raise HarnessError(f'{name}: unmodified positive control failed')

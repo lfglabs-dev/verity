@@ -7,8 +7,8 @@ artifact answers the audit question: "What code in Verity's pinned
 EVMYulLean dependency is NOT identical to the upstream reference?"
 
 The fork audit is a required trust-surface document under Issue #1722:
-every fork-side divergence must be minimal, visibility-preserving, and
-documented here so that downstream auditors can review exactly what
+every fork-side divergence must be minimal and documented here. Semantic
+changes require an explicit, immutable, evidence-bound scope expansion so that downstream auditors can review exactly what
 Verity is trusting beyond upstream EVMYulLean's Ethereum conformance
 test suite.
 
@@ -29,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -46,29 +47,21 @@ DEFAULT_OUTPUT = ROOT / "artifacts" / "evmyullean_fork_audit.json"
 # generator. The script's check mode will refuse to pass if the pinned
 # commit in lake-manifest.json disagrees with ``pinned_commit`` here.
 FORK_AUDIT = {
-    "schema_version": 1,
+    "schema_version": 2,
     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
+    "pinned_commit": "4cf4c5d0f286e8efc3d9e972ce3616bfe83a0624",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
-    "fork_ahead_by": 18,
+    "fork_ahead_by": 25,
     "fork_behind_by": 0,
     "divergence_summary": (
-        "The fork has 18 audited non-semantic commits beyond the "
-        "recorded upstream base: one visibility change (private -> default) on an "
-        "internal exponentiation accumulator, one Lean 4.22.0 deprecation "
-        "fix (nativeLibDir -> staticLibDir) in the lakefile, one FFI "
-        "body exposure for ByteArray.zeroes that matches the extern zero-fill "
-        "behavior, one checkpoint-state projection exposure that makes "
-        "existing saved shared-state/store fields visible to downstream proofs, "
-        "one Lean 4.24 compatibility migration covering build metadata, "
-        "JSON object traversal, parser APIs, and stricter elaboration. "
-        "The final audited change group is the Lean 4.31 compatibility "
-        "migration covering collection APIs, slices, JSON product keys, "
-        "and toolchain metadata. "
-        "None of these commits changes EVM/Yul execution semantics, "
-        "so upstream Ethereum conformance test coverage continues to apply "
-        "transitively."
+        "The 25 fork commits include 18 previously audited visibility/toolchain/merge "
+        "commits, native proof APIs and memory lemmas, a total jump-destination scanner, "
+        "and an Osaka creation correction. The scanner implementation and shared "
+        "CREATE/CREATE2 collision/storage transitions are explicitly audited semantic "
+        "changes; upstream conformance does not transfer to those changes by ancestry. "
+        "The creation correction has exact-head native, mutation/replay and independent "
+        "Foundry v1.5.0 Osaka evidence. This is component evidence, not full conformance."
     ),
     "commits": [
         {
@@ -327,13 +320,83 @@ FORK_AUDIT = {
             "diff_summary": "Merge-only history node; content is enumerated by its parent commits.",
             "trust_impact": "Zero beyond the individually audited parent commits.",
         },
+        {
+            "sha": "0ff72b2db35302305fccb1d4f42b480434b77bfe",
+            "title": "feat: make D_J total via structural recursion (#4)",
+            "file": "EvmYul/EVM/Semantics.lean",
+            "category": "semantic-change",
+            "semantic_change": True,
+            "rationale": "Replace the kernel-opaque partial UInt256 scanner with size-bounded structural Nat recursion. Every step advances at least one byte and PUSH immediate bytes are skipped. The implementation changes; no universal equivalence to the old partial scanner is claimed.",
+            "diff_summary": "1 file changed, 14 insertions, 5 deletions.",
+            "trust_impact": "Explicit scanner scope: kernel evaluation is now possible. The included PUSH1/JUMPDEST example is a regression, not proof of full upstream conformance."
+        },
+        {
+            "sha": "9d8eda705793eba448fd67850168af515e7fdc7a",
+            "title": "feat(evm): add proof-facing step runs (#5)",
+            "file": "EvmYul.lean, EvmYul/EVM/Proof/Execution.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Expose actual step/run relations and X decomposition. Mirrored exceptional/gas/halting definitions are checked by proofs unfolding actual X.",
+            "diff_summary": "2 files changed, 493 insertions.",
+            "trust_impact": "Kernel-checked API over existing execution; no assumed transition correspondence."
+        },
+        {
+            "sha": "d164b61b995f4f553e975db9cfe3640d0aeefafa",
+            "title": "feat(evm): F4d runUntil, basic-block composition, and block tactics (#8)",
+            "file": "EvmYul.lean, EvmYul/EVM/Proof/Block.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Add validated bounded block execution, native precheck state projection and compositional symbolic tactics.",
+            "diff_summary": "2 files changed, 735 insertions.",
+            "trust_impact": "Adds derived proof/driver APIs; actual EVM.X remains the runtime authority."
+        },
+        {
+            "sha": "b62586650b4f96cc6da25f36574aaa8f329a6420",
+            "title": "feat(evm): memory read-over-write lemmas for MSTORE/MSTORE8/RETURN (#9)",
+            "file": "EvmYul.lean, EvmYul/EVM/Proof/Memory.lean, EvmYul/EVM/Proof/MemoryStep.lean, EvmYul/UInt256.lean",
+            "category": "lemma-addition",
+            "semantic_change": False,
+            "rationale": "Prove actual memory opcode frames and returned-byte equations; expose fixed-width word encodings with proofs connecting existing byte encoding.",
+            "diff_summary": "4 files changed, 1074 insertions.",
+            "trust_impact": "Kernel proofs and helper encodings; existing memory execution definitions are unchanged."
+        },
+        {
+            "sha": "a4473c2c1831d99ac3e1c5be7c9ce8e07da04266",
+            "title": "fix: align CREATE2 target storage with Osaka execution",
+            "file": "EvmYul/EVM/Semantics.lean, Conform/Create2OsakaChecks.lean, scripts/check_create2_osaka_mutations.py, scripts/check_create2_osaka_reference.py, docs/CREATE2_OSAKA.md, lakefile.lean, .github/workflows/lean_action_ci.yml",
+            "category": "semantic-change",
+            "semantic_change": True,
+            "rationale": "Remove unconditional proposed EIP-7610 storage-only collision and initialize fresh persistent storage in shared Lambda. Keep nonce/code collision, target balance and collision snapshot. Real Osaka accepts storage-only targets and clears old storage.",
+            "diff_summary": "7 files changed, 318 insertions, 7 deletions.",
+            "trust_impact": "Changes shared CREATE/CREATE2 behavior. Four independent real-EVM cases, strict native runtime and four compiled semantic mutants/replays at the audited tip are component evidence. No universal fork selector or whole-transaction equivalence claim."
+        },
+        {
+            "sha": "b3d76d0a1a0c0242138fc81af8e65156fdae25a3",
+            "title": "test: reject native initialization panics in CREATE2 checks",
+            "file": "scripts/check_create2_osaka_runtime.py, requirements-native-tests.txt, docs/CREATE2_OSAKA.md, .github/workflows/lean_action_ci.yml",
+            "category": "toolchain",
+            "semantic_change": False,
+            "rationale": "Pin Python startup dependencies and require exact native success output with no stderr. Exit0 with initialization PANIC is rejected.",
+            "diff_summary": "4 files changed, 54 insertions, 2 deletions.",
+            "trust_impact": "Strengthens runtime evidence; no execution-rule changes."
+        },
+        {
+            "sha": "4cf4c5d0f286e8efc3d9e972ce3616bfe83a0624",
+            "title": "Merge upstream native proof APIs into Osaka creation fix",
+            "file": "merge commit",
+            "category": "merge",
+            "semantic_change": False,
+            "rationale": "Merge current fork native proof APIs into the creation fix without dropping either parent.",
+            "diff_summary": "Merge-only history node; changes enumerated in parent records.",
+            "trust_impact": "No additional content beyond reviewed parents; both semantic scope expansions still apply."
+        },
     ],
     "audit_methodology": [
         "1. Clone lfglabs-dev/EVMYulLean at pinned commit into a local worktree.",
         "2. Add NethermindEth/EVMYulLean as `upstream` remote and fetch.",
         "3. Compute `git merge-base upstream/main origin/main` to find the divergence point.",
         "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change, merge}.",
-        "5. Reject `semantic-change` category without explicit Issue #1722 scope expansion (would break upstream conformance test coverage).",
+        "5. Reject semantic changes except the immutable scanner and Osaka creation scope expansions documented in docs/EVMYULLEAN_FORK_SCOPE.md; require evidence identity and explicit limits.",
         "6. Commit this artifact alongside Verity's lake-manifest.json pin bump.",
     ],
     "reproduction": {
@@ -347,13 +410,24 @@ FORK_AUDIT = {
             "git diff --stat upstream/main..origin/main",
         ],
     },
+    "semantic_scope": {
+        "document": "docs/EVMYULLEAN_FORK_SCOPE.md",
+        "approved_commits": [
+            "0ff72b2db35302305fccb1d4f42b480434b77bfe",
+            "a4473c2c1831d99ac3e1c5be7c9ce8e07da04266",
+        ],
+        "evidence": "artifacts/evmyullean_osaka_creation_reference.json",
+        "evidence_sha256": "92e6dd70ef72da3c67c5e8656c23fab506466f716a92b6f197cb7ca9d768a25a",
+        "upstream_conformance_transfers": False,
+    },
     "trust_boundary": (
-        "Verity's effective trust boundary for Yul/EVM semantics is "
-        "(upstream NethermindEth/EVMYulLean at commit "
-        "047f63070309f436b66c61e276ab3b6d1169265a) plus the 18 "
-        "visibility/toolchain/merge fork commits enumerated above. None of these "
-        "fork commits touches EVM/Yul execution semantics, so upstream "
-        "Ethereum conformance test coverage applies transitively."
+        "Upstream base 047f63070309f436b66c61e276ab3b6d1169265a plus all 25 "
+        "enumerated fork commits. Two implementation/transition changes are separately "
+        "scoped. Historical upstream conformance is not certification of the changed "
+        "scanner or creation semantics. Exact-head component runtime/mutation/reference "
+        "evidence covers four Osaka creation cases; whole-program gas, rollback, "
+        "constructor fuel/output and canonical/native account correspondence still "
+        "require their own proofs and differential campaigns."
     ),
 }
 
@@ -365,6 +439,62 @@ ALLOWED_CATEGORIES = frozenset({
     "semantic-change",
     "merge",
 })
+
+
+APPROVED_SEMANTIC_CHANGES = frozenset({
+    "0ff72b2db35302305fccb1d4f42b480434b77bfe",
+    "a4473c2c1831d99ac3e1c5be7c9ce8e07da04266",
+})
+
+
+def _validate_semantic_scope() -> None:
+    scope = FORK_AUDIT.get("semantic_scope", {})
+    if (set(scope.get("approved_commits", [])) != APPROVED_SEMANTIC_CHANGES
+            or len(scope.get("approved_commits", [])) != len(APPROVED_SEMANTIC_CHANGES)
+            or scope.get("upstream_conformance_transfers") is not False):
+        raise RuntimeError("semantic scope must name exactly the approved changes and deny conformance transfer")
+    listed = {c["sha"] for c in FORK_AUDIT["commits"]}
+    if not APPROVED_SEMANTIC_CHANGES <= listed:
+        raise RuntimeError("semantic scope contains a commit missing from the audit")
+    if scope.get("document") != "docs/EVMYULLEAN_FORK_SCOPE.md" or not (ROOT / scope["document"]).is_file():
+        raise RuntimeError("semantic scope document is missing")
+    if scope.get("evidence") != "artifacts/evmyullean_osaka_creation_reference.json":
+        raise RuntimeError("semantic evidence path is not the audited artifact")
+    path = ROOT / scope["evidence"]
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != scope.get("evidence_sha256"):
+        raise RuntimeError("semantic evidence identity mismatch")
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    tip = FORK_AUDIT["pinned_commit"]
+    validation = evidence.get("validation", {})
+    expected_checks = {"build", "runtime", "mutations", "real-reference", "diff"}
+    checks = validation.get("checks", [])
+    if (evidence.get("native_commit") != tip or validation.get("head") != tip
+            or validation.get("exit") != 0 or validation.get("sourceIdentityUnchanged") is not True
+            or len(checks) != len(expected_checks) or {c.get("name") for c in checks} != expected_checks
+            or any(c.get("exit") != 0 for c in checks)):
+        raise RuntimeError("semantic evidence lacks complete exact-tip validation")
+    reference = evidence.get("reference", {})
+    mutations = evidence.get("mutations", {})
+    runtime = evidence.get("runtime", {})
+    cases = reference.get("rows", [])
+    if (reference.get("exit") != 0 or len(cases) != 4
+            or {c.get("name") for c in cases} != {"storage-only", "balance-only", "nonce-collision", "code-collision"}):
+        raise RuntimeError("semantic reference must contain all four independent EVM cases")
+    mutants = mutations.get("rows", [])
+    if (mutations.get("exit") != 0 or len(mutants) != 4
+            or {m.get("name") for m in mutants} != {
+                "reinstate-storage-collision", "omit-storage-reset", "omit-nonce-collision", "omit-code-collision"}
+            or any(m.get("exit") != 1 or len(m.get("detected", [])) != 1
+                   or m.get("detected") != m.get("replay") for m in mutants)):
+        raise RuntimeError("semantic mutations require four runtime failures and identical replay")
+    if (runtime.get("exit") != 0 or runtime.get("output") != [
+            "Osaka CREATE2 storage reset and nonce/code collision checks passed:4"]):
+        raise RuntimeError("semantic runtime must have the strict native success marker")
+    identities = [reference.get("identity", {}), mutations.get("identity", {}), runtime.get("identity", {})]
+    for source in ("EvmYul/EVM/Semantics.lean", "Conform/Create2OsakaChecks.lean"):
+        hashes = [i.get(source) for i in identities]
+        if any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{64}", h) for h in hashes) or len(set(hashes)) != 1:
+            raise RuntimeError("semantic evidence uses inconsistent native source identities")
 
 
 def _read_evmyul_package(manifest_path: Path) -> dict[str, object]:
@@ -386,8 +516,7 @@ def _validate_audit() -> None:
         )
     if FORK_AUDIT["fork_behind_by"] != 0:
         raise RuntimeError(
-            "fork_behind_by must be 0 to guarantee upstream conformance "
-            "coverage applies transitively"
+            "fork_behind_by must be 0 to retain the recorded upstream ancestry"
         )
     for commit in FORK_AUDIT["commits"]:
         if commit.get("category") not in ALLOWED_CATEGORIES:
@@ -395,11 +524,14 @@ def _validate_audit() -> None:
                 f"commit {commit['sha'][:10]} has unsupported category "
                 f"{commit.get('category')!r}"
             )
-        if commit.get("semantic_change") is not False:
+        approved = commit["sha"] in APPROVED_SEMANTIC_CHANGES
+        if commit.get("semantic_change") is not approved:
             raise RuntimeError(
-                f"commit {commit['sha'][:10]} must be non-semantic; "
-                f"semantic changes require Issue #1722 scope expansion"
+                f"commit {commit['sha'][:10]} semantic_change must be {approved}; "
+                "unscoped semantic changes require a new explicit audit scope"
             )
+        if (commit["category"] == "semantic-change") is not approved:
+            raise RuntimeError(f"commit {commit['sha'][:10]} semantic category disagrees with scope")
         if not re.match(r"^[0-9a-f]{40}$", commit["sha"]):
             raise RuntimeError(
                 f"invalid SHA format: {commit['sha']}"
@@ -415,6 +547,7 @@ def _validate_audit() -> None:
             f"pinned_commit {pinned} must match the audited fork tip "
             f"{expected_tip}"
         )
+    _validate_semantic_scope()
 
 
 def _cross_check_manifest_pin() -> None:

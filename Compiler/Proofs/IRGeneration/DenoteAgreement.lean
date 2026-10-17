@@ -33,11 +33,12 @@ def sourceOracle : DenoteOracle :=
 
 /-- The state conversion is field-for-field (the two structures coincide). -/
 def toRuntimeState (s : DenoteState) : SourceSemantics.RuntimeState :=
-  { world := s.world, immutable := s.immutable, bindings := s.bindings, selector := s.selector,
+  { world := s.world, executionContext := s.executionContext,
+    immutable := s.immutable, bindings := s.bindings, selector := s.selector,
     externalCallOracle := fun n =>
       ⟨s.externalCallSucceeded n, s.externalCallReturnValues n, s.externalCallPostWorld n⟩,
     externalCallIndex := s.externalCallIndex,
-    observedReturnWords := s.observedReturnWords }
+    observedReturnWords := s.observedReturnWords, errors := s.errors }
 
 @[simp] theorem toRuntimeState_world (s : DenoteState) :
     (toRuntimeState s).world = s.world := rfl
@@ -153,7 +154,9 @@ def toStmtResult : StmtOutcome → SourceSemantics.StmtResult
   | .stop st => .stop (toRuntimeState st)
   | .return v st => .return v (toRuntimeState st)
   | .revert => .revert
-  | .revertWithData _ => .revert
+  | .revertWithData data => .revertWithData data
+  | .interpretationError message => .interpretationError message
+  | .exceptional state => .exceptional (toRuntimeState state)
 
 theorem storageArraySetAt_eq :
     ∀ (xs : List Verity.Core.Uint256) (idx : Nat) (v : Verity.Core.Uint256),
@@ -475,6 +478,20 @@ theorem writeAddressKeyedMapping2FieldSlots_eq
 
 /-! ## Statement-level agreement -/
 
+/-- The actual creation statement agrees, including typed interpretation errors
+and exceptional frames; both lanes require the supplied opcode-entry context. -/
+theorem execCreation_eq (fields : List Field) (state : DenoteState)
+    (destination : String) (offset size salt : Expr) :
+    toStmtResult (Denote.execCreation sourceOracle fields state destination offset size salt) =
+      SourceSemantics.execCreation fields (toRuntimeState state) destination offset size salt := by
+  simp only [Denote.execCreation, SourceSemantics.execCreation]
+  rw [← denote_evalExprList_eq fields state [offset, size, salt]]
+  simp only [toRuntimeState]
+  repeat' (split at * <;> try simp_all [toStmtResult, toRuntimeState])
+  all_goals subst_vars
+  all_goals simp_all
+
+
 theorem execForEachLoop_agree {varName : String}
     {runBody : DenoteState → StmtOutcome}
     {runBody' : SourceSemantics.RuntimeState → SourceSemantics.StmtResult}
@@ -496,7 +513,9 @@ theorem execForEachLoop_agree {varName : String}
             | .stop next => .stop next
             | .return value next => .return value next
             | .revert => .revert
-            | .revertWithData data => .revertWithData data) = _
+            | .revertWithData data => .revertWithData data
+            | .interpretationError message => .interpretationError message
+            | .exceptional next => .exceptional next) = _
       cases runBody ls <;>
         first
           | rfl
@@ -527,7 +546,9 @@ theorem execForEachSetBitLoop_agree {varName : String}
             | .stop next => .stop next
             | .return value next => .return value next
             | .revert => .revert
-            | .revertWithData data => .revertWithData data) = _
+            | .revertWithData data => .revertWithData data
+            | .interpretationError message => .interpretationError message
+            | .exceptional next => .exceptional next) = _
         cases runBody ls <;>
           first
             | rfl
@@ -549,6 +570,13 @@ theorem execStmt_forEachSetBit_eq (fields : List Field)
         (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
         hbody 256 st bits
 
+theorem execReturndataCopy_eq (state : DenoteState) (destination source size : Nat) :
+    toStmtResult (Denote.execReturndataCopy state destination source size) =
+      SourceSemantics.execReturndataCopy (toRuntimeState state) destination source size := by
+  unfold Denote.execReturndataCopy SourceSemantics.execReturndataCopy
+  simp only [toRuntimeState]
+  cases Verity.Core.Model.ReturndataCopy.run state.world state.executionContext destination source size <;> rfl
+
 section StatementTactics
 
 /-- Generic discharge tactic for the non-recursive `execStmt` arms: align the
@@ -568,7 +596,7 @@ macro "denote_stmt_arm" : tactic =>
          storageArrayDropLast?_eq,
          writeFixedUint128ArrayElementSlots_eq,
          SourceSemantics.eventFromResolvedArgs?,
-         SourceSemantics.eventScratchMemoryAfterEmit?])
+         SourceSemantics.eventScratchWorldAfterEmit?])
      all_goals subst_vars
      all_goals
        first
@@ -581,7 +609,7 @@ macro "denote_stmt_arm" : tactic =>
              storageArrayDropLast?_eq,
              writeFixedUint128ArrayElementSlots_eq,
              SourceSemantics.eventFromResolvedArgs?,
-             SourceSemantics.eventScratchMemoryAfterEmit?]
+             SourceSemantics.eventScratchWorldAfterEmit?]
          | (simp_all only [Option.bind_eq_some_iff]; aesop)))
 
 end StatementTactics
@@ -592,6 +620,9 @@ theorem execStmt_eq (fields : List Field) :
     ∀ (st : DenoteState) (stmt : Stmt),
       toStmtResult (Denote.execStmt sourceOracle fields st stmt) =
         SourceSemantics.execStmt fields (toRuntimeState st) stmt
+  | st, .create2 destination offset size salt => by
+      simpa only [Denote.execStmt, SourceSemantics.execStmt] using
+        execCreation_eq fields st destination offset size salt
   | _, .letVar n v | _, .assignVar n v => by denote_stmt_arm
   | _, .setStorage f v | _, .setStorageAddr f v | _, .setImmutable f v => by denote_stmt_arm
   | _, .setStorageWord f w v => by denote_stmt_arm
@@ -606,7 +637,37 @@ theorem execStmt_eq (fields : List Field) :
   | _, .storageArrayPush f v | _, .storageArrayPop f => by denote_stmt_arm
   | _, .setStorageArrayElement f i v => by denote_stmt_arm
   | _, .mstore o v | _, .tstore o v => by denote_stmt_arm
-  | _, .require _ _ | _, .requireError .. | _, .revertError .. | _, .panicCode _ | _, .panic _ => by denote_stmt_arm
+  | st, .require cond message => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq]
+      cases Denote.evalExpr sourceOracle fields st cond with
+      | none => rfl
+      | some value => by_cases h : value != 0 <;> simp [h, toStmtResult, toRuntimeState]
+  | st, .requireError cond name args => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt]
+      rw [← denote_evalExpr_eq]
+      cases Denote.evalExpr sourceOracle fields st cond with
+      | none => rfl
+      | some value =>
+          by_cases h : value != 0
+          · simp [h, toStmtResult, toRuntimeState]
+          · simp only [h, Bool.false_eq_true, if_false, SourceSemantics.typedErrorRevertResult]
+            rw [← denote_evalExprList_eq]
+            cases Denote.evalExprList sourceOracle fields st args with
+            | none => rfl
+            | some values =>
+                cases bytes : Denote.customErrorBytes sourceOracle st.errors name values <;>
+                  (simp only [sourceOracle] at bytes; simp [toStmtResult, toRuntimeState, sourceOracle, bytes])
+  | st, .revertError name args => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt, SourceSemantics.typedErrorRevertResult]
+      rw [← denote_evalExprList_eq]
+      cases Denote.evalExprList sourceOracle fields st args with
+      | none => rfl
+      | some values => cases bytes : Denote.customErrorBytes sourceOracle st.errors name values <;>
+                  (simp only [sourceOracle] at bytes; simp [toStmtResult, toRuntimeState, sourceOracle, bytes])
+  | st, .panicCode code => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq]
+      cases Denote.evalExpr sourceOracle fields st code <;> rfl
+  | _, .panic _ => rfl
   | _, .return v => by denote_stmt_arm
   | _, .stop => rfl
   | _, .emit n args => by denote_stmt_arm
@@ -633,8 +694,13 @@ theorem execStmt_eq (fields : List Field) :
   | st, .forEachSetBit v bitmap body =>
       execStmt_forEachSetBit_eq fields st v bitmap body (fun ls => execStmtList_eq fields ls body)
   | _, .calldatacopy _ _ _ => by denote_stmt_arm
-  -- The two lanes use definitionally equal padded-copy mirrors.
-  | _, .returndataCopy _ _ _ => by denote_stmt_arm; rfl
+  -- Both lanes use the same exact byte-copy update.
+  | state, .returndataCopy destination source size => by
+      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq]
+      cases Denote.evalExpr sourceOracle fields state destination <;>
+        cases Denote.evalExpr sourceOracle fields state source <;>
+        cases Denote.evalExpr sourceOracle fields state size <;>
+        first | rfl | exact execReturndataCopy_eq state _ _ _
   | st, .externalCallBind resultVars _externalName args => by
       simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq]
       cases Denote.evalExprList sourceOracle fields st args with

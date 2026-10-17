@@ -1,0 +1,473 @@
+{
+  "mutations": {
+    "exit": 0,
+    "identity": {
+      "Conform/Create2OsakaChecks.lean": "a294c320c623212cf60822224c42802fa154e65d616c2d640931c8e524dc2455",
+      "EvmYul/EVM/Semantics.lean": "d4a3618777ec1a6efe4841452efeb6e13ee2b2b1a73645618e2c063a8c6a1e09",
+      "lake-manifest.json": "f6edfbb9659aa2a6e7647722eaa0505cdd661fc8f02185cd43fac0b48925c90a",
+      "scripts/check_create2_osaka_mutations.py": "827a7f80ea39b232e358ded3d17bdd97ad76e65205837747c27800fe9343463f"
+    },
+    "rows": [
+      {
+        "detected": [
+          "uncaught exception: Osaka CREATE2 must accept storage-only target and clear its persistent storage"
+        ],
+        "exit": 1,
+        "name": "reinstate-storage-collision",
+        "replay": [
+          "uncaught exception: Osaka CREATE2 must accept storage-only target and clear its persistent storage"
+        ]
+      },
+      {
+        "detected": [
+          "uncaught exception: Osaka CREATE2 must accept storage-only target and clear its persistent storage"
+        ],
+        "exit": 1,
+        "name": "omit-storage-reset",
+        "replay": [
+          "uncaught exception: Osaka CREATE2 must accept storage-only target and clear its persistent storage"
+        ]
+      },
+      {
+        "detected": [
+          "uncaught exception: Osaka CREATE2 nonce/code collision must preserve the target snapshot"
+        ],
+        "exit": 1,
+        "name": "omit-nonce-collision",
+        "replay": [
+          "uncaught exception: Osaka CREATE2 nonce/code collision must preserve the target snapshot"
+        ]
+      },
+      {
+        "detected": [
+          "uncaught exception: Osaka CREATE2 nonce/code collision must preserve the target snapshot"
+        ],
+        "exit": 1,
+        "name": "omit-code-collision",
+        "replay": [
+          "uncaught exception: Osaka CREATE2 nonce/code collision must preserve the target snapshot"
+        ]
+      }
+    ]
+  },
+  "native_commit": "4cf4c5d0f286e8efc3d9e972ce3616bfe83a0624",
+  "reference": {
+    "arguments": [
+      "anvil",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "48109",
+      "--hardfork",
+      "osaka",
+      "--timestamp",
+      "1000000000",
+      "--chain-id",
+      "31337",
+      "--steps-tracing",
+      "--quiet"
+    ],
+    "code": "60636007557f600b380380600b5f395ff30000000000000000000000000000000000000000005f526007600b5f5ff55f5260205ff3",
+    "creator": "0x0000000000000000000000000000000000002001",
+    "exit": 0,
+    "identity": {
+      "Conform/Create2OsakaChecks.lean": "a294c320c623212cf60822224c42802fa154e65d616c2d640931c8e524dc2455",
+      "EvmYul/EVM/Semantics.lean": "d4a3618777ec1a6efe4841452efeb6e13ee2b2b1a73645618e2c063a8c6a1e09",
+      "scripts/check_create2_osaka_reference.py": "d2998c236ccc05945c5bf7cc472a8010eaa867ab76e19f56648309230e2e3dc6"
+    },
+    "rows": [
+      {
+        "afterCreate": {
+          "depth": 1,
+          "gas": 962944,
+          "gasCost": 2,
+          "memory": [
+            "600b380380600b5f395ff3000000000000000000000000000000000000000000"
+          ],
+          "op": "PUSH0",
+          "pc": 47,
+          "stack": [
+            "0xe317ec6689ba1293927261f8acda33b2db0bb1ba"
+          ]
+        },
+        "call": {
+          "calls": [
+            {
+              "from": "0x0000000000000000000000000000000000002001",
+              "gas": "0xe76cf",
+              "gasUsed": "0x15",
+              "input": "0x600b380380600b5f395ff3",
+              "to": "0xe317ec6689ba1293927261f8acda33b2db0bb1ba",
+              "type": "CREATE2",
+              "value": "0x0"
+            }
+          ],
+          "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "gas": "0xf4240",
+          "gasUsed": "0xe2d2",
+          "input": "0x",
+          "output": "0x000000000000000000000000e317ec6689ba1293927261f8acda33b2db0bb1ba",
+          "to": "0x0000000000000000000000000000000000002001",
+          "type": "CALL",
+          "value": "0x0"
+        },
+        "entry": {
+          "depth": 1,
+          "gas": 994973,
+          "gasCost": 979927,
+          "memory": [
+            "600b380380600b5f395ff3000000000000000000000000000000000000000000"
+          ],
+          "op": "CREATE2",
+          "pc": 46,
+          "stack": [
+            "0x7",
+            "0xb",
+            "0x0",
+            "0x0"
+          ]
+        },
+        "final": {
+          "balance": "0x13",
+          "code": "0x",
+          "creatorNonce": "0x1",
+          "creatorSlot7": "0x0000000000000000000000000000000000000000000000000000000000000063",
+          "nonce": "0x1",
+          "slot9": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "initial": {
+          "balance": "0x13",
+          "code": "0x",
+          "nonce": "0x0",
+          "slot9": "0x000000000000000000000000000000000000000000000000000000000000004d"
+        },
+        "name": "storage-only",
+        "receipt": {
+          "blobGasPrice": "0x1",
+          "blockHash": "0xea3d86cd95ab335f7e5a2c045f75a3d30a4b46078beb1028a6ac007b63d51efb",
+          "blockNumber": "0x1",
+          "contractAddress": null,
+          "cumulativeGasUsed": "0xe2d2",
+          "effectiveGasPrice": "0x3b9aca00",
+          "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "gasUsed": "0xe2d2",
+          "logs": [],
+          "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "status": "0x1",
+          "to": "0x0000000000000000000000000000000000002001",
+          "transactionHash": "0xdac1102aa00d465ebb47cdade9fb4bea043198b0ecd8f38ad9b1858fdd285257",
+          "transactionIndex": "0x0",
+          "type": "0x2"
+        }
+      },
+      {
+        "afterCreate": {
+          "depth": 1,
+          "gas": 962944,
+          "gasCost": 2,
+          "memory": [
+            "600b380380600b5f395ff3000000000000000000000000000000000000000000"
+          ],
+          "op": "PUSH0",
+          "pc": 47,
+          "stack": [
+            "0xe317ec6689ba1293927261f8acda33b2db0bb1ba"
+          ]
+        },
+        "call": {
+          "calls": [
+            {
+              "from": "0x0000000000000000000000000000000000002001",
+              "gas": "0xe76cf",
+              "gasUsed": "0x15",
+              "input": "0x600b380380600b5f395ff3",
+              "to": "0xe317ec6689ba1293927261f8acda33b2db0bb1ba",
+              "type": "CREATE2",
+              "value": "0x0"
+            }
+          ],
+          "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "gas": "0xf4240",
+          "gasUsed": "0xe2d2",
+          "input": "0x",
+          "output": "0x000000000000000000000000e317ec6689ba1293927261f8acda33b2db0bb1ba",
+          "to": "0x0000000000000000000000000000000000002001",
+          "type": "CALL",
+          "value": "0x0"
+        },
+        "entry": {
+          "depth": 1,
+          "gas": 994973,
+          "gasCost": 979927,
+          "memory": [
+            "600b380380600b5f395ff3000000000000000000000000000000000000000000"
+          ],
+          "op": "CREATE2",
+          "pc": 46,
+          "stack": [
+            "0x7",
+            "0xb",
+            "0x0",
+            "0x0"
+          ]
+        },
+        "final": {
+          "balance": "0x13",
+          "code": "0x",
+          "creatorNonce": "0x1",
+          "creatorSlot7": "0x0000000000000000000000000000000000000000000000000000000000000063",
+          "nonce": "0x1",
+          "slot9": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "initial": {
+          "balance": "0x13",
+          "code": "0x",
+          "nonce": "0x0",
+          "slot9": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "name": "balance-only",
+        "receipt": {
+          "blobGasPrice": "0x1",
+          "blockHash": "0x08c172c7a5eb474965d4e852c6d50615a62faf2eaca0c1a0b586a259e864e9db",
+          "blockNumber": "0x1",
+          "contractAddress": null,
+          "cumulativeGasUsed": "0xe2d2",
+          "effectiveGasPrice": "0x342ed2ec",
+          "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "gasUsed": "0xe2d2",
+          "logs": [],
+          "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "status": "0x1",
+          "to": "0x0000000000000000000000000000000000002001",
+          "transactionHash": "0xf4e410c5ebbfd15094e5ccb6a1c0951a4df5d7e5d79883eb7dbeefa20c53c86b",
+          "transactionIndex": "0x0",
+          "type": "0x2"
+        }
+      },
+      {
+        "afterCreate": {
+          "depth": 1,
+          "gas": 15046,
+          "gasCost": 2,
+          "memory": [
+            "600b380380600b5f395ff3000000000000000000000000000000000000000000"
+          ],
+          "op": "PUSH0",
+          "pc": 47,
+          "stack": [
+            "0x0"
+          ]
+        },
+        "call": {
+          "calls": [
+            {
+              "error": "CreateCollision",
+              "from": "0x0000000000000000000000000000000000002001",
+              "gas": "0xe76cf",
+              "gasUsed": "0xe76cf",
+              "input": "0x600b380380600b5f395ff3",
+              "type": "CREATE2",
+              "value": "0x0"
+            }
+          ],
+          "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "gas": "0xf4240",
+          "gasUsed": "0xf598c",
+          "input": "0x",
+          "output": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "to": "0x0000000000000000000000000000000000002001",
+          "type": "CALL",
+          "value": "0x0"
+        },
+        "entry": {
+          "depth": 1,
+          "gas": 994973,
+          "gasCost": 979927,
+          "memory": [
+            "600b380380600b5f395ff3000000000000000000000000000000000000000000"
+          ],
+          "op": "CREATE2",
+          "pc": 46,
+          "stack": [
+            "0x7",
+            "0xb",
+            "0x0",
+            "0x0"
+          ]
+        },
+        "final": {
+          "balance": "0x13",
+          "code": "0x",
+          "creatorNonce": "0x1",
+          "creatorSlot7": "0x0000000000000000000000000000000000000000000000000000000000000063",
+          "nonce": "0x1",
+          "slot9": "0x000000000000000000000000000000000000000000000000000000000000004d"
+        },
+        "initial": {
+          "balance": "0x13",
+          "code": "0x",
+          "nonce": "0x1",
+          "slot9": "0x000000000000000000000000000000000000000000000000000000000000004d"
+        },
+        "name": "nonce-collision",
+        "receipt": {
+          "blobGasPrice": "0x1",
+          "blockHash": "0x57187f3139df48f370e0b40a78bd992b7746ac48255c2bacfc3b27cd3a9807df",
+          "blockNumber": "0x1",
+          "contractAddress": null,
+          "cumulativeGasUsed": "0xf598c",
+          "effectiveGasPrice": "0x2daf6f5f",
+          "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "gasUsed": "0xf598c",
+          "logs": [],
+          "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "status": "0x1",
+          "to": "0x0000000000000000000000000000000000002001",
+          "transactionHash": "0xbbaa1f39addc399cd01308b53214fa15e4fb47b5e38364d22265307782ccec96",
+          "transactionIndex": "0x0",
+          "type": "0x2"
+        }
+      },
+      {
+        "afterCreate": {
+          "depth": 1,
+          "gas": 15046,
+          "gasCost": 2,
+          "memory": [
+            "600b380380600b5f395ff3000000000000000000000000000000000000000000"
+          ],
+          "op": "PUSH0",
+          "pc": 47,
+          "stack": [
+            "0x0"
+          ]
+        },
+        "call": {
+          "calls": [
+            {
+              "error": "CreateCollision",
+              "from": "0x0000000000000000000000000000000000002001",
+              "gas": "0xe76cf",
+              "gasUsed": "0xe76cf",
+              "input": "0x600b380380600b5f395ff3",
+              "type": "CREATE2",
+              "value": "0x0"
+            }
+          ],
+          "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "gas": "0xf4240",
+          "gasUsed": "0xf598c",
+          "input": "0x",
+          "output": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "to": "0x0000000000000000000000000000000000002001",
+          "type": "CALL",
+          "value": "0x0"
+        },
+        "entry": {
+          "depth": 1,
+          "gas": 994973,
+          "gasCost": 979927,
+          "memory": [
+            "600b380380600b5f395ff3000000000000000000000000000000000000000000"
+          ],
+          "op": "CREATE2",
+          "pc": 46,
+          "stack": [
+            "0x7",
+            "0xb",
+            "0x0",
+            "0x0"
+          ]
+        },
+        "final": {
+          "balance": "0x13",
+          "code": "0x00",
+          "creatorNonce": "0x1",
+          "creatorSlot7": "0x0000000000000000000000000000000000000000000000000000000000000063",
+          "nonce": "0x0",
+          "slot9": "0x000000000000000000000000000000000000000000000000000000000000004d"
+        },
+        "initial": {
+          "balance": "0x13",
+          "code": "0x00",
+          "nonce": "0x0",
+          "slot9": "0x000000000000000000000000000000000000000000000000000000000000004d"
+        },
+        "name": "code-collision",
+        "receipt": {
+          "blobGasPrice": "0x1",
+          "blockHash": "0x1c09498e2d8d84855d1959b1cfdfa025a7fd3e030d4ee12a20e028e0e0f8c9f9",
+          "blockNumber": "0x1",
+          "contractAddress": null,
+          "cumulativeGasUsed": "0xf598c",
+          "effectiveGasPrice": "0x285b8c84",
+          "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "gasUsed": "0xf598c",
+          "logs": [],
+          "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "status": "0x1",
+          "to": "0x0000000000000000000000000000000000002001",
+          "transactionHash": "0x3268012bc23c458077c8c466c909d19cddfa446cf0718d97a4923346753b675c",
+          "transactionIndex": "0x0",
+          "type": "0x2"
+        }
+      }
+    ],
+    "target": "0xe317ec6689ba1293927261f8acda33b2db0bb1ba",
+    "versions": {
+      "anvil": "anvil Version: 1.5.0-v1.5.0\nCommit SHA: 1c57854462289b2e71ee7654cd6666217ed86ffd\nBuild Timestamp: 2025-11-24T06:05:14.965520784Z (1763964314)\nBuild Profile: maxperf",
+      "cast": "cast Version: 1.5.0-v1.5.0\nCommit SHA: 1c57854462289b2e71ee7654cd6666217ed86ffd\nBuild Timestamp: 2025-11-24T06:05:14.965520784Z (1763964314)\nBuild Profile: maxperf"
+    }
+  },
+  "runtime": {
+    "exit": 0,
+    "identity": {
+      ".lake/build/bin/create2OsakaChecks": "42db8b827e6d1b87704bb2462590aa317b3132c86466b597380c293853dc584c",
+      "Conform/Create2OsakaChecks.lean": "a294c320c623212cf60822224c42802fa154e65d616c2d640931c8e524dc2455",
+      "EvmYul/EVM/Semantics.lean": "d4a3618777ec1a6efe4841452efeb6e13ee2b2b1a73645618e2c063a8c6a1e09",
+      "requirements-native-tests.txt": "089b6574669f8fa1197c865484d87fdd9af78f967091ac166a1fc0b143cc9471",
+      "scripts/check_create2_osaka_runtime.py": "2ad618794e36a3d1fac658a560fb4e9d03bd725d90df8733149e71bef4acf5e1"
+    },
+    "output": [
+      "Osaka CREATE2 storage reset and nonce/code collision checks passed:4"
+    ],
+    "packages": {
+      "coincurve": "21.0.0",
+      "eth-typing": "5.2.1",
+      "py-ecc": "8.0.0",
+      "pycryptodome": "3.23.0",
+      "typing-extensions": "4.15.0"
+    },
+    "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]"
+  },
+  "schema_version": 1,
+  "scope": "Component CREATE/CREATE2 storage initialization and nonce/code collision conformance on Foundry v1.5.0 Osaka. Not whole-transaction or whole-Midnight equivalence.",
+  "validation": {
+    "checks": [
+      {
+        "exit": 0,
+        "name": "build"
+      },
+      {
+        "exit": 0,
+        "name": "runtime"
+      },
+      {
+        "exit": 0,
+        "name": "mutations"
+      },
+      {
+        "exit": 0,
+        "name": "real-reference"
+      },
+      {
+        "exit": 0,
+        "name": "diff"
+      }
+    ],
+    "exit": 0,
+    "finished": "2026-10-15T06:57:35.903206+00:00",
+    "head": "4cf4c5d0f286e8efc3d9e972ce3616bfe83a0624",
+    "sourceIdentityUnchanged": true
+  }
+}

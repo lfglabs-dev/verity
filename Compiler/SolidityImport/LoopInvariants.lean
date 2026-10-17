@@ -36,6 +36,8 @@ theorem execForEachLoop_invariant
       | «return» value after => simpa [result, LoopOutcomePost] using next
       | revert => simpa [result, LoopOutcomePost] using next
       | revertWithData bytes => simpa [result, LoopOutcomePost] using next
+      | interpretationError message => simpa [result, LoopOutcomePost] using next
+      | exceptional after => simpa [result, LoopOutcomePost] using next
 
 /-- Lift the indexed rule through count evaluation and the actual `.forEach`
 statement, including the executor's initial binding even for an empty loop. -/
@@ -83,6 +85,8 @@ theorem execForEachLoop_bounded_invariant
       | «return» value after => simpa [result, LoopOutcomePost] using next
       | revert => simpa [result, LoopOutcomePost] using next
       | revertWithData bytes => simpa [result, LoopOutcomePost] using next
+      | interpretationError message => simpa [result, LoopOutcomePost] using next
+      | exceptional after => simpa [result, LoopOutcomePost] using next
 
 /-- The strict loop condition makes the checked uint256 unit increment safe,
 even when the bound is the largest representable word. -/

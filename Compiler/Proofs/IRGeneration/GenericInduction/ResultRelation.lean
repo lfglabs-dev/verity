@@ -42,7 +42,12 @@ def stmtStepMatchesIRExec
   | .return value runtime, .return value' state =>
       value = value' ∧
       FunctionBody.runtimeStateMatchesIR fields runtime state
-  | .revert, .revert _ => True
+  | .exceptional runtime, .exceptional state =>
+      FunctionBody.runtimeStateMatchesIR fields runtime state
+  | .interpretationError sourceMessage, .interpretationError irMessage =>
+      sourceMessage = irMessage
+  | .revert, .revert state => state.revertBytes = some []
+  | .revertWithData data, .revert state => state.revertBytes = some data
   | _, _ => False
 
 /-- Helper-aware compiled-side counterpart of `stmtStepMatchesIRExec`. `leave`
@@ -61,7 +66,12 @@ def stmtStepMatchesIRExecWithInternals
   | .return value runtime, .return value' state =>
       value = value' ∧
       FunctionBody.runtimeStateMatchesIR fields runtime state
-  | .revert, .revert _ => True
+  | .exceptional runtime, .exceptional state =>
+      FunctionBody.runtimeStateMatchesIR fields runtime state
+  | .interpretationError sourceMessage, .interpretationError irMessage =>
+      sourceMessage = irMessage
+  | .revert, .revert state => state.revertBytes = some []
+  | .revertWithData data, .revert state => state.revertBytes = some data
   | _, _ => False
 
 /-- Helper-aware compiled-side counterpart of
@@ -79,12 +89,18 @@ def stmtResultMatchesIRExecWithInternals
       FunctionBody.stmtResultMatchesIRExec fields sourceResult (.stop state)
   | .revert state =>
       FunctionBody.stmtResultMatchesIRExec fields sourceResult (.revert state)
+  | .exceptional state =>
+      FunctionBody.stmtResultMatchesIRExec fields sourceResult (.exceptional state)
+  | .interpretationError message =>
+      FunctionBody.stmtResultMatchesIRExec fields sourceResult (.interpretationError message)
   | .leave _ => False
 
 def externalIRExecResultToWithInternals : IRExecResult → IRExecResultWithInternals
   | .continue next => .continue next
   | .return value next => .return value next
   | .stop next => .stop next
+  | .exceptional next => .exceptional next
+  | .interpretationError message => .interpretationError message
   | .revert next => .revert next
 
 theorem stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec
@@ -108,6 +124,65 @@ abbrev compiledIRWithInternalsCompat
         (compiledIR.length + extraFuel + 1) state compiledIR =
       externalIRExecResultToWithInternals
         (execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR)
+
+/-- Operational transport includes precise instrument refusals. It is not an
+EVM certificate: consumers must separately establish admissibility and absence
+of refusal before using the public certified result relation. -/
+def stmtOutcomeMatchesIRExec (fields : List Field) :
+    SourceSemantics.StmtResult → IRExecResult → Prop
+  | .continue runtime, .continue state => FunctionBody.runtimeStateMatchesIR fields runtime state
+  | .stop runtime, .stop state => FunctionBody.runtimeStateMatchesIR fields runtime state
+  | .return value runtime, .return value' state =>
+      value = value' ∧ FunctionBody.runtimeStateMatchesIR fields runtime state
+  | .exceptional runtime, .exceptional state => FunctionBody.runtimeStateMatchesIR fields runtime state
+  | .interpretationError message, .interpretationError message' => message = message'
+  | .revert, .revert state => state.revertBytes = some []
+  | .revertWithData data, .revert state => state.revertBytes = some data
+  | _, _ => False
+
+def stmtOutcomeMatchesIRExecWithInternals (fields : List Field)
+    (source : SourceSemantics.StmtResult) : IRExecResultWithInternals → Prop
+  | .continue state => stmtOutcomeMatchesIRExec fields source (.continue state)
+  | .return value state => stmtOutcomeMatchesIRExec fields source (.return value state)
+  | .stop state => stmtOutcomeMatchesIRExec fields source (.stop state)
+  | .exceptional state => stmtOutcomeMatchesIRExec fields source (.exceptional state)
+  | .interpretationError message => stmtOutcomeMatchesIRExec fields source (.interpretationError message)
+  | .revert state => stmtOutcomeMatchesIRExec fields source (.revert state)
+  | .leave _ => False
+
+/-- Ordinary halts covered by the existing certificate. Actual EVM exceptions
+need their own gas/context certificate; instrument refusals never qualify. -/
+def stmtOutcomeIsOrdinary : SourceSemantics.StmtResult → Prop
+  | .continue _ | .stop _ | .return _ _ | .revert | .revertWithData _ => True
+  | .exceptional _ | .interpretationError _ => False
+
+/-- Characterize, rather than assume, the admission needed to recover the
+unchanged ordinary-halt certificate from operational correspondence. -/
+theorem stmtOutcomeMatchesIRExec_certified_iff (fields : List Field)
+    (source : SourceSemantics.StmtResult) (ir : IRExecResult) :
+    FunctionBody.stmtResultMatchesIRExec fields source ir ↔
+      stmtOutcomeMatchesIRExec fields source ir ∧ stmtOutcomeIsOrdinary source := by
+  cases source <;> cases ir <;>
+    simp [FunctionBody.stmtResultMatchesIRExec, stmtOutcomeMatchesIRExec,
+      stmtOutcomeIsOrdinary]
+
+theorem stmtOutcomeMatchesIRExecWithInternals_certified_iff (fields : List Field)
+    (source : SourceSemantics.StmtResult) (ir : IRExecResultWithInternals) :
+    stmtResultMatchesIRExecWithInternals fields source ir ↔
+      stmtOutcomeMatchesIRExecWithInternals fields source ir ∧ stmtOutcomeIsOrdinary source := by
+  cases source <;> cases ir <;>
+    simp [stmtResultMatchesIRExecWithInternals, FunctionBody.stmtResultMatchesIRExec,
+      stmtOutcomeMatchesIRExecWithInternals, stmtOutcomeMatchesIRExec, stmtOutcomeIsOrdinary]
+
+/-- The operational refusal case cannot discharge public EVM certification. -/
+theorem operational_refusal_not_certified (fields : List Field) (message : String)
+    (rollback : IRState) (spec : CompilationModel) (initial : Verity.ContractState) :
+    stmtOutcomeMatchesIRExec fields (.interpretationError message) (.interpretationError message) ∧
+      ¬ FunctionBody.sourceResultMatchesIRResult
+        (FunctionBody.stmtResultToSourceResult spec initial (.interpretationError message))
+        (FunctionBody.irResultOfExecResult rollback (.interpretationError message)) := by
+  simp [stmtOutcomeMatchesIRExec, FunctionBody.sourceResultMatchesIRResult,
+    FunctionBody.stmtResultToSourceResult, SourceSemantics.revertedResult]
 
 /-- A compiled statement head that preserves the exact-state invariant needed to
 continue generic statement-list induction on the remaining tail. -/

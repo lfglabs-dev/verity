@@ -281,6 +281,8 @@ theorem execIRStmts_stable : ∀ (xs : List YulStmt), LoopFreeList xs →
             (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f) s₁ rest
         | .return v s => .return v s
         | .stop s => .stop s
+        | .exceptional s => .exceptional s
+        | .interpretationError message => .interpretationError message
         | .revert s => .revert s) =
       (match execIRStmt (Nat.max (stmtFuelBound x) (stmtsFuelBound rest))
           state x with
@@ -288,6 +290,8 @@ theorem execIRStmts_stable : ∀ (xs : List YulStmt), LoopFreeList xs →
             (Nat.max (stmtFuelBound x) (stmtsFuelBound rest)) s₁ rest
         | .return v s => .return v s
         | .stop s => .stop s
+        | .exceptional s => .exceptional s
+        | .interpretationError message => .interpretationError message
         | .revert s => .revert s)
       have hhead1 : execIRStmt (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f)
           state x = execIRStmt (stmtFuelBound x) state x := by
@@ -318,6 +322,8 @@ theorem execIRStmts_stable : ∀ (xs : List YulStmt), LoopFreeList xs →
       | «continue» s₁ => exact htail s₁
       | «return» v s => rfl
       | stop s => rfl
+      | exceptional s => rfl
+      | interpretationError message => rfl
       | revert s => rfl
 termination_by xs _ _ _ => sizeOf xs
 decreasing_by

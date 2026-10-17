@@ -83,6 +83,7 @@ def sourceResultMatchesNativeOn
     Prop :=
   match native with
   | .ok yul =>
+      source.interpretationError = none ∧
       source.success = yul.success ∧
       source.returnValue = yul.returnValue ∧
       (∀ slot, slot ∈ observableSlots →
@@ -91,6 +92,32 @@ def sourceResultMatchesNativeOn
           yul.finalStorage (IRStorageSlot.ofNat slot)) ∧
       source.events = yul.events
   | .error _ => False
+
+/-- Native correspondence excludes instrument refusals, even when every EVM
+observable happens to equal an ordinary reverted result. -/
+theorem sourceResultMatchesNativeOn_interpretationError_eq_none
+    {observableSlots : List Nat}
+    {source : SourceSemantics.SourceContractResult}
+    {native : Except Compiler.Proofs.YulGeneration.Backends.NativeLoweringError YulResult}
+    (h : sourceResultMatchesNativeOn observableSlots source native) :
+    source.interpretationError = none := by
+  cases native with
+  | error _ => cases h
+  | ok _ => exact h.1
+
+/-- A populated interpretation diagnostic can never establish native
+correspondence. -/
+theorem not_sourceResultMatchesNativeOn_of_interpretationError
+    {observableSlots : List Nat}
+    {source : SourceSemantics.SourceContractResult}
+    {native : Except Compiler.Proofs.YulGeneration.Backends.NativeLoweringError YulResult}
+    {message : String}
+    (herror : source.interpretationError = some message) :
+    ¬ sourceResultMatchesNativeOn observableSlots source native := by
+  intro h
+  have hnone := sourceResultMatchesNativeOn_interpretationError_eq_none h
+  rw [herror] at hnone
+  contradiction
 
 /-- Compose Layer 2 source-to-IR correctness with native EVMYulLean runtime
 correctness. -/
@@ -109,9 +136,10 @@ theorem sourceResultMatchesNativeOn_of_sourceResultMatchesIRResult_of_nativeResu
   | error err =>
       cases hNativeIR
   | ok yul =>
-      rcases hSourceIR with ⟨hSourceSuccess, hSourceReturn, hSourceStorage, hSourceEvents⟩
+      rcases hSourceIR with
+        ⟨hSourceNoError, hSourceSuccess, hSourceReturn, hSourceStorage, hSourceEvents, _hSourceRevert⟩
       rcases hNativeIR with ⟨hNativeSuccess, hNativeReturn, hNativeStorage, hNativeEvents⟩
-      refine ⟨?_, ?_, ?_, ?_⟩
+      refine ⟨hSourceNoError, ?_, ?_, ?_, ?_⟩
       · exact hSourceSuccess.trans hNativeSuccess
       · exact hSourceReturn.trans hNativeReturn
       · intro slot hslot

@@ -28,6 +28,8 @@ def releasedResult (slot : Nat) : IRExecResult → IRExecResult
   | .return v s => .return v (releaseState slot s)
   | .stop s => .stop (releaseState slot s)
   | .continue s => .continue s
+  | .exceptional s => .exceptional s
+  | .interpretationError message => .interpretationError message
   | .revert s => .revert s
 
 mutual
@@ -113,7 +115,7 @@ theorem execIRStmt_exprStmt_no_halt (e : YulExpr) (fuel : Nat) (state : IRState)
       (∀ s, execIRStmt (fuel + 1) state (.exprStmt e) ≠ .stop s) := by
   refine ⟨fun v s hcontra => ?_, fun s hcontra => ?_⟩ <;>
   · rw [execIRStmt.eq_def] at hcontra
-    repeat' split at hcontra
+    repeat' (first | split at hcontra | (simp only [] at hcontra; split at hcontra))
     all_goals first
       | exact absurd rfl (hret _)
       | exact absurd rfl (hstop _)
@@ -234,11 +236,15 @@ theorem spliced_cons_atomic (slot : Nat) (x : YulStmt) (rest : List YulStmt)
         (spliceLockReleaseList (lockReleaseStmt slot) rest)
     | .return v s => .return v s
     | .stop s => .stop s
+    | .exceptional s => .exceptional s
+    | .interpretationError message => .interpretationError message
     | .revert s => .revert s) =
     releasedResult slot (match execIRStmt G' state x with
     | .continue s₁ => execIRStmts G' s₁ rest
     | .return v s => .return v s
     | .stop s => .stop s
+    | .exceptional s => .exceptional s
+    | .interpretationError message => .interpretationError message
     | .revert s => .revert s)
   rw [hhead]
   obtain ⟨G'', rfl⟩ : ∃ G'', G' = G'' + 1 :=
@@ -248,6 +254,8 @@ theorem spliced_cons_atomic (slot : Nat) (x : YulStmt) (rest : List YulStmt)
   | «continue» s₁ => exact IH F' (G'' + 1) s₁ hbrest hbrest'
   | «return» v s => exact absurd hres (hnohalt.1 v s)
   | stop s => exact absurd hres (hnohalt.2 s)
+  | exceptional s => rfl
+  | interpretationError message => rfl
   | revert s => rfl
 
 /-- Cons step for a `stop()` head: the release runs, the frame halts with the
@@ -286,6 +294,8 @@ theorem spliced_cons_stop (slot : Nat)
           spliceLockReleaseList (lockReleaseStmt slot) rest)
     | .return v s => .return v s
     | .stop s => .stop s
+    | .exceptional s => .exceptional s
+    | .interpretationError message => .interpretationError message
     | .revert s => .revert s) = _
   rw [execIRStmt_lockRelease (F' + 1) state slot hslot]
   rfl
@@ -328,6 +338,8 @@ theorem spliced_cons_return (slot : Nat)
           spliceLockReleaseList (lockReleaseStmt slot) rest)
     | .return v s => .return v s
     | .stop s => .stop s
+    | .exceptional s => .exceptional s
+    | .interpretationError message => .interpretationError message
     | .revert s => .revert s) = _
   rw [execIRStmt_lockRelease (F' + 1) state slot hslot]
   by_cases hb : b = 32 <;>
@@ -384,6 +396,8 @@ theorem spliced_cons_if (slot : Nat) (cond : YulExpr) (body rest : List YulStmt)
         (spliceLockReleaseList (lockReleaseStmt slot) rest)
     | .return v s => .return v s
     | .stop s => .stop s
+    | .exceptional s => .exceptional s
+    | .interpretationError message => .interpretationError message
     | .revert s => .revert s) =
     releasedResult slot (match (match evalIRExpr state cond with
       | some c => if c ≠ 0 then execIRStmts G' state body else .continue state
@@ -391,6 +405,8 @@ theorem spliced_cons_if (slot : Nat) (cond : YulExpr) (body rest : List YulStmt)
     | .continue s₁ => execIRStmts (G' + 1) s₁ rest
     | .return v s => .return v s
     | .stop s => .stop s
+    | .exceptional s => .exceptional s
+    | .interpretationError message => .interpretationError message
     | .revert s => .revert s)
   cases heval : evalIRExpr state cond with
   | none => simp [releasedResult]
@@ -404,6 +420,8 @@ theorem spliced_cons_if (slot : Nat) (cond : YulExpr) (body rest : List YulStmt)
             exact IHrest (F' + 1) (G' + 1) s₁ (by omega) (by omega)
         | «return» v s => simp [releasedResult]
         | stop s => simp [releasedResult]
+        | exceptional s => simp [releasedResult]
+        | interpretationError message => simp [releasedResult]
         | revert s => simp [releasedResult]
       · simp only [if_neg hc, releasedResult]
         exact IHrest (F' + 1) (G' + 1) state (by omega) (by omega)
@@ -454,11 +472,15 @@ theorem spliced_cons_block (slot : Nat) (stmts rest : List YulStmt)
         (spliceLockReleaseList (lockReleaseStmt slot) rest)
     | .return v s => .return v s
     | .stop s => .stop s
+    | .exceptional s => .exceptional s
+    | .interpretationError message => .interpretationError message
     | .revert s => .revert s) =
     releasedResult slot (match execIRStmts G' state stmts with
     | .continue s₁ => execIRStmts (G' + 1) s₁ rest
     | .return v s => .return v s
     | .stop s => .stop s
+    | .exceptional s => .exceptional s
+    | .interpretationError message => .interpretationError message
     | .revert s => .revert s)
   rw [IHbody F' G' state (by omega) (by omega)]
   cases hrb : execIRStmts G' state stmts with
@@ -467,6 +489,8 @@ theorem spliced_cons_block (slot : Nat) (stmts rest : List YulStmt)
       exact IHrest (F' + 1) (G' + 1) s₁ (by omega) (by omega)
   | «return» v s => simp [releasedResult]
   | stop s => simp [releasedResult]
+  | exceptional s => simp [releasedResult]
+  | interpretationError message => simp [releasedResult]
   | revert s => simp [releasedResult]
 
 /-- `find?` commutes with the key-preserving case splice. -/
@@ -606,6 +630,8 @@ theorem spliced_cons_switch (slot : Nat) (e : YulExpr)
               exact IHrest (F' + 1) (G' + 1) s₁ (by omega) (by omega)
           | «return» v' s => simp [releasedResult]
           | stop s => simp [releasedResult]
+          | exceptional s => simp [releasedResult]
+          | interpretationError message => simp [releasedResult]
           | revert s => simp [releasedResult]
       | none =>
           simp only [Option.map]
@@ -635,11 +661,15 @@ theorem spliced_cons_switch (slot : Nat) (e : YulExpr)
                     (spliceLockReleaseList (lockReleaseStmt slot) rest)
                 | .return v s => .return v s
                 | .stop s => .stop s
+                | .exceptional s => .exceptional s
+                | .interpretationError message => .interpretationError message
                 | .revert s => .revert s) =
                 releasedResult slot (match execIRStmts G' state body with
                 | .continue s' => execIRStmts (G' + 1) s' rest
                 | .return v s => .return v s
                 | .stop s => .stop s
+                | .exceptional s => .exceptional s
+                | .interpretationError message => .interpretationError message
                 | .revert s => .revert s)
               rw [IHdflt body hdd F' G' state hbF hbG]
               cases hrb : execIRStmts G' state body with
@@ -648,6 +678,8 @@ theorem spliced_cons_switch (slot : Nat) (e : YulExpr)
                   exact IHrest (F' + 1) (G' + 1) s₁ (by omega) (by omega)
               | «return» v' s => simp [releasedResult]
               | stop s => simp [releasedResult]
+              | exceptional s => simp [releasedResult]
+              | interpretationError message => simp [releasedResult]
               | revert s => simp [releasedResult]
 
 mutual
@@ -795,12 +827,16 @@ theorem execIRStmts_append_halt (ys : List YulStmt) :
               | .continue s₁ => execIRStmts f s₁ (xs' ++ ys)
               | .return v s => .return v s
               | .stop s => .stop s
+              | .exceptional s => .exceptional s
+              | .interpretationError message => .interpretationError message
               | .revert s => .revert s) from rfl]
           rw [show execIRStmts (f + 1) state (x :: xs') =
             (match execIRStmt f state x with
               | .continue s₁ => execIRStmts f s₁ xs'
               | .return v s => .return v s
               | .stop s => .stop s
+              | .exceptional s => .exceptional s
+              | .interpretationError message => .interpretationError message
               | .revert s => .revert s) from rfl] at hr
           cases hstep : execIRStmt f state x with
           | «continue» s₁ =>
@@ -808,6 +844,8 @@ theorem execIRStmts_append_halt (ys : List YulStmt) :
               exact execIRStmts_append_halt ys xs' f s₁ r hr hnc
           | «return» v s => rw [hstep] at hr; rw [← hr]
           | stop s => rw [hstep] at hr; rw [← hr]
+          | exceptional s => rw [hstep] at hr; rw [← hr]
+          | interpretationError message => rw [hstep] at hr; rw [← hr]
           | revert s => rw [hstep] at hr; rw [← hr]
 
 /-- Wrapper composition, fall-through analysis branch: when the halt analysis
@@ -829,6 +867,8 @@ theorem execIRStmts_applyLockReleaseOnExits_fallthrough (slot : Nat)
         | .continue s => .continue (releaseState slot s)
         | .return v s => .return v (releaseState slot s)
         | .stop s => .stop (releaseState slot s)
+        | .exceptional s => .exceptional s
+        | .interpretationError message => .interpretationError message
         | .revert s => .revert s) := by
   have hboundlist : 1 ≤ stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) xs) :=
     stmtsFuelBound_pos _
@@ -851,6 +891,8 @@ theorem execIRStmts_applyLockReleaseOnExits_fallthrough (slot : Nat)
           | .continue s₁ => execIRStmts (k + 1) s₁ []
           | .return v s' => .return v s'
           | .stop s' => .stop s'
+          | .exceptional s' => .exceptional s'
+          | .interpretationError message => .interpretationError message
           | .revert s' => .revert s') from rfl,
         execIRStmt_lockRelease k s slot hslot]
       rfl
@@ -871,6 +913,18 @@ theorem execIRStmts_applyLockReleaseOnExits_fallthrough (slot : Nat)
   | revert s =>
       have hpre : execIRStmts F state
           (spliceLockReleaseList (lockReleaseStmt slot) xs) = .revert s := by
+        rw [hsim, hres]; rfl
+      rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
+        (by intro s' h; cases h)]
+  | exceptional s =>
+      have hpre : execIRStmts F state
+          (spliceLockReleaseList (lockReleaseStmt slot) xs) = .exceptional s := by
+        rw [hsim, hres]; rfl
+      rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
+        (by intro s' h; cases h)]
+  | interpretationError message =>
+      have hpre : execIRStmts F state
+          (spliceLockReleaseList (lockReleaseStmt slot) xs) = .interpretationError message := by
         rw [hsim, hres]; rfl
       rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
         (by intro s' h; cases h)]
@@ -899,7 +953,12 @@ theorem execIRStmt_modeledHalt_no_continue (h : YulStmt) (hmh : ModeledHalt h)
       | succ f =>
           by_cases hb : b = 32 <;>
             simp [execIRStmt, evalIRExpr, hb] at hcontra
-  | rev a b => cases fuel <;> simp [execIRStmt] at hcontra
+  | rev a b =>
+      cases fuel with
+      | zero => simp [execIRStmt] at hcontra
+      | succ fuel =>
+          cases ha : evalIRExpr state a <;> cases hb : evalIRExpr state b <;>
+            simp [execIRStmt, ha, hb] at hcontra
   | inv => cases fuel <;> simp [execIRStmt] at hcontra
 
 /-- A body ending in a modeled halt never continues. -/
@@ -919,12 +978,16 @@ theorem execIRStmts_last_halt_no_continue (h : YulStmt) (hmh : ModeledHalt h) :
               | .continue s₂ => execIRStmts k s₂ []
               | .return v s' => .return v s'
               | .stop s' => .stop s'
+              | .exceptional s' => .exceptional s'
+              | .interpretationError message => .interpretationError message
               | .revert s' => .revert s') from rfl] at hcontra
           cases hstep : execIRStmt k s₁ h with
           | «continue» s₂ =>
               exact execIRStmt_modeledHalt_no_continue h hmh k s₁ s₂ hstep
           | «return» v s' => rw [hstep] at hcontra; cases hcontra
           | stop s' => rw [hstep] at hcontra; cases hcontra
+          | exceptional s' => rw [hstep] at hcontra; cases hcontra
+          | interpretationError message => rw [hstep] at hcontra; cases hcontra
           | revert s' => rw [hstep] at hcontra; cases hcontra
   | «return» v s₁ =>
       rw [execIRStmts_append_halt [h] ys fuel state _ hpre
@@ -935,6 +998,14 @@ theorem execIRStmts_last_halt_no_continue (h : YulStmt) (hmh : ModeledHalt h) :
         (by intro _ hc; cases hc)] at hcontra
       cases hcontra
   | revert s₁ =>
+      rw [execIRStmts_append_halt [h] ys fuel state _ hpre
+        (by intro _ hc; cases hc)] at hcontra
+      cases hcontra
+  | exceptional s₁ =>
+      rw [execIRStmts_append_halt [h] ys fuel state _ hpre
+        (by intro _ hc; cases hc)] at hcontra
+      cases hcontra
+  | interpretationError message =>
       rw [execIRStmts_append_halt [h] ys fuel state _ hpre
         (by intro _ hc; cases hc)] at hcontra
       cases hcontra
@@ -962,6 +1033,8 @@ theorem execIRStmts_applyLockReleaseOnExits_halting (slot : Nat)
         | .continue s => .continue (releaseState slot s)
         | .return v s => .return v (releaseState slot s)
         | .stop s => .stop (releaseState slot s)
+        | .exceptional s => .exceptional s
+        | .interpretationError message => .interpretationError message
         | .revert s => .revert s) := by
   unfold applyLockReleaseOnExits
   rw [yulFrameHaltsList_append_halting h hmh.frameHalts ys, if_pos rfl]
@@ -971,6 +1044,8 @@ theorem execIRStmts_applyLockReleaseOnExits_halting (slot : Nat)
       exact absurd hres (execIRStmts_last_halt_no_continue h hmh ys G state s)
   | «return» v s => rfl
   | stop s => rfl
+  | exceptional s => rfl
+  | interpretationError message => rfl
   | revert s => rfl
 
 /-- End-to-end guarded unit, fall-through bodies: the compiled prologue plus
@@ -988,7 +1063,8 @@ theorem execIRStmts_guardedUnit_fallthrough (slot : Nat)
     (hG : stmtsFuelBound xs ≤ G) :
     execIRStmts F state (guardPrologueStmts slot ++
         applyLockReleaseOnExits (lockReleaseStmt slot) xs) =
-      if state.transientStorage slot = 1 then .revert state
+      if state.transientStorage slot = 1 then
+        .revert (if F = 3 then state else state.captureRevert 0 0)
       else
         (match execIRStmts G { state with
             transientStorage := fun o => if o = slot then 1
@@ -996,6 +1072,8 @@ theorem execIRStmts_guardedUnit_fallthrough (slot : Nat)
           | .continue s => .continue (releaseState slot s)
           | .return v s => .return v (releaseState slot s)
           | .stop s => .stop (releaseState slot s)
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s) := by
   rcases hlock01 with hfree | hlocked
   · rw [if_neg (by rw [hfree]; decide)]
@@ -1017,7 +1095,8 @@ theorem execIRStmts_guardedUnit_halting (slot : Nat)
     (hG : stmtsFuelBound (ys ++ [h]) ≤ G) :
     execIRStmts F state (guardPrologueStmts slot ++
         applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])) =
-      if state.transientStorage slot = 1 then .revert state
+      if state.transientStorage slot = 1 then
+        .revert (if F = 3 then state else state.captureRevert 0 0)
       else
         (match execIRStmts G { state with
             transientStorage := fun o => if o = slot then 1
@@ -1025,6 +1104,8 @@ theorem execIRStmts_guardedUnit_halting (slot : Nat)
           | .continue s => .continue (releaseState slot s)
           | .return v s => .return v (releaseState slot s)
           | .stop s => .stop (releaseState slot s)
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s) := by
   have hpos := stmtsFuelBound_pos
     (spliceLockReleaseList (lockReleaseStmt slot) (ys ++ [h]))
@@ -1077,7 +1158,10 @@ theorem execIRStmts_guardedFunction_fallthrough (slot : Nat)
         (guardPrologueStmts slot ++
           applyLockReleaseOnExits (lockReleaseStmt slot) xs)) =
       if state.transientStorage slot = 1 then
-        .revert (ParamLoading.applyBindingsToIRState state bindings)
+        .revert (if (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) xs).length + extraFuel + 1 = 3
+          then ParamLoading.applyBindingsToIRState state bindings
+          else (ParamLoading.applyBindingsToIRState state bindings).captureRevert 0 0)
       else
         (match execIRStmts G { ParamLoading.applyBindingsToIRState state bindings with
             transientStorage := fun o => if o = slot then 1
@@ -1085,6 +1169,8 @@ theorem execIRStmts_guardedFunction_fallthrough (slot : Nat)
           | .continue s => .continue (releaseState slot s)
           | .return v s => .return v (releaseState slot s)
           | .stop s => .stop (releaseState slot s)
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s) := by
   rw [ParamLoading.exec_genParamLoads_supported_then_extraFuel state params bindings
     _ extraFuel hsupported hfits hbind]
@@ -1120,7 +1206,10 @@ theorem execIRStmts_guardedFunction_halting (slot : Nat)
         (guardPrologueStmts slot ++
           applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h]))) =
       if state.transientStorage slot = 1 then
-        .revert (ParamLoading.applyBindingsToIRState state bindings)
+        .revert (if (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])).length + extraFuel + 1 = 3
+          then ParamLoading.applyBindingsToIRState state bindings
+          else (ParamLoading.applyBindingsToIRState state bindings).captureRevert 0 0)
       else
         (match execIRStmts G { ParamLoading.applyBindingsToIRState state bindings with
             transientStorage := fun o => if o = slot then 1
@@ -1128,6 +1217,8 @@ theorem execIRStmts_guardedFunction_halting (slot : Nat)
           | .continue s => .continue (releaseState slot s)
           | .return v s => .return v (releaseState slot s)
           | .stop s => .stop (releaseState slot s)
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s) := by
   rw [ParamLoading.exec_genParamLoads_supported_then_extraFuel state params bindings
     _ extraFuel hsupported hfits hbind]
@@ -1135,6 +1226,22 @@ theorem execIRStmts_guardedFunction_halting (slot : Nat)
   rw [execIRStmts_guardedUnit_halting slot hslot ys h hSS hmh _ G
     (ParamLoading.applyBindingsToIRState state bindings)
     (by rw [htrans]; exact hlock01) hF hG, htrans]
+
+/-- A successful guard transformation preserves the actual loads/body split.
+Both halting and fallthrough execution adapters consume this same receipt. -/
+theorem attachNonReentrantGuard_body_shape (fields : List Field)
+    (spec : FunctionSpec) (irFn guardedFn : IRFunction) (lockField : String)
+    (field : Field) (slot : Nat) (bodyStmts : List YulStmt)
+    (hlock : spec.nonReentrantLock = some lockField)
+    (hfield : findFieldWithResolvedSlot fields lockField = some (field, slot))
+    (hguard : attachNonReentrantGuard fields spec irFn = .ok guardedFn)
+    (hbody : irFn.body = genParamLoads spec.bindingParams ++ bodyStmts) :
+    guardedFn.body = genParamLoads spec.bindingParams ++
+      (guardPrologueStmts slot ++ applyLockReleaseOnExits (lockReleaseStmt slot) bodyStmts) := by
+  have shape := attachNonReentrantGuard_some_shape fields spec irFn lockField field slot hlock hfield
+  rw [hguard] at shape
+  have body := congrArg IRFunction.body (Except.ok.inj shape)
+  simpa [hbody, List.take_left, List.drop_left, List.append_assoc] using body
 
 /-- Correctness of the post-compilation guard transformation itself: for an
 annotated function whose compiled body has the standard loads-then-body
@@ -1171,7 +1278,10 @@ theorem attachNonReentrantGuard_exec (fields : List Field)
           applyLockReleaseOnExits (lockReleaseStmt slot) bodyStmts).length +
         extraFuel + 1) state guardedFn.body =
       if state.transientStorage slot = 1 then
-        .revert (ParamLoading.applyBindingsToIRState state bindings)
+        .revert (if (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) bodyStmts).length + extraFuel + 1 = 3
+          then ParamLoading.applyBindingsToIRState state bindings
+          else (ParamLoading.applyBindingsToIRState state bindings).captureRevert 0 0)
       else
         (match execIRStmts G { ParamLoading.applyBindingsToIRState state bindings with
             transientStorage := fun o => if o = slot then 1
@@ -1179,17 +1289,11 @@ theorem attachNonReentrantGuard_exec (fields : List Field)
           | .continue s => .continue (releaseState slot s)
           | .return v s => .return v (releaseState slot s)
           | .stop s => .stop (releaseState slot s)
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s) := by
-  have hshape := attachNonReentrantGuard_some_shape fields spec irFn lockField
-    field slot hlock hfield
-  rw [hguard] at hshape
-  have hbodyEq : guardedFn.body =
-      genParamLoads spec.bindingParams ++
-        (guardPrologueStmts slot ++
-          applyLockReleaseOnExits (lockReleaseStmt slot) bodyStmts) := by
-    have := congrArg IRFunction.body (Except.ok.inj hshape)
-    simpa [hbody, List.take_left, List.drop_left, List.append_assoc] using this
-  rw [hbodyEq]
+  rw [attachNonReentrantGuard_body_shape fields spec irFn guardedFn lockField
+    field slot bodyStmts hlock hfield hguard hbody]
   exact execIRStmts_guardedFunction_fallthrough slot hslot spec.bindingParams bindings
     bodyStmts hSS hH extraFuel G state hsupported hfits hbind hlock01 hF hG
 
@@ -1220,7 +1324,10 @@ theorem attachNonReentrantGuard_exec_halting (fields : List Field)
           applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])).length +
         extraFuel + 1) state guardedFn.body =
       if state.transientStorage slot = 1 then
-        .revert (ParamLoading.applyBindingsToIRState state bindings)
+        .revert (if (guardPrologueStmts slot ++
+          applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])).length + extraFuel + 1 = 3
+          then ParamLoading.applyBindingsToIRState state bindings
+          else (ParamLoading.applyBindingsToIRState state bindings).captureRevert 0 0)
       else
         (match execIRStmts G { ParamLoading.applyBindingsToIRState state bindings with
             transientStorage := fun o => if o = slot then 1
@@ -1228,17 +1335,11 @@ theorem attachNonReentrantGuard_exec_halting (fields : List Field)
           | .continue s => .continue (releaseState slot s)
           | .return v s => .return v (releaseState slot s)
           | .stop s => .stop (releaseState slot s)
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s) := by
-  have hshape := attachNonReentrantGuard_some_shape fields spec irFn lockField
-    field slot hlock hfield
-  rw [hguard] at hshape
-  have hbodyEq : guardedFn.body =
-      genParamLoads spec.bindingParams ++
-        (guardPrologueStmts slot ++
-          applyLockReleaseOnExits (lockReleaseStmt slot) (ys ++ [h])) := by
-    have := congrArg IRFunction.body (Except.ok.inj hshape)
-    simpa [hbody, List.take_left, List.drop_left, List.append_assoc] using this
-  rw [hbodyEq]
+  rw [attachNonReentrantGuard_body_shape fields spec irFn guardedFn lockField
+    field slot (ys ++ [h]) hlock hfield hguard hbody]
   exact execIRStmts_guardedFunction_halting slot hslot spec.bindingParams bindings
     ys h hSS hmh extraFuel G state hsupported hfits hbind hlock01 hF hG
 

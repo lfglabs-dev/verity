@@ -1,5 +1,6 @@
 """Actual importer near-miss checks with precise source locations and no olean."""
 from pathlib import Path
+import os
 import re
 import subprocess
 import tempfile
@@ -14,6 +15,14 @@ def main():
     output = Path(tempfile.mkdtemp(prefix='require-rejections-', dir=root / '.lake'))
     cases = [
         ('literal', 'require(value > 7, "message");', None),
+        ('empty-message', 'require(value > 7, "");', None),
+        ('unicode-message', 'require(value > 7, unicode"é🙂");', None),
+        ('constant-message', 'require(value > 7, REASON);', None),
+        ('revert-literal', 'revert("message");', None),
+        ('revert-empty', 'revert("");', None),
+        ('revert-unicode', 'revert(unicode"é🙂");', None),
+        ('revert-constant', 'revert(REASON);', None),
+        ('revert-dynamic', 'revert(string.concat("a", "b"));', 'revert currently needs a literal string message'),
         ('no-message', 'require(value > 7);', 'supported Solidity builtin signature'),
         ('custom-error', 'require(value > 7, Failure(value));', None),
         ('custom-error-expression', 'require(value > 7, Failure(value + 1));', 'literals or scalar bindings'),
@@ -26,11 +35,16 @@ def main():
         ('other-call', 'helper(value);', None),
         ('assert-call', 'assert(value > 7);', 'only builtin require calls'),
     ]
+    for length in (31, 32, 63, 64, 65):
+        message = "x" * length
+        cases += [(f"require-padding-{length}", f'require(value > 7, "{message}");', None),
+                  (f"revert-padding-{length}", f'revert("{message}");', None)]
     for name, statement, expected in cases:
         directory = output / name
         directory.mkdir()
         source = '''pragma solidity 0.8.34;
 contract C {
+ string internal constant REASON = "constant message";
  error Failure(uint256 value);
  function helper(uint256 value) internal pure returns (uint256) { return value; }
  function checked(uint256 value, string memory reason) external pure returns (uint256) {
@@ -40,6 +54,8 @@ contract C {
 }
 '''
         source = source.replace(', string memory reason', '')
+        if statement.startswith('revert('):
+            source = source.replace('  return value;\n', '')
         if name == 'abi-decode':
             source = source.replace('abi.decode(abi.encode(value), (uint256));',
                                     'return abi.decode(abi.encode(value), (uint256));')
@@ -63,8 +79,9 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
   function checked(uint256)
 ''')
         artifact = directory / 'Check.olean'
-        result = subprocess.run(['lake', 'env', 'lean', str(driver), '-o', str(artifact)],
-                                cwd=root, text=True, capture_output=True)
+        lean = str(Path(os.environ['LEAN_SYSROOT']) / 'bin/lean') if os.environ.get('LAKE_OVERRIDE_LEAN') == 'true' else 'lean'
+        result = subprocess.run(['lake', 'env', lean, str(driver), '-o', str(artifact)],
+                                cwd=root, text=True, capture_output=True, timeout=300)
         text = result.stdout + result.stderr
         (directory / 'check.log').write_text(text)
         if expected is None:

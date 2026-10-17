@@ -1,4 +1,5 @@
 import Compiler.SolidityImport.TransactionAccess
+import Compiler.SolidityImport.SequenceRunner
 
 namespace SolidityImportSmoke.Transactions
 open Compiler.CompilationModel Compiler.CompilationModel.Denote
@@ -11,6 +12,63 @@ private def fields : List Field :=
    { name := "scratch", ty := .uint256, isTransient := true }]
 
 def runChecks : IO Unit := do
+  let dirty := Verity.defaultState.writePhysicalMemoryValue 0 99
+  unless dirty.byteMemory.size > 0 do throw (IO.userError "dirty-memory fixture did not allocate")
+  let reset := beginTransaction dirty
+  unless reset.byteMemory.size == 0 && (reset.memory 0).val == 0 &&
+      (reset.memory 1).val == 0 do
+    throw (IO.userError "transaction reset retained physical bytes or overlapping word reads")
+  match finishFrame dirty (.interpretationError "precise constructor refusal") with
+  | .error message =>
+      unless message == "precise constructor refusal" do throw (IO.userError "interpreter refusal changed")
+  | .ok _ => throw (IO.userError "interpreter refusal became an observed EVM revert")
+  match executeBody oracle [] dirty []
+      [.create2 "created" (.literal 0) (.literal 0) (.literal 0)] with
+  | .error message =>
+      unless message == "CREATE2 requires an actual opcode-entry execution context" do
+        throw (IO.userError "unmetered frame lost its precise context refusal")
+  | .ok _ => throw (IO.userError "unmetered creation became an observed EVM revert")
+  match finishFrame dirty (.exceptional { world := dirty, bindings := [] }) with
+  | .error message =>
+      unless message == "Denote exceptional exit requires an actual execution context" do
+        throw (IO.userError "unclassified exceptional context differs")
+  | .ok _ => throw (IO.userError "exceptional exit invented a metered context")
+  let context : Verity.Core.Model.ExecutionContext :=
+    { opcode := { gas := 1, depth := 0, isStatic := false }, warm := fun _ => false }
+  match finishFrame dirty (.exceptional
+      { world := dirty, bindings := [], executionContext := some context }) with
+  | .error message =>
+      unless message == "Denote exceptional exit has nonzero terminal gas" do
+        throw (IO.userError "non-exhausted exceptional context differs")
+  | .ok _ => throw (IO.userError "exceptional exit accepted nonzero terminal gas")
+  let initial := dirty.writeSlot 0 7
+  let exceptionWorld := (dirty.writeSlot 0 99).writePhysicalMemoryValue 0 100
+  let exceptional ← IO.ofExcept (finishFrame initial (.exceptional
+    { world := exceptionWorld, bindings := [],
+      executionContext := some { context with opcode := { context.opcode with gas := 0 } } }))
+  unless !exceptional.success && exceptional.data == [] &&
+      (exceptional.world.readSlot 0).val == 7 && (exceptional.world.memory 0).val == 99 do
+    throw (IO.userError "exceptional frame changed empty output or whole-world rollback")
+  let creation : FunctionSpec :=
+    { name := "creationRefusal", params := [], returnType := none,
+      body := [.create2 "created" (.literal 0) (.literal 0) (.literal 0)] }
+  let model : CompilationModel :=
+    { name := "CreationRefusal", fields := [], constructor := none, functions := [creation] }
+  let selector := (KeccakEngine.keccak256_selector
+    (Compiler.CompilationModel.functionSignature creation)).toNat
+  let input := Lean.Json.mkObj [
+    ("account", Lean.toJson "1"), ("storage", Lean.Json.arr #[]),
+    ("transactions", Lean.Json.arr #[Lean.Json.mkObj [
+      ("id", Lean.toJson "creation-refusal"), ("function", Lean.toJson "creationRefusal"),
+      ("args", Lean.Json.arr #[]), ("selector", Lean.toJson (toString selector)),
+      ("sender", Lean.toJson "1"), ("target", Lean.toJson "1"), ("value", Lean.toJson "0"),
+      ("timestamp", Lean.toJson "1"), ("blockNumber", Lean.toJson "1"),
+      ("observe", Lean.Json.arr #[])]])]
+  match Compiler.CompilationModel.SolidityImport.SequenceRunner.execute model oracle input with
+  | .error message =>
+      unless message == "Denote interpretation error: CREATE2 requires an actual opcode-entry execution context" do
+        throw (IO.userError "sequence bridge did not preserve public interpretation refusal")
+  | .ok _ => throw (IO.userError "sequence bridge emitted an EVM row for interpretation refusal")
   let stopped ← IO.ofExcept (executeBody oracle fields Verity.defaultState []
     [.setStorage "stored" (.literal 23), .stop])
   unless stopped.success && stopped.data == [] && stopped.world.readSlot 0 == 23 do

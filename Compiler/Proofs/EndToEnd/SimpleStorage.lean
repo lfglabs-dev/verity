@@ -3377,7 +3377,8 @@ private theorem interpretIR_simpleStorage_selectorMiss
     (hSelMissStore : tx.functionSelector ≠ 0x6057361d)
     (hSelMissRetrieve : tx.functionSelector ≠ 0x2e64cec1) :
     interpretIR simpleStorageIRContract tx initialState =
-      { success := false
+      { revertData := some []
+        success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -3423,15 +3424,18 @@ private theorem interpretIR_simpleStorage_retrieveHit
          Yul.YulStmt.exprStmt (Yul.YulExpr.call "return"
             [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])] =
           .return ((s.storage (IRStorageSlot.ofNat 0)).toNat)
-            { s with memory := fun o =>
-                if o = 0 then (s.storage (IRStorageSlot.ofNat 0)).toNat else s.memory o } := by
+            (s.writePhysicalMemoryValue 0 (s.storage (IRStorageSlot.ofNat 0)).toNat) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
     -- Fuel `k + 2 + 1 = k + 3` is `Nat.succ (Nat.succ (Nat.succ k))`, allowing
     -- both the outer `execIRStmts` and the inner `execIRStmt` to step.
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
-      Compiler.Proofs.abstractLoadStorageOrMapping,
-      Option.bind_some, ↓reduceIte]
+    have bounded : (s.storage (IRStorageSlot.ofNat 0)).toNat < Verity.Core.Uint256.modulus := by
+      simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+        EvmYul.UInt256.size] using IRStorageWord.toNat_lt_size (s.storage (IRStorageSlot.ofNat 0))
+    simp only [execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
+      Compiler.Proofs.abstractLoadStorageOrMapping, Option.bind_some, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+      Nat.mod_eq_of_lt bounded]
   -- The retrieve body has at least 2 statements, so `sizeOf body ≥ 2` by
   -- direct computation on the auto-derived size measure.
   have hsize : 2 ≤ sizeOf
@@ -3498,7 +3502,8 @@ private theorem interpretIR_simpleStorage_storeHit_short
     (hSel : tx.functionSelector = 0x6057361d)
     (hShort : tx.args = []) :
       interpretIR simpleStorageIRContract tx initialState =
-        { success := false
+        { revertData := some []
+          success := false
           returnValue := none
           finalStorage := initialState.storage
           finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -4966,7 +4971,7 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
         [Yul.YulExpr.lit 0, Yul.YulExpr.lit 32])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
-        returnValue := some value
+        returnValue := some (Verity.Core.Uint256.ofNat value).val
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
         events := initialState.events } := by
@@ -5003,8 +5008,29 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
             finalStorage := s.storage
             finalMappings := Compiler.Proofs.storageAsMappings s.storage
             events := s.events } : IRResult)
-      | .revert _ =>
+      | .exceptional s =>
           ({
+            exceptionalContext := s.executionContext
+            success := false
+            returnValue := none
+            finalStorage := (applyIRTransactionContext tx initialState).storage
+            finalMappings :=
+              Compiler.Proofs.storageAsMappings
+                (applyIRTransactionContext tx initialState).storage
+            events := (applyIRTransactionContext tx initialState).events } : IRResult)
+      | .interpretationError message =>
+          ({
+            interpretationError := some message
+            success := false
+            returnValue := none
+            finalStorage := (applyIRTransactionContext tx initialState).storage
+            finalMappings :=
+              Compiler.Proofs.storageAsMappings
+                (applyIRTransactionContext tx initialState).storage
+            events := (applyIRTransactionContext tx initialState).events } : IRResult)
+      | .revert s =>
+          ({
+            revertData := s.revertBytes
             success := false
             returnValue := none
             finalStorage := (applyIRTransactionContext tx initialState).storage
@@ -5014,7 +5040,7 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
             events := (applyIRTransactionContext tx initialState).events } : IRResult)) =
       ({
         success := true
-        returnValue := some value
+        returnValue := some (Verity.Core.Uint256.ofNat value).val
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
         events := initialState.events } : IRResult)
@@ -5055,18 +5081,17 @@ private theorem execIRFunction_zeroParam_mstore0_lit_return32
         (Compiler.Proofs.IRGeneration.ParamLoading.applyBindingsToIRState
           (applyIRTransactionContext tx initialState) [])
         rest =
-        .return value
-          { (applyIRTransactionContext tx initialState) with
-            memory := fun o => if o = 0 then value else
-              (applyIRTransactionContext tx initialState).memory o } := by
+        .return (Verity.Core.Uint256.ofNat value).val
+          ((applyIRTransactionContext tx initialState).writePhysicalMemoryValue 0 value) := by
     have hEnough : 2 ≤ rest.length + (sizeOf body - body.length) := by
       simp [rest]
     obtain ⟨k, hk⟩ :
         ∃ k, rest.length + (sizeOf body - body.length) = k + 2 :=
       ⟨rest.length + (sizeOf body - body.length) - 2, by omega⟩
     rw [hk]
-    simp +decide [Compiler.Proofs.IRGeneration.ParamLoading.applyBindingsToIRState,
-      rest, execIRStmts, execIRStmt, evalIRExpr]
+    simp only [Compiler.Proofs.IRGeneration.ParamLoading.applyBindingsToIRState,
+      rest, execIRStmts, execIRStmt, evalIRExpr, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at]
   rw [hFuel, hParam, hRaw]
   simp [applyIRTransactionContext]
 
@@ -5122,8 +5147,29 @@ private theorem execIRFunction_zeroParam_mstore0_sload0_return32
             finalStorage := s.storage
             finalMappings := Compiler.Proofs.storageAsMappings s.storage
             events := s.events } : IRResult)
-      | .revert _ =>
+      | .exceptional s =>
           ({
+            exceptionalContext := s.executionContext
+            success := false
+            returnValue := none
+            finalStorage := (applyIRTransactionContext tx initialState).storage
+            finalMappings :=
+              Compiler.Proofs.storageAsMappings
+                (applyIRTransactionContext tx initialState).storage
+            events := (applyIRTransactionContext tx initialState).events } : IRResult)
+      | .interpretationError message =>
+          ({
+            interpretationError := some message
+            success := false
+            returnValue := none
+            finalStorage := (applyIRTransactionContext tx initialState).storage
+            finalMappings :=
+              Compiler.Proofs.storageAsMappings
+                (applyIRTransactionContext tx initialState).storage
+            events := (applyIRTransactionContext tx initialState).events } : IRResult)
+      | .revert s =>
+          ({
+            revertData := s.revertBytes
             success := false
             returnValue := none
             finalStorage := (applyIRTransactionContext tx initialState).storage
@@ -5177,20 +5223,22 @@ private theorem execIRFunction_zeroParam_mstore0_sload0_return32
         .return
           (((applyIRTransactionContext tx initialState).storage
             (IRStorageSlot.ofNat 0)).toNat)
-          { (applyIRTransactionContext tx initialState) with
-            memory := fun o => if o = 0 then
-              (((applyIRTransactionContext tx initialState).storage
-                (IRStorageSlot.ofNat 0)).toNat)
-              else (applyIRTransactionContext tx initialState).memory o } := by
+          ((applyIRTransactionContext tx initialState).writePhysicalMemoryValue 0
+            (((applyIRTransactionContext tx initialState).storage (IRStorageSlot.ofNat 0)).toNat)) := by
     have hEnough : 2 ≤ rest.length + (sizeOf body - body.length) := by
       simp [rest]
     obtain ⟨k, hk⟩ :
         ∃ k, rest.length + (sizeOf body - body.length) = k + 2 :=
       ⟨rest.length + (sizeOf body - body.length) - 2, by omega⟩
     rw [hk]
-    simp +decide [Compiler.Proofs.IRGeneration.ParamLoading.applyBindingsToIRState,
+    have bounded : (initialState.storage (IRStorageSlot.ofNat 0)).toNat < Verity.Core.Uint256.modulus := by
+      simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+        EvmYul.UInt256.size] using IRStorageWord.toNat_lt_size (initialState.storage (IRStorageSlot.ofNat 0))
+    simp only [Compiler.Proofs.IRGeneration.ParamLoading.applyBindingsToIRState,
       rest, execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
-      Compiler.Proofs.abstractLoadStorageOrMapping]
+      Compiler.Proofs.abstractLoadStorageOrMapping, Option.bind_some, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+      applyIRTransactionContext, Nat.mod_eq_of_lt bounded]
   rw [hFuel, hParam, hRaw]
   simp [applyIRTransactionContext]
 
@@ -5262,8 +5310,25 @@ private theorem execIRFunction_oneParam_store0_value_stop
             finalStorage := s.storage
             finalMappings := Compiler.Proofs.storageAsMappings s.storage
             events := s.events } : IRResult)
-      | .revert _ =>
+      | .exceptional s =>
           ({
+            exceptionalContext := s.executionContext
+            success := false
+            returnValue := none
+            finalStorage := txState.storage
+            finalMappings := Compiler.Proofs.storageAsMappings txState.storage
+            events := txState.events } : IRResult)
+      | .interpretationError message =>
+          ({
+            interpretationError := some message
+            success := false
+            returnValue := none
+            finalStorage := txState.storage
+            finalMappings := Compiler.Proofs.storageAsMappings txState.storage
+            events := txState.events } : IRResult)
+      | .revert s =>
+          ({
+            revertData := s.revertBytes
             success := false
             returnValue := none
             finalStorage := txState.storage
@@ -5977,7 +6042,11 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_lit_return32_markedP
     rfl
   rw [hIR, hProject]
   refine ⟨rfl, ?_, ?_, ?_⟩
-  · simp [hValueNat]
+  · have hIRValue : (Verity.Core.Uint256.ofNat value).val = value := by
+      apply Nat.mod_eq_of_lt
+      simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+        EvmYul.UInt256.size] using hValueRange
+    simp only [hValueNat, hIRValue]
   · intro slot hslot
     have hslot' : slot ∈ slots := by
       simp [slots, Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots,
@@ -6102,7 +6171,11 @@ private theorem nativeResultsMatchOn_execIRFunction_zeroParam_mstore0_lit_return
     rfl
   rw [hIR, hProject]
   refine ⟨rfl, ?_, ?_, ?_⟩
-  · simp [hValueNat]
+  · have hIRValue : (Verity.Core.Uint256.ofNat value).val = value := by
+      apply Nat.mod_eq_of_lt
+      simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+        EvmYul.UInt256.size] using hValueRange
+    simp only [hValueNat, hIRValue]
   · intro slot hslot
     have hslot' : slot ∈ slots := by
       simp [slots, Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots,

@@ -20,12 +20,86 @@ from property_utils import strip_lean_comments
 ROOT = Path(__file__).resolve().parent.parent
 PROOF_DIRS = [ROOT / "Verity" / "Proofs", ROOT / "Compiler" / "Proofs"]
 TRUST_BOUNDARY_FILES = [
+    ROOT / "Verity" / "Core" / "Model" / "CodeData.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2PhysicalMemory.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2Accounts.lean",
+    ROOT / "Verity" / "Core" / "Model" / "CreationWorld.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2Runtime.lean",
+    ROOT / "Verity" / "Core" / "Model" / "CreationCommit.lean",
+    ROOT / "Verity" / "Core" / "Model" / "MidnightInitcode.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2Callee.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2NonceEntry.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2Entry.lean",
+    ROOT / "Verity" / "Core" / "Model" / "CreationStorage.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2Access.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2Operation.lean",
+    ROOT / "Verity" / "Core" / "Model" / "ExecutionContext.lean",
+    ROOT / "Verity" / "Core" / "Model" / "DenoteCreation.lean",
+    ROOT / "Verity" / "Core" / "Model" / "DenoteCreationStatement.lean",
+    ROOT / "Verity" / "Core" / "Model" / "DenoteFunctionCalls.lean",
+    ROOT / "Compiler" / "SolidityImport" / "Access.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "SourceSemantics.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "SourceErrorDeclarations.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "NativeCreationBoundary.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "SourceCreation.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "CreationAgreement.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "CreationIR.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "CreationCaller.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "CreationBytecode.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "CreationExecution.lean",
+    ROOT / "Compiler" / "Proofs" / "IRGeneration" / "CreationLowering.lean",
+    ROOT / "Compiler" / "SimpleStorageNativeWitness.lean",
+    ROOT / "Verity" / "Core" / "Model" / "PhysicalCopy.lean",
+    ROOT / "Verity" / "Core" / "Model" / "ReturndataCopy.lean",
+    ROOT / "Verity" / "Core" / "Model" / "ByteMemoryInverse.lean",
+    ROOT / "Verity" / "Core" / "Model" / "DenoteMemory.lean",
     ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
     ROOT / "Compiler" / "SolidityImport" / "Transactions.lean",
     ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",
     ROOT / "Compiler" / "SolidityImport" / "AbiLoopFrames.lean",
     ROOT / "Compiler" / "SolidityImport" / "TransactionAccess.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AccountsInput.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AccountInputFrames.lean",
+    ROOT / "Compiler" / "SolidityImport" / "CallerInput.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "Smoke.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationPrefixFrames.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationPrefixRelation.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationBoundaryRelation.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationCopySlices.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationPackingFrames.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationAllocator.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationAllocatedPacking.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationOriginalSnapshots.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationHeaderAllocation.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationHeaderPreparation.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationPackedCode.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationLength.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationArrayAllocation.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationArrayElement.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationArrayLoop.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationArrayHeader.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationHeadAllocation.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationHeadFields.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationArrayDescriptors.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationFieldFrames.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationPrelude.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationAbiLayout.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationEncodedPacking.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecoderAllocation.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecoderHead.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecoderFields.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecoderArrayHead.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecoderArrayBounds.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecoderElementFields.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecoderElementPrelude.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecoderArrayLoop.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecodedArray.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecodedMarket.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationDecodedPrefix.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationEncoderEntry.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationOriginalExecution.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationOriginalBytes.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ImportedCreationCanonicalBytes.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "StaticAbiChecks.lean",
     ROOT / "Compiler" / "SolidityImport" / "EntryPointInvariants.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "EntryPointInvariantChecks.lean",
@@ -37,6 +111,9 @@ TRUST_BOUNDARY_FILES = [
     ROOT / "Compiler" / "SolidityImport" / "Coverage.lean",
     ROOT / "Compiler" / "SolidityImport" / "AbiEncoding.lean",
     ROOT / "Compiler" / "SolidityImport" / "AbiByteLanes.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AbiPhysicalMemory.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AbiMemoryGrid.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AbiPhysicalCopy.lean",
     ROOT / "Compiler" / "SolidityImport" / "AbiMemory.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "SolidityAbiPrimitiveChecks.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "AbiLoweringChecks.lean",
@@ -159,7 +236,12 @@ def extract_theorems(path: Path) -> list[tuple[str, bool, bool]]:
 
 def generate() -> str:
     """Generate the full PrintAxioms.lean content."""
-    all_files: list[Path] = [path for path in TRUST_BOUNDARY_FILES if path.is_file()]
+    missing = [path for path in TRUST_BOUNDARY_FILES if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "registered trust-boundary modules missing: " + ", ".join(map(str, missing))
+        )
+    all_files: list[Path] = list(TRUST_BOUNDARY_FILES)
     for d in _collect_contract_proof_dirs() + PROOF_DIRS:
         if d.exists():
             all_files.extend(sorted(d.rglob("*.lean")))
@@ -344,7 +426,11 @@ end Verity.AxiomAudit
 
 
 def main() -> None:
-    content = generate()
+    try:
+        content = generate()
+    except FileNotFoundError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        sys.exit(1)
 
     if "--check" in sys.argv:
         if not OUTPUT.exists():

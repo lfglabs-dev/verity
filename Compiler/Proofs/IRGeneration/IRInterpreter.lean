@@ -215,6 +215,8 @@ inductive IRExprEvalResult
   | stop (state : IRState)
   | return (value : Nat) (state : IRState)
   | revert (state : IRState)
+  | exceptional (state : IRState)
+  | interpretationError (message : String)
   deriving Nonempty
 
 /-- Helper-aware call / argument-list evaluation result, carrying either a list of
@@ -224,6 +226,8 @@ inductive IRValuesEvalResult
   | stop (state : IRState)
   | return (value : Nat) (state : IRState)
   | revert (state : IRState)
+  | exceptional (state : IRState)
+  | interpretationError (message : String)
   deriving Nonempty
 
 /-- Helper-aware statement execution result. `leave` is propagated explicitly so
@@ -233,6 +237,8 @@ inductive IRExecResultWithInternals
   | return (value : Nat) (state : IRState)
   | stop (state : IRState)
   | revert (state : IRState)
+  | exceptional (state : IRState)
+  | interpretationError (message : String)
   | leave (state : IRState)
   deriving Nonempty
 
@@ -478,9 +484,13 @@ def evalIRExprsWithInternals
           | .values vs state'' => .values (v :: vs) state''
           | .stop state'' => .stop state''
           | .return value state'' => .return value state''
+          | .exceptional state'' => .exceptional state''
+          | .interpretationError message => .interpretationError message
           | .revert state'' => .revert state''
       | .stop state' => .stop state'
       | .return value state' => .return value state'
+      | .exceptional state' => .exceptional state'
+      | .interpretationError message => .interpretationError message
       | .revert state' => .revert state'
 termination_by exprs => (fuel, exprsSize exprs)
 decreasing_by
@@ -488,7 +498,8 @@ decreasing_by
   any_goals exact exprs_tail_measure_decreases fuel e es
 
 /-- Execute a contract-local helper call, propagating control-flow effects and
-restoring the caller's local variable frame on all non-revert exits. -/
+restoring the caller's local variable frame while retaining each computed
+callee terminal state, including its captured REVERT payload. -/
 def execIRInternalFunctionWithInternals
     (contract : IRContract) :
     Nat → IRState → IRInternalFunctionDef → List Nat → IRValuesEvalResult
@@ -507,8 +518,11 @@ def execIRInternalFunctionWithInternals
             .stop (restoreCallerVars callerState finalState)
         | .return value finalState =>
             .return value (restoreCallerVars callerState finalState)
-        | .revert _ =>
-            .revert callerState
+        | .exceptional finalState =>
+            .exceptional (restoreCallerVars callerState finalState)
+        | .interpretationError message => .interpretationError message
+        | .revert finalState =>
+            .revert (restoreCallerVars callerState finalState)
       else
         .revert callerState
 termination_by fuel => (fuel, 0)
@@ -558,6 +572,8 @@ def evalIRCallWithInternals
             | none => .revert state'
   | .stop state' => .stop state'
   | .return value state' => .return value state'
+  | .exceptional state' => .exceptional state'
+  | .interpretationError message => .interpretationError message
   | .revert state' => .revert state'
   termination_by args => (fuel, exprsSize args + 1)
   decreasing_by
@@ -581,6 +597,8 @@ def evalIRExprWithInternals
       | .values _ state' => .revert state'
       | .stop state' => .stop state'
       | .return value state' => .return value state'
+      | .exceptional state' => .exceptional state'
+      | .interpretationError message => .interpretationError message
       | .revert state' => .revert state'
 termination_by expr => (fuel, exprSize expr)
 decreasing_by
@@ -600,6 +618,8 @@ def execIRStmtWithInternals
           | .value v state' => .continue (state'.setVar name v)
           | .stop state' => .stop state'
           | .return value' state' => .return value' state'
+          | .exceptional state' => .exceptional state'
+          | .interpretationError message => .interpretationError message
           | .revert state' => .revert state'
       | .letMany names value =>
           match value with
@@ -612,6 +632,8 @@ def execIRStmtWithInternals
                     .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
           | _ => .revert state
       | .assign name value =>
@@ -619,6 +641,8 @@ def execIRStmtWithInternals
           | .value v state' => .continue (state'.setVar name v)
           | .stop state' => .stop state'
           | .return value' state' => .return value' state'
+          | .exceptional state' => .exceptional state'
+          | .interpretationError message => .interpretationError message
           | .revert state' => .revert state'
       | .leave => .leave state
       | .exprStmt e =>
@@ -637,12 +661,18 @@ def execIRStmtWithInternals
                               .continue { state''' with storage := updated }
                           | .stop state''' => .stop state'''
                           | .return value' state''' => .return value' state'''
+                          | .exceptional state''' => .exceptional state'''
+                          | .interpretationError message => .interpretationError message
                           | .revert state''' => .revert state'''
                       | .stop state'' => .stop state''
                       | .return value' state'' => .return value' state''
+                      | .exceptional state'' => .exceptional state''
+                      | .interpretationError message => .interpretationError message
                       | .revert state'' => .revert state''
                   | .stop state' => .stop state'
                   | .return value' state' => .return value' state'
+                  | .exceptional state' => .exceptional state'
+                  | .interpretationError message => .interpretationError message
                   | .revert state' => .revert state'
               | _ =>
                   match evalIRExprsWithInternals contract fuel state [slotExpr, valExpr] with
@@ -652,17 +682,19 @@ def execIRStmtWithInternals
                   | .values _ state' => .revert state'
                   | .stop state' => .stop state'
                   | .return value' state' => .return value' state'
+                  | .exceptional state' => .exceptional state'
+                  | .interpretationError message => .interpretationError message
                   | .revert state' => .revert state'
           | .call "mstore" [offsetExpr, valExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, valExpr] with
               | .values [offset, val] state' =>
-                  .continue {
-                    state' with
-                    memory := fun o => if o = offset then val else state'.memory o
-                  }
+                  .continue (state'.writePhysicalMemoryValue
+                    (Verity.Core.Uint256.ofNat offset).val val)
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
           | .call "tstore" [offsetExpr, valExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, valExpr] with
@@ -676,40 +708,47 @@ def execIRStmtWithInternals
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
           | .call "calldatacopy" [dstExpr, srcExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [dstExpr, srcExpr, sizeExpr] with
               | .values [dst, src, size] state' =>
-                  .continue {
-                    state' with
-                    memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
-                      state'.selector state'.calldata dst src size state'.memory
-                  }
+                  .continue (state'.copyPhysicalCalldata dst src size)
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
           | .call "returndatacopy" [dstExpr, srcExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [dstExpr, srcExpr, sizeExpr] with
               | .values [dst, src, size] state' =>
+                  let dst := dst % Compiler.Constants.evmModulus
+                  let src := src % Compiler.Constants.evmModulus
+                  let size := size % Compiler.Constants.evmModulus
                   if src + size ≤ 32 * state'.returndata.length then
-                    .continue {
-                      state' with
-                      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-                        state'.returndata dst src size state'.memory
-                    }
-                  else .revert state'
+                    .continue (state'.copyPhysicalReturndata dst src size)
+                  else
+                    match state'.executionContext with
+                    | some context => .exceptional { state' with executionContext := some { context with opcode := { context.opcode with gas := 0 } } }
+                    | none => .interpretationError
+                        "returndata copy exceptional exit requires actual opcode context"
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
           | .call "stop" [] => .stop state
           | .call "revert" [offsetExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, sizeExpr] with
-              | .values [_, _] state' => .revert state'
+              | .values [offset, size] state' => .revert (state'.captureRevert offset size)
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
           | .call "return" [offsetExpr, sizeExpr] =>
               match evalIRExprsWithInternals contract fuel state [offsetExpr, sizeExpr] with
@@ -721,6 +760,8 @@ def execIRStmtWithInternals
               | .values _ state' => .revert state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
           | .call "invalid" [] => .revert state
           | .call "selfdestruct" [addrExpr] =>
@@ -728,6 +769,8 @@ def execIRStmtWithInternals
               | .values _ state' => .stop state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
           | .call func args =>
               if isYulLogName func then
@@ -738,6 +781,8 @@ def execIRStmtWithInternals
                     | none => .revert state'
                 | .stop state' => .stop state'
                 | .return value' state' => .return value' state'
+                | .exceptional state' => .exceptional state'
+                | .interpretationError message => .interpretationError message
                 | .revert state' => .revert state'
               else
                 -- Use evalIRCallWithInternals directly so that void internal
@@ -747,12 +792,16 @@ def execIRStmtWithInternals
                 | .values _ state' => .continue state'
                 | .stop state' => .stop state'
                 | .return value' state' => .return value' state'
+                | .exceptional state' => .exceptional state'
+                | .interpretationError message => .interpretationError message
                 | .revert state' => .revert state'
           | _ =>
               match evalIRExprWithInternals contract fuel state e with
               | .value _ state' => .continue state'
               | .stop state' => .stop state'
               | .return value' state' => .return value' state'
+              | .exceptional state' => .exceptional state'
+              | .interpretationError message => .interpretationError message
               | .revert state' => .revert state'
       | .if_ cond body =>
           match evalIRExprWithInternals contract fuel state cond with
@@ -763,6 +812,8 @@ def execIRStmtWithInternals
                 .continue state'
           | .stop state' => .stop state'
           | .return value state' => .return value state'
+          | .exceptional state' => .exceptional state'
+          | .interpretationError message => .interpretationError message
           | .revert state' => .revert state'
       | .switch expr cases defaultCase =>
           match evalIRExprWithInternals contract fuel state expr with
@@ -775,6 +826,8 @@ def execIRStmtWithInternals
                   | none => .continue state'
           | .stop state' => .stop state'
           | .return value state' => .return value state'
+          | .exceptional state' => .exceptional state'
+          | .interpretationError message => .interpretationError message
           | .revert state' => .revert state'
       | .for_ init cond post body =>
           match execIRStmtsWithInternals contract fuel state init with
@@ -789,19 +842,27 @@ def execIRStmtWithInternals
                             execIRStmtWithInternals contract fuel state'''' (.for_ [] cond post body)
                         | .return value state'''' => .return value state''''
                         | .stop state'''' => .stop state''''
+                        | .exceptional state'''' => .exceptional state''''
+                        | .interpretationError message => .interpretationError message
                         | .revert state'''' => .revert state''''
                         | .leave state'''' => .leave state''''
                     | .return value state''' => .return value state'''
                     | .stop state''' => .stop state'''
+                    | .exceptional state''' => .exceptional state'''
+                    | .interpretationError message => .interpretationError message
                     | .revert state''' => .revert state'''
                     | .leave state''' => .leave state'''
                   else
                     .continue state''
               | .stop state'' => .stop state''
               | .return value state'' => .return value state''
+              | .exceptional state'' => .exceptional state''
+              | .interpretationError message => .interpretationError message
               | .revert state'' => .revert state''
           | .return value state' => .return value state'
           | .stop state' => .stop state'
+          | .exceptional state' => .exceptional state'
+          | .interpretationError message => .interpretationError message
           | .revert state' => .revert state'
           | .leave state' => .leave state'
       | .block stmts =>
@@ -823,6 +884,8 @@ def execIRStmtsWithInternals
           | .continue state' => execIRStmtsWithInternals contract fuel' state' rest
           | .return value state' => .return value state'
           | .stop state' => .stop state'
+          | .exceptional state' => .exceptional state'
+          | .interpretationError message => .interpretationError message
           | .revert state' => .revert state'
           | .leave state' => .leave state'
 termination_by stmts => (fuel, stmts.length)
@@ -921,7 +984,7 @@ theorem execIRInternalFunctionWithInternals_hides_caller_only_locals :
         usesMapping := false }
     execIRInternalFunctionWithInternals contract 2 callerState helper [] =
       .revert callerState := by
-  simp [execIRInternalFunctionWithInternals, prepareInternalCalleeState,
+  simp [execIRInternalFunctionWithInternals, prepareInternalCalleeState, restoreCallerVars,
     execIRStmtsWithInternals, execIRStmtWithInternals,
     IRState.initial, IRState.setVar, IRState.setVars]
 
@@ -939,6 +1002,8 @@ inductive IRExecResult
   | return (value : Nat) (state : IRState)
   | stop (state : IRState)
   | revert (state : IRState)
+  | exceptional (state : IRState)
+  | interpretationError (message : String)
   deriving Nonempty
 
 mutual
@@ -990,7 +1055,7 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
           | .call "mstore" [offsetExpr, valExpr] =>
               match evalIRExpr state offsetExpr, evalIRExpr state valExpr with
               | some offset, some val =>
-                .continue { state with memory := fun o => if o = offset then val else state.memory o }
+                .continue (state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat offset).val val)
               | _, _ => .revert state
           | .call "tstore" [offsetExpr, valExpr] =>
               match evalIRExpr state offsetExpr, evalIRExpr state valExpr with
@@ -1006,26 +1071,28 @@ def execIRStmt : Nat → IRState → YulStmt → IRExecResult
               match evalIRExpr state dstExpr, evalIRExpr state srcExpr,
                   evalIRExpr state sizeExpr with
               | some dst, some src, some size =>
-                .continue {
-                  state with
-                  memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
-                    state.selector state.calldata dst src size state.memory
-                }
+                .continue (state.copyPhysicalCalldata dst src size)
               | _, _, _ => .revert state
           | .call "returndatacopy" [dstExpr, srcExpr, sizeExpr] =>
               match evalIRExpr state dstExpr, evalIRExpr state srcExpr,
                   evalIRExpr state sizeExpr with
               | some dst, some src, some size =>
+                let dst := dst % Compiler.Constants.evmModulus
+                let src := src % Compiler.Constants.evmModulus
+                let size := size % Compiler.Constants.evmModulus
                 if src + size ≤ 32 * state.returndata.length then
-                  .continue {
-                    state with
-                    memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-                      state.returndata dst src size state.memory
-                  }
-                else .revert state
+                  .continue (state.copyPhysicalReturndata dst src size)
+                else
+                  match state.executionContext with
+                  | some context => .exceptional { state with executionContext := some { context with opcode := { context.opcode with gas := 0 } } }
+                  | none => .interpretationError
+                      "returndata copy exceptional exit requires actual opcode context"
               | _, _, _ => .revert state
           | .call "stop" [] => .stop state
-          | .call "revert" [_, _] => .revert state
+          | .call "revert" [offsetExpr, sizeExpr] =>
+              match evalIRExpr state offsetExpr, evalIRExpr state sizeExpr with
+              | some offset, some size => .revert (state.captureRevert offset size)
+              | _, _ => .revert state
           | .call "return" [offsetExpr, sizeExpr] =>
               match evalIRExpr state offsetExpr, evalIRExpr state sizeExpr with
               | some offset, some size =>
@@ -1105,6 +1172,8 @@ def execIRStmts (fuel : Nat) (state : IRState) : List YulStmt → IRExecResult
           | .continue s' => execIRStmts fuel s' rest
           | .return v s => .return v s
           | .stop s => .stop s
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s
 
 end -- mutual
@@ -1324,6 +1393,8 @@ theorem execIRStmts_single_for_one_continue
       | .continue sLoop => .continue sLoop
       | .return value sLoop => .return value sLoop
       | .stop sLoop => .stop sLoop
+      | .exceptional sLoop => .exceptional sLoop
+      | .interpretationError message => .interpretationError message
       | .revert sLoop => .revert sLoop := by
   simp only [execIRStmts]
   rw [execIRStmt_for_one_continue fuel state sInit sBody sPost init post body cond
@@ -1348,6 +1419,8 @@ theorem execIRStmts_cons_for_one_continue
       | .continue sLoop => execIRStmts (Nat.succ fuel) sLoop tail
       | .return value sLoop => .return value sLoop
       | .stop sLoop => .stop sLoop
+      | .exceptional sLoop => .exceptional sLoop
+      | .interpretationError message => .interpretationError message
       | .revert sLoop => .revert sLoop := by
   simp only [execIRStmts]
   rw [execIRStmt_for_one_continue fuel state sInit sBody sPost init post body cond
@@ -1673,7 +1746,7 @@ theorem IRStmtPreservesObsAt_of_mstore
       (.exprStmt (.call "mstore" [offsetExpr, valExpr])) := by
   obtain ⟨o, ho⟩ := hOffsetEval
   obtain ⟨v, hv⟩ := hValEval
-  refine ⟨{ state with memory := fun x => if x = o then v else state.memory x },
+  refine ⟨state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat o).val v,
     fun _ => ?_⟩
   simp [execIRStmt, ho, hv]
 
@@ -1694,7 +1767,7 @@ theorem IRStmtPreservesObsAt_of_mstore8
   simp [execIRStmt, isYulLogName, hv]
 
 /-- Cross-cast for `.exprStmt (.call "calldatacopy" [dst, src, sz])`: the IR
-model performs the word-granular calldata→memory copy, so the stmt continues
+model performs the exact byte-addressed calldata→memory copy, so the stmt continues
 into the copied state whenever all three arguments evaluate. -/
 theorem IRStmtPreservesObsAt_of_calldatacopy
     (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr)
@@ -1706,19 +1779,17 @@ theorem IRStmtPreservesObsAt_of_calldatacopy
   obtain ⟨dst, hdst⟩ := hDst
   obtain ⟨src, hsrc⟩ := hSrc
   obtain ⟨size, hsize⟩ := hSize
-  refine ⟨{ state with
-      memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
-        state.selector state.calldata dst src size state.memory }, fun _ => ?_⟩
+  refine ⟨state.copyPhysicalCalldata dst src size, fun _ => ?_⟩
   simp [execIRStmt, hdst, hsrc, hsize]
 
 /-- Cross-cast for `.exprStmt (.call "returndatacopy" [dst, src, sz])`.
 
-The in-bounds copy continues with the word-granular memory update — the source
-semantics writes the same words (see
+The in-bounds copy continues with the physical byte and word update — the source
+semantics uses the same byte source (see
 `FunctionBody.runtimeStateMatchesIR_returndatacopyBothMemory`). Every
-out-of-bounds extent is conservatively modelled as the EVM's exceptional halt,
-`.revert`, matching the source semantics, so the preservation cross-cast is
-available exactly on the in-bounds shape. -/
+out-of-bounds extent requires an actual opcode context for its exceptional halt;
+without it the interpreter refuses. The preservation cross-cast is available
+on this in-bounds shape and uses EVM-normalized operands. -/
 theorem IRStmtPreservesObsAt_of_returndatacopy
     (state : IRState) (dstExpr srcExpr sizeExpr : YulExpr) (dst src size : Nat)
     (hDst : evalIRExpr state dstExpr = some dst)
@@ -1727,10 +1798,13 @@ theorem IRStmtPreservesObsAt_of_returndatacopy
     (hFit : src + size ≤ 32 * state.returndata.length) :
     IRStmtPreservesObsAt state
       (.exprStmt (.call "returndatacopy" [dstExpr, srcExpr, sizeExpr])) := by
-  refine ⟨{ state with
-      memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-        state.returndata dst src size state.memory }, fun _ => ?_⟩
-  simp [execIRStmt, hDst, hSrc, hSize, hFit]
+  have normalizedFit : src % Compiler.Constants.evmModulus +
+      size % Compiler.Constants.evmModulus ≤ 32 * state.returndata.length :=
+    Nat.le_trans (Nat.add_le_add (Nat.mod_le _ _) (Nat.mod_le _ _)) hFit
+  refine ⟨state.copyPhysicalReturndata (dst % Compiler.Constants.evmModulus)
+    (src % Compiler.Constants.evmModulus) (size % Compiler.Constants.evmModulus),
+    fun _ => ?_⟩
+  simp [execIRStmt, hDst, hSrc, hSize, normalizedFit]
 
 /-- Cross-cast for `.exprStmt (.call "log0" [offset, size])`. Updates events by
 appending a Yul log entry. -/
@@ -2148,8 +2222,23 @@ noncomputable def execIRFunction (fn : IRFunction) (args : List Nat) (initialSta
       finalStorage := s.storage
       finalMappings := Compiler.Proofs.storageAsMappings s.storage
       events := s.events }
-  | .revert _ =>
+  | .exceptional s =>
     { success := false
+      exceptionalContext := s.executionContext
+      returnValue := none
+      finalStorage := initialState.storage
+      finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
+      events := initialState.events }
+  | .interpretationError message =>
+    { success := false
+      interpretationError := some message
+      returnValue := none
+      finalStorage := initialState.storage
+      finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
+      events := initialState.events }
+  | .revert s =>
+    { revertData := s.revertBytes
+      success := false
       returnValue := none
       -- On revert, storage and mappings roll back to the initial state
       finalStorage := initialState.storage
@@ -2218,8 +2307,23 @@ noncomputable def execIRFunctionWithInternals
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
+  | .exceptional s =>
       { success := false
+        exceptionalContext := s.executionContext
+        returnValue := none
+        finalStorage := initialState.storage
+        finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
+        events := initialState.events }
+  | .interpretationError message =>
+      { success := false
+        interpretationError := some message
+        returnValue := none
+        finalStorage := initialState.storage
+        finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
+        events := initialState.events }
+  | .revert s =>
+      { revertData := s.revertBytes
+        success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -2245,7 +2349,8 @@ noncomputable def interpretIR (contract : IRContract) (tx : IRTransaction) (init
   match contract.functions.find? (·.selector == tx.functionSelector) with
   | some fn =>
     if !fn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
-      { success := false
+      { revertData := some []
+        success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -2253,13 +2358,15 @@ noncomputable def interpretIR (contract : IRContract) (tx : IRTransaction) (init
     else if _ : fn.params.length ≤ tx.args.length then
       execIRFunction fn tx.args initialState
     else
-      { success := false
+      { revertData := some []
+        success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
         events := initialState.events }
   | none =>
-    { success := false
+    { revertData := some []
+      success := false
       returnValue := none
       finalStorage := initialState.storage
       finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -2288,7 +2395,8 @@ noncomputable def interpretIRWithInternals
   match contract.functions.find? (·.selector == tx.functionSelector) with
   | some fn =>
       if !fn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
-        { success := false
+        { revertData := some []
+          success := false
           returnValue := none
           finalStorage := initialState.storage
           finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -2296,13 +2404,15 @@ noncomputable def interpretIRWithInternals
       else if _ : fn.params.length ≤ tx.args.length then
         execIRFunctionWithInternals contract helperFuel fn tx.args initialState
       else
-        { success := false
+        { revertData := some []
+          success := false
           returnValue := none
           finalStorage := initialState.storage
           finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
           events := initialState.events }
   | none =>
-      { success := false
+      { revertData := some []
+        success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -2473,6 +2583,8 @@ structure InterpretIRWithInternalsZeroConservativeExtensionInterfaces
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next
   stmtListCompatibility :
     contract.internalFunctions = [] →
@@ -2483,6 +2595,8 @@ structure InterpretIRWithInternalsZeroConservativeExtensionInterfaces
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next
   functionCompatibility :
     contract.internalFunctions = [] →
@@ -2863,6 +2977,8 @@ theorem evalIRCallWithInternals_stmt_eq_of_callsDisjoint
     | .values _ state' => IRExecResultWithInternals.continue state'
     | .stop state' => IRExecResultWithInternals.stop state'
     | .return value' state' => IRExecResultWithInternals.return value' state'
+    | .exceptional state' => IRExecResultWithInternals.exceptional state'
+    | .interpretationError message => IRExecResultWithInternals.interpretationError message
     | .revert state' => IRExecResultWithInternals.revert state') =
     (match evalIRExpr state (.call func args) with
     | some _ => IRExecResultWithInternals.continue state
@@ -2930,6 +3046,8 @@ theorem evalIRCallWithInternals_stmt_eq_of_no_internal
     | .values _ state' => IRExecResultWithInternals.continue state'
     | .stop state' => IRExecResultWithInternals.stop state'
     | .return value' state' => IRExecResultWithInternals.return value' state'
+    | .exceptional state' => IRExecResultWithInternals.exceptional state'
+    | .interpretationError message => IRExecResultWithInternals.interpretationError message
     | .revert state' => IRExecResultWithInternals.revert state') =
     (match evalIRExpr state (.call func args) with
     | some _ => IRExecResultWithInternals.continue state
@@ -3004,6 +3122,8 @@ private theorem yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
         | none => IRExecResultWithInternals.revert state'
     | .stop state' => IRExecResultWithInternals.stop state'
     | .return value' state' => IRExecResultWithInternals.return value' state'
+    | .exceptional state' => IRExecResultWithInternals.exceptional state'
+    | .interpretationError message => IRExecResultWithInternals.interpretationError message
     | .revert state' => IRExecResultWithInternals.revert state') =
       match
         (match evalIRExprs state args with
@@ -3015,6 +3135,8 @@ private theorem yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
       | .continue next => IRExecResultWithInternals.continue next
       | .return value' state' => IRExecResultWithInternals.return value' state'
       | .stop state' => IRExecResultWithInternals.stop state'
+      | .exceptional state' => IRExecResultWithInternals.exceptional state'
+      | .interpretationError message => IRExecResultWithInternals.interpretationError message
       | .revert state' => IRExecResultWithInternals.revert state' := by
   rw [hargs]
   cases evalIRExprs state args with
@@ -3037,6 +3159,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
+        | .exceptional next => .exceptional next
+        | .interpretationError message => .interpretationError message
         | .revert next => .revert next
   | fuel, state, expr, hdisjoint => by
     cases fuel with
@@ -3306,7 +3430,7 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
                                       simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
                                         evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
                                           contract fuel state [arg, arg2, arg3] hargs_d,
-                                        h1, h2, h3]; split <;> rfl
+                                        h1, h2, h3]; split <;> first | rfl | (cases state.executionContext <;> rfl)
                               · by_cases hlog : isYulLogName func = true
                                 · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc, hrdc] using
                                     yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
@@ -3346,6 +3470,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
+        | .exceptional next => .exceptional next
+        | .interpretationError message => .interpretationError message
         | .revert next => .revert next
   | fuel, state, stmts, hdisjoint => by
     induction hdisjoint generalizing fuel state with
@@ -3362,6 +3488,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   | .continue next => .continue next
                   | .return value next => .return value next
                   | .stop next => .stop next
+                  | .exceptional next => .exceptional next
+                  | .interpretationError message => .interpretationError message
                   | .revert next => .revert next := by
               cases fuel <;> simp only [execIRStmtWithInternals, execIRStmt]
             rw [execIRStmtsWithInternals, execIRStmts, hhead]
@@ -3378,6 +3506,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   | .continue next => .continue next
                   | .return value next => .return value next
                   | .stop next => .stop next
+                  | .exceptional next => .exceptional next
+                  | .interpretationError message => .interpretationError message
                   | .revert next => .revert next := by
               cases fuel with
               | zero =>
@@ -3401,6 +3531,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   | .continue next => .continue next
                   | .return value next => .return value next
                   | .stop next => .stop next
+                  | .exceptional next => .exceptional next
+                  | .interpretationError message => .interpretationError message
                   | .revert next => .revert next := by
               cases fuel with
               | zero =>
@@ -3434,6 +3566,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   | .continue next => .continue next
                   | .return value next => .return value next
                   | .stop next => .stop next
+                  | .exceptional next => .exceptional next
+                  | .interpretationError message => .interpretationError message
                   | .revert next => .revert next := by
               cases fuel with
               | zero =>
@@ -3463,6 +3597,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   | .continue next => .continue next
                   | .return value next => .return value next
                   | .stop next => .stop next
+                  | .exceptional next => .exceptional next
+                  | .interpretationError message => .interpretationError message
                   | .revert next => .revert next := by
               cases fuel with
               | zero =>
@@ -3483,6 +3619,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   | .continue next => .continue next
                   | .return value next => .return value next
                   | .stop next => .stop next
+                  | .exceptional next => .exceptional next
+                  | .interpretationError message => .interpretationError message
                   | .revert next => .revert next := by
               simp only [execIRStmtWithInternals, execIRStmt]
             rw [execIRStmtsWithInternals, execIRStmts, hhead]
@@ -3500,6 +3638,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   | .continue next => .continue next
                   | .return value next => .return value next
                   | .stop next => .stop next
+                  | .exceptional next => .exceptional next
+                  | .interpretationError message => .interpretationError message
                   | .revert next => .revert next := by
               cases fuel with
               | zero =>
@@ -3545,6 +3685,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   | .continue next => .continue next
                   | .return value next => .return value next
                   | .stop next => .stop next
+                  | .exceptional next => .exceptional next
+                  | .interpretationError message => .interpretationError message
                   | .revert next => .revert next := by
               -- We prove this by strong induction on fuel, using the stmt-list IHs.
               -- First, prove the general for_ equivalence for arbitrary init under
@@ -3553,12 +3695,17 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                   (∀ f' s', execIRStmtsWithInternals contract f' s' initStmts =
                     match execIRStmts f' s' initStmts with
                     | .continue n => .continue n | .return v n => .return v n
-                    | .stop n => .stop n | .revert n => .revert n) →
+                    | .stop n => .stop n
+                    | .exceptional n => .exceptional n
+                    | .interpretationError message => .interpretationError message
+                    | .revert n => .revert n) →
                   execIRStmtWithInternals contract f s (.for_ initStmts cond post body) =
                     match execIRStmt f s (.for_ initStmts cond post body) with
                     | .continue next => .continue next
                     | .return value next => .return value next
                     | .stop next => .stop next
+                    | .exceptional next => .exceptional next
+                    | .interpretationError message => .interpretationError message
                     | .revert next => .revert next by
                 exact hgen fuel state init (ihInit · ·)
               intro f
@@ -3600,19 +3747,27 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
                                           | .continue n => .continue n
                                           | .return v n => .return v n
                                           | .stop n => .stop n
+                                          | .exceptional n => .exceptional n
+                                          | .interpretationError message => .interpretationError message
                                           | .revert n => .revert n := by
                                       intro f' s'
                                       simp only [execIRStmtsWithInternals, execIRStmts]
                                     exact ihFuel s''' [] hNilEq
                                 | «return» v s''' => simp
                                 | stop s''' => simp
+                                | exceptional s''' => simp
+                                | interpretationError message => simp
                                 | revert s''' => simp
                             | «return» v s'' => simp
                             | stop s'' => simp
+                            | exceptional s'' => simp
+                            | interpretationError message => simp
                             | revert s'' => simp
                           · simp only [if_neg hnonzero]
                   | «return» v s' => simp
                   | stop s' => simp
+                  | exceptional s' => simp
+                  | interpretationError message => simp
                   | revert s' => simp
             rw [execIRStmtsWithInternals, execIRStmts, hhead]
             cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
@@ -3702,6 +3857,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_mstore_of_no_internal
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
+        | .exceptional next => .exceptional next
+        | .interpretationError message => .interpretationError message
         | .revert next => .revert next := by
   cases fuel with
   | zero =>
@@ -3725,6 +3882,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_tstore_of_no_internal
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
+        | .exceptional next => .exceptional next
+        | .interpretationError message => .interpretationError message
         | .revert next => .revert next := by
   cases fuel with
   | zero =>
@@ -3750,6 +3909,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_revert_of_no_internal
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
+        | .exceptional next => .exceptional next
+        | .interpretationError message => .interpretationError message
         | .revert next => .revert next := by
   cases fuel with
   | zero =>
@@ -3775,6 +3936,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_return_of_no_internal
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
+        | .exceptional next => .exceptional next
+        | .interpretationError message => .interpretationError message
         | .revert next => .revert next := by
   cases fuel with
   | zero =>
@@ -3811,6 +3974,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_stop_of_no_internal
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
+        | .exceptional next => .exceptional next
+        | .interpretationError message => .interpretationError message
         | .revert next => .revert next := by
   cases fuel <;> simp only [execIRStmtWithInternals, execIRStmt]
 
@@ -3847,6 +4012,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_sstore_of_no_internal
         | .continue next => .continue next
         | .return value next => .return value next
         | .stop next => .stop next
+        | .exceptional next => .exceptional next
+        | .interpretationError message => .interpretationError message
         | .revert next => .revert next := by
   cases fuel with
   | zero =>
@@ -3929,6 +4096,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_no_internal
           | .continue next => .continue next
           | .return value next => .return value next
           | .stop next => .stop next
+          | .exceptional next => .exceptional next
+          | .interpretationError message => .interpretationError message
           | .revert next => .revert next
   | hinternal, fuel, state, expr => by
       cases fuel with
@@ -4053,7 +4222,7 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_no_internal
                                         simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
                                           evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
                                             contract hinternal fuel state [arg, arg2, arg3],
-                                          h1, h2, h3]; split <;> rfl
+                                          h1, h2, h3]; split <;> first | rfl | (cases state.executionContext <;> rfl)
                                 · by_cases hlog : isYulLogName func = true
                                   · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc, hrdc] using
                                       yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
@@ -4095,6 +4264,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next) :
     contract.internalFunctions = [] →
       ∀ fuel state stmts,
@@ -4104,6 +4275,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next
   | hinternal, fuel, state, stmts, hlegacy => by
       induction hlegacy generalizing fuel state with
@@ -4120,6 +4293,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
                     | .continue next => .continue next
                     | .return value next => .return value next
                     | .stop next => .stop next
+                    | .exceptional next => .exceptional next
+                    | .interpretationError message => .interpretationError message
                     | .revert next => .revert next := by
                 cases fuel <;> simp only [execIRStmtWithInternals, execIRStmt]
               rw [execIRStmtsWithInternals, execIRStmts, hhead]
@@ -4136,6 +4311,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
                     | .continue next => .continue next
                     | .return value next => .return value next
                     | .stop next => .stop next
+                    | .exceptional next => .exceptional next
+                    | .interpretationError message => .interpretationError message
                     | .revert next => .revert next := by
                 cases fuel with
                 | zero =>
@@ -4158,6 +4335,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
                     | .continue next => .continue next
                     | .return value next => .return value next
                     | .stop next => .stop next
+                    | .exceptional next => .exceptional next
+                    | .interpretationError message => .interpretationError message
                     | .revert next => .revert next := by
                 cases fuel with
                 | zero =>
@@ -4189,6 +4368,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
                     | .continue next => .continue next
                     | .return value next => .return value next
                     | .stop next => .stop next
+                    | .exceptional next => .exceptional next
+                    | .interpretationError message => .interpretationError message
                     | .revert next => .revert next := by
                 cases fuel with
                 | zero =>
@@ -4217,6 +4398,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
                     | .continue next => .continue next
                     | .return value next => .return value next
                     | .stop next => .stop next
+                    | .exceptional next => .exceptional next
+                    | .interpretationError message => .interpretationError message
                     | .revert next => .revert next := by
                 cases fuel with
                 | zero =>
@@ -4237,17 +4420,24 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
                     | .continue next => .continue next
                     | .return value next => .return value next
                     | .stop next => .stop next
+                    | .exceptional next => .exceptional next
+                    | .interpretationError message => .interpretationError message
                     | .revert next => .revert next := by
                 suffices hgen : ∀ (f : Nat) (s : IRState) (initStmts : List YulStmt),
                     (∀ f' s', execIRStmtsWithInternals contract f' s' initStmts =
                       match execIRStmts f' s' initStmts with
                       | .continue n => .continue n | .return v n => .return v n
-                      | .stop n => .stop n | .revert n => .revert n) →
+                      | .stop n => .stop n
+                      | .exceptional n => .exceptional n
+                      | .interpretationError message => .interpretationError message
+                      | .revert n => .revert n) →
                     execIRStmtWithInternals contract f s (.for_ initStmts cond post body) =
                       match execIRStmt f s (.for_ initStmts cond post body) with
                       | .continue next => .continue next
                       | .return value next => .return value next
                       | .stop next => .stop next
+                      | .exceptional next => .exceptional next
+                      | .interpretationError message => .interpretationError message
                       | .revert next => .revert next by
                   exact hgen fuel state init (ihInit · ·)
                 intro f
@@ -4284,19 +4474,27 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
                                             | .continue n => .continue n
                                             | .return v n => .return v n
                                             | .stop n => .stop n
+                                            | .exceptional n => .exceptional n
+                                            | .interpretationError message => .interpretationError message
                                             | .revert n => .revert n := by
                                         intro f' s'
                                         simp only [execIRStmtsWithInternals, execIRStmts]
                                       exact ihFuel s''' [] hNilEq
                                   | «return» v s''' => simp
                                   | stop s''' => simp
+                                  | exceptional s''' => simp
+                                  | interpretationError message => simp
                                   | revert s''' => simp
                               | «return» v s'' => simp
                               | stop s'' => simp
+                              | exceptional s'' => simp
+                              | interpretationError message => simp
                               | revert s'' => simp
                             · simp only [if_neg hnonzero]
                     | «return» v s' => simp
                     | stop s' => simp
+                    | exceptional s' => simp
+                    | interpretationError message => simp
                     | revert s' => simp
               rw [execIRStmtsWithInternals, execIRStmts, hhead]
               cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
@@ -4312,6 +4510,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
                     | .continue next => .continue next
                     | .return value next => .return value next
                     | .stop next => .stop next
+                    | .exceptional next => .exceptional next
+                    | .interpretationError message => .interpretationError message
                     | .revert next => .revert next := by
                 simp only [execIRStmtWithInternals, execIRStmt]
               rw [execIRStmtsWithInternals, execIRStmts, hhead]
@@ -4332,6 +4532,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_of_exprCompatibility
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next) :
     contract.internalFunctions = [] →
       ∀ fuel state stmt,
@@ -4341,6 +4543,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_of_exprCompatibility
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next := by
   intro hinternal fuel state stmt hstmt
   have hsingleton :=
@@ -4367,6 +4571,8 @@ structure InterpretIRWithInternalsZeroConservativeExtensionStmtSubgoals
           | .continue next => .continue next
           | .return value next => .return value next
           | .stop next => .stop next
+          | .exceptional next => .exceptional next
+          | .interpretationError message => .interpretationError message
           | .revert next => .revert next
 
 /-- The old prose-only description of the remaining stmt blocker is now a real
@@ -4384,6 +4590,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_of_stmtSubgoals
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next := by
   exact execIRStmtWithInternals_eq_execIRStmt_of_exprCompatibility
     contract hsubgoals.exprCompatibility
@@ -4404,6 +4612,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_stmtCompatibility
               | .continue next => .continue next
               | .return value next => .return value next
               | .stop next => .stop next
+              | .exceptional next => .exceptional next
+              | .interpretationError message => .interpretationError message
               | .revert next => .revert next) :
     contract.internalFunctions = [] →
       ∀ fuel state stmts,
@@ -4413,6 +4623,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_stmtCompatibility
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next := by
   intro hinternal fuel state stmts hlegacy
   induction hlegacy generalizing fuel state with
@@ -4524,6 +4736,8 @@ theorem execIRFunctionWithInternals_eq_execIRFunction_of_stmtListCompatibility
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next) :
     contract.internalFunctions = [] →
       ∀ fn args initialState,
@@ -4553,6 +4767,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_of_stmtListCompatibility
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next) :
     contract.internalFunctions = [] →
       ∀ fuel state stmt,
@@ -4562,6 +4778,8 @@ theorem execIRStmtWithInternals_eq_execIRStmt_of_stmtListCompatibility
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next := by
   intro hinternal fuel state stmt hstmt
   have hsingleton :=
@@ -4587,6 +4805,8 @@ theorem interpretIRWithInternalsZeroConservativeExtensionInterfaces_of_stmtCompa
               | .continue next => .continue next
               | .return value next => .return value next
               | .stop next => .stop next
+              | .exceptional next => .exceptional next
+              | .interpretationError message => .interpretationError message
               | .revert next => .revert next) :
     InterpretIRWithInternalsZeroConservativeExtensionInterfaces contract := by
   refine
@@ -4647,7 +4867,8 @@ theorem interpretIR_eq_revert_of_find?_some_nonpayable_nonzero
     (hNonPayable : fn.payable = false)
     (hNonzero : tx.msgValue % Compiler.Constants.evmModulus ≠ 0) :
     interpretIR contract tx initialState =
-      { success := false
+      { revertData := some []
+        success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -4668,7 +4889,8 @@ theorem interpretIR_eq_revert_of_find?_some_args_short
         tx.msgValue % Compiler.Constants.evmModulus = 0)
     (hArgsShort : ¬ fn.params.length ≤ tx.args.length) :
     interpretIR contract tx initialState =
-      { success := false
+      { revertData := some []
+        success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
@@ -4732,6 +4954,8 @@ theorem interpretIRWithInternalsZeroConservativeExtensionDispatchGoal_of_stmtLis
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next) :
     InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal contract := by
   intro hdispatch tx initialState fn hfind
@@ -4779,6 +5003,8 @@ theorem interpretIRWithInternalsZeroConservativeExtensionGoal_of_stmtListCompati
             | .continue next => .continue next
             | .return value next => .return value next
             | .stop next => .stop next
+            | .exceptional next => .exceptional next
+            | .interpretationError message => .interpretationError message
             | .revert next => .revert next) :
     InterpretIRWithInternalsZeroConservativeExtensionGoal contract := by
   exact interpretIRWithInternalsZeroConservativeExtensionGoal_of_dispatchGoal contract
@@ -4798,6 +5024,8 @@ theorem execIRFunctionWithInternals_eq_execIRFunction_of_stmtCompatibility
               | .continue next => .continue next
               | .return value next => .return value next
               | .stop next => .stop next
+              | .exceptional next => .exceptional next
+              | .interpretationError message => .interpretationError message
               | .revert next => .revert next) :
     contract.internalFunctions = [] →
       ∀ fn args initialState,
@@ -4820,6 +5048,8 @@ theorem interpretIRWithInternalsZeroConservativeExtensionDispatchGoal_of_stmtCom
               | .continue next => .continue next
               | .return value next => .return value next
               | .stop next => .stop next
+              | .exceptional next => .exceptional next
+              | .interpretationError message => .interpretationError message
               | .revert next => .revert next) :
     InterpretIRWithInternalsZeroConservativeExtensionDispatchGoal contract := by
   apply interpretIRWithInternalsZeroConservativeExtensionDispatchGoal_of_stmtListCompatibility
@@ -4838,6 +5068,8 @@ theorem interpretIRWithInternalsZeroConservativeExtensionGoal_of_stmtCompatibili
               | .continue next => .continue next
               | .return value next => .return value next
               | .stop next => .stop next
+              | .exceptional next => .exceptional next
+              | .interpretationError message => .interpretationError message
               | .revert next => .revert next) :
     InterpretIRWithInternalsZeroConservativeExtensionGoal contract := by
   apply interpretIRWithInternalsZeroConservativeExtensionGoal_of_stmtListCompatibility
@@ -5081,6 +5313,8 @@ theorem execIRStmtWithInternals_letMany_call
             .revert state'
       | .stop state' => .stop state'
       | .return value' state' => .return value' state'
+      | .exceptional state' => .exceptional state'
+      | .interpretationError message => .interpretationError message
       | .revert state' => .revert state' := by
   simp only [execIRStmtWithInternals]
 
@@ -5096,6 +5330,8 @@ theorem evalIRExprWithInternals_call
       | .values _ state' => .revert state'
       | .stop state' => .stop state'
       | .return value state' => .return value state'
+      | .exceptional state' => .exceptional state'
+      | .interpretationError message => .interpretationError message
       | .revert state' => .revert state' := by
   simp only [evalIRExprWithInternals]
 
@@ -5119,6 +5355,8 @@ theorem execIRStmtWithInternals_letMany_call_internal
             .revert state''
       | .stop state'' => .stop state''
       | .return value' state'' => .return value' state''
+      | .exceptional state'' => .exceptional state''
+      | .interpretationError message => .interpretationError message
       | .revert state'' => .revert state'' := by
   rw [show fuel + 2 = (fuel + 1) + 1 from by omega]
   rw [execIRStmtWithInternals_letMany_call]
@@ -5151,8 +5389,11 @@ theorem execIRInternalFunctionWithInternals_succ_of_params_match
           .stop (restoreCallerVars callerState finalState)
       | .return value finalState =>
           .return value (restoreCallerVars callerState finalState)
-      | .revert _ =>
-          .revert callerState := by
+      | .exceptional finalState =>
+          .exceptional (restoreCallerVars callerState finalState)
+      | .interpretationError message => .interpretationError message
+      | .revert finalState =>
+          .revert (restoreCallerVars callerState finalState) := by
   simp only [execIRInternalFunctionWithInternals, if_pos hlen]
 
 /-- If the prepared helper body continues, internal-helper execution returns
@@ -5546,14 +5787,17 @@ theorem execIRFunction_mstore0_calldataload4_return32_of_args_cons
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return (Compiler.Proofs.YulGeneration.calldataloadWord
               s.selector s.calldata 4)
-            { s with memory := fun o =>
-                if o = 0 then (Compiler.Proofs.YulGeneration.calldataloadWord
-                    s.selector s.calldata 4)
-                else s.memory o } := by
+            (s.writePhysicalMemoryValue 0
+              (Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata 4)) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr,
-      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte]
+    have bounded : Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata 4 <
+        Verity.Core.Uint256.modulus :=
+      Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus s.selector s.calldata 4
+    simp only [execIRStmts, execIRStmt, evalIRExpr,
+      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+      Nat.mod_eq_of_lt bounded]
   have hsize : 2 ≤ sizeOf
       ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0, YulExpr.call "calldataload" [YulExpr.lit 4]]),
@@ -5598,14 +5842,17 @@ theorem execIRFunction_mstore0_calldataload_aligned_return32
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return (Compiler.Proofs.YulGeneration.calldataloadWord
               s.selector s.calldata (4 + 32 * idx))
-            { s with memory := fun o =>
-                if o = 0 then (Compiler.Proofs.YulGeneration.calldataloadWord
-                    s.selector s.calldata (4 + 32 * idx))
-                else s.memory o } := by
+            (s.writePhysicalMemoryValue 0
+              (Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata (4 + 32 * idx))) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr,
-      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte]
+    have bounded : Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata (4 + 32 * idx) <
+        Verity.Core.Uint256.modulus :=
+      Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus s.selector s.calldata (4 + 32 * idx)
+    simp only [execIRStmts, execIRStmt, evalIRExpr,
+      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+      Nat.mod_eq_of_lt bounded]
   have hsize : 2 ≤ sizeOf
       ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0,
@@ -5646,13 +5893,16 @@ theorem execIRFunction_mstore0_sload0_return32
          YulStmt.exprStmt (YulExpr.call "return"
             [YulExpr.lit 0, YulExpr.lit 32])] =
           .return ((s.storage (IRStorageSlot.ofNat 0)).toNat)
-            { s with memory := fun o =>
-                if o = 0 then (s.storage (IRStorageSlot.ofNat 0)).toNat else s.memory o } := by
+            (s.writePhysicalMemoryValue 0 (s.storage (IRStorageSlot.ofNat 0)).toNat) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
-      Compiler.Proofs.abstractLoadStorageOrMapping,
-      Option.bind_some, ↓reduceIte]
+    have bounded : (s.storage (IRStorageSlot.ofNat 0)).toNat < Verity.Core.Uint256.modulus := by
+      simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+        EvmYul.UInt256.size] using IRStorageWord.toNat_lt_size (s.storage (IRStorageSlot.ofNat 0))
+    simp only [execIRStmts, execIRStmt, evalIRExpr, evalIRCall_sload_singleton,
+      Compiler.Proofs.abstractLoadStorageOrMapping, Option.bind_some, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+      Nat.mod_eq_of_lt bounded]
   have hsize : 2 ≤ sizeOf
       ([YulStmt.exprStmt (YulExpr.call "mstore"
           [YulExpr.lit 0, YulExpr.call "sload" [YulExpr.lit 0]]),
@@ -5666,6 +5916,9 @@ theorem execIRFunction_mstore0_sload0_return32
     IRState.foldl_setParamVars_events]
   simp [applyIRTransactionContext]
 
+/-- Exact EVM result, including modulo normalization for every Nat literal.
+The old word-map helper returned the literal unbounded; physical memory stores
+only its 256-bit representation. Bounded literal callers retain the same value. -/
 theorem execIRFunction_mstore0_lit_return32
     (fn : IRFunction) (tx : IRTransaction) (initialState : IRState)
     (value : Nat)
@@ -5674,7 +5927,7 @@ theorem execIRFunction_mstore0_lit_return32
       YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])]) :
     execIRFunction fn tx.args (applyIRTransactionContext tx initialState) =
       { success := true
-        returnValue := some value
+        returnValue := some (Verity.Core.Uint256.ofNat value).val
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
         events := initialState.events } := by
@@ -5683,10 +5936,11 @@ theorem execIRFunction_mstore0_lit_return32
         [YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
          YulStmt.exprStmt (YulExpr.call "return"
             [YulExpr.lit 0, YulExpr.lit 32])] =
-          .return value { s with memory := fun o => if o = 0 then value else s.memory o } := by
+          .return (Verity.Core.Uint256.ofNat value).val (s.writePhysicalMemoryValue 0 value) := by
     intro n s hn
     obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    simp +decide only [execIRStmts, execIRStmt, evalIRExpr, ↓reduceIte]
+    simp only [execIRStmts, execIRStmt, evalIRExpr, ↓reduceIte,
+      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at]
   have hsize : 2 ≤ sizeOf
       ([YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.lit value]),
         YulStmt.exprStmt (YulExpr.call "return"
@@ -5852,6 +6106,8 @@ theorem execIRStmtsWithInternals_singleton
   | «continue» state' => rfl
   | «return» value state' => rfl
   | stop state' => rfl
+  | exceptional state' => rfl
+  | interpretationError message => rfl
   | revert state' => rfl
   | «leave» state' => rfl
 
@@ -5876,6 +6132,8 @@ theorem execIRStmtsWithInternals_singleton_letMany_call_internal
           else .revert state''
       | .stop state'' => .stop state''
       | .return value' state'' => .return value' state''
+      | .exceptional state'' => .exceptional state''
+      | .interpretationError message => .interpretationError message
       | .revert state'' => .revert state'' := by
   rw [show fuel + 3 = (fuel + 2) + 1 from by omega]
   rw [execIRStmtsWithInternals_singleton]
@@ -5907,6 +6165,8 @@ theorem execIRStmtWithInternals_expr_call_internal
       | .values _ state'' => .continue state''
       | .stop state'' => .stop state''
       | .return value' state'' => .return value' state''
+      | .exceptional state'' => .exceptional state''
+      | .interpretationError message => .interpretationError message
       | .revert state'' => .revert state'' := by
   -- The `.exprStmt (.call func args)` case in execIRStmtWithInternals dispatches
   -- through the builtin string matching before reaching the generic `.call`
@@ -5955,6 +6215,8 @@ theorem execIRStmtsWithInternals_singleton_expr_call_internal
       | .values _ state'' => .continue state''
       | .stop state'' => .stop state''
       | .return value' state'' => .return value' state''
+      | .exceptional state'' => .exceptional state''
+      | .interpretationError message => .interpretationError message
       | .revert state'' => .revert state'' := by
   rw [show fuel + 3 = (fuel + 2) + 1 from by omega]
   rw [execIRStmtsWithInternals_singleton]
@@ -6179,6 +6441,8 @@ theorem execIRStmtsWithInternals_of_internalCallAssign_compile
           else .revert state''
       | .stop state'' => .stop state''
       | .return value' state'' => .return value' state''
+      | .exceptional state'' => .exceptional state''
+      | .interpretationError message => .interpretationError message
       | .revert state'' => .revert state'' := by
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCallAssign_shape hok
   have hArgEq : argExprs' = argExprs := by
@@ -6223,6 +6487,8 @@ theorem execIRStmtsWithInternals_of_internalCall_compile
       | .values _ state'' => .continue state''
       | .stop state'' => .stop state''
       | .return value' state'' => .return value' state''
+      | .exceptional state'' => .exceptional state''
+      | .interpretationError message => .interpretationError message
       | .revert state'' => .revert state'' := by
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape hok
   have hArgEq : argExprs' = argExprs := by

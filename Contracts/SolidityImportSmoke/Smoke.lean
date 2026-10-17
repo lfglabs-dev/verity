@@ -68,8 +68,8 @@ def decodedWitnessState : DenoteState :=
   let initial := witnessState 100 10 0 0 0 50 100
   let writes : List (Nat × Nat) :=
     [(64,128),(64,224),(128,0),(224,0),(64,256),(160,224),(192,100)]
-  let memory := writes.foldl (fun mem (offset,value) =>
-    fun o => if o = offset then Verity.Core.Uint256.ofNat value else mem o) initial.world.memory
+  let world := writes.foldl (fun world (offset,value) =>
+    world.writePhysicalMemoryValue offset (Verity.Core.Uint256.ofNat value)) initial.world
   let bindings := ([
     ("_verity_slice_tmp_0_calldata",100), ("_verity_slice_tmp_0_memory",128),
     ("_verity_slice_tmp_0_next",224), ("_verity_slice_tmp_0_array1_memory",224),
@@ -78,7 +78,7 @@ def decodedWitnessState : DenoteState :=
     ("_verity_slice_tmp_0_array1_element_index",0),
     ("_verity_slice_tmp_1",1), ("_verity_slice_tmp_2",2)] : List (String × Nat)).foldl
       (fun env (name,value) => bindValue env name value) []
-  { initial with world := { initial.world with memory }, bindings }
+  { initial with world, bindings }
 
 theorem string_beq_kernel : ("_verity_slice_tmp_1" == "_verity_slice_tmp_2") = false := by
   decide
@@ -87,8 +87,7 @@ theorem string_beq_kernel : ("_verity_slice_tmp_1" == "_verity_slice_tmp_2") = f
 private def abiState0 : DenoteState := witnessState 100 10 0 0 0 50 100
 
 private def abiState1 : DenoteState :=
-  { abiState0 with world := { abiState0.world with
-    memory := fun o => if o = 64 then Verity.Core.Uint256.ofNat 128 else abiState0.world.memory o } }
+  { abiState0 with world := abiState0.world.writePhysicalMemoryValue 64 (Verity.Core.Uint256.ofNat 128) }
 
 private theorem abi_step_0 :
     execStmt sliceOracle smoke.model.fields abiState0 (peel (smokeBody.drop 0)).1 =
@@ -136,16 +135,14 @@ private theorem abi_step_8 :
       .continue abiState7 := by rfl
 
 private def abiState10 : DenoteState :=
-  { abiState7 with world := { abiState7.world with
-    memory := fun o => if o = 64 then Verity.Core.Uint256.ofNat 224 else abiState7.world.memory o } }
+  { abiState7 with world := abiState7.world.writePhysicalMemoryValue 64 (Verity.Core.Uint256.ofNat 224) }
 
 private theorem abi_step_9 :
     execStmt sliceOracle smoke.model.fields abiState7 (peel (smokeBody.drop 9)).1 =
       .continue abiState10 := by rfl
 
 private def abiState11 : DenoteState :=
-  { abiState10 with world := { abiState10.world with
-    memory := fun o => if o = 128 then Verity.Core.Uint256.ofNat 0 else abiState10.world.memory o } }
+  { abiState10 with world := abiState10.world.writePhysicalMemoryValue 128 (Verity.Core.Uint256.ofNat 0) }
 
 private theorem abi_step_10 :
     execStmt sliceOracle smoke.model.fields abiState10 (peel (smokeBody.drop 10)).1 =
@@ -211,16 +208,14 @@ private theorem abi_step_21 :
       .continue abiState21 := by rfl
 
 private def abiState23 : DenoteState :=
-  { abiState21 with world := { abiState21.world with
-    memory := fun o => if o = 224 then Verity.Core.Uint256.ofNat 0 else abiState21.world.memory o } }
+  { abiState21 with world := abiState21.world.writePhysicalMemoryValue 224 (Verity.Core.Uint256.ofNat 0) }
 
 private theorem abi_step_22 :
     execStmt sliceOracle smoke.model.fields abiState21 (peel (smokeBody.drop 22)).1 =
       .continue abiState23 := by rfl
 
 private def abiState24 : DenoteState :=
-  { abiState23 with world := { abiState23.world with
-    memory := fun o => if o = 64 then Verity.Core.Uint256.ofNat 256 else abiState23.world.memory o } }
+  { abiState23 with world := abiState23.world.writePhysicalMemoryValue 64 (Verity.Core.Uint256.ofNat 256) }
 
 private theorem abi_step_23 :
     execStmt sliceOracle smoke.model.fields abiState23 (peel (smokeBody.drop 23)).1 =
@@ -234,16 +229,14 @@ private theorem abi_step_24 :
       .continue abiState25 := by rfl
 
 private def abiState26 : DenoteState :=
-  { abiState25 with world := { abiState25.world with
-    memory := fun o => if o = 160 then Verity.Core.Uint256.ofNat 224 else abiState25.world.memory o } }
+  { abiState25 with world := abiState25.world.writePhysicalMemoryValue 160 (Verity.Core.Uint256.ofNat 224) }
 
 private theorem abi_step_25 :
     execStmt sliceOracle smoke.model.fields abiState25 (peel (smokeBody.drop 25)).1 =
       .continue abiState26 := by rfl
 
 private def abiState27 : DenoteState :=
-  { abiState26 with world := { abiState26.world with
-    memory := fun o => if o = 192 then Verity.Core.Uint256.ofNat 100 else abiState26.world.memory o } }
+  { abiState26 with world := abiState26.world.writePhysicalMemoryValue 192 (Verity.Core.Uint256.ofNat 100) }
 
 private theorem abi_step_26 :
     execStmt sliceOracle smoke.model.fields abiState26 (peel (smokeBody.drop 26)).1 =

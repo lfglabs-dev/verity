@@ -1,16 +1,16 @@
 import Compiler.Codegen
 import Compiler.Proofs.IRGeneration.Expr
-import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeLowering
 
 namespace Compiler.SimpleStorageNativeWitness
 
 open Compiler.Proofs.IRGeneration
 
-/-- Computed native lowering witness for the generated `simpleStorage` runtime.
+/-- Kernel-checked native lowering witness for the generated `simpleStorage` runtime.
 
-This file is deliberately outside `Compiler/Proofs`: the executable computation
-packages a concrete artifact, while theorem modules consume only the resulting
-equality. -/
+The executable artifact and its equality are both checked by the Lean kernel.
+The total identifier collector and first-free temporary search let the kernel
+reduce the lowering without a native-code decision axiom. -/
 theorem lowerRuntimeContractNative_ok :
     ∃ nativeContract,
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
@@ -21,7 +21,7 @@ theorem lowerRuntimeContractNative_ok :
             (Compiler.emitYul simpleStorageIRContract).runtimeCode with
         | .ok _ => true
         | .error _ => false) = true := by
-    native_decide
+    decide +kernel
   cases hLower :
       Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
         (Compiler.emitYul simpleStorageIRContract).runtimeCode with
@@ -56,7 +56,7 @@ def nativeContract : EvmYul.Yul.Ast.YulContract :=
               (Compiler.emitYul simpleStorageIRContract).runtimeCode with
           | .ok _ => true
           | .error _ => false) = true := by
-      native_decide
+      decide +kernel
     cases hLower :
         Compiler.Proofs.YulGeneration.Backends.lowerRuntimeContractNative
           (Compiler.emitYul simpleStorageIRContract).runtimeCode with

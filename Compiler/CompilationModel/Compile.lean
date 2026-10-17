@@ -461,6 +461,9 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
   | Stmt.internalCallAssign names functionName args => do
       let argExprs ← compileInternalCallArgs fields dynamicSource internalFunctions functionName args
       pure [YulStmt.letMany names (YulExpr.call (internalFunctionYulName functionName) argExprs)]
+  | Stmt.create2 destination offset size salt => do
+      let argExprs ← compileExprListWithInternals fields dynamicSource internalFunctions [offset, size, salt]
+      pure [YulStmt.letMany [destination] (YulExpr.call "create2" (YulExpr.lit 0 :: argExprs))]
   | Stmt.externalCallBind resultVars externalName args => do
       let argExprs ← compileExprListWithInternals fields dynamicSource internalFunctions args
       if resultVars.isEmpty then

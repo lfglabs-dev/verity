@@ -11,6 +11,8 @@ from urllib.request import Request, urlopen
 
 from .engine import HarnessError
 from .stateful import validate_observation
+from .accounts import canonical_accounts, install_accounts
+from .caller import capture_caller
 
 
 class Anvil:
@@ -127,10 +129,11 @@ class SequenceAdapter:
     initial storage is installed verbatim from the fixture. ABI values and
     emitted events are observed without normalization.
     """
-    def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data'):
+    def __init__(self, directory, bytecodes, initial_storage=(), calldata_key='data', initial_accounts=()):
         self.directory = Path(directory)
         self.bytecodes = tuple(bytecodes)
         self.initial_storage = tuple(tuple(row) for row in initial_storage)
+        self.initial_accounts = canonical_accounts(initial_accounts)
         self.calldata_key = calldata_key
         self.runs = 0
 
@@ -139,13 +142,17 @@ class SequenceAdapter:
             raise HarnessError('slot plan does not cover the transaction sequence')
         directory = self.directory / str(self.runs)
         self.runs += 1
-        observations, receipts = [], []
+        observations, receipts, caller_accounts = [], [], []
         with Anvil(directory) as node:
             deployer = node.rpc('eth_accounts')[0]
+            reserved = [deployer] + [tx['sender'] for tx in transactions]
             for code in self.bytecodes:
                 deployment = node.transact({'from': deployer, 'data': code, 'gas': hex(10000000)})
                 if deployment['receipt']['status'] != '0x1':
                     raise HarnessError('fixture deployment failed')
+                reserved.append(deployment['receipt']['contractAddress'])
+                caller_accounts.append(capture_caller(node, deployment['receipt']))
+            install_accounts(node, self.initial_accounts, reserved)
             for account, slot, value in self.initial_storage:
                 node.rpc('anvil_setStorageAt', account, slot, value)
             for transaction, slots in zip(transactions, plan):
@@ -176,6 +183,7 @@ class SequenceAdapter:
                 receipts.append({'id': transaction['id'], 'transactionHash': result['receipt']['transactionHash']})
         (directory / 'sequence.json').write_text(json.dumps(
             {'bytecodes': self.bytecodes, 'initialStorage': self.initial_storage,
+             'initialAccounts': self.initial_accounts, 'callerAccounts': caller_accounts,
              'calldataKey': self.calldata_key, 'node': node.provenance,
              'transactions': transactions, 'receipts': receipts,
              'slots': plan, 'observations': observations}, indent=2) + '\n')

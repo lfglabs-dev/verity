@@ -1,0 +1,24 @@
+{
+  "language": "Yul",
+  "settings": {
+    "evmVersion": "osaka",
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "outputSelection": {
+      "*": {
+        "*": [
+          "evm.bytecode.object",
+          "evm.bytecode.opcodes",
+          "evm.assembly"
+        ]
+      }
+    }
+  },
+  "sources": {
+    "MappingHelper.yul": {
+      "content": "object \"MappingHelper\" {\n code {\n  let result := mappingSlot(calldataload(0), calldataload(32))\n  mstore(0, result)\n  return(0, 32)\n        function mappingSlot(baseSlot, key) -> slot {\n            mstore(0, key)\n            mstore(32, baseSlot)\n            slot := keccak256(0, 64)\n        }\n }\n}\n"
+    }
+  }
+}

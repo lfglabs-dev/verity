@@ -1,0 +1,10 @@
+import Compiler.CodegenCommon
+import Compiler.Yul.PrettyPrint
+
+/-- Export the actual code generator helper; do not hand-transcribe its stores. -/
+def main (args : List String) : IO Unit := do
+  let [output] := args | throw (IO.userError "expected output path")
+  let helper := String.intercalate "\n" (Compiler.Yul.ppStmt 2 (Compiler.CodegenCommon.mappingSlotFuncAt 0))
+  IO.FS.writeFile output ("object \"MappingHelper\" {\n code {\n" ++
+    "  let result := mappingSlot(calldataload(0), calldataload(32))\n" ++
+    "  mstore(0, result)\n  return(0, 32)\n" ++ helper ++ "\n }\n}\n")

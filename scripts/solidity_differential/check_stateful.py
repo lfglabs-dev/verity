@@ -1,15 +1,17 @@
 """Real A/B/C sequence regression for the handwritten scalar instrument fixture."""
 import argparse
 import hashlib
+import json
 import random
 from pathlib import Path
 import tempfile
 
 from .anvil import Anvil, SequenceAdapter as EVMAdapter
 from .denote import SequenceAdapter as DenoteAdapter
-from .engine import HarnessError, SOLC, command, solc_compile, write_json
+from .engine import HarnessError, SOLC, WORKSPACE, command, solc_compile, write_json
 from .stateful import replay_three_routes, shrink_sequence
 from .identity import ImplementationIdentity
+from .caller import capture_caller
 from .programs import stateful_scalar_source
 
 
@@ -160,7 +162,8 @@ def _encode_ratify_offer_call(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
+    parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return',
+                                              'memory-renamed', 'memory-bindings'], default='baseline')
     parser.add_argument('--dirty-mappings', action='store_true',
         help='seed the MappingDirtySequence layout with noncanonical low bytes and nonzero upper bits')
     parser.add_argument('--argument-bits', type=int, default=256,
@@ -171,6 +174,8 @@ def main():
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--senders', type=int, default=1, help='number of funded transaction senders (1 to 10)')
     parser.add_argument('--shrink-attempts', type=int, default=1000)
+    parser.add_argument('--initial-accounts', type=Path,
+        help='JSON array of exact external address/code/nonce/balance inputs')
     parser.add_argument('--model-driver', type=Path,
         default=Path('Contracts/SolidityImportSmoke/SequenceModel.lean'))
     parser.add_argument('--solc-version', choices=('0.8.34', '0.8.10'), default='0.8.34')
@@ -199,6 +204,11 @@ def main():
     else:
         output = args.output.resolve()
         output.mkdir(parents=True, exist_ok=False)
+    from .accounts import canonical_accounts
+    initial_accounts_bytes = args.initial_accounts.read_bytes() if args.initial_accounts else b'[]'
+    initial_accounts_digest = hashlib.sha256(initial_accounts_bytes).hexdigest()
+    initial_accounts = canonical_accounts(json.loads(initial_accounts_bytes))
+    write_json(output / 'initial-accounts.json', initial_accounts)
     fixture = args.source_fixture.resolve()
     source_text = stateful_scalar_source(fixture.read_text(), args.variant)
     solc_bin = SOLC if args.solc_version == '0.8.34' else SOLC.with_name('solc-0.8.10')
@@ -324,11 +334,19 @@ def main():
             names.append(extra_name)
     write_json(output / 'selectors.json', [int(source['methodIdentifiers'][name], 16) for name in names])
     driver = args.model_driver.resolve()
-    extra_inputs = [fixture]
+    extra_inputs = [fixture] + ([args.initial_accounts.resolve()] if args.initial_accounts else [])
     imported_dep = fixture.parent / 'Solc0810Imported.sol'
     if imported_dep.exists():
         extra_inputs.append(imported_dep)
+    # Rebuild the actual execution dependencies before freezing identities.
+    # An old olean can import changed runtime types and crash without a useful
+    # diagnostic; successful source elaboration alone is not a freshness gate.
+    driver_module = '.'.join(driver.relative_to(WORKSPACE).with_suffix('').parts)
+    command(['lake', 'build', 'Compiler.Codegen', 'Compiler.Yul.PrettyPrint', driver_module],
+            timeout=1800, log=output / 'build-model.log')
     identity = ImplementationIdentity(driver, extra_inputs=extra_inputs)
+    if args.initial_accounts and hashlib.sha256(args.initial_accounts.read_bytes()).hexdigest() != initial_accounts_digest:
+        raise HarnessError('initial account inputs changed during model build')
     write_json(output / 'implementation.json', identity.manifest)
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json', output / 'model.yul'],
             timeout=600, log=output / 'compile-model.log')
@@ -350,6 +368,8 @@ def main():
         if deployed['receipt']['status'] != '0x1':
             raise HarnessError('source fixture deployment failed')
         account = deployed['receipt']['contractAddress']
+        caller_capture = capture_caller(node, deployed['receipt'])
+        write_json(output / 'caller-deployment.json', caller_capture)
         initial_storage = []
         if args.dirty_mappings:
             def mapping_slot(base, key):
@@ -1273,15 +1293,16 @@ def main():
         'timestamp': 1000000100 + index, 'blockNumber': 2 + index,
         'data': '0x' + source['methodIdentifiers'][name] + ''.join(format(arg, '064x') for arg in args)}
         for index, (name, args) in enumerate(calls)]
-    adapters = {'source': EVMAdapter(output / 'A', [source_code], initial_storage=initial_storage),
-        'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity),
-        'compiled': EVMAdapter(output / 'C', [compiled_code], initial_storage=initial_storage)}
+    adapters = {'source': EVMAdapter(output / 'A', [source_code], initial_storage=initial_storage, initial_accounts=initial_accounts),
+        'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity, initial_accounts=initial_accounts, caller_account=caller_capture['account']),
+        'compiled': EVMAdapter(output / 'C', [compiled_code], initial_storage=initial_storage, initial_accounts=initial_accounts)}
     write_json(output / 'provenance.json', {
         'solcSha256': hashlib.sha256(solc_bin.read_bytes()).hexdigest(),
         'anvilVersion': command(['anvil', '--version']).strip(),
         'leanVersion': command(['lake', 'env', 'lean', '--version']).strip(),
         'sourceSha256': hashlib.sha256(source_text.encode()).hexdigest(),
         'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest(),
+        'initialAccounts': initial_accounts, 'callerDeployment': caller_capture,
         'variant': args.variant, 'seed': args.seed, 'transactionCount': args.transactions,
         'changePrefix': args.change_prefix, 'argumentBits': args.argument_bits, 'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
         'evmVersion': evm_version, 'optimizerRuns': optimizer_runs})

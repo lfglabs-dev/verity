@@ -1,3 +1,4 @@
+import Compiler.CompilationModel.RequirePayloadValidation
 import Lean
 import Compiler.Sha256.Engine
 import Compiler.Hex
@@ -12085,6 +12086,8 @@ private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
     let (pre, name, values) ← lowerErrorArguments message
     return condition.pre ++ pre |>.push (.requireError condition.expr name values)
   let value ← extractStringLiteralOrConstant message false
+  unless requirePayloadFitsWord value do
+    failAt message "require message ABI payload exceeds the EVM word address space"
   let condition ← atom (← lowerExpr args[0]!)
   return condition.pre.push (.require condition.expr value)
 
@@ -12110,6 +12113,8 @@ private partial def lowerBuiltinRevert (statement : Json) : M (Array Stmt) := do
     return #[.revertReturndata]
   unless args.size == 1 do failAt call "revert(string) requires one message argument"
   let value ← extractStringLiteralOrConstant args[0]! true
+  unless requirePayloadFitsWord value do
+    failAt args[0]! "revert message ABI payload exceeds the EVM word address space"
   return #[.require (.literal 0) value]
 
 private partial def lowerRevert (statement : Json) : M (Array Stmt) := do
@@ -14833,14 +14838,16 @@ private def elabFunctionCalls (ns : Name) (model : CompilationModel) : CommandEl
       | [x] => pure x
       | x :: xs => `(($x, $(xs.toArray),*))
     let name := ns ++ Name.mkSimple fn.name
-    let doc := docComment s!"Call `{fn.name}` on the imported model in `{world.getId}`; `none` means it reverts. "
+    let doc := docComment s!"Call `{fn.name}` on the imported model in `{world.getId}`; `.ok none` means EVM failure and `.error` preserves an interpretation diagnostic. "
     elabCommand (← `($doc:docComment def $(mkIdent (`_root_ ++ name))
         ($oracle : Compiler.CompilationModel.Denote.DenoteOracle) ($world : Verity.ContractState)
-        $binders* : Option $resultTy :=
+        $binders* : Except String (Option $resultTy) :=
       match Compiler.CompilationModel.SolidityImport.runFunction $oracle $(mkIdent (`_root_ ++ ns ++ `model))
           $(quote fn.name) $world [$args,*] with
-      | some [$words,*] => some $result
-      | _ => none))
+      | .ok (some [$words,*]) => .ok (some $result)
+      | .ok none => .ok none
+      | .ok (some _) => .error $(quote s!"unexpected imported return arity: {fn.name}")
+      | .error message => .error message))
     names := name :: names
   pure names
 

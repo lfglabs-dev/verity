@@ -7,22 +7,18 @@ import Compiler.CompilationModel.AbiEncoding
 Companion to `ErrorStringPayloadIR` (the `Error(string)` observable) and the
 `Panic(uint256)` observable.
 
-The generic-induction step lemmas `compiledStmtStep_requireError` and
-`compiledStmtStep_revertError` are already proved, but both are stated modulo
-the hypothesis
-
-    hrevertExec : ∀ state fuel, ∃ next, execIRStmts fuel state revertStmts = .revert next
-
-which nothing in the tree discharged, leaving those two lemmas without
-consumers. This module supplies the machinery for that hypothesis: it
-characterizes the statement shapes a revert payload is built from
-(`NonEscaping` — statements that can only continue or revert), proves that a
-list reaching a `revert` call through such statements deterministically reverts
-(`RevertsAlways` / `execIRStmts_revertsAlways`), and lifts that through the
-`block` wrapper the typed-error payload uses.
+NonEscaping/RevertsAlways below classify legacy statement control shapes.
+They do not provide an exact payload certificate: in particular fuel exhaustion
+can have no observed REVERT operands. GenericInduction.ErrorRevert and
+TypedRevertStep now consume actual Source payloads, physical execution and
+adequate-fuel byte laws instead of these coarse classifications.
 
 Fuel exhaustion is itself modelled as `.revert` by `execIRStmts`, so these
-statements hold at every fuel value, including `0`.
+classification statements hold at every fuel value, including `0`. They do not
+prove an observed EVM REVERT or any payload bytes. Exact custom-error step
+correspondence must separately establish computed arguments/declarations,
+physical byte equality and sufficient fuel; these coarse facts cannot discharge
+those obligations.
 -/
 
 namespace Compiler.Proofs.IRGeneration
@@ -54,8 +50,16 @@ out-of-fuel case. -/
 theorem execIRStmt_revertCall (fuel : Nat) (state : IRState)
     (offset size : YulExpr) :
     execIRStmt fuel state (.exprStmt (.call "revert" [offset, size])) =
-      .revert state := by
-  cases fuel <;> simp [execIRStmt]
+      .revert (match fuel with
+        | 0 => state
+        | _ + 1 => match evalIRExpr state offset, evalIRExpr state size with
+          | some destination, some extent => state.captureRevert destination extent
+          | _, _ => state) := by
+  cases fuel with
+  | zero => rfl
+  | succ fuel =>
+      cases hoffset : evalIRExpr state offset <;>
+        cases hsize : evalIRExpr state size <;> simp [execIRStmt, hoffset, hsize]
 
 theorem execIRStmt_block' (fuel : Nat) (state : IRState) (body : List YulStmt) :
     execIRStmt (fuel + 1) state (.block body) = execIRStmts fuel state body := by
@@ -104,8 +108,8 @@ theorem NonEscaping.mstore (offset value : YulExpr) :
           cases hval : evalIRExpr state value with
           | none => exact Or.inr ⟨state, by simp [execIRStmt, hoff, hval]⟩
           | some v =>
-              exact Or.inl ⟨{ state with
-                memory := fun x => if x = o then v else state.memory x },
+              exact Or.inl ⟨state.writePhysicalMemoryValue
+                (Verity.Core.Uint256.ofNat o).val v,
                 by simp [execIRStmt, hoff, hval]⟩
 
 /-- The list-level counterpart of `NonEscaping`: running the whole list can only
@@ -224,7 +228,7 @@ theorem execIRStmts_revertsAlways {stmts : List YulStmt}
       cases fuel with
       | zero => exact ⟨state, execIRStmts_zero_cons _ _ _⟩
       | succ f =>
-          exact ⟨state, execIRStmts_cons_revert f state state _ _
+          exact ⟨_, execIRStmts_cons_revert f state _ _ _
             (execIRStmt_revertCall f state offset size)⟩
   | cons hstmt _ ih =>
       intro fuel state
@@ -269,9 +273,8 @@ theorem execIRStmts_block_revertsAlways {body : List YulStmt}
 /-! ## The custom-error payload shape
 
 `revertWithCustomError` emits a single `block` whose body is a prefix of
-memory/local writes followed by an unconditional `revert` call. This is the
-`hrevertExec` shape that `compiledStmtStep_requireError` and
-`compiledStmtStep_revertError` take as a hypothesis. -/
+memory/local writes followed by an unconditional `revert` call. This is only a control-shape classification; exact typed-error consumers require
+the separate actual physical payload execution laws. -/
 
 theorem RevertsAlways.prefix_revertCall {pre : List YulStmt} (offset size : YulExpr)
     (hpre : ∀ stmt ∈ pre, NonEscaping stmt) :

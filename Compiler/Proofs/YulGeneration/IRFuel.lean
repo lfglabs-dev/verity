@@ -29,6 +29,8 @@ theorem execIRStmtsFuel_cons
       | .continue s' => execIRStmtsFuel fuel s' rest
       | .return v s => .return v s
       | .stop s => .stop s
+      | .exceptional s => .exceptional s
+      | .interpretationError message => .interpretationError message
       | .revert s => .revert s := by
   rfl
 
@@ -58,8 +60,23 @@ def execIRFunctionFuel
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
-      { success := false
+  | .exceptional state =>
+      { exceptionalContext := state.executionContext
+        success := false
+        returnValue := none
+        finalStorage := initialState.storage
+        finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
+        events := initialState.events }
+  | .interpretationError message =>
+      { interpretationError := some message
+        success := false
+        returnValue := none
+        finalStorage := initialState.storage
+        finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
+        events := initialState.events }
+  | .revert state =>
+      { revertData := state.revertBytes
+        success := false
         returnValue := none
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage

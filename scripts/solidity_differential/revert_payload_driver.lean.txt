@@ -1,0 +1,51 @@
+import Compiler.Proofs.IRGeneration.SourceStatementEvaluation
+import Compiler.Proofs.IRGeneration.DenoteFunctionAgreement
+import Compiler.CompilationModel
+import Compiler.Codegen
+import Compiler.Yul.PrettyPrint
+open Compiler.CompilationModel Compiler.Proofs.IRGeneration SourceSemantics
+private def hexBytes (bytes : List UInt8) : String :=
+  "0x" ++ String.ofList (bytes.flatMap (fun byte =>
+    let chars := "0123456789abcdef".toList
+    [chars[byte.toNat / 16]!, chars[byte.toNat % 16]!]))
+private def makeModel (kind value variant : Nat) : CompilationModel :=
+  let atom : Stmt := match kind with
+    | 0 => .require (.literal value) "denied"
+    | 1 => .panicCode (.literal value)
+    | 2 => .revertError "Denied" [.literal value, .literal 9]
+    | _ => .requireError (.literal value) "Denied" [.literal 7, .literal 9]
+  let body := (match variant with
+    | 0 => [atom]
+    | 1 => [.ite (.literal 1) [atom] []]
+    | _ => [.forEach "i" (.literal 1) [atom]]) ++ [.stop]
+  { name := "RevertPayload", fields := [], constructor := none,
+    errors := [{ name := "Denied", params := [.uint256, .address] }],
+    functions := [{ name := "probe", params := [], returnType := none, body := body }] }
+private def check (id kind value variant selector : Nat) (output : String) : IO Unit := do
+  let model := makeModel kind value variant
+  let fn ← match model.functions[0]? with
+    | some fn => pure fn
+    | none => throw (IO.userError "generated entry is missing")
+  let source : RuntimeState := { world := Verity.defaultState, bindings := [], errors := model.errors }
+  let denote : Denote.DenoteState := { world := Verity.defaultState, bindings := [], errors := model.errors }
+  let observe : StmtResult → IO String := fun result => match result with
+    | .stop _ | .continue _ => pure "ok:0x"
+    | .revertWithData bytes => pure ("revert:" ++ hexBytes bytes)
+    | _ => throw (IO.userError "payload calibration refused or lost explicit outcome")
+  let typed ← observe (SourceStatementEvaluation.execStmts model [] 256 source fn.body)
+  let canonical ← observe (DenoteAgreement.toStmtResult
+    (Denote.execStmtList DenoteAgreement.sourceOracle [] denote fn.body))
+  unless typed == canonical do throw (IO.userError "typed Source/Denote payload divergence")
+  let publicDenote := Denote.denoteFunction DenoteAgreement.sourceOracle model fn
+    { sender := 0, functionSelector := selector, args := [] } Verity.defaultState
+  let publicSource := SourceSemantics.interpretFunction model fn
+    { sender := 0, functionSelector := selector, args := [] } Verity.defaultState
+  unless publicDenote.interpretationError == none && publicSource.interpretationError == none do
+    throw (IO.userError "public payload entry refused")
+  let publicObservation := (if publicDenote.success then "ok:" else "revert:") ++ hexBytes publicDenote.revertData
+  let sourceObservation := (if publicSource.success then "ok:" else "revert:") ++ hexBytes publicSource.revertData
+  unless publicObservation == canonical && sourceObservation == canonical do
+    throw (IO.userError "public function entry erased or changed revert bytes")
+  IO.println s!"OBS:{id}:{typed}"
+  let compiled ← IO.ofExcept (Compiler.CompilationModel.compile model [selector] .osaka)
+  IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))

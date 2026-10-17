@@ -1,0 +1,16 @@
+{
+  "contracts": {
+    "MappingHelper.yul": {
+      "MappingHelper": {
+        "evm": {
+          "assembly": "    /* \"MappingHelper.yul\":72:118   */\n  tag_2\n    /* \"MappingHelper.yul\":114:116   */\n  0x20\n    /* \"MappingHelper.yul\":101:117   */\n  calldataload\n    /* \"MappingHelper.yul\":97:98   */\n  0x00\n    /* \"MappingHelper.yul\":84:99   */\n  calldataload\n    /* \"MappingHelper.yul\":72:118   */\n  tag_1\n  jump\t// in\ntag_2:\n    /* \"MappingHelper.yul\":138:139   */\n  0x00\n    /* \"MappingHelper.yul\":131:148   */\n  mstore\n    /* \"MappingHelper.yul\":171:173   */\n  0x20\n    /* \"MappingHelper.yul\":168:169   */\n  0x00\n    /* \"MappingHelper.yul\":161:174   */\n  return\n    /* \"MappingHelper.yul\":193:353   */\ntag_1:\n  swap1\n    /* \"MappingHelper.yul\":266:267   */\n  0x00\n    /* \"MappingHelper.yul\":259:273   */\n  mstore\n    /* \"MappingHelper.yul\":293:295   */\n  0x20\n    /* \"MappingHelper.yul\":286:306   */\n  mstore\n    /* \"MappingHelper.yul\":340:342   */\n  0x40\n    /* \"MappingHelper.yul\":337:338   */\n  0x00\n    /* \"MappingHelper.yul\":327:343   */\n  keccak256\n    /* \"MappingHelper.yul\":193:353   */\n  swap1\n  jump\t// out\n",
+          "bytecode": {
+            "object": "600a6020355f356011565b5f5260205ff35b905f5260205260405f209056",
+            "opcodes": "PUSH1 0xA PUSH1 0x20 CALLDATALOAD PUSH0 CALLDATALOAD PUSH1 0x11 JUMP JUMPDEST PUSH0 MSTORE PUSH1 0x20 PUSH0 RETURN JUMPDEST SWAP1 PUSH0 MSTORE PUSH1 0x20 MSTORE PUSH1 0x40 PUSH0 KECCAK256 SWAP1 JUMP "
+          }
+        }
+      }
+    }
+  },
+  "errors": []
+}

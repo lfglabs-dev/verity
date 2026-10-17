@@ -946,6 +946,8 @@ def exprListTouchesUnsupportedConstructorRawCalldataSurface : List Expr → Bool
         exprListTouchesUnsupportedConstructorRawCalldataSurface rest
 
 def stmtTouchesUnsupportedConstructorRawCalldataSurface : Stmt → Bool
+  | .create2 _ offset size salt =>
+      exprListTouchesUnsupportedConstructorRawCalldataSurface [offset, size, salt]
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
@@ -1577,6 +1579,7 @@ mutual
 /-- Observable/effect-rich surfaces outside the current generic whole-contract
 theorem: richer returns, logs, typed errors, and raw external effect hooks. -/
 def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
+  | .create2 _ _ _ _ => true
   | .panicCode _ => true
   | .panic _ => true
   | .requireError _ _ _ | .revertError _ _ | .returnValues _ | .returnArray _
@@ -1605,6 +1608,7 @@ def stmtTouchesUnsupportedEffectSurface : Stmt → Bool
 core, excluding richer state/call/effect surfaces that now have dedicated
 interfaces of their own. -/
 def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
+  | .create2 _ _ _ _ => true
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value =>
@@ -1658,6 +1662,7 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
 /-- State/layout-rich statement surfaces still outside the current whole-contract
 theorem. -/
 def stmtTouchesUnsupportedStateSurface : Stmt → Bool
+  | .create2 _ _ _ _ => true
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value =>
@@ -1716,6 +1721,7 @@ def stmtTouchesUnsupportedStateSurfaceExceptMappingWrites : Stmt → Bool
 /-- Helper/foreign/runtime-call statement surfaces still outside the current
 generic theorem. -/
 def stmtTouchesUnsupportedCallSurface : Stmt → Bool
+  | .create2 _ _ _ _ => true
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
@@ -1769,6 +1775,8 @@ def stmtTouchesUnsupportedCallSurface : Stmt → Bool
         stmtListTouchesUnsupportedCallSurface body
 
 def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
+  | .create2 _ offset size salt =>
+      exprListTouchesUnsupportedHelperSurface [offset, size, salt]
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
@@ -1827,6 +1835,8 @@ def stmtTouchesUnsupportedHelperSurface : Stmt → Bool
 this isolates heads that genuinely execute internal helpers, leaving residual
 non-helper unsupported cases to be tracked separately. -/
 def stmtTouchesInternalHelperSurface : Stmt → Bool
+  | .create2 _ offset size salt =>
+      [offset, size, salt].any exprTouchesInternalHelperSurface
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
@@ -1904,6 +1914,8 @@ This isolates the cases that should consume the expression-level helper-summary
 soundness and world-preservation lemmas directly, rather than bundling them
 with direct helper statements or recursive structural transport. -/
 def stmtTouchesExprInternalHelperSurface : Stmt → Bool
+  | .create2 _ offset size salt =>
+      [offset, size, salt].any exprTouchesInternalHelperSurface
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
@@ -1954,6 +1966,7 @@ def stmtTouchesExprInternalHelperSurface : Stmt → Bool
 head. This isolates `ite` / `forEach` obligations whose proof burden is mainly
 list-level recursion rather than direct helper-summary consumption. -/
 def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
+  | .create2 _ _ _ _ => false
   | .panicCode _ => false
   | .panic _ => false
   | .ite _ thenBranch elseBranch =>
@@ -1980,6 +1993,7 @@ def stmtTouchesStructuralInternalHelperSurface : Stmt → Bool
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
 
 def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
+  | .create2 _ _ _ _ => true
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
@@ -2035,6 +2049,7 @@ def stmtTouchesUnsupportedForeignSurface : Stmt → Bool
         stmtListTouchesUnsupportedForeignSurface body
 
 def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
+  | .create2 _ _ _ _ => true
   | .panicCode _ => false
   | .panic _ => false
   | .letVar _ value | .assignVar _ value | .setStorage _ value
@@ -2089,6 +2104,7 @@ def stmtTouchesUnsupportedLowLevelSurface : Stmt → Bool
 
 def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   match stmt with
+  | .create2 _ _ _ _ => true
   | .letVar _ value | .assignVar _ value | .setStorage _ value =>
       exprTouchesUnsupportedContractSurface value
   | .setStorageAddr _ value =>
@@ -2394,7 +2410,7 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
         | returnArray | returnBytes | returnStorageWords | returnCodeData
         | emit | internalCall
         | internalCallAssign | rawLog | externalCallBind | ecm
-        | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt | panicCode | panic =>
+        | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt | panicCode | panic | create2 =>
             simp [stmtTouchesUnsupportedContractSurface] at hsurface
       · intro stmts scope hlt hsurface
         cases stmts with
@@ -2559,6 +2575,9 @@ mutual
   positions. These calls must preserve the world on success because the current
   helper-aware expression semantics returns only a value. -/
   def stmtExprHelperCallNames : Stmt → List String
+    | .create2 _ offset size salt =>
+        exprInternalHelperCallNames offset ++ exprInternalHelperCallNames size ++
+          exprInternalHelperCallNames salt
     | .panicCode code => exprInternalHelperCallNames code
     | .panic _ => []
     | .letVar _ value | .assignVar _ value | .setStorage _ value | .setStorageAddr _ value
@@ -2629,6 +2648,9 @@ end
 mutual
   /-- Collect direct internal-helper callee names mentioned by a statement list. -/
   def stmtInternalHelperCallNames : Stmt → List String
+    | .create2 _ offset size salt =>
+        exprInternalHelperCallNames offset ++ exprInternalHelperCallNames size ++
+          exprInternalHelperCallNames salt
     | .panicCode code => exprInternalHelperCallNames code
     | .panic _ => []
     | .letVar _ value | .assignVar _ value | .setStorage _ value | .setStorageAddr _ value
@@ -4667,6 +4689,8 @@ mutual
       (hsurface : stmtTouchesUnsupportedHelperSurface stmt = false) :
       stmtTouchesInternalHelperSurface stmt = false := by
     cases stmt with
+    | create2 _ offset size salt =>
+        exact exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface
     | letVar _ value | assignVar _ value | setStorage _ value
     | setStorageAddr _ value | setImmutable _ value | setStorageWord _ _ value | storageArrayPush _ value =>
         simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
@@ -6023,7 +6047,7 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   | returnStorageWords _ | returnCodeData _
   | emit _ _ | internalCall _ _
   | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _
-  | forEachSetBit _ _ _ | panicCode _ | panic _ =>
+  | forEachSetBit _ _ _ | panicCode _ | panic _ | create2 _ _ _ _ =>
       cases hsurface
   | revertReturndata =>
       simp [stmtTouchesUnsupportedHelperSurface]

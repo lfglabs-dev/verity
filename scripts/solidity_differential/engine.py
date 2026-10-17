@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import time
@@ -21,9 +22,16 @@ def write_json(path, obj):
     path.write_text(json.dumps(obj, indent=2) + "\n")
 
 
-def command(argv, *, cwd=WORKSPACE, timeout=180, stdin=None, log=None):
+def command(argv, *, cwd=WORKSPACE, timeout=180, stdin=None, log=None, env=None):
+    argv = list(map(str, argv))
+    # Lake's environment may put another Lean binary ahead of the supplied
+    # sysroot. Preserve the explicitly selected runtime and resource wrapper.
+    if (argv[:3] == ['lake', 'env', 'lean']
+            and os.environ.get('LAKE_OVERRIDE_LEAN') == 'true'
+            and os.environ.get('LEAN_SYSROOT')):
+        argv[2] = str(Path(os.environ['LEAN_SYSROOT']).resolve() / 'bin/lean')
     try:
-        result = subprocess.run(list(map(str, argv)), cwd=cwd, input=stdin, text=True, capture_output=True, timeout=timeout)
+        result = subprocess.run(argv, cwd=cwd, input=stdin, text=True, capture_output=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired as error:
         raise HarnessError(f"resource_limit: {argv[0]} exceeded {timeout}s") from error
     if log:

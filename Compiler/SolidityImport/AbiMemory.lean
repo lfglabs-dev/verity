@@ -1,22 +1,24 @@
 import Verity.Core.Model.Denote
+import Compiler.SolidityImport.AbiPhysicalMemory
+import Compiler.SolidityImport.AbiPhysicalCopy
+import Compiler.SolidityImport.AbiMemoryGrid
 import Compiler.SolidityImport.AbiByteLanes
 import Compiler.SolidityImport.AbiEncoding
 import Compiler.SolidityImport.Proofs
 import Compiler.SolidityImport.LoopInvariants
 
 namespace Compiler.CompilationModel.Denote
+open Compiler.CompilationModel.PhysicalMemory
+open Compiler.CompilationModel.DenoteMemory
 
-/-- Read a byte from the encoder's aligned word grid, in EVM big-endian order.
-This observation is restricted to the aligned representation; it does not
-assert that arbitrary overlapping Denote stores have byte-memory semantics. -/
-def abiMemoryByte (memory : Nat → Verity.Core.Uint256) (address : Nat) : Nat :=
-  (memory (address / 32 * 32)).val / 256^(31 - address % 32) % 256
-
-/-- An actual successful `mstore` preserves every different word-grid cell. -/
+/-- A successful store preserves disjoint physical word windows. The legacy
+word view must represent the physical memory, and distinct offsets alone do
+not imply disjoint windows. -/
 theorem execStmt_mstore_memory_frame (oracle : DenoteOracle) (fields : List Field)
     (before after : DenoteState) (offset value : Expr) (destination address : Nat)
     (evaluated : evalExpr oracle fields before offset = some destination)
-    (outside : address ≠ destination)
+    (coherent : Coherent before.world)
+    (outside : address + 32 ≤ destination ∨ destination + 32 ≤ address)
     (executed : execStmt oracle fields before (.mstore offset value) = .continue after) :
     after.world.memory address = before.world.memory address := by
   simp only [execStmt, evaluated] at executed
@@ -25,18 +27,27 @@ theorem execStmt_mstore_memory_frame (oracle : DenoteOracle) (fields : List Fiel
   | some word =>
       simp only [result, StmtOutcome.continue.injEq] at executed
       cases executed
-      simp [outside]
+      exact writePhysicalMemoryWord_outside before.world destination
+        (valueWord (Verity.Core.Uint256.ofNat word)) address coherent outside
 
-/-- Lift the statement frame rule to bytes in other aligned words. -/
+/-- Every physical byte outside the actual32-byte store range is preserved.
+The comparison with the aligned-grid observation uses the entry representation invariant. -/
 theorem execStmt_mstore_byte_frame (oracle : DenoteOracle) (fields : List Field)
     (before after : DenoteState) (offset value : Expr) (destination address : Nat)
     (evaluated : evalExpr oracle fields before offset = some destination)
-    (outside : address / 32 * 32 ≠ destination)
+    (coherent : Coherent before.world)
+    (outside : address < destination ∨ destination + 32 ≤ address)
     (executed : execStmt oracle fields before (.mstore offset value) = .continue after) :
     abiMemoryByte after.world.memory address = abiMemoryByte before.world.memory address := by
-  unfold abiMemoryByte
-  rw [execStmt_mstore_memory_frame oracle fields before after offset value destination
-    (address / 32 * 32) evaluated outside executed]
+  simp only [execStmt, evaluated] at executed
+  cases result : evalExpr oracle fields before value with
+  | none => simp [result] at executed
+  | some word =>
+      simp only [result, StmtOutcome.continue.injEq] at executed
+      cases executed
+      rw [abiMemoryByte_physical _ address (writePhysicalMemoryValue_coherent _ _ _),
+        abiMemoryByte_physical before.world address coherent,
+        writePhysicalMemoryValue_byte_outside before.world destination _ address outside]
 
 /-- A fresh allocation starting beyond a live slice cannot alias any word
 containing a byte of that slice. The bound includes the whole prior allocation. -/
@@ -45,108 +56,6 @@ theorem fresh_allocation_byte_frame (base size fresh index : Nat)
     (base + index) / 32 * 32 ≠ fresh := by
   have lower : (base + index) / 32 * 32 ≤ base + index := Nat.div_mul_le_self _ _
   omega
-
-/-- Mathematical memory update performed by the aligned byte-copy step.
-The generated statement still needs an evaluation lemma connecting its shifts
-and bindings to this update. -/
-def abiInsertByte (memory : Nat → Verity.Core.Uint256) (address byte : Nat) :
-    Nat → Verity.Core.Uint256 :=
-  fun cell => if cell = address / 32 * 32 then
-    Verity.Core.Uint256.ofNat (SolidityImport.AbiByteLanes.insert
-      (memory cell).val byte (31 - address % 32)) else memory cell
-
-theorem abiInsertByte_word (memory : Nat → Verity.Core.Uint256) (address byte : Nat)
-    (empty : abiMemoryByte memory address = 0) (bounded : byte < 256) :
-    (abiInsertByte memory address byte (address / 32 * 32)).val =
-      SolidityImport.AbiByteLanes.insert (memory (address / 32 * 32)).val
-        byte (31 - address % 32) := by
-  have wordBound : (memory (address / 32 * 32)).val < 256^32 := by
-    simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
-      using (memory (address / 32 * 32)).isLt
-  have laneBound : 31 - address % 32 < 32 := by omega
-  simp only [abiInsertByte, if_pos rfl, Verity.Core.Uint256.val_ofNat]
-  change _ % 256^32 = _
-  exact SolidityImport.AbiByteLanes.insertion_modulus _ _ _ wordBound laneBound empty bounded
-
-theorem abiInsertByte_read (memory : Nat → Verity.Core.Uint256) (address byte : Nat)
-    (empty : abiMemoryByte memory address = 0) (bounded : byte < 256) :
-    abiMemoryByte (abiInsertByte memory address byte) address = byte := by
-  unfold abiMemoryByte
-  rw [abiInsertByte_word memory address byte empty bounded]
-  exact SolidityImport.AbiByteLanes.inserted_byte _ _ _ empty bounded
-
-/-- Byte insertion preserves every other address, even within the same word. -/
-theorem abiInsertByte_frame (memory : Nat → Verity.Core.Uint256) (address byte other : Nat)
-    (empty : abiMemoryByte memory address = 0) (bounded : byte < 256)
-    (different : other ≠ address) :
-    abiMemoryByte (abiInsertByte memory address byte) other = abiMemoryByte memory other := by
-  by_cases grid : other / 32 * 32 = address / 32 * 32
-  · have lanes : 31 - other % 32 ≠ 31 - address % 32 := by
-      have first := Nat.mod_lt other (by decide : 0 < 32)
-      have second := Nat.mod_lt address (by decide : 0 < 32)
-      omega
-    unfold abiMemoryByte
-    rw [grid, abiInsertByte_word memory address byte empty bounded]
-    exact SolidityImport.AbiByteLanes.other_byte_preserved _ _ _ _ empty bounded lanes
-  · simp [abiMemoryByte, abiInsertByte, grid]
-
-/-- Exact prefix invariant: copied bytes equal the source snapshot, and every
-other byte still equals the initial memory. -/
-def AbiCopyPrefix (initial memory : Nat → Verity.Core.Uint256)
-    (bytes : Nat → Nat) (destination count : Nat) : Prop :=
-  ∀ address, abiMemoryByte memory address =
-    if destination ≤ address ∧ address < destination + count then
-      bytes (address - destination) else abiMemoryByte initial address
-
-theorem abiCopyPrefix_zero (initial : Nat → Verity.Core.Uint256)
-    (bytes : Nat → Nat) (destination : Nat) :
-    AbiCopyPrefix initial initial bytes destination 0 := by
-  intro address
-  simp only [Nat.add_zero]
-  rw [if_neg (by omega)]
-
-theorem abiCopyPrefix_step (initial memory : Nat → Verity.Core.Uint256)
-    (bytes : Nat → Nat) (destination count : Nat)
-    (copied : AbiCopyPrefix initial memory bytes destination count)
-    (zero : abiMemoryByte initial (destination + count) = 0)
-    (bounded : bytes count < 256) :
-    AbiCopyPrefix initial (abiInsertByte memory (destination + count) (bytes count))
-      bytes destination (count + 1) := by
-  have empty : abiMemoryByte memory (destination + count) = 0 := by
-    rw [copied, if_neg (by omega)]
-    exact zero
-  intro address
-  by_cases current : address = destination + count
-  · subst address
-    rw [abiInsertByte_read memory _ _ empty bounded, if_pos (by omega)]
-    simp
-  · rw [abiInsertByte_frame memory _ _ address empty bounded current, copied]
-    have same : (destination ≤ address ∧ address < destination + count) ↔
-        (destination ≤ address ∧ address < destination + (count + 1)) := by omega
-    simp only [same]
-
-/-- Finite mathematical copy on the aligned representation. -/
-def abiCopyBytes (initial : Nat → Verity.Core.Uint256) (bytes : Nat → Nat)
-    (destination : Nat) : Nat → (Nat → Verity.Core.Uint256)
-  | 0 => initial
-  | count + 1 => abiInsertByte (abiCopyBytes initial bytes destination count)
-      (destination + count) (bytes count)
-
-/-- Exact bytes and the complete outside frame for any finite copied prefix.
-This theorem concerns the mathematical update; generated-body equivalence
-remains a separate obligation. -/
-theorem abiCopyBytes_correct (initial : Nat → Verity.Core.Uint256)
-    (bytes : Nat → Nat) (destination count : Nat)
-    (zero : ∀ index, index < count → abiMemoryByte initial (destination + index) = 0)
-    (bounded : ∀ index, index < count → bytes index < 256) :
-    AbiCopyPrefix initial (abiCopyBytes initial bytes destination count) bytes destination count := by
-  induction count with
-  | zero => exact abiCopyPrefix_zero initial bytes destination
-  | succ count ih =>
-      exact abiCopyPrefix_step initial _ bytes destination count
-        (ih (fun index inside => zero index (by omega))
-          (fun index inside => bounded index (by omega)))
-        (zero count (by omega)) (bounded count (by omega))
 
 /-- Execute the copy store once its address and insertion expression have
 been evaluated. This preserves the whole state apart from memory, and relates
@@ -158,23 +67,16 @@ theorem execStmt_mstore_abiInsertByte (oracle : DenoteOracle) (fields : List Fie
       (SolidityImport.AbiByteLanes.insert (state.world.memory (address / 32 * 32)).val
         byte (31 - address % 32))) :
     execStmt oracle fields state (.mstore offset value) = .continue
-      { state with world := { state.world with
-          memory := abiInsertByte state.world.memory address byte } } := by
-  simp only [execStmt, resolvedOffset, resolvedValue]
-  congr 1
-  congr 1
-  congr 1
-  funext cell
-  by_cases same : cell = address / 32 * 32
-  · subst cell
-    rfl
-  · simp [abiInsertByte, same]
+      { state with world := abiInsertByteWorld state.world address byte } :=
+  execStmt_mstore_abiInsertByte_physical oracle fields state offset value address byte
+    resolvedOffset resolvedValue
 
 /-- The actual copy store extends the exact prefix invariant, under explicit
 expression-evaluation obligations. No assumption equates the output memory. -/
 theorem execStmt_mstore_abiCopyPrefix (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (initial : Nat → Verity.Core.Uint256)
     (bytes : Nat → Nat) (destination count : Nat) (offset value : Expr)
+    (coherent : Coherent state.world)
     (copied : AbiCopyPrefix initial state.world.memory bytes destination count)
     (zero : abiMemoryByte initial (destination + count) = 0)
     (bounded : bytes count < 256)
@@ -187,7 +89,9 @@ theorem execStmt_mstore_abiCopyPrefix (oracle : DenoteOracle) (fields : List Fie
       AbiCopyPrefix initial after.world.memory bytes destination (count + 1) := by
   refine ⟨_, execStmt_mstore_abiInsertByte oracle fields state offset value
     (destination + count) (bytes count) resolvedOffset resolvedValue, ?_⟩
-  exact abiCopyPrefix_step initial state.world.memory bytes destination count copied zero bounded
+  intro query
+  rw [abiInsertByteWorld_byte_grid state.world (destination + count) (bytes count) query coherent]
+  exact abiCopyPrefix_step initial state.world.memory bytes destination count copied zero bounded query
 
 /-- Generated word addressing computes the exact floor-to-word offset without
 modular wrap, for every EVM-sized index. -/
@@ -343,8 +247,7 @@ theorem execStmt_copyStore (oracle : DenoteOracle) (fields : List Field)
     execStmt oracle fields state (.mstore address (.add (.mload address)
       (.shl (.mul (.literal 8) (.sub (.literal 31)
         (SolidityImport.AbiEncoding.byteLane position))) byteExpr))) =
-      .continue { state with world := { state.world with
-        memory := abiInsertByte state.world.memory offset byte } } := by
+      .continue { state with world := abiInsertByteWorld state.world offset byte } := by
   apply execStmt_mstore_abiInsertByte oracle fields state _ _ offset byte addressEval
   apply evalExpr_insertByte oracle fields state _ _ _ _ (31 - offset % 32) byte
   · simp only [evalExpr, addressEval]
@@ -429,8 +332,7 @@ theorem execStmt_relativeCopyStore (oracle : DenoteOracle) (fields : List Field)
     execStmt oracle fields state (.mstore address (.add (.mload address)
       (.shl (.mul (.literal 8) (.sub (.literal 31)
         (SolidityImport.AbiEncoding.byteLane position))) byteExpr))) =
-      .continue { state with world := { state.world with
-        memory := abiInsertByte state.world.memory (base + offset) byte } } := by
+      .continue { state with world := abiInsertByteWorld state.world (base + offset) byte } := by
   have relativeBound : offset < Verity.Core.Uint256.modulus := by omega
   have lanes : (base + offset) % 32 = offset % 32 := by omega
   apply execStmt_mstore_abiInsertByte oracle fields state _ _ (base + offset) byte addressEval
@@ -473,8 +375,7 @@ theorem execStmtList_copyTemporaries (oracle : DenoteOracle) (fields : List Fiel
         (.shl (.mul (.literal 8) (.sub (.literal 31)
           (SolidityImport.AbiEncoding.byteLane position))) (.localVar byteName)))] =
       .continue { abiCopyTemporaries state byteName addressName byte
-        ((base + offset) / 32 * 32) with world := { state.world with
-          memory := abiInsertByte state.world.memory (base + offset) byte } } := by
+        ((base + offset) / 32 * 32) with world := abiInsertByteWorld state.world (base + offset) byte } := by
   rw [SolidityImport.exec_let_cons, sourceEval]
   simp only
   rw [SolidityImport.exec_let_cons, addressEval]
@@ -573,8 +474,7 @@ theorem execStmtList_generatedCopyBody (oracle : DenoteOracle) (fields : List Fi
     execStmtList oracle fields state
       (abiGeneratedCopyBody sourceName destinationName startName indexName byteName addressName) =
         .continue { abiCopyTemporaries state byteName addressName byte
-          ((destination + (start + index)) / 32 * 32) with world := { state.world with
-            memory := abiInsertByte state.world.memory (destination + (start + index)) byte } } := by
+          ((destination + (start + index)) / 32 * 32) with world := abiInsertByteWorld state.world (destination + (start + index)) byte } := by
   dsimp only
   unfold abiGeneratedCopyBody SolidityImport.AbiEncoding.copyBytes
   apply execStmtList_copyTemporaries oracle fields state _ _ _ byteName addressName
@@ -648,17 +548,31 @@ theorem abiCopyInputs_bind (inputs : AbiCopyInputs) (state : DenoteState)
   simpa [AbiCopyInputs.Holds, SolidityImport.lookup_bind_other,
     sourceFresh, destinationFresh, startFresh] using And.intro source (And.intro destination start)
 
+/-- Preserve every Denote field except the physical memory carriers and the
+local bindings; persistent buffer descriptors are preserved separately. -/
+def abiCopyFrame (state : DenoteState) : DenoteState :=
+  { state with world := state.world.installPhysicalMemory Memory.empty, bindings := [] }
+
 /-- Combined byte-prefix and persistent-input invariant used by the actual loop. -/
 def AbiCopyLoopInvariant (inputs : AbiCopyInputs)
-    (initial : Nat → Verity.Core.Uint256) (count : Nat) (state : DenoteState) : Prop :=
-  inputs.Holds state ∧ AbiCopyPrefix initial state.world.memory
-    (fun index => abiMemoryByte initial (inputs.source + index))
-    (inputs.destination + inputs.start) count
+    (initial : DenoteState) (count : Nat) (state : DenoteState) : Prop :=
+  inputs.Holds state ∧ AbiCopyPrefix initial.world.memory state.world.memory
+    (fun index => abiMemoryByte initial.world.memory (inputs.source + index))
+    (inputs.destination + inputs.start) count ∧ Coherent state.world ∧ abiCopyFrame state = abiCopyFrame initial
+
+/-- The initial index rebinding does not change the memory snapshot or frame. -/
+theorem abiCopyLoopInvariant_initial_bind (inputs : AbiCopyInputs) (initial : DenoteState)
+    (count : Nat) (name : String) (value : Nat) :
+    AbiCopyLoopInvariant inputs
+      { initial with bindings := bindValue initial.bindings name value } count =
+      AbiCopyLoopInvariant inputs initial count := by
+  funext after
+  rfl
 
 /-- Binding the executor's index preserves the complete loop invariant when
 its name is fresh. The normalized index value need not be assumed equal yet. -/
 theorem abiCopyLoopInvariant_bind (inputs : AbiCopyInputs)
-    (initial : Nat → Verity.Core.Uint256) (count : Nat) (state : DenoteState)
+    (initial : DenoteState) (count : Nat) (state : DenoteState)
     (name : String) (value : Nat) (held : AbiCopyLoopInvariant inputs initial count state)
     (fresh : inputs.Fresh name) :
     AbiCopyLoopInvariant inputs initial count
@@ -671,13 +585,13 @@ theorem abiCopyInputs_afterStore (inputs : AbiCopyInputs) (state : DenoteState)
     (held : inputs.Holds state) (byteFresh : inputs.Fresh byteName)
     (addressFresh : inputs.Fresh addressName) :
     inputs.Holds { abiCopyTemporaries state byteName addressName byte address with
-      world := { state.world with memory := abiInsertByte state.world.memory position byte } } := by
+      world := abiInsertByteWorld state.world position byte } := by
   exact abiCopyInputs_bind inputs _ addressName address
     (abiCopyInputs_bind inputs state byteName byte held byteFresh) addressFresh
 
 /-- One actual generated iteration preserves the combined loop invariant. -/
 theorem abiCopyLoopInvariant_step (oracle : DenoteOracle) (fields : List Field)
-    (inputs : AbiCopyInputs) (initial : Nat → Verity.Core.Uint256)
+    (inputs : AbiCopyInputs) (initial : DenoteState)
     (state : DenoteState) (indexName byteName addressName : String) (size count : Nat)
     (held : AbiCopyLoopInvariant inputs initial count state)
     (byteFresh : inputs.Fresh byteName) (addressFresh : inputs.Fresh addressName)
@@ -690,13 +604,13 @@ theorem abiCopyLoopInvariant_step (oracle : DenoteOracle) (fields : List Field)
     (inside : count < size)
     (disjoint : inputs.source + size ≤ inputs.destination + inputs.start ∨
       inputs.destination + inputs.start + size ≤ inputs.source)
-    (zero : abiMemoryByte initial (inputs.destination + inputs.start + count) = 0) :
+    (zero : abiMemoryByte initial.world.memory (inputs.destination + inputs.start + count) = 0) :
     ∃ after, execStmtList oracle fields state
       (abiGeneratedCopyBody inputs.sourceName inputs.destinationName inputs.startName
         indexName byteName addressName) = .continue after ∧
       AbiCopyLoopInvariant inputs initial (count + 1) after := by
   have empty : abiMemoryByte state.world.memory (inputs.destination + (inputs.start + count)) = 0 := by
-    rw [← Nat.add_assoc, held.2, if_neg (by omega)]
+    rw [← Nat.add_assoc, held.2.1, if_neg (by omega)]
     exact zero
   have executed := execStmtList_generatedCopyBody oracle fields state
     inputs.sourceName inputs.destinationName inputs.startName indexName byteName addressName
@@ -705,17 +619,24 @@ theorem abiCopyLoopInvariant_step (oracle : DenoteOracle) (fields : List Field)
     (congrArg some held.1.1) (congrArg some held.1.2.1) (congrArg some held.1.2.2)
     indexEval sourceAligned destinationAligned sourceBound destinationBound empty
   refine ⟨_, executed, ?_⟩
-  constructor
+  refine ⟨?_, ?_, ?_, ?_⟩
   · exact abiCopyInputs_afterStore inputs state byteName addressName _ _ _ held.1 byteFresh addressFresh
-  · simpa only [abiCopyTemporaries, Nat.add_assoc] using
-      abiCopyPrefix_live_step initial state.world.memory inputs.source
-        (inputs.destination + inputs.start) size count held.2 inside disjoint zero
+  · intro query
+    rw [abiInsertByteWorld_byte_grid state.world
+      (inputs.destination + (inputs.start + count)) _ query held.2.2.1]
+    simpa only [Nat.add_assoc] using
+      abiCopyPrefix_live_step initial.world.memory state.world.memory inputs.source
+        (inputs.destination + inputs.start) size count held.2.1 inside disjoint zero query
+  · exact writePhysicalMemoryValue_coherent state.world _ _
+  · change abiCopyFrame state = abiCopyFrame initial
+    exact held.2.2.2
 
 /-- The actual loop executor copies the full slice and cannot take any early
 exit under the stated finite-memory, freshness and disjointness conditions. -/
 theorem execForEachLoop_copy (oracle : DenoteOracle) (fields : List Field)
     (inputs : AbiCopyInputs) (state : DenoteState)
     (indexName byteName addressName : String) (size : Nat)
+    (coherent : Coherent state.world)
     (held : inputs.Holds state)
     (indexFresh : inputs.Fresh indexName) (byteFresh : inputs.Fresh byteName)
     (addressFresh : inputs.Fresh addressName)
@@ -728,12 +649,12 @@ theorem execForEachLoop_copy (oracle : DenoteOracle) (fields : List Field)
       inputs.destination + inputs.start + size ≤ inputs.source)
     (zero : ∀ index, index < size →
       abiMemoryByte state.world.memory (inputs.destination + inputs.start + index) = 0) :
-    LoopOutcomePost (AbiCopyLoopInvariant inputs state.world.memory size) (fun _ => False)
+    LoopOutcomePost (AbiCopyLoopInvariant inputs state size) (fun _ => False)
       (execForEachLoop indexName
         (fun s => execStmtList oracle fields s (abiGeneratedCopyBody inputs.sourceName
           inputs.destinationName inputs.startName indexName byteName addressName)) state 0 size) := by
-  have step : ∀ index before, index < size → AbiCopyLoopInvariant inputs state.world.memory index before →
-      LoopOutcomePost (AbiCopyLoopInvariant inputs state.world.memory (index + 1)) (fun _ => False)
+  have step : ∀ index before, index < size → AbiCopyLoopInvariant inputs state index before →
+      LoopOutcomePost (AbiCopyLoopInvariant inputs state (index + 1)) (fun _ => False)
         (execStmtList oracle fields
           { before with bindings := bindValue before.bindings indexName (wordNormalize index) }
           (abiGeneratedCopyBody inputs.sourceName inputs.destinationName inputs.startName
@@ -747,7 +668,7 @@ theorem execForEachLoop_copy (oracle : DenoteOracle) (fields : List Field)
       change some (index % Verity.Core.Uint256.modulus) = some index
       rw [Nat.mod_eq_of_lt indexBound]
     obtain ⟨after, executed, preserved⟩ := abiCopyLoopInvariant_step oracle fields inputs
-      state.world.memory _ indexName byteName addressName size index
+      state _ indexName byteName addressName size index
       (abiCopyLoopInvariant_bind inputs _ index before indexName _ invariant indexFresh)
       byteFresh addressFresh distinct byteIndex addressIndex evaluated
       sourceAligned destinationAligned (by omega) (by omega) inside disjoint (zero index inside)
@@ -756,8 +677,8 @@ theorem execForEachLoop_copy (oracle : DenoteOracle) (fields : List Field)
   simpa only [Nat.zero_add] using execForEachLoop_bounded_invariant indexName
     (fun s => execStmtList oracle fields s (abiGeneratedCopyBody inputs.sourceName
       inputs.destinationName inputs.startName indexName byteName addressName)) size
-    (AbiCopyLoopInvariant inputs state.world.memory) (fun _ => False) step size 0 state
-    (by omega) ⟨held, abiCopyPrefix_zero _ _ _⟩
+    (AbiCopyLoopInvariant inputs state) (fun _ => False) step size 0 state
+    (by omega) ⟨held, abiCopyPrefix_zero _ _ _, coherent, rfl⟩
 
 
 /-- Correctness of the actual emitted copyBytes statement, including count
@@ -766,6 +687,7 @@ theorem execStmt_copyBytes (oracle : DenoteOracle) (fields : List Field)
     (inputs : AbiCopyInputs) (state : DenoteState) (sizeExpr : Expr)
     (indexName byteName addressName : String) (size : Nat)
     (sizeEval : evalExpr oracle fields state sizeExpr = some size)
+    (coherent : Coherent state.world)
     (held : inputs.Holds state)
     (indexFresh : inputs.Fresh indexName) (byteFresh : inputs.Fresh byteName)
     (addressFresh : inputs.Fresh addressName)
@@ -781,13 +703,14 @@ theorem execStmt_copyBytes (oracle : DenoteOracle) (fields : List Field)
     ∃ after, execStmt oracle fields state (SolidityImport.AbiEncoding.copyBytes
       (.localVar inputs.sourceName) (.localVar inputs.destinationName) (.localVar inputs.startName)
       sizeExpr indexName byteName addressName) = .continue after ∧
-      AbiCopyLoopInvariant inputs state.world.memory size after := by
+      AbiCopyLoopInvariant inputs state size after := by
   have result := execForEachLoop_copy oracle fields inputs
     { state with bindings := bindValue state.bindings indexName (wordNormalize 0) }
     indexName byteName addressName size
-    (abiCopyInputs_bind inputs state indexName _ held indexFresh) indexFresh byteFresh addressFresh
+    coherent (abiCopyInputs_bind inputs state indexName _ held indexFresh) indexFresh byteFresh addressFresh
     distinct byteIndex addressIndex sourceAligned destinationAligned sourceBound destinationBound disjoint zero
-  have actual : LoopOutcomePost (AbiCopyLoopInvariant inputs state.world.memory size) (fun _ => False)
+  rw [abiCopyLoopInvariant_initial_bind] at result
+  have actual : LoopOutcomePost (AbiCopyLoopInvariant inputs state size) (fun _ => False)
       (execStmt oracle fields state (SolidityImport.AbiEncoding.copyBytes
         (.localVar inputs.sourceName) (.localVar inputs.destinationName) (.localVar inputs.startName)
         sizeExpr indexName byteName addressName)) := by
@@ -800,6 +723,8 @@ theorem execStmt_copyBytes (oracle : DenoteOracle) (fields : List Field)
   | «return» value after => simp [executed, LoopOutcomePost] at actual
   | revert => simp [executed, LoopOutcomePost] at actual
   | revertWithData bytes => simp [executed, LoopOutcomePost] at actual
+  | interpretationError message => simp [executed, LoopOutcomePost] at actual
+  | exceptional after => simp [executed, LoopOutcomePost] at actual
 
 /-- Word-grid specification for the allocator's output clearing pass. -/
 def abiZeroWords (memory : Nat → Verity.Core.Uint256) (base count : Nat) :
@@ -846,17 +771,12 @@ theorem abiZeroWords_succ (memory : Nat → Verity.Core.Uint256) (base count : N
 
 /-- Actual MSTORE zero at the next word realizes the clearing specification. -/
 theorem execStmt_zeroWord (oracle : DenoteOracle) (fields : List Field)
-    (state : DenoteState) (initial : Nat → Verity.Core.Uint256) (address : Expr) (base count : Nat)
+    (state : DenoteState) (initial : Verity.ContractState) (address : Expr) (base count : Nat)
     (evaluated : evalExpr oracle fields state address = some (base + 32 * count))
-    (cleared : state.world.memory = abiZeroWords initial base count) (aligned : base % 32 = 0) :
+    (cleared : state.world = abiClearPhysicalWorld initial base count) :
     execStmt oracle fields state (.mstore address (.literal 0)) =
-      .continue { state with world := { state.world with memory := abiZeroWords initial base (count + 1) } } := by
-  simp only [execStmt, evaluated, evalExpr]
-  congr 1
-  congr 1
-  congr 1
-  change (fun cell => if cell = base + 32 * count then 0 else state.world.memory cell) = _
-  rw [cleared, abiZeroWords_succ initial base count aligned]
+      .continue { state with world := abiClearPhysicalWorld initial base (count + 1) } :=
+  execStmt_zeroWord_physical oracle fields state initial address base count evaluated cleared
 
 /-- Generated word-count multiplication is exact under its word bound. -/
 theorem evalExpr_wordStride (oracle : DenoteOracle) (fields : List Field)
@@ -871,86 +791,49 @@ theorem evalExpr_wordStride (oracle : DenoteOracle) (fields : List Field)
 
 /-- Complete emitted zero-store body, including base and stride evaluation. -/
 theorem execStmt_zeroWordBody (oracle : DenoteOracle) (fields : List Field)
-    (state : DenoteState) (initial : Nat → Verity.Core.Uint256)
+    (state : DenoteState) (initial : Verity.ContractState)
     (baseName indexName : String) (base index : Nat)
     (baseEval : lookupValue state.bindings baseName = base)
     (indexEval : lookupValue state.bindings indexName = index)
     (bounded : base + 32 * index < Verity.Core.Uint256.modulus)
-    (cleared : state.world.memory = abiZeroWords initial base index) (aligned : base % 32 = 0) :
+    (cleared : state.world = abiClearPhysicalWorld initial base index) :
     execStmt oracle fields state (.mstore
       (.add (.localVar baseName) (.mul (.localVar indexName) (.literal 32))) (.literal 0)) =
-      .continue { state with world := { state.world with memory := abiZeroWords initial base (index + 1) } } := by
-  apply execStmt_zeroWord oracle fields state initial _ base index _ cleared aligned
-  apply evalExpr_add_bounded oracle fields state (.localVar baseName)
-    (.mul (.localVar indexName) (.literal 32)) base (32 * index) (congrArg some baseEval)
-  · exact evalExpr_wordStride oracle fields state (.localVar indexName) index (congrArg some indexEval) (by omega)
-  · exact bounded
+      .continue { state with world := abiClearPhysicalWorld initial base (index + 1) } :=
+  execStmt_zeroWordBody_physical oracle fields state initial baseName indexName
+    base index baseEval indexEval bounded cleared
 
-/-- Clearing-loop invariant records the base binding and the entire memory
-function, so every untouched cell is preserved as well as every cleared word. -/
-def AbiClearInvariant (initial : Nat → Verity.Core.Uint256) (baseName : String)
+/-- Clearing-loop invariant records the base binding and the complete physical
+world, including every untouched byte, all overlapping windows and non-memory state. -/
+def AbiClearInvariant (initial : Verity.ContractState) (baseName : String)
     (base count : Nat) (state : DenoteState) : Prop :=
-  lookupValue state.bindings baseName = base ∧ state.world.memory = abiZeroWords initial base count
+  AbiPhysicalClearInvariant initial baseName base count state
 
 /-- Actual bounded clearing-loop executor, including all index rebindings. -/
 theorem execForEachLoop_clear (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (baseName indexName : String) (base count : Nat)
     (held : lookupValue state.bindings baseName = base) (fresh : indexName ≠ baseName)
-    (aligned : base % 32 = 0) (bounded : base + 32 * count < Verity.Core.Uint256.modulus) :
-    LoopOutcomePost (AbiClearInvariant state.world.memory baseName base count) (fun _ => False)
+    (bounded : base + 32 * count < Verity.Core.Uint256.modulus) :
+    LoopOutcomePost (AbiClearInvariant state.world baseName base count) (fun _ => False)
       (execForEachLoop indexName (fun s => execStmtList oracle fields s
         [.mstore (.add (.localVar baseName) (.mul (.localVar indexName) (.literal 32))) (.literal 0)])
         state 0 count) := by
-  have step : ∀ index before, index < count → AbiClearInvariant state.world.memory baseName base index before →
-      LoopOutcomePost (AbiClearInvariant state.world.memory baseName base (index + 1)) (fun _ => False)
-        (execStmtList oracle fields
-          { before with bindings := bindValue before.bindings indexName (wordNormalize index) }
-          [.mstore (.add (.localVar baseName) (.mul (.localVar indexName) (.literal 32))) (.literal 0)]) := by
-    intro index before inside invariant
-    have indexBound : index < Verity.Core.Uint256.modulus := by omega
-    have baseEval : lookupValue (bindValue before.bindings indexName (wordNormalize index)) baseName = base := by
-      rw [SolidityImport.lookup_bind_other _ _ _ _ fresh]
-      exact invariant.1
-    have indexEval : lookupValue (bindValue before.bindings indexName (wordNormalize index)) indexName = index := by
-      rw [SolidityImport.lookup_bind_same]
-      change index % Verity.Core.Uint256.modulus = index
-      exact Nat.mod_eq_of_lt indexBound
-    rw [SolidityImport.exec_singleton, execStmt_zeroWordBody oracle fields
-      { before with bindings := bindValue before.bindings indexName (wordNormalize index) } state.world.memory
-      baseName indexName base index baseEval indexEval (by omega) invariant.2 aligned]
-    exact ⟨baseEval, rfl⟩
-  simpa only [Nat.zero_add] using execForEachLoop_bounded_invariant indexName
-    (fun s => execStmtList oracle fields s
-      [.mstore (.add (.localVar baseName) (.mul (.localVar indexName) (.literal 32))) (.literal 0)]) count
-    (AbiClearInvariant state.world.memory baseName base) (fun _ => False) step count 0 state
-    (by omega) ⟨held, by rw [abiZeroWords_zero]⟩
+  obtain ⟨after, executed, preserved⟩ := execForEachLoop_clear_physical oracle fields
+    state baseName indexName base count held fresh bounded
+  rw [executed]
+  exact preserved
 
 /-- Actual clearing forEach, with count evaluation and initial index binding. -/
 theorem execStmt_clearWords (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (baseName indexName : String) (countExpr : Expr) (base count : Nat)
     (countEval : evalExpr oracle fields state countExpr = some count)
     (held : lookupValue state.bindings baseName = base) (fresh : indexName ≠ baseName)
-    (aligned : base % 32 = 0) (bounded : base + 32 * count < Verity.Core.Uint256.modulus) :
+    (bounded : base + 32 * count < Verity.Core.Uint256.modulus) :
     ∃ after, execStmt oracle fields state (.forEach indexName countExpr
       [.mstore (.add (.localVar baseName) (.mul (.localVar indexName) (.literal 32))) (.literal 0)]) =
-        .continue after ∧ AbiClearInvariant state.world.memory baseName base count after := by
-  have initial : lookupValue (bindValue state.bindings indexName (wordNormalize 0)) baseName = base := by
-    rw [SolidityImport.lookup_bind_other _ _ _ _ fresh]
-    exact held
-  have result := execForEachLoop_clear oracle fields
-    { state with bindings := bindValue state.bindings indexName (wordNormalize 0) }
-    baseName indexName base count initial fresh aligned bounded
-  have actual : LoopOutcomePost (AbiClearInvariant state.world.memory baseName base count) (fun _ => False)
-      (execStmt oracle fields state (.forEach indexName countExpr
-        [.mstore (.add (.localVar baseName) (.mul (.localVar indexName) (.literal 32))) (.literal 0)])) := by
-    simpa only [execStmt, countEval] using result
-  cases executed : execStmt oracle fields state (.forEach indexName countExpr
-      [.mstore (.add (.localVar baseName) (.mul (.localVar indexName) (.literal 32))) (.literal 0)]) with
-  | «continue» after => exact ⟨after, rfl, by simpa [executed, LoopOutcomePost] using actual⟩
-  | stop after => simp [executed, LoopOutcomePost] at actual
-  | «return» value after => simp [executed, LoopOutcomePost] at actual
-  | revert => simp [executed, LoopOutcomePost] at actual
-  | revertWithData bytes => simp [executed, LoopOutcomePost] at actual
+        .continue after ∧ AbiClearInvariant state.world baseName base count after :=
+  execStmt_clearWords_physical oracle fields state baseName indexName countExpr
+    base count countEval held fresh bounded
 
 /-- Rounded word allocation covers exactly the payload plus fewer than32
 padding bytes, including zero-length buffers. -/
@@ -992,27 +875,25 @@ theorem execStmt_clearPackedBytes (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (baseName indexName : String) (sizeExpr : Expr) (base size : Nat)
     (sizeEval : evalExpr oracle fields state sizeExpr = some size)
     (held : lookupValue state.bindings baseName = base) (fresh : indexName ≠ baseName)
-    (aligned : base % 32 = 0) (sizeBound : size + 31 < Verity.Core.Uint256.modulus)
+    (sizeBound : size + 31 < Verity.Core.Uint256.modulus)
     (allocationBound : base + 32 * ((size + 31) / 32) < Verity.Core.Uint256.modulus) :
     ∃ after, execStmt oracle fields state
       (.forEach indexName (.div (.add sizeExpr (.literal 31)) (.literal 32))
         [.mstore (.add (.localVar baseName) (.mul (.localVar indexName) (.literal 32))) (.literal 0)]) =
         .continue after ∧ lookupValue after.bindings baseName = base ∧
-      (∀ index, index < size → abiMemoryByte after.world.memory (base + index) = 0) ∧
+      (∀ index, index < size → (after.world.physicalByte (base + index)).val = 0) ∧
       (∀ address, address < base ∨ base + 32 * ((size + 31) / 32) ≤ address →
-        abiMemoryByte after.world.memory address = abiMemoryByte state.world.memory address) := by
+        after.world.physicalByte address = state.world.physicalByte address) := by
   obtain ⟨after, executed, result⟩ := execStmt_clearWords oracle fields state baseName indexName
     _ base ((size + 31) / 32) (evalExpr_roundedCount oracle fields state sizeExpr size sizeEval sizeBound)
-    held fresh aligned allocationBound
+    held fresh allocationBound
   refine ⟨after, executed, result.1, ?_, ?_⟩
   · intro index inside
-    rw [result.2]
-    apply abiZeroWords_byte _ base _ index aligned
-    have := (abiRoundedSize_bounds size).1
-    omega
+    have rounded := (abiRoundedSize_bounds size).1
+    rw [result.2, abiClearPhysicalWorld_byte, if_pos (by omega)]
+    rfl
   · intro address outside
-    rw [result.2]
-    exact abiZeroWords_frame _ base _ address aligned outside
+    rw [result.2, abiClearPhysicalWorld_byte, if_neg (by omega)]
 
 /-- Exact successful reserve prefix. The size is evaluated after the base
 binding, so callers must prove freshness rather than assuming unchanged locals. -/
@@ -1025,8 +906,7 @@ theorem execStmtList_reserve (oracle : DenoteOracle) (fields : List Field)
     execStmtList oracle fields state (SolidityImport.AbiEncoding.reserve baseName endName sizeExpr) =
       .continue { state with
         bindings := bindValue (bindValue state.bindings baseName base) endName (base + size)
-        world := { state.world with memory := fun cell =>
-          if cell = 64 then Verity.Core.Uint256.ofNat (base + size) else state.world.memory cell } } := by
+        world := state.world.writePhysicalMemoryValue 64 (Verity.Core.Uint256.ofNat (base + size)) } := by
   have read : evalExpr oracle fields state (.mload (.literal 64)) = some base := by
     change some (state.world.memory 64).val = some base
     rw [pointer]
@@ -1076,26 +956,27 @@ theorem execStmtList_reserve_oversized (oracle : DenoteOracle) (fields : List Fi
     Verity.Core.UINT256_MODULUS, rejected]
 
 /-- Full emitted packedBuffer sequence: reserve followed by rounded clearing.
-The memory result explicitly includes the free-pointer update; no frame claim
-silently discards that write. -/
+The complete world includes the physical free-pointer update and the clearing
+writes in their actual order; no overlapping word window is silently discarded. -/
 theorem execStmtList_packedBuffer (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (baseName endName indexName sizeName : String) (base size : Nat)
     (pointer : (state.world.memory 64).val = base)
     (sizeValue : lookupValue state.bindings sizeName = size)
     (distinct : endName ≠ baseName) (baseFresh : baseName ≠ sizeName)
     (endFresh : endName ≠ sizeName) (indexFresh : indexName ≠ baseName)
-    (aligned : base % 32 = 0) (bounded : base + 32 * ((size + 31) / 32) ≤ 2^64 - 1) :
+    (bounded : base + 32 * ((size + 31) / 32) ≤ 2^64 - 1) :
     ∃ after, execStmtList oracle fields state
       (SolidityImport.AbiEncoding.packedBuffer baseName endName indexName (.localVar sizeName)) =
         .continue after ∧ lookupValue after.bindings baseName = base ∧
-      after.world.memory = abiZeroWords
-        (fun cell => if cell = 64 then Verity.Core.Uint256.ofNat (base + 32 * ((size + 31) / 32))
-          else state.world.memory cell) base ((size + 31) / 32) := by
+      after.world = abiClearPhysicalWorld
+        (state.world.writePhysicalMemoryValue 64
+          (Verity.Core.Uint256.ofNat (base + 32 * ((size + 31) / 32))))
+        base ((size + 31) / 32) := by
   let count := (size + 31) / 32
   let reserved : DenoteState := { state with
     bindings := bindValue (bindValue state.bindings baseName base) endName (base + 32 * count)
-    world := { state.world with memory := fun cell =>
-      if cell = 64 then Verity.Core.Uint256.ofNat (base + 32 * count) else state.world.memory cell } }
+    world := state.world.writePhysicalMemoryValue 64
+      (Verity.Core.Uint256.ofNat (base + 32 * count)) }
   have sizeBound : size + 31 < Verity.Core.Uint256.modulus := by
     have := (abiRoundedSize_bounds size).1
     have : 2^64 + 31 < Verity.Core.Uint256.modulus := by decide
@@ -1116,7 +997,7 @@ theorem execStmtList_packedBuffer (oracle : DenoteOracle) (fields : List Field)
     omega
   obtain ⟨after, cleared, result⟩ := execStmt_clearWords oracle fields reserved baseName indexName
     _ base count (evalExpr_roundedCount oracle fields reserved _ size sizeAfter sizeBound)
-    baseAfter indexFresh aligned wordBound
+    baseAfter indexFresh wordBound
   refine ⟨after, ?_, result.1, result.2⟩
   unfold SolidityImport.AbiEncoding.packedBuffer
   rw [SolidityImport.exec_append, allocation]

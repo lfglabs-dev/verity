@@ -120,7 +120,10 @@ def runtimeStateMatchesIR
   state.returnValue = none ∧
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
-  state.returndata = runtime.world.returndata
+  state.returndata = runtime.world.returndata ∧
+  runtime.world.byteMemory = state.byteMemory ∧
+  runtime.executionContext = state.executionContext ∧
+  32 * state.returndata.length < Verity.Core.Uint256.modulus
 
 /-- Runtime/IR alignment for constructor execution, whose calldata is not
 selector-prefixed. This is the constructor-shaped analogue of
@@ -148,7 +151,10 @@ def constructorRuntimeStateMatchesIR
   state.returnValue = none ∧
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
-  state.returndata = runtime.world.returndata
+  state.returndata = runtime.world.returndata ∧
+  runtime.world.byteMemory = state.byteMemory ∧
+  runtime.executionContext = state.executionContext ∧
+  32 * state.returndata.length < Verity.Core.Uint256.modulus
 
 theorem runtimeStateMatchesIR_returndata
     {fields : List Field}
@@ -157,7 +163,32 @@ theorem runtimeStateMatchesIR_returndata
     (h : runtimeStateMatchesIR fields runtime state) :
     state.returndata = runtime.world.returndata := by
   obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, h⟩ := h
-  exact h
+  exact h.1
+
+/-- Opcode outcomes can only correspond when the actual frame contexts agree. -/
+theorem runtimeStateMatchesIR_executionContext
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (h : runtimeStateMatchesIR fields runtime state) :
+    runtime.executionContext = state.executionContext := by
+  rcases h with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hcontext, _⟩
+  exact hcontext
+
+/-- Actual retained size must fit the EVM size word. -/
+theorem runtimeStateMatchesIR_returndata_extent
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (h : runtimeStateMatchesIR fields runtime state) :
+    32 * state.returndata.length < Verity.Core.Uint256.modulus := by
+  rcases h with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, extent⟩
+  exact extent
+
+theorem runtimeStateMatchesIR_replace_executionContext
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (h : runtimeStateMatchesIR fields runtime state)
+    (context : Option Verity.Core.Model.ExecutionContext) :
+    runtimeStateMatchesIR fields { runtime with executionContext := context }
+      { state with executionContext := context } := by
+  rcases h with ⟨a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, t, _, hextent⟩
+  exact ⟨a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, t, rfl, hextent⟩
 
 def initialIRStateForTx
     (spec : CompilationModel)
@@ -168,6 +199,7 @@ def initialIRStateForTx
       (SourceSemantics.encodeStorage spec initialWorld s.toNat)
     transientStorage := fun slot => (initialWorld.transientStorage slot).val
     memory := fun o => (initialWorld.memory o).val
+    byteMemory := initialWorld.byteMemory
     calldata := tx.args
     returnValue := none
     sender := tx.sender
@@ -182,6 +214,12 @@ def initialIRStateForTx
     events := SourceSemantics.encodeEvents initialWorld.events
     codeSize := fun addr => (initialWorld.codeSize addr).val
     returndata := [] }
+
+/-- Preserve the explicit physical carrier when entering the proof-side IR
+frame. Coherence with the legacy word view is a separate obligation. -/
+theorem initialIRStateForTx_byteMemory (spec : CompilationModel) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    (initialIRStateForTx spec tx initialWorld).byteMemory = initialWorld.byteMemory := rfl
 
 /-- EIP-211 makes the returndata buffer frame-local, so the IR frame enters
     empty: a stale buffer from the initial world's earlier execution must not
@@ -2355,121 +2393,73 @@ private theorem calldataloadWord_lt_evmModulus
     (selector : Nat) (calldata : List Nat) (offset : Nat) :
     Compiler.Proofs.YulGeneration.calldataloadWord selector calldata offset <
       Compiler.Constants.evmModulus := by
-  unfold Compiler.Proofs.YulGeneration.calldataloadWord
-  split
-  · -- offset = 0: selectorWord
-    unfold Compiler.Proofs.YulGeneration.selectorWord
-    have hmod : selector % Compiler.Constants.selectorModulus <
-        Compiler.Constants.selectorModulus :=
-      Nat.mod_lt _ (by norm_num [Compiler.Constants.selectorModulus])
-    have : Compiler.Constants.selectorModulus * 2 ^ Compiler.Constants.selectorShift =
-        Compiler.Constants.evmModulus := by
-      norm_num [Compiler.Constants.selectorModulus,
-        Compiler.Constants.selectorShift, Compiler.Constants.evmModulus]
-    calc (selector % Compiler.Constants.selectorModulus) *
-            2 ^ Compiler.Constants.selectorShift
-        < Compiler.Constants.selectorModulus *
-            2 ^ Compiler.Constants.selectorShift :=
-          Nat.mul_lt_mul_of_pos_right hmod (by positivity)
-      _ = Compiler.Constants.evmModulus := this
-  · split
-    · -- offset < 4: returns 0
-      norm_num [Compiler.Constants.evmModulus]
-    · -- offset ≥ 4: let binding then conditional
-      dsimp only []
-      split
-      · -- aligned (r = 0): calldata.getD q 0 % evmModulus
-        exact Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])
-      · -- unaligned (r ≠ 0): composed hi/lo window reduced mod evmModulus
-        exact Nat.mod_lt _ (by norm_num [Compiler.Constants.evmModulus])
+  exact Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus selector calldata offset
 
-/-- `calldatacopy` writes the same words on both sides of the runtime/IR
-correspondence: the source world stores `Uint256`-wrapped calldata words while
-the IR stores their `Nat` values, and every copied word is already below the EVM
-modulus, so the wrapping is the identity on the copied region. -/
+/-- Shared exact byte-copy correspondence, including complete identity at
+zero extent and every runtime/byte/word observation for nonempty copies. -/
+theorem runtimeStateMatchesIR_copyBothPhysicalBytes
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (hmatch : runtimeStateMatchesIR fields runtime state)
+    (source : Nat → Compiler.CompilationModel.DenoteMemory.Byte) (dst src size : Nat) :
+    runtimeStateMatchesIR fields
+      { runtime with world := runtime.world.copyPhysicalBytes source dst src size }
+      (state.copyPhysicalBytes source dst src size) := by
+  by_cases zero : size = 0
+  · simpa only [zero, Verity.ContractState.copyPhysicalBytes_zero,
+      IRState.copyPhysicalBytes_zero] using hmatch
+  simp only [Verity.ContractState.copyPhysicalBytes, IRState.copyPhysicalBytes,
+    zero, if_false, Verity.ContractState.copyPhysicalMemory]
+  unfold runtimeStateMatchesIR at hmatch ⊢
+  rcases hmatch with ⟨hstor, htrans, hsender, hmsg, hthis, htime, hnumber,
+    hchain, hblob, horigin, hselector, hcalldata, hsize, hmemory, hreturn,
+    hevents, hcode, hreturndata, hbytes, hcontext, hextent⟩
+  refine ⟨?_, htrans, hsender, hmsg, hthis, htime, hnumber, hchain, hblob,
+    horigin, hselector, hcalldata, hsize, ?_, hreturn, hevents, hcode, hreturndata, ?_, hcontext, hextent⟩
+  · change state.storage = _
+    rw [hstor]
+    funext slot
+    exact congrArg IRStorageWord.ofNat
+      (SourceSemantics.encodeStorageAt_congr
+        (world1 := runtime.world)
+        (world2 := runtime.world.installPhysicalMemory
+          (runtime.world.byteMemory.copyFrom source dst src size)) rfl rfl rfl)
+  · funext query
+    change (Compiler.CompilationModel.DenoteMemory.wordValue
+        ((state.byteMemory.copyFrom source dst src size).readWord query)).val =
+      (Compiler.CompilationModel.DenoteMemory.wordValue
+        ((runtime.world.byteMemory.copyFrom source dst src size).readWord query)).val
+    rw [hbytes]
+  · change runtime.world.byteMemory.copyFrom source dst src size =
+      state.byteMemory.copyFrom source dst src size
+    rw [hbytes]
+
+/-- Both calldata copies read the identical selector and ABI byte stream. -/
 theorem runtimeStateMatchesIR_calldatacopyBothMemory
-    {fields : List Field}
-    {runtime : SourceSemantics.RuntimeState}
-    {state : IRState}
-    (hmatch : runtimeStateMatchesIR fields runtime state)
-    (dst src size : Nat) :
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (hmatch : runtimeStateMatchesIR fields runtime state) (dst src size : Nat) :
     runtimeStateMatchesIR fields
-      { runtime with
-          world := {
-            runtime.world with
-            memory := fun o =>
-              if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o then
-                Verity.Core.Uint256.ofNat
-                  (Compiler.Proofs.YulGeneration.calldataloadWord
-                    runtime.selector runtime.world.calldata (src + (o - dst)))
-              else runtime.world.memory o } }
-      { state with
-          memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
-            state.selector state.calldata dst src size state.memory } := by
-  cases runtime
-  cases state
-  simp only [runtimeStateMatchesIR] at hmatch ⊢
-  obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    hmem, hret, hevt⟩ := hmatch
-  refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    ?_, hret, hevt⟩
-  · rw [hstor]
-    funext slot
-    exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)
-  · funext o
-    simp only [Compiler.Proofs.YulGeneration.calldatacopyMemory, hsel, hcd]
-    by_cases hw : Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o
-    · simp only [hw, if_true, Verity.Core.Uint256.ofNat]
-      exact (Nat.mod_eq_of_lt (calldataloadWord_lt_evmModulus _ _ _)).symm
-    · simp only [hw, if_false]
-      exact congrFun hmem o
+      { runtime with world := runtime.world.copyPhysicalCalldata runtime.selector dst src size }
+      (state.copyPhysicalCalldata dst src size) := by
+  have selector : state.selector = runtime.selector := hmatch.2.2.2.2.2.2.2.2.2.2.1
+  have calldata : state.calldata = runtime.world.calldata := hmatch.2.2.2.2.2.2.2.2.2.2.2.1
+  simpa only [Verity.ContractState.copyPhysicalCalldata, IRState.copyPhysicalCalldata,
+    selector, calldata] using runtimeStateMatchesIR_copyBothPhysicalBytes hmatch
+      (Compiler.CompilationModel.DenoteMemory.calldataPhysicalByte
+        runtime.selector runtime.world.calldata) dst src size
 
-/-- `returndatacopy` writes the same words on both sides of the runtime/IR
-correspondence: the source world stores `Uint256`-wrapped buffer words while
-the IR stores their `Nat` values, and every copied word is already below the
-EVM modulus, so the wrapping is the identity on the copied region. The buffer
-itself is pinned equal by the returndata conjunct of `runtimeStateMatchesIR`,
-so both sides read the same words. -/
+/-- Both returndata copies read the identical bounded whole-word buffer. -/
 theorem runtimeStateMatchesIR_returndatacopyBothMemory
-    {fields : List Field}
-    {runtime : SourceSemantics.RuntimeState}
-    {state : IRState}
-    (hmatch : runtimeStateMatchesIR fields runtime state)
-    (dst src size : Nat) :
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (hmatch : runtimeStateMatchesIR fields runtime state) (dst src size : Nat) :
     runtimeStateMatchesIR fields
-      { runtime with
-          world := {
-            runtime.world with
-            memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-              runtime.world.returndata dst src size runtime.world.memory } }
-      { state with
-          memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-            state.returndata dst src size state.memory } := by
-  cases runtime
-  cases state
-  simp only [runtimeStateMatchesIR] at hmatch ⊢
-  obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    hmem, hret, hevt⟩ := hmatch
-  have hrd := hevt.2.2
-  refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
-    ?_, hret, hevt⟩
-  · rw [hstor]
-    funext slot
-    exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)
-  · funext o
-    simp only [Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256,
-      Verity.Core.Uint256.ofNat]
-    rw [hrd, hmem]
-    by_cases hceil : size % 32 ≠ 0 ∧ o = dst + size / 32 * 32
-    · simp [Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded, hceil,
-        Nat.mod_mod]
-    · simp only [Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded, hceil,
-        if_false, Compiler.Proofs.IRGeneration.returndatacopyMemory]
-      by_cases hw : Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst size o
-      · simp [hw, Nat.mod_eq_of_lt
-          (Compiler.Proofs.IRGeneration.returndataloadWord_lt_evmModulus _ _)]
-      · simp only [hw, if_false]
-        exact (Nat.mod_eq_of_lt (Verity.Core.Uint256.isLt _)).symm
+      { runtime with world := runtime.world.copyPhysicalReturndata dst src size }
+      (state.copyPhysicalReturndata dst src size) := by
+  have returndata : state.returndata = runtime.world.returndata := by
+    rcases hmatch with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hrd, _⟩
+    exact hrd
+  simpa only [Verity.ContractState.copyPhysicalReturndata, IRState.copyPhysicalReturndata,
+    returndata] using runtimeStateMatchesIR_copyBothPhysicalBytes hmatch
+      (Compiler.CompilationModel.DenoteMemory.wordListByte runtime.world.returndata) dst src size
 
 theorem compileExpr_calldataload_ok
     {fields : List Field}

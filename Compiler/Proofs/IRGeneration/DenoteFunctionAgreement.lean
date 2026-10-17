@@ -29,12 +29,26 @@ def ofIRTransaction (tx : IRTransaction) : Denote.DenoteTransaction :=
     functionSelector := tx.functionSelector
     args := tx.args }
 
-/-- Denote result → source result (the two structures coincide). -/
+/-- Preserve the Source-observed fields, including instrument diagnostics.
+This projection retains explicit revert bytes; full return-word transport remains separate. -/
 def toSourceResult (r : Denote.DenoteResult) : SourceSemantics.SourceContractResult :=
-  { success := r.success
+  { exceptionalContext := r.exceptionalContext
+    revertData := r.revertData
+    interpretationError := r.interpretationError
+    success := r.success
     returnValue := r.returnValue
     finalStorage := r.finalStorage
     events := r.events }
+
+@[simp] theorem toSourceResult_revertData
+    (result : Denote.DenoteResult) (data : List UInt8) :
+    toSourceResult { result with revertData := data } =
+      { toSourceResult result with revertData := data } := rfl
+
+@[simp] theorem toSourceResult_interpretationError
+    (result : Denote.DenoteResult) (message : Option String) :
+    toSourceResult { result with interpretationError := message } =
+      { toSourceResult result with interpretationError := message } := rfl
 
 theorem dedupNatPreserve_go_eq :
     ∀ (xs seen : List Nat),
@@ -177,6 +191,20 @@ theorem findDynamicArrayElementAtSlot_go_eq
     toSourceResult (Denote.revertedResult sourceOracle spec world) =
       SourceSemantics.revertedResult spec world := by
   simp [toSourceResult, Denote.revertedResult, SourceSemantics.revertedResult]
+
+@[simp] theorem toSourceResult_exceptionalResult
+    (spec : CompilationModel) (world : Verity.ContractState)
+    (terminal : Denote.DenoteState) :
+    toSourceResult (Denote.exceptionalResult sourceOracle spec world terminal) =
+      SourceSemantics.exceptionalResult spec world (toRuntimeState terminal) := by
+  cases context : terminal.executionContext with
+  | none =>
+      simp [Denote.exceptionalResult, SourceSemantics.exceptionalResult, toRuntimeState,
+        toSourceResult, Denote.revertedResult, SourceSemantics.revertedResult, context]
+  | some actual =>
+      by_cases exhausted : actual.opcode.gas = 0 <;>
+        simp [Denote.exceptionalResult, SourceSemantics.exceptionalResult, toRuntimeState,
+          toSourceResult, Denote.revertedResult, SourceSemantics.revertedResult, context, exhausted]
 
 @[simp] theorem toSourceResult_successResult
     (spec : CompilationModel) (world : Verity.ContractState) (ret : Option Nat)

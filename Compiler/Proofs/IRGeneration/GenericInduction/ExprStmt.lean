@@ -57,6 +57,8 @@ theorem compiledStmtStep_letVar
               | .continue s' => execIRStmts (1 + extraFuel) s' []
               | .return v s => .return v s
               | .stop s => .stop s
+              | .exceptional s => .exceptional s
+              | .interpretationError message => .interpretationError message
               | .revert s => .revert s) = .continue state'
         have hfuel_eq : 1 + extraFuel = Nat.succ extraFuel := by omega
         rw [hfuel_eq]
@@ -141,6 +143,8 @@ theorem compiledStmtStep_assignVar
               | .continue s' => execIRStmts (1 + extraFuel) s' []
               | .return v s => .return v s
               | .stop s => .stop s
+              | .exceptional s => .exceptional s
+              | .interpretationError message => .interpretationError message
               | .revert s => .revert s) = .continue state'
         have hfuel_eq : 1 + extraFuel = Nat.succ extraFuel := by omega
         rw [hfuel_eq]
@@ -190,7 +194,9 @@ theorem compiledStmtStep_require
     {failCond : YulExpr}
     (hcore : FunctionBody.ExprCompileCore cond)
     (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
-    (hfailCompile : CompilationModel.compileRequireFailCond fields .calldata cond = Except.ok failCond) :
+    (hfailCompile : CompilationModel.compileRequireFailCond fields .calldata cond = Except.ok failCond)
+    (hmessageExtent : 68 + 32 * (chunkBytes32 (bytesFromString message)).length ≤
+      Verity.Core.Uint256.modulus) :
     CompiledStmtStep fields scope (.require cond message)
       [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] where
   compileOk := by
@@ -223,30 +229,21 @@ theorem compiledStmtStep_require
         have hfailEval' : evalIRExpr state failCond = some 1 := by
           rw [hCondSrc, hzero] at hfailEval
           simpa [SourceSemantics.boolWord] using hfailEval
-        -- Execute the if_ statement: failCond = 1 → enters revert block
-        rcases FunctionBody.execIRStmts_revertWithMessage_revert
-            (fuel := extraFuel) (state := state) message with
-          ⟨revState, hrev⟩
-        have hstmt :
-            execIRStmt (extraFuel + 1) state
-              (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) =
-                .revert revState := by
-          simp [execIRStmt, hfailEval', hrev]
-        have hIRExec :
-            execIRStmts (1 + extraFuel + 1) state
-              [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] =
-                .revert revState := by
-          have : 1 + extraFuel + 1 = Nat.succ (extraFuel + 1) := by omega
-          rw [this]; simp [execIRStmts, hstmt]
-        have hSrcExec :
-            SourceSemantics.execStmt fields runtime (.require cond message) = .revert := by
+        have structuralBudget := FunctionBody.failed_require_sizeOf_budget failCond message [] 0
+        have enough : (PhysicalErrorStringExecution.writes message).length + 4 ≤
+            1 + extraFuel + 1 := by
+          simp only [List.singleton_append, Nat.add_zero] at structuralBudget
+          simp only [List.length_cons, List.length_nil] at hslack
+          omega
+        obtain ⟨revState, hIRExec, hbytes⟩ :=
+          FunctionBody.failed_require_ir_bytes_of_fuel state failCond message []
+            (1 + extraFuel + 1) enough hfailEval' hmessageExtent
+        have hSrcExec : SourceSemantics.execStmt fields runtime (.require cond message) =
+            .revertWithData (Denote.errorStringBytes message) := by
           simp [SourceSemantics.execStmt, hCondSrc, hzero]
-        have hfuelEq :
-            [YulStmt.if_ failCond (CompilationModel.revertWithMessage message)].length +
-              extraFuel + 1 = 1 + extraFuel + 1 := by simp
-        refine ⟨.revert, .revert revState, hSrcExec, ?_, ?_⟩
-        · rw [hfuelEq]; exact hIRExec
-        · simp [stmtStepMatchesIRExec]
+        refine ⟨.revertWithData (Denote.errorStringBytes message), .revert revState, hSrcExec, ?_, ?_⟩
+        · simpa only [List.length_cons, List.length_nil] using hIRExec
+        · exact hbytes
       · -- condVal ≠ 0 → require passes → continue
         have hfailEval' : evalIRExpr state failCond = some 0 := by
           have : SourceSemantics.evalExpr fields runtime cond ≠ some 0 := by
@@ -344,26 +341,24 @@ theorem compiledStmtStep_return
           omega
         omega
       -- Provide explicit witnesses
-      set state' := { state with memory := fun o => if o = 0 then v else state.memory o }
+      set state' := state.writePhysicalMemoryValue 0 v
       have hlt : v < Verity.Core.Uint256.modulus := by
         have := FunctionBody.evalExpr_lt_evmModulus_core_of_scope hcore hexact hinScope hbounded
           (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope) hruntime
         rw [hEvalSrc] at this; exact this
       set runtime' : SourceSemantics.RuntimeState :=
-        { runtime with world := { runtime.world with
-            memory := fun o => if o = 0 then v else runtime.world.memory o } }
+        { runtime with world := runtime.world.writePhysicalMemoryValue 0 (Verity.Core.Uint256.ofNat v) }
       refine ⟨.return v runtime', .return v state', ?_, ?_, ?_⟩
       · show SourceSemantics.execStmt fields runtime (.return value) = .return v runtime'
         have hunfold : SourceSemantics.execStmt fields runtime (.return value) =
           match SourceSemantics.evalExpr fields runtime value with
           | some resolved => .return resolved
-              { runtime with world := { runtime.world with
-                  memory := fun o => if o = 0 then resolved else runtime.world.memory o } }
+              { runtime with world := runtime.world.writePhysicalMemoryValue 0 (Verity.Core.Uint256.ofNat resolved) }
           | none => .revert := rfl
         rw [hunfold, hEvalSrc]
       · rw [hRetVal] at hwhole; rw [hfuelEq]; exact hwhole
       · simp [stmtStepMatchesIRExec, stmtNextScope, collectStmtNames]
-        exact FunctionBody.runtimeStateMatchesIR_setBothMemory hruntime 0 v hlt
+        exact FunctionBody.runtimeStateMatchesIR_setBothPhysicalMemory hruntime 0 v hlt
 
 theorem compiledStmtStep_stop
     {fields : List Field}

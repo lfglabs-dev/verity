@@ -158,6 +158,8 @@ mutual
      · simp_all [Frame]
      · trivial
      · trivial
+     · simp_all [Frame]
+     · simp_all [Frame]
 end
 
 theorem exec_append (o : DenoteOracle) (fs : List Field) (s : DenoteState)
@@ -217,5 +219,7 @@ theorem ends_return (o : DenoteOracle) (fs : List Field) (s : DenoteState)
   · simp_all [Frame]
   · simp
   · simp
+  · simp_all [Frame]
+  · simp_all [Frame]
 
 end Compiler.CompilationModel.SolidityImport

@@ -1,0 +1,21 @@
+{
+  "scope": "actual pinned-library Solidity caller capture only; no importer admission",
+  "pinnedMidnightHead": "96d31343e993329e7a593dde46516a2c0cbcd142",
+  "compilerVersion": "solc, the solidity compiler commandline interface\nVersion: 0.8.34+commit.80d5c536.Linux.g++",
+  "codeBytes": 1026,
+  "selector": "30ccca8f",
+  "inputs": {
+    "artifacts/native-midnight-source-rollback/SourceCaller.sol": "3c145d0e4341e7d54d940f2821cb3d78cab8e9bcbcf6a2360ef62c5e9cb0f41b",
+    "Contracts/SolidityImportSmoke/pinned-midnight/libraries/IdLib.sol": "a4fad41d5f053b6f1873c728d6531694a1c348fc3488d1ae0c1571d1765e2dfb",
+    "Contracts/SolidityImportSmoke/pinned-midnight/interfaces/IMidnight.sol": "b1a0cbcd9de9ce3781bd12cdd0a8665361f988fd23d0219217ff4e7981710475",
+    ".lake/solidity-import/solc-0.8.34": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+    "scripts/check_native_midnight_rollback_capture.py": "7d3738495a4e4e8f3acae312a2bca109885a292d543bf589f30fd93e200dba3a"
+  },
+  "generated": {
+    "artifacts/native-midnight-source-rollback/input.json": "8d3554054f0c552ffe1d7949992788e4a75fb82b82ffa40b788a8fdaeaf3c42c",
+    "artifacts/native-midnight-source-rollback/output.json": "ce2e0f45597409a9b20ce5ef91ec8ca05e6bcb0aef2f1bd0bc1ae4f19083cd89",
+    "artifacts/native-midnight-source-rollback/optimized.yul": "dfb9f4a107c40c7b259af2a70fd8e47aa49a46203927b78495e21d2c168a0111",
+    "Contracts/SolidityImportSmoke/NativeMidnightRollbackData.lean": "3cca560b364f96d6b68f197d5548302acf29783a4126761aa11c1d44b7c93e33",
+    "artifacts/native-midnight-source-rollback/cases.json": "f76920fd80905ca84f28ab35fb0a3df463e248160d4c2bb762d7b6591a3d818f"
+  }
+}

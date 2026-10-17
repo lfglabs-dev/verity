@@ -29,4 +29,16 @@ theorem loop_panic_bytes (oracle : DenoteOracle) (state : DenoteState)
       state index (remaining + 1) = .revertWithData (panicBytes 1) := by
   rfl
 
+/-- Refusal stays a refusal rather than becoming an ordinary EVM revert. -/
+theorem loop_refusal (state : DenoteState) (remaining index : Nat) (message : String) :
+    execForEachLoop "i" (fun _ => .interpretationError message)
+      state index (remaining + 1) = .interpretationError message := by
+  rfl
+
+/-- Exceptional exits retain their actual state and stop further iterations. -/
+theorem loop_exceptional (state final : DenoteState) (remaining index : Nat) :
+    execForEachLoop "i" (fun _ => .exceptional final)
+      state index (remaining + 1) = .exceptional final := by
+  rfl
+
 end SolidityImportSmoke.LoopInvariantChecks

@@ -1,4 +1,6 @@
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
+import Compiler.Proofs.IRGeneration.PhysicalMemory
+import Compiler.Proofs.IRGeneration.FunctionBody.RequirePayloadBounds
 
 set_option linter.unnecessarySimpa false
 set_option linter.unusedSimpArgs false
@@ -64,7 +66,8 @@ def stmtResultMatchesIRExecExact :
   | .return _ runtime, .return _ state =>
       bindingsExactlyMatchIRVars runtime.bindings state ∧
       bindingsBounded runtime.bindings
-  | .revert, .revert _ => True
+  | .revert, .revert state => state.revertBytes = some []
+  | .revertWithData data, .revert state => state.revertBytes = some data
   | _, _ => False
 
 /-- Statement fragment whose correctness can already be discharged using the
@@ -384,11 +387,9 @@ theorem runtimeStateMatchesIR_setBothMemory
             memory := fun o => if o = offset then value else runtime.world.memory o
           } }
       { state with memory := fun o => if o = offset then value else state.memory o } := by
-  cases runtime
-  cases state
-  simp only [runtimeStateMatchesIR] at hmatch ⊢
-  obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds, hmem, hret, hevt⟩ := hmatch
-  refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds, ?_, hret, hevt⟩
+  unfold runtimeStateMatchesIR at hmatch ⊢
+  obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds, hmem, hret, hevt, hcode, hrd, hbytes⟩ := hmatch
+  refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds, ?_, hret, hevt, hcode, hrd, hbytes⟩
   · rw [hstor]
     funext slot
     exact congrArg _ (SourceSemantics.encodeStorageAt_congr rfl rfl rfl)
@@ -424,9 +425,7 @@ theorem runtimeStateMatchesIR_updateMemoryEvents
       { state with
           memory := irMemory
           events := irEvents } := by
-  cases runtime
-  cases state
-  simp only [runtimeStateMatchesIR] at hmatch ⊢
+  unfold runtimeStateMatchesIR at hmatch ⊢
   obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel,
     hcd, hcds, hmem, hret, hevt, hcs⟩ := hmatch
   refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel,
@@ -467,13 +466,56 @@ theorem runtimeStateMatchesIR_setTransientStorage
     · simp [ho]
       exact congrFun htrans o
 
+/-- Physical writes preserve every old relation conjunct and the newly
+tracked byte carrier. The bounded value hypothesis is retained for callers. -/
+theorem runtimeStateMatchesIR_setBothPhysicalMemory
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (hmatch : runtimeStateMatchesIR fields runtime state) (offset value : Nat)
+    (_hvalue : value < Verity.Core.Uint256.modulus) :
+    runtimeStateMatchesIR fields
+      { runtime with
+        world := runtime.world.writePhysicalMemoryValue offset (Verity.Core.Uint256.ofNat value) }
+      (state.writePhysicalMemoryValue offset value) := by
+  unfold runtimeStateMatchesIR at hmatch ⊢
+  rcases hmatch with ⟨hstor, htrans, hsender, hmsg, hthis, htime, hnumber,
+    hchain, hblob, horigin, hselector, hcalldata, hsize, hmemory, hreturn,
+    hevents, hcode, hreturndata, hbytes, hcontext, hextent⟩
+  refine ⟨?_, htrans, hsender, hmsg, hthis, htime, hnumber, hchain, hblob,
+    horigin, hselector, hcalldata, hsize, ?_, hreturn, hevents, hcode, hreturndata, ?_, hcontext, hextent⟩
+  · change state.storage = _
+    rw [hstor]
+    funext slot
+    exact congrArg IRStorageWord.ofNat
+      (SourceSemantics.encodeStorageAt_congr
+        (world1 := runtime.world)
+        (world2 := runtime.world.writePhysicalMemoryValue offset
+          (Verity.Core.Uint256.ofNat value)) rfl rfl rfl)
+  · funext query
+    exact (writePhysicalMemoryValue_matches runtime.world state offset value hbytes).2 query |>.symm
+  · change runtime.world.byteMemory.writeWord offset _ = state.byteMemory.writeWord offset _
+    rw [hbytes]
+
+theorem bindingsExactlyMatchIRVars_setPhysicalMemory
+    {bindings : List (String × Nat)} {state : IRState}
+    (hexact : bindingsExactlyMatchIRVars bindings state) (offset value : Nat) :
+    bindingsExactlyMatchIRVars bindings (state.writePhysicalMemoryValue offset value) := by
+  intro name
+  simpa [IRState.getVar] using hexact name
+
+theorem bindingsExactlyMatchIRVarsOnScope_setPhysicalMemory
+    {scope : List String} {bindings : List (String × Nat)} {state : IRState}
+    (hexact : bindingsExactlyMatchIRVarsOnScope scope bindings state) (offset value : Nat) :
+    bindingsExactlyMatchIRVarsOnScope scope bindings (state.writePhysicalMemoryValue offset value) := by
+  intro name hname
+  simpa [IRState.getVar] using hexact name hname
+
 theorem bindingsExactlyMatchIRVars_setMemory
     {bindings : List (String × Nat)}
     {state : IRState}
     (hexact : bindingsExactlyMatchIRVars bindings state)
     (offset value : Nat) :
     bindingsExactlyMatchIRVars bindings
-      { state with memory := fun o => if o = offset then value else state.memory o } := by
+      (state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat offset).val value) := by
   intro name
   simpa [IRState.getVar] using hexact name
 
@@ -484,7 +526,7 @@ theorem bindingsExactlyMatchIRVarsOnScope_setMemory
     (hexact : bindingsExactlyMatchIRVarsOnScope scope bindings state)
     (offset value : Nat) :
     bindingsExactlyMatchIRVarsOnScope scope bindings
-      { state with memory := fun o => if o = offset then value else state.memory o } := by
+      (state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat offset).val value) := by
   intro name hname
   simpa [IRState.getVar] using hexact name hname
 
@@ -568,7 +610,8 @@ def stmtResultMatchesIRExec
   | .stop runtime, .stop state => runtimeStateMatchesIR fields runtime state
   | .return value runtime, .return value' state =>
       value = value' ∧ runtimeStateMatchesIR fields runtime state
-  | .revert, .revert _ => True
+  | .revert, .revert state => state.revertBytes = some []
+  | .revertWithData data, .revert state => state.revertBytes = some data
   | _, _ => False
 
 def stmtResultToSourceResult
@@ -579,15 +622,21 @@ def stmtResultToSourceResult
   | .stop runtime => SourceSemantics.successResult spec runtime.world none
   | .return value runtime => SourceSemantics.successResult spec runtime.world (some value)
   | .revert => SourceSemantics.revertedResult spec initialWorld
+  | .revertWithData data => { SourceSemantics.revertedResult spec initialWorld with revertData := data }
+  | .interpretationError message =>
+      { SourceSemantics.revertedResult spec initialWorld with interpretationError := some message }
+  | .exceptional runtime => SourceSemantics.exceptionalResult spec initialWorld runtime
 
 def sourceResultMatchesIRResult
     (source : SourceSemantics.SourceContractResult)
     (ir : IRResult) : Prop :=
+  source.interpretationError = none ∧
   source.success = ir.success ∧
   source.returnValue = ir.returnValue ∧
   (fun s => Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (source.finalStorage s.toNat)) =
     ir.finalStorage ∧
-  source.events = ir.events
+  source.events = ir.events ∧
+  ir.revertData = (if source.success then none else some source.revertData)
 
 /-- Helper: `eval_compileExpr_core` implies both `evalIRExpr` and source `evalExpr`
 succeed with the same `Nat` value. This factored lemma avoids repeating the
@@ -709,7 +758,7 @@ private theorem execIRStmt_mstore_zero_of_eval_succ
     (heval : evalIRExpr state valueExpr = some value) :
     execIRStmt (Nat.succ fuel) state
         (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueExpr])) =
-      .continue { state with memory := fun o => if o = 0 then value else state.memory o } := by
+      .continue (state.writePhysicalMemoryValue 0 value) := by
   simp [execIRStmt, evalIRExpr, heval]
 
 private theorem execIRStmt_return_zero_32_succ
@@ -725,9 +774,9 @@ private theorem execIRStmts_mstore_zero_return_32
     execIRStmts (2 + extraFuel + 1) state
         [ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueExpr])
         , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] =
-      .return value { state with memory := fun o => if o = 0 then value else state.memory o } := by
+      .return (Verity.Core.Uint256.ofNat value).val (state.writePhysicalMemoryValue 0 value) := by
   let state' : IRState :=
-    { state with memory := fun o => if o = 0 then value else state.memory o }
+    (state.writePhysicalMemoryValue 0 value)
   have hmstore :
       execIRStmt (Nat.succ (Nat.succ extraFuel)) state
           (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueExpr])) =
@@ -737,8 +786,8 @@ private theorem execIRStmts_mstore_zero_return_32
   have hreturn :
       execIRStmt (Nat.succ extraFuel) state'
           (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
-        .return value state' := by
-    simpa [state'] using execIRStmt_return_zero_32_succ extraFuel state'
+        .return (Verity.Core.Uint256.ofNat value).val state' := by
+    simpa [state', IRState.writePhysicalMemoryValue_at] using execIRStmt_return_zero_32_succ extraFuel state'
   have hFuel : 2 + extraFuel + 1 = Nat.succ (Nat.succ (Nat.succ extraFuel)) := by omega
   rw [hFuel]
   simp only [execIRStmts, hmstore, hreturn]
@@ -780,7 +829,9 @@ theorem exec_compileStmt_return_core
         rw [heval.symm] at this; exact this
       have hexec := execIRStmts_mstore_zero_return_32 0 state valueIR v hIR
       rw [hexec]
-      exact ⟨⟨rfl, runtimeStateMatchesIR_setBothMemory hruntime 0 v hlt⟩, hexact, hbounded⟩
+      have hmod : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
+      exact ⟨⟨(Nat.mod_eq_of_lt (hmod ▸ hlt)).symm,
+        runtimeStateMatchesIR_setBothPhysicalMemory hruntime 0 v hlt⟩, hexact, hbounded⟩
 
 theorem exec_compileStmt_return_core_extraFuel
     {fields : List Field}
@@ -823,15 +874,17 @@ theorem exec_compileStmt_return_core_extraFuel
       have hexec : execIRStmts (2 + extraFuel + 1) state
           [ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
           , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] =
-          .return v { state with memory := fun o => if o = 0 then v else state.memory o } := by
+          .return (Verity.Core.Uint256.ofNat v).val (state.writePhysicalMemoryValue 0 v) := by
         exact execIRStmts_mstore_zero_return_32 extraFuel state valueIR v hIR
       set runtime' : SourceSemantics.RuntimeState :=
-        { runtime with world := { runtime.world with
-            memory := fun o => if o = 0 then Verity.Core.Uint256.ofNat v else runtime.world.memory o } }
+        { runtime with
+          world := runtime.world.writePhysicalMemoryValue 0 (Verity.Core.Uint256.ofNat v) }
       show stmtResultMatchesIRExec fields (.return v runtime') _ ∧
            stmtResultMatchesIRExecExact (.return v runtime') _
       rw [hexec]
-      exact ⟨⟨rfl, runtimeStateMatchesIR_setBothMemory hruntime 0 v hlt⟩, hexact, hbounded⟩
+      have hmod : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
+      exact ⟨⟨(Nat.mod_eq_of_lt (hmod ▸ hlt)).symm,
+        runtimeStateMatchesIR_setBothPhysicalMemory hruntime 0 v hlt⟩, hexact, hbounded⟩
 
 theorem exec_compileStmt_stop_core
     {fields : List Field}
@@ -1239,7 +1292,7 @@ private theorem compileStmt_ok_any_scope_aux
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | panicCode | panic | «return» | returnValues | returnArray
-      | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
+      | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | create2 | calldatacopy
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind | ecm | rawLog
       | unsafeYul =>
@@ -1382,7 +1435,7 @@ private theorem compileStmt_ok_any_scope_with_surface_aux
       | setMappingPackedWord | setMapping2 | setMapping2Word | setMappingUint
       | setMappingChain | setStructMember | setStructMember2 | require
       | requireError | revertError | panicCode | panic | «return» | returnValues | returnArray
-      | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | calldatacopy
+      | returnBytes | returnStorageWords | returnCodeData | mstore | tstore | create2 | calldatacopy
       | returndataCopy | revertReturndata | stop | emit | internalCall
       | internalCallAssign | externalCallBind | tryExternalCallBind
       | ecm | rawLog | unsafeYul =>
@@ -2793,6 +2846,33 @@ private theorem execIRStmt_block_of_execIRStmts_revert_nonzeroFuel
   | succ fuel =>
       simpa using execIRStmt_block_of_execIRStmts_revert fuel state next body hbody
 
+/-- Every actual terminal outcome bypasses the suffix unchanged. -/
+private theorem execIRStmts_cons_of_execIRStmt_terminal
+    (fuel : Nat) (state : IRState) (stmt : YulStmt) (rest : List YulStmt)
+    (result : IRExecResult)
+    (hstmt : execIRStmt fuel state stmt = result)
+    (hterminal : ∀ next, result ≠ .continue next) :
+    execIRStmts (fuel + 1) state (stmt :: rest) = result := by
+  cases result
+  case «continue» next => exact False.elim (hterminal next rfl)
+  all_goals
+    cases fuel with
+    | zero => cases stmt <;> simp_all [execIRStmt, execIRStmts]
+    | succ fuel => simp_all [execIRStmts]
+
+
+private theorem execIRStmt_block_of_execIRStmts_terminal
+    (fuel : Nat) (state : IRState) (body : List YulStmt)
+    (result : IRExecResult)
+    (hfuel : fuel ≠ 0)
+    (hbody : execIRStmts (fuel - 1) state body = result)
+    (hterminal : ∀ next, result ≠ .continue next) :
+    execIRStmt fuel state (.block body) = result := by
+  cases fuel with
+  | zero => exact False.elim (hfuel rfl)
+  | succ fuel =>
+      cases result <;> simp_all [execIRStmt]
+
 private theorem execIRStmt_if_true_of_eval
     (fuel : Nat) (state : IRState) (cond : YulExpr) (body : List YulStmt) (value : Nat)
     (hcond : evalIRExpr state cond = some value)
@@ -2894,7 +2974,7 @@ private theorem execIRStmt_mstore_of_eval_anyFuel
     (heval : evalIRExpr state valueExpr = some value) :
     execIRStmt (Nat.succ fuel) state
       (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, valueExpr])) =
-      .continue { state with memory := fun o => if o = offset then value else state.memory o } := by
+      .continue (state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat offset).val value) := by
   simp [execIRStmt, evalIRExpr, heval]
 
 private theorem execIRStmt_mstore_of_eval_nonzeroFuel
@@ -2907,7 +2987,7 @@ private theorem execIRStmt_mstore_of_eval_nonzeroFuel
     (heval : evalIRExpr state valueExpr = some value) :
     execIRStmt fuel state
       (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit offset, valueExpr])) =
-      .continue { state with memory := fun o => if o = offset then value else state.memory o } := by
+      .continue (state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat offset).val value) := by
   cases fuel with
   | zero =>
       exact False.elim (hfuel rfl)
@@ -2972,15 +3052,13 @@ private theorem execIRStmt_revertPrefix_continue
   | mstore_lit =>
       rename_i offset value
       let next :=
-        { state with
-          memory := fun o => if o = offset then value else state.memory o }
+        state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat offset).val value
       refine ⟨next, ?_⟩
       simp [execIRStmt, evalIRExpr, next]
   | mstore_hex =>
       rename_i offset value
       let next :=
-        { state with
-          memory := fun o => if o = offset then value else state.memory o }
+        state.writePhysicalMemoryValue (Verity.Core.Uint256.ofNat offset).val value
       refine ⟨next, ?_⟩
       simp [execIRStmt, evalIRExpr, next]
 
@@ -2999,8 +3077,11 @@ private theorem execIRStmts_revertPrefix_then_revert
   | succ fuel ih =>
       cases prefixStmts with
       | nil =>
-          refine ⟨state, ?_⟩
-          cases fuel <;> simp [execIRStmts, execIRStmt]
+          cases fuel with
+          | zero => exact ⟨state, by simp [execIRStmts, execIRStmt]⟩
+          | succ remaining =>
+              exact ⟨state.captureRevert offset size,
+                by simp [execIRStmts, execIRStmt, evalIRExpr]⟩
       | cons stmt rest =>
           have hstmtPred : RevertPrefixStmt stmt := hprefix stmt (by simp)
           cases fuel with
@@ -3049,448 +3130,6 @@ theorem execIRStmts_revertWithMessage_revert
     execIRStmts_revertPrefix_then_revert (fuel := fuel) (state := state)
       (prefixStmts := header ++ dataStmts) (offset := 0) (size := 68 + paddedLen) hprefix
 
-theorem exec_compileStmtList_core
-    {fields : List Field}
-    {runtime : SourceSemantics.RuntimeState}
-    {state : IRState}
-    {scope inScopeNames : List String}
-    {stmts : List Stmt}
-    (hcore : StmtListCompileCore scope stmts)
-    (hscope : scopeNamesPresent scope runtime.bindings)
-    (hexact : bindingsExactlyMatchIRVars runtime.bindings state)
-    (hbounded : bindingsBounded runtime.bindings)
-    (hruntime : runtimeStateMatchesIR fields runtime state) :
-    ∃ bodyIR,
-      CompilationModel.compileStmtList
-        fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR ∧
-      let sourceResult := SourceSemantics.execStmtList fields runtime stmts
-      let irExec := execIRStmts (bodyIR.length + 1) state bodyIR
-      stmtResultMatchesIRExec fields sourceResult irExec ∧
-      stmtResultMatchesIRExecExact sourceResult irExec := by
-  induction hcore generalizing runtime state inScopeNames with
-  | nil =>
-      refine ⟨[], by
-        simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
-          Pure.pure, Except.pure], ?_⟩
-      constructor
-      · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExec] using hruntime
-      · simpa [SourceSemantics.execStmtList, execIRStmts, stmtResultMatchesIRExecExact] using
-          And.intro hexact hbounded
-  | letVar hvalue hinScope hrest ih =>
-      rename_i scope name value rest
-      have hpresent : exprBoundNamesPresent value runtime.bindings :=
-        exprBoundNamesPresent_of_scope hscope hinScope
-      rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
-      -- Get the eval_compileExpr_core result (elaborated via monadic binding)
-      have heval := eval_compileExpr_core hvalue hexact hbounded hpresent hruntime
-      rw [hvalueIR] at heval; simp [Except.toOption] at heval
-      -- Extract the Nat value from the IR evaluation
-      rcases hIR : evalIRExpr state valueIR with _ | valueNat
-      · -- evalIRExpr = none: contradicts eval_compileExpr_core
-        simp [hIR, Option.bind] at heval
-      · -- evalIRExpr = some valueNat
-        simp [hIR, Option.bind] at heval
-        -- heval : some valueNat = evalExpr fields runtime value, so evalExpr = some valueNat
-        have hEvalSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
-          heval.symm
-        let runtime' :=
-          { runtime with bindings := SourceSemantics.bindValue runtime.bindings name valueNat }
-        let state' := state.setVar name valueNat
-        have hvalueLt := evalExpr_lt_evmModulus_core hvalue hexact hbounded hpresent hruntime
-        rw [hEvalSrc] at hvalueLt; simp at hvalueLt
-        have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-          runtimeStateMatchesIR_setVar_bindValue hruntime name valueNat
-        have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' :=
-          bindingsExactlyMatchIRVars_setVar_bindValue hexact name valueNat
-        have hbounded' : bindingsBounded runtime'.bindings :=
-          bindingsBounded_bindValue hbounded name valueNat hvalueLt
-        have hscope' : scopeNamesPresent (name :: scope) runtime'.bindings :=
-          scopeNamesPresent_cons_bindValue hscope
-        rcases ih (runtime := runtime') (state := state')
-            (inScopeNames := collectStmtBindNames (.letVar name value) ++ inScopeNames)
-            hscope' hexact' hbounded' hruntime' with
-          ⟨tailIR, htailCompile, htailSem, htailExact⟩
-        refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
-        · apply compileStmtList_cons_eq_ok
-          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-            rw [hvalueIRInternal]
-            rfl
-          · exact htailCompile
-        · have hstmt :
-              execIRStmt (tailIR.length + 1) state (YulStmt.let_ name valueIR) =
-                .continue state' := by
-            simp [execIRStmt, hIR, state']
-          have hirExec :
-              execIRStmts (tailIR.length + 2) state
-                (YulStmt.let_ name valueIR :: tailIR) =
-                execIRStmts (tailIR.length + 1) state' tailIR := by
-            simpa using
-              (execIRStmts_cons_of_execIRStmt_continue state state'
-                (YulStmt.let_ name valueIR) tailIR hstmt)
-          rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hEvalSrc]
-          dsimp [runtime', state']
-          constructor
-          · simpa [hirExec, runtime'] using htailSem
-          · simpa [hirExec, runtime'] using htailExact
-  | assignVar hvalue hinScope hrest ih =>
-      rename_i scope name value rest
-      have hpresent : exprBoundNamesPresent value runtime.bindings :=
-        exprBoundNamesPresent_of_scope hscope hinScope
-      rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
-      have heval := eval_compileExpr_core hvalue hexact hbounded hpresent hruntime
-      rw [hvalueIR] at heval; simp [Except.toOption] at heval
-      rcases hIR : evalIRExpr state valueIR with _ | valueNat
-      · simp [hIR, Option.bind] at heval
-      · simp [hIR, Option.bind] at heval
-        have hEvalSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
-          heval.symm
-        let runtime' :=
-          { runtime with bindings := SourceSemantics.bindValue runtime.bindings name valueNat }
-        let state' := state.setVar name valueNat
-        have hvalueLt := evalExpr_lt_evmModulus_core hvalue hexact hbounded hpresent hruntime
-        rw [hEvalSrc] at hvalueLt; simp at hvalueLt
-        have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-          runtimeStateMatchesIR_setVar_bindValue hruntime name valueNat
-        have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' :=
-          bindingsExactlyMatchIRVars_setVar_bindValue hexact name valueNat
-        have hbounded' : bindingsBounded runtime'.bindings :=
-          bindingsBounded_bindValue hbounded name valueNat hvalueLt
-        have hscope' : scopeNamesPresent (name :: scope) runtime'.bindings :=
-          scopeNamesPresent_cons_bindValue hscope
-        rcases ih (runtime := runtime') (state := state')
-            (inScopeNames := collectStmtBindNames (.assignVar name value) ++ inScopeNames)
-            (by intro other hmem
-                exact hscope' other (List.mem_cons_of_mem name hmem))
-            hexact' hbounded' hruntime' with
-          ⟨tailIR, htailCompile, htailSem, htailExact⟩
-        refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
-        · apply compileStmtList_cons_eq_ok
-          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-            rw [hvalueIRInternal]
-            rfl
-          · exact htailCompile
-        · have hstmt :
-              execIRStmt (tailIR.length + 1) state (YulStmt.assign name valueIR) =
-                .continue state' := by
-            simp [execIRStmt, hIR, state']
-          have hirExec :
-              execIRStmts (tailIR.length + 2) state
-                (YulStmt.assign name valueIR :: tailIR) =
-                execIRStmts (tailIR.length + 1) state' tailIR := by
-            simpa using
-              (execIRStmts_cons_of_execIRStmt_continue state state'
-                (YulStmt.assign name valueIR) tailIR hstmt)
-          rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hEvalSrc]
-          dsimp [runtime', state']
-          constructor
-          · simpa [hirExec, runtime'] using htailSem
-          · simpa [hirExec, runtime'] using htailExact
-  | require_ hcond hinScope hrest ih =>
-      rename_i scope cond message rest
-      have hpresent : exprBoundNamesPresent cond runtime.bindings :=
-        exprBoundNamesPresent_of_scope hscope hinScope
-      -- First, establish that evalExpr cond is some, using eval_compileExpr_core
-      rcases compileExpr_core_ok hcond with ⟨condIR, hcondIR⟩
-      have hCondEval := eval_compileExpr_core hcond hexact hbounded hpresent hruntime
-      rw [hcondIR] at hCondEval; simp [Except.toOption] at hCondEval
-      rcases hCondIRVal : evalIRExpr state condIR with _ | condVal
-      · simp [hCondIRVal, Option.bind] at hCondEval
-      · simp [hCondIRVal, Option.bind] at hCondEval
-        have hCondSrc : SourceSemantics.evalExpr fields runtime cond = some condVal :=
-          hCondEval.symm
-        -- Get the fail condition IR
-        rcases eval_compileRequireFailCond_core_onExpr hcond
-            (bindingsExactlyMatchIRVars_implies_onExpr hexact)
-            hbounded hpresent hruntime with
-          ⟨failCond, hfailCompile, hfailEval⟩
-        rcases ih (runtime := runtime) (state := state)
-            (inScopeNames := collectStmtBindNames (.require cond message) ++ inScopeNames)
-            hscope hexact hbounded hruntime with
-          ⟨tailIR, htailCompile, htailSem, htailExact⟩
-        refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR, ?_, ?_⟩
-        · apply compileStmtList_cons_eq_ok
-          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
-            have hfailCompileInternal := hfailCompile
-            rw [← CompilationModel.compileRequireFailCondWithInternals_nil_eq] at hfailCompileInternal
-            rw [hfailCompileInternal]
-            rfl
-          · exact htailCompile
-        · rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hCondSrc]
-          by_cases hzero : condVal = 0
-          · -- condVal = 0 → require fails → revert
-            rcases execIRStmts_revertWithMessage_revert (fuel := tailIR.length) (state := state) message with
-              ⟨revState, hrev⟩
-            have hfailEval' : evalIRExpr state failCond = some 1 := by
-              rw [hCondSrc, hzero] at hfailEval
-              simpa [SourceSemantics.boolWord] using hfailEval
-            have hstmt :
-                execIRStmt (tailIR.length + 1) state
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) =
-                    .revert revState := by
-              simp [execIRStmt, hfailEval', hrev]
-            have hirExec :
-                execIRStmts (tailIR.length + 2) state
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message) :: tailIR) =
-                    .revert revState := by
-              simpa using
-                (execIRStmts_cons_of_execIRStmt_revert state revState
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) tailIR hstmt)
-            simp [hzero, hirExec, stmtResultMatchesIRExec, stmtResultMatchesIRExecExact]
-          · -- condVal ≠ 0 → require passes → continue
-            have hfailEval' : evalIRExpr state failCond = some 0 := by
-              have : SourceSemantics.evalExpr fields runtime cond ≠ some 0 := by
-                rw [hCondSrc]; simp [hzero]
-              simpa [this, SourceSemantics.boolWord] using hfailEval
-            have hstmt :
-                execIRStmt (tailIR.length + 1) state
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) =
-                    .continue state := by
-              simp [execIRStmt, hfailEval']
-            have hirExec :
-                execIRStmts (tailIR.length + 2) state
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message) :: tailIR) =
-                    execIRStmts (tailIR.length + 1) state tailIR := by
-              simpa using
-                (execIRStmts_cons_of_execIRStmt_continue state state
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) tailIR hstmt)
-            simp [hzero, hirExec]
-            constructor
-            · simpa [hirExec] using htailSem
-            · simpa [hirExec] using htailExact
-  | return_ hvalue hinScope hrest ih =>
-      rename_i scope value rest
-      have hpresent : exprBoundNamesPresent value runtime.bindings :=
-        exprBoundNamesPresent_of_scope hscope hinScope
-      rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
-      -- Establish that evalExpr value is some, using eval_compileExpr_core
-      have heval := eval_compileExpr_core hvalue hexact hbounded hpresent hruntime
-      rw [hvalueIR] at heval; simp [Except.toOption] at heval
-      rcases hIR : evalIRExpr state valueIR with _ | retVal
-      · simp [hIR, Option.bind] at heval
-      · simp [hIR, Option.bind] at heval
-        have hEvalSrc : SourceSemantics.evalExpr fields runtime value = some retVal :=
-          heval.symm
-        have hlt : retVal < Verity.Core.Uint256.modulus := by
-          have := evalExpr_lt_evmModulus_core_onExpr hvalue
-            (bindingsExactlyMatchIRVars_implies_onExpr hexact) hbounded hpresent hruntime
-          rw [hEvalSrc] at this; exact this
-        let state' := { state with memory := fun o => if o = 0 then retVal else state.memory o }
-        let runtime' : SourceSemantics.RuntimeState :=
-          { runtime with world := { runtime.world with
-              memory := fun o => if o = 0 then retVal else runtime.world.memory o } }
-        rcases ih (runtime := runtime') (state := state')
-            (inScopeNames := collectStmtBindNames (.return value) ++ inScopeNames)
-            hscope
-            (bindingsExactlyMatchIRVars_setMemory hexact 0 retVal)
-            hbounded
-            (runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt) with
-          ⟨tailIR, htailCompile, htailSem, htailExact⟩
-        refine ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
-                , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
-          ?_, ?_⟩
-        · apply compileStmtListWithFork_cons_eq_ok
-          · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
-            have hvalueIRInternal := hvalueIR
-            rw [← CompilationModel.compileExprWithInternals_nil_eq] at hvalueIRInternal
-            rw [hvalueIRInternal]
-            rfl
-          · exact htailCompile
-        · have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt
-          have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' :=
-            bindingsExactlyMatchIRVars_setMemory hexact 0 retVal
-          have hmstore :
-              execIRStmt (tailIR.length + 2) state
-                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) =
-                .continue state' := by
-            simp [execIRStmt, evalIRExpr, hIR, state']
-          have hreturn :
-              execIRStmt (tailIR.length + 1) state'
-                (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
-                .return retVal state' := by
-            simp [execIRStmt, evalIRExpr, state']
-          have hirExec :
-              execIRStmts (tailIR.length + 3)
-                state
-                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]) ::
-                  YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ::
-                  tailIR) =
-                .return retVal state' := by
-            simpa using
-              (execIRStmts_two_of_continue_then_return state state' state'
-                (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR]))
-                (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]))
-                tailIR retVal hmstore hreturn)
-          rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hEvalSrc]
-          dsimp [state', runtime']
-          constructor
-          · simpa [hirExec] using (show
-              stmtResultMatchesIRExec fields
-                (SourceSemantics.StmtResult.return retVal runtime')
-                (.return retVal state') from ⟨rfl, hruntime'⟩)
-          · simpa [hirExec] using (show
-              stmtResultMatchesIRExecExact
-                (SourceSemantics.StmtResult.return retVal runtime')
-                (.return retVal state') from ⟨hexact', hbounded⟩)
-  | stop hrest ih =>
-      rename_i scope rest
-      rcases ih (runtime := runtime) (state := state)
-          (inScopeNames := collectStmtBindNames (.stop) ++ inScopeNames)
-          hscope hexact hbounded hruntime with
-        ⟨tailIR, htailCompile, htailSem, htailExact⟩
-      refine ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
-      · apply compileStmtListWithFork_cons_eq_ok
-        · rw [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
-          rfl
-        · exact htailCompile
-      · have hstmt :
-            execIRStmt (tailIR.length + 1) state (YulStmt.exprStmt (YulExpr.call "stop" [])) =
-              .stop state := by
-          simp [execIRStmt]
-        have hirExec :
-            execIRStmts (tailIR.length + 2) state
-              (YulStmt.exprStmt (YulExpr.call "stop" []) :: tailIR) =
-              .stop state := by
-          simpa using
-            (execIRStmts_cons_of_execIRStmt_stop state state
-              (YulStmt.exprStmt (YulExpr.call "stop" [])) tailIR hstmt)
-        rw [SourceSemantics.execStmtList, SourceSemantics.execStmt]
-        simp [hirExec]
-        exact ⟨hruntime, ⟨hexact, hbounded⟩⟩
-  | mstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
-      rename_i scope offset value rest
-      have hpresentOffset : exprBoundNamesPresent offset runtime.bindings :=
-        exprBoundNamesPresent_of_scope hscope hinScopeOffset
-      have hpresentValue : exprBoundNamesPresent value runtime.bindings :=
-        exprBoundNamesPresent_of_scope hscope hinScopeValue
-      rcases compileExpr_core_ok hoffset with ⟨offsetIR, hoffsetIR⟩
-      rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
-      have hevalOffset := eval_compileExpr_core hoffset hexact hbounded hpresentOffset hruntime
-      rw [hoffsetIR] at hevalOffset; simp [Except.toOption] at hevalOffset
-      have hevalValue := eval_compileExpr_core hvalue hexact hbounded hpresentValue hruntime
-      rw [hvalueIR] at hevalValue; simp [Except.toOption] at hevalValue
-      rcases hIROffset : evalIRExpr state offsetIR with _ | offsetNat
-      · simp [hIROffset, Option.bind] at hevalOffset
-      · simp [hIROffset, Option.bind] at hevalOffset
-        rcases hIRValue : evalIRExpr state valueIR with _ | valueNat
-        · simp [hIRValue, Option.bind] at hevalValue
-        · simp [hIRValue, Option.bind] at hevalValue
-          have hOffsetSrc : SourceSemantics.evalExpr fields runtime offset = some offsetNat :=
-            hevalOffset.symm
-          have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
-            hevalValue.symm
-          let runtime' :=
-            { runtime with
-              world := {
-                runtime.world with
-                memory := fun o => if o = offsetNat then valueNat else runtime.world.memory o
-              } }
-          let state' := { state with memory := fun o => if o = offsetNat then valueNat else state.memory o }
-          have hvalueLt := evalExpr_lt_evmModulus_core_onExpr hvalue
-            (bindingsExactlyMatchIRVars_implies_onExpr hexact) hbounded hpresentValue hruntime
-          rw [hValueSrc] at hvalueLt
-          have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setBothMemory hruntime offsetNat valueNat hvalueLt
-          have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' :=
-            bindingsExactlyMatchIRVars_setMemory hexact offsetNat valueNat
-          have hbounded' : bindingsBounded runtime'.bindings := by
-            simpa [runtime'] using hbounded
-          rcases ih (runtime := runtime') (state := state')
-              (inScopeNames := collectStmtBindNames (.mstore offset value) ++ inScopeNames)
-              hscope hexact' hbounded' hruntime' with
-            ⟨tailIR, htailCompile, htailSem, htailExact⟩
-          refine ⟨[YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · apply compileStmtListWithFork_cons_eq_ok
-            · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
-              have hoffsetIRInternal := hoffsetIR
-              have hvalueIRInternal := hvalueIR
-              rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-              rw [hoffsetIRInternal, hvalueIRInternal]
-              rfl
-            · exact htailCompile
-          · have hstmt :
-                execIRStmt (tailIR.length + 1) state
-                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
-              simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
-            have hirExec :
-                execIRStmts (tailIR.length + 2) state
-                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
-                    execIRStmts (tailIR.length + 1) state' tailIR := by
-              simpa using
-                (execIRStmts_cons_of_execIRStmt_continue state state'
-                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt)
-            rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc]
-            simp [hirExec]
-            exact ⟨htailSem, htailExact⟩
-  | tstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
-      rename_i scope offset value rest
-      have hpresentOffset : exprBoundNamesPresent offset runtime.bindings :=
-        exprBoundNamesPresent_of_scope hscope hinScopeOffset
-      have hpresentValue : exprBoundNamesPresent value runtime.bindings :=
-        exprBoundNamesPresent_of_scope hscope hinScopeValue
-      rcases compileExpr_core_ok hoffset with ⟨offsetIR, hoffsetIR⟩
-      rcases compileExpr_core_ok hvalue with ⟨valueIR, hvalueIR⟩
-      have hevalOffset := eval_compileExpr_core hoffset hexact hbounded hpresentOffset hruntime
-      rw [hoffsetIR] at hevalOffset; simp [Except.toOption] at hevalOffset
-      have hevalValue := eval_compileExpr_core hvalue hexact hbounded hpresentValue hruntime
-      rw [hvalueIR] at hevalValue; simp [Except.toOption] at hevalValue
-      rcases hIROffset : evalIRExpr state offsetIR with _ | offsetNat
-      · simp [hIROffset, Option.bind] at hevalOffset
-      · simp [hIROffset, Option.bind] at hevalOffset
-        rcases hIRValue : evalIRExpr state valueIR with _ | valueNat
-        · simp [hIRValue, Option.bind] at hevalValue
-        · simp [hIRValue, Option.bind] at hevalValue
-          have hOffsetSrc : SourceSemantics.evalExpr fields runtime offset = some offsetNat :=
-            hevalOffset.symm
-          have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
-            hevalValue.symm
-          let offsetKey := offsetNat % Compiler.Constants.evmModulus
-          let runtime' :=
-            { runtime with
-              world := runtime.world.writeTransient offsetKey valueNat }
-          let state' := { state with
-            transientStorage := fun o => if o = offsetKey then valueNat else state.transientStorage o }
-          have hvalueLt := evalExpr_lt_evmModulus_core_onExpr hvalue
-            (bindingsExactlyMatchIRVars_implies_onExpr hexact) hbounded hpresentValue hruntime
-          rw [hValueSrc] at hvalueLt
-          have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setTransientStorage hruntime offsetKey valueNat hvalueLt
-          have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' := by
-            intro name; simpa [IRState.getVar, state'] using hexact name
-          have hbounded' : bindingsBounded runtime'.bindings := by
-            simpa [runtime'] using hbounded
-          rcases ih (runtime := runtime') (state := state')
-              (inScopeNames := collectStmtBindNames (.tstore offset value) ++ inScopeNames)
-              hscope hexact' hbounded' hruntime' with
-            ⟨tailIR, htailCompile, htailSem, htailExact⟩
-          refine ⟨[YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
-          · apply compileStmtListWithFork_cons_eq_ok
-            · unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
-              have hoffsetIRInternal := hoffsetIR
-              have hvalueIRInternal := hvalueIR
-              rw [← CompilationModel.compileExprWithInternals_nil_eq] at hoffsetIRInternal hvalueIRInternal
-              rw [hoffsetIRInternal, hvalueIRInternal]
-              rfl
-            · exact htailCompile
-          · have hstmt :
-                execIRStmt (tailIR.length + 1) state
-                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) = .continue state' := by
-              simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
-            have hirExec :
-                execIRStmts (tailIR.length + 2) state
-                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR]) :: tailIR) =
-                    execIRStmts (tailIR.length + 1) state' tailIR := by
-              simpa using
-                (execIRStmts_cons_of_execIRStmt_continue state state'
-                  (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])) tailIR hstmt)
-            rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc]
-            simp [hirExec]
-            exact ⟨htailSem, htailExact⟩
-
 theorem exec_compileStmtList_core_extraFuel
     {fields : List Field}
     {runtime : SourceSemantics.RuntimeState}
@@ -3502,7 +3141,9 @@ theorem exec_compileStmtList_core_extraFuel
     (hscope : scopeNamesPresent scope runtime.bindings)
     (hexact : bindingsExactlyMatchIRVars runtime.bindings state)
     (hbounded : bindingsBounded runtime.bindings)
-    (hruntime : runtimeStateMatchesIR fields runtime state) :
+    (hruntime : runtimeStateMatchesIR fields runtime state)
+    (hbudget : requireFuelReserve stmts ≤ extraFuel)
+    (hmessageFit : requirePayloadsFit stmts) :
     ∃ bodyIR,
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR ∧
@@ -3546,7 +3187,9 @@ theorem exec_compileStmtList_core_extraFuel
           scopeNamesPresent_cons_bindValue hscope
         rcases ih (runtime := runtime') (state := state')
             (inScopeNames := collectStmtBindNames (.letVar name value) ++ inScopeNames)
-            hscope' hexact' hbounded' hruntime' with
+            hscope' hexact' hbounded' hruntime'
+            (le_trans (requireFuelReserve_tail _ _) hbudget)
+            (requirePayloadsFit_tail hmessageFit) with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
         · apply compileStmtListWithFork_cons_eq_ok
@@ -3575,14 +3218,14 @@ theorem exec_compileStmtList_core_extraFuel
                   (YulStmt.let_ name valueIR :: tailIR) =
                   execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
-            rw [hirExec']
+            simp only [hirExec']
             simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm, runtime'] using htailSem
           · have hirExec' :
                 execIRStmts (tailIR.length + 1 + extraFuel + 1) state
                   (YulStmt.let_ name valueIR :: tailIR) =
                   execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
-            rw [hirExec']
+            simp only [hirExec']
             simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm, runtime'] using htailExact
   | assignVar hvalue hinScope hrest ih =>
       rename_i scope name value rest
@@ -3613,7 +3256,9 @@ theorem exec_compileStmtList_core_extraFuel
             (inScopeNames := collectStmtBindNames (.assignVar name value) ++ inScopeNames)
             (by intro other hmem
                 exact hscope' other (List.mem_cons_of_mem name hmem))
-            hexact' hbounded' hruntime' with
+            hexact' hbounded' hruntime'
+            (le_trans (requireFuelReserve_tail _ _) hbudget)
+            (requirePayloadsFit_tail hmessageFit) with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
         · apply compileStmtListWithFork_cons_eq_ok
@@ -3642,14 +3287,14 @@ theorem exec_compileStmtList_core_extraFuel
                   (YulStmt.assign name valueIR :: tailIR) =
                   execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
-            rw [hirExec']
+            simp only [hirExec']
             simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm, runtime'] using htailSem
           · have hirExec' :
                 execIRStmts (tailIR.length + 1 + extraFuel + 1) state
                   (YulStmt.assign name valueIR :: tailIR) =
                   execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
-            rw [hirExec']
+            simp only [hirExec']
             simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm, runtime'] using htailExact
   | require_ hcond hinScope hrest ih =>
       rename_i scope cond message rest
@@ -3671,7 +3316,9 @@ theorem exec_compileStmtList_core_extraFuel
           ⟨failCond, hfailCompile, hfailEval⟩
         rcases ih (runtime := runtime) (state := state)
             (inScopeNames := collectStmtBindNames (.require cond message) ++ inScopeNames)
-            hscope hexact hbounded hruntime with
+            hscope hexact hbounded hruntime
+            (le_trans (requireFuelReserve_tail _ _) hbudget)
+            (requirePayloadsFit_tail hmessageFit) with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR,
           ?_, ?_⟩
@@ -3685,31 +3332,21 @@ theorem exec_compileStmtList_core_extraFuel
         · rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hCondSrc]
           by_cases hzero : condVal = 0
           · -- condVal = 0 → require fails → revert
-            rcases execIRStmts_revertWithMessage_revert (fuel := tailIR.length + extraFuel)
-                (state := state) message with
-              ⟨revState, hrev⟩
             have hfailEval' : evalIRExpr state failCond = some 1 := by
               rw [hCondSrc, hzero] at hfailEval
               simpa [SourceSemantics.boolWord] using hfailEval
-            have hstmt :
-                execIRStmt (tailIR.length + extraFuel + 1) state
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) =
-                    .revert revState := by
-              simp [execIRStmt, hfailEval', hrev]
-            have hirExec :
-                execIRStmts (tailIR.length + extraFuel + 2) state
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message) :: tailIR) =
-                    .revert revState := by
-              simpa using
-                (execIRStmts_cons_of_execIRStmt_revert_extraFuel extraFuel state revState
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) tailIR
-                  hstmt)
+            have reserve : (PhysicalErrorStringExecution.writes message).length + 2 ≤ extraFuel :=
+              le_trans (Nat.le_max_left _ _) hbudget
+            obtain ⟨revState, hirExec, hbytes⟩ :=
+              failed_require_ir_bytes_of_fuel state failCond message tailIR
+                (tailIR.length + extraFuel + 2) (by omega)
+                hfailEval' (requirePayloadsFit_here hmessageFit)
             have hirExec' :
                 execIRStmts (tailIR.length + 1 + extraFuel + 1) state
                   (YulStmt.if_ failCond (CompilationModel.revertWithMessage message) :: tailIR) =
                     .revert revState := by
-              simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
-            simp [hzero, hirExec', stmtResultMatchesIRExec, stmtResultMatchesIRExecExact]
+              simpa only [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
+            simp [hzero, hirExec', stmtResultMatchesIRExec, stmtResultMatchesIRExecExact, hbytes]
           · -- condVal ≠ 0 → require passes → continue
             have hfailEval' : evalIRExpr state failCond = some 0 := by
               have : SourceSemantics.evalExpr fields runtime cond ≠ some 0 := by
@@ -3754,16 +3391,18 @@ theorem exec_compileStmtList_core_extraFuel
           have := evalExpr_lt_evmModulus_core_onExpr hvalue
             (bindingsExactlyMatchIRVars_implies_onExpr hexact) hbounded hpresent hruntime
           rw [hEvalSrc] at this; exact this
-        let state' := { state with memory := fun o => if o = 0 then retVal else state.memory o }
+        let state' := (state.writePhysicalMemoryValue 0 retVal)
         let runtime' : SourceSemantics.RuntimeState :=
-          { runtime with world := { runtime.world with
-              memory := fun o => if o = 0 then retVal else runtime.world.memory o } }
+          { runtime with
+            world := runtime.world.writePhysicalMemoryValue 0 (Verity.Core.Uint256.ofNat retVal) }
         rcases ih (runtime := runtime') (state := state')
             (inScopeNames := collectStmtBindNames (.return value) ++ inScopeNames)
             hscope
-            (bindingsExactlyMatchIRVars_setMemory hexact 0 retVal)
+            (bindingsExactlyMatchIRVars_setPhysicalMemory hexact 0 retVal)
             hbounded
-            (runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt) with
+            (runtimeStateMatchesIR_setBothPhysicalMemory hruntime 0 retVal hlt)
+            (le_trans (requireFuelReserve_tail _ _) hbudget)
+            (requirePayloadsFit_tail hmessageFit) with
           ⟨tailIR, htailCompile, htailSem, htailExact⟩
         refine ⟨[ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
                 , YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32]) ] ++ tailIR,
@@ -3776,9 +3415,9 @@ theorem exec_compileStmtList_core_extraFuel
             rfl
           · exact htailCompile
         · have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setBothMemory hruntime 0 retVal hlt
+            runtimeStateMatchesIR_setBothPhysicalMemory hruntime 0 retVal hlt
           have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' :=
-            bindingsExactlyMatchIRVars_setMemory hexact 0 retVal
+            bindingsExactlyMatchIRVars_setPhysicalMemory hexact 0 retVal
           have hmstore :
               execIRStmt (tailIR.length + extraFuel + 2) state
                 (YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])) =
@@ -3788,7 +3427,8 @@ theorem exec_compileStmtList_core_extraFuel
               execIRStmt (tailIR.length + extraFuel + 1) state'
                 (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
                 .return retVal state' := by
-            simp [execIRStmt, evalIRExpr, state']
+            simp [execIRStmt, evalIRExpr, state', IRState.writePhysicalMemoryValue_at]
+            exact hlt
           have hirExec :
               execIRStmts (tailIR.length + extraFuel + 3)
                 state
@@ -3824,7 +3464,9 @@ theorem exec_compileStmtList_core_extraFuel
       rename_i scope rest
       rcases ih (runtime := runtime) (state := state)
           (inScopeNames := collectStmtBindNames (.stop) ++ inScopeNames)
-          hscope hexact hbounded hruntime with
+          hscope hexact hbounded hruntime
+            (le_trans (requireFuelReserve_tail _ _) hbudget)
+            (requirePayloadsFit_tail hmessageFit) with
         ⟨tailIR, htailCompile, htailSem, htailExact⟩
       refine ⟨[YulStmt.exprStmt (YulExpr.call "stop" [])] ++ tailIR, ?_, ?_⟩
       · apply compileStmtListWithFork_cons_eq_ok
@@ -3873,25 +3515,32 @@ theorem exec_compileStmtList_core_extraFuel
             hevalOffset.symm
           have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
             hevalValue.symm
+          have hoffsetLt := evalExpr_lt_evmModulus_core_onExpr hoffset
+            (bindingsExactlyMatchIRVars_implies_onExpr hexact) hbounded hpresentOffset hruntime
+          rw [hOffsetSrc] at hoffsetLt
+          simp at hoffsetLt
+          let offsetKey := offsetNat
           let runtime' :=
             { runtime with
-              world := {
-                runtime.world with
-                memory := fun o => if o = offsetNat then valueNat else runtime.world.memory o
-              } }
-          let state' := { state with memory := fun o => if o = offsetNat then valueNat else state.memory o }
+              world := runtime.world.writePhysicalMemoryValue
+                offsetKey (Verity.Core.Uint256.ofNat valueNat) }
+          let state' := state.writePhysicalMemoryValue offsetKey valueNat
           have hvalueLt := evalExpr_lt_evmModulus_core_onExpr hvalue
             (bindingsExactlyMatchIRVars_implies_onExpr hexact) hbounded hpresentValue hruntime
           rw [hValueSrc] at hvalueLt
           have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setBothMemory hruntime offsetNat valueNat hvalueLt
+            runtimeStateMatchesIR_setBothPhysicalMemory
+              (fields := fields) (runtime := runtime) (state := state)
+              hruntime offsetKey valueNat hvalueLt
           have hexact' : bindingsExactlyMatchIRVars runtime'.bindings state' :=
-            bindingsExactlyMatchIRVars_setMemory hexact offsetNat valueNat
+            bindingsExactlyMatchIRVars_setPhysicalMemory hexact offsetKey valueNat
           have hbounded' : bindingsBounded runtime'.bindings := by
             simpa [runtime'] using hbounded
           rcases ih (runtime := runtime') (state := state')
               (inScopeNames := collectStmtBindNames (.mstore offset value) ++ inScopeNames)
-              hscope hexact' hbounded' hruntime' with
+              hscope hexact' hbounded' hruntime'
+            (le_trans (requireFuelReserve_tail _ _) hbudget)
+            (requirePayloadsFit_tail hmessageFit) with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtListWithFork_cons_eq_ok
@@ -3905,21 +3554,28 @@ theorem exec_compileStmtList_core_extraFuel
           · have hstmt :
                 execIRStmt (tailIR.length + extraFuel + 1) state
                   (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) = .continue state' := by
-              simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+              simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey, Verity.Core.Uint256.val_ofNat, Nat.mod_eq_of_lt hoffsetLt]
             have hirExec :
                 execIRStmts (tailIR.length + extraFuel + 2) state
                   (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
                     execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
-              simpa using
-                (execIRStmts_cons_of_execIRStmt_continue_extraFuel extraFuel state state'
-                  (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt)
+              exact execIRStmts_cons_of_execIRStmt_continue_extraFuel extraFuel state state'
+                (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt
             have hirExec' :
                 execIRStmts (tailIR.length + 1 + extraFuel + 1) state
                   (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR]) :: tailIR) =
                     execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
               simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
-            rw [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc]
-            simp [hirExec']
+            rw [source_mstore_cons_of_eval fields runtime offset value offsetNat valueNat rest
+              hOffsetSrc hValueSrc]
+            have hirExecWhole :
+                execIRStmts (([YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR).length + extraFuel + 1)
+                  state ([YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) =
+                    execIRStmts (tailIR.length + extraFuel + 1) state' tailIR := by
+              simpa only [List.length_append, List.length_cons, List.length_nil,
+                Nat.add_zero, List.cons_append, List.nil_append,
+                Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using hirExec
+            rw [hirExecWhole]
             exact ⟨htailSem, htailExact⟩
   | tstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
       rename_i scope offset value rest
@@ -3960,7 +3616,9 @@ theorem exec_compileStmtList_core_extraFuel
             simpa [runtime'] using hbounded
           rcases ih (runtime := runtime') (state := state')
               (inScopeNames := collectStmtBindNames (.tstore offset value) ++ inScopeNames)
-              hscope hexact' hbounded' hruntime' with
+              hscope hexact' hbounded' hruntime'
+            (le_trans (requireFuelReserve_tail _ _) hbudget)
+            (requirePayloadsFit_tail hmessageFit) with
             ⟨tailIR, htailCompile, htailSem, htailExact⟩
           refine ⟨[YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtListWithFork_cons_eq_ok
@@ -4351,6 +4009,28 @@ private theorem evalIRExpr_compiled_terminal_ite_elseCond_of_zero
   simp [evalIRExpr, evalIRCall, evalIRExprs, hcondZero,
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean]
+
+/-- Core-list correspondence uses an explicit reserve for complete require
+payloads; the former outer-length-only budget was insufficient. -/
+theorem exec_compileStmtList_core
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    {scope inScopeNames : List String} {stmts : List Stmt}
+    (hcore : StmtListCompileCore scope stmts)
+    (hscope : scopeNamesPresent scope runtime.bindings)
+    (hexact : bindingsExactlyMatchIRVars runtime.bindings state)
+    (hbounded : bindingsBounded runtime.bindings)
+    (hruntime : runtimeStateMatchesIR fields runtime state)
+    (hmessageFit : requirePayloadsFit stmts) :
+    ∃ bodyIR,
+      CompilationModel.compileStmtList
+        fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR ∧
+      let sourceResult := SourceSemantics.execStmtList fields runtime stmts
+      let irExec := execIRStmts (bodyIR.length + requireFuelReserve stmts + 1) state bodyIR
+      stmtResultMatchesIRExec fields sourceResult irExec ∧
+      stmtResultMatchesIRExecExact sourceResult irExec := by
+  exact exec_compileStmtList_core_extraFuel (requireFuelReserve stmts)
+    hcore hscope hexact hbounded hruntime (Nat.le_refl _) hmessageFit
+
 
 /-- Entering the taken `then` branch of a compiled terminal `ite` re-expresses
 the remaining fuel in the branch-local schema expected by recursive body
@@ -4910,103 +4590,7 @@ private theorem execIRStmts_compiled_terminal_ite_then_of_irExec
         (compiled_terminal_ite_body_size_ge_branchExecFuel tempName condIR thenIR elseIR tailIR).1
       omega
     rw [hfuelEq]
-    cases hir : irExec
-    · rename_i next
-      exact False.elim (hirNoContinue next hir)
-    · rename_i value next
-      have hthenStmt' :
-          execIRStmt
-            (sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 3)
-            (state.setVar tempName condValue)
-            (YulStmt.if_ (YulExpr.ident tempName) thenIR) =
-            .return value next := by
-        simpa [hir] using hthenStmt
-      simpa [hir] using
-          (execIRStmts_cons_of_execIRStmt_return_anyFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 3)
-            (state := state.setVar tempName condValue)
-            (next := next)
-            (stmt := YulStmt.if_ (YulExpr.ident tempName) thenIR)
-            (rest := [YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR])
-            (value := value)
-            hthenStmt')
-    · rename_i next
-      have hthenStmt' :
-          execIRStmt
-            (sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 3)
-            (state.setVar tempName condValue)
-            (YulStmt.if_ (YulExpr.ident tempName) thenIR) =
-            .stop next := by
-        simpa [hir] using hthenStmt
-      simpa [hir] using
-          (execIRStmts_cons_of_execIRStmt_stop_anyFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 3)
-            (state := state.setVar tempName condValue)
-            (next := next)
-            (stmt := YulStmt.if_ (YulExpr.ident tempName) thenIR)
-            (rest := [YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR])
-            hthenStmt')
-    · rename_i next
-      have hthenStmt' :
-          execIRStmt
-            (sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 3)
-            (state.setVar tempName condValue)
-            (YulStmt.if_ (YulExpr.ident tempName) thenIR) =
-            .revert next := by
-        simpa [hir] using hthenStmt
-      simpa [hir] using
-          (execIRStmts_cons_of_execIRStmt_revert_anyFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 3)
-            (state := state.setVar tempName condValue)
-            (next := next)
-            (stmt := YulStmt.if_ (YulExpr.ident tempName) thenIR)
-            (rest := [YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR])
-            hthenStmt')
+    exact execIRStmts_cons_of_execIRStmt_terminal _ _ _ _ _ hthenStmt hirNoContinue
   have hinner :
       execIRStmts
         (sizeOf
@@ -5075,282 +4659,11 @@ private theorem execIRStmts_compiled_terminal_ite_then_of_irExec
           [ YulStmt.let_ tempName condIR
           , YulStmt.if_ (YulExpr.ident tempName) thenIR
           , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) = irExec := by
-    cases hir : irExec
-    · rename_i next
-      exact False.elim (hirNoContinue next hir)
-    · rename_i value next
-      have hinner' : execIRStmts
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel - 1)
-          state
-          [ YulStmt.let_ tempName condIR
-          , YulStmt.if_ (YulExpr.ident tempName) thenIR
-          , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ] =
-          .return value next := by
-        simpa [hir] using hinner
-      simpa [hir] using
-          (execIRStmt_block_of_execIRStmts_return_nonzeroFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel)
-            (state := state)
-            (next := next)
-            (body :=
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-            (value := value)
-            (compiled_terminal_ite_body_blockStmtFuel_ne_zero
-              extraFuel tempName condIR thenIR elseIR tailIR)
-            hinner')
-    · rename_i next
-      have hinner' : execIRStmts
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel - 1)
-          state
-          [ YulStmt.let_ tempName condIR
-          , YulStmt.if_ (YulExpr.ident tempName) thenIR
-          , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ] =
-          .stop next := by
-        simpa [hir] using hinner
-      simpa [hir] using
-          (execIRStmt_block_of_execIRStmts_stop_nonzeroFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel)
-            (state := state)
-            (next := next)
-            (body :=
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-            (compiled_terminal_ite_body_blockStmtFuel_ne_zero
-              extraFuel tempName condIR thenIR elseIR tailIR)
-            hinner')
-    · rename_i next
-      have hinner' : execIRStmts
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel - 1)
-          state
-          [ YulStmt.let_ tempName condIR
-          , YulStmt.if_ (YulExpr.ident tempName) thenIR
-          , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ] =
-          .revert next := by
-        simpa [hir] using hinner
-      simpa [hir] using
-          (execIRStmt_block_of_execIRStmts_revert_nonzeroFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel)
-            (state := state)
-            (next := next)
-            (body :=
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-            (compiled_terminal_ite_body_blockStmtFuel_ne_zero
-              extraFuel tempName condIR thenIR elseIR tailIR)
-            hinner')
-  cases hir : irExec
-  · rename_i next
-    exact False.elim (hirNoContinue next hir)
-  · rename_i value next
-    have hblock' :
-        execIRStmt
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel)
-          state
-          (YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) =
-          .return value next := by
-      simpa [hir] using hblock
-    have hfuelEq :
-        sizeOf
-            ([YulStmt.block
-                [ YulStmt.let_ tempName condIR
-                , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                , YulStmt.if_
-                    (YulExpr.call "iszero" [YulExpr.ident tempName])
-                    elseIR
-                ]] ++ tailIR) + extraFuel + 1 =
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel) + 1 := by
-        omega
-    rw [hfuelEq]
-    simpa [hir] using
-      (execIRStmts_cons_of_execIRStmt_return_anyFuel
-          (fuel :=
-            sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel)
-          (state := state)
-          (next := next)
-          (stmt :=
-            YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-          (rest := tailIR)
-          (value := value)
-        hblock')
-  · rename_i next
-    have hblock' :
-        execIRStmt
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel)
-          state
-          (YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) =
-          .stop next := by
-      simpa [hir] using hblock
-    have hfuelEq :
-        sizeOf
-            ([YulStmt.block
-                [ YulStmt.let_ tempName condIR
-                , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                , YulStmt.if_
-                    (YulExpr.call "iszero" [YulExpr.ident tempName])
-                    elseIR
-                ]] ++ tailIR) + extraFuel + 1 =
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel) + 1 := by
-        omega
-    rw [hfuelEq]
-    simpa [hir] using
-      (execIRStmts_cons_of_execIRStmt_stop_anyFuel
-          (fuel :=
-            sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel)
-          (state := state)
-          (next := next)
-          (stmt :=
-            YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-          (rest := tailIR)
-        hblock')
-  · rename_i next
-    have hblock' :
-        execIRStmt
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel)
-          state
-          (YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) =
-          .revert next := by
-      simpa [hir] using hblock
-    have hfuelEq :
-        sizeOf
-            ([YulStmt.block
-                [ YulStmt.let_ tempName condIR
-                , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                , YulStmt.if_
-                    (YulExpr.call "iszero" [YulExpr.ident tempName])
-                    elseIR
-                ]] ++ tailIR) + extraFuel + 1 =
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel) + 1 := by
-        omega
-    rw [hfuelEq]
-    simpa [hir] using
-      (execIRStmts_cons_of_execIRStmt_revert_anyFuel
-          (fuel :=
-            sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel)
-          (state := state)
-          (next := next)
-          (stmt :=
-            YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-          (rest := tailIR)
-        hblock')
-
+    exact execIRStmt_block_of_execIRStmts_terminal _ _ _ _
+          (compiled_terminal_ite_body_blockStmtFuel_ne_zero
+            extraFuel tempName condIR thenIR elseIR tailIR) hinner hirNoContinue
+  simpa [Nat.add_assoc] using
+      (execIRStmts_cons_of_execIRStmt_terminal _ _ _ tailIR _ hblock hirNoContinue)
 private theorem execIRStmts_compiled_terminal_ite_else_of_irExec
     (extraFuel : Nat)
     (state : IRState)
@@ -5496,103 +4809,7 @@ private theorem execIRStmts_compiled_terminal_ite_else_of_irExec
         (compiled_terminal_ite_body_size_ge_branchExecFuel tempName condIR thenIR elseIR tailIR).2
       omega
     rw [hfuelEq']
-    cases hir : irExec
-    · rename_i next
-      exact False.elim (hirNoContinue next hir)
-    · rename_i value next
-      have helseStmt' :
-          execIRStmt
-            (sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 4)
-            (state.setVar tempName condValue)
-            (YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR) =
-            .return value next := by
-        simpa [hir] using helseStmt
-      simpa [hir] using
-          (execIRStmts_cons_of_execIRStmt_return_anyFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 4)
-            (state := state.setVar tempName condValue)
-            (next := next)
-            (stmt := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR)
-            (rest := [])
-            (value := value)
-            helseStmt')
-    · rename_i next
-      have helseStmt' :
-          execIRStmt
-            (sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 4)
-            (state.setVar tempName condValue)
-            (YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR) =
-            .stop next := by
-        simpa [hir] using helseStmt
-      simpa [hir] using
-          (execIRStmts_cons_of_execIRStmt_stop_anyFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 4)
-            (state := state.setVar tempName condValue)
-            (next := next)
-            (stmt := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR)
-            (rest := [])
-            helseStmt')
-    · rename_i next
-      have helseStmt' :
-          execIRStmt
-            (sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 4)
-            (state.setVar tempName condValue)
-            (YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR) =
-            .revert next := by
-        simpa [hir] using helseStmt
-      simpa [hir] using
-          (execIRStmts_cons_of_execIRStmt_revert_anyFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel - 4)
-            (state := state.setVar tempName condValue)
-            (next := next)
-            (stmt := YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR)
-            (rest := [])
-            helseStmt')
+    exact execIRStmts_cons_of_execIRStmt_terminal _ _ _ _ _ helseStmt hirNoContinue
   have hinner :
       execIRStmts
         (sizeOf
@@ -5661,281 +4878,11 @@ private theorem execIRStmts_compiled_terminal_ite_else_of_irExec
           [ YulStmt.let_ tempName condIR
           , YulStmt.if_ (YulExpr.ident tempName) thenIR
           , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) = irExec := by
-    cases hir : irExec
-    · rename_i next
-      exact False.elim (hirNoContinue next hir)
-    · rename_i value next
-      have hinner' : execIRStmts
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel - 1)
-          state
-          [ YulStmt.let_ tempName condIR
-          , YulStmt.if_ (YulExpr.ident tempName) thenIR
-          , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ] =
-          .return value next := by
-        simpa [hir] using hinner
-      simpa [hir] using
-          (execIRStmt_block_of_execIRStmts_return_nonzeroFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel)
-            (state := state)
-            (next := next)
-            (body :=
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-            (value := value)
-            (compiled_terminal_ite_body_blockStmtFuel_ne_zero
-              extraFuel tempName condIR thenIR elseIR tailIR)
-            hinner')
-    · rename_i next
-      have hinner' : execIRStmts
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel - 1)
-          state
-          [ YulStmt.let_ tempName condIR
-          , YulStmt.if_ (YulExpr.ident tempName) thenIR
-          , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ] =
-          .stop next := by
-        simpa [hir] using hinner
-      simpa [hir] using
-          (execIRStmt_block_of_execIRStmts_stop_nonzeroFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel)
-            (state := state)
-            (next := next)
-            (body :=
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-            (compiled_terminal_ite_body_blockStmtFuel_ne_zero
-              extraFuel tempName condIR thenIR elseIR tailIR)
-            hinner')
-    · rename_i next
-      have hinner' : execIRStmts
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel - 1)
-          state
-          [ YulStmt.let_ tempName condIR
-          , YulStmt.if_ (YulExpr.ident tempName) thenIR
-          , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ] =
-          .revert next := by
-        simpa [hir] using hinner
-      simpa [hir] using
-          (execIRStmt_block_of_execIRStmts_revert_nonzeroFuel
-            (fuel :=
-              sizeOf
-                ([YulStmt.block
-                    [ YulStmt.let_ tempName condIR
-                    , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                    , YulStmt.if_
-                        (YulExpr.call "iszero" [YulExpr.ident tempName])
-                        elseIR
-                    ]] ++ tailIR) + extraFuel)
-            (state := state)
-            (next := next)
-            (body :=
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-            (compiled_terminal_ite_body_blockStmtFuel_ne_zero
-              extraFuel tempName condIR thenIR elseIR tailIR)
-            hinner')
-  cases hir : irExec
-  · rename_i next
-    exact False.elim (hirNoContinue next hir)
-  · rename_i value next
-    have hblock' :
-        execIRStmt
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel)
-          state
-          (YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) =
-          .return value next := by
-      simpa [hir] using hblock
-    have hfuelEq :
-        sizeOf
-            ([YulStmt.block
-                [ YulStmt.let_ tempName condIR
-                , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                , YulStmt.if_
-                    (YulExpr.call "iszero" [YulExpr.ident tempName])
-                    elseIR
-                ]] ++ tailIR) + extraFuel + 1 =
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel) + 1 := by
-        omega
-    rw [hfuelEq]
-    simpa [hir] using
-      (execIRStmts_cons_of_execIRStmt_return_anyFuel
-          (fuel :=
-            sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel)
-          (state := state)
-          (next := next)
-          (stmt :=
-            YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-          (rest := tailIR)
-          (value := value)
-        hblock')
-  · rename_i next
-    have hblock' :
-        execIRStmt
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel)
-          state
-          (YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) =
-          .stop next := by
-      simpa [hir] using hblock
-    have hfuelEq :
-        sizeOf
-            ([YulStmt.block
-                [ YulStmt.let_ tempName condIR
-                , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                , YulStmt.if_
-                    (YulExpr.call "iszero" [YulExpr.ident tempName])
-                    elseIR
-                ]] ++ tailIR) + extraFuel + 1 =
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel) + 1 := by
-        omega
-    rw [hfuelEq]
-    simpa [hir] using
-      (execIRStmts_cons_of_execIRStmt_stop_anyFuel
-          (fuel :=
-            sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel)
-          (state := state)
-          (next := next)
-          (stmt :=
-            YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-          (rest := tailIR)
-        hblock')
-  · rename_i next
-    have hblock' :
-        execIRStmt
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR
-                  ]] ++ tailIR) + extraFuel)
-          state
-          (YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) =
-          .revert next := by
-      simpa [hir] using hblock
-    have hfuelEq :
-        sizeOf
-            ([YulStmt.block
-                [ YulStmt.let_ tempName condIR
-                , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                , YulStmt.if_
-                    (YulExpr.call "iszero" [YulExpr.ident tempName])
-                    elseIR
-                ]] ++ tailIR) + extraFuel + 1 =
-          (sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel) + 1 := by
-        omega
-    rw [hfuelEq]
-    simpa [hir] using
-      (execIRStmts_cons_of_execIRStmt_revert_anyFuel
-          (fuel :=
-            sizeOf
-              ([YulStmt.block
-                  [ YulStmt.let_ tempName condIR
-                  , YulStmt.if_ (YulExpr.ident tempName) thenIR
-                  , YulStmt.if_
-                      (YulExpr.call "iszero" [YulExpr.ident tempName])
-                      elseIR
-                  ]] ++ tailIR) + extraFuel)
-          (state := state)
-          (next := next)
-          (stmt :=
-            YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ])
-          (rest := tailIR)
-        hblock')
+    exact execIRStmt_block_of_execIRStmts_terminal _ _ _ _
+          (compiled_terminal_ite_body_blockStmtFuel_ne_zero
+            extraFuel tempName condIR thenIR elseIR tailIR) hinner hirNoContinue
+  simpa [Nat.add_assoc] using
+      (execIRStmts_cons_of_execIRStmt_terminal _ _ _ tailIR _ hblock hirNoContinue)
 
 theorem execStmtList_terminal_core_not_continue
     {fields : List Field}
@@ -5990,12 +4937,12 @@ theorem execStmtList_terminal_core_not_continue
             have hbranch := ih_then (runtime := runtime)
             cases hexec : SourceSemantics.execStmtList fields runtime _ with
             | «continue» next' => exact absurd hexec (hbranch next')
-            | stop _ | «return» _ _ | revert => simp [hexec]
+            | stop _ | «return» _ _ | revert | revertWithData _ | interpretationError _ | exceptional _ => simp [hexec]
           · simp only [hne, ↓reduceIte, bne_self_eq_false, Bool.false_eq_true]
             have hbranch := ih_else (runtime := runtime)
             cases hexec : SourceSemantics.execStmtList fields runtime _ with
             | «continue» next' => exact absurd hexec (hbranch next')
-            | stop _ | «return» _ _ | revert => simp [hexec]
+            | stop _ | «return» _ _ | revert | revertWithData _ | interpretationError _ | exceptional _ => simp [hexec]
 
 theorem stmtResultMatchesIRExec_ir_not_continue_of_source_not_continue
     {fields : List Field}
@@ -6306,7 +5253,7 @@ theorem execIRStmts_compiled_return_core_append_wholeFuel_of_scope
     (hpresent : exprBoundNamesPresent value runtime.bindings)
     (hruntime : runtimeStateMatchesIR fields runtime state) :
     let retVal := (SourceSemantics.evalExpr fields runtime value).getD 0
-    let state' := { state with memory := fun o => if o = 0 then retVal else state.memory o }
+    let state' := (state.writePhysicalMemoryValue 0 retVal)
     ∃ valueIR,
       CompilationModel.compileExpr fields .calldata value = Except.ok valueIR ∧
       execIRStmts
@@ -6331,7 +5278,7 @@ theorem execIRStmts_compiled_return_core_append_wholeFuel_of_scope
       rw [hEvalSrc]; rfl
     rw [hRetVal]
     set retVal := v
-    set state' := { state with memory := fun o => if o = 0 then retVal else state.memory o }
+    set state' := (state.writePhysicalMemoryValue 0 retVal)
     have hmstoreFuelNeZero :
         sizeOf
             ([ YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, valueIR])
@@ -6405,7 +5352,19 @@ theorem execIRStmts_compiled_return_core_append_wholeFuel_of_scope
             state'
             (YulStmt.exprStmt (YulExpr.call "return" [YulExpr.lit 0, YulExpr.lit 32])) =
           .return retVal state' := by
-      simpa [state', retVal] using
+      have hlt : retVal < Verity.Core.Uint256.modulus := by
+        have h := evalExpr_lt_evmModulus_core_of_scope hcore hexact hinScope
+          hbounded hpresent hruntime
+        rw [hEvalSrc] at h
+        exact h
+      have hmem : state'.memory 0 = retVal := by
+        dsimp [state']
+        rw [IRState.writePhysicalMemoryValue_at]
+        have hmod : Verity.Core.Uint256.modulus = Compiler.Constants.evmModulus := rfl
+        exact Nat.mod_eq_of_lt (hmod ▸ hlt)
+      have hvmod : v % Compiler.Constants.evmModulus = v := Nat.mod_eq_of_lt (by
+        exact hlt)
+      simpa [state', retVal, hmem, hvmod] using
         execIRStmt_return32_of_memory_nonzeroFuel
           (fuel :=
             sizeOf
@@ -7308,7 +6267,7 @@ theorem stmtResultMatchesIRExec_compiled_return_core_append_wholeFuel_of_scope
       rw [show SourceSemantics.evalExpr fields runtime value = some v from heval.symm] at this
       exact this
     simp only [hRetVal, stmtResultMatchesIRExec]
-    exact ⟨trivial, runtimeStateMatchesIR_setBothMemory hruntime 0 v hlt⟩
+    exact ⟨trivial, runtimeStateMatchesIR_setBothPhysicalMemory hruntime 0 v hlt⟩
 
 theorem stmtResultMatchesIRExec_compiled_stop_core_append_wholeFuel
     {fields : List Field}
@@ -7450,7 +6409,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
     (hscope : scopeNamesPresent scope runtime.bindings)
     (hexact : bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
     (hbounded : bindingsBounded runtime.bindings)
-    (hruntime : runtimeStateMatchesIR fields runtime state) :
+    (hruntime : runtimeStateMatchesIR fields runtime state)
+    (hmessageFit : requirePayloadsFit stmts) :
     ∃ bodyIR,
       CompilationModel.compileStmtList
         fields [] [] .calldata [] false inScopeNames [] stmts = Except.ok bodyIR ∧
@@ -7489,7 +6449,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
         rcases ih (extraFuel + sizeOf (YulStmt.let_ name valueIR))
             (runtime := runtime') (state := state')
             (inScopeNames := collectStmtBindNames (.letVar name value) ++ inScopeNames)
-            hincluded' hscope' hexact' hbounded' hruntime' with
+            hincluded' hscope' hexact' hbounded' hruntime'
+            (requirePayloadsFit_tail hmessageFit) with
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.let_ name valueIR] ++ tailIR, ?_, ?_⟩
         · apply compileStmtListWithFork_cons_eq_ok
@@ -7551,7 +6512,7 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
                 exact hscope' other (List.mem_cons_of_mem name hmem))
             (by intro other hmem
                 exact hexact' other (List.mem_cons_of_mem name hmem))
-            hbounded' hruntime' with
+            hbounded' hruntime' (requirePayloadsFit_tail hmessageFit) with
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.assign name valueIR] ++ tailIR, ?_, ?_⟩
         · apply compileStmtListWithFork_cons_eq_ok
@@ -7597,7 +6558,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
         rcases ih (extraFuel + sizeOf (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)))
             (runtime := runtime) (state := state)
             (inScopeNames := collectStmtBindNames (.require cond message) ++ inScopeNames)
-            hincluded' hscope hexact hbounded hruntime with
+            hincluded' hscope hexact hbounded hruntime
+            (requirePayloadsFit_tail hmessageFit) with
           ⟨tailIR, htailCompile, htailSem⟩
         refine ⟨[YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR,
           ?_, ?_⟩
@@ -7613,35 +6575,12 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
             have hfailEval' : evalIRExpr state failCond = some 1 := by
               rw [hCondSrc, hzero] at hfailEval
               simpa [SourceSemantics.boolWord] using hfailEval
-            have hfuelNe : sizeOf ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR) + extraFuel ≠ 0 :=
-              sizeOf_singleton_append_extraFuel_ne_zero _ _ _
-            -- if_ with true cond steps into the body
-            have hIfStep :=
-              execIRStmt_if_true_of_eval_nonzeroFuel
-                (sizeOf ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR) + extraFuel)
-                state failCond (CompilationModel.revertWithMessage message) 1
-                hfuelNe hfailEval' (by omega)
-            rcases execIRStmts_revertWithMessage_revert
-                (fuel :=
-                  sizeOf ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR) + extraFuel - 1)
-                (state := state) message with
-              ⟨revState, hrev⟩
-            have hstmt :
-                execIRStmt
-                  (sizeOf ([YulStmt.if_ failCond (CompilationModel.revertWithMessage message)] ++ tailIR) + extraFuel)
-                  state
-                  (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) =
-                    .revert revState := by
-              rw [hIfStep, hrev]
-            have hirExec :=
-              execIRStmts_singleton_append_of_execIRStmt_revert_wholeFuel
-                extraFuel state revState
-                (YulStmt.if_ failCond (CompilationModel.revertWithMessage message)) tailIR
-                hstmt
+            obtain ⟨revState, hirExec, hbytes⟩ :=
+              failed_require_ir_bytes_sizeOf state failCond message tailIR extraFuel
+                hfailEval' (requirePayloadsFit_here hmessageFit)
             simp only [SourceSemantics.execStmtList, SourceSemantics.execStmt, hCondSrc,
-              show condVal = 0 from hzero, ite_true]
-            rw [hirExec]
-            simp [stmtResultMatchesIRExec]
+              show condVal = 0 from hzero, bne_self_eq_false, Bool.false_eq_true, if_false]
+            simpa only [List.singleton_append, hirExec, stmtResultMatchesIRExec] using hbytes
           · -- condVal ≠ 0 → require passes → continue
             have hfailEval' : evalIRExpr state failCond = some 0 := by
               have : SourceSemantics.evalExpr fields runtime cond ≠ some 0 := by
@@ -7720,19 +6659,23 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
             hevalOffset.symm
           have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
             hevalValue.symm
+          have hoffsetLt := evalExpr_lt_evmModulus_core_of_scope hoffset hexact hinScopeOffset hbounded hpresentOffset hruntime
+          rw [hOffsetSrc] at hoffsetLt
+          simp at hoffsetLt
+          let offsetKey := offsetNat
           let runtime' :=
             { runtime with
-              world := {
-                runtime.world with
-                memory := fun o => if o = offsetNat then valueNat else runtime.world.memory o
-              } }
-          let state' := { state with memory := fun o => if o = offsetNat then valueNat else state.memory o }
+              world := runtime.world.writePhysicalMemoryValue
+                offsetKey (Verity.Core.Uint256.ofNat valueNat) }
+          let state' := state.writePhysicalMemoryValue offsetKey valueNat
           have hvalueLt := evalExpr_lt_evmModulus_core_of_scope hvalue hexact hinScopeValue hbounded hpresentValue hruntime
           rw [hValueSrc] at hvalueLt; simp at hvalueLt
           have hruntime' : runtimeStateMatchesIR fields runtime' state' :=
-            runtimeStateMatchesIR_setBothMemory hruntime offsetNat valueNat hvalueLt
+            runtimeStateMatchesIR_setBothPhysicalMemory
+              (fields := fields) (runtime := runtime) (state := state)
+              hruntime offsetKey valueNat hvalueLt
           have hexact' : bindingsExactlyMatchIRVarsOnScope scope runtime'.bindings state' :=
-            bindingsExactlyMatchIRVarsOnScope_setMemory hexact offsetNat valueNat
+            bindingsExactlyMatchIRVarsOnScope_setPhysicalMemory hexact offsetKey valueNat
           have hbounded' : bindingsBounded runtime'.bindings := by
             simpa [runtime'] using hbounded
           have hscope' : scopeNamesPresent scope runtime'.bindings := by
@@ -7743,7 +6686,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
           rcases ih (extraFuel + sizeOf (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])))
               (runtime := runtime') (state := state')
               (inScopeNames := collectStmtBindNames (.mstore offset value) ++ inScopeNames)
-              hincluded' hscope' hexact' hbounded' hruntime' with
+              hincluded' hscope' hexact' hbounded' hruntime'
+            (requirePayloadsFit_tail hmessageFit) with
             ⟨tailIR, htailCompile, htailSem⟩
           refine ⟨[YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtList_cons_eq_ok
@@ -7762,15 +6706,21 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
               cases hfuel : sizeOf ([YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel with
               | zero => exact absurd hfuel hfuelNe
               | succ n =>
-                  simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+                  simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey, Verity.Core.Uint256.val_ofNat, Nat.mod_eq_of_lt hoffsetLt]
             have hirExec :=
               execIRStmts_singleton_append_of_execIRStmt_continue_wholeFuel
                 extraFuel state state' (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) tailIR hstmt
-            simp only [SourceSemantics.execStmtList, SourceSemantics.execStmt, hOffsetSrc, hValueSrc, hirExec]
-            dsimp [runtime', state']
-            convert htailSem using 2
-            simp
-            omega
+            rw [source_mstore_cons_of_eval fields runtime offset value offsetNat valueNat rest
+              hOffsetSrc hValueSrc]
+            rw [hirExec]
+            have hfuel :
+                sizeOf ([YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])] ++ tailIR) + extraFuel =
+                  sizeOf tailIR +
+                    (extraFuel + sizeOf (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR]))) + 1 := by
+              simp only [List.cons_append, List.nil_append, List.cons.sizeOf_spec]
+              omega
+            rw [hfuel]
+            exact htailSem
   | tstore hoffset hinScopeOffset hvalue hinScopeValue hrest ih =>
       rename_i scope offset value rest
       have hpresentOffset : exprBoundNamesPresent offset runtime.bindings :=
@@ -7815,7 +6765,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
           rcases ih (extraFuel + sizeOf (YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])))
               (runtime := runtime') (state := state')
               (inScopeNames := collectStmtBindNames (.tstore offset value) ++ inScopeNames)
-              hincluded' hscope' hexact' hbounded' hruntime' with
+              hincluded' hscope' hexact' hbounded' hruntime'
+            (requirePayloadsFit_tail hmessageFit) with
             ⟨tailIR, htailCompile, htailSem⟩
           refine ⟨[YulStmt.exprStmt (YulExpr.call "tstore" [offsetIR, valueIR])] ++ tailIR, ?_, ?_⟩
           · apply compileStmtList_cons_eq_ok
@@ -7898,7 +6849,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
                 sizeOf tailIR + 1)
                 (runtime := runtime) (state := state.setVar tempName condVal)
                 (inScopeNames := inScopeNames)
-                hincluded hscope hexact' hbounded hruntime with
+                hincluded hscope hexact' hbounded hruntime
+                (requirePayloadsFit_child hmessageFit (by simp [Stmt.childLists])) with
               ⟨elseIR', helseCompile', helseSem⟩
             have helseEq : elseIR' = elseIR := by
               have := helseCompile'; rw [helseIR] at this; exact (Except.ok.inj this).symm
@@ -7975,7 +6927,8 @@ theorem exec_compileStmtList_terminal_core_sizeOf_extraFuel
                 sizeOf tailIR + 2)
                 (runtime := runtime) (state := state.setVar tempName condVal)
                 (inScopeNames := inScopeNames)
-                hincluded hscope hexact' hbounded hruntime with
+                hincluded hscope hexact' hbounded hruntime
+                (requirePayloadsFit_child hmessageFit (by simp [Stmt.childLists])) with
               ⟨thenIR', hthenCompile', hthenSem⟩
             have hthenEq : thenIR' = thenIR := by
               have := hthenCompile'; rw [hthenIR] at this; exact (Except.ok.inj this).symm
@@ -8068,8 +7021,23 @@ def irResultOfExecResult (rollback : IRState) : IRExecResult → IRResult
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
-      { success := false
+  | .revert state =>
+      { revertData := state.revertBytes
+        success := false
+        returnValue := none
+        finalStorage := rollback.storage
+        finalMappings := Compiler.Proofs.storageAsMappings rollback.storage
+        events := rollback.events }
+  | .exceptional state =>
+      { exceptionalContext := state.executionContext
+        success := false
+        returnValue := none
+        finalStorage := rollback.storage
+        finalMappings := Compiler.Proofs.storageAsMappings rollback.storage
+        events := rollback.events }
+  | .interpretationError message =>
+      { interpretationError := some message
+        success := false
         returnValue := none
         finalStorage := rollback.storage
         finalMappings := Compiler.Proofs.storageAsMappings rollback.storage
@@ -8100,8 +7068,23 @@ def irResultOfExecResultWithInternals (rollback : IRState) : IRExecResultWithInt
         finalStorage := s.storage
         finalMappings := Compiler.Proofs.storageAsMappings s.storage
         events := s.events }
-  | .revert _ =>
-      { success := false
+  | .revert state =>
+      { revertData := state.revertBytes
+        success := false
+        returnValue := none
+        finalStorage := rollback.storage
+        finalMappings := Compiler.Proofs.storageAsMappings rollback.storage
+        events := rollback.events }
+  | .exceptional state =>
+      { exceptionalContext := state.executionContext
+        success := false
+        returnValue := none
+        finalStorage := rollback.storage
+        finalMappings := Compiler.Proofs.storageAsMappings rollback.storage
+        events := rollback.events }
+  | .interpretationError message =>
+      { interpretationError := some message
+        success := false
         returnValue := none
         finalStorage := rollback.storage
         finalMappings := Compiler.Proofs.storageAsMappings rollback.storage
@@ -8144,7 +7127,17 @@ theorem stmtResultToSourceResult_matches_irExecResult
       SourceSemantics.successResult, SourceSemantics.encodeStorage,
       hvalue, hstorage, hevents]
   · simp [stmtResultToSourceResult, sourceResultMatchesIRResult, irResultOfExecResult,
-      SourceSemantics.revertedResult, hrollbackStorage, hrollbackEvents]
+      SourceSemantics.revertedResult, hrollbackStorage, hrollbackEvents, hmatch]
+  · simp [stmtResultToSourceResult, sourceResultMatchesIRResult, irResultOfExecResult,
+      SourceSemantics.revertedResult, hrollbackStorage, hrollbackEvents, hmatch]
+
+/-- Statement-to-public conversion keeps the actual observed bytes and
+rolls back storage/events independently of the revert operand poststate. -/
+theorem irResultOfExecResult_revert_bytes (rollback state : IRState) :
+    (irResultOfExecResult rollback (.revert state)).revertData = state.revertBytes := rfl
+
+theorem irResultOfExecResultWithInternals_revert_bytes (rollback state : IRState) :
+    (irResultOfExecResultWithInternals rollback (.revert state)).revertData = state.revertBytes := rfl
 
 end FunctionBody
 

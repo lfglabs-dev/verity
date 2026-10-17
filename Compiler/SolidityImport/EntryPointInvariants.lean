@@ -28,6 +28,16 @@ theorem finishFrame_failed_world (initial : Verity.ContractState)
       simp only [finishFrame, Except.ok.injEq] at observed
       cases observed
       rfl
+  | interpretationError message => simp [finishFrame] at observed
+  | exceptional state =>
+      cases actual : state.executionContext with
+      | none => simp [finishFrame, actual] at observed
+      | some context =>
+          by_cases exhausted : context.opcode.gas = 0
+          · simp only [finishFrame, actual, exhausted, if_true, Except.ok.injEq] at observed
+            cases observed
+            rfl
+          · simp [finishFrame, actual, exhausted] at observed
 
 /-- The rollback point includes the transaction-local reset, whose invariant
 preservation is an explicit obligation rather than an implicit assumption. -/

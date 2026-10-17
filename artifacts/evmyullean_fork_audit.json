@@ -4,7 +4,7 @@
     "2. Add NethermindEth/EVMYulLean as `upstream` remote and fetch.",
     "3. Compute `git merge-base upstream/main origin/main` to find the divergence point.",
     "4. For each commit in `upstream/main..origin/main`, record SHA, title, touched files, and categorize as {visibility, toolchain, lemma-addition, builtin-addition, semantic-change, merge}.",
-    "5. Reject `semantic-change` category without explicit Issue #1722 scope expansion (would break upstream conformance test coverage).",
+    "5. Reject semantic changes except the immutable scanner and Osaka creation scope expansions documented in docs/EVMYULLEAN_FORK_SCOPE.md; require evidence identity and explicit limits.",
     "6. Commit this artifact alongside Verity's lake-manifest.json pin bump."
   ],
   "commits": [
@@ -187,13 +187,83 @@
       "sha": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
       "title": "Merge pull request #3 from lfglabs-dev/codex/lean-4.31.0",
       "trust_impact": "Zero beyond the individually audited parent commits."
+    },
+    {
+      "category": "semantic-change",
+      "diff_summary": "1 file changed, 14 insertions, 5 deletions.",
+      "file": "EvmYul/EVM/Semantics.lean",
+      "rationale": "Replace the kernel-opaque partial UInt256 scanner with size-bounded structural Nat recursion. Every step advances at least one byte and PUSH immediate bytes are skipped. The implementation changes; no universal equivalence to the old partial scanner is claimed.",
+      "semantic_change": true,
+      "sha": "0ff72b2db35302305fccb1d4f42b480434b77bfe",
+      "title": "feat: make D_J total via structural recursion (#4)",
+      "trust_impact": "Explicit scanner scope: kernel evaluation is now possible. The included PUSH1/JUMPDEST example is a regression, not proof of full upstream conformance."
+    },
+    {
+      "category": "lemma-addition",
+      "diff_summary": "2 files changed, 493 insertions.",
+      "file": "EvmYul.lean, EvmYul/EVM/Proof/Execution.lean",
+      "rationale": "Expose actual step/run relations and X decomposition. Mirrored exceptional/gas/halting definitions are checked by proofs unfolding actual X.",
+      "semantic_change": false,
+      "sha": "9d8eda705793eba448fd67850168af515e7fdc7a",
+      "title": "feat(evm): add proof-facing step runs (#5)",
+      "trust_impact": "Kernel-checked API over existing execution; no assumed transition correspondence."
+    },
+    {
+      "category": "lemma-addition",
+      "diff_summary": "2 files changed, 735 insertions.",
+      "file": "EvmYul.lean, EvmYul/EVM/Proof/Block.lean",
+      "rationale": "Add validated bounded block execution, native precheck state projection and compositional symbolic tactics.",
+      "semantic_change": false,
+      "sha": "d164b61b995f4f553e975db9cfe3640d0aeefafa",
+      "title": "feat(evm): F4d runUntil, basic-block composition, and block tactics (#8)",
+      "trust_impact": "Adds derived proof/driver APIs; actual EVM.X remains the runtime authority."
+    },
+    {
+      "category": "lemma-addition",
+      "diff_summary": "4 files changed, 1074 insertions.",
+      "file": "EvmYul.lean, EvmYul/EVM/Proof/Memory.lean, EvmYul/EVM/Proof/MemoryStep.lean, EvmYul/UInt256.lean",
+      "rationale": "Prove actual memory opcode frames and returned-byte equations; expose fixed-width word encodings with proofs connecting existing byte encoding.",
+      "semantic_change": false,
+      "sha": "b62586650b4f96cc6da25f36574aaa8f329a6420",
+      "title": "feat(evm): memory read-over-write lemmas for MSTORE/MSTORE8/RETURN (#9)",
+      "trust_impact": "Kernel proofs and helper encodings; existing memory execution definitions are unchanged."
+    },
+    {
+      "category": "semantic-change",
+      "diff_summary": "7 files changed, 318 insertions, 7 deletions.",
+      "file": "EvmYul/EVM/Semantics.lean, Conform/Create2OsakaChecks.lean, scripts/check_create2_osaka_mutations.py, scripts/check_create2_osaka_reference.py, docs/CREATE2_OSAKA.md, lakefile.lean, .github/workflows/lean_action_ci.yml",
+      "rationale": "Remove unconditional proposed EIP-7610 storage-only collision and initialize fresh persistent storage in shared Lambda. Keep nonce/code collision, target balance and collision snapshot. Real Osaka accepts storage-only targets and clears old storage.",
+      "semantic_change": true,
+      "sha": "a4473c2c1831d99ac3e1c5be7c9ce8e07da04266",
+      "title": "fix: align CREATE2 target storage with Osaka execution",
+      "trust_impact": "Changes shared CREATE/CREATE2 behavior. Four independent real-EVM cases, strict native runtime and four compiled semantic mutants/replays at the audited tip are component evidence. No universal fork selector or whole-transaction equivalence claim."
+    },
+    {
+      "category": "toolchain",
+      "diff_summary": "4 files changed, 54 insertions, 2 deletions.",
+      "file": "scripts/check_create2_osaka_runtime.py, requirements-native-tests.txt, docs/CREATE2_OSAKA.md, .github/workflows/lean_action_ci.yml",
+      "rationale": "Pin Python startup dependencies and require exact native success output with no stderr. Exit0 with initialization PANIC is rejected.",
+      "semantic_change": false,
+      "sha": "b3d76d0a1a0c0242138fc81af8e65156fdae25a3",
+      "title": "test: reject native initialization panics in CREATE2 checks",
+      "trust_impact": "Strengthens runtime evidence; no execution-rule changes."
+    },
+    {
+      "category": "merge",
+      "diff_summary": "Merge-only history node; changes enumerated in parent records.",
+      "file": "merge commit",
+      "rationale": "Merge current fork native proof APIs into the creation fix without dropping either parent.",
+      "semantic_change": false,
+      "sha": "4cf4c5d0f286e8efc3d9e972ce3616bfe83a0624",
+      "title": "Merge upstream native proof APIs into Osaka creation fix",
+      "trust_impact": "No additional content beyond reviewed parents; both semantic scope expansions still apply."
     }
   ],
-  "divergence_summary": "The fork has 18 audited non-semantic commits beyond the recorded upstream base: one visibility change (private -> default) on an internal exponentiation accumulator, one Lean 4.22.0 deprecation fix (nativeLibDir -> staticLibDir) in the lakefile, one FFI body exposure for ByteArray.zeroes that matches the extern zero-fill behavior, one checkpoint-state projection exposure that makes existing saved shared-state/store fields visible to downstream proofs, one Lean 4.24 compatibility migration covering build metadata, JSON object traversal, parser APIs, and stricter elaboration. The final audited change group is the Lean 4.31 compatibility migration covering collection APIs, slices, JSON product keys, and toolchain metadata. None of these commits changes EVM/Yul execution semantics, so upstream Ethereum conformance test coverage continues to apply transitively.",
-  "fork_ahead_by": 18,
+  "divergence_summary": "The 25 fork commits include 18 previously audited visibility/toolchain/merge commits, native proof APIs and memory lemmas, a total jump-destination scanner, and an Osaka creation correction. The scanner implementation and shared CREATE/CREATE2 collision/storage transitions are explicitly audited semantic changes; upstream conformance does not transfer to those changes by ancestry. The creation correction has exact-head native, mutation/replay and independent Foundry v1.5.0 Osaka evidence. This is component evidence, not full conformance.",
+  "fork_ahead_by": 25,
   "fork_behind_by": 0,
   "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
-  "pinned_commit": "f7e4ee0dc8f8d5265ce822a937ab5be771f182e9",
+  "pinned_commit": "4cf4c5d0f286e8efc3d9e972ce3616bfe83a0624",
   "reproduction": {
     "script": "scripts/generate_evmyullean_fork_audit.py",
     "steps": [
@@ -205,8 +275,18 @@
       "git diff --stat upstream/main..origin/main"
     ]
   },
-  "schema_version": 1,
-  "trust_boundary": "Verity's effective trust boundary for Yul/EVM semantics is (upstream NethermindEth/EVMYulLean at commit 047f63070309f436b66c61e276ab3b6d1169265a) plus the 18 visibility/toolchain/merge fork commits enumerated above. None of these fork commits touches EVM/Yul execution semantics, so upstream Ethereum conformance test coverage applies transitively.",
+  "schema_version": 2,
+  "semantic_scope": {
+    "approved_commits": [
+      "0ff72b2db35302305fccb1d4f42b480434b77bfe",
+      "a4473c2c1831d99ac3e1c5be7c9ce8e07da04266"
+    ],
+    "document": "docs/EVMYULLEAN_FORK_SCOPE.md",
+    "evidence": "artifacts/evmyullean_osaka_creation_reference.json",
+    "evidence_sha256": "92e6dd70ef72da3c67c5e8656c23fab506466f716a92b6f197cb7ca9d768a25a",
+    "upstream_conformance_transfers": false
+  },
+  "trust_boundary": "Upstream base 047f63070309f436b66c61e276ab3b6d1169265a plus all 25 enumerated fork commits. Two implementation/transition changes are separately scoped. Historical upstream conformance is not certification of the changed scanner or creation semantics. Exact-head component runtime/mutation/reference evidence covers four Osaka creation cases; whole-program gas, rollback, constructor fuel/output and canonical/native account correspondence still require their own proofs and differential campaigns.",
   "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
   "upstream_url": "https://github.com/NethermindEth/EVMYulLean"
 }

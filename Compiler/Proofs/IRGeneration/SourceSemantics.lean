@@ -1,3 +1,6 @@
+import Verity.Core.Model.ReturndataCopy
+import Verity.Core.Model.ExecutionContext
+import Verity.Core.Model.PhysicalCopy
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.IRGeneration.IRInterpreter
 import Compiler.Proofs.MappingSlot
@@ -5,6 +8,7 @@ import Compiler.CompilationModel.LayoutValidation
 import Compiler.Keccak.Sponge
 import Compiler.Proofs.IRGeneration.Returndata
 import Verity.Core.Model.Denote
+import Verity.Core.Model.PhysicalMemory
 import Verity.Core.Model.DynamicAbi
 
 set_option linter.unnecessarySimpa false
@@ -297,6 +301,79 @@ theorem exists_eventScratchMemoryAfterEmit?_of_supported_length
     (memory := writeEventSignatureScratch eventDef
       (memory Compiler.Constants.freeMemoryPointer).val memory)
     hvalueLen
+
+/-- Canonical event scratch stores update bytes and every overlapping word read.
+The older word-map helpers above remain abstract layout specifications only. -/
+def writeEventSignaturePhysicalFrom :
+    List Nat → Nat → Nat → Verity.ContractState → Verity.ContractState
+  | [], _, _, world => world
+  | word :: rest, ptr, index, world =>
+      writeEventSignaturePhysicalFrom rest ptr (index + 1)
+        (world.writePhysicalMemoryValue ((ptr + index * 32) % Compiler.Constants.evmModulus)
+          (Verity.Core.Uint256.ofNat word))
+
+def writeUnindexedEventPhysicalFrom :
+    List EventParam → List Nat → Nat → Nat → Verity.ContractState →
+      Option Verity.ContractState
+  | [], [], _, _, world => some world
+  | param :: params, value :: values, ptr, index, world =>
+      if param.kind == EventParamKind.unindexed then
+        writeUnindexedEventPhysicalFrom params values ptr (index + 1)
+          (world.writePhysicalMemoryValue ((ptr + index * 32) % Compiler.Constants.evmModulus)
+            (Verity.Core.Uint256.ofNat (normalizeEventValue param.ty value)))
+      else
+        writeUnindexedEventPhysicalFrom params values ptr index world
+  | _, _, _, _, _ => none
+
+theorem exists_writeUnindexedEventPhysicalFrom_of_length
+    (params : List EventParam) (values : List Nat) (ptr index : Nat)
+    (world : Verity.ContractState) (hlen : values.length = params.length) :
+    ∃ next, writeUnindexedEventPhysicalFrom params values ptr index world = some next := by
+  induction params generalizing values index world with
+  | nil =>
+      cases values with
+      | nil => exact ⟨world, rfl⟩
+      | cons value values => simp at hlen
+  | cons param params ih =>
+      cases values with
+      | nil => simp at hlen
+      | cons value values =>
+          have htail : values.length = params.length := by simpa using hlen
+          by_cases hkind : param.kind == EventParamKind.unindexed
+          · simpa only [writeUnindexedEventPhysicalFrom, if_pos hkind] using
+              ih values (index + 1)
+                (world.writePhysicalMemoryValue ((ptr + index * 32) % Compiler.Constants.evmModulus)
+                  (Verity.Core.Uint256.ofNat (normalizeEventValue param.ty value))) htail
+          · simpa only [writeUnindexedEventPhysicalFrom, if_neg hkind] using
+              ih values index world htail
+
+def eventScratchWorldAfterEmit? (events : List EventDef)
+    (eventName : String) (values : List Nat)
+    (world : Verity.ContractState) : Option Verity.ContractState :=
+  match events.find? (·.name == eventName) with
+  | none => some world
+  | some eventDef =>
+      if eventDefScalarProofSupported eventDef then
+        let ptr := (world.memory Compiler.Constants.freeMemoryPointer).val
+        let signatureWords :=
+          (chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes
+        writeUnindexedEventPhysicalFrom eventDef.params values ptr 0
+          (writeEventSignaturePhysicalFrom signatureWords ptr 0 world)
+      else
+        some world
+
+theorem exists_eventScratchWorldAfterEmit?_of_supported_length
+    {events : List EventDef} {eventName : String} {exprArgs : List Expr}
+    {values : List Nat} {world : Verity.ContractState}
+    (hsupport : eventEmissionProofSupported events eventName exprArgs = true)
+    (hlen : values.length = exprArgs.length) :
+    ∃ next, eventScratchWorldAfterEmit? events eventName values world = some next := by
+  rcases exists_eventDef_of_eventEmissionProofSupported hsupport with
+    ⟨eventDef, hfind, hscalar, hargsLen⟩
+  have hvalueLen : values.length = eventDef.params.length := by rw [hlen, hargsLen]
+  unfold eventScratchWorldAfterEmit?
+  simp only [hfind, hscalar, Bool.true_eq, ↓reduceIte]
+  exact exists_writeUnindexedEventPhysicalFrom_of_length _ _ _ _ _ hvalueLen
 
 def effectiveFields (spec : CompilationModel) : List Field :=
   applySlotAliasRanges spec.fields spec.slotAliasRanges
@@ -845,6 +922,9 @@ def returndataAfterCall (outcome : ExternalCallOutcome)
 
 structure RuntimeState where
   world : Verity.ContractState
+  /-- Required actual ephemeral context for a metered creation boundary.
+      `none` denotes unavailable context, not an executable default. -/
+  executionContext : Option Verity.Core.Model.ExecutionContext := none
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : List (String × Nat)
   selector : Nat := 0
@@ -854,12 +934,25 @@ structure RuntimeState where
       Mirrors `DenoteState.observedReturnWords`. Proof semantics observes the
       words, not a Solidity panic payload: `Stmt.panic` remains a revert. -/
   observedReturnWords : Option (List Nat) := none
+  errors : List ErrorDef := []
 
 inductive StmtResult where
+  | interpretationError (message : String)
+  | exceptional (state : RuntimeState)
   | continue (state : RuntimeState)
   | stop (state : RuntimeState)
   | return (value : Nat) (state : RuntimeState)
   | revert
+  | revertWithData (data : List UInt8)
+
+/-- Canonical copy result preserves exact exception context and refusal metadata.
+The optional prefix lets typed callers retain their established diagnostics. -/
+def execReturndataCopy (state : RuntimeState) (destination source size : Nat)
+    (errorPrefix : String := "") : StmtResult :=
+  match Verity.Core.Model.ReturndataCopy.run state.world state.executionContext destination source size with
+  | .continued world => .continue { state with world := world }
+  | .exceptional context => .exceptional { state with executionContext := some context }
+  | .interpretationError message => .interpretationError (errorPrefix ++ message)
 
 def execForEachLoop
     (varName : String)
@@ -874,6 +967,9 @@ def execForEachLoop
       | .stop next => .stop next
       | .return value next => .return value next
       | .revert => .revert
+      | .revertWithData data => .revertWithData data
+      | .interpretationError message => .interpretationError message
+      | .exceptional next => .exceptional next
 
 def msbIndex (bitmap : Nat) : Nat :=
   if bitmap = 0 then 0 else Nat.log2 bitmap
@@ -899,6 +995,9 @@ def execForEachSetBitLoop
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
+        | .interpretationError message => .interpretationError message
+        | .exceptional next => .exceptional next
 
 @[simp] theorem execForEachSetBitLoop_zero
     (varName : String)
@@ -924,7 +1023,10 @@ theorem execForEachSetBitLoop_succ
         | .continue next => execForEachSetBitLoop varName runBody fuel next (clearMsb bitmap)
         | .stop next => .stop next
         | .return value next => .return value next
-        | .revert => .revert := rfl
+        | .revert => .revert
+        | .revertWithData data => .revertWithData data
+        | .interpretationError message => .interpretationError message
+        | .exceptional next => .exceptional next := rfl
 
 @[simp] theorem execForEachLoop_zero
     (varName : String)
@@ -945,7 +1047,10 @@ theorem execForEachLoop_succ
       | .continue next => execForEachLoop varName runBody next (index + 1) remaining
       | .stop next => .stop next
       | .return value next => .return value next
-      | .revert => .revert := rfl
+      | .revert => .revert
+      | .revertWithData data => .revertWithData data
+      | .interpretationError message => .interpretationError message
+      | .exceptional next => .exceptional next := rfl
 
 @[simp] theorem lookupBinding?_bindValue_same
     (bindings : List (String × Nat))
@@ -2451,22 +2556,49 @@ private theorem evalExpr_forkIfAtLeast
     (thenExpr elseExpr : Expr) :
     evalExpr fields state (.forkIfAtLeast required thenExpr elseExpr) = none := rfl
 
-/-- Source-level custom-error revert at the current observable granularity.
-
-`StmtResult` does not yet carry returndata, so the ABI selector and encoded
-typed payload produced by compiled Yul are intentionally not observable here.
-That richer payload relation is deferred to the planned `StmtResult`/`IRResult`
-returndata extension. The argument list is still evaluated on the reverting
-path to match the compiled code's control-flow surface; success for
-`requireError` skips argument evaluation. -/
-def typedErrorRevertResult (fields : List Field) (state : RuntimeState) (args : List Expr) :
-    StmtResult :=
+/-- Exact scalar custom-error payload under the canonical keccak oracle.
+Legacy unsupported argument evaluation remains an unclassified revert;
+the staged typed consumers separately refuse unsupported interpretations. -/
+def typedErrorRevertResult (fields : List Field) (state : RuntimeState)
+    (name : String) (args : List Expr) : StmtResult :=
   match evalExprList fields state args with
-  | _ => .revert
+  | none => .revert
+  | some values =>
+      match Denote.customErrorBytes
+        { mappingSlot := Compiler.Proofs.abstractMappingSlot, keccakMemorySlice := keccakMemorySlice }
+        state.errors name values with
+      | some bytes => .revertWithData bytes
+      | none => .revert
+
+/-- Canonical computed creation statement, with actual opcode-entry context.
+Unknown interpretation is a typed error, not an EVM revert. -/
+def execCreation (fields : List Field) (state : RuntimeState)
+    (destination : String) (offset size salt : Expr) : StmtResult :=
+  match evalExprList fields state [offset, size, salt] with
+  | some [o,n,s] =>
+      match state.executionContext with
+      | none => .interpretationError "CREATE2 requires an actual opcode-entry execution context"
+      | some context =>
+          match Verity.Core.Model.Create2Operation.run
+              { world := state.world, context := context.opcode, warm := context.warm }
+              (Verity.Core.Uint256.ofNat o) (Verity.Core.Uint256.ofNat n) (Verity.Core.Uint256.ofNat s) with
+          | .error message => .interpretationError message
+          | .ok (.exceptional frame) => .exceptional
+              { state with
+                world := frame.world
+                executionContext := some { opcode := frame.context, warm := frame.warm } }
+          | .ok (.continued value frame) => .continue
+              { state with
+                world := frame.world
+                executionContext := some { opcode := frame.context, warm := frame.warm }
+                bindings := bindValue state.bindings destination value.val }
+  | _ => .interpretationError "CREATE2 argument evaluation failed"
 
 mutual
   def execStmtWithEvents (fields : List Field) (events : List EventDef) :
       RuntimeState → Stmt → StmtResult
+    | state, .create2 destination offset size salt =>
+        execCreation fields state destination offset size salt
     | state, .letVar name value =>
         match evalExpr fields state value with
         | some resolved =>
@@ -2665,11 +2797,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -2687,55 +2815,36 @@ mutual
         | some dst, some src, some sz =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                    Verity.Core.Uint256.ofNat
-                      (Compiler.Proofs.YulGeneration.calldataloadWord
-                        state.selector state.world.calldata (src + (o - dst)))
-                  else state.world.memory o
-              }
+              world := state.world.copyPhysicalCalldata state.selector dst src sz
             }
         | _, _, _ => .revert
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
-        | some dst, some src, some sz =>
-            -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
-            -- buffer into memory when the extent fits, and exceptionally halts
-            -- otherwise; the halt is observed as a reverting frame. Complete
-            -- words are replaced and a final partial word is merged with its
-            -- untouched low bytes, as in EVM memory.
-            if src + sz ≤ 32 * state.world.returndata.length then
-              .continue {
-                state with
-                world := {
-                  state.world with
-                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-                    state.world.returndata dst src sz state.world.memory
-                }
-              }
-            else .revert
+        | some dst, some src, some sz => execReturndataCopy state dst src sz
         | _, _, _ => .revert
-    | state, .require cond _ =>
+    | state, .require cond message =>
         match evalExpr fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
+            if resolved != 0 then .continue state else .revertWithData (Denote.errorStringBytes message)
         | none => .revert
-    | state, .requireError cond _ args =>
+    | state, .requireError cond name args =>
         match evalExpr fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state name args
         | none => .revert
-    | state, .revertError _ args =>
-        typedErrorRevertResult fields state args
+    | state, .revertError name args =>
+        typedErrorRevertResult fields state name args
+    | state, .panicCode code =>
+        match evalExpr fields state code with
+        | some value => .revertWithData (Denote.panicBytes value)
+        | none => .revert
+    | _, .panic code => .revertWithData (Denote.panicBytes code.toNat)
     | state, .return value =>
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -2750,13 +2859,10 @@ mutual
         match evalExprList fields state args with
         | some resolved =>
             match eventFromResolvedArgs? events eventName resolved,
-                eventScratchMemoryAfterEmit? events eventName resolved state.world.memory with
-            | some event, some memory =>
+                eventScratchWorldAfterEmit? events eventName resolved state.world with
+            | some event, some scratchWorld =>
                 .continue { state with
-                  world := {
-                    state.world with
-                    memory := memory
-                    events := state.world.events ++ [event] } }
+                  world := { scratchWorld with events := state.world.events ++ [event] } }
             | _, _ => .revert
         | none => .revert
     | state, .forEach varName count body =>
@@ -2775,7 +2881,7 @@ mutual
               (fun loopState => execStmtListWithEvents fields events loopState body)
               256 state bits
         | none => .revert
-    | _, .revertReturndata => .revert
+    | state, .revertReturndata => .revertWithData (state.world.returndata.flatMap Denote.wordBytes)
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -2855,10 +2961,15 @@ mutual
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
+        | .interpretationError message => .interpretationError message
+        | .exceptional next => .exceptional next
 end
 
 mutual
   def execStmt (fields : List Field) : RuntimeState → Stmt → StmtResult
+    | state, .create2 destination offset size salt =>
+        execCreation fields state destination offset size salt
     | state, .letVar name value =>
         match evalExpr fields state value with
         | some resolved =>
@@ -3057,11 +3168,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -3079,55 +3186,36 @@ mutual
         | some dst, some src, some sz =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                    Verity.Core.Uint256.ofNat
-                      (Compiler.Proofs.YulGeneration.calldataloadWord
-                        state.selector state.world.calldata (src + (o - dst)))
-                  else state.world.memory o
-              }
+              world := state.world.copyPhysicalCalldata state.selector dst src sz
             }
         | _, _, _ => .revert
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr fields state destOffset, evalExpr fields state sourceOffset,
             evalExpr fields state size with
-        | some dst, some src, some sz =>
-            -- RETURNDATACOPY copies the bytes `[src, src + size)` of the EIP-211
-            -- buffer into memory when the extent fits, and exceptionally halts
-            -- otherwise; the halt is observed as a reverting frame. Complete
-            -- words are replaced and a final partial word is merged with its
-            -- untouched low bytes, as in EVM memory.
-            if src + sz ≤ 32 * state.world.returndata.length then
-              .continue {
-                state with
-                world := {
-                  state.world with
-                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-                    state.world.returndata dst src sz state.world.memory
-                }
-              }
-            else .revert
+        | some dst, some src, some sz => execReturndataCopy state dst src sz
         | _, _, _ => .revert
-    | state, .require cond _ =>
+    | state, .require cond message =>
         match evalExpr fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
+            if resolved != 0 then .continue state else .revertWithData (Denote.errorStringBytes message)
         | none => .revert
-    | state, .requireError cond _ args =>
+    | state, .requireError cond name args =>
         match evalExpr fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state name args
         | none => .revert
-    | state, .revertError _ args =>
-        typedErrorRevertResult fields state args
+    | state, .revertError name args =>
+        typedErrorRevertResult fields state name args
+    | state, .panicCode code =>
+        match evalExpr fields state code with
+        | some value => .revertWithData (Denote.panicBytes value)
+        | none => .revert
+    | _, .panic code => .revertWithData (Denote.panicBytes code.toNat)
     | state, .return value =>
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -3142,13 +3230,10 @@ mutual
         match evalExprList fields state args with
         | some resolved =>
             match eventFromResolvedArgs? [] eventName resolved,
-                eventScratchMemoryAfterEmit? [] eventName resolved state.world.memory with
-            | some event, some memory =>
+                eventScratchWorldAfterEmit? [] eventName resolved state.world with
+            | some event, some scratchWorld =>
                 .continue { state with
-                  world := {
-                    state.world with
-                    memory := memory
-                    events := state.world.events ++ [event] } }
+                  world := { scratchWorld with events := state.world.events ++ [event] } }
             | _, _ => .revert
         | none => .revert
     | state, .forEach varName count body =>
@@ -3167,7 +3252,7 @@ mutual
               (fun loopState => execStmtList fields loopState body)
               256 state bits
         | none => .revert
-    | _, .revertReturndata => .revert
+    | state, .revertReturndata => .revertWithData (state.world.returndata.flatMap Denote.wordBytes)
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -3246,6 +3331,9 @@ mutual
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
+        | .interpretationError message => .interpretationError message
+        | .exceptional next => .exceptional next
 end
 
 mutual
@@ -3425,15 +3513,55 @@ mutual
 end
 
 structure SourceContractResult where
+  /-- Actual exceptional opcode context; never inferred from failure alone. -/
+  exceptionalContext : Option Verity.Core.Model.ExecutionContext := none
+  revertData : List UInt8 := []
+  interpretationError : Option String := none
   success : Bool
   returnValue : Option Nat
   finalStorage : Nat → Nat
   events : List (List Nat)
 
 structure InternalFunctionResult where
+  /-- Next external receipt after successful helper execution. Callers retain
+      their oracle and resume at this cursor, including after nested helpers. -/
+  externalCallIndex : Nat := 0
+  executionContext : Option Verity.Core.Model.ExecutionContext := none
+  /-- Actual terminal state of a helper exception, distinct from REVERT bytes. -/
+  exceptionalState : Option RuntimeState := none
+  revertData : List UInt8 := []
+  interpretationError : Option String := none
   success : Bool
   returnValue : Option Nat
   world : Verity.ContractState
+
+/-- A failed helper preserves an instrument refusal rather than presenting
+it as an EVM revert, and transports the actual exceptional terminal state.
+Successful helper handling remains at the call site. -/
+def failedInternalOutcome (result : InternalFunctionResult) : StmtResult :=
+  match result.interpretationError with
+  | some message => .interpretationError message
+  | none =>
+      match result.exceptionalState with
+      | some terminal => .exceptional terminal
+      | none => .revertWithData result.revertData
+
+theorem failedInternalOutcome_error (result : InternalFunctionResult) (message : String)
+    (h : result.interpretationError = some message) :
+    failedInternalOutcome result = .interpretationError message := by
+  simp only [failedInternalOutcome, h]
+
+theorem failedInternalOutcome_revertData (result : InternalFunctionResult)
+    (h : result.interpretationError = none)
+    (hordinary : result.exceptionalState = none) :
+    failedInternalOutcome result = .revertWithData result.revertData := by
+  simp only [failedInternalOutcome, h, hordinary]
+
+theorem failedInternalOutcome_exceptional (result : InternalFunctionResult) (terminal : RuntimeState)
+    (herror : result.interpretationError = none)
+    (hterminal : result.exceptionalState = some terminal) :
+    failedInternalOutcome result = .exceptional terminal := by
+  simp only [failedInternalOutcome, herror, hterminal]
 
 def revertedResult (spec : CompilationModel) (initialWorld : Verity.ContractState) :
     SourceContractResult :=
@@ -3441,6 +3569,44 @@ def revertedResult (spec : CompilationModel) (initialWorld : Verity.ContractStat
     returnValue := none
     finalStorage := encodeStorage spec initialWorld
     events := encodeEvents initialWorld.events }
+
+/-- Project an actual terminal exception while rolling back observable contract
+state. An absent or non-exhausted context is an interpreter refusal, not an
+invented EVM revert or a certified exception. -/
+def exceptionalResult (spec : CompilationModel)
+    (initialWorld : Verity.ContractState) (terminal : RuntimeState) :
+    SourceContractResult :=
+  match terminal.executionContext with
+  | some context =>
+      if context.opcode.gas = 0 then
+        { revertedResult spec initialWorld with exceptionalContext := some context }
+      else
+        { revertedResult spec initialWorld with
+          interpretationError := some "exceptional exit requires exhausted opcode gas" }
+  | none =>
+      { revertedResult spec initialWorld with
+        interpretationError := some "exceptional exit requires actual opcode context" }
+
+theorem exceptionalResult_of_exhausted_context
+    (spec : CompilationModel) (initialWorld : Verity.ContractState)
+    (terminal : RuntimeState) (context : Verity.Core.Model.ExecutionContext)
+    (hcontext : terminal.executionContext = some context)
+    (hgas : context.opcode.gas = 0) :
+    exceptionalResult spec initialWorld terminal =
+      { revertedResult spec initialWorld with exceptionalContext := some context } := by
+  simp [exceptionalResult, hcontext, hgas]
+
+theorem exceptionalResult_rollback
+    (spec : CompilationModel) (initialWorld : Verity.ContractState)
+    (terminal : RuntimeState) :
+    (exceptionalResult spec initialWorld terminal).finalStorage = encodeStorage spec initialWorld ∧
+      (exceptionalResult spec initialWorld terminal).events = encodeEvents initialWorld.events ∧
+      (exceptionalResult spec initialWorld terminal).success = false ∧
+      (exceptionalResult spec initialWorld terminal).revertData = [] := by
+  unfold exceptionalResult
+  split
+  · split <;> exact ⟨rfl, rfl, rfl, rfl⟩
+  · exact ⟨rfl, rfl, rfl, rfl⟩
 
 def successResult (spec : CompilationModel) (world : Verity.ContractState) (ret : Option Nat) :
     SourceContractResult :=
@@ -3455,10 +3621,32 @@ def revertedInternalResult (initialWorld : Verity.ContractState) :
     returnValue := none
     world := initialWorld }
 
-def successInternalResult (world : Verity.ContractState) (ret : Option Nat) :
+/-- Roll back the helper's observable world while preserving its actual terminal
+carrier. The public boundary separately validates the exhausted opcode context. -/
+def exceptionalInternalResult (initialWorld : Verity.ContractState) (terminal : RuntimeState) :
+    InternalFunctionResult :=
+  { revertedInternalResult initialWorld with exceptionalState := some terminal }
+
+theorem exceptionalInternalResult_failedOutcome (initialWorld : Verity.ContractState)
+    (terminal : RuntimeState) :
+    failedInternalOutcome (exceptionalInternalResult initialWorld terminal) = .exceptional terminal := rfl
+
+theorem exceptionalInternalResult_rollback (initialWorld : Verity.ContractState)
+    (terminal : RuntimeState) :
+    (exceptionalInternalResult initialWorld terminal).world = initialWorld ∧
+      (exceptionalInternalResult initialWorld terminal).success = false ∧
+      (exceptionalInternalResult initialWorld terminal).returnValue = none ∧
+      (exceptionalInternalResult initialWorld terminal).revertData = [] :=
+  ⟨rfl, rfl, rfl, rfl⟩
+
+def successInternalResult (world : Verity.ContractState) (ret : Option Nat)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallIndex : Nat := 0) :
     InternalFunctionResult :=
   { success := true
     returnValue := ret
+    executionContext := executionContext
+    externalCallIndex := externalCallIndex
     world := world }
 
 def bindSupportedParams (params : List Param) (args : List Nat) :
@@ -3994,7 +4182,9 @@ def constructorTouchesUnsupportedRawCalldataSurface
 
 def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
-    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallIndex : Nat := 0) :
     SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
@@ -4003,15 +4193,22 @@ def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
   | some bindings =>
       match execStmtListWithEvents fields spec.events
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
-            externalCallOracle := externalCallOracle } fn.body with
+            externalCallOracle := externalCallOracle, executionContext := executionContext,
+            externalCallIndex := externalCallIndex, errors := spec.errors } fn.body with
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
       | .revert => revertedResult spec worldWithTx
+      | .revertWithData data => { revertedResult spec worldWithTx with revertData := data }
+      | .exceptional terminal => exceptionalResult spec worldWithTx terminal
+      | .interpretationError message =>
+          { revertedResult spec worldWithTx with interpretationError := some message }
 
 def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
-    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallIndex : Nat := 0) :
     SourceContractResult :=
   let constructorWorldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
@@ -4024,23 +4221,30 @@ def interpretConstructor (spec : CompilationModel) (ctor : ConstructorSpec)
         match execStmtListWithEvents fields spec.events
             { world := constructorWorldWithTx, bindings := bindings,
               selector := tx.functionSelector,
-              externalCallOracle := externalCallOracle }
+              externalCallOracle := externalCallOracle, executionContext := executionContext,
+              externalCallIndex := externalCallIndex }
             ctor.body with
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
         | .return value state => successResult spec state.world (some value)
         | .revert => revertedResult spec constructorWorldWithTx
+        | .revertWithData data => { revertedResult spec constructorWorldWithTx with revertData := data }
+        | .exceptional terminal => exceptionalResult spec constructorWorldWithTx terminal
+        | .interpretationError message =>
+            { revertedResult spec constructorWorldWithTx with interpretationError := some message }
 
 def interpretContract (spec : CompilationModel) (selectors : List Nat)
     (tx : IRTransaction) (initialWorld : Verity.ContractState)
-    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallIndex : Nat := 0) :
     SourceContractResult :=
   match findFunctionBySelector spec selectors tx.functionSelector with
   | some fn =>
       if !fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
         revertedResult spec (withTransactionContext initialWorld tx)
       else
-        interpretFunction spec fn tx initialWorld externalCallOracle
+        interpretFunction spec fn tx initialWorld externalCallOracle executionContext externalCallIndex
   | none => revertedResult spec (withTransactionContext initialWorld tx)
 
 -- The ceilDiv case pushes the equation-compiler's `simp` past 200 000 heartbeats.
@@ -4350,6 +4554,9 @@ mutual
             let argVals ← evalExprListWithHelpers spec fields (fuel + 1) state args
             let callee ← findUniqueInternalFunction? spec calleeName
             let hresult := interpretInternalFunctionFuel spec fuel callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
             if hresult.success then hresult.returnValue else none
     | .mload offset => do
         let resolvedOffset ← evalExprWithHelpers spec fields fuel state offset
@@ -4464,6 +4671,8 @@ mutual
       (fields : List Field)
       (fuel : Nat)
       (state : RuntimeState) : Stmt → StmtResult
+    | .create2 destination offset size salt =>
+        execCreation fields state destination offset size salt
     | .letVar name value =>
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved =>
@@ -4666,11 +4875,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | .tstore offset value =>
@@ -4690,54 +4895,37 @@ mutual
         | some dst, some src, some sz =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if Compiler.Proofs.YulGeneration.calldatacopyWritesAt dst sz o then
-                    Verity.Core.Uint256.ofNat
-                      (Compiler.Proofs.YulGeneration.calldataloadWord
-                        state.selector state.world.calldata (src + (o - dst)))
-                  else state.world.memory o
-              }
+              world := state.world.copyPhysicalCalldata state.selector dst src sz
             }
         | _, _, _ => .revert
     | .returndataCopy destOffset sourceOffset size =>
         match evalExprWithHelpers spec fields fuel state destOffset,
             evalExprWithHelpers spec fields fuel state sourceOffset,
             evalExprWithHelpers spec fields fuel state size with
-        | some dst, some src, some sz =>
-            -- Same bounded-copy semantics as `execStmt`: in-bounds extents copy
-            -- complete words and merge the final partial word; out-of-bounds
-            -- extents revert identically on the IR layer.
-            if src + sz ≤ 32 * state.world.returndata.length then
-              .continue {
-                state with
-                world := {
-                  state.world with
-                  memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-                    state.world.returndata dst src sz state.world.memory
-                }
-              }
-            else .revert
+        | some dst, some src, some sz => execReturndataCopy state dst src sz
         | _, _, _ => .revert
-    | .require cond _ =>
+    | .require cond message =>
         match evalExprWithHelpers spec fields fuel state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
+            if resolved != 0 then .continue state else .revertWithData (Denote.errorStringBytes message)
         | none => .revert
-    | .requireError cond _ args =>
+    | .requireError cond name args =>
         match evalExprWithHelpers spec fields fuel state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else typedErrorRevertResult fields state args
+            if resolved != 0 then .continue state else typedErrorRevertResult fields state name args
         | none => .revert
-    | .revertError _ args =>
-        typedErrorRevertResult fields state args
+    | .revertError name args =>
+        typedErrorRevertResult fields state name args
+    | .panicCode code =>
+        match evalExpr fields state code with
+        | some value => .revertWithData (Denote.panicBytes value)
+        | none => .revert
+    | .panic code => .revertWithData (Denote.panicBytes code.toNat)
     | .return value =>
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | .stop => .stop state
     | .ite cond thenBranch elseBranch =>
@@ -4756,10 +4944,13 @@ mutual
                 findUniqueInternalFunction? spec calleeName with
             | some argVals, some callee =>
                 let hresult := interpretInternalFunctionFuel spec fuel callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
                 if hresult.success then
-                  .continue { state with world := hresult.world }
+                  .continue { state with world := hresult.world, executionContext := hresult.executionContext, externalCallIndex := hresult.externalCallIndex }
                 else
-                  .revert
+                  failedInternalOutcome hresult
             | _, _ => .revert
     | .internalCallAssign names calleeName args =>
         match fuel with
@@ -4769,28 +4960,28 @@ mutual
                 findUniqueInternalFunction? spec calleeName with
             | some argVals, some callee =>
                 let hresult := interpretInternalFunctionFuel spec fuel callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
                 if hresult.success then
                   match names, hresult.returnValue with
                   | [name], some value =>
                       .continue { state with
-                        world := hresult.world
+                        world := hresult.world, executionContext := hresult.executionContext, externalCallIndex := hresult.externalCallIndex
                         bindings := bindValue state.bindings name value
                       }
                   | _, _ => .revert
                 else
-                  .revert
+                  failedInternalOutcome hresult
             | _, _ => .revert
     | .emit eventName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some resolved =>
             match eventFromResolvedArgs? spec.events eventName resolved,
-                eventScratchMemoryAfterEmit? spec.events eventName resolved state.world.memory with
-            | some event, some memory =>
+                eventScratchWorldAfterEmit? spec.events eventName resolved state.world with
+            | some event, some scratchWorld =>
                 .continue { state with
-                  world := {
-                    state.world with
-                    memory := memory
-                    events := state.world.events ++ [event] } }
+                  world := { scratchWorld with events := state.world.events ++ [event] } }
             | _, _ => .revert
         | none => .revert
     | .forEach varName count body =>
@@ -4809,7 +5000,7 @@ mutual
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               256 state bits
         | none => .revert
-    | .revertReturndata => .revert
+    | .revertReturndata => .revertWithData (state.world.returndata.flatMap Denote.wordBytes)
     | .externalCallBind resultVars _externalName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>
@@ -4896,6 +5087,9 @@ mutual
         | .stop next => .stop next
         | .return value next => .return value next
         | .revert => .revert
+        | .revertWithData data => .revertWithData data
+        | .interpretationError message => .interpretationError message
+        | .exceptional next => .exceptional next
   termination_by stmts => (fuel, sizeOf stmts)
   decreasing_by all_goals (simp_wf; omega)
   def interpretInternalFunctionFuel
@@ -4905,7 +5099,8 @@ mutual
       (initialWorld : Verity.ContractState)
       (args : List Nat)
       (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
-      (externalCallIndex : Nat := 0) : InternalFunctionResult :=
+      (externalCallIndex : Nat := 0)
+      (executionContext : Option Verity.Core.Model.ExecutionContext := none) : InternalFunctionResult :=
     let fields := effectiveFields spec
     match bindInternalArgs fn.params args with
     | none => revertedInternalResult initialWorld
@@ -4913,11 +5108,16 @@ mutual
         match execStmtListWithHelpers spec fields fuel
             { world := initialWorld, bindings := bindings,
               externalCallOracle := externalCallOracle,
-              externalCallIndex := externalCallIndex } fn.body with
-        | .continue state => successInternalResult state.world none
-        | .stop state => successInternalResult state.world none
-        | .return value state => successInternalResult state.world (some value)
+              externalCallIndex := externalCallIndex, executionContext := executionContext,
+              errors := spec.errors } fn.body with
+        | .continue state => successInternalResult state.world none state.executionContext state.externalCallIndex
+        | .stop state => successInternalResult state.world none state.executionContext state.externalCallIndex
+        | .return value state => successInternalResult state.world (some value) state.executionContext state.externalCallIndex
         | .revert => revertedInternalResult initialWorld
+        | .revertWithData data => { revertedInternalResult initialWorld with revertData := data }
+        | .exceptional terminal => exceptionalInternalResult initialWorld terminal
+        | .interpretationError message =>
+            { revertedInternalResult initialWorld with interpretationError := some message }
   termination_by (fuel, sizeOf fn.body + 1)
   decreasing_by all_goals (simp_wf; omega)
 end
@@ -4954,22 +5154,19 @@ theorem execStmtWithHelpers_emit_supported_continues
     {values : List Nat}
     (heval : evalExprListWithHelpers spec fields fuel state args = some values)
     (hsupport : eventEmissionProofSupported spec.events eventName args = true) :
-    ∃ event memory,
+    ∃ event scratchWorld,
       eventFromResolvedArgs? spec.events eventName values = some event ∧
-      eventScratchMemoryAfterEmit? spec.events eventName values state.world.memory = some memory ∧
+      eventScratchWorldAfterEmit? spec.events eventName values state.world = some scratchWorld ∧
       execStmtWithHelpers spec fields fuel state (.emit eventName args) =
         .continue { state with
-          world := {
-            state.world with
-            memory := memory
-            events := state.world.events ++ [event] } } := by
+          world := { scratchWorld with events := state.world.events ++ [event] } } := by
   have hlen : values.length = args.length :=
     evalExprListWithHelpers_length_of_some heval
   rcases exists_eventFromResolvedArgs?_of_supported_length hsupport hlen with
     ⟨event, hevent⟩
-  rcases exists_eventScratchMemoryAfterEmit?_of_supported_length hsupport hlen with
-    ⟨memory, hmemory⟩
-  exact ⟨event, memory, hevent, hmemory, by
+  rcases exists_eventScratchWorldAfterEmit?_of_supported_length hsupport hlen with
+    ⟨scratchWorld, hmemory⟩
+  exact ⟨event, scratchWorld, hevent, hmemory, by
     simp [execStmtWithHelpers, heval, hevent, hmemory]⟩
 
 @[simp] theorem interpretInternalFunctionFuel_zero
@@ -4983,11 +5180,15 @@ theorem execStmtWithHelpers_emit_supported_continues
       | none => revertedInternalResult initialWorld
       | some bindings =>
           match execStmtListWithHelpers spec fields 0
-              { world := initialWorld, bindings := bindings } fn.body with
-          | .continue state => successInternalResult state.world none
-          | .stop state => successInternalResult state.world none
-          | .return value state => successInternalResult state.world (some value)
-          | .revert => revertedInternalResult initialWorld := by
+              { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body with
+          | .continue state => successInternalResult state.world none state.executionContext state.externalCallIndex
+          | .stop state => successInternalResult state.world none state.executionContext state.externalCallIndex
+          | .return value state => successInternalResult state.world (some value) state.executionContext state.externalCallIndex
+          | .revert => revertedInternalResult initialWorld
+          | .revertWithData data => { revertedInternalResult initialWorld with revertData := data }
+          | .exceptional terminal => exceptionalInternalResult initialWorld terminal
+          | .interpretationError message =>
+              { revertedInternalResult initialWorld with interpretationError := some message } := by
   simp [interpretInternalFunctionFuel]
 
 theorem interpretInternalFunctionFuel_succ
@@ -5002,11 +5203,15 @@ theorem interpretInternalFunctionFuel_succ
       | none => revertedInternalResult initialWorld
       | some bindings =>
           match execStmtListWithHelpers spec fields (fuel + 1)
-              { world := initialWorld, bindings := bindings } fn.body with
-          | .continue state => successInternalResult state.world none
-          | .stop state => successInternalResult state.world none
-          | .return value state => successInternalResult state.world (some value)
-          | .revert => revertedInternalResult initialWorld := by
+              { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body with
+          | .continue state => successInternalResult state.world none state.executionContext state.externalCallIndex
+          | .stop state => successInternalResult state.world none state.executionContext state.externalCallIndex
+          | .return value state => successInternalResult state.world (some value) state.executionContext state.externalCallIndex
+          | .revert => revertedInternalResult initialWorld
+          | .revertWithData data => { revertedInternalResult initialWorld with revertData := data }
+          | .exceptional terminal => exceptionalInternalResult initialWorld terminal
+          | .interpretationError message =>
+              { revertedInternalResult initialWorld with interpretationError := some message } := by
   simp [interpretInternalFunctionFuel]
 
 /-- Semantic contract attached to an internal-helper summary witness. The summary
@@ -5016,8 +5221,10 @@ def InternalHelperSummarySound
     (spec : CompilationModel)
     (fn : FunctionSpec)
     (summary : InternalHelperSummaryContract) : Prop :=
-  ∀ fuel initialWorld args,
+  ∀ fuel initialWorld args (context : Option Verity.Core.Model.ExecutionContext)
+      (oracle : Nat → ExternalCallOutcome) (index : Nat),
     let result := interpretInternalFunctionFuel spec fuel fn initialWorld args
+      (externalCallOracle := oracle) (externalCallIndex := index) (executionContext := context)
     summary.post fuel 0 initialWorld args result.success result.returnValue result.world
 
 /-- The direct-callee summary inventory carried by `SupportedBodyHelperInterface`
@@ -5038,7 +5245,9 @@ def interpretFunctionWithHelpers
     (fn : FunctionSpec)
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
-    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallIndex : Nat := 0) :
     SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
@@ -5047,11 +5256,16 @@ def interpretFunctionWithHelpers
   | some bindings =>
       match execStmtListWithHelpers spec fields fuel
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
-            externalCallOracle := externalCallOracle } fn.body with
+            externalCallOracle := externalCallOracle, executionContext := executionContext,
+            externalCallIndex := externalCallIndex, errors := spec.errors } fn.body with
       | .continue state => successResult spec state.world none
       | .stop state => successResult spec state.world none
       | .return value state => successResult spec state.world (some value)
       | .revert => revertedResult spec worldWithTx
+      | .revertWithData data => { revertedResult spec worldWithTx with revertData := data }
+      | .exceptional terminal => exceptionalResult spec worldWithTx terminal
+      | .interpretationError message =>
+          { revertedResult spec worldWithTx with interpretationError := some message }
 
 def interpretConstructorWithHelpers
     (spec : CompilationModel)
@@ -5059,7 +5273,9 @@ def interpretConstructorWithHelpers
     (ctor : ConstructorSpec)
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
-    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallIndex : Nat := 0) :
     SourceContractResult :=
   let constructorWorldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
@@ -5072,12 +5288,17 @@ def interpretConstructorWithHelpers
         match execStmtListWithHelpers spec fields fuel
             { world := constructorWorldWithTx, bindings := bindings,
               selector := tx.functionSelector,
-              externalCallOracle := externalCallOracle }
+              externalCallOracle := externalCallOracle, executionContext := executionContext,
+              externalCallIndex := externalCallIndex }
             ctor.body with
         | .continue state => successResult spec state.world none
         | .stop state => successResult spec state.world none
         | .return value state => successResult spec state.world (some value)
         | .revert => revertedResult spec constructorWorldWithTx
+        | .revertWithData data => { revertedResult spec constructorWorldWithTx with revertData := data }
+        | .exceptional terminal => exceptionalResult spec constructorWorldWithTx terminal
+        | .interpretationError message =>
+            { revertedResult spec constructorWorldWithTx with interpretationError := some message }
 
 def interpretContractWithHelpers
     (spec : CompilationModel)
@@ -5085,14 +5306,16 @@ def interpretContractWithHelpers
     (fuel : Nat)
     (tx : IRTransaction)
     (initialWorld : Verity.ContractState)
-    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩) :
+    (externalCallOracle : Nat → ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallIndex : Nat := 0) :
     SourceContractResult :=
   match findFunctionBySelector spec selectors tx.functionSelector with
   | some fn =>
       if !fn.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
         revertedResult spec (withTransactionContext initialWorld tx)
       else
-        interpretFunctionWithHelpers spec fuel fn tx initialWorld externalCallOracle
+        interpretFunctionWithHelpers spec fuel fn tx initialWorld externalCallOracle executionContext externalCallIndex
   | none => revertedResult spec (withTransactionContext initialWorld tx)
 
 theorem helperSummarySound
@@ -5105,7 +5328,7 @@ theorem helperSummarySound
     (args : List Nat) :
     let result := interpretInternalFunctionFuel spec fuel fn initialWorld args
     summary.post fuel 0 initialWorld args result.success result.returnValue result.world :=
-  hsound fuel initialWorld args
+  hsound fuel initialWorld args none (fun _ => ⟨false, [], none⟩) 0
 
 /-- Concrete source helper-body `.continue` case for `InternalHelperSummarySound`.
 This exposes the `interpretInternalFunctionFuel` reduction and then consumes the
@@ -5123,16 +5346,16 @@ theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_continue
     (hbind : bindInternalArgs fn.params args = some bindings)
     (hbody :
       execStmtListWithHelpers spec (effectiveFields spec) fuel
-        { world := initialWorld, bindings := bindings } fn.body =
+        { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body =
           .continue finalState) :
     interpretInternalFunctionFuel spec fuel fn initialWorld args =
-        successInternalResult finalState.world none ∧
+        successInternalResult finalState.world none finalState.executionContext finalState.externalCallIndex ∧
       summary.post fuel 0 initialWorld args true none finalState.world := by
   have hinterp :
       interpretInternalFunctionFuel spec fuel fn initialWorld args =
-        successInternalResult finalState.world none := by
+        successInternalResult finalState.world none finalState.executionContext finalState.externalCallIndex := by
     simp [interpretInternalFunctionFuel, hbind, hbody]
-  have hpost := hsound fuel initialWorld args
+  have hpost := hsound fuel initialWorld args none (fun _ => ⟨false, [], none⟩) 0
   refine ⟨hinterp, ?_⟩
   simpa [hinterp, successInternalResult] using hpost
 
@@ -5153,16 +5376,16 @@ theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_return
     (hbind : bindInternalArgs fn.params args = some bindings)
     (hbody :
       execStmtListWithHelpers spec (effectiveFields spec) fuel
-        { world := initialWorld, bindings := bindings } fn.body =
+        { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body =
           .return value finalState) :
     interpretInternalFunctionFuel spec fuel fn initialWorld args =
-        successInternalResult finalState.world (some value) ∧
+        successInternalResult finalState.world (some value) finalState.executionContext finalState.externalCallIndex ∧
       summary.post fuel 0 initialWorld args true (some value) finalState.world := by
   have hinterp :
       interpretInternalFunctionFuel spec fuel fn initialWorld args =
-        successInternalResult finalState.world (some value) := by
+        successInternalResult finalState.world (some value) finalState.executionContext finalState.externalCallIndex := by
     simp [interpretInternalFunctionFuel, hbind, hbody]
-  have hpost := hsound fuel initialWorld args
+  have hpost := hsound fuel initialWorld args none (fun _ => ⟨false, [], none⟩) 0
   refine ⟨hinterp, ?_⟩
   simpa [hinterp, successInternalResult] using hpost
 
@@ -5183,16 +5406,16 @@ theorem InternalHelperSummarySound.post_of_execStmtListWithHelpers_stop
     (hbind : bindInternalArgs fn.params args = some bindings)
     (hbody :
       execStmtListWithHelpers spec (effectiveFields spec) fuel
-        { world := initialWorld, bindings := bindings } fn.body =
+        { world := initialWorld, bindings := bindings, errors := spec.errors } fn.body =
           .stop finalState) :
     interpretInternalFunctionFuel spec fuel fn initialWorld args =
-        successInternalResult finalState.world none ∧
+        successInternalResult finalState.world none finalState.executionContext finalState.externalCallIndex ∧
       summary.post fuel 0 initialWorld args true none finalState.world := by
   have hinterp :
       interpretInternalFunctionFuel spec fuel fn initialWorld args =
-        successInternalResult finalState.world none := by
+        successInternalResult finalState.world none finalState.executionContext finalState.externalCallIndex := by
     simp [interpretInternalFunctionFuel, hbind, hbody]
-  have hpost := hsound fuel initialWorld args
+  have hpost := hsound fuel initialWorld args none (fun _ => ⟨false, [], none⟩) 0
   refine ⟨hinterp, ?_⟩
   simpa [hinterp, successInternalResult] using hpost
 
@@ -5224,8 +5447,11 @@ theorem evalExprWithHelpers_internalCall_obeys_summary
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     summary.post fuel 0 state.world argVals result.success result.returnValue result.world := by
-  simpa [InternalHelperSummarySound] using hsound fuel state.world argVals
+  simpa [InternalHelperSummarySound] using hsound fuel state.world argVals state.executionContext state.externalCallOracle state.externalCallIndex
 
 theorem evalExprWithHelpers_internalCall_preserves_world
     {spec : CompilationModel}
@@ -5242,6 +5468,9 @@ theorem evalExprWithHelpers_internalCall_preserves_world
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     result.success = true → result.world = state.world := by
   intro result hsuccess
   exact helperSummaryPreservesWorldOnSuccess hpreserve
@@ -5263,6 +5492,9 @@ theorem execStmtWithHelpers_internalCall_obeys_summary
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     summary.post fuel 0 state.world argVals result.success result.returnValue result.world := by
   simpa [execStmtWithHelpers, hfind, hargs] using
     evalExprWithHelpers_internalCall_obeys_summary
@@ -5285,6 +5517,9 @@ theorem execStmtWithHelpers_internalCallAssign_obeys_summary
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     summary.post fuel 0 state.world argVals result.success result.returnValue result.world := by
   simpa [execStmtWithHelpers, hfind, hargs] using
     evalExprWithHelpers_internalCall_obeys_summary
@@ -5393,19 +5628,51 @@ theorem execStmtWithHelpers_internalCallAssign_of_witness
     match evalExprListWithHelpers spec fields (fuel + 1) state args with
     | some argVals =>
         let hresult := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
         if hresult.success then
           match names, hresult.returnValue with
           | [name], some value =>
               .continue { state with
-                world := hresult.world
+                world := hresult.world, executionContext := hresult.executionContext, externalCallIndex := hresult.externalCallIndex
                 bindings := bindValue state.bindings name value
               }
           | _, _ => .revert
         else
-          .revert
+          failedInternalOutcome hresult
     | none => .revert := by
   cases hargs : evalExprListWithHelpers spec fields (fuel + 1) state args <;>
     simp [execStmtWithHelpers, findUniqueInternalFunction?_of_witness witness hnodup, hargs]
+
+/-- Exact helper-call head equation from the actual function-table filter.
+This also supports execution regressions without inventing a summary contract.
+All argument evaluation, failure, world and binding observations are retained. -/
+theorem execStmtWithHelpers_internalCallAssign_of_function_filter
+    {spec : CompilationModel} {fields : List Field} {fuel : Nat}
+    {state : RuntimeState} {names : List String} {calleeName : String}
+    {args : List Expr} {callee : FunctionSpec}
+    (hfilter : spec.functions.filter
+      (fun fn => fn.isInternal && fn.name == calleeName) = [callee]) :
+    execStmtWithHelpers spec fields (fuel + 1) state
+      (.internalCallAssign names calleeName args) =
+      match evalExprListWithHelpers spec fields (fuel + 1) state args with
+      | some argVals =>
+          let result := interpretInternalFunctionFuel spec fuel callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
+          if result.success then
+            match names, result.returnValue with
+            | [name], some value =>
+                .continue { state with
+                  world := result.world, executionContext := result.executionContext, externalCallIndex := result.externalCallIndex
+                  bindings := bindValue state.bindings name value }
+            | _, _ => .revert
+          else failedInternalOutcome result
+      | none => .revert := by
+  cases hargs : evalExprListWithHelpers spec fields (fuel + 1) state args <;>
+    simp [execStmtWithHelpers, findUniqueInternalFunction?, hfilter, hargs]
 
 /-- Version of `execStmtWithHelpers_internalCallAssign_obeys_summary` that takes
 a `SupportedInternalHelperWitness` instead of the private `findUniqueInternalFunction?`
@@ -5424,6 +5691,9 @@ theorem execStmtWithHelpers_internalCallAssign_obeys_summary_of_witness
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     witness.summary.contract.post fuel 0 state.world argVals
       result.success result.returnValue result.world :=
   execStmtWithHelpers_internalCallAssign_obeys_summary
@@ -5448,10 +5718,13 @@ theorem execStmtWithHelpers_internalCall_of_witness
     match evalExprListWithHelpers spec fields (fuel + 1) state args with
     | some argVals =>
         let hresult := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
         if hresult.success then
-          .continue { state with world := hresult.world }
+          .continue { state with world := hresult.world, executionContext := hresult.executionContext, externalCallIndex := hresult.externalCallIndex }
         else
-          .revert
+          failedInternalOutcome hresult
     | none => .revert := by
   cases hargs : evalExprListWithHelpers spec fields (fuel + 1) state args <;>
     simp [execStmtWithHelpers, findUniqueInternalFunction?_of_witness witness hnodup, hargs]
@@ -5472,6 +5745,9 @@ theorem evalExprWithHelpers_internalCall_of_witness
       (Expr.internalCall calleeName args) =
     (do let argVals ← evalExprListWithHelpers spec fields (fuel + 1) state args
         let hresult := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
         if hresult.success then hresult.returnValue else none) := by
   simpa [evalExprWithHelpers, findUniqueInternalFunction?_of_witness witness hnodup]
 
@@ -5492,6 +5768,9 @@ theorem evalExprWithHelpers_internalCall_obeys_summary_of_witness
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     witness.summary.contract.post fuel 0 state.world argVals
       result.success result.returnValue result.world :=
   evalExprWithHelpers_internalCall_obeys_summary
@@ -5515,6 +5794,9 @@ theorem evalExprWithHelpers_internalCall_preserves_world_of_witness
     {argVals : List Nat}
     (hargs : evalExprListWithHelpers spec fields fuel state args = some argVals) :
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     result.success = true → result.world = state.world := by
   intro result hsuccess
   exact helperSummaryPreservesWorldOnSuccess hpreserve
@@ -5679,6 +5961,9 @@ theorem SupportedSpecHelperProofs.evalInternalCallObeysSummary
     (hargs : evalExprListWithHelpers spec fields (fuel + 1) state args = some argVals) :
     let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     evalExprWithHelpers spec fields (fuel + 1) state (Expr.internalCall calleeName args)
         = (if result.success then result.returnValue else none)
       ∧ witness.summary.contract.post fuel 0 state.world argVals
@@ -5687,7 +5972,7 @@ theorem SupportedSpecHelperProofs.evalInternalCallObeysSummary
   refine ⟨?_, ?_⟩
   · simp +zetaDelta [evalExprWithHelpers_internalCall_of_witness witness hSupported.functionNamesNodup, hargs]
   · exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
-      fuel state.world argVals
+      fuel state.world argVals state.executionContext state.externalCallOracle state.externalCallIndex
 
 /-- Void-statement helper call (`Stmt.internalCall`) at a call site of a
 selector-dispatched caller. The first conjunct is the *void-statement-shape*
@@ -5713,15 +5998,18 @@ theorem SupportedSpecHelperProofs.execInternalCallObeysSummary
     (hargs : evalExprListWithHelpers spec fields (fuel + 1) state args = some argVals) :
     let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     execStmtWithHelpers spec fields (fuel + 1) state (Stmt.internalCall calleeName args)
-        = (if result.success then .continue { state with world := result.world } else .revert)
+        = (if result.success then .continue { state with world := result.world, executionContext := result.executionContext, externalCallIndex := result.externalCallIndex } else failedInternalOutcome result)
       ∧ witness.summary.contract.post fuel 0 state.world argVals
           result.success result.returnValue result.world := by
   intro witness result
   refine ⟨?_, ?_⟩
   · simp +zetaDelta [execStmtWithHelpers_internalCall_of_witness witness hSupported.functionNamesNodup, hargs]
   · exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
-      fuel state.world argVals
+      fuel state.world argVals state.executionContext state.externalCallOracle state.externalCallIndex
 
 /-- Assigning-statement helper call (`Stmt.internalCallAssign`) at a call site of
 a selector-dispatched caller. The first conjunct is the *assigning-statement-shape*
@@ -5748,22 +6036,25 @@ theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
     (hargs : evalExprListWithHelpers spec fields (fuel + 1) state args = some argVals) :
     let witness := (hSupported.supportedFunctionOfSelectorDispatched hfn).body.calls.helpers.summaryOfCall hmem
     let result := interpretInternalFunctionFuel spec fuel witness.callee state.world argVals
+                  (externalCallOracle := state.externalCallOracle)
+                  (externalCallIndex := state.externalCallIndex)
+                  (executionContext := state.executionContext)
     execStmtWithHelpers spec fields (fuel + 1) state (Stmt.internalCallAssign names calleeName args)
         = (if result.success then
             match names, result.returnValue with
             | [name], some value =>
                 .continue { state with
-                  world := result.world
+                  world := result.world, executionContext := result.executionContext, externalCallIndex := result.externalCallIndex
                   bindings := bindValue state.bindings name value }
             | _, _ => .revert
-          else .revert)
+          else failedInternalOutcome result)
       ∧ witness.summary.contract.post fuel 0 state.world argVals
           result.success result.returnValue result.world := by
   intro witness result
   refine ⟨?_, ?_⟩
   · simp +zetaDelta [execStmtWithHelpers_internalCallAssign_of_witness witness hSupported.functionNamesNodup, hargs]
   · exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
-      fuel state.world argVals
+      fuel state.world argVals state.executionContext state.externalCallOracle state.externalCallIndex
 
 set_option maxHeartbeats 800000 in
 mutual
@@ -6392,6 +6683,9 @@ private theorem execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_i
       | stop next => rfl
       | «return» value next => rfl
       | revert => rfl
+      | revertWithData data => rfl
+      | interpretationError message => rfl
+      | exceptional next => rfl
 termination_by sizeOf stmts
 
 private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
@@ -6404,6 +6698,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
     execStmtWithHelpers spec fields fuel state stmt =
       execStmtWithEvents fields spec.events state stmt := by
   match stmt with
+  | .create2 _ _ _ _ => simp only [execStmtWithHelpers, execStmtWithEvents]
   | .letVar _ value =>
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
       simp [execStmtWithHelpers, execStmtWithEvents,
@@ -6432,7 +6727,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
       simp [execStmtWithHelpers, execStmtWithEvents,
         evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state value hsurface]
-  | .require cond _ =>
+  | .require cond message =>
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
       simp [execStmtWithHelpers, execStmtWithEvents,
         evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state cond hsurface]
@@ -6506,11 +6801,11 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .internalCall _ _ => cases hsurface
   | .internalCallAssign _ _ _ => cases hsurface
   | .storageArrayPop _ => simp [execStmtWithHelpers, execStmtWithEvents]
-  | .requireError cond _ args =>
+  | .requireError cond name args =>
       simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
       simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult,
         evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed spec fields fuel state cond hsurface.1]
-  | .revertError _ args =>
+  | .revertError name args =>
       simp [execStmtWithHelpers, execStmtWithEvents, typedErrorRevertResult]
   | .panicCode _ | .panic _ => simp [execStmtWithHelpers, execStmtWithEvents]
   | .returnValues _ => simp [execStmtWithHelpers, execStmtWithEvents]
@@ -6704,14 +6999,14 @@ theorem interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
   | some bindings =>
       have hbody :
           execStmtListWithHelpers spec (effectiveFields spec) fuel
-            { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector } fn.body =
+            { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector, errors := spec.errors } fn.body =
           execStmtListWithEvents (effectiveFields spec) spec.events
-            { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector } fn.body :=
+            { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector, errors := spec.errors } fn.body :=
         execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed
           (spec := spec)
           (fields := effectiveFields spec)
           (fuel := fuel)
-          (state := { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector })
+          (state := { world := withTransactionContext initialWorld tx, bindings := bindings, selector := tx.functionSelector, errors := spec.errors })
           (stmts := fn.body)
           hsurface
       simp [hbody]

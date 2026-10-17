@@ -53,7 +53,7 @@ def IterOutcome.IsEarlyExit : IterOutcome α → Prop
 /-- The matching executable-result predicate. -/
 def stmtResultIsEarlyExit : StmtResult → Prop
   | .continue _ => False
-  | .stop _ | .return _ _ | .revert => True
+  | .stop _ | .return _ _ | .revert | .revertWithData _ | .interpretationError _ | .exceptional _ => True
 
 /-- Once a prefix exits, appending sites cannot change its result. -/
 theorem execResultAwareForEach_append_of_earlyExit
@@ -147,6 +147,9 @@ theorem execResultAwareForEach_success_bridge
   | stop finalRuntime => simp [hsource, OutcomeRel] at hsound
   | «return» value finalRuntime => simp [hsource, OutcomeRel] at hsound
   | revert => simp [hsource, OutcomeRel] at hsound
+  | revertWithData data => simp [hsource, OutcomeRel] at hsound
+  | interpretationError message => simp [hsource, OutcomeRel] at hsound
+  | exceptional finalRuntime => simp [hsource, OutcomeRel] at hsound
 
 /-- If the model stops, returns, or reverts, the executable loop has the same
 result constructor and return value, with related carried states. -/

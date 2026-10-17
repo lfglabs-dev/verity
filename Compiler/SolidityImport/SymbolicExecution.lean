@@ -26,6 +26,8 @@ theorem step_terminal {state : DenoteState} {stmt : Stmt} {rest : List Stmt}
   | «return» value next => simp only [execStmtList, h]
   | revert => simp only [execStmtList, h]
   | revertWithData data => simp only [execStmtList, h]
+  | interpretationError message => simp only [execStmtList, h]
+  | exceptional next => simp only [execStmtList, h]
 
 /-- Compose an already-proved bounded block with its remaining suffix. -/
 theorem prefix_continue {state next : DenoteState} {pre suffix : List Stmt}

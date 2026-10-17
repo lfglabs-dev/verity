@@ -17,6 +17,30 @@ def stateful_campaign(output, transactions, seed):
              'Contracts/SolidityImportSmoke/Transactions.lean'],
             log=output / 'transaction-smoke.log')
     command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/CallRefusal.lean'],
+            log=output / 'call-refusal-smoke.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/IRCreationChecks.lean'],
+            log=output / 'ir-creation-checks.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/TypedAccessChecks.lean'],
+            log=output / 'typed-access-checks.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/SourceHelperRefusal.lean'],
+            log=output / 'source-helper-refusal-smoke.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/SourceExpressionOutcomeChecks.lean'],
+            log=output / 'source-expression-outcome-smoke.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/SourceExpressionEvaluationChecks.lean'],
+            log=output / 'source-expression-evaluation-smoke.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/SourceStatementEvaluationChecks.lean'],
+            log=output / 'source-statement-evaluation-smoke.log')
+    command(['lake', 'env', 'lean', '--run',
+             'Contracts/SolidityImportSmoke/NativeCreationBoundaryChecks.lean'],
+            log=output / 'native-creation-boundary-smoke.log')
+    command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/EventRejections.lean'],
             log=output / 'event-rejections.log')
     command(['lake', 'env', 'lean', '--run',
@@ -34,11 +58,39 @@ def stateful_campaign(output, transactions, seed):
     checks = [
         ('protocol', ['-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_solidity_stateful*.py']),
         ('anvil', ['-m', 'solidity_differential.check_anvil']),
+        ('account-inputs', ['-m', 'solidity_differential.check_account_inputs',
+            '--output', str(output / 'account-inputs')]),
         ('mocks', ['-m', 'solidity_differential.check_mocks']),
         ('emit-rejections', ['-m', 'solidity_differential.check_emit_rejections']),
         ('rejections', ['-m', 'solidity_differential.check_denote_rejections']),
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
         ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
+        ('call-refusal-mutations', ['-m', 'solidity_differential.check_call_refusal_mutations',
+            '--output', str(output / 'call-refusal-mutations')]),
+        ('source-creation-mutations', ['-m', 'solidity_differential.check_source_creation_mutations',
+            '--output', str(output / 'source-creation-mutations')]),
+        ('native-prepared-creation', ['-m', 'solidity_differential.check_native_prepared_creation',
+            '--output', str(output / 'native-prepared-creation')]),
+        ('revert-payload-programs', ['-m', 'solidity_differential.check_revert_payload_programs',
+                                    '--output', str(output / 'revert-payload-programs')]),
+        ('internal-return-memory-programs', ['-m', 'solidity_differential.check_internal_return_memory_programs',
+            '--output', str(output / 'internal-return-memory-programs')]),
+        ('ir-revert-programs', ['-m', 'solidity_differential.check_ir_revert_programs',
+            '--output', str(output / 'ir-revert-programs')]),
+        ('ir-memory-programs', ['-m', 'solidity_differential.check_ir_memory_programs',
+            '--output', str(output / 'ir-memory-programs')]),
+        ('ir-creation-mutations', ['-m', 'solidity_differential.check_ir_creation_mutations',
+            '--output', str(output / 'ir-creation-mutations')]),
+        ('typed-access-mutations', ['-m', 'solidity_differential.check_typed_access_mutations',
+            '--output', str(output / 'typed-access-mutations')]),
+        ('source-typed-evaluation-mutations', ['-m', 'solidity_differential.check_source_typed_evaluation_mutations',
+            '--output', str(output / 'source-typed-evaluation-mutations')]),
+        ('source-expression-mutations', ['-m', 'solidity_differential.check_source_expression_mutations',
+            '--output', str(output / 'source-expression-mutations')]),
+        ('source-helper-refusal-mutations', ['-m', 'solidity_differential.check_source_helper_refusal_mutations',
+            '--output', str(output / 'source-helper-refusal-mutations')]),
+        ('native-creation-mutations', ['-m', 'solidity_differential.check_native_creation_mutations',
+            '--output', str(output / 'native-creation-mutations')]),
     ]
     checks.append(('hashing-programs', ['-m', 'solidity_differential.check_hashing_programs',
         '--output', str(output / 'hashing-programs')]))

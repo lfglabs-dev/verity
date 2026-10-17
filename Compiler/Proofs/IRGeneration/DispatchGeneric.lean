@@ -290,7 +290,8 @@ theorem interpretContractWith_correct_generic_external
       match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
       | some irFn =>
           if !irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
-            { success := false
+            { revertData := some []
+              success := false
               returnValue := none
               finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               finalMappings := Compiler.Proofs.storageAsMappings
@@ -299,14 +300,16 @@ theorem interpretContractWith_correct_generic_external
           else if irFn.params.length ≤ tx.args.length then
             runFn irFn
           else
-            { success := false
+            { revertData := some []
+              success := false
               returnValue := none
               finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               finalMappings := Compiler.Proofs.storageAsMappings
                 (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               events := (FunctionBody.initialIRStateForTx model tx initialWorld).events }
       | none =>
-          { success := false
+          { revertData := some []
+            success := false
             returnValue := none
             finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
             finalMappings := Compiler.Proofs.storageAsMappings
@@ -411,7 +414,8 @@ theorem interpretContractWith_correct_generic
       match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
       | some irFn =>
           if !irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
-            { success := false
+            { revertData := some []
+              success := false
               returnValue := none
               finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               finalMappings := Compiler.Proofs.storageAsMappings
@@ -420,14 +424,16 @@ theorem interpretContractWith_correct_generic
           else if irFn.params.length ≤ tx.args.length then
             runFn irFn
           else
-            { success := false
+            { revertData := some []
+              success := false
               returnValue := none
               finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               finalMappings := Compiler.Proofs.storageAsMappings
                 (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               events := (FunctionBody.initialIRStateForTx model tx initialWorld).events }
       | none =>
-          { success := false
+          { revertData := some []
+            success := false
             returnValue := none
             finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
             finalMappings := Compiler.Proofs.storageAsMappings

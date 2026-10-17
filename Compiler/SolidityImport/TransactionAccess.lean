@@ -84,6 +84,10 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
   | .mstore address value => do
       return (← expressionAccesses oracle fields state address) ++
         (← expressionAccesses oracle fields state value)
+  | .calldatacopy destination source size | .returndataCopy destination source size => do
+      return (← expressionAccesses oracle fields state destination) ++
+        (← expressionAccesses oracle fields state source) ++
+        (← expressionAccesses oracle fields state size)
   | .tstore address value => do
       let addressReads ← expressionAccesses oracle fields state address
       let valueReads ← expressionAccesses oracle fields state value
@@ -274,6 +278,10 @@ theorem traceStraightLine_agrees (oracle : DenoteOracle) (fields : List Field)
               cases h
               simp [execStmtList, he]
           | revertWithData bytes =>
+              simp [traceStraightLine, ha, he, bind, Except.bind, pure, Except.pure] at h
+              cases h
+              simp [execStmtList, he]
+          | interpretationError message | exceptional final =>
               simp [traceStraightLine, ha, he, bind, Except.bind, pure, Except.pure] at h
               cases h
               simp [execStmtList, he]

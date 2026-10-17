@@ -1,0 +1,23 @@
+{
+  "scope": "actual pinned-library Solidity caller capture only; no importer admission",
+  "pinnedMidnightHead": "96d31343e993329e7a593dde46516a2c0cbcd142",
+  "compilerVersion": "solc, the solidity compiler commandline interface\nVersion: 0.8.34+commit.80d5c536.Linux.g++",
+  "codeBytes": 977,
+  "selector": "30ccca8f",
+  "inputs": {
+    "artifacts/native-midnight-source-caller/SourceCaller.sol": "c387725ef1db623dd6ab1e7b74aa2890c8bca63d2b1ac032b81dd7d3017a0839",
+    "Contracts/SolidityImportSmoke/pinned-midnight/libraries/IdLib.sol": "a4fad41d5f053b6f1873c728d6531694a1c348fc3488d1ae0c1571d1765e2dfb",
+    "Contracts/SolidityImportSmoke/pinned-midnight/interfaces/IMidnight.sol": "b1a0cbcd9de9ce3781bd12cdd0a8665361f988fd23d0219217ff4e7981710475",
+    ".lake/solidity-import/solc-0.8.34": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+    "scripts/check_native_midnight_source_capture.py": "9768c211ce1251cb31b5fbf135cc4ae999b27fb5e964bda63499033c01afe1b2"
+  },
+  "generated": {
+    "artifacts/native-midnight-source-caller/input.json": "9e9c81a870aa660c368350ba9ea41048028df38f0bbaee31986070fbb0de89b1",
+    "artifacts/native-midnight-source-caller/output.json": "e147440f4c9f3cb05139646eb7b4b9c3a31959bb8beef5c5af057ad5d87cb974",
+    "artifacts/native-midnight-source-caller/optimized.yul": "a12e6c43f312e65431313049708d14483869ebbb5c8b6288d9ed7e73c2e0eb91",
+    "Contracts/SolidityImportSmoke/NativeMidnightSourceData.lean": "67a4387c3eaeb9596375a9ee2308eb6a4c819e36c752528cee65c4c0cd916e44",
+    "artifacts/native-midnight-source-caller/cases.json": "f76920fd80905ca84f28ab35fb0a3df463e248160d4c2bb762d7b6591a3d818f",
+    "artifacts/native-midnight-source-caller/invalid-cases.json": "4d5adeb032eeb3078b51796035fbe257f0039c6c549dcfd0f5d4a7e52ecb6062",
+    "Contracts/SolidityImportSmoke/NativeMidnightInvalidData.lean": "5d79b485436bf0abf597550db3799e57eea23179efa920e461885e135efd2732"
+  }
+}

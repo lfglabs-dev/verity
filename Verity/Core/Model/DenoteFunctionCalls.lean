@@ -327,7 +327,8 @@ mutual
         | none => .revert
     | state, .return value =>
         match evalExprCall env fields state value with
-        | some (resolved, post) => .return resolved post
+        | some (resolved, post) => .return resolved
+            { post with world := post.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .setStorage field value =>
         execResolvedExprs env fields state [value]
@@ -477,6 +478,8 @@ mutual
         | .return value next => .return value next
         | .revert => .revert
         | .revertWithData data => .revertWithData data
+        | .interpretationError message => .interpretationError message
+        | .exceptional next => .exceptional next
 end
 
 /-- Execution-level result retained for composition into an explicit callee
@@ -487,37 +490,55 @@ structure FunctionExecution where
   /-- Byte observation kept separately from the legacy word-return interface. -/
   revertBytes : Option (List UInt8) := none
 
+/-- Classify actual statement execution without converting interpretation
+failure into an EVM failure. An exhausted exceptional frame rolls back. -/
+def finishFunctionExecution (initialWorld : ContractState) :
+    StmtOutcome → Except String FunctionExecution
+  | .continue state | .stop state => .ok { result := .success [], world := state.world }
+  | .return value state => .ok { result := .success [value], world := state.world }
+  | .revert => .ok { result := .revert [], world := initialWorld }
+  | .revertWithData data =>
+      .ok { result := .revert [], world := initialWorld, revertBytes := some data }
+  | .interpretationError message => .error message
+  | .exceptional final =>
+      match final.executionContext with
+      | none => .error "Denote exceptional exit requires an actual execution context"
+      | some context =>
+          if context.opcode.gas = 0 then
+            .ok { result := .failure [], world := initialWorld, revertBytes := some [] }
+          else .error "Denote exceptional exit has nonzero terminal gas"
+
+theorem finishFunctionExecution_interpretationError (world : ContractState) (message : String) :
+    finishFunctionExecution world (.interpretationError message) = .error message := rfl
+
 /-- Execute a FunctionSpec with raw / linked calls in-fragment. -/
 def executeFunctionWithCalls (env : CallEnv) (spec : CompilationModel)
     (fn : FunctionSpec) (tx : DenoteTransaction) (initialWorld : ContractState) :
-    FunctionExecution :=
+    Except String FunctionExecution :=
   let worldWithTx := withPayableCallContext initialWorld tx
   let fields := effectiveFields spec
   match bindExternalParams tx.functionSelector fn.params tx.args with
-  | none => { result := .revert [], world := worldWithTx }
+  | none => .ok { result := .revert [], world := worldWithTx }
   | some bindings =>
-      match execStmtListWithCalls env fields
+      finishFunctionExecution worldWithTx (execStmtListWithCalls env fields
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
             errors := spec.errors }
-          fn.body with
-      | .continue state | .stop state =>
-          { result := .success [], world := state.world }
-      | .return value state =>
-          { result := .success [value], world := state.world }
-      | .revert => { result := .revert [], world := worldWithTx }
-      | .revertWithData data =>
-          { result := .revert [], world := worldWithTx, revertBytes := some data }
+          fn.body)
 
 /-- Canonical FunctionSpec denotation, projected from the composable
 execution result so the two semantics cannot drift. -/
 def denoteFunctionWithCalls (env : CallEnv) (spec : CompilationModel)
     (fn : FunctionSpec) (tx : DenoteTransaction) (initialWorld : ContractState) :
     DenoteResult :=
-  let execution := executeFunctionWithCalls env spec fn tx initialWorld
-  match execution.result with
-  | .success [] => successResult env.oracle spec execution.world none
-  | .success (word :: _) => successResult env.oracle spec execution.world (some word)
-  | .failure _ | .revert _ => revertedResult env.oracle spec execution.world
+  match executeFunctionWithCalls env spec fn tx initialWorld with
+  | .error message =>
+      { revertedResult env.oracle spec (withPayableCallContext initialWorld tx) with
+        interpretationError := some message }
+  | .ok execution =>
+      match execution.result with
+      | .success [] => successResult env.oracle spec execution.world none
+      | .success (word :: _) => successResult env.oracle spec execution.world (some word)
+      | .failure _ | .revert _ => revertedResult env.oracle spec execution.world
 
 /-- Adapt a source-shaped FunctionSpec execution to the official framed
 multi-contract boundary.  The frame's pre-credit callee snapshot is supplied
@@ -526,15 +547,15 @@ payable transaction context. -/
 def runFunctionInFrame (env : CallEnv) (spec : CompilationModel)
     (fn : FunctionSpec) (selector : Nat)
     (frame : Verity.MultiContract.CallFrame) :
-    Verity.MultiContract.CalleeExecution :=
-  let execution := executeFunctionWithCalls env spec fn
+    Except String Verity.MultiContract.CalleeExecution := do
+  let execution ← executeFunctionWithCalls env spec fn
     { sender := frame.caller.toNat
       msgValue := frame.site.value
       thisAddress := frame.callee.toNat
       functionSelector := selector
       args := frame.site.calldata }
     frame.calleeBefore
-  { result := execution.result, post := execution.world }
+  pure { result := execution.result, post := execution.world }
 
 /-- Official source-shaped multi-contract call path.  Frame construction,
 FunctionSpec execution, value transfer, commit/rollback, returndata, and the
@@ -543,17 +564,22 @@ post-state independently of the executed function. -/
 def callFunction (env : CallEnv) (spec : CompilationModel)
     (fn : FunctionSpec) (selector : Nat) (world : Verity.MultiContract.MultiWorld)
     (caller callee : Address) (site : CallSite) :
-    Option Verity.MultiContract.FramedCallObservation :=
-  Verity.MultiContract.call world caller callee site
-    (runFunctionInFrame env spec fn selector)
+    Except String (Option Verity.MultiContract.FramedCallObservation) := do
+  match Verity.MultiContract.callEntry world caller callee site with
+  | none => pure none
+  | some frame =>
+      let execution ← runFunctionInFrame env spec fn selector frame
+      pure (some (Verity.MultiContract.executeCall world frame (fun _ => execution)))
 
 theorem callFunction_eq (env : CallEnv) (spec : CompilationModel)
     (fn : FunctionSpec) (selector : Nat) (world : Verity.MultiContract.MultiWorld)
     (caller callee : Address) (site : CallSite) :
     callFunction env spec fn selector world caller callee site = (do
-      let frame ← Verity.MultiContract.callEntry world caller callee site
-      some (Verity.MultiContract.executeCall world frame
-        (runFunctionInFrame env spec fn selector))) :=
+      match Verity.MultiContract.callEntry world caller callee site with
+      | none => pure none
+      | some frame =>
+          let execution ← runFunctionInFrame env spec fn selector frame
+          pure (some (Verity.MultiContract.executeCall world frame (fun _ => execution)))) :=
   rfl
 
 /-! ## Atomic compiled multi-call transactions -/
@@ -573,6 +599,7 @@ structure CompiledCall where
 inductive TransactionControl where
   | success
   | invalidCall (index : Nat)
+  | interpretationError (index : Nat) (message : String)
   | callFailed (index : Nat) (result : ExternalCallResult)
   deriving Repr
 
@@ -593,10 +620,13 @@ def denoteTransactionFrom (before current : Verity.MultiContract.MultiWorld) :
   | index, c :: rest, observations =>
       match callFunction c.env c.spec c.fn c.selector current
           c.caller c.callee c.site with
-      | none =>
+      | .error message =>
+          { control := .interpretationError index message, world := before,
+            calls := observations.reverse }
+      | .ok none =>
           { control := .invalidCall index, world := before,
             calls := observations.reverse }
-      | some observation =>
+      | .ok (some observation) =>
           if observation.result.succeeded then
             denoteTransactionFrom before observation.world (index + 1) rest
               (observation :: observations)
@@ -615,9 +645,19 @@ theorem denoteTransaction_nil (before : Verity.MultiContract.MultiWorld) :
 theorem denoteTransaction_invalid_first_rolls_back
     (before : Verity.MultiContract.MultiWorld) (c : CompiledCall)
     (h : callFunction c.env c.spec c.fn c.selector before
-      c.caller c.callee c.site = none) :
+      c.caller c.callee c.site = .ok none) :
     (denoteTransaction before [c]).world = before := by
   simp [denoteTransaction, denoteTransactionFrom, h]
+
+theorem denoteTransactionFrom_interpretationError (before current : Verity.MultiContract.MultiWorld)
+    (index : Nat) (c : CompiledCall) (rest : List CompiledCall)
+    (observations : List Verity.MultiContract.FramedCallObservation) (message : String)
+    (failed : callFunction c.env c.spec c.fn c.selector current
+      c.caller c.callee c.site = .error message) :
+    denoteTransactionFrom before current index (c :: rest) observations =
+      { control := .interpretationError index message, world := before,
+        calls := observations.reverse } := by
+  simp only [denoteTransactionFrom, failed]
 
 /-! ## Laws -/
 

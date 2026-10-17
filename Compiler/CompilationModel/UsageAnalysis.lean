@@ -6,6 +6,7 @@ mutual
 def collectStmtBindNames : Stmt → List String
   | .letVar name _ => [name]
   | .internalCallAssign names _ _ => names
+  | .create2 destination _ _ _ => [destination]
   | .externalCallBind resultVars _ _ => resultVars
   | .tryExternalCallBind successVar resultVars _ _ => successVar :: resultVars
   | .ecm mod _ => mod.resultVars
@@ -318,6 +319,8 @@ def stmtUsesArrayElementKind (includePlain includeWord : Bool) : Stmt → Bool
       exprListUsesArrayElementKind includePlain includeWord args
   | Stmt.ecm _ args =>
       exprListUsesArrayElementKind includePlain includeWord args
+  | Stmt.create2 _ offset size salt =>
+      exprListUsesArrayElementKind includePlain includeWord [offset, size, salt]
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
@@ -479,6 +482,8 @@ def stmtUsesArrayElement : Stmt → Bool
       exprListUsesArrayElement topics || exprUsesArrayElement dataOffset || exprUsesArrayElement dataSize
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args | Stmt.ecm _ args =>
       exprListUsesArrayElement args
+  | Stmt.create2 _ offset size salt =>
+      exprListUsesArrayElement [offset, size, salt]
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
@@ -686,6 +691,8 @@ def stmtUsesParamDynamicHeadWord : Stmt → Bool
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args
   | Stmt.ecm _ args =>
       exprListUsesParamDynamicHeadWord args
+  | Stmt.create2 _ offset size salt =>
+      exprListUsesParamDynamicHeadWord [offset, size, salt]
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesParamDynamicHeadWord topics ||
         exprUsesParamDynamicHeadWord dataOffset ||
@@ -837,6 +844,8 @@ def stmtUsesMulDiv512 : Stmt → Bool
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args
   | Stmt.ecm _ args =>
       exprListUsesMulDiv512 args
+  | Stmt.create2 _ offset size salt =>
+      exprListUsesMulDiv512 [offset, size, salt]
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesMulDiv512 topics ||
         exprUsesMulDiv512 dataOffset || exprUsesMulDiv512 dataSize
@@ -1019,6 +1028,8 @@ def stmtUsesStorageArrayElement : Stmt → Bool
       exprListUsesStorageArrayElement topics || exprUsesStorageArrayElement dataOffset || exprUsesStorageArrayElement dataSize
   | Stmt.ecm _ args =>
       exprListUsesStorageArrayElement args
+  | Stmt.create2 _ offset size salt =>
+      exprListUsesStorageArrayElement [offset, size, salt]
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>
       false
   | Stmt.revertReturndata | Stmt.stop =>
@@ -1176,6 +1187,8 @@ def stmtUsesDynamicBytesEq : Stmt → Bool
   | Stmt.externalCallBind _ _ args | Stmt.tryExternalCallBind _ _ _ args
   | Stmt.ecm _ args =>
       exprListUsesDynamicBytesEq args
+  | Stmt.create2 _ offset size salt =>
+      exprListUsesDynamicBytesEq [offset, size, salt]
   | Stmt.rawLog topics dataOffset dataSize =>
       exprListUsesDynamicBytesEq topics || exprUsesDynamicBytesEq dataOffset || exprUsesDynamicBytesEq dataSize
   | Stmt.returnArray _ | Stmt.returnBytes _ | Stmt.returnStorageWords _ | Stmt.returnCodeData _ =>

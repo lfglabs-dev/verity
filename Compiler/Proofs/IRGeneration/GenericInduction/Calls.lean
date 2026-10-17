@@ -2048,6 +2048,8 @@ theorem execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
             else .revert state''
         | .stop state'' => .stop state''
         | .return value' state'' => .return value' state''
+        | .exceptional state'' => .exceptional state''
+        | .interpretationError message => .interpretationError message
         | .revert state'' => .revert state'' := by
   have hcalleeName : compiledHelper.sourceWitness.callee.name = calleeName :=
     compiledHelper.sourceWitness.nameEq
@@ -2123,6 +2125,8 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
         | .values _ state'' => .continue state''
         | .stop state'' => .stop state''
         | .return value' state'' => .return value' state''
+        | .exceptional state'' => .exceptional state''
+        | .interpretationError message => .interpretationError message
         | .revert state'' => .revert state'' := by
   have hcalleeName : compiledHelper.sourceWitness.callee.name = calleeName :=
     compiledHelper.sourceWitness.nameEq
@@ -2192,6 +2196,8 @@ theorem execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_wit
             else .revert state''
         | .stop state'' => .stop state''
         | .return value' state'' => .return value' state''
+        | .exceptional state'' => .exceptional state''
+        | .interpretationError message => .interpretationError message
         | .revert state'' => .revert state'' := by
   obtain ⟨argExprs', hargOk, hshape⟩ :=
     compileStmt_internalCallAssign_shape_with_internals hcompile
@@ -2236,6 +2242,8 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
         | .values _ state'' => .continue state''
         | .stop state'' => .stop state''
         | .return value' state'' => .return value' state''
+        | .exceptional state'' => .exceptional state''
+        | .interpretationError message => .interpretationError message
         | .revert state'' => .revert state'' := by
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape_with_internals hcompile
   have hArgEq : argExprs' = argExprs := by

@@ -63,7 +63,11 @@ theorem denote_sound
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinarySourceTrace (SourceSemantics.effectiveFields model)
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     ∃ sourceResult irExec,
       DenoteAgreement.toStmtResult
         (Denote.execStmtList DenoteAgreement.sourceOracle
@@ -76,7 +80,7 @@ theorem denote_sound
   rcases supported_function_body_correct_from_exact_state_generic
       model fn bodyStmts tx initialWorld state bindings extraFuel hextraFuel
       hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope hbounded
-      hstateRuntime hstateBindings with
+      hstateRuntime hstateBindings hadmitted with
     ⟨sourceResult, irExec, hsource, hexec, hmatch⟩
   refine ⟨sourceResult, irExec, ?_, hexec, hmatch⟩
   rw [DenoteAgreement.execStmtList_eq]
@@ -121,7 +125,11 @@ theorem denote_sound_with_helpers
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     ∃ sourceResult irExec,
       DenoteAgreement.toStmtResult
         (Denote.execStmtList DenoteAgreement.sourceOracle
@@ -142,7 +150,7 @@ theorem denote_sound_with_helpers
   rcases supported_function_body_correct_from_exact_state_generic_with_helpers
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hnormalized hnoEvents hnoErrors hnoAdtTypes hhelperSurface hhelperFree
-      hbodyCompile hscope hbounded hstateRuntime hstateBindings with
+      hbodyCompile hscope hbounded hstateRuntime hstateBindings hadmitted with
     ⟨sourceResult, irExec, hwithHelpers, hexec, hmatch⟩
   refine ⟨sourceResult, irExec, ?_, hwithHelpers, hexec, hmatch⟩
   have hcons :=

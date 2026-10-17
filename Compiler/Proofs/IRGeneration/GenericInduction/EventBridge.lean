@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
+import Compiler.Proofs.IRGeneration.PhysicalEventMemory
 
 set_option linter.unnecessarySeqFocus false
 set_option linter.unnecessarySimpa false
@@ -17,6 +18,8 @@ namespace Compiler.Proofs.IRGeneration
 open Compiler
 open Compiler.CompilationModel
 open Compiler.Yul
+
+attribute [local simp] writePhysicalScratchIR_vars
 
 
 
@@ -162,6 +165,16 @@ private def StmtsContinueFromTo (state : IRState) :
       ∃ state',
         (∀ extraFuel, execIRStmt (extraFuel + 1) state stmt = .continue state') ∧
         StmtsContinueFromTo state' rest final
+
+private theorem StmtsContinueFromTo_of_physical
+    {state final : IRState} {stmts : List YulStmt}
+    (h : PhysicalStoresContinueTo state stmts final) :
+    StmtsContinueFromTo state stmts final := by
+  induction stmts generalizing state with
+  | nil => exact h
+  | cons stmt rest ih =>
+      obtain ⟨next, hstep, htail⟩ := h
+      exact ⟨next, hstep, ih htail⟩
 
 private theorem execIRStmts_of_StmtsContinueFromTo
     {state final : IRState}
@@ -344,6 +357,43 @@ private theorem evalIRExpr_atomic_memory
   · simp only [evalIRExpr]
     exact evalIRCall_nil_memory state mem func
 
+private theorem evalIRExpr_atomic_physicalWrite
+    {scope : List String} {exprIR : YulExpr} (hshape : AtomicArgIR scope exprIR)
+    (state : IRState) (offset value : Nat) :
+    evalIRExpr (state.writePhysicalMemoryValue offset value) exprIR = evalIRExpr state exprIR := by
+  rcases hshape with ⟨n, rfl⟩ | ⟨name, rfl, _hmem⟩ | ⟨func, rfl⟩
+  · simp [evalIRExpr]
+  · simp [evalIRExpr, IRState.getVar]
+  · simp [evalIRExpr, evalIRCall, evalIRExprs,
+      IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory]
+
+private theorem evalIRExpr_atomic_physicalScratch
+    {scope : List String} {exprIR : YulExpr} (hshape : AtomicArgIR scope exprIR)
+    (writes : List (Nat × Nat)) (state : IRState) :
+    evalIRExpr (writePhysicalScratchIR writes state) exprIR = evalIRExpr state exprIR := by
+  induction writes generalizing state with
+  | nil => rfl
+  | cons write rest ih =>
+      rcases write with ⟨offset, value⟩
+      rw [writePhysicalScratchIR, ih, evalIRExpr_atomic_physicalWrite hshape]
+
+private theorem eventForall₂_eval_atomic_physicalScratch_of_args
+    {scope : List String} {state : IRState}
+    {exprIRs : List YulExpr} {args : List Expr} {values : List Nat}
+    (hshapes : List.Forall₂ (fun exprIR _ => AtomicArgIR scope exprIR) exprIRs args)
+    (hevals : List.Forall₂ (fun exprIR value => evalIRExpr state exprIR = some value) exprIRs values)
+    (writes : List (Nat × Nat)) :
+    List.Forall₂ (fun exprIR value =>
+      evalIRExpr (writePhysicalScratchIR writes state) exprIR = some value) exprIRs values := by
+  induction hshapes generalizing values with
+  | nil => cases hevals; exact .nil
+  | cons hshape htail ih =>
+      cases hevals with
+      | cons heval hevalTail =>
+          exact .cons
+            ((evalIRExpr_atomic_physicalScratch hshape writes state).trans heval)
+            (ih hevalTail)
+
 private theorem eventForall₂_eval_atomic_setVar
     {scope : List String} {state : IRState}
     {exprIRs : List YulExpr} {values : List Nat}
@@ -456,9 +506,9 @@ private theorem eventExecIRStmt_mstore_step
     (extraFuel : Nat) :
     execIRStmt (extraFuel + 1) state
         (YulStmt.exprStmt (YulExpr.call "mstore" [offsetExpr, valExpr])) =
-      .continue { state with
-        memory := fun o => if o = offset then val else state.memory o } := by
-  simp [execIRStmt, hoff, hval]
+      .continue (state.writePhysicalMemoryValue
+        (offset % Compiler.Constants.evmModulus) val) := by
+  exact execIRStmt_physical_mstore_of_eval state offsetExpr valExpr offset val extraFuel hoff hval
 
 private theorem eventExecIRStmt_log1_step
     {state : IRState} {args : List YulExpr} {offset size topic0 : Nat}
@@ -659,50 +709,22 @@ private theorem eventSignatureScratchStore_memoryRel
   · simp [hkey, Nat.mod_eq_of_lt hword]
   · simp [hkey, hmem offset]
 
-private theorem eventSignatureScratchStores_continue {state : IRState}
-    {srcMemory : Nat → Verity.Core.Uint256} {ptr startIdx : Nat} {words : List Nat}
-    (hptr : state.getVar "__evt_ptr" = some ptr)
-    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val)
-    (hbounded : ∀ word ∈ words, word < Compiler.Constants.evmModulus) :
+/-- Exact signature-store continuation tracks every byte and overlapping read. -/
+private theorem eventSignatureScratchStores_continue
+    (words : List Nat) (state : IRState) (ptr startIdx : Nat)
+    (hptr : state.getVar "__evt_ptr" = some ptr) :
     StmtsContinueFromTo state (eventSignatureStoreStmtsFromWords words startIdx)
-      { state with memory := fun offset =>
-          (SourceSemantics.writeEventSignatureScratchFrom words ptr startIdx
-            srcMemory offset).val } := by
-  induction words generalizing state srcMemory startIdx with
-  | nil =>
-      simpa only [eventSignatureStoreStmtsFromWords,
-        SourceSemantics.writeEventSignatureScratchFrom, StmtsContinueFromTo] using
-        (eventIRState_set_memory_eq_self state
-          (by intro offset; exact (hmem offset).symm)).symm
-  | cons word rest ih =>
-      rw [eventSignatureStoreStmtsFromWords_cons]
-      have hoff := eventEvalIRExpr_evtPtr_add (state := state) (ptr := ptr) (idx := startIdx) hptr
-      have hval : evalIRExpr state (YulExpr.hex word) = some word := by simp [evalIRExpr]
-      refine ⟨{ state with memory :=
-        fun o => if o = (ptr + startIdx * 32) % Compiler.Constants.evmModulus
-          then word else state.memory o }, ?_, ?_⟩
-      · intro extraFuel
-        simpa using eventExecIRStmt_mstore_step hoff hval extraFuel
-      · have hptr' :
-            ({ state with memory :=
-              fun o => if o = (ptr + startIdx * 32) % Compiler.Constants.evmModulus
-                then word else state.memory o }).getVar "__evt_ptr" = some ptr := by
-          simpa [IRState.getVar] using hptr
-        let nextSrcMemory : Nat → Verity.Core.Uint256 := fun offset =>
-          if offset = (ptr + startIdx * 32) % Compiler.Constants.evmModulus then
-            (word : Verity.Core.Uint256)
-          else srcMemory offset
-        have hmem' := eventSignatureScratchStore_memoryRel
-          (state := state) (srcMemory := srcMemory) (ptr := ptr)
-          (startIdx := startIdx) (word := word) hmem (hbounded word (by simp))
-        have hbounded' : ∀ w ∈ rest, w < Compiler.Constants.evmModulus := by
-          intro w hw
-          exact hbounded w (by simp [hw])
-        simpa [SourceSemantics.writeEventSignatureScratchFrom, nextSrcMemory]
-          using ih (state := { state with memory := (fun o =>
-            if o = (ptr + startIdx * 32) % Compiler.Constants.evmModulus
-            then word else state.memory o) }) (srcMemory := nextSrcMemory)
-            (startIdx := startIdx + 1) hptr' hmem' hbounded'
+      (writePhysicalScratchIR (physicalSignatureWrites words ptr startIdx) state) := by
+  apply StmtsContinueFromTo_of_physical
+  have hshape : ∀ index,
+      eventSignatureStoreStmtsFromWords words index = physicalSignatureStoreStmts words index := by
+    induction words with
+    | nil => intro index; rfl
+    | cons word rest ih =>
+        intro index
+        simp only [eventSignatureStoreStmtsFromWords, physicalSignatureStoreStmts, ih]
+  rw [hshape]
+  exact physicalSignatureStoreStmts_continue words state ptr startIdx hptr
 
 private theorem eventSignatureTopic_of_memorySliceWords_eq
     {eventDef : EventDef} {memory : Nat → Nat} {ptr : Nat}
@@ -1010,41 +1032,22 @@ private theorem eventUnindexedScratchStore_memoryRel
   · simp [hkey, hmem offset]
 
 private theorem eventUnindexedStore_one_continue
-    {state : IRState} {srcMemory : Nat → Verity.Core.Uint256}
-    {ptr wordIdx value : Nat} {ty : ParamType} {argExpr : YulExpr}
+    {state : IRState} {ptr wordIdx value : Nat} {ty : ParamType} {argExpr : YulExpr}
     (hptr : state.getVar "__evt_ptr" = some ptr)
     (heval : evalIRExpr state argExpr = some value)
     (hsupport : eventParamScalarProofSupported ty = true)
-    (hvalueLt : value < Compiler.Constants.evmModulus)
-    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val) :
+    (hvalueLt : value < Compiler.Constants.evmModulus) :
     StmtsContinueFromTo state
       [YulStmt.exprStmt (YulExpr.call "mstore" [
         YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit (wordIdx * 32)],
-        normalizeEventWord ty argExpr
-      ])]
-      { state with memory := fun offset =>
-          (if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
-            (SourceSemantics.normalizeEventValue ty value : Verity.Core.Uint256)
-          else
-            srcMemory offset).val } := by
-  have hoff := eventEvalIRExpr_evtPtr_add
-    (state := state) (ptr := ptr) (idx := wordIdx) hptr
+        normalizeEventWord ty argExpr])]
+      (state.writePhysicalMemoryValue ((ptr + wordIdx * 32) % Constants.evmModulus)
+        (SourceSemantics.normalizeEventValue ty value)) := by
+  have hoff := eventEvalIRExpr_evtPtr_add (state := state) (ptr := ptr) (idx := wordIdx) hptr
   have hval := eventEvalIRExpr_normalizeEventWord ty hsupport heval hvalueLt
-  refine ⟨{ state with memory := fun offset =>
-      if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
-        SourceSemantics.normalizeEventValue ty value
-      else state.memory offset }, ?_, ?_⟩
-  · intro extraFuel
-    simpa using eventExecIRStmt_mstore_step hoff hval extraFuel
-  · have hnormLt :
-        SourceSemantics.normalizeEventValue ty value < Compiler.Constants.evmModulus := by
-      exact eventNormalizeEventValue_lt_evmModulus ty value hsupport hvalueLt
-    exact (eventIRState_set_memory_eq_self _ (by
-      intro offset
-      exact (eventUnindexedScratchStore_memoryRel
-        (state := state) (srcMemory := srcMemory) (ptr := ptr)
-        (wordIdx := wordIdx) (value := value) (ty := ty)
-        hmem hnormLt offset).symm)).symm
+  refine ⟨_, ?_, rfl⟩
+  intro extraFuel
+  simpa using eventExecIRStmt_mstore_step hoff hval extraFuel
 
 private def EventUnindexedEntryOk (scope : List String) (state : IRState) :
     (EventParam × Expr × YulExpr) → Nat → Prop
@@ -1076,6 +1079,27 @@ private theorem eventUnindexedEntriesOk_memory
   | nil => exact .nil
   | cons hok htail ih =>
       exact .cons (eventUnindexedEntryOk_memory hok) ih
+
+private theorem eventUnindexedEntryOk_physicalWrite
+    {scope : List String} {state : IRState}
+    {entry : EventParam × Expr × YulExpr} {value : Nat}
+    (hok : EventUnindexedEntryOk scope state entry value) (offset word : Nat) :
+    EventUnindexedEntryOk scope (state.writePhysicalMemoryValue offset word) entry value := by
+  rcases entry with ⟨param, srcExpr, argExpr⟩
+  rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
+  exact ⟨(evalIRExpr_atomic_physicalWrite hshape state offset word).trans heval,
+    hsupport, hlt, hshape, hsize, hkind⟩
+
+private theorem eventUnindexedEntriesOk_physicalWrite
+    {scope : List String} {state : IRState}
+    {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
+    (hrel : List.Forall₂ (EventUnindexedEntryOk scope state) entries values)
+    (offset word : Nat) :
+    List.Forall₂ (EventUnindexedEntryOk scope (state.writePhysicalMemoryValue offset word))
+      entries values := by
+  induction hrel with
+  | nil => exact .nil
+  | cons hok htail ih => exact .cons (eventUnindexedEntryOk_physicalWrite hok offset word) ih
 
 private theorem eventFoldl_add_start (xs : List Nat) (start : Nat) :
     xs.foldl (fun acc value => acc + value) start =
@@ -1152,87 +1176,19 @@ theorem eventCompiledScalarEmit_legacy
     topic0Store, unindexedStores, logStmt] using
     (LegacyCompatibleExternalStmtList.block _ _ hbody .nil)
 
-private def eventUnindexedNextMemory
-    (srcMemory : Nat → Verity.Core.Uint256)
-    (ptr wordIdx : Nat) (ty : ParamType) (value : Nat) :
-    Nat → Verity.Core.Uint256 :=
-  fun offset =>
-    if offset = (ptr + wordIdx * 32) % Compiler.Constants.evmModulus then
-      (SourceSemantics.normalizeEventValue ty value : Verity.Core.Uint256)
-    else srcMemory offset
-
-private theorem eventUnindexedStores_cons_continue
-    {scope : List String} {state : IRState}
-    {srcMemory srcMemory' : Nat → Verity.Core.Uint256}
-    {ptr wordIdx value : Nat} {param : EventParam} {srcExpr : Expr}
-    {argExpr : YulExpr} {rest : List (EventParam × Expr × YulExpr)} {values : List Nat}
-    (hptr : state.getVar "__evt_ptr" = some ptr)
-    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val)
-    (hok : EventUnindexedEntryOk scope state (param, srcExpr, argExpr) value)
-    (hwriteTail : SourceSemantics.writeUnindexedEventScratchFrom
-        (rest.map (fun entry => entry.1)) values ptr (wordIdx + 1)
-        (eventUnindexedNextMemory srcMemory ptr wordIdx param.ty value) = some srcMemory')
-    (htailContinue : StmtsContinueFromTo { state with memory := fun offset =>
-          ((eventUnindexedNextMemory srcMemory ptr wordIdx param.ty value)
-            offset).val }
-        (scalarEventUnindexedStoresFrom rest ((wordIdx + 1) * 32))
-        { state with memory := fun offset => (srcMemory' offset).val }) :
-    SourceSemantics.writeUnindexedEventScratchFrom
-        (((param, srcExpr, argExpr) :: rest).map (fun entry => entry.1))
-        (value :: values) ptr wordIdx srcMemory = some srcMemory' ∧
-      StmtsContinueFromTo state
-        (scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
-          (wordIdx * 32))
-        { state with memory := fun offset => (srcMemory' offset).val } := by
-  rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
-  constructor
-  · simp [SourceSemantics.writeUnindexedEventScratchFrom, hkind]
-    convert hwriteTail using 1 <;> rfl
-  · have hstmt :
-        scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
-            (wordIdx * 32) =
-          YulStmt.exprStmt (YulExpr.call "mstore" [
-            YulExpr.call "add" [
-              YulExpr.ident "__evt_ptr", YulExpr.lit (wordIdx * 32)],
-            normalizeEventWord param.ty argExpr]) ::
-          scalarEventUnindexedStoresFrom rest ((wordIdx + 1) * 32) := by
-      have hoff : wordIdx * 32 + eventHeadWordSize param.ty =
-          (wordIdx + 1) * 32 := by
-        rw [hsize]
-        omega
-      simp [scalarEventUnindexedStoresFrom, hoff]
-    rw [hstmt]
-    exact StmtsContinueFromTo_append
-      (eventUnindexedStore_one_continue
-        (state := state) (srcMemory := srcMemory) (ptr := ptr)
-        (wordIdx := wordIdx) (value := value)
-        (ty := param.ty) (argExpr := argExpr)
-        hptr heval hsupport hlt hmem)
-      htailContinue
-
 private theorem eventUnindexedStores_continue
-    {scope : List String} {state : IRState}
-    {srcMemory : Nat → Verity.Core.Uint256} {ptr wordIdx : Nat}
+    {scope : List String} {state : IRState} {ptr wordIdx : Nat}
     {entries : List (EventParam × Expr × YulExpr)} {values : List Nat}
     (hptr : state.getVar "__evt_ptr" = some ptr)
-    (hmem : ∀ offset, state.memory offset = (srcMemory offset).val)
     (hrel : List.Forall₂ (EventUnindexedEntryOk scope state) entries values) :
-    ∃ srcMemory',
-      SourceSemantics.writeUnindexedEventScratchFrom
-        (entries.map (fun entry => entry.1)) values ptr wordIdx srcMemory =
-          some srcMemory' ∧
-      StmtsContinueFromTo state
-        (scalarEventUnindexedStoresFrom entries (wordIdx * 32))
-        { state with memory := fun offset => (srcMemory' offset).val } := by
-  induction entries generalizing values state srcMemory wordIdx with
+    ∃ writes,
+      physicalUnindexedWrites (entries.map (fun entry => entry.1)) values ptr wordIdx = some writes ∧
+      StmtsContinueFromTo state (scalarEventUnindexedStoresFrom entries (wordIdx * 32))
+        (writePhysicalScratchIR writes state) := by
+  induction entries generalizing values state wordIdx with
   | nil =>
       cases values with
-      | nil =>
-          refine ⟨srcMemory, ?_, ?_⟩
-          · simp [SourceSemantics.writeUnindexedEventScratchFrom]
-          · simpa only [scalarEventUnindexedStoresFrom, StmtsContinueFromTo] using
-              (eventIRState_set_memory_eq_self state
-                (by intro offset; exact (hmem offset).symm)).symm
+      | nil => exact ⟨[], rfl, rfl⟩
       | cons value values => cases hrel
   | cons entry rest ih =>
       cases values with
@@ -1240,24 +1196,33 @@ private theorem eventUnindexedStores_continue
       | cons value values =>
           cases hrel with
           | cons hok htail =>
-          rcases entry with ⟨param, srcExpr, argExpr⟩
-          let nextSrcMemory :=
-            eventUnindexedNextMemory srcMemory ptr wordIdx param.ty value
-          rcases ih (state := { state with memory := fun offset =>
-              (nextSrcMemory offset).val })
-            (srcMemory := nextSrcMemory)
-            (wordIdx := wordIdx + 1) (values := values)
-            (by simpa [IRState.getVar] using hptr)
-            (by intro offset; rfl)
-            (eventUnindexedEntriesOk_memory htail) with
-            ⟨srcMemory', hwriteTail, htailContinue⟩
-          · have hcons := eventUnindexedStores_cons_continue
-              (state := state) (srcMemory := srcMemory)
-              (srcMemory' := srcMemory') (ptr := ptr) (wordIdx := wordIdx) (value := value)
-              (param := param) (srcExpr := srcExpr) (argExpr := argExpr) (rest := rest) (values := values)
-              hptr hmem hok (by simpa [nextSrcMemory] using hwriteTail)
-              (by simpa [nextSrcMemory] using htailContinue)
-            exact ⟨srcMemory', hcons.1, hcons.2⟩
+              rcases entry with ⟨param, srcExpr, argExpr⟩
+              rcases hok with ⟨heval, hsupport, hlt, hshape, hsize, hkind⟩
+              let next := state.writePhysicalMemoryValue
+                ((ptr + wordIdx * 32) % Constants.evmModulus)
+                (SourceSemantics.normalizeEventValue param.ty value)
+              rcases ih (state := next) (wordIdx := wordIdx + 1) (values := values)
+                  (by simpa [next, IRState.getVar, IRState.writePhysicalMemoryValue,
+                    IRState.installPhysicalMemory] using hptr)
+                  (eventUnindexedEntriesOk_physicalWrite htail _ _) with
+                ⟨tailWrites, hwriteTail, htailContinue⟩
+              refine ⟨(ptr + wordIdx * 32, SourceSemantics.normalizeEventValue param.ty value) ::
+                tailWrites, ?_, ?_⟩
+              · simp [physicalUnindexedWrites, hkind, hwriteTail]
+              · have hoff : wordIdx * 32 + eventHeadWordSize param.ty =
+                    (wordIdx + 1) * 32 := by rw [hsize]; omega
+                have hstmt :
+                    scalarEventUnindexedStoresFrom ((param, srcExpr, argExpr) :: rest)
+                      (wordIdx * 32) =
+                    YulStmt.exprStmt (YulExpr.call "mstore" [
+                      YulExpr.call "add" [YulExpr.ident "__evt_ptr", YulExpr.lit (wordIdx * 32)],
+                      normalizeEventWord param.ty argExpr]) ::
+                    scalarEventUnindexedStoresFrom rest ((wordIdx + 1) * 32) := by
+                  simp [scalarEventUnindexedStoresFrom, hoff]
+                rw [hstmt]
+                simpa only [List.singleton_append, writePhysicalScratchIR, next] using
+                  StmtsContinueFromTo_append
+                    (eventUnindexedStore_one_continue hptr heval hsupport hlt) htailContinue
 
 private def eventValuesForKind :
     EventParamKind → List EventParam → List Nat → List Nat
@@ -1314,6 +1279,35 @@ private theorem eventWriteUnindexed_filter_unindexed
               cases h : param.kind == EventParamKind.unindexed <;>
                 simp [h] at hkind ⊢
             simp [SourceSemantics.writeUnindexedEventScratchFrom, hkindFalse,
+              eventValuesForKind_unindexed_cons_false hkindFalse, ih htail]
+
+private theorem eventWriteUnindexedPhysical_filter_unindexed
+    {params : List EventParam} {values : List Nat}
+    {ptr wordIdx : Nat} {memory : Verity.ContractState}
+    (hlen : values.length = params.length) :
+    SourceSemantics.writeUnindexedEventPhysicalFrom
+        (params.filter (fun param => param.kind == EventParamKind.unindexed))
+        (eventValuesForKind EventParamKind.unindexed params values)
+        ptr wordIdx memory =
+      SourceSemantics.writeUnindexedEventPhysicalFrom
+        params values ptr wordIdx memory := by
+  induction params generalizing values wordIdx memory with
+  | nil =>
+      cases values <;> simp [eventValuesForKind] at hlen ⊢
+  | cons param params ih =>
+      cases values with
+      | nil => simp at hlen
+      | cons value values =>
+          have htail : values.length = params.length := by
+            simpa using Nat.succ.inj hlen
+          by_cases hkind : (param.kind == EventParamKind.unindexed) = true
+          · simp [SourceSemantics.writeUnindexedEventPhysicalFrom, hkind,
+              eventValuesForKind_unindexed_cons_true hkind, ih htail]
+          · have hkindFalse :
+                (param.kind == EventParamKind.unindexed) = false := by
+              cases h : param.kind == EventParamKind.unindexed <;>
+                simp [h] at hkind ⊢
+            simp [SourceSemantics.writeUnindexedEventPhysicalFrom, hkindFalse,
               eventValuesForKind_unindexed_cons_false hkindFalse, ih htail]
 
 private def eventEncodedValuesForKind :
@@ -1912,6 +1906,36 @@ private theorem eventSignatureScratch_memorySliceWords_eq
         _ = SourceSemantics.eventSignatureMemory eventDef ((0 + i * 32) % Compiler.Constants.evmModulus) :=
           hsrc.symm)
 
+private theorem eventSignaturePhysical_memorySliceWords_eq
+    {eventDef : EventDef} {ptr : Nat} {world : Verity.ContractState}
+    (hlimit : ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length ≤
+      eventScratchSizeLimit) :
+    memorySliceWords (fun offset =>
+      ((SourceSemantics.writeEventSignaturePhysicalFrom
+        ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
+        ptr 0 world).memory offset).val)
+      ptr (bytesFromString (eventSignature eventDef)).length =
+    memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
+      (bytesFromString (eventSignature eventDef)).length := by
+  apply List.ext_getElem
+  · simp [memorySliceWords]
+  · intro i hleft hright
+    have hiWords : i <
+        ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes).length := by
+      simpa [memorySliceWords, List.length_map, eventChunkBytes32_length] using hright
+    have hread := sourceEventSignaturePhysical_memory_getElem
+      ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)
+      ptr 0 world (by simpa using hlimit) i hiWords
+    have hbound :
+        ((chunkBytes32 (bytesFromString (eventSignature eventDef))).map wordFromBytes)[i] <
+          Verity.Core.Uint256.modulus := by
+      simpa [Constants.evmModulus, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS] using
+        eventSignatureWords_bounded eventDef _ (List.get_mem _ ⟨i, hiWords⟩)
+    have hvalue := congrArg Verity.Core.Uint256.val hread
+    simp only [Nat.zero_add, Verity.Core.Uint256.val_ofNat, Nat.mod_eq_of_lt hbound] at hvalue
+    have hsrc := eventSignatureMemory_read_getElem (eventDef := eventDef) hiWords hlimit
+    simpa [memorySliceWords] using hvalue.trans hsrc.symm
+
 private theorem eventYulLogDataWords_eq_of_getElem
     {memory : Nat → Nat} {ptr : Nat} :
     ∀ {values : List Nat},
@@ -2132,6 +2156,139 @@ private theorem eventYulLogDataWords_of_writeUnindexedScratch
     (values := eventEncodedValuesForKind EventParamKind.unindexed params values) hread
   simpa [hencLen] using hyul
 
+private theorem eventWriteUnindexedPhysical_eq_signature
+    {params : List EventParam} {values : List Nat} {ptr index : Nat}
+    {world : Verity.ContractState}
+    (hall : ∀ param ∈ params, (param.kind == EventParamKind.unindexed) = true)
+    (hlen : values.length = params.length) :
+    SourceSemantics.writeUnindexedEventPhysicalFrom params values ptr index world =
+      some (SourceSemantics.writeEventSignaturePhysicalFrom
+        (eventEncodedValuesForKind EventParamKind.unindexed params values) ptr index world) := by
+  induction params generalizing values index world with
+  | nil => cases values <;> simp [eventEncodedValuesForKind,
+      SourceSemantics.writeUnindexedEventPhysicalFrom, SourceSemantics.writeEventSignaturePhysicalFrom] at hlen ⊢
+  | cons param params ih =>
+      cases values with
+      | nil => simp at hlen
+      | cons value values =>
+          have hkind := hall param (by simp)
+          have htail := ih (values := values) (index := index + 1)
+            (world := world.writePhysicalMemoryValue ((ptr + index * 32) % Constants.evmModulus)
+              (Verity.Core.Uint256.ofNat (SourceSemantics.normalizeEventValue param.ty value)))
+            (by intro p hp; exact hall p (by simp [hp])) (by simpa using Nat.succ.inj hlen)
+          simpa only [SourceSemantics.writeUnindexedEventPhysicalFrom, hkind, ↓reduceIte,
+            eventEncodedValuesForKind, SourceSemantics.writeEventSignaturePhysicalFrom] using htail
+
+private theorem eventYulLogDataWords_of_writeUnindexedPhysical
+    {params : List EventParam} {values : List Nat} {ptr : Nat}
+    {world next : Verity.ContractState}
+    (hwrite : SourceSemantics.writeUnindexedEventPhysicalFrom params values ptr 0 world = some next)
+    (hall : ∀ param ∈ params, (param.kind == EventParamKind.unindexed) = true)
+    (hlen : values.length = params.length) (hlimit : params.length ≤ eventScratchSizeLimit) :
+    yulLogDataWords (fun offset => (next.memory offset).val) ptr (32 * values.length) =
+      eventEncodedValuesForKind EventParamKind.unindexed params values := by
+  rw [eventWriteUnindexedPhysical_eq_signature hall hlen] at hwrite
+  have hworld := Option.some.inj hwrite
+  rw [← hworld]
+  have hencLen := eventEncodedValuesForKind_unindexed_all_length hall hlen
+  have hread : ∀ i (hi : i < (eventEncodedValuesForKind EventParamKind.unindexed params values).length),
+      ((SourceSemantics.writeEventSignaturePhysicalFrom
+        (eventEncodedValuesForKind EventParamKind.unindexed params values) ptr 0 world).memory
+          ((ptr + i * 32) % Constants.evmModulus)).val =
+        (eventEncodedValuesForKind EventParamKind.unindexed params values)[i] := by
+    intro i hi
+    have hiv : i < values.length := by simpa [hencLen] using hi
+    have hip : i < params.length := by omega
+    have hmem := sourceEventSignaturePhysical_memory_getElem
+      (eventEncodedValuesForKind EventParamKind.unindexed params values) ptr 0 world
+      (by simpa [hencLen, hlen] using hlimit) i hi
+    have helem := eventEncodedValuesForKind_unindexed_all_getElem hall hlen i hiv hip hi
+    have hbound : (eventEncodedValuesForKind EventParamKind.unindexed params values)[i] <
+        Verity.Core.Uint256.modulus := by
+      rw [helem]
+      simpa [Constants.evmModulus, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS] using
+        eventNormalizeEventValue_lt_evmModulus_any (params[i]).ty values[i]
+    simpa only [Nat.zero_add, Verity.Core.Uint256.val_ofNat, Nat.mod_eq_of_lt hbound] using
+      congrArg Verity.Core.Uint256.val hmem
+  simpa [hencLen] using eventYulLogDataWords_eq_of_getElem
+    (memory := fun offset => ((SourceSemantics.writeEventSignaturePhysicalFrom
+      (eventEncodedValuesForKind EventParamKind.unindexed params values) ptr 0 world).memory offset).val)
+    (ptr := ptr) (values := eventEncodedValuesForKind EventParamKind.unindexed params values) hread
+
+private theorem eventPhysicalSignatureWrites_bounded
+    (words : List Nat) (ptr index : Nat)
+    (hwords : ∀ word ∈ words, word < Constants.evmModulus) :
+    ∀ write ∈ physicalSignatureWrites words ptr index, write.2 < Constants.evmModulus := by
+  induction words generalizing index with
+  | nil => simp [physicalSignatureWrites]
+  | cons word rest ih =>
+      intro write hwrite
+      simp only [physicalSignatureWrites, List.mem_cons] at hwrite
+      rcases hwrite with rfl | htail
+      · exact hwords word (by simp)
+      · exact ih (index + 1) (by intro w hw; exact hwords w (by simp [hw])) write htail
+
+private theorem eventPhysicalUnindexedWrites_bounded
+    (params : List EventParam) (values : List Nat) (ptr index : Nat) (writes : List (Nat × Nat))
+    (hwrite : physicalUnindexedWrites params values ptr index = some writes) :
+    ∀ write ∈ writes, write.2 < Constants.evmModulus := by
+  induction params generalizing values index writes with
+  | nil =>
+      cases values with
+      | nil => simp [physicalUnindexedWrites] at hwrite; subst writes; simp
+      | cons value values => simp [physicalUnindexedWrites] at hwrite
+  | cons param params ih =>
+      cases values with
+      | nil => simp [physicalUnindexedWrites] at hwrite
+      | cons value values =>
+          by_cases hkind : param.kind == EventParamKind.unindexed
+          · cases htail : physicalUnindexedWrites params values ptr (index + 1) with
+            | none => simp [physicalUnindexedWrites, hkind, htail] at hwrite
+            | some tailWrites =>
+                simp [physicalUnindexedWrites, hkind, htail] at hwrite
+                subst writes
+                intro write hmem
+                simp only [List.mem_cons] at hmem
+                rcases hmem with rfl | hmem
+                · exact eventNormalizeEventValue_lt_evmModulus_any param.ty value
+                · exact ih values (index + 1) tailWrites htail write hmem
+          · simp only [physicalUnindexedWrites, if_neg hkind] at hwrite
+            exact ih values index writes hwrite
+
+private theorem eventRuntimeStateMatchesIR_physicalScratch
+    {fields : List Field} (writes : List (Nat × Nat))
+    (runtime : SourceSemantics.RuntimeState) (state : IRState)
+    (hbounded : ∀ write ∈ writes, write.2 < Constants.evmModulus)
+    (hmatch : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    FunctionBody.runtimeStateMatchesIR fields
+      { runtime with world := writePhysicalScratchSource writes runtime.world }
+      (writePhysicalScratchIR writes state) := by
+  induction writes generalizing runtime state with
+  | nil => exact hmatch
+  | cons write rest ih =>
+      rcases write with ⟨offset, value⟩
+      have hvalue : value < Verity.Core.Uint256.modulus := by
+        simpa [Constants.evmModulus, Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS] using
+          hbounded (offset, value) (by simp)
+      have hhead := FunctionBody.runtimeStateMatchesIR_setBothPhysicalMemory hmatch
+        (offset % Constants.evmModulus) value hvalue
+      let headWorld := runtime.world.writePhysicalMemoryValue (offset % Constants.evmModulus)
+        (Verity.Core.Uint256.ofNat value)
+      let headState := state.writePhysicalMemoryValue (offset % Constants.evmModulus) value
+      have htailBound : ∀ w ∈ rest, w.2 < Constants.evmModulus := by
+        intro w hw
+        exact hbounded w (by simp [hw])
+      have htail := ih { runtime with world := headWorld } headState htailBound hhead
+      have hupdate (world : Verity.ContractState) :
+          { { runtime with world := headWorld } with world := world } =
+            { runtime with world := world } := rfl
+      change FunctionBody.runtimeStateMatchesIR fields
+        { { runtime with world := headWorld } with
+          world := writePhysicalScratchSource rest headWorld }
+        (writePhysicalScratchIR rest headState) at htail
+      rw [hupdate] at htail
+      exact htail
+
 /-! ## Log statement execution -/
 
 private theorem eventLogStmt_continue_zero
@@ -2307,6 +2464,26 @@ private theorem eventRuntimeStateMatchesIR_after_emit_scratch
                 SourceSemantics.encodeEvents runtime.world.events := by
             exact hvars.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1
           rw [hstateEvents, eventEncodeEvents_snoc])
+  simpa [IRState.appendYulLog, hlog] using hbase
+
+private theorem eventRuntimeStateMatchesIR_appendPhysicalLog
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    {event : Verity.Event} {ptr dataSize : Nat} {topics : List Nat}
+    (hmatch : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    (hlog : encodeYulLogEvent state.memory ptr dataSize topics = SourceSemantics.encodeEvent event) :
+    FunctionBody.runtimeStateMatchesIR fields
+      { runtime with world := { runtime.world with events := runtime.world.events ++ [event] } }
+      (state.appendYulLog ptr dataSize topics) := by
+  have hmemory : state.memory = fun o => (runtime.world.memory o).val := by
+    rcases hmatch with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, h, _⟩
+    exact h
+  have hevents : state.events = SourceSemantics.encodeEvents runtime.world.events := by
+    rcases hmatch with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _⟩
+    exact h
+  have hbase := FunctionBody.runtimeStateMatchesIR_updateMemoryEvents hmatch
+    runtime.world.memory state.memory (runtime.world.events ++ [event])
+    (state.events ++ [SourceSemantics.encodeEvent event]) hmemory
+    (by rw [hevents, eventEncodeEvents_snoc])
   simpa [IRState.appendYulLog, hlog] using hbase
 
 private theorem eventBindingsExactlyMatch_after_emit
@@ -2721,25 +2898,37 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
   let ptr := state.memory Compiler.Constants.freeMemoryPointer
   have hstorePtr := eventStorePtr_continue (state := state) (ptr := ptr) rfl
   have hsigLimit := eventSignatureWords_length_le_scratch hsupport hfind
-  have hsig := eventSignatureScratchStores_continue
-    (state := state.setVar "__evt_ptr" ptr) (srcMemory := runtime.world.memory)
-    (ptr := ptr) (startIdx := 0) (words := sigWords)
-    (by simp [IRState.getVar, IRState.setVar])
-    (by intro o; simpa [IRState.setVar] using hmem0 o)
-    (eventSignatureWords_bounded eventDef)
-  let sigMemory := SourceSemantics.writeEventSignatureScratchFrom sigWords ptr 0
-    runtime.world.memory
-  let stateSig : IRState := { state.setVar "__evt_ptr" ptr with
-    memory := fun o => (sigMemory o).val }
-  have hslice :
-      memorySliceWords stateSig.memory ptr
-          (bytesFromString (eventSignature eventDef)).length =
-        memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
-          (bytesFromString (eventSignature eventDef)).length := by
-    simpa [stateSig, sigMemory, sigWords] using
-      eventSignatureScratch_memorySliceWords_eq
-        (eventDef := eventDef) (ptr := ptr) (srcMemory := runtime.world.memory)
-        hsigLimit
+  have hsig := eventSignatureScratchStores_continue sigWords
+    (state.setVar "__evt_ptr" ptr) ptr 0 (by simp [IRState.getVar, IRState.setVar])
+  let sigWorld := SourceSemantics.writeEventSignaturePhysicalFrom sigWords ptr 0 runtime.world
+  let sigMemory := sigWorld.memory
+  let stateSig := writePhysicalScratchIR (physicalSignatureWrites sigWords ptr 0)
+    (state.setVar "__evt_ptr" ptr)
+  have hbytes : runtime.world.byteMemory = state.byteMemory := by
+    rcases hmatch with ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, h, _, _⟩
+    exact h
+  have hsigMatch : PhysicalMemoryMatches sigWorld stateSig := by
+    simpa only [sigWorld, stateSig, sourceEventSignaturePhysical_eq_scratch] using
+      physicalSignatureWrites_matches sigWords runtime.world (state.setVar "__evt_ptr" ptr) ptr 0
+        ⟨hbytes, fun o => (hmem0 o).symm⟩
+  have hsigRuntimeMatch : FunctionBody.runtimeStateMatchesIR fields
+      { runtime with world := sigWorld } stateSig := by
+    simpa only [sigWorld, stateSig, sourceEventSignaturePhysical_eq_scratch] using
+      eventRuntimeStateMatchesIR_physicalScratch (physicalSignatureWrites sigWords ptr 0)
+        runtime (state.setVar "__evt_ptr" ptr)
+        (eventPhysicalSignatureWrites_bounded sigWords ptr 0 (eventSignatureWords_bounded eventDef))
+        (eventRuntimeStateMatchesIR_setVar hmatch)
+  have hsigMemory : stateSig.memory = fun o => (sigMemory o).val := by
+    funext o
+    exact (hsigMatch.2 o).symm
+  have hslice : memorySliceWords stateSig.memory ptr
+      (bytesFromString (eventSignature eventDef)).length =
+      memorySliceWords (SourceSemantics.eventSignatureMemory eventDef) 0
+        (bytesFromString (eventSignature eventDef)).length := by
+    rw [hsigMemory]
+    simpa only [sigMemory, sigWorld, sigWords] using
+      eventSignaturePhysical_memorySliceWords_eq
+        (eventDef := eventDef) (ptr := ptr) (world := runtime.world) hsigLimit
   let topic0 := SourceSemantics.eventSignatureTopic eventDef
   have htopicStore : StmtsContinueFromTo stateSig
       [YulStmt.let_ "__evt_topic0" (YulExpr.call "keccak256"
@@ -2757,9 +2946,9 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       List.Forall₂ (fun exprIR value => evalIRExpr stateTopic exprIR = some value)
         argExprs values := by
     exact eventForall₂_eval_atomic_setVar_of_args hshapes
-      (eventForall₂_eval_atomic_memory_of_args hshapes
+      (eventForall₂_eval_atomic_physicalScratch_of_args hshapes
         (eventForall₂_eval_atomic_setVar_of_args hshapes hirEval hfresh.1 ptr)
-        stateSig.memory)
+        (physicalSignatureWrites sigWords ptr 0))
       hfresh.2 topic0
   have hunindexedRel : List.Forall₂ (EventUnindexedEntryOk scope stateTopic)
       unindexed (eventValuesForKind EventParamKind.unindexed eventDef.params values) := by
@@ -2767,60 +2956,75 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       eventUnindexedEntriesOk_of_eval
       hirEvalTopic hshapes hparams.1 hparams.2 hvaluesLt hargsLen
   rcases eventUnindexedStores_continue
-      (scope := scope) (state := stateTopic) (srcMemory := sigMemory)
+      (scope := scope) (state := stateTopic)
       (ptr := ptr) (wordIdx := 0) (entries := unindexed)
       (values := eventValuesForKind EventParamKind.unindexed eventDef.params values)
-      (by simp [stateTopic, stateSig, IRState.getVar, IRState.setVar])
-      (by intro o; rfl) hunindexedRel with
-    ⟨irSourceMemory, hirWriteUnindexed, hunindexedContinue⟩
+      (by simp [stateTopic, stateSig, IRState.getVar, IRState.setVar]) hunindexedRel with
+    ⟨unindexedWrites, hunindexedWrites, hunindexedContinue⟩
+  let stateFinal := writePhysicalScratchIR unindexedWrites stateTopic
+  let irScratchWorld := writePhysicalScratchSource unindexedWrites sigWorld
+  let irSourceMemory := irScratchWorld.memory
+  have hirWriteUnindexed : SourceSemantics.writeUnindexedEventPhysicalFrom
+      (unindexed.map (fun entry => entry.1))
+      (eventValuesForKind EventParamKind.unindexed eventDef.params values)
+      ptr 0 sigWorld = some irScratchWorld := by
+    rw [sourceUnindexedEventPhysical_eq_scratch, hunindexedWrites]
+    rfl
+  have hfinalMatch : PhysicalMemoryMatches irScratchWorld stateFinal := by
+    exact writePhysicalScratch_matches unindexedWrites sigWorld stateTopic hsigMatch
+  have hfinalRuntimeMatch : FunctionBody.runtimeStateMatchesIR fields
+      { runtime with world := irScratchWorld } stateFinal := by
+    exact eventRuntimeStateMatchesIR_physicalScratch unindexedWrites
+      { runtime with world := sigWorld } stateTopic
+      (eventPhysicalUnindexedWrites_bounded _ _ _ _ _ hunindexedWrites)
+      (eventRuntimeStateMatchesIR_setVar hsigRuntimeMatch)
+  have hscratchEvents : irScratchWorld.events = runtime.world.events := by
+    simp only [irScratchWorld, writePhysicalScratchSource_events, sigWorld,
+      sourceEventSignaturePhysical_eq_scratch, writePhysicalScratchSource_events]
+  have hfinalMemory : stateFinal.memory = fun o => (irSourceMemory o).val := by
+    funext o
+    exact (hfinalMatch.2 o).symm
   have hvalueLen : values.length = eventDef.params.length := by
     simpa [hargsLen] using SourceSemantics.evalExprListWithHelpers_length_of_some hhelperEval
   have hargExprsLen : argExprs.length = eventDef.params.length := by
     rw [List.Forall₂.length_eq hirEval, hvalueLen]
-  have hsourceMemoryEq : sourceMemory = irSourceMemory := by
-    have hscalar := eventDefScalarProofSupported_eq_true_of_eventEmissionProofSupported
-      hsupport hfind
+  have hsourceWorldEq : sourceMemory = irScratchWorld := by
+    have hscalar := eventDefScalarProofSupported_eq_true_of_eventEmissionProofSupported hsupport hfind
     have hptrSrc : ptr = (runtime.world.memory Compiler.Constants.freeMemoryPointer).val := by
       simpa [ptr] using hmem0 Compiler.Constants.freeMemoryPointer
-    have hwriteFull : SourceSemantics.writeUnindexedEventScratch eventDef.params
-        values ptr sigMemory = some irSourceMemory := by
-      have hwriteFiltered :
-          SourceSemantics.writeUnindexedEventScratchFrom
-            (eventDef.params.filter (fun param => param.kind == EventParamKind.unindexed))
-            (eventValuesForKind EventParamKind.unindexed eventDef.params values)
-            ptr 0 sigMemory = some irSourceMemory := by
-        simpa [eventUnindexedEntryParams_eq_filter hargsLen hargExprsLen,
-          unindexed, zipped] using hirWriteUnindexed
-      rw [eventWriteUnindexed_filter_unindexed hvalueLen] at hwriteFiltered
-      simpa [SourceSemantics.writeUnindexedEventScratch] using hwriteFiltered
-    simp [SourceSemantics.eventScratchMemoryAfterEmit?, hfind, hscalar, ptr,
-      hmem0 Compiler.Constants.freeMemoryPointer, sigMemory, sigWords,
-      SourceSemantics.writeEventSignatureScratch] at hsourceMemory
+    have hwriteFull : SourceSemantics.writeUnindexedEventPhysicalFrom eventDef.params
+        values ptr 0 sigWorld = some irScratchWorld := by
+      have hwriteFiltered : SourceSemantics.writeUnindexedEventPhysicalFrom
+          (eventDef.params.filter (fun param => param.kind == EventParamKind.unindexed))
+          (eventValuesForKind EventParamKind.unindexed eventDef.params values)
+          ptr 0 sigWorld = some irScratchWorld := by
+        simpa [eventUnindexedEntryParams_eq_filter hargsLen hargExprsLen, unindexed, zipped]
+          using hirWriteUnindexed
+      rw [eventWriteUnindexedPhysical_filter_unindexed hvalueLen] at hwriteFiltered
+      exact hwriteFiltered
+    simp only [SourceSemantics.eventScratchWorldAfterEmit?, hfind, hscalar, ↓reduceIte] at hsourceMemory
     rw [← hptrSrc] at hsourceMemory
-    change SourceSemantics.writeUnindexedEventScratch eventDef.params values
-      ptr sigMemory = some sourceMemory at hsourceMemory
+    change SourceSemantics.writeUnindexedEventPhysicalFrom eventDef.params values
+      ptr 0 sigWorld = some sourceMemory at hsourceMemory
     rw [hwriteFull] at hsourceMemory
-    cases hsourceMemory
-    rfl
+    exact (Option.some.inj hsourceMemory).symm
   subst sourceMemory
-  have hindexedRel : List.Forall₂ (EventIndexedEntryOk scope
-      { stateTopic with memory := fun o => (irSourceMemory o).val })
+  have hindexedRel : List.Forall₂ (EventIndexedEntryOk scope stateFinal)
       indexed (eventValuesForKind EventParamKind.indexed eventDef.params values) := by
-    have hirEvalFinal := eventForall₂_eval_atomic_memory_of_args hshapes
-      hirEvalTopic (fun o => (irSourceMemory o).val)
+    have hirEvalFinal := eventForall₂_eval_atomic_physicalScratch_of_args hshapes
+      hirEvalTopic unindexedWrites
     simpa [zipped, indexed, eventZippedWithSource, eventIndexedArgs] using
-      eventIndexedEntriesOk_of_eval
-      hirEvalFinal hshapes hparams.1 hvaluesLt hargsLen
+      eventIndexedEntriesOk_of_eval hirEvalFinal hshapes hparams.1 hvaluesLt hargsLen
   have hindexedLen : indexed.length ≤ 3 := by
     simpa [indexed, zipped] using
       eventEmissionProofSupported_eventIndexedArgs_length_le_three
         argExprs hsupport hfind
   have hlogContinue := eventLogStmt_continue_le_three
-    (scope := scope) (state := { stateTopic with memory := fun o => (irSourceMemory o).val })
+    (scope := scope) (state := stateFinal)
     (ptr := ptr) (dataSize := eventUnindexedHeadSize unindexed) (topic0 := topic0)
     (entries := indexed) (values := eventValuesForKind EventParamKind.indexed eventDef.params values)
-    (by simp [stateTopic, stateSig, IRState.getVar, IRState.setVar])
-    (by simp [stateTopic, IRState.getVar, IRState.setVar])
+    (by simp [stateFinal, stateTopic, stateSig, IRState.getVar, IRState.setVar])
+    (by simp [stateFinal, stateTopic, IRState.getVar, IRState.setVar])
     hindexedRel hindexedLen
   let body := [YulStmt.let_ "__evt_ptr"
         (YulExpr.call "mload" [YulExpr.lit Compiler.Constants.freeMemoryPointer])] ++
@@ -2833,7 +3037,7 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
         (eventLogArgs (YulExpr.lit (eventUnindexedHeadSize unindexed))
           (scalarEventIndexedTopicParts indexed)))]
   have hbodyContinue : StmtsContinueFromTo state body
-      (({ stateTopic with memory := fun o => (irSourceMemory o).val }).appendYulLog
+      ((stateFinal).appendYulLog
         ptr (eventUnindexedHeadSize unindexed)
         (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
           (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
@@ -2845,7 +3049,7 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
           (StmtsContinueFromTo_append htopicStore
             (StmtsContinueFromTo_append hunindexedContinue hlogContinue)))
   have hplainIR := eventExecIRStmts_single_event_block
-    (state := state) (next := (({ stateTopic with memory := fun o => (irSourceMemory o).val }).appendYulLog
+    (state := state) (next := ((stateFinal).appendYulLog
         ptr (eventUnindexedHeadSize unindexed)
         (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
           (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
@@ -2855,7 +3059,7 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
       eventSignatureStoreStmtsFromChunks] using hcompiled)
     hslack hbodyContinue
   let irExec := externalIRExecResultToWithInternals
-    (IRExecResult.continue (({ stateTopic with memory := fun o => (irSourceMemory o).val }).appendYulLog
+    (IRExecResult.continue ((stateFinal).appendYulLog
       ptr (eventUnindexedHeadSize unindexed)
       (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
         (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
@@ -2896,10 +3100,10 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
               (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
               (eventValuesForKind EventParamKind.indexed eventDef.params values)) =
           SourceSemantics.encodeEvent event := by
-      have hdata := eventYulLogDataWords_of_writeUnindexedScratch
+      have hdata := eventYulLogDataWords_of_writeUnindexedPhysical
         (params := eventDef.params.filter (fun param => param.kind == EventParamKind.unindexed))
         (values := eventValuesForKind EventParamKind.unindexed eventDef.params values)
-        (ptr := ptr) (memory := sigMemory) (memory' := irSourceMemory)
+        (ptr := ptr) (world := sigWorld) (next := irScratchWorld)
         (by simpa [(eventUnindexedEntryParams_eq_filter hargsLen
           hargExprsLen), unindexed, zipped]
           using hirWriteUnindexed)
@@ -2907,21 +3111,20 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
         hunindexedValueLen
         (eventUnindexedParams_length_le_scratch hsupport hfind)
       have henc := eventFromResolvedArgs?_encoded hfind hevent
-      simpa [encodeYulLogEvent, hdata, topic0, hindexedParams,
+      simpa [encodeYulLogEvent, irSourceMemory, hdata, topic0, hindexedParams,
         hunindexedParams, hencodedIndexed, hencodedUnindexed,
         eventUnindexedHeadSize_eq_values hunindexedRel] using henc.symm
     simp [irExec, externalIRExecResultToWithInternals,
       stmtStepMatchesIRExecWithInternals]
     refine ⟨?_, ?_, hbounded, ?_⟩
-    · exact eventRuntimeStateMatchesIR_after_emit_scratch
-        (fields := fields) (runtime := runtime) (state := state)
-        (sourceMemory := irSourceMemory) (irMemory := fun o => (irSourceMemory o).val)
-        (event := event) (ptr := ptr) (dataSize := eventUnindexedHeadSize unindexed)
-        (topic0 := topic0)
-        (topics := eventEncodedValuesForKind EventParamKind.indexed
-          (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
-          (eventValuesForKind EventParamKind.indexed eventDef.params values))
-        hmatch rfl hlog
+    · have hlogFinal : encodeYulLogEvent stateFinal.memory ptr
+          (eventUnindexedHeadSize unindexed)
+          (topic0 :: eventEncodedValuesForKind EventParamKind.indexed
+            (indexed.map (fun entry : EventParam × Expr × YulExpr => entry.1))
+            (eventValuesForKind EventParamKind.indexed eventDef.params values)) =
+          SourceSemantics.encodeEvent event := by rw [hfinalMemory]; exact hlog
+      simpa only [hscratchEvents] using
+        eventRuntimeStateMatchesIR_appendPhysicalLog hfinalRuntimeMatch hlogFinal
     · have hincl :
           FunctionBody.scopeNamesIncluded
             (stmtNextScope scope (Stmt.emit eventName args)) scope :=
@@ -2938,7 +3141,7 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
         · exact hfresh.1 (hincl "__evt_ptr" hmem)
         · exact hfresh.2 (hincl "__evt_topic0" hmem)
       intro name hname
-      simpa [IRState.appendYulLog, stateTopic, stateSig, IRState.setVar,
+      simpa [IRState.appendYulLog, stateFinal, stateTopic, stateSig, IRState.setVar,
         IRState.getVar] using
           eventBindingsExactlyMatch_after_emit
             (scope := stmtNextScope scope (Stmt.emit eventName args))

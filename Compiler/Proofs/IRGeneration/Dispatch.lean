@@ -103,7 +103,8 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
       match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
       | some irFn =>
           if !irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
-            { success := false
+            { revertData := some []
+              success := false
               returnValue := none
               finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               finalMappings := Compiler.Proofs.storageAsMappings
@@ -113,14 +114,16 @@ theorem interpretContractWithInternals_correct_of_compiled_functions
             execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
               (FunctionBody.initialIRStateForTx model tx initialWorld)
           else
-            { success := false
+            { revertData := some []
+              success := false
               returnValue := none
               finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               finalMappings := Compiler.Proofs.storageAsMappings
                 (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               events := (FunctionBody.initialIRStateForTx model tx initialWorld).events }
       | none =>
-          { success := false
+          { revertData := some []
+            success := false
             returnValue := none
             finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
             finalMappings := Compiler.Proofs.storageAsMappings
@@ -191,7 +194,8 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
       match irFns.find? (fun irFn => irFn.selector == tx.functionSelector) with
       | some irFn =>
           if !irFn.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
-            { success := false
+            { revertData := some []
+              success := false
               returnValue := none
               finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               finalMappings := Compiler.Proofs.storageAsMappings
@@ -201,14 +205,16 @@ theorem interpretContractWithHelpersWithInternals_correct_of_compiled_functions
             execIRFunctionWithInternals runtimeContract irFuelSlack irFn tx.args
               (FunctionBody.initialIRStateForTx model tx initialWorld)
           else
-            { success := false
+            { revertData := some []
+              success := false
               returnValue := none
               finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               finalMappings := Compiler.Proofs.storageAsMappings
                 (FunctionBody.initialIRStateForTx model tx initialWorld).storage
               events := (FunctionBody.initialIRStateForTx model tx initialWorld).events }
       | none =>
-          { success := false
+          { revertData := some []
+            success := false
             returnValue := none
             finalStorage := (FunctionBody.initialIRStateForTx model tx initialWorld).storage
             finalMappings := Compiler.Proofs.storageAsMappings

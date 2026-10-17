@@ -1,3 +1,5 @@
+import Compiler.Proofs.IRGeneration.GenericInduction.OrdinaryHelperTrace
+import Compiler.Proofs.IRGeneration.GenericInduction.OrdinaryTrace
 import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
 
 set_option linter.unnecessarySeqFocus false
@@ -43,7 +45,11 @@ theorem supported_function_body_correct_from_exact_state_generic
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinarySourceTrace (SourceSemantics.effectiveFields model)
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     ∃ sourceResult irExec,
       SourceSemantics.execStmtList (SourceSemantics.effectiveFields model)
         { world := SourceSemantics.withTransactionContext initialWorld tx
@@ -100,7 +106,9 @@ theorem supported_function_body_correct_from_exact_state_generic
     dsimp [sizeSlack]
     omega
   rw [hfuel] at hgenericSem
-  exact ⟨_, _, rfl, rfl, hgenericSem⟩
+  have hcertified := (stmtOutcomeMatchesIRExec_certified_iff _ _ _).mpr
+    ⟨hgenericSem, hadmitted.outcome_is_ordinary⟩
+  exact ⟨_, _, rfl, rfl, hcertified⟩
 
 /-- Exact helper-aware body theorem for a helper-aware generic statement
 induction witness. This is the induction-level target needed to replace the
@@ -141,7 +149,11 @@ private theorem supported_function_body_correct_from_exact_state_generic_helper_
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     ∃ sourceResult irExec,
       SourceSemantics.execStmtListWithHelpers
         model
@@ -205,7 +217,9 @@ private theorem supported_function_body_correct_from_exact_state_generic_helper_
     dsimp [sizeSlack]
     omega
   rw [hfuel] at hgenericSem
-  exact ⟨_, _, rfl, rfl, hgenericSem⟩
+  have hcertified := (stmtOutcomeMatchesIRExec_certified_iff _ _ _).mpr
+    ⟨hgenericSem, hadmitted.outcome_is_ordinary⟩
+  exact ⟨_, _, rfl, rfl, hcertified⟩
 
 /-- Exact future helper-aware body theorem target: helper-aware source semantics
 against helper-aware compiled-body semantics. This is the body-level theorem
@@ -281,7 +295,11 @@ private theorem
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -338,7 +356,9 @@ private theorem
     dsimp [sizeSlack]
     omega
   rw [hfuel] at hgenericSem
-  exact ⟨_, _, rfl, rfl, hgenericSem⟩
+  have hcertified := (stmtOutcomeMatchesIRExecWithInternals_certified_iff _ _ _).mpr
+    ⟨hgenericSem, hadmitted.outcome_is_ordinary⟩
+  exact ⟨_, _, rfl, rfl, hcertified⟩
 
 /-- Spec-functions-aware helper-aware body theorem for the mixed
 `WithInternals` generic list witness. This consumes the exact helper-world
@@ -384,7 +404,11 @@ private theorem
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -439,7 +463,9 @@ private theorem
     simp at this
     omega
   rw [hfuel] at hgenericSem
-  exact ⟨_, _, rfl, rfl, hgenericSem⟩
+  have hcertified := (stmtOutcomeMatchesIRExecWithInternals_certified_iff _ _ _).mpr
+    ⟨hgenericSem, hadmitted.outcome_is_ordinary⟩
+  exact ⟨_, _, rfl, rfl, hcertified⟩
 
 /-- Events-preserving variant of
 `supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw`.
@@ -477,7 +503,11 @@ private theorem
         { world := SourceSemantics.withTransactionContext initialWorld tx
           bindings := []
           selector := tx.functionSelector } state)
-    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
   have hstateRuntime' :
@@ -519,7 +549,9 @@ private theorem
     simp at this
     omega
   rw [hfuel] at hgenericSem
-  exact ⟨_, _, rfl, rfl, hgenericSem⟩
+  have hcertified := (stmtOutcomeMatchesIRExecWithInternals_certified_iff _ _ _).mpr
+    ⟨hgenericSem, hadmitted.outcome_is_ordinary⟩
+  exact ⟨_, _, rfl, rfl, hcertified⟩
 
 /-- Transitional helper-aware body/IR preservation target for the non-core
 generic body theorem. This already moves the source side onto helper-aware
@@ -577,23 +609,19 @@ theorem supported_function_body_with_helpers_and_helper_ir_goal_of_legacy_ir_goa
       state
       bodyStmts
       hdisjoint
-  cases irExec with
-  | «continue» next =>
-      refine ⟨sourceResult, .continue next, hsource, ?_, ?_⟩
-      · rw [hcompat]; simp [hbodyExec]
-      · simpa [stmtResultMatchesIRExecWithInternals] using hmatch
-  | «return» value next =>
-      refine ⟨sourceResult, .return value next, hsource, ?_, ?_⟩
-      · rw [hcompat]; simp [hbodyExec]
-      · simpa [stmtResultMatchesIRExecWithInternals] using hmatch
-  | stop next =>
-      refine ⟨sourceResult, .stop next, hsource, ?_, ?_⟩
-      · rw [hcompat]; simp [hbodyExec]
-      · simpa [stmtResultMatchesIRExecWithInternals] using hmatch
-  | revert next =>
-      refine ⟨sourceResult, .revert next, hsource, ?_, ?_⟩
-      · rw [hcompat]; simp [hbodyExec]
-      · simpa [stmtResultMatchesIRExecWithInternals] using hmatch
+  let lifted : IRExecResultWithInternals := match irExec with
+    | .continue next => .continue next
+    | .return value next => .return value next
+    | .stop next => .stop next
+    | .revert next => .revert next
+    | .exceptional next => .exceptional next
+    | .interpretationError message => .interpretationError message
+  refine ⟨sourceResult, lifted, hsource, ?_, ?_⟩
+  · rw [hcompat, hbodyExec]
+    cases irExec <;> rfl
+  · cases irExec <;> first
+      | (solve | cases sourceResult <;> simp [FunctionBody.stmtResultMatchesIRExec] at hmatch)
+      | (simpa [lifted, stmtResultMatchesIRExecWithInternals] using hmatch)
 
 /-- Under compiled-body disjointness, the exact helper-aware body goal can also
 be collapsed back to the legacy compiled-body goal. This keeps the new exact
@@ -645,6 +673,14 @@ theorem supported_function_body_with_helpers_ir_goal_of_helper_ir_goal_callsDisj
       simp only [] at hbodyExec; subst hbodyExec
       exact ⟨sourceResult, .revert next, hsource, hexec,
         by simpa [stmtResultMatchesIRExecWithInternals] using hmatch⟩
+  | exceptional next =>
+      simp only [] at hbodyExec; subst hbodyExec
+      cases sourceResult <;>
+        simp [stmtResultMatchesIRExecWithInternals, FunctionBody.stmtResultMatchesIRExec] at hmatch
+  | interpretationError message =>
+      simp only [] at hbodyExec; subst hbodyExec
+      cases sourceResult <;>
+        simp [stmtResultMatchesIRExecWithInternals, FunctionBody.stmtResultMatchesIRExec] at hmatch
 
 /-- Exact helper-aware body theorem for a helper-aware generic statement
 induction witness. This is the induction-level target needed to replace the
@@ -685,13 +721,14 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_steps
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersIRPreservationGoal
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
-  exact supported_function_body_correct_from_exact_state_generic_helper_steps_raw
-    model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
-    hextraFuel hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope
-    hbounded hstateRuntime hstateBindings
+  apply supported_function_body_correct_from_exact_state_generic_helper_steps_raw <;> assumption
 
 /-- Exact helper-aware body theorem for an exact helper-aware generic
 statement-induction witness. This is the future-proof induction-level theorem
@@ -735,7 +772,11 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_steps_an
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -744,7 +785,7 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_steps_an
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope
-      hbounded hstateRuntime hstateBindings
+      hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Body-level `WithInternals` consumer for a preassembled mixed helper-aware
 statement-list witness. The body compile hypothesis is also in the
@@ -789,7 +830,11 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_steps_an
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -798,7 +843,7 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_steps_an
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric
-      hbodyCompile hscope hbounded hstateRuntime hstateBindings
+      hbodyCompile hscope hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Mixed split-interface body theorem for the `WithInternals` helper-world
 path. This is the body-level counterpart of the legacy split-interface helper
@@ -878,7 +923,11 @@ theorem supported_function_body_correct_from_exact_state_generic_split_helper_st
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -904,7 +953,7 @@ theorem supported_function_body_correct_from_exact_state_generic_split_helper_st
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric
-      hbodyCompile hscope hbounded hstateRuntime hstateBindings
+      hbodyCompile hscope hbounded hstateRuntime hstateBindings hadmitted
 
 theorem supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir
     (runtimeContract : IRContract)
@@ -955,7 +1004,11 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_surface_
         state)
     (hstateBindings :
       FunctionBody.bindingsExactlyMatchIRVars bindings state)
-    (hinternal : runtimeContract.internalFunctions = []) :
+    (hinternal : runtimeContract.internalFunctions = [])
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -980,7 +1033,7 @@ theorem supported_function_body_correct_from_exact_state_generic_helper_surface_
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope
-      hbounded hstateRuntime hstateBindings
+      hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Body-level exact helper-aware bridge over the split helper-positive
 interfaces: genuine internal-helper heads are discharged separately from the
@@ -1042,7 +1095,11 @@ theorem supported_function_body_correct_from_exact_state_generic_internal_helper
         state)
     (hstateBindings :
       FunctionBody.bindingsExactlyMatchIRVars bindings state)
-    (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
+    (hnoInternalFunctions : runtimeContract.internalFunctions = [])
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -1068,7 +1125,7 @@ theorem supported_function_body_correct_from_exact_state_generic_internal_helper
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope
-      hbounded hstateRuntime hstateBindings
+      hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Body-level exact helper-aware bridge over the fully split genuine-helper
 interfaces: direct helper statements, expression-position helper heads, and
@@ -1151,7 +1208,11 @@ theorem supported_function_body_correct_from_exact_state_generic_finer_split_int
         state)
     (hstateBindings :
       FunctionBody.bindingsExactlyMatchIRVars bindings state)
-    (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
+    (hnoInternalFunctions : runtimeContract.internalFunctions = [])
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -1180,7 +1241,7 @@ theorem supported_function_body_correct_from_exact_state_generic_finer_split_int
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope
-      hbounded hstateRuntime hstateBindings
+      hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Body-level exact helper-aware bridge over the fully split genuine-helper
 interfaces: direct helper statements, expression-position helper heads, and
@@ -1256,7 +1317,11 @@ theorem supported_function_body_correct_from_exact_state_generic_split_internal_
         state)
     (hstateBindings :
       FunctionBody.bindingsExactlyMatchIRVars bindings state)
-    (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
+    (hnoInternalFunctions : runtimeContract.internalFunctions = [])
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -1284,7 +1349,7 @@ theorem supported_function_body_correct_from_exact_state_generic_split_internal_
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope
-      hbounded hstateRuntime hstateBindings
+      hbounded hstateRuntime hstateBindings hadmitted
 
 private theorem
     generic_with_helpers_and_helper_ir_of_split_internal_helper_surface_callsDisjoint
@@ -1444,7 +1509,11 @@ theorem supported_function_body_correct_from_exact_state_generic_finer_split_int
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -1463,7 +1532,7 @@ theorem supported_function_body_correct_from_exact_state_generic_finer_split_int
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope
-      hbounded hstateRuntime hstateBindings
+      hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Focused Tier 2 entry point for bodies whose only genuinely new helper work
 is direct `Stmt.internalCallAssign`. Void helper statements, expression-position
@@ -1534,7 +1603,11 @@ theorem
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -1568,7 +1641,7 @@ theorem
       hresidual
       hdisjoint
       (by simpa [hnoAdtTypes] using hbodyCompile)
-      hscope hbounded hstateRuntime hstateBindings
+      hscope hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Current-fragment disjointness-based wrapper that lands directly in the exact
 helper-aware compiled body goal. This keeps the existing helper-free step
@@ -1618,7 +1691,11 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
         runtimeContract
         (SourceSemantics.effectiveFields model)
         (fn.params.map (·.name))
-        fn.body) :
+        fn.body)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
@@ -1667,7 +1744,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
         hhelperSurface)
       hdisjoint
       hbodyCompile
-      hscope hbounded hstateRuntime hstateBindings
+      hscope hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Current scalar-event body theorem. Top-level `.emit` heads are routed
 through the event catalog; all non-event heads must remain plain
@@ -1700,7 +1777,11 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
           selector := tx.functionSelector }
         state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
-    (hdisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body) :
+    (hdisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
   let hcatalog := eventHeadStepCatalog_of_bridgeCatalog
     (runtimeContract := runtimeContract) (spec := model)
@@ -1717,7 +1798,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
   exact supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw_with_scalar_events
     runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
     hextraFuel hfuelPos hnormalized hnoErrors hnoAdtTypes hgeneric hbodyCompile
-    hscope hbounded hstateRuntime hstateBindings
+    hscope hbounded hstateRuntime hstateBindings hadmitted
 
 private theorem scalar_events_proof_length_delimiter : True := by
   trivial
@@ -1750,7 +1831,11 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
           selector := tx.functionSelector }
         state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
-    (hdisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body) :
+    (hdisjoint : StmtListHelperFreeCompiledCallsDisjoint runtimeContract (SourceSemantics.effectiveFields model) (fn.params.map (·.name)) fn.body)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
   exact supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir_callsDisjoint
     runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
@@ -1760,7 +1845,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_an
     (stmtListExprInternalHelperStepInterface_of_helperSurfaceClosed (runtimeContract := runtimeContract) (spec := model) (fields := SourceSemantics.effectiveFields model) (scope := fn.params.map (·.name)) (stmts := fn.body) hhelperSurface)
     (stmtListStructuralInternalHelperStepInterface_of_helperSurfaceClosed (runtimeContract := runtimeContract) (spec := model) (fields := SourceSemantics.effectiveFields model) (scope := fn.params.map (·.name)) (stmts := fn.body) hhelperSurface)
     (stmtListResidualHelperSurfaceStepInterface_of_helperSurfaceClosed (runtimeContract := runtimeContract) (spec := model) (fields := SourceSemantics.effectiveFields model) (scope := fn.params.map (·.name)) (stmts := fn.body) hhelperSurface)
-    hdisjoint hbodyCompile hscope hbounded hstateRuntime hstateBindings
+    hdisjoint hbodyCompile hscope hbounded hstateRuntime hstateBindings hadmitted
 
 /-- Goal-based helper-aware wrapper around the generic body/IR preservation
 theorem. This keeps the current helper-free collapse available as a corollary,
@@ -1808,13 +1893,17 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers_go
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinarySourceTrace (SourceSemantics.effectiveFields model)
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersIRPreservationGoal
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
   rcases supported_function_body_correct_from_exact_state_generic
       model fn bodyStmts tx initialWorld state bindings extraFuel hextraFuel
       hnormalized hnoEvents hnoErrors hnoAdtTypes hgeneric hbodyCompile hscope hbounded
-      hstateRuntime hstateBindings with
+      hstateRuntime hstateBindings hadmitted with
     ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
   refine ⟨sourceResult, irExec, ?_, hbodyExec, hmatch⟩
   have hsourceWithEvents :
@@ -1868,7 +1957,11 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers
           selector := tx.functionSelector }
         state)
     (hstateBindings :
-      FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+      FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersIRPreservationGoal
       model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
   have hgenericWithHelpers :
@@ -1886,7 +1979,7 @@ theorem supported_function_body_correct_from_exact_state_generic_with_helpers
   exact supported_function_body_correct_from_exact_state_generic_helper_steps
     model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
     hextraFuel hnormalized hnoEvents hnoErrors hnoAdtTypes hgenericWithHelpers hbodyCompile
-    hscope hbounded hstateRuntime hstateBindings
+    hscope hbounded hstateRuntime hstateBindings hadmitted
 
 
 end Compiler.Proofs.IRGeneration

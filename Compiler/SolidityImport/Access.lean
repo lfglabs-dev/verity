@@ -43,13 +43,32 @@ where
     | [] => []
     | fn :: rest => if fn.name = name then fn.body else go rest
 
-/-- Run the function `name` of an imported model in `world` with the given
-argument words; `none` means it reverted. -/
+/-- Return-word view of an actual body outcome. Interpretation refusal is
+separate from EVM failure; this view does not expose state or revert bytes. -/
+def finishAccessOutcome : StmtOutcome → Except String (Option (List Nat))
+  | .stop state | .continue state => .ok (some (state.observedReturnWords.getD []))
+  | .return _ state => .ok state.observedReturnWords
+  | .revert | .revertWithData _ => .ok none
+  | .interpretationError message => .error message
+  | .exceptional final =>
+      match final.executionContext with
+      | none => .error "Denote exceptional exit requires an actual execution context"
+      | some context =>
+          if context.opcode.gas = 0 then .ok none
+          else .error "Denote exceptional exit has nonzero terminal gas"
+
+theorem finishAccessOutcome_interpretationError (message : String) :
+    finishAccessOutcome (.interpretationError message) = .error message := rfl
+
+/-- Run the named imported body with explicit bindings. `.ok none` is EVM
+failure; `.error` preserves an interpretation diagnostic. This is not full
+ABI dispatch, a stateful frame receipt, or a revert-byte observation. -/
 def runFunction (oracle : DenoteOracle) (model : CompilationModel) (name : String)
-    (world : Verity.ContractState) (args : Env) : Option (List Nat) :=
-  match execStmtList oracle model.fields { world, bindings := args, errors := model.errors } (functionBody model name) with
-  | .stop state | .continue state | .return _ state => state.observedReturnWords
-  | .revert | .revertWithData _ => none
+    (world : Verity.ContractState) (args : Env) : Except String (Option (List Nat)) :=
+  match model.functions.find? (fun fn => fn.name == name) with
+  | none => .error s!"unknown imported function: {name}"
+  | some fn => finishAccessOutcome (execStmtList oracle model.fields
+      { world, bindings := args, errors := model.errors } fn.body)
 
 /-- `field[keys].member` in `world`, read exactly as the imported model reads
 it: solc's slot, word offset and packing. `0` if there is no such member. -/

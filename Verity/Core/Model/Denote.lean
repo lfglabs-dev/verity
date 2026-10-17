@@ -1,9 +1,13 @@
+import Verity.Core.Model.ReturndataCopy
+import Verity.Core.Model.Create2Operation
+import Verity.Core.Model.ExecutionContext
 import Verity.Core
 import Verity.Core.Uint256
 import Verity.Core.Int256
 import Verity.Core.Model.Constants
 import Verity.Core.Model.DynamicAbi
 import Verity.Core.Model.Types
+import Verity.Core.Model.PhysicalCopy
 
 
 /-!
@@ -137,21 +141,7 @@ def selectorWord (selector : Nat) : Nat :=
 
 /-- Mirrors `Compiler.Proofs.YulGeneration.calldataloadWord` (pure arithmetic). -/
 def calldataloadWord (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat :=
-  if offset = 0 then
-    selectorWord selector
-  else if offset < 4 then
-    0
-  else
-    let p := offset - 4
-    let q := p / 32
-    let r := p % 32
-    if r = 0 then
-      calldata.getD q 0 % Compiler.Constants.evmModulus
-    else
-      let hi := calldata.getD q 0 % Compiler.Constants.evmModulus
-      let lo := calldata.getD (q + 1) 0 % Compiler.Constants.evmModulus
-      ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) %
-        Compiler.Constants.evmModulus
+  DynamicAbi.calldataloadWord selector calldata offset
 
 /-- Mirrors `Compiler.Proofs.YulGeneration.calldatacopyWritesAt`. -/
 def calldatacopyWritesAt (dst size offset : Nat) : Prop :=
@@ -262,6 +252,9 @@ def lookupBinding? (bindings : Env) (name : String) : Option Nat :=
 /-- Mirrors `SourceSemantics.RuntimeState`. -/
 structure DenoteState where
   world : Verity.ContractState
+  /-- Actual ephemeral frame context. Absent in the unmetered legacy runner;
+      creation execution must fail closed rather than guess missing gas/mode. -/
+  executionContext : Option Verity.Core.Model.ExecutionContext := none
   immutable : String → Verity.Core.Uint256 := fun _ => 0
   bindings : Env
   selector : Nat := 0
@@ -290,6 +283,17 @@ inductive StmtOutcome where
       represents unsupported evaluation, so differential tests must not invent
       bytes for it. -/
   | revertWithData (data : List UInt8)
+  /-- Interpreter refusal is never reported as an EVM revert. -/
+  | interpretationError (message : String)
+  /-- Exceptional opcode entry retains its exhausted machine context. -/
+  | exceptional (state : DenoteState)
+
+/-- Canonical copy result keeps exceptions and refusals distinct from REVERT. -/
+def execReturndataCopy (state : DenoteState) (destination source size : Nat) : StmtOutcome :=
+  match Verity.Core.Model.ReturndataCopy.run state.world state.executionContext destination source size with
+  | .continued world => .continue { state with world := world }
+  | .exceptional context => .exceptional { state with executionContext := some context }
+  | .interpretationError message => .interpretationError message
 
 /-- Canonical big-endian ABI word bytes. -/
 def wordBytes (value : Nat) : List UInt8 :=
@@ -1219,6 +1223,8 @@ def execForEachLoop
       | .return value next => .return value next
       | .revert => .revert
       | .revertWithData data => .revertWithData data
+      | .interpretationError message => .interpretationError message
+      | .exceptional next => .exceptional next
 
 def msbIndex (bitmap : Nat) : Nat :=
   if bitmap = 0 then 0 else Nat.log2 bitmap
@@ -1245,10 +1251,39 @@ def execForEachSetBitLoop
         | .return value next => .return value next
         | .revert => .revert
         | .revertWithData data => .revertWithData data
+        | .interpretationError message => .interpretationError message
+        | .exceptional next => .exceptional next
+
+/-- Computed creation statement. Argument evaluation is pure; the supplied
+context must be the actual opcode-entry context after compiled argument
+preparation, never an unmetered transaction gas default. -/
+def execCreation (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
+    (destination : String) (offset size salt : Expr) : StmtOutcome :=
+  match evalExprList oracle fields state [offset, size, salt] with
+  | some [o, n, s] =>
+      match state.executionContext with
+      | none => .interpretationError "CREATE2 requires an actual opcode-entry execution context"
+      | some context =>
+          match Verity.Core.Model.Create2Operation.run
+              { world := state.world, context := context.opcode, warm := context.warm }
+              (Verity.Core.Uint256.ofNat o) (Verity.Core.Uint256.ofNat n) (Verity.Core.Uint256.ofNat s) with
+          | .error message => .interpretationError message
+          | .ok (.exceptional frame) => .exceptional
+              { state with
+                world := frame.world
+                executionContext := some { opcode := frame.context, warm := frame.warm } }
+          | .ok (.continued value frame) => .continue
+              { state with
+                world := frame.world
+                executionContext := some { opcode := frame.context, warm := frame.warm }
+                bindings := bindValue state.bindings destination value.val }
+  | _ => .interpretationError "CREATE2 argument evaluation failed"
 
 mutual
   def execStmt (oracle : DenoteOracle) (fields : List Field) :
       DenoteState → Stmt → StmtOutcome
+    | state, .create2 destination offset size salt =>
+        execCreation oracle fields state destination offset size salt
     | state, .letVar name value =>
         match evalExpr oracle fields state value with
         | some resolved =>
@@ -1449,11 +1484,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -1471,33 +1502,13 @@ mutual
         | some dst, some src, some sz =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if calldatacopyWritesAt dst sz o then
-                    Verity.Core.Uint256.ofNat
-                      (calldataloadWord state.selector state.world.calldata (src + (o - dst)))
-                  else state.world.memory o
-              }
+              world := state.world.copyPhysicalCalldata state.selector dst src sz
             }
         | _, _, _ => .revert
     | state, .returndataCopy destOffset sourceOffset size =>
         match evalExpr oracle fields state destOffset, evalExpr oracle fields state sourceOffset,
             evalExpr oracle fields state size with
-        | some dst, some src, some sz =>
-            -- Same bounded-copy semantics as `SourceSemantics.execStmt` and the
-            -- IR interpreter: in-bounds extents copy complete words and merge
-            -- a final partial word; out-of-bounds extents revert identically.
-            if src + sz ≤ 32 * state.world.returndata.length then
-              .continue {
-                state with
-                world := {
-                  state.world with
-                  memory := returndatacopyMemoryPaddedUint256
-                    state.world.returndata dst src sz state.world.memory
-                }
-              }
-            else .revert
+        | some dst, some src, some sz => execReturndataCopy state dst src sz
         | _, _, _ => .revert
     | state, .require cond message =>
         match evalExpr oracle fields state cond with
@@ -1532,9 +1543,7 @@ mutual
     | state, .return value =>
         match evalExpr oracle fields state value with
         | some resolved => .return resolved
-            { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+            { state with world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop { state with observedStop := true }
     | state, .ite cond thenBranch elseBranch =>
@@ -1658,6 +1667,8 @@ mutual
         | .return value next => .return value next
         | .revert => .revert
         | .revertWithData data => .revertWithData data
+        | .interpretationError message => .interpretationError message
+        | .exceptional next => .exceptional next
 end
 
 /-! ## Function denotation (mirrors `SourceSemantics.interpretFunction`) -/
@@ -1678,6 +1689,11 @@ structure DenoteTransaction where
 
 /-- Mirrors `SourceSemantics.SourceContractResult`. -/
 structure DenoteResult where
+  /-- Actual terminal opcode context; absent on ordinary reverts and refusals. -/
+  exceptionalContext : Option Verity.Core.Model.ExecutionContext := none
+  /-- Exact bytes of an explicitly observed revert; empty on success. -/
+  revertData : List UInt8 := []
+  interpretationError : Option String := none
   success : Bool
   returnValue : Option Nat
   /-- Multi-word return observed from `Stmt.returnValues`.
@@ -1699,6 +1715,21 @@ def revertedResult (oracle : DenoteOracle) (spec : CompilationModel)
     returnValue := none
     finalStorage := encodeStorage oracle spec initialWorld
     events := encodeEvents initialWorld.events }
+
+/-- Preserve an actual exhausted exception carrier while rolling back public
+observations. Missing or non-exhausted context remains an interpreter refusal. -/
+def exceptionalResult (oracle : DenoteOracle) (spec : CompilationModel)
+    (initialWorld : Verity.ContractState) (terminal : DenoteState) : DenoteResult :=
+  match terminal.executionContext with
+  | some context =>
+      if context.opcode.gas = 0 then
+        { revertedResult oracle spec initialWorld with exceptionalContext := some context }
+      else
+        { revertedResult oracle spec initialWorld with
+          interpretationError := some "exceptional exit requires exhausted opcode gas" }
+  | none =>
+      { revertedResult oracle spec initialWorld with
+        interpretationError := some "exceptional exit requires actual opcode context" }
 
 def successResult (oracle : DenoteOracle) (spec : CompilationModel)
     (world : Verity.ContractState) (ret : Option Nat) (returnWords : List Nat := []) :
@@ -1803,7 +1834,11 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
           successResult oracle spec state.world none
             (returnWords := state.observedReturnWords.getD [])
       | .return value state => successResult oracle spec state.world (some value)
-      | .revert | .revertWithData _ => revertedResult oracle spec worldWithTx
+      | .revert => revertedResult oracle spec worldWithTx
+      | .exceptional terminal => exceptionalResult oracle spec worldWithTx terminal
+      | .revertWithData data => { revertedResult oracle spec worldWithTx with revertData := data }
+      | .interpretationError message =>
+          { revertedResult oracle spec worldWithTx with interpretationError := some message }
 
 /-! ## Smoke checks (oracle-independent scenarios) -/
 
@@ -1826,18 +1861,18 @@ private def smokeTx : DenoteTransaction :=
 example :
     (denoteFunction dummyOracle (smokeSpec [.return (.literal 42)])
       (smokeFn [.return (.literal 42)]) smokeTx Verity.defaultState).returnValue =
-      some 42 := by native_decide
+      some 42 := by decide
 
 example :
     (denoteFunction dummyOracle
       (smokeSpec [.letVar "x" (.literal 7), .return (.add (.localVar "x") (.literal 5))])
       (smokeFn [.letVar "x" (.literal 7), .return (.add (.localVar "x") (.literal 5))])
-      smokeTx Verity.defaultState).returnValue = some 12 := by native_decide
+      smokeTx Verity.defaultState).returnValue = some 12 := by decide
 
 example :
     (denoteFunction dummyOracle (smokeSpec [.require (.literal 0) "always fails"])
       (smokeFn [.require (.literal 0) "always fails"]) smokeTx
-      Verity.defaultState).success = false := by native_decide
+      Verity.defaultState).success = false := by decide
 
 example :
     let world := { Verity.defaultState with
@@ -1848,7 +1883,7 @@ example :
     evalExpr dummyOracle [] state (.memoryArrayLength "xs") = some 2 ∧
       evalExpr dummyOracle [] state (.memoryArrayElement "xs" (.literal 0)) = some 41 ∧
       evalExpr dummyOracle [] state (.memoryArrayElement "xs" (.literal 2)) = none := by
-  native_decide
+  decide
 
 example :
     let body :=
@@ -1858,6 +1893,6 @@ example :
       , Stmt.return (.memoryArrayElement "xs" (.literal 0)) ]
     (denoteFunction dummyOracle (smokeSpec body) (smokeFn body)
       smokeTx Verity.defaultState).returnValue = some 77 := by
-  native_decide
+  decide
 
 end Compiler.CompilationModel.Denote

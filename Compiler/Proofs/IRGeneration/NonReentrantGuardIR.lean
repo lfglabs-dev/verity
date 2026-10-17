@@ -9,7 +9,7 @@ First machine-checked brick of the `guarded` ↔ emitted-Yul correspondence
 `Compiler.CompilationModel.nonReentrantGuardPrologue` are evaluated under the
 IR interpreter used by the IR-generation proofs.
 
-- lock slot reads nonzero → the frame reverts with the state untouched;
+- lock slot reads nonzero → REVERT captures its empty payload when fuel suffices;
 - lock slot reads `0` → execution falls through with the lock set to `1` and
   nothing else changed;
 - the release statement spliced by `applyLockReleaseOnExits` resets the slot;
@@ -45,21 +45,19 @@ theorem nonReentrantGuardPrologue_eq (fields : List Field) (lockField : String)
     nonReentrantGuardPrologue fields lockField = .ok (guardPrologueStmts slot) := by
   simp [nonReentrantGuardPrologue, h, guardPrologueStmts, pure, Except.pure]
 
-/-- Lock held (`tload ≠ 0`) → the prologue reverts and the state is untouched. -/
+/-- Lock held: sufficient fuel captures the actual empty REVERT. At the
+legacy minimum budget the interpreter instead exhausts before capture. -/
 theorem execIRStmts_guardPrologue_locked (fuel : Nat) (state : IRState) (slot : Nat)
     (hslot : slot < Compiler.Constants.evmModulus)
     (hlock : state.transientStorage slot ≠ 0) :
-    execIRStmts (fuel + 3) state (guardPrologueStmts slot) = .revert state := by
+    execIRStmts (fuel + 3) state (guardPrologueStmts slot) =
+      .revert (if fuel = 0 then state else state.captureRevert 0 0) := by
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
   cases fuel with
   | zero =>
-      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock,
-        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
   | succ n =>
-      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock,
-        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
 
 /-- Lock free (`tload = 0`) → the prologue acquires the lock and changes
 nothing else. -/
@@ -70,11 +68,7 @@ theorem execIRStmts_guardPrologue_free (fuel : Nat) (state : IRState) (slot : Na
       .continue { state with
         transientStorage := fun o => if o = slot then 1 else state.transientStorage o } := by
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
-  have hone : (1 : Nat) < Compiler.Constants.evmModulus := by
-    simp [Compiler.Constants.evmModulus]
-  simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-    evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
-    YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+  simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
 
 /-- The spliced release resets the lock slot and changes nothing else. -/
 theorem execIRStmt_lockRelease (fuel : Nat) (state : IRState) (slot : Nat)
@@ -145,12 +139,16 @@ theorem execIRStmts_append_continue (ys : List YulStmt) :
               | .continue s₁ => execIRStmts f s₁ (xs' ++ ys)
               | .return v s => .return v s
               | .stop s => .stop s
+              | .exceptional s => .exceptional s
+              | .interpretationError message => .interpretationError message
               | .revert s => .revert s) from rfl]
           rw [show execIRStmts (f + 1) state (x :: xs') =
             (match execIRStmt f state x with
               | .continue s₁ => execIRStmts f s₁ xs'
               | .return v s => .return v s
               | .stop s => .stop s
+              | .exceptional s => .exceptional s
+              | .interpretationError message => .interpretationError message
               | .revert s => .revert s) from rfl] at h
           cases hstep : execIRStmt f state x with
           | «continue» s₁ =>
@@ -160,6 +158,8 @@ theorem execIRStmts_append_continue (ys : List YulStmt) :
           | «return» v s => rw [hstep] at h; cases h
           | stop s => rw [hstep] at h; cases h
           | revert s => rw [hstep] at h; cases h
+          | exceptional s => rw [hstep] at h; cases h
+          | interpretationError message => rw [hstep] at h; cases h
 
 /-- Fall-through law: a straight-line guarded body (no frame exits, no splice
 points) that continues releases the lock at the end and changes nothing
@@ -187,6 +187,8 @@ theorem applyLockReleaseOnExits_fallthrough (slot : Nat) (body : List YulStmt)
       | .continue s₁ => execIRStmts (k + 1) s₁ []
       | .return v s => .return v s
       | .stop s => .stop s
+      | .exceptional s => .exceptional s
+      | .interpretationError message => .interpretationError message
       | .revert s => .revert s) from rfl]
   rw [execIRStmt_lockRelease k s' slot hslot]
   simp [execIRStmts]
@@ -247,6 +249,8 @@ theorem applyLockReleaseOnExits_stop (slot : Nat) (xs : List YulStmt)
       | .continue s₁ => execIRStmts (k + 2) s₁ [YulStmt.exprStmt (.call "stop" [])]
       | .return v s => .return v s
       | .stop s => .stop s
+      | .exceptional s => .exceptional s
+      | .interpretationError message => .interpretationError message
       | .revert s => .revert s) from rfl]
   rw [execIRStmt_lockRelease (k + 1) s' slot hslot]
   rfl
@@ -254,31 +258,26 @@ theorem applyLockReleaseOnExits_stop (slot : Nat) (xs : List YulStmt)
 /-! ## Composed guard correspondence (straight-line bodies)
 
 The IR-level mirror of `Verity.Core.Model.NonReentrantGuard.guarded` for
-straight-line bodies: locked entry reverts untouched; free entry runs the body
+straight-line bodies: locked entry captures the empty payload when fuel suffices; free entry runs the body
 under the acquired lock and releases it on fall-through. -/
 
-/-- Locked entry: the whole guarded compilation unit — prologue followed by
-anything — reverts untouched; the revert short-circuits the rest. -/
+/-- Locked entry short-circuits the suffix. Exactly the old minimum fuel
+exhausts before capture; every larger budget observes the empty REVERT. -/
 theorem guardedBody_locked_reverts (slot : Nat) (rest : List YulStmt)
     (fuel : Nat) (state : IRState)
     (hslot : slot < Compiler.Constants.evmModulus)
     (hlock : state.transientStorage slot = 1)
     (hfuel : 3 ≤ fuel) :
-    execIRStmts fuel state (guardPrologueStmts slot ++ rest) = .revert state := by
+    execIRStmts fuel state (guardPrologueStmts slot ++ rest) =
+      .revert (if fuel = 3 then state else state.captureRevert 0 0) := by
   obtain ⟨k, hk⟩ : ∃ k, fuel = k + 3 := ⟨fuel - 3, by omega⟩
   subst hk
   have hmod : slot % Compiler.Constants.evmModulus = slot := Nat.mod_eq_of_lt hslot
-  have hone : (1 : Nat) < Compiler.Constants.evmModulus := by
-    simp [Compiler.Constants.evmModulus]
   cases k with
   | zero =>
-      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
-        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
   | succ n =>
-      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, evalIRCall,
-        evalIRExprs, hmod, hlock, Nat.mod_eq_of_lt hone,
-        YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+      simp [guardPrologueStmts, execIRStmts, execIRStmt, evalIRExpr, hmod, hlock]
 
 /-- Free entry: the guarded unit runs its suffix from the acquired state.
 Composes the prologue-acquire lemma with fuel sequencing. -/
@@ -366,11 +365,15 @@ theorem execIRStmts_straightline_fuel_insensitive :
           | .continue s₁ => execIRStmts (xs'.length + f + 1) s₁ xs'
           | .return v s => .return v s
           | .stop s => .stop s
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s) =
         (match execIRStmt (xs'.length + g + 1) state x with
           | .continue s₁ => execIRStmts (xs'.length + g + 1) s₁ xs'
           | .return v s => .return v s
           | .stop s => .stop s
+          | .exceptional s => .exceptional s
+          | .interpretationError message => .interpretationError message
           | .revert s => .revert s)
       rw [execIRStmt_straightline_fuel_insensitive x hx
         (xs'.length + f) (xs'.length + g) state]
@@ -380,6 +383,8 @@ theorem execIRStmts_straightline_fuel_insensitive :
       | «return» v s => rfl
       | stop s => rfl
       | revert s => rfl
+      | exceptional s => rfl
+      | interpretationError message => rfl
 
 /-- A straight-line statement that is not a frame exit splices to itself. -/
 theorem spliceLockRelease_eq_self (release : YulStmt) (stmt : YulStmt)
@@ -490,42 +495,32 @@ theorem execIRStmts_spliced_if_stop (slot : Nat) (cond : YulExpr)
           transientStorage := fun o => if o = slot then 0
             else state.transientStorage o }
       else .continue state := by
-  rw [spliceLockRelease_if_stop_shape]
-  show (match execIRStmt (fuel + 4) state
-      (.if_ cond [lockReleaseStmt slot, .exprStmt (.call "stop" [])]) with
-    | .continue s₁ => execIRStmts (fuel + 4) s₁ []
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s) = _
-  rw [show execIRStmt (fuel + 4) state
+  have halted := applyLockReleaseOnExits_stop slot [] (fuel + 3) state state hslot
+    (by rfl) (by rfl) (by simp)
+  change execIRStmts (fuel + 3) state
+    [lockReleaseStmt slot, .exprStmt (.call "stop" [])] = _ at halted
+  have conditional : execIRStmt (fuel + 4) state
       (.if_ cond [lockReleaseStmt slot, .exprStmt (.call "stop" [])]) =
-    (match evalIRExpr state cond with
-      | some c => if c ≠ 0 then
-          execIRStmts (fuel + 3) state
-            [lockReleaseStmt slot, .exprStmt (.call "stop" [])]
-        else .continue state
-      | none => .revert state) from rfl, hcond]
-  show (match (if c ≠ 0 then
-      execIRStmts (fuel + 3) state
-        [lockReleaseStmt slot, .exprStmt (.call "stop" [])]
-    else .continue state) with
-    | .continue s₁ => execIRStmts (fuel + 4) s₁ []
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s) = _
-  by_cases hc : c ≠ 0
-  · rw [if_pos hc, if_pos hc,
-      show execIRStmts (fuel + 3) state
-          [lockReleaseStmt slot, .exprStmt (.call "stop" [])] =
-        (match execIRStmt (fuel + 2) state (lockReleaseStmt slot) with
-          | .continue s₁ => execIRStmts (fuel + 2) s₁
-              [.exprStmt (.call "stop" [])]
-          | .return v s => .return v s
-          | .stop s => .stop s
-          | .revert s => .revert s) from rfl,
-      execIRStmt_lockRelease (fuel + 1) state slot hslot]
-    rfl
-  · rw [if_neg hc, if_neg hc]
+      if c ≠ 0 then .stop { state with transientStorage := fun o =>
+        if o = slot then 0 else state.transientStorage o } else .continue state := by
+    change (match evalIRExpr state cond with
+      | some value => if value ≠ 0 then execIRStmts (fuel + 3) state
+          [lockReleaseStmt slot, .exprStmt (.call "stop" [])] else .continue state
+      | none => .revert state) = _
+    rw [hcond, halted]
+  rw [spliceLockRelease_if_stop_shape]
+  change (match execIRStmt (fuel + 4) state
+      (.if_ cond [lockReleaseStmt slot, .exprStmt (.call "stop" [])]) with
+    | .continue next => execIRStmts (fuel + 4) next []
+    | .return value next => .return value next
+    | .stop next => .stop next
+    | .exceptional next => .exceptional next
+    | .interpretationError message => .interpretationError message
+    | .revert next => .revert next) = _
+  rw [conditional]
+  by_cases nonzero : c ≠ 0
+  · rw [if_pos nonzero]
+  · rw [if_neg nonzero]
     rfl
 
 end Compiler.Proofs.IRGeneration

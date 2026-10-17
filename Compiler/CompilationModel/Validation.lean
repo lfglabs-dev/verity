@@ -2,6 +2,7 @@
   Compiler.CompilationModel.Validation: Validation walkers and shape checks
 -/
 import Compiler.CompilationModel.Types
+import Compiler.CompilationModel.RequirePayloadValidation
 import Compiler.CompilationModel.AbiHelpers
 import Compiler.CompilationModel.AbiTypeLayout
 import Compiler.CompilationModel.DynamicData
@@ -426,6 +427,7 @@ def exprListWritesState (es : List Expr) : Bool :=
 /-- Node-local statement classifier for state writes; nested statement bodies
     are reached via the canonical `Stmt.anyDeep`. -/
 def stmtWritesStateNode : Stmt → Bool
+  | Stmt.create2 _ _ _ _ => true
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
       exprWritesState value
   | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
@@ -622,6 +624,7 @@ def exprListMayContainExternalCall (es : List Expr) : Bool :=
     bodies are reached via the canonical `Stmt.anyDeep`.
     Used by `no_external_calls` validation (#1729, Axis 3 Step 1c). -/
 def stmtContainsExternalCallNode : Stmt → Bool
+  | Stmt.create2 _ _ _ _ => true
   | Stmt.externalCallBind _ _ _ | Stmt.tryExternalCallBind _ _ _ _ => true
   | Stmt.ecm _ _ => true
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
@@ -788,6 +791,7 @@ def matchBranchesMayContainExternalCall (branches : List (String × List String 
 /-- Node-local statement classifier for state/environment reads; nested
     statement bodies are reached via the canonical `Stmt.anyDeep`. -/
 def stmtReadsStateOrEnvNode : Stmt → Bool
+  | Stmt.create2 _ _ _ _ => true
   | Stmt.letVar _ value | Stmt.assignVar _ value | Stmt.setStorage _ value | Stmt.setStorageAddr _ value
   | Stmt.setImmutable _ value | Stmt.setStorageWord _ _ value |
     Stmt.return value | Stmt.require value _ =>
@@ -878,6 +882,7 @@ def exprListWritesStateWithFunctionEffects
     per-function effects; nested bodies via the canonical `Stmt.anyDeep`. -/
 def stmtWritesStateWithFunctionEffectsNode
     (effects : List (String × FunctionEffect)) : Stmt → Bool
+  | Stmt.create2 _ _ _ _ => true
   | Stmt.letVar _ value | Stmt.assignVar _ value =>
       exprWritesStateWithFunctionEffects effects value
   | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
@@ -961,6 +966,7 @@ def exprListReadsStateOrEnvWithFunctionEffects
     per-function effects; nested bodies via the canonical `Stmt.anyDeep`. -/
 def stmtReadsStateOrEnvWithFunctionEffectsNode
     (effects : List (String × FunctionEffect)) : Stmt → Bool
+  | Stmt.create2 _ _ _ _ => true
   | Stmt.internalCall name args | Stmt.internalCallAssign _ name args =>
       (lookupFunctionEffect effects name).readsStateOrEnv ||
         exprListReadsStateOrEnvWithFunctionEffects effects args
@@ -1068,6 +1074,7 @@ def validateFunctionSpecMutability
     considered persistent state writes for CEI purposes.
     (#1728, Axis 2 Step 2a) -/
 def stmtIsPersistentWriteNode : Stmt → Bool
+  | Stmt.create2 _ _ _ _ => true
   | Stmt.setStorage _ _ | Stmt.setStorageAddr _ _ | Stmt.setStorageWord _ _ _
   | Stmt.storageArrayPush _ _ | Stmt.storageArrayPop _ | Stmt.setStorageArrayElement _ _ _
   | Stmt.setMapping _ _ _ | Stmt.setMappingWord _ _ _ _ | Stmt.setMappingPackedWord _ _ _ _ _ | Stmt.setMappingUint _ _ _
@@ -1242,6 +1249,10 @@ def exprListContainsAdtConstruct (es : List Expr) : Bool :=
 /-- Node-local ADT-construction placement check; nested statement bodies are
     reached via the canonical `Stmt.forDeepM`. -/
 def validateNoUnsupportedAdtConstructNode : Stmt → Except String Unit
+  | Stmt.create2 _ offset size salt =>
+      if exprListContainsAdtConstruct [offset, size, salt] then
+        throw "Compilation error: ADT construction cannot be used as a CREATE2 operand."
+      else pure ()
   | Stmt.setStorage _ (Expr.adtConstruct _ _ args) =>
       if exprListContainsAdtConstruct args then
         throw "Compilation error: ADT construction arguments cannot themselves contain ADT construction; construct nested ADTs in storage explicitly."
@@ -1356,7 +1367,7 @@ theorem validateNoUnsupportedAdtConstructInBranches_eq_viaFold
       validateNoUnsupportedAdtConstructInBranches_viaFold branches := by
   rfl
 
-def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
+def validateFunctionSpecBase (spec : FunctionSpec) : Except String Unit := do
   if spec.abiDecoding == .explicitPrelude then
     if spec.isInternal || spec.nonReentrantLock.isSome then
       throw s!"Compilation error: function '{spec.name}' explicit ABI prelude is only supported on external entries without an automatic lock."
@@ -1440,6 +1451,12 @@ def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
     | none => pure ()
   validateFunctionIdentifierReferences spec
 
+/-- Validate the physical Error(string) address bound before the remaining
+function checks. Oversized payloads must fail rather than wrap in Yul. -/
+def validateFunctionSpec (spec : FunctionSpec) : Except String Unit := do
+  validateRequirePayloads s!"function '{spec.name}'" spec.body
+  validateFunctionSpecBase spec
+
 /-- Cross-function reentrancy gate (fail-closed). A function that makes a direct
     external call opens a reentrancy window: while control is handed to an
     external callee, another entrypoint can re-enter and observe or exploit this
@@ -1514,7 +1531,7 @@ theorem validateNoRuntimeReturnsInConstructorBranches_eq_viaFold
       validateNoRuntimeReturnsInConstructorBranches_viaFold branches := by
   rfl
 
-def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit := do
+def validateConstructorSpecBase (ctor : Option ConstructorSpec) : Except String Unit := do
   match ctor with
   | none => pure ()
   | some spec =>
@@ -1540,6 +1557,15 @@ def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit
       spec.body.forM validateNoRuntimeReturnsInConstructorStmt
       spec.body.forM (validateStmtParamReferences "constructor" spec.params)
       validateConstructorIdentifierReferences ctor
+
+/-- Constructor messages obey the same physical ABI extent gate as functions.
+All pre-existing constructor checks remain in the base validator. -/
+def validateConstructorSpec (ctor : Option ConstructorSpec) : Except String Unit := do
+  match ctor with
+  | none => validateConstructorSpecBase none
+  | some spec =>
+      validateRequirePayloads "constructor" spec.body
+      validateConstructorSpecBase ctor
 
 /-! ## `mapping(K => uint256[N])` element bounds
 

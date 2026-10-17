@@ -78,7 +78,14 @@ def mutation_campaign(output, selected=None):
     from .check_market_abi_mutations import mutation_campaign as market_abi_campaign
     from .check_multiple_dynamic_abi_mutations import MUTANTS as MULTIPLE_ABI_MUTANTS
     from .check_multiple_dynamic_abi_mutations import mutation_campaign as multiple_abi_campaign
-    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS, *STRUCT_ABI_MUTANTS, *SCALAR_ARRAY_MUTANTS, *ARRAY_FOR_MUTANTS, *MARKET_ABI_MUTANTS, *MULTIPLE_ABI_MUTANTS]:
+    from .check_memory_mutations import MUTANTS as MEMORY_MUTANTS
+    from .check_memory_mutations import mutation_campaign as memory_campaign
+    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS, *STRUCT_ABI_MUTANTS, *SCALAR_ARRAY_MUTANTS, *ARRAY_FOR_MUTANTS, *MARKET_ABI_MUTANTS, *MULTIPLE_ABI_MUTANTS, *MEMORY_MUTANTS]:
+        if name in MEMORY_MUTANTS:
+            result = memory_campaign(output, [name])
+            reports.extend(result['mutants'])
+            write_json(output / 'mutation-results.json', reports)
+            continue
         if name in MULTIPLE_ABI_MUTANTS:
             result = multiple_abi_campaign(output, [name])
             reports.extend(result['mutants'])

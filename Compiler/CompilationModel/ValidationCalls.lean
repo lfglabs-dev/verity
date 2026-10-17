@@ -553,6 +553,8 @@ def validateExternalCallTargetsNodeStmt
       validateExternalCallTargetsInExprList externals context args
   | Stmt.internalCallAssign _ _ args =>
       validateExternalCallTargetsInExprList externals context args
+  | Stmt.create2 _ offset size salt =>
+      validateExternalCallTargetsInExprList externals context [offset, size, salt]
   | Stmt.externalCallBind resultVars externalName args => do
       validateExternalCallTargetsInExprList externals context args
       match externals.find? (fun ext => ext.name == externalName) with

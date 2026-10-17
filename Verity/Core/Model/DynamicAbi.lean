@@ -15,10 +15,10 @@ def selectorWord (selector : Nat) : Nat :=
   (selector % Compiler.Constants.selectorModulus) * (2 ^ Compiler.Constants.selectorShift)
 
 def calldataloadWord (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat :=
-  if offset = 0 then
-    selectorWord selector
-  else if offset < 4 then
-    0
+  if offset < 4 then
+    -- The trailing selector bytes followed by the leading ABI data bytes.
+    ((selector % (2 ^ (8 * (4 - offset)))) * (2 ^ (8 * (28 + offset))) +
+      (calldata.getD 0 0 % Compiler.Constants.evmModulus) / (2 ^ (8 * (4 - offset)))) % Compiler.Constants.evmModulus
   else
     let p := offset - 4
     let q := p / 32

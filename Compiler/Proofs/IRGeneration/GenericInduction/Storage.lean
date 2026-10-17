@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
+import Compiler.Proofs.IRGeneration.GenericInduction.ReturndataBytes
 import Compiler.CompilationModel.ReservedScratchNames
 
 set_option linter.unnecessarySeqFocus false
@@ -12,6 +13,11 @@ open Compiler.CompilationModel
 open Compiler.Yul
 
 attribute [local simp] CompilationModel.compileExprWithInternals_nil_eq
+
+@[local simp] private theorem byteMemory_modifyTransientSlots
+    (world : Verity.ContractState) (targets : List Nat)
+    (update : Verity.Core.Uint256 → Verity.Core.Uint256) :
+    (world.modifyTransientSlots targets update).byteMemory = world.byteMemory := rfl
 
 private theorem singleton_contains_false {x y : Nat} (h : y ≠ x) :
     [x].contains y = false :=
@@ -2730,26 +2736,26 @@ private theorem compiledStmtStep_mstore_single_preserves
         hOffsetEval.symm
       have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
         hValueEval.symm
-      -- Source execution: mstore updates source-level memory
-      set runtime' := {
-        runtime with
-        world := {
-          runtime.world with
-          memory := fun o =>
-            if o = offsetNat then valueNat else runtime.world.memory o
-        }
-      }
+      -- Physical writes preserve both byte-carrier and word observations.
+      set runtime' := { runtime with world :=
+        runtime.world.writePhysicalMemoryValue offsetNat (Verity.Core.Uint256.ofNat valueNat) }
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.mstore offset value) = .continue runtime' := by
-        simp [SourceSemantics.execStmt, hOffsetSrc, hValueSrc, runtime']
-      -- IR execution: mstore updates IR-level memory
-      set state' := { state with
-          memory := fun o => if o = offsetNat then valueNat else state.memory o }
+        exact source_mstore_of_eval fields runtime offset value offsetNat valueNat
+          hOffsetSrc hValueSrc
+      set state' := state.writePhysicalMemoryValue offsetNat valueNat
+      have hOffsetLt : offsetNat < Compiler.Constants.evmModulus := by
+        have h := FunctionBody.evalExpr_lt_evmModulus_core_of_scope
+          hcoreOffset hexact hinScopeOffset hbounded
+          (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeOffset) hruntime
+        rw [hOffsetSrc] at h
+        exact h
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
             (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) =
               .continue state' := by
-        simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+        simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state',
+          Nat.mod_eq_of_lt hOffsetLt]
       have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
       have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
           .continue state' := by
@@ -2764,7 +2770,8 @@ private theorem compiledStmtStep_mstore_single_preserves
           (stmtNextScope scope (.mstore offset value))
           runtime'.bindings state' :=
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (by simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state', runtime'] using hexact)
+          (by simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory,
+            state', runtime'] using hexact)
           hincl
       have hscope' : FunctionBody.scopeNamesPresent
           (stmtNextScope scope (.mstore offset value))
@@ -2779,7 +2786,7 @@ private theorem compiledStmtStep_mstore_single_preserves
         rw [hValueSrc] at this; exact this
       have hruntime' : FunctionBody.runtimeStateMatchesIR fields runtime' state' := by
         show FunctionBody.runtimeStateMatchesIR fields _ _
-        exact FunctionBody.runtimeStateMatchesIR_setBothMemory hruntime offsetNat valueNat hValueLt
+        exact FunctionBody.runtimeStateMatchesIR_setBothPhysicalMemory hruntime offsetNat valueNat hValueLt
       exact ⟨_, _, hSrcExec, hIRExec,
         hruntime', hexact', hbounded', hscope'⟩
 
@@ -2899,7 +2906,8 @@ private theorem compiledStmtStep_tstore_single_preserves
           (stmtNextScope scope (.tstore offset value))
           runtime'.bindings state' :=
         FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (by simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state', runtime'] using hexact)
+          (by simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory,
+            state', runtime'] using hexact)
           hincl
       have hscope' : FunctionBody.scopeNamesPresent
           (stmtNextScope scope (.tstore offset value))
@@ -3010,22 +3018,12 @@ private theorem compiledStmtStep_calldatacopy_single_preserves
           hSizeEval.symm
         set runtime' := {
           runtime with
-          world := {
-            runtime.world with
-            memory := fun o =>
-              if Compiler.Proofs.YulGeneration.calldatacopyWritesAt destNat sizeNat o then
-                Verity.Core.Uint256.ofNat
-                  (Compiler.Proofs.YulGeneration.calldataloadWord
-                    runtime.selector runtime.world.calldata (sourceNat + (o - destNat)))
-              else runtime.world.memory o
-          }
+          world := runtime.world.copyPhysicalCalldata runtime.selector destNat sourceNat sizeNat
         } with hruntime'def
         have hSrcExec : SourceSemantics.execStmt fields runtime
             (.calldatacopy destOffset sourceOffset size) = .continue runtime' := by
           simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, runtime']
-        set state' := { state with
-            memory := Compiler.Proofs.YulGeneration.calldatacopyMemory
-              state.selector state.calldata destNat sourceNat sizeNat state.memory } with hstate'def
+        set state' := state.copyPhysicalCalldata destNat sourceNat sizeNat with hstate'def
         have hExecStmt :
             execIRStmt (extraFuel + 1) state
               (YulStmt.exprStmt
@@ -3045,8 +3043,10 @@ private theorem compiledStmtStep_calldatacopy_single_preserves
             runtime'.bindings state' :=
           FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
             (by
-              simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state',
-                runtime'] using hexact)
+              by_cases zero : sizeNat = 0 <;>
+                simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state',
+                  IRState.copyPhysicalCalldata, IRState.copyPhysicalBytes, zero,
+                  IRState.installPhysicalMemory, runtime'] using hexact)
             hincl
         have hscope' : FunctionBody.scopeNamesPresent
             (stmtNextScope scope (.calldatacopy destOffset sourceOffset size))
@@ -3140,22 +3140,20 @@ private theorem compiledStmtStep_returndatacopy_empty_single_preserves
       hDestEval.symm
     -- The zero-extent copy fits any buffer and writes no memory word, so both
     -- the source semantics and the IR interpreter leave their states alone.
-    have hzeroNoWrite : ∀ o,
-        ¬Compiler.Proofs.YulGeneration.calldatacopyWritesAt destNat 0 o := by
-      intro o hwall
-      obtain ⟨_, h2, _⟩ := hwall
-      simp only [Nat.zero_div, Nat.mul_zero, Nat.add_zero] at h2
-      omega
     have hSrcExec : SourceSemantics.execStmt fields runtime
         (.returndataCopy destOffset (.literal 0) (.literal 0)) = .continue runtime := by
-      simp [SourceSemantics.execStmt, SourceSemantics.evalExpr, hDestSrc, Nat.zero_le,
-        hzeroNoWrite]
+      have copied := Verity.Core.Model.ReturndataCopy.run_in_bounds
+        runtime.world runtime.executionContext destNat 0 0 (by simp)
+      simp [SourceSemantics.execStmt, SourceSemantics.evalExpr, hDestSrc,
+        SourceSemantics.execReturndataCopy, copied,
+        Verity.ContractState.copyPhysicalReturndata, Verity.ContractState.copyPhysicalBytes_zero]
     have hExecStmt :
         execIRStmt (extraFuel + 1) state
           (YulStmt.exprStmt
             (YulExpr.call "returndatacopy" [destIR, YulExpr.lit 0, YulExpr.lit 0])) =
             .continue state := by
-      simp [execIRStmt, evalIRExpr, hIRDest, Nat.zero_le]
+      simp [execIRStmt, evalIRExpr, hIRDest, Nat.zero_le,
+        IRState.copyPhysicalReturndata, IRState.copyPhysicalBytes_zero]
     have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
     have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
         .continue state := by
@@ -3231,6 +3229,7 @@ private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
           sourceResult
           irExec := by
   intro runtime state extraFuel hexact hscope hbounded hruntime _hslack
+  have hcontext := FunctionBody.runtimeStateMatchesIR_executionContext hruntime
   have hrd := FunctionBody.runtimeStateMatchesIR_returndata hruntime
   let compiledIR :=
     [YulStmt.exprStmt (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])]
@@ -3269,27 +3268,22 @@ private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
           hSourceEval.symm
         have hSizeSrc : SourceSemantics.evalExpr fields runtime size = some sizeNat :=
           hSizeEval.symm
-        -- Both layers branch on the same fit guard (the buffers agree by
-        -- `hrd`), so the step corresponds in either branch: the in-bounds copy
-        -- continues with the same words, the out-of-bounds extent reverts on
-        -- both sides. No side condition is needed.
-        by_cases hfit : sourceNat + sizeNat ≤ 32 * runtime.world.returndata.length
-        · have hfitIR : sourceNat + sizeNat ≤ 32 * state.returndata.length := by
+        -- Both executors normalize EVM operands before the same bounds test.
+        by_cases hfit : sourceNat % Compiler.Constants.evmModulus + sizeNat % Compiler.Constants.evmModulus ≤ 32 * runtime.world.returndata.length
+        · have hfitIR : sourceNat % Compiler.Constants.evmModulus + sizeNat % Compiler.Constants.evmModulus ≤ 32 * state.returndata.length := by
             rw [hrd]; exact hfit
           set runtime' := {
               runtime with
-              world := {
-                runtime.world with
-                memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPaddedUint256
-                  runtime.world.returndata destNat sourceNat sizeNat runtime.world.memory
-              }
+              world := runtime.world.copyPhysicalReturndata (destNat % Compiler.Constants.evmModulus)
+                (sourceNat % Compiler.Constants.evmModulus) (sizeNat % Compiler.Constants.evmModulus)
             } with hruntime'def
+          have hcopy := Verity.Core.Model.ReturndataCopy.run_in_bounds
+            runtime.world runtime.executionContext destNat sourceNat sizeNat hfit
           have hSrcExec : SourceSemantics.execStmt fields runtime
               (.returndataCopy destOffset sourceOffset size) = .continue runtime' := by
-            simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit, runtime']
-          set state' := { state with
-              memory := Compiler.Proofs.IRGeneration.returndatacopyMemoryPadded
-                state.returndata destNat sourceNat sizeNat state.memory } with hstate'def
+            simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, SourceSemantics.execReturndataCopy, hcopy, runtime']
+          set state' := state.copyPhysicalReturndata (destNat % Compiler.Constants.evmModulus)
+                (sourceNat % Compiler.Constants.evmModulus) (sizeNat % Compiler.Constants.evmModulus) with hstate'def
           have hExecStmt :
               execIRStmt (extraFuel + 1) state
                 (YulStmt.exprStmt
@@ -3309,8 +3303,10 @@ private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
               runtime'.bindings state' :=
             FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
               (by
-                simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state',
-                  runtime'] using hexact)
+                by_cases zero : sizeNat % Compiler.Constants.evmModulus = 0 <;>
+                  simpa [FunctionBody.bindingsExactlyMatchIRVarsOnScope, IRState.getVar, state',
+                    IRState.copyPhysicalReturndata, IRState.copyPhysicalBytes, zero,
+                    IRState.installPhysicalMemory, runtime'] using hexact)
               hincl
           have hscope' : FunctionBody.scopeNamesPresent
               (stmtNextScope scope (.returndataCopy destOffset sourceOffset size))
@@ -3320,33 +3316,45 @@ private theorem compiledStmtStep_returndatacopy_bounded_single_preserves
             simpa [runtime'] using hbounded
           have hruntime' : FunctionBody.runtimeStateMatchesIR fields runtime' state' :=
             FunctionBody.runtimeStateMatchesIR_returndatacopyBothMemory hruntime
-              destNat sourceNat sizeNat
+              (destNat % Compiler.Constants.evmModulus)
+              (sourceNat % Compiler.Constants.evmModulus) (sizeNat % Compiler.Constants.evmModulus)
           exact ⟨_, _, hSrcExec, hIRExec,
             hruntime', hexact', hbounded', hscope'⟩
-        · have hfitIR : ¬(sourceNat + sizeNat ≤ 32 * state.returndata.length) := by
+        · have hfitIR : ¬(sourceNat % Compiler.Constants.evmModulus + sizeNat % Compiler.Constants.evmModulus ≤ 32 * state.returndata.length) := by
             intro hcon
             rw [hrd] at hcon
             exact hfit hcon
-          have hSrcExec : SourceSemantics.execStmt fields runtime
-              (.returndataCopy destOffset sourceOffset size) = .revert := by
-            simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc, hfit]
-          have hExecStmt :
-              execIRStmt (extraFuel + 1) state
-                (YulStmt.exprStmt
-                  (YulExpr.call "returndatacopy" [destIR, sourceIR, sizeIR])) =
-                  .revert state := by
-            simp [execIRStmt, hIRDest, hIRSource, hIRSize, hfitIR]
           have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
-          have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
-              .revert state := by
-            simp [compiledIR, execIRStmts, hfuelEq, hExecStmt]
-          exact ⟨_, _, hSrcExec, hIRExec, trivial⟩
+          cases hctx : runtime.executionContext with
+          | none =>
+              have hctxIR : state.executionContext = none := hcontext.symm.trans hctx
+              refine ⟨.interpretationError "returndata copy exceptional exit requires actual opcode context",
+                .interpretationError "returndata copy exceptional exit requires actual opcode context", ?_, ?_, rfl⟩
+              · have hcopy := Verity.Core.Model.ReturndataCopy.run_missing_context
+                  runtime.world destNat sourceNat sizeNat (Nat.lt_of_not_ge hfit)
+                simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc,
+                  SourceSemantics.execReturndataCopy, hctx, hcopy]
+              · simp [compiledIR, execIRStmts, hfuelEq, execIRStmt,
+                  hIRDest, hIRSource, hIRSize, hfitIR, hctxIR]
+          | some context =>
+              have hctxIR : state.executionContext = some context := hcontext.symm.trans hctx
+              let exhausted := { context with opcode := { context.opcode with gas := 0 } }
+              refine ⟨.exceptional { runtime with executionContext := some exhausted },
+                .exceptional { state with executionContext := some exhausted }, ?_, ?_, ?_⟩
+              · have hcopy := Verity.Core.Model.ReturndataCopy.run_exceptional
+                  runtime.world context destNat sourceNat sizeNat (Nat.lt_of_not_ge hfit)
+                simp [SourceSemantics.execStmt, hDestSrc, hSourceSrc, hSizeSrc,
+                  SourceSemantics.execReturndataCopy, hctx, hcopy, exhausted]
+              · simp [compiledIR, execIRStmts, hfuelEq, execIRStmt,
+                  hIRDest, hIRSource, hIRSize, hfitIR, hctxIR, exhausted]
+              · exact FunctionBody.runtimeStateMatchesIR_replace_executionContext hruntime _
 
 /-- Bounded `returndataCopy` correspondence: the compiled single
 `returndatacopy(destIR, sourceIR, sizeIR)` step agrees with the source
 semantics for every extent — in-bounds copies continue with the same
 word-granular memory (via `runtimeStateMatchesIR_returndatacopyBothMemory`),
-out-of-bounds extents revert on both layers. This is the ready-made consumer
+out-of-bounds extents preserve actual-context exceptions or matching precise
+refusals. This is the ready-made consumer
 for the follow-up fragment-widening slice; no supported-surface predicate is
 relaxed here. -/
 theorem compiledStmtStep_returndatacopy_bounded_single
@@ -3376,10 +3384,7 @@ theorem compiledStmtStep_returndatacopy_bounded_single
     hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize
     hdestIR hsourceIR hsizeIR
 
-/-- `revertReturndata` bubbles the callee's revert reason.  The compiler's
-temporary is exactly `returndatasize()`; whichever branch the copy takes for the
-current EIP-211 buffer, both it and the following `revert` land in
-`IRExecResult.revert`, matching the source statement's `.revert`. -/
+/-- Exact bubbling uses the retained size admission and preserves every byte. -/
 private theorem compiledStmtStep_revertReturndata_empty_single_preserves
     {fields : List Field}
     {scope : List String} :
@@ -3414,57 +3419,9 @@ private theorem compiledStmtStep_revertReturndata_empty_single_preserves
             ]] = irExec ∧
         stmtStepMatchesIRExec fields (stmtNextScope scope .revertReturndata)
           sourceResult irExec := by
-  intro runtime state extraFuel _ _ _ _ hslack
-  have h3 : 3 ≤ extraFuel := by
-    have : 4 ≤ sizeOf [YulStmt.block [
-        YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
-        YulStmt.exprStmt (YulExpr.call "returndatacopy"
-          [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
-        YulStmt.exprStmt (YulExpr.call "revert"
-          [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
-        ]] := by decide
-    omega
-  obtain ⟨k, rfl⟩ := Nat.exists_eq_add_of_le h3
-  have hfuel : [YulStmt.block [
-      YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
-      YulStmt.exprStmt (YulExpr.call "returndatacopy"
-        [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
-      YulStmt.exprStmt (YulExpr.call "revert"
-        [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
-    ]].length + (3 + k) + 1 =
-    Nat.succ (Nat.succ (Nat.succ (Nat.succ (Nat.succ k)))) := by
-    have : [YulStmt.block [
-        YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
-        YulStmt.exprStmt (YulExpr.call "returndatacopy"
-          [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
-        YulStmt.exprStmt (YulExpr.call "revert"
-          [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
-      ]].length = 1 := rfl
-    omega
-  rw [hfuel]
-  have hRevert : ∀ n (s : IRState),
-      execIRStmt n s (YulStmt.exprStmt (YulExpr.call "revert"
-        [YulExpr.lit 0, YulExpr.ident "__returndata_size"])) = .revert s := by
-    intro n s; cases n <;> simp [execIRStmt]
-  -- Whichever branch the copy takes for the current EIP-211 buffer — the
-  -- in-bounds copy continues with a memory update, the out-of-bounds extent
-  -- reverts immediately — the trailing `revert` lands the frame in a reverted
-  -- state, so only the reverted-ness is pinned here.
-  have hir : ∃ s, execIRStmts
-      (Nat.succ (Nat.succ (Nat.succ (Nat.succ (Nat.succ k))))) state
-      [YulStmt.block [
-        YulStmt.let_ "__returndata_size" (YulExpr.call "returndatasize" []),
-        YulStmt.exprStmt (YulExpr.call "returndatacopy"
-          [YulExpr.lit 0, YulExpr.lit 0, YulExpr.ident "__returndata_size"]),
-        YulStmt.exprStmt (YulExpr.call "revert"
-          [YulExpr.lit 0, YulExpr.ident "__returndata_size"])
-      ]] = .revert s := by
-    simp [execIRStmts, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      IRState.getVar, IRState.setVar, hRevert]
-    split_ifs <;> exact ⟨_, rfl⟩
-  obtain ⟨s, hs⟩ := hir
-  exact ⟨.revert, .revert s, rfl, hs, trivial⟩
+  intro runtime state extraFuel _ _ _ hruntime hslack
+  exact compiled_revertReturndata_exact_bytes runtime state extraFuel hruntime
+    (FunctionBody.runtimeStateMatchesIR_returndata_extent hruntime) hslack
 
 theorem compiledStmtStep_revertReturndata_empty_single
     {fields : List Field} {scope : List String} :
@@ -3613,7 +3570,8 @@ private theorem compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserv
             (stmtNextScope scope (.setMappingUint fieldName key value))
             runtime'.bindings state' := by
           exact FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-            (by intro name hname; simpa [IRState.getVar, state', runtime'] using hexact name hname)
+            (by intro name hname; simpa [IRState.getVar, IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory,
+            state', runtime'] using hexact name hname)
             hincl
         have hscopeRuntime' : FunctionBody.scopeNamesPresent
             (stmtNextScope scope (.setMappingUint fieldName key value))
@@ -4329,7 +4287,8 @@ private theorem compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preser
           (stmtNextScope scope (.setMappingChain fieldName keys value))
           runtime'.bindings state' := by
         exact FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (by intro name hname; simpa [IRState.getVar, state', runtime'] using hexact name hname)
+          (by intro name hname; simpa [IRState.getVar, IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory,
+            state', runtime'] using hexact name hname)
           hincl
       have hbounded' : FunctionBody.bindingsBounded runtime'.bindings := by
         simpa [runtime'] using hbounded
@@ -4565,7 +4524,8 @@ private theorem compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves
             (stmtNextScope scope (.setMapping fieldName key value))
             runtime'.bindings state' := by
           exact FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-            (by intro name hname; simpa [IRState.getVar, state', runtime'] using hexact name hname)
+            (by intro name hname; simpa [IRState.getVar, IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory,
+            state', runtime'] using hexact name hname)
             hincl
         have hscopeRuntime' : FunctionBody.scopeNamesPresent
             (stmtNextScope scope (.setMapping fieldName key value))
@@ -4812,7 +4772,8 @@ private theorem compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserv
             (stmtNextScope scope (.setMappingWord fieldName key wordOffset value))
             runtime'.bindings state' := by
           exact FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-            (by intro name hname; simpa [IRState.getVar, state', runtime'] using hexact name hname)
+            (by intro name hname; simpa [IRState.getVar, IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory,
+            state', runtime'] using hexact name hname)
             hincl
         have hscopeRuntime' : FunctionBody.scopeNamesPresent
             (stmtNextScope scope (.setMappingWord fieldName key wordOffset value))
@@ -6228,7 +6189,8 @@ private theorem compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves
               (stmtNextScope scope (.setMapping2 fieldName key1 key2 value))
               runtime'.bindings state' := by
             exact FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-              (by intro name hname; simpa [IRState.getVar, state', runtime'] using hexact name hname)
+              (by intro name hname; simpa [IRState.getVar, IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory,
+            state', runtime'] using hexact name hname)
               hincl
           have hscopeRuntime' : FunctionBody.scopeNamesPresent
               (stmtNextScope scope (.setMapping2 fieldName key1 key2 value))
@@ -6532,7 +6494,8 @@ private theorem compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preser
               (stmtNextScope scope (.setMapping2Word fieldName key1 key2 wordOffset value))
               runtime'.bindings state' := by
             exact FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-              (by intro name hname; simpa [IRState.getVar, state', runtime'] using hexact name hname)
+              (by intro name hname; simpa [IRState.getVar, IRState.writePhysicalMemoryValue, IRState.installPhysicalMemory,
+            state', runtime'] using hexact name hname)
               hincl
           have hscopeRuntime' : FunctionBody.scopeNamesPresent
               (stmtNextScope scope (.setMapping2Word fieldName key1 key2 wordOffset value))
@@ -7255,6 +7218,8 @@ private theorem terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec
   · exact False.elim (hnotContinue _ rfl)
   · exact hmatch
   · exact hmatch
+  · exact hmatch
+  · exact hmatch
 
 theorem compiledStmtStep_ite
     {fields : List Field}
@@ -7264,7 +7229,9 @@ theorem compiledStmtStep_ite
     (hcond : FunctionBody.ExprCompileCore cond)
     (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
     (hthen : FunctionBody.StmtListTerminalCore scope thenBranch)
-    (helse : FunctionBody.StmtListTerminalCore scope elseBranch) :
+    (helse : FunctionBody.StmtListTerminalCore scope elseBranch)
+    (hthenFit : FunctionBody.requirePayloadsFit thenBranch)
+    (helseFit : FunctionBody.requirePayloadsFit elseBranch) :
     ∃ compiledIR, CompiledStmtStep fields scope (.ite cond thenBranch elseBranch) compiledIR := by
   rcases FunctionBody.compileExpr_core_ok (fields := fields) hcond with ⟨condIR, hcondIR⟩
   rcases FunctionBody.compileStmtList_terminal_core_ok
@@ -7347,7 +7314,7 @@ theorem compiledStmtStep_ite
             (extraFuel := branchExtraFuel)
             helse
             FunctionBody.scopeNamesIncluded_refl
-            hscope hBindIte hbounded hRuntimeIte with
+            hscope hBindIte hbounded hRuntimeIte helseFit with
           ⟨elseIR', helseIR', helseSem⟩
         rw [helseIR] at helseIR'
         have helseEq : elseIR' = elseIR := (Except.ok.inj helseIR').symm
@@ -7438,7 +7405,7 @@ theorem compiledStmtStep_ite
             (extraFuel := branchExtraFuel)
             hthen
             FunctionBody.scopeNamesIncluded_refl
-            hscope hBindIte hbounded hRuntimeIte with
+            hscope hBindIte hbounded hRuntimeIte hthenFit with
           ⟨thenIR', hthenIR', hthenSem⟩
         rw [hthenIR] at hthenIR'
         have hthenEq : thenIR' = thenIR := (Except.ok.inj hthenIR').symm
@@ -7878,10 +7845,12 @@ theorem stmtListGenericCore_singleton_iteTerminal
     (hcond : FunctionBody.ExprCompileCore cond)
     (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
     (hthen : FunctionBody.StmtListTerminalCore scope thenBranch)
-    (helse : FunctionBody.StmtListTerminalCore scope elseBranch) :
+    (helse : FunctionBody.StmtListTerminalCore scope elseBranch)
+    (hthenFit : FunctionBody.requirePayloadsFit thenBranch)
+    (helseFit : FunctionBody.requirePayloadsFit elseBranch) :
     StmtListGenericCore fields scope [Stmt.ite cond thenBranch elseBranch] := by
   rcases compiledStmtStep_ite (fields := fields)
-      hcond hinScope hthen helse with ⟨compiledIR, hstep⟩
+      hcond hinScope hthen helse hthenFit helseFit with ⟨compiledIR, hstep⟩
   exact StmtListGenericCore.cons hstep StmtListGenericCore.nil
 
 theorem stmtListGenericCore_singleton_setStorage_singleSlot

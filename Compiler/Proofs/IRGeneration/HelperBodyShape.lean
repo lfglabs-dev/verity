@@ -360,6 +360,6 @@ theorem compiledInternalHelper_summary_boundary_of_witness_returnStopFree
       compiledHelper hreturnFree hunique with
     ⟨retNames, bodyStmts, hfind, hbodyCompile, _hshape⟩
   refine ⟨retNames, bodyStmts, hfind, hbodyCompile, hstopFree, ?_⟩
-  exact hsound fuel initialWorld args
+  exact hsound fuel initialWorld args none (fun _ => ⟨false, [], none⟩) 0
 
 end InternalHelperSummaryBoundary

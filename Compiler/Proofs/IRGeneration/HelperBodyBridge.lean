@@ -19,8 +19,11 @@ def internalHelperBodyIRExecResultAsCallResult
       .stop (restoreCallerVars callerState finalState)
   | .return value finalState =>
       .return value (restoreCallerVars callerState finalState)
-  | .revert _ =>
-      .revert callerState
+  | .revert finalState =>
+      .revert (restoreCallerVars callerState finalState)
+  | .exceptional finalState =>
+      .exceptional (restoreCallerVars callerState finalState)
+  | .interpretationError message => .interpretationError message
 
 /-- N1a helper-body bridge: executing the compiled helper through
 `execIRInternalFunctionWithInternals` unfolds to the helper-body execution that
@@ -36,9 +39,10 @@ theorem execIRInternalFunctionWithInternals_obeys_internal_helper_summary
     {callerState : IRState} {initialWorld : Verity.ContractState}
     {logicalArgs irArgs : List Nat} {sourceBindings entryBindings : List (String × Nat)}
     {summary : InternalHelperSummaryContract}
+    {externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome} {externalCallIndex : Nat}
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
-      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel)
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel 0 externalCallOracle externalCallIndex)
     (hsound : InternalHelperSummarySoundAtSelector
       callerState.selector spec callee summary)
     (harity : helper.params.length = callee.params.length)
@@ -51,14 +55,14 @@ theorem execIRInternalFunctionWithInternals_obeys_internal_helper_summary
       summary.post helperFuel callerState.selector initialWorld logicalArgs
         (internalHelperResultOfStmtResult initialWorld
           (internalHelperBodySourceResult spec callee initialWorld callerState.selector
-            entryBindings helperFuel)).success
+            entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex)).success
         (internalHelperResultOfStmtResult initialWorld
           (internalHelperBodySourceResult spec callee initialWorld callerState.selector
-            entryBindings helperFuel)).returnValue
+            entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex)).returnValue
         (internalHelperResultOfStmtResult initialWorld
           (internalHelperBodySourceResult spec callee initialWorld callerState.selector
-            entryBindings helperFuel)).world := by
-  rcases internal_helper_body_exec_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
+            entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex)).world := by
+  rcases internal_helper_body_outcome_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
       (runtimeContract := runtimeContract) (spec := spec) (callee := callee)
       (helper := helper) (callerState := callerState)
       (initialWorld := initialWorld) (logicalArgs := logicalArgs) (irArgs := irArgs)
@@ -73,8 +77,9 @@ theorem execIRInternalFunctionWithInternals_obeys_internal_helper_summary
     rw [execIRInternalFunctionWithInternals_succ_of_params_match
       runtimeContract (sizeOf helper.body + extraFuel + 1)
       callerState helper irArgs hirArgsLen]
-    rfl
-  · have hpost := hsound helperFuel initialWorld logicalArgs
+    unfold internalHelperBodyIRExecResultAsCallResult internalHelperBodyIRExec
+    split <;> simp_all
+  · have hpost := hsound helperFuel initialWorld logicalArgs callerState.executionContext externalCallOracle externalCallIndex
     simpa [hinterp] using hpost
 
 private theorem helperBridge_internalFunctionYulName_head (calleeName : String) :
@@ -131,14 +136,17 @@ abbrev internalHelperSummaryPostAt
     (selector : Nat)
     (entryBindings : List (String × Nat))
     (helperFuel : Nat) (args : List Nat)
-    (summary : InternalHelperSummaryContract) : Prop :=
+    (summary : InternalHelperSummaryContract)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (externalCallIndex : Nat := 0) : Prop :=
   summary.post helperFuel selector initialWorld args
     (internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel)).success
+      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel executionContext externalCallOracle externalCallIndex)).success
     (internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel)).returnValue
+      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel executionContext externalCallOracle externalCallIndex)).returnValue
     (internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel)).world
+      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel executionContext externalCallOracle externalCallIndex)).world
 
 abbrev internalHelperAssignCallResult
     (names : List String) (callerState : IRState) (helper : IRInternalFunctionDef)
@@ -151,6 +159,8 @@ abbrev internalHelperAssignCallResult
   | .stop state' => .stop state'
   | .return value state' => .return value state'
   | .revert state' => .revert state'
+  | .exceptional state' => .exceptional state'
+  | .interpretationError message => .interpretationError message
 
 private theorem execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_call_internal
     (runtimeContract : IRContract) (fuel : Nat) (state : IRState)
@@ -168,6 +178,8 @@ private theorem execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_
       | .values _ state' => .continue state'
       | .stop state' => .stop state'
       | .return value state' => .return value state'
+      | .exceptional state' => .exceptional state'
+      | .interpretationError message => .interpretationError message
       | .revert state' => .revert state' := by
   exact execIRStmtsWithInternals_singleton_expr_call_internal
     runtimeContract fuel state
@@ -196,9 +208,10 @@ theorem execIRStmtsWithInternals_internalCallAssign_obeys_internal_helper_summar
     {argExprs : List YulExpr} {logicalArgs irArgs : List Nat}
     {sourceBindings entryBindings : List (String × Nat)}
     {summary : InternalHelperSummaryContract}
+    {externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome} {externalCallIndex : Nat}
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
-      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel)
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel 0 externalCallOracle externalCallIndex)
     (hsound : InternalHelperSummarySoundAtSelector
       callerState.selector spec callee summary)
     (harity : helper.params.length = callee.params.length)
@@ -216,12 +229,8 @@ theorem execIRStmtsWithInternals_internalCallAssign_obeys_internal_helper_summar
         (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel))
     ∧
       internalHelperSummaryPostAt spec callee initialWorld callerState.selector entryBindings
-        helperFuel logicalArgs summary := by
+        helperFuel logicalArgs summary callerState.executionContext externalCallOracle externalCallIndex := by
   have hsummary := execIRInternalFunctionWithInternals_obeys_internal_helper_summary
-    (runtimeContract := runtimeContract) (spec := spec) (callee := callee) (helper := helper)
-    (callerState := callerState) (initialWorld := initialWorld)
-    (logicalArgs := logicalArgs) (irArgs := irArgs)
-    (sourceBindings := sourceBindings) (entryBindings := entryBindings) (summary := summary)
     helperFuel extraFuel hfuelPos ctx hsound harity hirArgsLen
   constructor
   · rw [execIRStmtsWithInternals_singleton_letMany_call_internal
@@ -245,9 +254,10 @@ theorem execIRStmtsWithInternals_internalCall_obeys_internal_helper_summary
     {calleeName : String} {argExprs : List YulExpr} {logicalArgs irArgs : List Nat}
     {sourceBindings entryBindings : List (String × Nat)}
     {summary : InternalHelperSummaryContract}
+    {externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome} {externalCallIndex : Nat}
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
-      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel)
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel 0 externalCallOracle externalCallIndex)
     (hsound : InternalHelperSummarySoundAtSelector
       callerState.selector spec callee summary)
     (harity : helper.params.length = callee.params.length)
@@ -266,17 +276,14 @@ theorem execIRStmtsWithInternals_internalCall_obeys_internal_helper_summary
       | .values _ state' => IRExecResultWithInternals.continue state'
       | .stop state' => IRExecResultWithInternals.stop state'
       | .return value state' => IRExecResultWithInternals.return value state'
-      | .revert state' => IRExecResultWithInternals.revert state')
+      | .revert state' => IRExecResultWithInternals.revert state'
+      | .exceptional state' => IRExecResultWithInternals.exceptional state'
+      | .interpretationError message => IRExecResultWithInternals.interpretationError message)
     ∧
       internalHelperSummaryPostAt spec callee initialWorld callerState.selector entryBindings
-        helperFuel logicalArgs summary := by
-  have hsummary :=
-    execIRInternalFunctionWithInternals_obeys_internal_helper_summary
-      (runtimeContract := runtimeContract) (spec := spec) (callee := callee)
-      (helper := helper) (callerState := callerState)
-      (initialWorld := initialWorld) (logicalArgs := logicalArgs) (irArgs := irArgs)
-      (sourceBindings := sourceBindings) (entryBindings := entryBindings)
-      (summary := summary) helperFuel extraFuel hfuelPos ctx hsound harity hirArgsLen
+        helperFuel logicalArgs summary callerState.executionContext externalCallOracle externalCallIndex := by
+  have hsummary := execIRInternalFunctionWithInternals_obeys_internal_helper_summary
+    helperFuel extraFuel hfuelPos ctx hsound harity hirArgsLen
   constructor
   · rw [execIRStmtsWithInternals_singleton_expr_internalFunctionYulName_call_internal
       runtimeContract (internalHelperCallFuel helper extraFuel) state
@@ -284,6 +291,8 @@ theorem execIRStmtsWithInternals_internalCall_obeys_internal_helper_summary
     rw [show internalHelperCallFuel helper extraFuel =
       sizeOf helper.body + extraFuel + 1 + 1 from rfl]
     rw [hsummary.1]
+    cases internalHelperBodyIRExecResultAsCallResult callerState helper
+      (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) <;> rfl
   · exact hsummary.2
 
 /-- Concrete regression for the rank-0 void-helper body-shape seam: an empty

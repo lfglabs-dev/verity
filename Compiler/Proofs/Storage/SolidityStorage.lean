@@ -681,7 +681,11 @@ theorem compilerStmtList_obeys_canonical_storage
         selector := tx.functionSelector }
       state)
     (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
-    (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
+    (hnoInternalFunctions : runtimeContract.internalFunctions = [])
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
   exact
@@ -689,7 +693,7 @@ theorem compilerStmtList_obeys_canonical_storage
       runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hhelperFree
       hcall hassign hexpr hstruct hresidual hlegacy hbodyCompile hscope hbounded
-      hstateRuntime hstateBindings hnoInternalFunctions
+      hstateRuntime hstateBindings hnoInternalFunctions hadmitted
 
 /-- Spec-functions-aware exact statement-list preservation.  All four Phase 1C
     helper interfaces are assembled into the proof of the relation between the
@@ -741,7 +745,11 @@ theorem compilerStmtListWithInternals_obeys_canonical_storage
         bindings := []
         selector := tx.functionSelector }
       state)
-    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state) :
+    (hstateBindings : FunctionBody.bindingsExactlyMatchIRVars bindings state)
+    (hadmitted : OrdinaryHelperTrace model (SourceSemantics.effectiveFields model) helperFuel
+      { world := SourceSemantics.withTransactionContext initialWorld tx
+        bindings := bindings
+        selector := tx.functionSelector } fn.body) :
     SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
       runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel := by
   exact
@@ -749,6 +757,6 @@ theorem compilerStmtListWithInternals_obeys_canonical_storage
       runtimeContract model fn bodyStmts helperFuel tx initialWorld state bindings extraFuel
       hextraFuel hfuelPos hnormalized hnoEvents hnoErrors hnoAdtTypes hhelperFree
       hcall hassign hexpr hstruct hresidual hbodyCompile hscope hbounded
-      hstateRuntime hstateBindings
+      hstateRuntime hstateBindings hadmitted
 
 end Compiler.Proofs.Storage

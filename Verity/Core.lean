@@ -14,6 +14,8 @@ import Verity.Core.Uint256
 import Verity.Core.FiniteSet
 import Verity.Core.Intrinsics
 import Verity.Core.StorageAttr
+import Verity.Core.ByteMemory
+import Verity.Core.Model.Create2Accounts
 
 namespace Verity
 
@@ -404,6 +406,10 @@ structure ContractState where
       Compiled dispatch packs it in the high 4 bytes of the first word. -/
   selector : Nat := 0
   memory : Nat → Uint256 := fun _ => 0     -- EVM memory (word-addressed, zero-initialized)
+  /-- Byte-backed memory carrier for the physical-memory migration. Current
+      execution still uses `memory`; these views are not implicitly coherent. -/
+  byteMemory : Compiler.CompilationModel.DenoteMemory.Memory :=
+    Compiler.CompilationModel.DenoteMemory.Memory.empty
   knownAddresses : Nat → FiniteAddressSet  -- Tracked addresses per storage slot (for sum properties)
   events : List Event := []  -- Emitted events, append-only log (#153)
   /-- Observed external calls, append-only journal. Journaled call
@@ -417,6 +423,11 @@ structure ContractState where
       raising a monadic revert. -/
   calls : List ExternalCall := []
   codeSize : Nat → Uint256 := fun _ => 0
+  /-- Explicit nonce/code/balance projection for creation effects. A client
+      initializing live EVM accounts must supply their actual projection.
+      Keeping this in the world ensures transaction snapshots retain it.
+      This field alone does not supply CREATE2 execution semantics. -/
+  creationAccounts : Core.Model.Create2Accounts.Accounts := fun _ => {}
   /-- EIP-211 returndata buffer, as 32-byte words. Empty at frame entry and
       overwritten by each call-family instruction with the callee's return
       data; `returndatasize()` is `32 * returndata.length`. -/

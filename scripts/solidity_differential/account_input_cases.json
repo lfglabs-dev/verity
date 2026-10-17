@@ -1,0 +1,409 @@
+[
+  {
+    "name": "complete",
+    "accounts": [
+      {
+        "address": "65536",
+        "code": [],
+        "nonce": "0",
+        "balance": "0"
+      },
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": "13"
+      },
+      {
+        "address": "65538",
+        "code": [
+          "96",
+          "0",
+          "96",
+          "0",
+          "243"
+        ],
+        "nonce": "18446744073709551615",
+        "balance": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+      }
+    ],
+    "reserved": [],
+    "accept": true
+  },
+  {
+    "name": "empty",
+    "accounts": [],
+    "reserved": [],
+    "accept": true
+  },
+  {
+    "name": "address-0",
+    "accounts": [
+      {
+        "address": "1461501637330902918203684832716283019655932542976",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "address-1",
+    "accounts": [
+      {
+        "address": "-1",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "address-2",
+    "accounts": [
+      {
+        "address": "01",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "address-3",
+    "accounts": [
+      {
+        "address": true,
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "nonce-0",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "18446744073709551616",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "nonce-1",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "-1",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "nonce-2",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "00",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "nonce-3",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": 0,
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "balance-0",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": "115792089237316195423570985008687907853269984665640564039457584007913129639936"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "balance-1",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": "-1"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "balance-2",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": "+1"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "balance-3",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "0",
+          "1"
+        ],
+        "nonce": "7",
+        "balance": null
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "code-0",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "256"
+        ],
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "code-1",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "-1"
+        ],
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "code-2",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          "00"
+        ],
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "code-3",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": [
+          false
+        ],
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "code-4",
+    "accounts": [
+      {
+        "address": "65537",
+        "code": null,
+        "nonce": "7",
+        "balance": "13"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "missing-address",
+    "accounts": [
+      {
+        "code": [],
+        "nonce": "0",
+        "balance": "0"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "missing-code",
+    "accounts": [
+      {
+        "address": "65536",
+        "nonce": "0",
+        "balance": "0"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "missing-nonce",
+    "accounts": [
+      {
+        "address": "65536",
+        "code": [],
+        "balance": "0"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "missing-balance",
+    "accounts": [
+      {
+        "address": "65536",
+        "code": [],
+        "nonce": "0"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "extra",
+    "accounts": [
+      {
+        "address": "65536",
+        "code": [],
+        "nonce": "0",
+        "balance": "0",
+        "extra": "0"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "duplicate",
+    "accounts": [
+      {
+        "address": "65536",
+        "code": [],
+        "nonce": "0",
+        "balance": "0"
+      },
+      {
+        "address": "65536",
+        "code": [],
+        "nonce": "0",
+        "balance": "0"
+      }
+    ],
+    "reserved": [],
+    "accept": false
+  },
+  {
+    "name": "reserved",
+    "accounts": [
+      {
+        "address": "65536",
+        "code": [],
+        "nonce": "0",
+        "balance": "0"
+      }
+    ],
+    "reserved": [
+      65536
+    ],
+    "accept": false
+  },
+  {
+    "name": "nonarray",
+    "accounts": null,
+    "reserved": [],
+    "accept": false
+  }
+]

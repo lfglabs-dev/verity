@@ -68,6 +68,8 @@ private def execute (model : CompilationModel) (fn : FunctionSpec) (j : Json) : 
       blockTimestamp := Uint256.ofNat timestamp }
   let worldWithTx := withTransactionContext world tx
   let publicResult := denoteFunction oracle model fn tx world
+  if let some message := publicResult.interpretationError then
+    throw s!"Denote interpretation error: {message}"
   let (status, output, data, finalWorld) ←
     match bindExternalParams tx.functionSelector fn.bindingParams args with
     | none => pure ("revert", [], [], worldWithTx)

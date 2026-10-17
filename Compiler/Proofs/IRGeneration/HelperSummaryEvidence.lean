@@ -62,23 +62,29 @@ private theorem List.mem_eraseDups_of_mem_local [BEq α] [LawfulBEq α]
     {a : α} {l : List α} (h : a ∈ l) : a ∈ l.eraseDups :=
   ((eraseDups_nodup_and_mem_aux_local l.length l (Nat.le_refl _)).2 a).mpr h
 
-/-- Canonical selector-aware helper summary. -/
+/-- Canonical selector-aware helper summary after projecting away the opcode
+context. The summary schema does not expose context, so its exact relation is
+an existential over contextual executions. World-preservation consumers must
+therefore establish their claim for every possible contextual witness. This is
+not a public EVM certificate and does not classify refusals as EVM reverts. -/
 def exactInternalHelperSummary
     (spec : CompilationModel)
     (fn : FunctionSpec) : InternalHelperSummaryContract where
   post fuel selector initialWorld args success returnValue finalWorld :=
-    let result := internalHelperBodyInterpretation
-      spec fuel fn initialWorld selector args
-    success = result.success ∧
-      returnValue = result.returnValue ∧
-      finalWorld = result.world
+    ∃ (context : Option Verity.Core.Model.ExecutionContext)
+        (oracle : Nat → ExternalCallOutcome) (index : Nat),
+      let result := internalHelperBodyInterpretation
+        spec fuel fn initialWorld selector args context oracle index
+      success = result.success ∧
+        returnValue = result.returnValue ∧
+        finalWorld = result.world
 
 theorem exactInternalHelperSummary_soundAtSelector
     (selector : Nat) (spec : CompilationModel) (fn : FunctionSpec) :
     InternalHelperSummarySoundAtSelector selector spec fn
       (exactInternalHelperSummary spec fn) := by
-  intro fuel initialWorld args
-  exact ⟨rfl, rfl, rfl⟩
+  intro fuel initialWorld args context oracle index
+  exact ⟨context, oracle, index, rfl, rfl, rfl⟩
 
 /-- Legacy selector-free soundness of the exact summary, recovered via the
 selector-0 bridge from `InternalHelperSummarySoundAtSelector`. -/
@@ -120,7 +126,7 @@ def helperBodyNoWorldMutationOnSuccess (fn : FunctionSpec) : Prop :=
 private def stmtResultWorldEq
     (initialWorld : Verity.ContractState) : StmtResult → Prop
   | .continue state | .stop state | .return _ state => state.world = initialWorld
-  | .revert => True
+  | .revert | .revertWithData _ | .exceptional _ | .interpretationError _ => True
 
 private theorem stmtResultWorldEq_of_eq
     {initialWorld : Verity.ContractState}
@@ -182,21 +188,33 @@ private theorem execStmtListWithHelpers_readOnly_world_eq
         execStmtWithHelpers_readOnly_world_eq
           (spec := spec) (fields := fields) (fuel := fuel)
           (state := state) (stmt := stmt) hstmt
-      cases hresult : execStmtWithHelpers spec fields fuel state stmt
-      · rename_i next
-        simp [hresult, stmtResultWorldEq] at hstmtWorld ⊢
-        have hrestWorld :=
-          execStmtListWithHelpers_readOnly_world_eq
-            (spec := spec) (fields := fields) (fuel := fuel)
-            (state := next) (stmts := rest) hrest
-        cases hfinal : execStmtListWithHelpers spec fields fuel next rest <;>
-          simp [hfinal, stmtResultWorldEq] at hrestWorld ⊢
-        · exact hrestWorld.trans hstmtWorld
-        · exact hrestWorld.trans hstmtWorld
-        · exact hrestWorld.trans hstmtWorld
-      · simpa [hresult, stmtResultWorldEq] using hstmtWorld
-      · simpa [hresult, stmtResultWorldEq] using hstmtWorld
-      · simp [hresult, stmtResultWorldEq]
+      cases hresult : execStmtWithHelpers spec fields fuel state stmt with
+      | «continue» next =>
+          simp [hresult, stmtResultWorldEq] at hstmtWorld ⊢
+          have hrestWorld :=
+            execStmtListWithHelpers_readOnly_world_eq
+              (spec := spec) (fields := fields) (fuel := fuel)
+              (state := next) (stmts := rest) hrest
+          cases hfinal : execStmtListWithHelpers spec fields fuel next rest <;>
+            simp [hfinal, stmtResultWorldEq] at hrestWorld ⊢
+          all_goals exact hrestWorld.trans hstmtWorld
+      | stop next => simpa [hresult, stmtResultWorldEq] using hstmtWorld
+      | «return» value next => simpa [hresult, stmtResultWorldEq] using hstmtWorld
+      | revert => simp [hresult, stmtResultWorldEq]
+      | revertWithData data => simp [hresult, stmtResultWorldEq]
+      | exceptional terminal => simp [hresult, stmtResultWorldEq]
+      | interpretationError message => simp [hresult, stmtResultWorldEq]
+
+/-- Projecting an ordinary successful helper result preserves its read-only
+world equation; exceptional and refused outcomes cannot certify success. -/
+private theorem readOnly_result_world (initialWorld : Verity.ContractState)
+    (result : StmtResult)
+    (readonly : stmtResultWorldEq initialWorld result)
+    (success : (internalHelperResultOfStmtResult initialWorld result).success = true) :
+    (internalHelperResultOfStmtResult initialWorld result).world = initialWorld := by
+  cases result <;>
+    simp_all [internalHelperResultOfStmtResult, successInternalResult,
+      revertedInternalResult, exceptionalInternalResult, stmtResultWorldEq]
 
 theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_readOnly_body
     {spec : CompilationModel}
@@ -205,14 +223,10 @@ theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_readOnly_body
     InternalHelperSummaryPreservesWorldOnSuccess
       (exactInternalHelperSummary spec fn) := by
   intro fuel selector initialWorld args success returnValue finalWorld hpost hsuccess
-  change
-    success = (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).success ∧
-      returnValue = (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).returnValue ∧
-      finalWorld = (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).world
-    at hpost
+  obtain ⟨context, oracle, index, hpost⟩ := hpost
   rcases hpost with ⟨hsuccessEq, _hret, hworld⟩
   have hsuccess' :
-      (internalHelperBodyInterpretation spec fuel fn initialWorld selector args).success =
+      (internalHelperBodyInterpretation spec fuel fn initialWorld selector args context oracle index).success =
         true := by
     simpa [hsuccessEq] using hsuccess
   rw [hworld]
@@ -225,28 +239,9 @@ theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_readOnly_body
       have hreadonly :=
         execStmtListWithHelpers_readOnly_world_eq
           (spec := spec) (fields := effectiveFields spec) (fuel := fuel)
-          (state := { world := initialWorld, bindings := bindings, selector := selector })
+          (state := { world := initialWorld, bindings := bindings, selector := selector, executionContext := context, externalCallOracle := oracle, externalCallIndex := index, errors := spec.errors })
           (stmts := fn.body) hbody
-      -- Case on the statement result; keyword constructors need `rename_i`.
-      generalize hresult :
-        execStmtListWithHelpers spec (effectiveFields spec) fuel
-          { world := initialWorld, bindings := bindings, selector := selector } fn.body =
-        result
-      match result, hresult, hreadonly, hsuccess' with
-      | StmtResult.continue state, hresult, hreadonly, hsuccess' =>
-          simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
-            stmtResultWorldEq] at hreadonly ⊢
-          exact hreadonly
-      | StmtResult.stop state, hresult, hreadonly, hsuccess' =>
-          simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
-            stmtResultWorldEq] at hreadonly ⊢
-          exact hreadonly
-      | StmtResult.return value state, hresult, hreadonly, hsuccess' =>
-          simp [hresult, internalHelperResultOfStmtResult, successInternalResult,
-            stmtResultWorldEq] at hreadonly ⊢
-          exact hreadonly
-      | StmtResult.revert, hresult, hreadonly, hsuccess' =>
-          simp [hresult, internalHelperResultOfStmtResult, revertedInternalResult] at hsuccess'
+      exact readOnly_result_world initialWorld _ hreadonly hsuccess'
 
 theorem exactInternalHelperSummary_preservesWorldOnSuccess_of_empty_body
     {spec : CompilationModel}

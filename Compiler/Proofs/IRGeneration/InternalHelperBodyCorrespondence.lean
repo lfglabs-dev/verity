@@ -12,16 +12,23 @@ def internalHelperBodyScope (callee : FunctionSpec) (helper : IRInternalFunction
   CompilationModel.internalFunctionYulParamNames callee.params ++ helper.rets
 
 def internalHelperBodyRuntime
-    (initialWorld : Verity.ContractState) (selector : Nat) (bindings : List (String × Nat)) :
+    (initialWorld : Verity.ContractState) (selector : Nat) (bindings : List (String × Nat))
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (errors : List ErrorDef := [])
+    (externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (externalCallIndex : Nat := 0) :
     SourceSemantics.RuntimeState :=
-  { world := initialWorld, selector := selector, bindings := bindings }
+  { world := initialWorld, selector := selector, bindings := bindings, executionContext := executionContext, errors := errors,
+    externalCallOracle := externalCallOracle, externalCallIndex := externalCallIndex }
 
 def internalHelperBodySourceResult
     (spec : CompilationModel) (callee : FunctionSpec)
     (initialWorld : Verity.ContractState) (selector : Nat) (bindings : List (String × Nat))
-    (helperFuel : Nat) : SourceSemantics.StmtResult :=
+    (helperFuel : Nat) (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (externalCallIndex : Nat := 0) : SourceSemantics.StmtResult :=
   SourceSemantics.execStmtListWithHelpers spec (SourceSemantics.effectiveFields spec)
-    helperFuel (internalHelperBodyRuntime initialWorld selector bindings) callee.body
+    helperFuel (internalHelperBodyRuntime initialWorld selector bindings executionContext spec.errors externalCallOracle externalCallIndex) callee.body
 
 noncomputable def internalHelperBodyIRExec
     (runtimeContract : IRContract) (helper : IRInternalFunctionDef)
@@ -33,23 +40,31 @@ noncomputable def internalHelperBodyIRExec
 def internalHelperResultOfStmtResult
     (initialWorld : Verity.ContractState) : SourceSemantics.StmtResult →
     SourceSemantics.InternalFunctionResult
-  | .continue finalState => SourceSemantics.successInternalResult finalState.world none
-  | .stop finalState => SourceSemantics.successInternalResult finalState.world none
-  | .return value finalState => SourceSemantics.successInternalResult finalState.world (some value)
+  | .continue finalState => SourceSemantics.successInternalResult finalState.world none finalState.executionContext finalState.externalCallIndex
+  | .stop finalState => SourceSemantics.successInternalResult finalState.world none finalState.executionContext finalState.externalCallIndex
+  | .return value finalState => SourceSemantics.successInternalResult finalState.world (some value) finalState.executionContext finalState.externalCallIndex
   | .revert => SourceSemantics.revertedInternalResult initialWorld
+  | .revertWithData data => { SourceSemantics.revertedInternalResult initialWorld with revertData := data }
+  | .interpretationError message =>
+      { SourceSemantics.revertedInternalResult initialWorld with interpretationError := some message }
+  | .exceptional terminal => SourceSemantics.exceptionalInternalResult initialWorld terminal
 
 theorem interpretInternalFunctionFuel_eq_internalHelperResultOfStmtResult_of_bindInternalArgs
     {spec : CompilationModel} {callee : FunctionSpec}
     {initialWorld : Verity.ContractState} {args : List Nat}
     {sourceBindings : List (String × Nat)}
-    (helperFuel : Nat)
+    (helperFuel : Nat) (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (externalCallIndex : Nat := 0)
     (hbind : SourceSemantics.bindInternalArgs callee.params args = some sourceBindings) :
-    SourceSemantics.interpretInternalFunctionFuel spec helperFuel callee initialWorld args =
+    SourceSemantics.interpretInternalFunctionFuel spec helperFuel callee initialWorld args
+        (externalCallOracle := externalCallOracle) (externalCallIndex := externalCallIndex)
+        (executionContext := executionContext) =
       internalHelperResultOfStmtResult initialWorld
-        (internalHelperBodySourceResult spec callee initialWorld 0 sourceBindings helperFuel) := by
+        (internalHelperBodySourceResult spec callee initialWorld 0 sourceBindings helperFuel executionContext externalCallOracle externalCallIndex) := by
   simp [SourceSemantics.interpretInternalFunctionFuel, internalHelperBodySourceResult,
     internalHelperBodyRuntime, internalHelperResultOfStmtResult, hbind]
-  rfl
+  split <;> simp_all
 
 /-- Projection-level helper body agreement.  This is the payload consumed by
 `InternalHelperSummaryContract`: success flag, optional return value, and final
@@ -59,22 +74,25 @@ def internalHelperBodyResultProjection
     (spec : CompilationModel) (callee : FunctionSpec)
     (initialWorld : Verity.ContractState) (selector : Nat)
     (sourceBindings entryBindings : List (String × Nat))
-    (helperFuel : Nat) : Prop :=
+    (helperFuel : Nat) (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (externalCallIndex : Nat := 0) : Prop :=
   internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld selector sourceBindings helperFuel) =
+      (internalHelperBodySourceResult spec callee initialWorld selector sourceBindings helperFuel executionContext externalCallOracle externalCallIndex) =
     internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel)
+      (internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel executionContext externalCallOracle externalCallIndex)
 
 theorem internalHelperBodyResultProjection_of_stmtResult_eq
     {spec : CompilationModel} {callee : FunctionSpec}
     {initialWorld : Verity.ContractState} {selector : Nat}
     {sourceBindings entryBindings : List (String × Nat)}
-    {helperFuel : Nat}
+    {helperFuel : Nat} {executionContext : Option Verity.Core.Model.ExecutionContext}
+    {externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome} {externalCallIndex : Nat}
     (hbody :
-      internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel =
-        internalHelperBodySourceResult spec callee initialWorld selector sourceBindings helperFuel) :
+      internalHelperBodySourceResult spec callee initialWorld selector entryBindings helperFuel executionContext externalCallOracle externalCallIndex =
+        internalHelperBodySourceResult spec callee initialWorld selector sourceBindings helperFuel executionContext externalCallOracle externalCallIndex) :
     internalHelperBodyResultProjection spec callee initialWorld selector
-      sourceBindings entryBindings helperFuel := by
+      sourceBindings entryBindings helperFuel executionContext externalCallOracle externalCallIndex := by
   simp [internalHelperBodyResultProjection, hbody]
 
 /-- Helper-entry source bindings: the raw source argument bindings extended with
@@ -229,12 +247,15 @@ internal helper entry.  The source interpreter's public helper entry point uses
 its default selector; an IR helper instead inherits the caller selector. -/
 def internalHelperBodyInterpretation
     (spec : CompilationModel) (helperFuel : Nat) (callee : FunctionSpec)
-    (initialWorld : Verity.ContractState) (selector : Nat) (logicalArgs : List Nat) :
+    (initialWorld : Verity.ContractState) (selector : Nat) (logicalArgs : List Nat)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (externalCallIndex : Nat := 0) :
     SourceSemantics.InternalFunctionResult :=
   match SourceSemantics.bindInternalArgs callee.params logicalArgs with
   | none => SourceSemantics.revertedInternalResult initialWorld
   | some bindings => internalHelperResultOfStmtResult initialWorld
-      (internalHelperBodySourceResult spec callee initialWorld selector bindings helperFuel)
+      (internalHelperBodySourceResult spec callee initialWorld selector bindings helperFuel executionContext externalCallOracle externalCallIndex)
 
 /-- Soundness of an internal-helper summary at the selector inherited from its
 caller. Internal helper bodies may observe selector-sensitive calldata, so the
@@ -242,9 +263,10 @@ selector is part of the semantic contract. -/
 def InternalHelperSummarySoundAtSelector
     (selector : Nat) (spec : CompilationModel) (callee : FunctionSpec)
     (summary : InternalHelperSummaryContract) : Prop :=
-  ∀ fuel initialWorld args,
+  ∀ fuel initialWorld args (context : Option Verity.Core.Model.ExecutionContext)
+      (oracle : Nat → SourceSemantics.ExternalCallOutcome) (index : Nat),
     let result :=
-      internalHelperBodyInterpretation spec fuel callee initialWorld selector args
+      internalHelperBodyInterpretation spec fuel callee initialWorld selector args context oracle index
     summary.post fuel selector initialWorld args
       result.success result.returnValue result.world
 
@@ -254,9 +276,14 @@ justified bridge between the public selector-free soundness predicate and
 `InternalHelperSummarySoundAtSelector`. -/
 theorem internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel
     (spec : CompilationModel) (helperFuel : Nat) (callee : FunctionSpec)
-    (initialWorld : Verity.ContractState) (args : List Nat) :
-    internalHelperBodyInterpretation spec helperFuel callee initialWorld 0 args =
-      SourceSemantics.interpretInternalFunctionFuel spec helperFuel callee initialWorld args := by
+    (initialWorld : Verity.ContractState) (args : List Nat)
+    (executionContext : Option Verity.Core.Model.ExecutionContext := none)
+    (externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (externalCallIndex : Nat := 0) :
+    internalHelperBodyInterpretation spec helperFuel callee initialWorld 0 args executionContext externalCallOracle externalCallIndex =
+      SourceSemantics.interpretInternalFunctionFuel spec helperFuel callee initialWorld args
+        (externalCallOracle := externalCallOracle) (externalCallIndex := externalCallIndex)
+        (executionContext := executionContext) := by
   unfold internalHelperBodyInterpretation SourceSemantics.interpretInternalFunctionFuel
   cases SourceSemantics.bindInternalArgs callee.params args with
   | none =>
@@ -264,7 +291,7 @@ theorem internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunct
   | some bindings =>
       simp [internalHelperBodySourceResult, internalHelperBodyRuntime,
         internalHelperResultOfStmtResult]
-      rfl
+      split <;> simp_all
 
 /-- Legacy selector-0 bridge: public `InternalHelperSummarySound` is soundness of
 the same contract at the default source selector. -/
@@ -274,12 +301,12 @@ theorem InternalHelperSummarySound_iff_soundAtSelector_zero
     SourceSemantics.InternalHelperSummarySound spec callee summary ↔
       InternalHelperSummarySoundAtSelector 0 spec callee summary := by
   constructor
-  · intro hsound fuel initialWorld args
+  · intro hsound fuel initialWorld args context oracle index
     simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel]
-      using hsound fuel initialWorld args
-  · intro hsound fuel initialWorld args
+      using hsound fuel initialWorld args context oracle index
+  · intro hsound fuel initialWorld args context oracle index
     simpa [internalHelperBodyInterpretation_selector_zero_eq_interpretInternalFunctionFuel]
-      using hsound fuel initialWorld args
+      using hsound fuel initialWorld args context oracle index
 
 theorem InternalHelperSummarySound_of_soundAtSelector_zero
     {spec : CompilationModel} {callee : FunctionSpec}
@@ -769,17 +796,18 @@ theorem internalHelperBodyResultProjection_of_entryBindings_projectionCore
     {spec : CompilationModel} {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {initialWorld : Verity.ContractState} {selector : Nat}
     {sourceBindings : List (String × Nat)}
-    {helperFuel : Nat}
+    {helperFuel : Nat} {executionContext : Option Verity.Core.Model.ExecutionContext}
+    {externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome} {externalCallIndex : Nat}
     (hcore : InternalHelperStmtListProjectionCore callee.body)
     (hfresh :
       ∀ name, name ∈ internalHelperStmtListProjectionReadNames callee.body →
         name ∉ helper.rets) :
     internalHelperBodyResultProjection spec callee initialWorld selector sourceBindings
-      (internalHelperEntryBindings sourceBindings helper) helperFuel := by
+      (internalHelperEntryBindings sourceBindings helper) helperFuel executionContext externalCallOracle externalCallIndex := by
   exact internalHelperResultOfStmtListProjectionCore_eq
     (spec := spec) (fields := SourceSemantics.effectiveFields spec)
     (fuel := helperFuel) (initialWorld := initialWorld)
-    (runtime := internalHelperBodyRuntime initialWorld selector sourceBindings)
+    (runtime := internalHelperBodyRuntime initialWorld selector sourceBindings executionContext spec.errors externalCallOracle externalCallIndex)
     (reserved := helper.rets)
     (lhs := sourceBindings)
     (rhs := internalHelperEntryBindings sourceBindings helper)
@@ -797,7 +825,9 @@ structure InternalHelperBodyExecContext
     (callee : FunctionSpec) (helper : IRInternalFunctionDef)
     (callerState : IRState) (initialWorld : Verity.ContractState)
     (logicalArgs irArgs : List Nat) (sourceBindings entryBindings : List (String × Nat))
-    (helperFuel : Nat) (irFuelSlack : Nat := 0) : Prop where
+    (helperFuel : Nat) (irFuelSlack : Nat := 0)
+    (externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome := fun _ => ⟨false, [], none⟩)
+    (externalCallIndex : Nat := 0) : Prop where
   /-- Source arguments have one value per source parameter, whereas `irArgs`
   has one value per lowered Yul parameter. -/
   bindArgs : SourceSemantics.bindInternalArgs callee.params logicalArgs = some sourceBindings
@@ -813,14 +843,14 @@ structure InternalHelperBodyExecContext
    propagate `.stop` to the IR caller are excluded at this boundary. -/
   noStop : stmtListUsesStop callee.body = false
   bodyResultProjection : internalHelperBodyResultProjection spec callee initialWorld
-    callerState.selector sourceBindings entryBindings helperFuel
+    callerState.selector sourceBindings entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex
   scope : FunctionBody.scopeNamesPresent (internalHelperBodyScope callee helper) entryBindings
   exact : FunctionBody.bindingsExactlyMatchIRVarsOnScope
     (internalHelperBodyScope callee helper) entryBindings
     (prepareInternalCalleeState callerState helper irArgs)
   bounded : FunctionBody.bindingsBounded entryBindings
   runtime : FunctionBody.runtimeStateMatchesIR (SourceSemantics.effectiveFields spec)
-    (internalHelperBodyRuntime initialWorld callerState.selector entryBindings)
+    (internalHelperBodyRuntime initialWorld callerState.selector entryBindings callerState.executionContext spec.errors externalCallOracle externalCallIndex)
     (prepareInternalCalleeState callerState helper irArgs)
 
 /-- Helper-entry/body correspondence for the N1a internal-helper path.
@@ -829,33 +859,34 @@ The compiled helper body is matched against source execution from
 `entryBindings`, which include prebound helper return slots.  The source helper
 summary payload is related by the explicit projection seam, so callers need not
 prove false raw equality of final `StmtResult` bindings. -/
-theorem internal_helper_body_exec_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
+theorem internal_helper_body_outcome_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
     {runtimeContract : IRContract} {spec : CompilationModel}
     {callee : FunctionSpec} {helper : IRInternalFunctionDef}
     {callerState : IRState} {initialWorld : Verity.ContractState}
     {logicalArgs irArgs : List Nat} {sourceBindings entryBindings : List (String × Nat)}
     {irFuelSlack : Nat}
+    {externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome} {externalCallIndex : Nat}
     (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
     (hreserve : irFuelSlack ≤ extraFuel)
     (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
-      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel irFuelSlack) :
-    stmtResultMatchesIRExecWithInternals (SourceSemantics.effectiveFields spec)
-        (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel)
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel irFuelSlack externalCallOracle externalCallIndex) :
+    stmtOutcomeMatchesIRExecWithInternals (SourceSemantics.effectiveFields spec)
+        (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex)
         (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) ∧
-      internalHelperBodyInterpretation spec helperFuel callee initialWorld callerState.selector logicalArgs =
+      internalHelperBodyInterpretation spec helperFuel callee initialWorld callerState.selector logicalArgs callerState.executionContext externalCallOracle externalCallIndex =
         internalHelperResultOfStmtResult initialWorld
-          (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel) := by
+          (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex) := by
   refine ⟨?_, ?_⟩
   · rcases exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step
         (runtimeContract := runtimeContract) (spec := spec)
         (fields := SourceSemantics.effectiveFields spec)
-        (runtime := internalHelperBodyRuntime initialWorld callerState.selector entryBindings)
+        (runtime := internalHelperBodyRuntime initialWorld callerState.selector entryBindings callerState.executionContext spec.errors externalCallOracle externalCallIndex)
         (state := prepareInternalCalleeState callerState helper irArgs)
         (scope := internalHelperBodyScope callee helper) (stmts := callee.body)
         helperFuel extraFuel hfuelPos hreserve ctx.generic ctx.scope ctx.exact ctx.bounded
         ctx.runtime with ⟨bodyIR, hcompile, hstep⟩
     have hmatch :=
-      stmtStepMatchesIRExecWithInternals_implies_stmtResultMatchesIRExecWithInternals hstep
+      stmtStepMatchesIRExecWithInternals_implies_stmtOutcomeMatchesIRExecWithInternals hstep
     have hmode :=
       compileStmtListWithFork_internal_shape_irrelevant_of_returnFree
         (SourceSemantics.effectiveFields spec) spec.events spec.errors .calldata
@@ -863,19 +894,39 @@ theorem internal_helper_body_exec_matches_entryBindings_and_projected_result_of_
         Verity.Core.Intrinsics.HardFork.cancun callee.body spec.functions ctx.returnFree
     have hbody : bodyIR = helper.body := by
       apply Except.ok.inj
-      calc
-        Except.ok bodyIR =
-            CompilationModel.compileStmtList (SourceSemantics.effectiveFields spec)
-              spec.events spec.errors .calldata [] false (internalHelperBodyScope callee helper)
-              [] callee.body spec.functions := hcompile.symm
-        _ = CompilationModel.compileStmtList (SourceSemantics.effectiveFields spec)
-              spec.events spec.errors .calldata helper.rets true
-              (internalHelperBodyScope callee helper) [] callee.body spec.functions := by
-          simpa only [CompilationModel.compileStmtList] using hmode.symm
-        _ = Except.ok helper.body := ctx.bodyCompile
+      rw [← ctx.bodyCompile]
+      exact hcompile.symm.trans (by simpa only [CompilationModel.compileStmtList] using hmode.symm)
     subst bodyIR
     simpa [internalHelperBodySourceResult, internalHelperBodyIRExec] using hmatch
   · simpa [internalHelperBodyInterpretation, ctx.bindArgs,
       internalHelperBodyResultProjection] using ctx.bodyResultProjection
+
+/-- Ordinary certification requires an actual source-outcome admission in addition
+ to contextual operational correspondence. No instrument refusal or exceptional
+ halt is converted to an ordinary EVM certificate by this bridge. -/
+theorem internal_helper_body_exec_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
+    {runtimeContract : IRContract} {spec : CompilationModel}
+    {callee : FunctionSpec} {helper : IRInternalFunctionDef}
+    {callerState : IRState} {initialWorld : Verity.ContractState}
+    {logicalArgs irArgs : List Nat} {sourceBindings entryBindings : List (String × Nat)}
+    {irFuelSlack : Nat}
+    {externalCallOracle : Nat → SourceSemantics.ExternalCallOutcome} {externalCallIndex : Nat}
+    (helperFuel extraFuel : Nat) (hfuelPos : 0 < helperFuel)
+    (hreserve : irFuelSlack ≤ extraFuel)
+    (ctx : InternalHelperBodyExecContext runtimeContract spec callee helper
+      callerState initialWorld logicalArgs irArgs sourceBindings entryBindings helperFuel irFuelSlack externalCallOracle externalCallIndex)
+    (hordinary : stmtOutcomeIsOrdinary
+      (internalHelperBodySourceResult spec callee initialWorld callerState.selector
+        entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex)) :
+    stmtResultMatchesIRExecWithInternals (SourceSemantics.effectiveFields spec)
+        (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex)
+        (internalHelperBodyIRExec runtimeContract helper callerState irArgs extraFuel) ∧
+      internalHelperBodyInterpretation spec helperFuel callee initialWorld callerState.selector logicalArgs callerState.executionContext externalCallOracle externalCallIndex =
+        internalHelperResultOfStmtResult initialWorld
+          (internalHelperBodySourceResult spec callee initialWorld callerState.selector entryBindings helperFuel callerState.executionContext externalCallOracle externalCallIndex) := by
+  rcases internal_helper_body_outcome_matches_entryBindings_and_projected_result_of_bindInternalArgs_and_generic
+      helperFuel extraFuel hfuelPos hreserve ctx with ⟨hmatch, hprojection⟩
+  exact ⟨(stmtOutcomeMatchesIRExecWithInternals_certified_iff _ _ _).mpr
+    ⟨hmatch, hordinary⟩, hprojection⟩
 
 end Compiler.Proofs.IRGeneration

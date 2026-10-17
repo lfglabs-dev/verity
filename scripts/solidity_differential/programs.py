@@ -1,10 +1,11 @@
 """Small typed source programs; solc/EVM supplies the expected behavior."""
 import copy
 import json
+import os
 from pathlib import Path
 import random
 
-from .engine import campaign, write_json
+from .engine import ROOT, command, campaign, write_json
 
 
 def expression(rng, depth, bits):
@@ -114,7 +115,7 @@ def generated_campaign(output, count, cases, seed):
     reports = []
     # Preserve every original arithmetic program, then add guarded programs.
     # Each guarded program retains all three equivalent extraction/name forms.
-    for i in range(3 * count):
+    for i in range(4 * count):
         bits = [8, 16, 128, 248, 256][i % 5]
         tree = expression(rng, 2, bits)
         # First five explicitly exercise each checked width, especially uint248.
@@ -125,10 +126,15 @@ def generated_campaign(output, count, cases, seed):
             spec = {"bits": bits, "expression": tree, "renamed": variant == 1, "helper": variant != 0, "projection_collision": variant == 2}
             if count <= i < 2 * count:
                 spec["require_message"] = ["", "échec", "x" * 33][(i - count) % 3]
-            elif i >= 2 * count:
+            elif 2 * count <= i < 3 * count:
                 kind = (i - 2 * count) % 3
                 spec["require_error"] = ["EmptyFailure", "Failure", "AnErrorWhoseSignatureCrossesAThirtyTwoByteWordBoundary"][kind]
                 spec["error_arguments"] = kind != 0
+            elif i >= 3 * count:
+                # Keep every original arithmetic/string/custom-error program.
+                # Add ABI padding boundaries under the same three variants.
+                messages = ["x" * n for n in (31, 32, 63, 64, 65)] + ["é" * 16, "🙂" * 8]
+                spec["require_message"] = messages[(i - 3 * count) % len(messages)]
             directory = output / f"program-{i}-{variant}"
             fixture = write_program(directory, spec)
             report = campaign(fixture, directory / "run", cases, seed + i)
@@ -145,7 +151,85 @@ def generated_campaign(output, count, cases, seed):
                 write_json(output / "metamorphic-divergence.json", divergence)
                 return {"programs": len(reports), "divergences": [divergence]}
             reference, reference_dir = rows, directory
-    return {"programs": len(reports), "cases": sum(r["cases"] for r in reports), "divergences": []}
+    memory = generated_memory_campaign(output / 'memory', seed)
+    return {"programs": len(reports), "cases": sum(r["cases"] for r in reports),
+            "memoryPrograms": memory['programs'], "statefulTransactions": memory['transactions'],
+            "divergences": memory['divergences']}
+
+
+def generated_memory_campaign(output, seed):
+    """Generate exact memory variants and compare complete stateful observations.
+
+    These manual-model instruments are separate from importer admission. Each
+    twelve-transaction sequence includes selector-boundary/partial-copy words,
+    randomized later calls, reads and Panic(1) rollback. All three source forms
+    use the same model and transaction sequence.
+    """
+    import sys
+
+    environment = dict(os.environ)
+    environment['PYTHONPATH'] = str(ROOT / 'scripts') + (
+        os.pathsep + environment['PYTHONPATH'] if environment.get('PYTHONPATH') else '')
+    output = Path(output).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    reports = []
+    base = int.from_bytes(bytes(range(1, 33)), 'big')
+    for index, fixture in enumerate(('PhysicalCopySequence', 'CalldataWindowSequence')):
+        prefixes = [base] if index == 0 else [base + i for i in range(4)]
+        reference = None
+        for variant in ('baseline', 'memory-renamed', 'memory-bindings'):
+            directory = output / f'{fixture}-{variant}'
+            argv = [sys.executable, '-m', 'solidity_differential.check_stateful',
+                    '--model-driver', str(ROOT / f'Contracts/SolidityImportSmoke/{fixture}Model.lean'),
+                    '--source-fixture', str(ROOT / f'Contracts/SolidityImportSmoke/{fixture}.sol'),
+                    '--variant', variant, '--argument-bits', '256', '--transactions', '12',
+                    '--seed', str(seed + index), '--shrink-attempts', '30',
+                    '--output', str(directory), '--change-prefix', *map(str, prefixes)]
+            command(argv, timeout=600, log=directory.with_suffix('.log'), env=environment)
+            result = json.loads((directory / 'campaign.json').read_text())
+            reports.append({'fixture': fixture, 'variant': variant,
+                            'transactions': len(result['transactions']), 'command': argv})
+            write_json(output / 'memory-program-results.json', reports)
+            if result['divergences']:
+                return {'programs': len(reports), 'transactions': sum(r['transactions'] for r in reports),
+                        'divergences': result['divergences']}
+            observed = {'transactions': result['transactions'], 'slots': result['slots'],
+                        'discovery': result['discovery'], 'observations': result['observations']}
+            if reference is not None and observed != reference:
+                divergence = {'metamorphic': str(directory), 'reference': reference,
+                              'variant': observed}
+                write_json(output / 'memory-metamorphic-divergence.json', divergence)
+                return {'programs': len(reports), 'transactions': sum(r['transactions'] for r in reports),
+                        'divergences': [divergence]}
+            reference = observed
+    return {'programs': len(reports), 'transactions': sum(r['transactions'] for r in reports),
+            'divergences': []}
+
+
+def stateful_memory_source(original, variant):
+    """Equivalent Yul operands, with exact anchors and no importer claim."""
+    import re
+
+    load = 'result := calldataload(mod(value, 4))'
+    copy = 'calldatacopy(3, 4, 17)'
+    if (original.count(load), original.count(copy)) not in ((1, 0), (0, 1)):
+        raise ValueError('memory variant requires one known handwritten instrument')
+    if variant == 'renamed':
+        # Rename the parameter and its lexical uses, preserving method names,
+        # ABI types, storage declarations, comments and string literals.
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: 'incoming' if m.group(0) == 'value' else m.group(0), original)
+    if variant == 'bindings':
+        if load in original:
+            return original.replace(load, 'let offset := mod(value, 4)\n            result := calldataload(offset)')
+        original = original.replace(copy, 'let destination := 3\n            let start := 4\n'
+                                    '            let extent := 17\n'
+                                    '            calldatacopy(destination, start, extent)')
+        read = 'result := mload(0)'
+        if original.count(read) != 1:
+            raise ValueError('memory copy readback anchor is not unique')
+        return original.replace(read, 'let copied := mload(0)\n            result := copied')
+    raise ValueError('unknown memory variant: ' + variant)
 
 
 def stateful_scalar_source(original, variant):
@@ -156,6 +240,8 @@ def stateful_scalar_source(original, variant):
     """
     if variant == 'baseline':
         return original
+    if variant in ('memory-renamed', 'memory-bindings'):
+        return stateful_memory_source(original, variant.removeprefix('memory-'))
     event_line = '        emit Changed(old, value);\n'
     if event_line in original:
         if original.count(event_line) != 1:
@@ -2357,3 +2443,78 @@ def stateful_governor_slice_proposer_delay_source(fixture: str, variant: str) ->
 
 
 
+
+
+def internal_return_memory_source(spec: dict, variant: str) -> str:
+    """Equivalent helpers retain caller scratch words and their own writes.
+
+    The observing caller returns both memory words and the scalar helper result;
+    restoring a whole pre-call memory image would lose the helper's real writes.
+    """
+    names = ('initial', 'result', 'witness')
+    for name in names:
+        if not isinstance(spec[name], int) or not 0 <= spec[name] < (1 << 256):
+            raise ValueError(f'invalid internal-return memory word: {name}')
+    overwrite = spec.get('overwrite')
+    if overwrite is not None and (not isinstance(overwrite, int) or not 0 <= overwrite < (1 << 256)):
+        raise ValueError('invalid helper overwrite word')
+    stores = f'mstore(96, {spec["witness"]})'
+    if overwrite is not None:
+        stores += f' mstore(0, {overwrite})'
+    result = spec['result']
+    if variant == 'baseline':
+        body = f'return {result};'
+    elif variant == 'conditional':
+        body = f'if (true) {{ return {result}; }} return 0;'
+    elif variant == 'loop':
+        body = f'for (uint256 i = 0; i < 1; ++i) {{ return {result}; }} return 0;'
+    elif variant == 'stop':
+        body = 'assembly ("memory-safe") { stop() }'
+    else:
+        raise ValueError(f'unknown internal-return memory variant: {variant}')
+    return f'''pragma solidity ^0.8.34;
+contract InternalReturnMemory {{
+    function value() internal pure {"" if variant == "stop" else "returns (uint256)"} {{
+        assembly ("memory-safe") {{ {stores} }}
+        {body}
+    }}
+    function probe() external pure returns (uint256 first, uint256 second, uint256 returned) {{
+        assembly ("memory-safe") {{ mstore(0, {spec["initial"]}) }}
+        {"value();" if variant == "stop" else "returned = value();"}
+        assembly ("memory-safe") {{ first := mload(0) second := mload(96) }}
+    }}
+}}
+'''
+
+
+def revert_payload_source(kind: int, value: int, variant: int) -> str:
+    """Equivalent root error payload programs; no helper admission implied."""
+    if not 0 <= value < 2**256 or kind not in range(4) or variant not in range(3):
+        raise ValueError('invalid revert payload program')
+    atoms = [f'require({value} != 0, "denied");',
+             f'assembly ("memory-safe") {{ mstore(0, shl(224, 0x4e487b71)) mstore(4, {value}) revert(0, 36) }}',
+             f'revert Denied({value}, address(9));',
+             f'if ({value} == 0) {{ revert Denied(7, address(9)); }}']
+    atom = atoms[kind]
+    body = [atom, f'if (true) {{ {atom} }}',
+            f'for (uint256 i = 0; i < 1; ++i) {{ {atom} }}'][variant]
+    return ('pragma solidity ^0.8.34; contract RevertPayload { '
+            'error Denied(uint256 x, address target); function probe() external pure { '
+            + body + ' } }')
+
+
+def returndata_primitive_programs(seed, count):
+    """Whole-word buffer/copy programs for staged native calibration.
+
+    Retain zero-length endpoint/beyond-endpoint cases and partial-word extents.
+    This generator does not claim Solidity importer or raw-return-buffer support.
+    """
+    if count < 5:
+        raise ValueError("returndata programs require all five boundary controls")
+    rng = random.Random(seed)
+    cases = [([0x1234], 1, 30, 2), ([0x1234], 0, 32, 0),
+             ([0x1234], 0, 33, 0), ([0x1234], 0, 31, 2), ([], 9, 0, 0)]
+    for _ in range(count - len(cases)):
+        words = [rng.getrandbits(256) for _ in range(rng.randrange(4))]
+        cases.append((words, rng.randrange(64), rng.randrange(32 * len(words) + 3), rng.randrange(40)))
+    return cases

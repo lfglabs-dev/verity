@@ -1,0 +1,33 @@
+import Compiler.Proofs.IRGeneration.SourceStatementEvaluation
+import Compiler.CompilationModel
+import Compiler.Codegen
+import Compiler.Yul.PrettyPrint
+open Compiler.CompilationModel Compiler.Proofs.IRGeneration SourceSemantics
+private def makeModel (initial returned witness : Nat) (overwrite : Option Nat) (variant : Nat) : CompilationModel :=
+  let returning := Stmt.return (.literal returned)
+  let body := [Stmt.mstore (.literal 96) (.literal witness)] ++
+    (overwrite.toList.map (fun value => Stmt.mstore (.literal 0) (.literal value))) ++
+    (match variant with
+     | 0 => [returning]
+     | 1 => [.ite (.literal 1) [returning] [.return (.literal 0)]]
+     | 2 => [.forEach "i" (.literal 1) [returning], .return (.literal 0)]
+     | _ => [.stop])
+  let obligation : LocalObligation := { name := "internal_return_memory_instrument", obligation := "Fixed scratch word stores at 0 and 96; exact return bytes are calibrated against solc and real EVM. This entry does not claim a checked whole-function memory proof.", proofStatus := .unchecked }
+  { name := "InternalReturnMemory", fields := [], constructor := none, functions := [
+      { name := "value", params := [], returnType := (if variant == 3 then none else some .uint256), isInternal := true, body := body, localObligations := [obligation] },
+      { name := "probe", params := [], returnType := none, returns := [.uint256, .uint256, .uint256], localObligations := [obligation],
+        body := [.mstore (.literal 0) (.literal initial),
+          (if variant == 3 then .internalCall "value" [] else .letVar "returned" (.internalCall "value" [])),
+          (if variant == 3 then .letVar "returned" (.literal 0) else .letVar "stopUnused" (.literal 0)),
+          .letVar "first" (.mload (.literal 0)), .letVar "second" (.mload (.literal 96)),
+          .returnValues [.localVar "first", .localVar "second", .localVar "returned"]] } ] }
+
+private def checkStoppedValueRejection (selector : Nat) : IO Unit := do
+  let original := makeModel 19 7 9 none 3
+  let rejected := { original with functions := original.functions.map (fun fn =>
+    if fn.name == "value" then { fn with returnType := some .uint256 } else fn) }
+  match Compiler.CompilationModel.compile rejected [selector] .osaka with
+  | .error message =>
+      unless message.contains "not all control-flow paths end in return/revert" do
+        throw (IO.userError s!"STOP value helper rejected for unexpected reason: {message}")
+  | .ok _ => throw (IO.userError "STOP value helper unexpectedly admitted")

@@ -1072,6 +1072,10 @@ structure ImmutableSpec where
   deriving Repr
 
 inductive Stmt
+  /-- Computed value-zero CREATE2, binding the returned address. Nonzero value
+      is a distinct unsupported source form. Execution requires actual opcode
+      gas/depth/static/access context and canonical creation account state. -/
+  | create2 (destination : String) (offset size salt : Expr)
   | letVar (name : String) (value : Expr)  -- Declare local variable
   | assignVar (name : String) (value : Expr)  -- Reassign existing variable
   | setStorage (field : String) (value : Expr)
@@ -1268,6 +1272,9 @@ def directMetadata : Stmt → StmtMetadata
       { subexpressions := args, scopeEffects := { bindNames := resultVars } }
   | .tryExternalCallBind successVar resultVars _ args =>
       { subexpressions := args, scopeEffects := { bindNames := successVar :: resultVars } }
+  | .create2 destination offset size salt =>
+      { subexpressions := [offset, size, salt], scopeEffects := { bindNames := [destination] },
+        lowLevelMechanics := [.create2] }
   | .ecm mod args =>
       { subexpressions := args, scopeEffects := { bindNames := mod.resultVars } }
   | .unsafeBlock reason _ =>

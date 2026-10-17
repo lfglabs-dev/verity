@@ -224,35 +224,80 @@ def nativePrimCall
 
 /-! ### Native switch temporary freshness -/
 
-partial def yulExprIdentifierNames : YulExpr → List String
-  | .lit _ | .hex _ => []
-  | .str _ => []
+mutual
+def yulExprIdentifierNames : YulExpr → List String
+  | .lit _ | .hex _ | .str _ => []
   | .ident name => [name]
-  | .call _ args => args.foldl (fun acc arg => acc ++ yulExprIdentifierNames arg) []
+  | .call _ args => yulExprsIdentifierNames args
+termination_by expr => sizeOf expr
+decreasing_by all_goals simp_wf
+
+def yulExprsIdentifierNames : List YulExpr → List String
+  | [] => []
+  | expr :: rest => yulExprIdentifierNames expr ++ yulExprsIdentifierNames rest
+termination_by exprs => sizeOf exprs
+decreasing_by all_goals simp_wf; all_goals omega
+end
 
 mutual
-  partial def yulStmtIdentifierNames : YulStmt → List String
-    | .comment _ | .leave => []
-    | .let_ name value => name :: yulExprIdentifierNames value
-    | .letMany names value => names ++ yulExprIdentifierNames value
-    | .assign name value => name :: yulExprIdentifierNames value
-    | .exprStmt e => yulExprIdentifierNames e
-    | .if_ cond body => yulExprIdentifierNames cond ++ yulStmtsIdentifierNames body
-    | .for_ init cond post body =>
-        yulStmtsIdentifierNames init ++
-          yulExprIdentifierNames cond ++
-          yulStmtsIdentifierNames post ++
-          yulStmtsIdentifierNames body
-    | .switch discr cases defaultBody =>
-        yulExprIdentifierNames discr ++
-          cases.foldl (fun acc (_, body) => acc ++ yulStmtsIdentifierNames body) [] ++
-          yulStmtsIdentifierNames (defaultBody.getD [])
-    | .block stmts => yulStmtsIdentifierNames stmts
-    | .funcDef name params rets body => name :: params ++ rets ++ yulStmtsIdentifierNames body
+def yulStmtIdentifierNames : YulStmt → List String
+  | .comment _ | .leave => []
+  | .let_ name value => name :: yulExprIdentifierNames value
+  | .letMany names value => names ++ yulExprIdentifierNames value
+  | .assign name value => name :: yulExprIdentifierNames value
+  | .exprStmt e => yulExprIdentifierNames e
+  | .if_ cond body => yulExprIdentifierNames cond ++ yulStmtsIdentifierNames body
+  | .for_ init cond post body =>
+      yulStmtsIdentifierNames init ++ yulExprIdentifierNames cond ++
+        yulStmtsIdentifierNames post ++ yulStmtsIdentifierNames body
+  | .switch discr cases defaultBody =>
+      yulExprIdentifierNames discr ++ yulSwitchCasesIdentifierNames cases ++
+        match defaultBody with
+        | none => []
+        | some body => yulStmtsIdentifierNames body
+  | .block stmts => yulStmtsIdentifierNames stmts
+  | .funcDef name params rets body => name :: params ++ rets ++ yulStmtsIdentifierNames body
+termination_by stmt => sizeOf stmt
+decreasing_by all_goals simp_wf; all_goals omega
 
-  partial def yulStmtsIdentifierNames (stmts : List YulStmt) : List String :=
-    stmts.foldl (fun acc stmt => acc ++ yulStmtIdentifierNames stmt) []
+def yulStmtsIdentifierNames : List YulStmt → List String
+  | [] => []
+  | stmt :: rest => yulStmtIdentifierNames stmt ++ yulStmtsIdentifierNames rest
+termination_by stmts => sizeOf stmts
+decreasing_by all_goals simp_wf; all_goals omega
+
+def yulSwitchCasesIdentifierNames : List (Nat × List YulStmt) → List String
+  | [] => []
+  | (_, body) :: rest => yulStmtsIdentifierNames body ++ yulSwitchCasesIdentifierNames rest
+termination_by cases => sizeOf cases
+decreasing_by all_goals simp_wf; all_goals omega
 end
+
+/-- Total recursion preserves the original left-to-right identifier fold,
+including duplicate names and the order of all occurrences. -/
+theorem yulExprsIdentifierNames_fold (exprs : List YulExpr) (initial : List String) :
+    exprs.foldl (fun acc expr => acc ++ yulExprIdentifierNames expr) initial =
+      initial ++ yulExprsIdentifierNames exprs := by
+  induction exprs generalizing initial with
+  | nil => simp [yulExprsIdentifierNames]
+  | cons expr rest ih => simp [yulExprsIdentifierNames, ih, List.append_assoc]
+
+theorem yulStmtsIdentifierNames_fold (stmts : List YulStmt) (initial : List String) :
+    stmts.foldl (fun acc stmt => acc ++ yulStmtIdentifierNames stmt) initial =
+      initial ++ yulStmtsIdentifierNames stmts := by
+  induction stmts generalizing initial with
+  | nil => simp [yulStmtsIdentifierNames]
+  | cons stmt rest ih => simp [yulStmtsIdentifierNames, ih, List.append_assoc]
+
+theorem yulSwitchCasesIdentifierNames_fold (cases : List (Nat × List YulStmt))
+    (initial : List String) :
+    cases.foldl (fun acc entry => acc ++ yulStmtsIdentifierNames entry.2) initial =
+      initial ++ yulSwitchCasesIdentifierNames cases := by
+  induction cases generalizing initial with
+  | nil => simp [yulSwitchCasesIdentifierNames]
+  | cons entry rest ih =>
+      rcases entry with ⟨tag, body⟩
+      simp [yulSwitchCasesIdentifierNames, ih, List.append_assoc]
 
 def collectYulStmtWriteNames
     (writeStmt : YulStmt → List String) : List YulStmt → List String
@@ -359,13 +404,90 @@ def nativeSwitchTempsFreshForNativeBodies
         nativeSwitchTempsFreshForWrites switchId (nativeStmtsWriteNames body)) ∧
     nativeSwitchTempsFreshForWrites switchId (nativeStmtsWriteNames defaultBody)
 
-partial def freshNativeSwitchId (reservedNames : List String) (candidate : Nat) : Nat :=
+/-- Maximum source-name length, at least one so the decimal bound is positive. -/
+def nativeSwitchMaxNameLength : List String → Nat
+  | [] => 1
+  | name :: rest => max name.length (nativeSwitchMaxNameLength rest)
+
+private theorem nativeSwitchMaxNameLength_pos (names : List String) :
+    0 < nativeSwitchMaxNameLength names := by
+  induction names with
+  | nil => decide
+  | cons name rest ih =>
+      exact Nat.lt_of_lt_of_le ih (Nat.le_max_right name.length _)
+
+private theorem nativeSwitchNameLength_le (names : List String) (name : String)
+    (present : name ∈ names) : name.length ≤ nativeSwitchMaxNameLength names := by
+  induction names with
+  | nil => simp at present
+  | cons head rest ih =>
+      rcases List.mem_cons.mp present with same | later
+      · subst name; exact Nat.le_max_left _ _
+      · exact le_trans (ih later) (Nat.le_max_right _ _)
+
+/-- Decimal identifiers with more digits than every reserved name cannot collide. -/
+def nativeSwitchSearchBound (names : List String) : Nat :=
+  10 ^ nativeSwitchMaxNameLength names
+
+private theorem nativeSwitchBlocked_lt_bound (names : List String) (candidate : Nat)
+    (blocked : (names.contains (nativeSwitchDiscrTempName candidate) ||
+      names.contains (nativeSwitchMatchedTempName candidate)) = true) :
+    candidate < nativeSwitchSearchBound names := by
+  have digits : candidate.repr.length ≤ nativeSwitchMaxNameLength names := by
+    rcases Bool.or_eq_true_iff.mp blocked with discr | matched
+    · have h := nativeSwitchNameLength_le names (nativeSwitchDiscrTempName candidate)
+        (List.contains_iff_mem.mp discr)
+      have smaller : candidate.repr.length ≤ (nativeSwitchDiscrTempName candidate).length := by
+        simp [nativeSwitchDiscrTempName, Nat.toString_eq_repr, String.length_append]
+      exact le_trans smaller h
+    · have h := nativeSwitchNameLength_le names (nativeSwitchMatchedTempName candidate)
+        (List.contains_iff_mem.mp matched)
+      have smaller : candidate.repr.length ≤ (nativeSwitchMatchedTempName candidate).length := by
+        simp [nativeSwitchMatchedTempName, Nat.toString_eq_repr, String.length_append]
+      exact le_trans smaller h
+  exact (Nat.length_repr_le_iff (nativeSwitchMaxNameLength_pos names)).mp digits
+
+/-- The original first-free search, with a proof of termination rather than
+an opaque partial definition. The decimal bound does not truncate the search. -/
+def freshNativeSwitchId (reservedNames : List String) (candidate : Nat) : Nat :=
   let discrName := nativeSwitchDiscrTempName candidate
   let matchedName := nativeSwitchMatchedTempName candidate
-  if reservedNames.contains discrName || reservedNames.contains matchedName then
+  if blocked : reservedNames.contains discrName || reservedNames.contains matchedName then
     freshNativeSwitchId reservedNames (candidate + 1)
   else
     candidate
+termination_by nativeSwitchSearchBound reservedNames - candidate
+decreasing_by
+  have bound := nativeSwitchBlocked_lt_bound reservedNames candidate blocked
+  omega
+
+/-- The total search never moves backwards and returns two unreserved names. -/
+theorem freshNativeSwitchId_spec (names : List String) (candidate : Nat) :
+    candidate ≤ freshNativeSwitchId names candidate ∧
+      names.contains (nativeSwitchDiscrTempName (freshNativeSwitchId names candidate)) = false ∧
+      names.contains (nativeSwitchMatchedTempName (freshNativeSwitchId names candidate)) = false := by
+  fun_induction freshNativeSwitchId names candidate
+  case case1 candidate discr matched blocked ih =>
+    exact ⟨Nat.le_trans (by omega) ih.1, ih.2⟩
+  case case2 candidate discr matched blocked =>
+    have free : names.contains discr = false ∧ names.contains matched = false := by
+      simpa only [Bool.or_eq_true_iff, not_or, Bool.not_eq_true] using blocked
+    exact ⟨Nat.le_refl _, free⟩
+
+/-- Every skipped identifier is reserved: the result is the first free pair. -/
+theorem freshNativeSwitchId_first_free (names : List String) (candidate : Nat) :
+    ∀ index, candidate ≤ index → index < freshNativeSwitchId names candidate →
+      (names.contains (nativeSwitchDiscrTempName index) ||
+        names.contains (nativeSwitchMatchedTempName index)) = true := by
+  fun_induction freshNativeSwitchId names candidate
+  case case1 candidate discr matched blocked ih =>
+    intro index lower upper
+    by_cases same : index = candidate
+    · subst index; exact blocked
+    · exact ih index (by omega) upper
+  case case2 candidate discr matched free =>
+    intro index lower upper
+    omega
 
 def lowerNativeSwitchBlock
     (expr : YulExpr)

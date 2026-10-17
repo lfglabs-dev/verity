@@ -542,6 +542,13 @@ def validateScopedStmtIdentifiers
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount dataOffset
       validateScopedExprIdentifiers context params paramScope dynamicParams immutableNames localScope constructorArgCount dataSize
       pure localScope
+  | Stmt.create2 destination offset size salt => do
+      validateScopedExprIdentifiersList context params paramScope dynamicParams immutableNames localScope constructorArgCount [offset, size, salt]
+      if paramScope.contains destination then
+        throw s!"Compilation error: {context} CREATE2 result '{destination}' shadows a parameter"
+      if localScope.contains destination then
+        throw s!"Compilation error: {context} CREATE2 result '{destination}' shadows a local variable"
+      pure (destination :: localScope)
   | Stmt.externalCallBind resultVars _ args => do
       validateScopedExprIdentifiersList context params paramScope dynamicParams immutableNames localScope constructorArgCount args
       pure (resultVars.reverse ++ localScope)

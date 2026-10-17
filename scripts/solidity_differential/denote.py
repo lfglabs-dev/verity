@@ -6,6 +6,8 @@ import re
 
 from .engine import HarnessError, command, write_json
 from .identity import ImplementationIdentity
+from .accounts import canonical_accounts
+from .caller import canonical_caller, caller_json
 from .stateful import _bytes, validate_observation
 
 
@@ -31,10 +33,13 @@ def _calldata(tx):
 
 
 class SequenceAdapter:
-    def __init__(self, directory, driver, account, initial_storage=(), identity=None):
+    def __init__(self, directory, driver, account, initial_storage=(), identity=None, initial_accounts=(), caller_account=None):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
         self.account = _bytes(account, 20)
+        self.initial_accounts = canonical_accounts(initial_accounts, [self.account])
+        self.caller_account = (canonical_caller(caller_account, self.account)
+                               if caller_account is not None else None)
         self.initial_storage = []
         for owner, slot, value in initial_storage:
             if _bytes(owner, 20) != self.account:
@@ -54,6 +59,9 @@ class SequenceAdapter:
         directory = self.directory / str(self.runs)
         directory.mkdir(parents=True, exist_ok=False)
         self.runs += 1
+        canonical_accounts(self.initial_accounts, [self.account] + [tx['sender'] for tx in transactions])
+        if self.caller_account is not None:
+            canonical_caller(self.caller_account, self.account, [tx['sender'] for tx in transactions])
         converted = []
         for tx, slots in zip(transactions, plan):
             required = {'id', 'function', 'args', 'sender', 'target', 'value', 'timestamp', 'blockNumber'}
@@ -72,7 +80,12 @@ class SequenceAdapter:
                 'observe': [[str(int(_bytes(owner, 20), 16)), str(int(_bytes(slot, 32), 16))]
                             for owner, slot in slots]})
         write_json(directory / 'input.json', {'account': str(int(self.account, 16)),
-            'storage': self.initial_storage, 'transactions': converted})
+            'storage': self.initial_storage, 'transactions': converted,
+            'accounts': [{'address': str(int(entry['address'], 16)),
+                          'nonce': str(entry['nonce']), 'balance': str(entry['balance']),
+                          'code': [str(byte) for byte in bytes.fromhex(entry['code'][2:])]}
+                         for entry in self.initial_accounts],
+            **({'callerAccount': caller_json(self.caller_account)} if self.caller_account is not None else {})})
         argv = ['lake', 'env', 'lean', '--run', self.driver, directory / 'input.json', directory / 'output.json']
         command(argv, log=directory / 'lean.log')
         self.identity.verify()
@@ -84,5 +97,6 @@ class SequenceAdapter:
             if tx['id'] != row['id']:
                 raise HarnessError('model transaction identity differs')
         write_json(directory / 'replay.json', {'driver': str(self.driver), 'driverSha256': self.digest,
-            'command': list(map(str, argv)), 'transactions': transactions, 'slots': plan})
+            'command': list(map(str, argv)), 'transactions': transactions, 'slots': plan,
+            'initialAccounts': self.initial_accounts, 'callerAccount': self.caller_account})
         return rows

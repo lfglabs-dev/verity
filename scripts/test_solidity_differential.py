@@ -1,5 +1,6 @@
 """Protocol, determinism and failure classification tests (stdlib only)."""
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,13 +9,33 @@ from unittest.mock import patch
 
 from solidity_differential.cases import generate, canonical
 from solidity_differential.engine import HarnessError, parse_evm, execute, command
-from solidity_differential.programs import generated_campaign, source, smaller_expressions
+from solidity_differential.programs import generated_campaign, generated_memory_campaign, source, smaller_expressions
 from solidity_differential.reduce import reduce_failure, signature
 from solidity_differential.mutations import mutation_campaign, snapshot, release
 from solidity_differential.suite import run_checks
 
 
 class SolidityDifferentialTests(unittest.TestCase):
+    def test_generated_memory_child_imports_without_inherited_pythonpath(self):
+        class ChildLoaded(Exception):
+            pass
+
+        def probe(argv, **kwargs):
+            # Launch the real child module, stopping before its costly campaign.
+            # This reproduces script-entry execution where sys.path is not
+            # inherited by a new Python process.
+            help_text = command(argv[:3] + ['--help'], env=kwargs['env'])
+            self.assertIn('--model-driver', help_text)
+            raise ChildLoaded
+
+        environment = dict(os.environ)
+        environment.pop('PYTHONPATH', None)
+        with tempfile.TemporaryDirectory() as output, \
+                patch.dict(os.environ, environment, clear=True), \
+                patch('solidity_differential.programs.command', probe):
+            with self.assertRaises(ChildLoaded):
+                generated_memory_campaign(output, 2438)
+
     def test_mutant_build_is_private_with_a_sticky_cache(self):
         for sticky in (False, True):
             with self.subTest(sticky=sticky), tempfile.TemporaryDirectory() as temporary:

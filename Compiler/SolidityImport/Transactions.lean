@@ -19,8 +19,7 @@ Value transfers, dispatch and ABI decoding are separate adapter obligations. -/
 def beginTransaction (world : Verity.ContractState) : Verity.ContractState :=
   let fresh := world.withStorageWords fun key =>
     if isTransientKey key then 0 else world.storageWords key
-  { fresh with
-    memory := fun _ => 0
+  { fresh.installPhysicalMemory Compiler.CompilationModel.DenoteMemory.Memory.empty with
     returndata := []
     events := []
     calls := [] }
@@ -43,6 +42,13 @@ def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String
   | .return value final => .ok ⟨true, wordBytes value, final.world⟩
   | .revert => .error "Denote failure has no exact revert payload"
   | .revertWithData bytes => .ok ⟨false, bytes, initial⟩
+  | .interpretationError message => .error message
+  | .exceptional final =>
+      match final.executionContext with
+      | none => .error "Denote exceptional exit requires an actual execution context"
+      | some context =>
+          if context.opcode.gas = 0 then .ok ⟨false, [], initial⟩
+          else .error "Denote exceptional exit has nonzero terminal gas"
 
 /-- Execute a body through Denote, after installing fresh frame-local state.
 This function is a frame runner, not yet a full ABI/dispatch transaction runner. -/
@@ -71,5 +77,22 @@ def executeBody (oracle : DenoteOracle) (fields : List Field)
 /-- Rollback retains the original persistent world and exact revert bytes. -/
 theorem finishFrame_revert (initial : Verity.ContractState) (bytes : List UInt8) :
     finishFrame initial (.revertWithData bytes) = .ok ⟨false, bytes, initial⟩ := rfl
+
+/-- Transaction reset clears the actual byte carrier, not just its word view. -/
+@[simp] theorem beginTransaction_byteMemory (world : Verity.ContractState) :
+    (beginTransaction world).byteMemory =
+      Compiler.CompilationModel.DenoteMemory.Memory.empty := rfl
+
+/-- Interpretation failures cannot become observed contract reverts. -/
+theorem finishFrame_interpretationError (initial : Verity.ContractState) (message : String) :
+    finishFrame initial (.interpretationError message) = .error message := rfl
+
+/-- A verified exceptional halt has empty output and rolls back the whole world.
+The actual context, including zero terminal gas, is required. -/
+theorem finishFrame_exceptional (initial : Verity.ContractState) (state : DenoteState)
+    (context : Verity.Core.Model.ExecutionContext)
+    (actual : state.executionContext = some context) (exhausted : context.opcode.gas = 0) :
+    finishFrame initial (.exceptional state) = .ok ⟨false, [], initial⟩ := by
+  simp [finishFrame, actual, exhausted]
 
 end Compiler.CompilationModel.SolidityImport.Transactions

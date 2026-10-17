@@ -218,6 +218,8 @@ def collectStmtNames : Stmt → List String
       names ++ functionName :: collectExprListNames args
   | Stmt.rawLog topics dataOffset dataSize =>
       collectExprListNames topics ++ collectExprNames dataOffset ++ collectExprNames dataSize
+  | Stmt.create2 destination offset size salt =>
+      destination :: collectExprListNames [offset, size, salt]
   | Stmt.externalCallBind resultVars externalName args =>
       resultVars ++ externalName :: collectExprListNames args
   | Stmt.tryExternalCallBind successVar resultVars externalName args =>

@@ -260,6 +260,8 @@ def collectUnsafeBoundaryMechanicsFromStmts (stmts : List Stmt) : List String :=
 /-- Like `collectLowLevelMechanicsFromStmts` but skips `unsafeBlock` bodies —
     returns only mechanics that appear *outside* any `unsafe` wrapper. -/
 private def collectUnguardedLowLevelStmtMechanics : Stmt → List String
+  | .create2 _ offset size salt =>
+      ["create2"] ++ [offset, size, salt].flatMap collectLowLevelExprMechanics
   | .letVar _ value
   | .assignVar _ value
   | .setStorage _ value

@@ -1,0 +1,16 @@
+{
+  "contracts": {
+    "MappingHelper.yul": {
+      "MappingHelper": {
+        "evm": {
+          "assembly": "    /* \"MappingHelper.yul\":81:83   */\n  0x20\n    /* \"MappingHelper.yul\":68:84   */\n  calldataload\n    /* \"MappingHelper.yul\":65:66   */\n  0x00\n    /* \"MappingHelper.yul\":58:85   */\n  mstore\n    /* \"MappingHelper.yul\":122:123   */\n  0x00\n    /* \"MappingHelper.yul\":109:124   */\n  calldataload\n    /* \"MappingHelper.yul\":105:107   */\n  0x20\n    /* \"MappingHelper.yul\":98:125   */\n  mstore\n    /* \"MappingHelper.yul\":161:163   */\n  0x40\n    /* \"MappingHelper.yul\":158:159   */\n  0x00\n    /* \"MappingHelper.yul\":148:164   */\n  keccak256\n    /* \"MappingHelper.yul\":145:146   */\n  0x00\n    /* \"MappingHelper.yul\":138:165   */\n  mstore\n    /* \"MappingHelper.yul\":188:190   */\n  0x20\n    /* \"MappingHelper.yul\":185:186   */\n  0x00\n    /* \"MappingHelper.yul\":178:191   */\n  return\n",
+          "bytecode": {
+            "object": "6020355f525f3560205260405f205f5260205ff3",
+            "opcodes": "PUSH1 0x20 CALLDATALOAD PUSH0 MSTORE PUSH0 CALLDATALOAD PUSH1 0x20 MSTORE PUSH1 0x40 PUSH0 KECCAK256 PUSH0 MSTORE PUSH1 0x20 PUSH0 RETURN "
+          }
+        }
+      }
+    }
+  },
+  "errors": []
+}

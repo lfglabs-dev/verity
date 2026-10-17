@@ -1,0 +1,28 @@
+{
+  "bytecodeSizes": {
+    "optimized": 20,
+    "unoptimized": 30
+  },
+  "compilerSha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
+  "compilerVersion": "solc, the solidity compiler commandline interface\nVersion: 0.8.34+commit.80d5c536.Linux.g++",
+  "files": {
+    "CapturedMappingHelper.lean": "fbeec67eb4daca699faae8d6c55c1ecf067d006ad8565fca003b69d657160cd0",
+    "DecodeProof.lean": "aa0831f6f66ca70ef1bd5f61220174645b2ee49657d2cb3b9a87ef9fa41672e5",
+    "MappingHelper.yul": "6c466232bec3512f598bb0f1e5e9f6185e48cedf99e3ad977ff8ed4ba2beb820",
+    "optimized.input.json": "1dd724029a5013e381c0a0116a514c2acb31abb2c20ac6116e21bc3d7f2356d1",
+    "optimized.output.json": "523198579827fdd77340dd93d5a95cb414201ca2d00e6d74ab1a74d18b01295a",
+    "unoptimized.input.json": "6e3e6887c8e2912ee3a5407683daa0af4bac0bbd0c950e38632e1cc569f62353",
+    "unoptimized.output.json": "0a3868ee57d1e470216d4aaa1528b8b36a877b2ca2dce04d02d835ad8007d1c6"
+  },
+  "inputs": {
+    "Compiler/CodegenCommon.lean": "c7ddcba4561cc1fa0665ee8d6f688487125b7ebb0bd79beea8d1e1752fee8379",
+    "Compiler/Yul/Ast.lean": "e28f213c5d82d937807b6bd36b2cf9f96e296da04bf87a85d381f4e5083ee481",
+    "Compiler/Yul/PrettyPrint.lean": "40b48ace7f17ef736042bc83bf65f8167345b98921018e436b36fe3336fadbbd",
+    "artifacts/native-mapping-helper/DecodeProof.lean.tail": "4c30066d041debbc997a06675ee0f5e71159e5e65ba7279ab6d9f0121bc91c94",
+    "lake-manifest.json": "aac812781d8f2c3a091d7476790f5851408c089a639fedcbae4d138c3d5d67a5",
+    "lean-toolchain": "efac0b94923b2d8b6840cd35be9177ad0fc5ab2332f4f4311c98712cee92fdee",
+    "scripts/check_native_mapping_helper_capture.py": "8f3fac0473b57b928eb887b05415bf32aba2efec059d672d747c22a28da1acea",
+    "scripts/solidity_differential/mapping_helper_export.lean.txt": "5e0b206f134c6bec06f9f351181f17906dde2dd69e127d6d9cfc2e6eb401d282"
+  },
+  "scope": "compiler-output capture only; no whole-function or source-bytecode equivalence claimed"
+}

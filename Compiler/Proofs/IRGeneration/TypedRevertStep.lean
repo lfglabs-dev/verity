@@ -1,32 +1,17 @@
-import Compiler.Proofs.IRGeneration.GenericInduction.ErrorRevert
+import Compiler.Proofs.IRGeneration.GenericInduction.CustomErrorDomain
 import Compiler.Proofs.IRGeneration.CustomErrorPayloadIR
 import Compiler.CompilationModel.AbiEncoding
 
 /-!
-# Typed-error step lemmas with the revert observable discharged
+# Typed custom-error steps with exact observed payloads
 
-`compiledStmtStep_requireError` and `compiledStmtStep_revertError` in
-`GenericInduction.ErrorRevert` are proved modulo
-
-    hrevertExec : ∀ state fuel, ∃ next, execIRStmts fuel state revertStmts = .revert next
-
-`CustomErrorPayloadIR` provides the general machinery for that hypothesis
-(`NonEscaping` / `RevertsAlways` / `execIRStmts_payloadBlock_revert`). This
-module computes the payload shape `revertWithCustomError` emits for a
-zero-parameter custom error, discharges `hrevertExec` for it, and joins the two
-— giving the first `CompiledStmtStepWithHelpers` instances for typed errors and
-therefore the first consumers of those two step lemmas.
-
-The zero-parameter case is the one whose payload shape is already pinned down.
-Errors *with* parameters emit the same statement vocabulary
-(`let`/`assign`/`mstore`/`for`), all of which `CustomErrorPayloadIR` covers via
-`NonEscaping`; what is still missing for them is the shape computation through
-`attachOffsets` and `encodeStaticCustomErrorArg`, not any new semantic fact.
-
-Note on namespacing: `bytesFromString`, `chunkBytes32` and `wordFromBytes` exist
-in both `Compiler.ECM` and `Compiler.CompilationModel`. `CustomErrorPayloadIR`
-opens the former (it is about the `Error(string)` payload); this module opens
-only the latter, which is the one `revertWithCustomError` is defined against.
+The legacy NonEscaping/RevertsAlways laws below classify the statement shape;
+they do not certify payload bytes or adequate fuel. Typed step consumers use
+actual compiler/Source/physical execution laws, with explicit declaration,
+canonical argument, scratch-frame, extent and fuel obligations. The declared
+zero-error instance uses CustomErrorDomain; pointwise conditional/scalar laws
+retain every computed-byte assertion while function-domain preservation is
+being integrated. No arbitrary-runtime or exhausted-execution payload is assumed.
 -/
 
 namespace Compiler.Proofs.IRGeneration
@@ -194,93 +179,94 @@ theorem execIRStmts_revertWithCustomError_oneStatic_revert
   exact execIRStmts_payloadBlock_revert _ _
     (oneStaticArgErrorPrefix_nonEscaping errorDef encoded)
 
-/-! ## Step lemmas -/
+/-! ## Exact typed step consumers -/
 
-/-- `revertError E()` for a zero-parameter custom error `E`, with the revert
-observable discharged. -/
 theorem compiledStmtStep_revertError_zeroArg
-    {spec : CompilationModel} {fields : List Field} {scope : List String}
-    {errorName : String} {errorDef : ErrorDef} {revertStmts : List YulStmt}
-    (hparams : errorDef.params = [])
-    (hpayload : revertWithCustomError .calldata errorDef [] [] = .ok revertStmts)
-    (hcompile :
-      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
-        (.revertError errorName []) = Except.ok revertStmts) :
-    CompiledStmtStepWithHelpers spec fields scope (.revertError errorName []) revertStmts :=
-  compiledStmtStep_revertError hcompile
-    (execIRStmts_revertWithCustomError_zero_revert .calldata errorDef hparams hpayload)
+    (spec : CompilationModel) (fields : List Field) (scope : List String)
+    (definition : ErrorDef) (out : List YulStmt)
+    (params : definition.params = [])
+    (compilerLookup : spec.errors.find? (·.name == definition.name) = some definition)
+    (unique : spec.errors.filter (·.name == definition.name) = [definition])
+    (compiled : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+      (.revertError definition.name []) = .ok out) :
+    CompiledErrorStepWithin spec fields scope (.revertError definition.name []) out
+      ((PhysicalCustomErrorExecution.signaturePrefix
+        (bytesFromString (errorSignature definition))).length + 5) :=
+  compiledErrorStep_zero_within spec fields scope definition out params compilerLookup unique compiled
 
-/-- `requireError cond E()` for a zero-parameter custom error `E`, with the
-revert observable discharged. -/
 theorem compiledStmtStep_requireError_zeroArg
-    {spec : CompilationModel} {fields : List Field} {scope : List String} {cond : Expr}
-    {errorName : String} {errorDef : ErrorDef} {failCond : YulExpr}
-    {revertStmts : List YulStmt}
-    (hcore : FunctionBody.ExprCompileCore cond)
-    (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
-    (hhelperSurface : exprTouchesUnsupportedHelperSurface cond = false)
-    (hnextScopeIncl : FunctionBody.scopeNamesIncluded
-      (stmtNextScope scope (.requireError cond errorName [])) scope)
-    (hfailCompile :
-      CompilationModel.compileRequireFailCond fields .calldata cond = Except.ok failCond)
-    (hparams : errorDef.params = [])
-    (hpayload : revertWithCustomError .calldata errorDef [] [] = .ok revertStmts)
-    (hcompile :
-      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
-        (.requireError cond errorName []) = Except.ok [YulStmt.if_ failCond revertStmts]) :
-    CompiledStmtStepWithHelpers spec fields scope (.requireError cond errorName [])
-      [YulStmt.if_ failCond revertStmts] :=
-  compiledStmtStep_requireError hcore hinScope hhelperSurface hnextScopeIncl hfailCompile
-    hcompile
-    (execIRStmts_revertWithCustomError_zero_revert .calldata errorDef hparams hpayload)
+    (fields : List Field) (scope : List String) (errors : List ErrorDef)
+    (runtime : SourceSemantics.RuntimeState) (state : IRState)
+    (definition : ErrorDef) (cond : Expr) (failCond : YulExpr) (extra : Nat)
+    (params : definition.params = [])
+    (compilerLookup : errors.find? (·.name == definition.name) = some definition)
+    (runtimeLookup : runtime.errors.filter (·.name == definition.name) = [definition])
+    (condition : compileRequireFailCondWithInternals fields .calldata [] cond = .ok failCond)
+    (sourceCond : SourceSemantics.evalExpr fields runtime cond = some 0)
+    (compiledCond : evalIRExpr state failCond = some 1)
+    (extent : state.memory freeMemoryPointer +
+      32 * (chunkBytes32 (bytesFromString (errorSignature definition))).length ≤
+        Verity.Core.Uint256.modulus) :
+    ∃ out data final,
+      CompilationModel.compileStmt fields [] errors .calldata [] false scope []
+        (.requireError cond definition.name []) = .ok [.if_ failCond out] ∧
+      SourceSemantics.execStmt fields runtime (.requireError cond definition.name []) =
+        .revertWithData data ∧
+      execIRStmts ((PhysicalCustomErrorExecution.signaturePrefix
+        (bytesFromString (errorSignature definition))).length + extra + 9)
+        state [.if_ failCond out] = .revert final ∧
+      stmtStepMatchesIRExec fields (stmtNextScope scope (.requireError cond definition.name []))
+        (.revertWithData data) (.revert final) :=
+  compiled_requireError_zero_failure_exact_bytes fields scope errors runtime state definition cond
+    failCond extra params compilerLookup runtimeLookup condition sourceCond compiledCond extent
 
-/-- `revertError E(a)` for a custom error `E` with one static scalar parameter,
-with the revert observable discharged. -/
-theorem compiledStmtStep_revertError_oneStaticArg
-    {spec : CompilationModel} {fields : List Field} {scope : List String}
-    {errorName : String} {errorDef : ErrorDef} {ty : ParamType}
-    {srcExpr : Expr} {argExpr encoded : YulExpr} {revertStmts : List YulStmt}
-    (hparams : errorDef.params = [ty])
-    (hstatic : customErrorStaticScalarParam ty = true)
-    (hencoded : encodeStaticCustomErrorArg errorDef.name ty argExpr = .ok encoded)
-    (hpayload :
-      revertWithCustomError .calldata errorDef [srcExpr] [argExpr] = .ok revertStmts)
-    (hcompile :
-      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
-        (.revertError errorName [srcExpr]) = Except.ok revertStmts) :
-    CompiledStmtStepWithHelpers spec fields scope (.revertError errorName [srcExpr])
-      revertStmts :=
-  compiledStmtStep_revertError hcompile
-    (execIRStmts_revertWithCustomError_oneStatic_revert .calldata errorDef ty srcExpr argExpr
-      encoded hparams hstatic hencoded hpayload)
+open PhysicalCustomErrorScalarExecution CustomErrorExpressionFrame
 
-/-- `requireError cond E(a)` for a custom error `E` with one static scalar
-parameter, with the revert observable discharged. -/
-theorem compiledStmtStep_requireError_oneStaticArg
-    {spec : CompilationModel} {fields : List Field} {scope : List String} {cond : Expr}
-    {errorName : String} {errorDef : ErrorDef} {ty : ParamType} {failCond : YulExpr}
-    {srcExpr : Expr} {argExpr encoded : YulExpr} {revertStmts : List YulStmt}
-    (hcore : FunctionBody.ExprCompileCore cond)
-    (hinScope : FunctionBody.exprBoundNamesInScope cond scope)
-    (hhelperSurface : exprTouchesUnsupportedHelperSurface cond = false)
-    (hnextScopeIncl : FunctionBody.scopeNamesIncluded
-      (stmtNextScope scope (.requireError cond errorName [srcExpr])) scope)
-    (hfailCompile :
-      CompilationModel.compileRequireFailCond fields .calldata cond = Except.ok failCond)
-    (hparams : errorDef.params = [ty])
-    (hstatic : customErrorStaticScalarParam ty = true)
-    (hencoded : encodeStaticCustomErrorArg errorDef.name ty argExpr = .ok encoded)
-    (hpayload :
-      revertWithCustomError .calldata errorDef [srcExpr] [argExpr] = .ok revertStmts)
-    (hcompile :
-      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
-        (.requireError cond errorName [srcExpr]) =
-          Except.ok [YulStmt.if_ failCond revertStmts]) :
-    CompiledStmtStepWithHelpers spec fields scope (.requireError cond errorName [srcExpr])
-      [YulStmt.if_ failCond revertStmts] :=
-  compiledStmtStep_requireError hcore hinScope hhelperSurface hnextScopeIncl hfailCompile
-    hcompile
-    (execIRStmts_revertWithCustomError_oneStatic_revert .calldata errorDef ty srcExpr argExpr
-      encoded hparams hstatic hencoded hpayload)
+theorem compiledStmtStep_revertError_oneStaticArg (definition : ErrorDef) (fields : List Field)
+    (ty : ParamType) (srcExpr : Expr) (argExpr encoded : YulExpr)
+    (scope : List String) (errors : List ErrorDef)
+    (compilerLookup : errors.find? (·.name == definition.name) = some definition)
+    (compiledArgs : compileExprListWithInternals fields .calldata [] [srcExpr] = .ok [argExpr])
+    (params : definition.params = [ty]) (scalar : PhysicalCustomErrorScalarExecution.staticScalar ty = true)
+    (encoding : encodeStaticCustomErrorArg definition.name ty argExpr = .ok encoded)
+    (state : IRState) (value extra : Nat)
+    (runtime : SourceSemantics.RuntimeState) (typeName : String)
+    (evaluated : SourceSemantics.evalExprList fields runtime [srcExpr] = some [value])
+    (resolved : runtime.errors.filter (·.name == definition.name) = [definition])
+    (canonical : Denote.errorScalarValueValid ty value = true)
+    (supported : Denote.errorScalarType ty = some typeName)
+    (extent : state.memory freeMemoryPointer +
+      32 * (chunkBytes32 (bytesFromString (errorSignature definition))).length ≤
+        Verity.Core.Uint256.modulus)
+    (argument : evalIRExpr state argExpr = some value)
+    (supportedExpr : ScratchExpr argExpr) :
+    ∃ out sourceResult irExec,
+      CompilationModel.compileStmt fields [] errors .calldata [] false scope []
+        (.revertError definition.name [srcExpr]) = .ok out ∧
+      SourceSemantics.execStmt fields runtime (.revertError definition.name [srcExpr]) = sourceResult ∧
+      execIRStmts ((PhysicalCustomErrorExecution.signaturePrefix
+        (bytesFromString (errorSignature definition))).length + extra + 8) state out = irExec ∧
+      stmtStepMatchesIRExec fields (stmtNextScope scope (.revertError definition.name [srcExpr]))
+        sourceResult irExec :=
+  compiled_revertError_scalar_exact_bytes definition fields ty srcExpr argExpr encoded scope errors
+    compilerLookup compiledArgs params scalar encoding state value extra runtime typeName
+    evaluated resolved canonical supported extent argument supportedExpr
+
+theorem compiledStmtStep_requireError_oneStaticArg (fields : List Field) (scope : List String)
+    (runtime : SourceSemantics.RuntimeState) (state final : IRState)
+    (cond : Expr) (name : String) (args : List Expr) (failCond : YulExpr)
+    (out : List YulStmt) (data : List UInt8) (fuel : Nat)
+    (sourceCond : SourceSemantics.evalExpr fields runtime cond = some 0)
+    (compiledCond : evalIRExpr state failCond = some 1)
+    (sourceError : SourceSemantics.execStmt fields runtime (.revertError name args) =
+      .revertWithData data)
+    (executed : execIRStmts fuel state out = .revert final)
+    (payload : final.revertBytes = some data) :
+    SourceSemantics.execStmt fields runtime (.requireError cond name args) = .revertWithData data ∧
+    execIRStmts (fuel + 2) state [.if_ failCond out] = .revert final ∧
+    stmtStepMatchesIRExec fields (stmtNextScope scope (.requireError cond name args))
+      (.revertWithData data) (.revert final) :=
+  requireError_failure_exact_bytes fields scope runtime state final cond name args failCond out data fuel
+    sourceCond compiledCond sourceError executed payload
 
 end Compiler.Proofs.IRGeneration
