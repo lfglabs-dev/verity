@@ -1589,3 +1589,5 @@ trailing bytes of the final word on long writes, and zero out stale long-storage
 words when shrinking or transitioning from long (`>= 32` bytes) to short (`< 32`
 bytes) encoding. Storage `bytes` indexing (`b[i]`), `.push` / `.pop`, and
 storage-pointer locals remain rejected with located diagnostics.
+
+`Compiler.SolidityImport.AdversarialEntryPointInvariants` lifts explicit per-entry-point invariants to finite sequences with a separately selected permitted Denote oracle at each call. Permission and context preservation are hypotheses, not trusted axioms or claims that arbitrary external behavior preserves an invariant. The execution relation is the real `Transactions.executeBody`; unobserved instrumentation failures cannot form steps. This is a frame-level rule, with ABI/dispatch/value-transfer obligations left explicit.
