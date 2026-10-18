@@ -1410,7 +1410,8 @@ def executeByteOptionalBoolCall (oracle : DenoteOracle) (fields : List Field)
   let preparation ← prepareByteWordCall .call oracle fields state resultVar selector numWordArgs args
     (bumpBeforeCall := false)
   let prepared := preparation.frame
-  let observed ← ByteExternalCall.executeChecked adversary preparation.request prepared.world
+  let observed ←
+    ByteExternalCall.executeChecked adversary preparation.request prepared.world
   let allocated := observed.world.writePhysicalMemoryValue 64
     (Verity.Core.Uint256.ofNat (preparation.pointer + ((4 + numWordArgs * 32 + 31) / 32) * 32))
   match classifyOptionalBoolCall observed.success observed.returndata with
@@ -1423,7 +1424,7 @@ def executeByteOptionalBoolCall (oracle : DenoteOracle) (fields : List Field)
       return (.continue { prepared with
         world
         bindings := bindValue prepared.bindings resultVar word
-        rawReturndata := some observed.returndata
+        rawReturndata := Option.some observed.returndata
         byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
 
 /-- The closed `<address>.code.length` transport: the runtime code length of

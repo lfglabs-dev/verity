@@ -926,8 +926,8 @@ Validation: `check_external_code_and_low_level_call.py` replays the fixture and 
 # Initcode execution groundwork
 
 `Verity/Core/Model/InitCodeExecution.lean` executes the bytecode instructions in
-Midnight's eleven-byte deployment prefix with an explicit instruction bound.
-The kernel proof `midnight_returns_payload` composes nine intermediate
+the eleven-byte SSTORE2 deployment prefix with an explicit instruction bound.
+The kernel proof `push11CopyReturn_returns_payload` composes nine intermediate
 instruction lemmas and proves that the returned bytes equal the appended
 payload. Byte-copy frame lemmas preserve reads outside the destination range.
 This is deployment proof infrastructure: it adds no supported Solidity or Yul
