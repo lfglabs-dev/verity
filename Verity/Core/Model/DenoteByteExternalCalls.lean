@@ -31,6 +31,38 @@ def staticAdversary
     · exact fun _ => rfl
     · trivial
 
+/-- Configurable adversary for `CALL` and `STATICCALL`. The supplied response
+sees the complete request and current world and may return an updated world
+(for example a reentrant callback's writes and logs). That world is committed
+only by a successful non-static request; a successful `STATICCALL` always keeps
+the input world, so validity holds by construction. -/
+def callAdversary
+    (respond : Request → Verity.ContractState →
+      Bool × Verity.ContractState × Bytes × List Verity.StorageKey) :
+    Adversary where
+  respond := fun request world =>
+    let (success, after, data, touched) := respond request world
+    if success then
+      .success (if request.kind = .staticcall then world else after) data touched
+    else .revert data touched
+  valid := by
+    intro request world
+    dsimp
+    split
+    · intro hkind
+      simp [hkind]
+    · trivial
+
+@[simp] theorem callAdversary_respond
+    (respond : Request → Verity.ContractState →
+      Bool × Verity.ContractState × Bytes × List Verity.StorageKey)
+    (request : Request) (world : Verity.ContractState) :
+    (callAdversary respond).respond request world =
+      if (respond request world).1 then
+        .success (if request.kind = .staticcall then world else (respond request world).2.1)
+          (respond request world).2.2.1 (respond request world).2.2.2
+      else .revert (respond request world).2.2.1 (respond request world).2.2.2 := rfl
+
 structure State where
   frame : Denote.DenoteState
   returndata : Bytes := []
@@ -135,6 +167,29 @@ theorem decodeOptionalBoolCall_of_ne_one (state : State) (hnonempty : state.retu
     decodeOptionalBoolCall { success := true, state } = .revertWithData [] := by
   simp [decodeOptionalBoolCall, hnonempty, hword]
 
+/-- Decode the single 32-byte word (`uint256` or `bytes32`) returned by a
+state-changing typed interface call. Extra bytes are accepted; an incomplete
+first word reverts empty and a failed child forwards its bytes without padding.
+The state already holds the committed callee world and accesses from
+`execute`. -/
+def decodeCallWord (observed : Observation) : Denote.StmtOutcome :=
+  if observed.success then
+    if observed.state.returndata.length < 32 then .revertWithData []
+    else .return (firstWord observed.state.returndata) observed.state.frame
+  else .revertWithData observed.state.returndata
+
+@[simp] theorem decodeCallWord_failure (state : State) :
+    decodeCallWord { success := false, state } = .revertWithData state.returndata := rfl
+
+@[simp] theorem decodeCallWord_short (state : State) (hshort : state.returndata.length < 32) :
+    decodeCallWord { success := true, state } = .revertWithData [] := by
+  simp [decodeCallWord, hshort]
+
+@[simp] theorem decodeCallWord_of_ge (state : State) (hlength : 32 ≤ state.returndata.length) :
+    decodeCallWord { success := true, state } =
+      .return (firstWord state.returndata) state.frame := by
+  simp [decodeCallWord, Nat.not_lt.mpr hlength]
+
 def execute (adversary : Adversary) (request : Request) (state : State) : Observation :=
   let observed := ByteExternalCall.execute adversary request state.frame.world
   { success := observed.success
@@ -226,6 +281,60 @@ def executeStaticUint256 (adversary : Adversary) (state : State) (target : Verit
     Denote.StmtOutcome × List Verity.StorageKey :=
   let observed := execute adversary (staticRequest state target selector arguments gas) state
   (decodeStaticUint256 observed, observed.state.touched)
+
+section BytesExecutors
+
+variable (adversary : Adversary) (state : State) (target : Verity.Address) (calldata : Bytes)
+  (gas : Nat)
+
+/-- Typed interface staticcall with already-encoded calldata returning `uint256`. -/
+def executeBytesStaticUint256 : Denote.StmtOutcome × List Verity.StorageKey :=
+  let observed := execute adversary (staticBytesRequest state target calldata gas) state
+  (decodeStaticUint256 observed, observed.state.touched)
+
+/-- Typed interface staticcall with already-encoded calldata returning `bool`. -/
+def executeBytesStaticBool : Denote.StmtOutcome × List Verity.StorageKey :=
+  let observed := execute adversary (staticBytesRequest state target calldata gas) state
+  (decodeStaticBool observed, observed.state.touched)
+
+/-- Low-level value-free `.call(bytes)` checked with the optional-bool convention. -/
+def executeBytesOptionalBoolCall : Denote.StmtOutcome × List Verity.StorageKey :=
+  let observed := execute adversary (callBytesRequest state target calldata gas) state
+  (decodeOptionalBoolCall observed, observed.state.touched)
+
+/-- State-changing typed interface call with already-encoded calldata returning a
+single 32-byte word. A successful callee's world is committed into the frame. -/
+def executeBytesCallWord : Denote.StmtOutcome × List Verity.StorageKey :=
+  let observed := execute adversary (callBytesRequest state target calldata gas) state
+  (decodeCallWord observed, observed.state.touched)
+
+@[simp] theorem executeBytesStaticUint256_eq :
+    executeBytesStaticUint256 adversary state target calldata gas =
+      let observed := execute adversary (staticBytesRequest state target calldata gas) state
+      (decodeStaticUint256 observed, observed.state.touched) := rfl
+
+@[simp] theorem executeBytesStaticBool_eq :
+    executeBytesStaticBool adversary state target calldata gas =
+      let observed := execute adversary (staticBytesRequest state target calldata gas) state
+      (decodeStaticBool observed, observed.state.touched) := rfl
+
+@[simp] theorem executeBytesOptionalBoolCall_eq :
+    executeBytesOptionalBoolCall adversary state target calldata gas =
+      let observed := execute adversary (callBytesRequest state target calldata gas) state
+      (decodeOptionalBoolCall observed, observed.state.touched) := rfl
+
+@[simp] theorem executeBytesCallWord_eq :
+    executeBytesCallWord adversary state target calldata gas =
+      let observed := execute adversary (callBytesRequest state target calldata gas) state
+      (decodeCallWord observed, observed.state.touched) := rfl
+
+/-- A byte-request staticcall never changes the Denote world. -/
+@[simp] theorem execute_staticBytesRequest_world :
+    (execute adversary (staticBytesRequest state target calldata gas) state).state.frame.world =
+      state.frame.world :=
+  ByteExternalCall.execute_static_world adversary _ state.frame.world rfl
+
+end BytesExecutors
 
 theorem staticRequest_value (state : State) (target : Verity.Address)
     (selector : Fin (2^32)) (arguments : List Verity.Uint256) (gas : Nat) :
