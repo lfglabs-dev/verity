@@ -4834,8 +4834,14 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.fieldWriteEntriesAt_packed_none_of_unpacked  -- private
   -- Compiler.Proofs.IRGeneration.list_findSlotPackedNone_ne_none  -- private
   -- Compiler.Proofs.IRGeneration.firstInFieldConflictCopy_ne_none_of_seen_slot_unpacked  -- private
+  -- Compiler.Proofs.IRGeneration.firstInFieldConflictCopy_fieldWriteEntriesAt_ne_none  -- private
   -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member  -- private
   -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_singleton  -- private
+  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopyFrom_cons_self  -- private
+  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopyFrom_cons_of_not_capture  -- private
+  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopyFrom_cons_of_transient  -- private
+  -- Compiler.Proofs.IRGeneration.fieldWriteEntriesAt_mem_of_capture  -- private
+  -- Compiler.Proofs.IRGeneration.firstFieldWriteSlotConflictCopyFrom_ne_none_of_capture  -- private
   Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopyFrom_of_member
   Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_go_eq_CopyFrom
   -- Compiler.Proofs.IRGeneration.firstInFieldConflict_eq_Copy  -- private
@@ -4847,6 +4853,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintKeyedMappingSlots_singleton_eq_written  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_eq_written  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_eq_written  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_eq_storage_of_unowned  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_wordNormalize_eq_storage_of_unowned  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_eq_written  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_eq_written  -- private
@@ -4856,14 +4864,22 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlot  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeStorageWordSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset  -- private
+  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_ofNat_toNat  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressSlot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintSlots  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintKeyedMappingSlot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeTransientTarget  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingChainSlot  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingSlots_eq_uint  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingSlot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingWordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.mappingWordTargetSlot_lt_lit  -- private
+  -- Compiler.Proofs.IRGeneration.uint256_val_lt_lit  -- private
+  -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_mappingWordTargetSlot  -- private
+  -- Compiler.Proofs.IRGeneration.abstractStoreStorageOrMapping_packedWord_hit  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingPackedWordSlot  -- private
+  -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMapping2Slots_ofNat_eq_written  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMapping2Slot  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMapping2WordSlot  -- private
   -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_writeUintSlot  -- private
@@ -4874,13 +4890,19 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.singletonBlock_sizeOf_slack  -- private
   -- Compiler.Proofs.IRGeneration.compatValue_not_mem_scope_of_reservedPrefix  -- private
   -- Compiler.Proofs.IRGeneration.validateIdentifierShapes_fieldName_ne_reservedScratch  -- private
+  -- Compiler.Proofs.IRGeneration.exists_eval_of_compileExpr_core_of_scope  -- private
+  -- Compiler.Proofs.IRGeneration.reservedScratch_not_mem_scope_of_validateIdentifierShapes  -- private
   -- Compiler.Proofs.IRGeneration.scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes  -- private
   -- Compiler.Proofs.IRGeneration.findFieldWriteSlots_of_findFieldWithResolvedSlot  -- private
   -- Compiler.Proofs.IRGeneration.findFieldWithResolvedSlot_of_findFieldWriteSlots_singleton  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_sstore_lit_single  -- private
+  -- Compiler.Proofs.IRGeneration.stmtStep_continue_of_vars_eq  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_singleSlot
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageWord_singleSlot_zeroOffset
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_and_addressMask_of_eval  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorageAddr_singleSlot
+  -- Compiler.Proofs.IRGeneration.execIRStmts_single_of_execIRStmt  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_mstore_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_mstore_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_tstore_single_preserves  -- private
@@ -4889,9 +4911,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_calldatacopy_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single
+  -- Compiler.Proofs.IRGeneration.execStmt_returndataCopy_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_returndatacopy_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_single_revert_of_execIRStmt  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single
   Compiler.Proofs.IRGeneration.compiledStmtStep_revertEmpty_single
+  -- Compiler.Proofs.IRGeneration.execIRStmt_revert_returndataSize  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_revertReturndataIR_revert  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single
   -- Compiler.Proofs.IRGeneration.evalIRExpr_mappingSlotChain  -- private
@@ -4900,7 +4927,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.evalIRExpr_fieldLoad_of_eval  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmt_fieldStore_of_eval  -- private
   -- Compiler.Proofs.IRGeneration.bindingsExactlyMatchIRVarsOnScope_irFieldStore  -- private
-  -- Compiler.Proofs.IRGeneration.exists_eval_of_compileExpr_core_of_scope  -- private
   -- Compiler.Proofs.IRGeneration.evalIRExpr_of_compileExpr_core_of_scope  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_fieldStore_single_of_eval  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeUintKeyedMappingFieldSlots  -- private
@@ -4948,7 +4974,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.execIRStmts_packedMappingWordBody_of_eval  -- private
   -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_writeAddressKeyedMappingPackedWordFieldSlots  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmts_singleton_block_of_continue  -- private
+  -- Compiler.Proofs.IRGeneration.packedBits_offset_lt_of_valid  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves  -- private
+  -- Compiler.Proofs.IRGeneration.compileStmt_setMappingPackedWord_singleSlot_ok  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember_singleSlot_of_slotSafety
@@ -4966,8 +4994,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtStepMatchesIRExec_setStorage_aliasSlots  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_aliasSlots
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes
+  -- Compiler.Proofs.IRGeneration.collectStmtListBindNames_append_left  -- private
+  -- Compiler.Proofs.IRGeneration.collectStmtListAssignedNames_append_left  -- private
+  -- Compiler.Proofs.IRGeneration.scopeNames_of_stmtListScopeDiscipline_prefix  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipline
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences
+  -- Compiler.Proofs.IRGeneration.exprCompileCore_setStorage_of_bodySurface  -- private
+  -- Compiler.Proofs.IRGeneration.setStorage_notMapping_notAdt_of_compileStmtList  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences_of_compileStmtList_of_bodySurface
   -- Compiler.Proofs.IRGeneration.terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec  -- private
   -- Compiler.Proofs.IRGeneration.compileStmt_ite_eq_compiledIteIR  -- private
@@ -8919,4 +8952,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8195 theorems/lemmas (5562 public, 2633 private, 0 sorry'd)
+-- Total: 8228 theorems/lemmas (5562 public, 2666 private, 0 sorry'd)

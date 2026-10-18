@@ -96,28 +96,6 @@ ALLOWLIST: set[str] = {
     # literal loops intentionally remain outside the supported fragment. The
     # longer witnesses below are recurrence/state-relation proofs where
     # splitting would duplicate the same loop-index, binder, and fuel facts.
-    # --- Storage write compiled step proofs ---
-    "compiledStmtStep_setStorage_singleSlot",
-    # Zero-offset storage-word writes lower to the same single `sstore` shape
-    # as scalar writes.  The preservation proof must keep source and IR states,
-    # fuel, and scope bindings aligned in one witness; factoring it would only
-    # move that coupled witness into a private wrapper.
-    "compiledStmtStep_setStorageWord_singleSlot_zeroOffset",
-    "compiledStmtStep_setStorage_of_validateIdentifierShapes",
-    "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipline",
-    "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences",
-    "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences_of_compileStmtList_of_bodySurface",
-    "compiledStmtStep_setStorageAddr_singleSlot_preserves",
-    # --- Mapping write singleton bridges ---
-    "compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves",
-    "compiledStmtStep_setMapping_singleSlot_of_slotSafety_preserves",
-    "compiledStmtStep_setMappingWord_singleSlot_of_slotSafety_preserves",
-    "compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preserves",
-    "compiledStmtStep_setMapping2_singleSlot_of_slotSafety_preserves",
-    "compiledStmtStep_setMapping2Word_singleSlot_of_slotSafety_preserves",
-    "compiledStmtStep_setMappingChain_singleSlot_of_slotSafety_preserves",
-    "compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves",
-    "compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety",
     # Native selected-body handoff: splits generated switch-case freshness into
     # the actual lowered user-body freshness used by the remaining native
     # selected-body execution bridge.
@@ -149,45 +127,8 @@ ALLOWLIST: set[str] = {
     # nine-field PackedUserOperation decoder to expose its four dynamic bytes
     # member bindings. Splitting would duplicate the same option-case spine.
     "decodePackedUserOperationAt",
-    "compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves",
-    # --- Transient/memory write singleton bridges ---
-    "compiledStmtStep_tstore_single_preserves",
-    "compiledStmtStep_mstore_single_preserves",
-    # Word-wise calldata->memory copy: rebuilds all sixteen runtimeStateMatchesIR
-    # conjuncts and then discharges the memory funext pointwise over the copied
-    # range. Splitting would duplicate that same conjunct spine twice.
-    "compiledStmtStep_calldatacopy_single_preserves",
-    # Zero-extent returndata->memory copy. The tactic body is short; the length is
-    # the spelled-out CompiledStmtStep.preserves signature, which has to name the
-    # compiled Yul list four times for the fuel accounting to stay defeq.
-    "compiledStmtStep_returndatacopy_empty_single_preserves",
-    "compiledStmtStep_revertReturndata_empty_single_preserves",
-    # Bounded returndata->memory copy: the same spelled-out preserves signature,
-    # doubled by the two fit branches (in-bounds continue with the memory
-    # bridge, out-of-bounds revert) that the bounded semantics requires.
-    # Splitting would duplicate the eval-agreement spine and fuel accounting.
-    "compiledStmtStep_returndatacopy_bounded_single_preserves",
     # --- Generic induction and scope proofs ---
     "stmtListGenericCore_of_supportedStmtList_of_surface",
-    # --- Mapping slot and field resolution proofs ---
-    "findResolvedFieldAtSlotCopyFrom_of_member",
-    "firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member",
-    # IRStorageSlot migration: these storage write/state-match proofs grew
-    # because each case now carries both the old source Nat slot reasoning and
-    # the bounded IRStorageSlot normalization bridge. Splitting them further
-    # would duplicate the same `wordNormalize`/`IRStorageSlot.ofNat` plumbing
-    # across one-off local helpers.
-    "runtimeStateMatchesIR_writeUintSlots",
-    "runtimeStateMatchesIR_writeAddressSlot",
-    "runtimeStateMatchesIR_writeAddressKeyedMappingChainSlot",
-    "runtimeStateMatchesIR_writeAddressKeyedMappingSlot",
-    "runtimeStateMatchesIR_writeAddressKeyedMappingWordSlot",
-    "runtimeStateMatchesIR_writeAddressKeyedMappingPackedWordSlot",
-    "runtimeStateMatchesIR_writeAddressKeyedMapping2Slot",
-    "runtimeStateMatchesIR_writeAddressKeyedMapping2WordSlot",
-    "encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_eq_written",
-    "encodeStorageAt_writeAddressKeyedMapping2Slots_singleton_eq_written",
-    "encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_eq_written",
     # Source storage-read steps need to bridge `sload(lit slot)` through
     # `wordNormalize slot` and then repackage the updated binding/state
     # invariants. These are four parallel cases for uint/address let/assign.
@@ -198,7 +139,6 @@ ALLOWLIST: set[str] = {
     # --- Compat scratch lemmas ---
     "compatScratch_not_internalImmutable",
     "compatScratch_startsWith_reserved",
-    "scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes",
     # --- Function-level compilation proofs ---
     "bindSupportedParams_lookupBinding",
     # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
