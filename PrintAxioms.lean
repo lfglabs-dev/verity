@@ -3567,6 +3567,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.lookupBinding?_bindValue_eq
   Compiler.Proofs.IRGeneration.FunctionBody.lookupBinding?_bindValue_ne
   Compiler.Proofs.IRGeneration.FunctionBody.exprBoundNamesPresent_bindValue
+  -- Compiler.Proofs.IRGeneration.FunctionBody.lookupBinding?_cons_of_ne  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.bindSupportedParams_cons_eq_some  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.bindSupportedParams_lookupBinding?_some_of_mem
   Compiler.Proofs.IRGeneration.FunctionBody.exprBoundNamesPresent_of_bindSupportedParams
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_setVar_bindValue
@@ -3639,6 +3641,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_calldataload_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_tload_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_of_sourceEval_some  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.exists_source_value_of_evalIRExpr  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_eq_of_values  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_lt_of_values  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_slt_of_values  -- private
@@ -3667,7 +3670,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_ge_of_compiled
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_le_of_compiled
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_logicalNot_of_compiled
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_logicalAnd_of_values  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_and_yulToBool_of_lt  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_logicalAnd_of_compiled
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_logicalOr_of_values  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_or_yulToBool_of_lt  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_logicalOr_of_compiled
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_add_of_compiled
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_mul_of_compiled
@@ -3701,6 +3708,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_max_of_compiled
   -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_wMulDown_of_values  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_wMulDown_of_compiled
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_lit_eq  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evmModulus_add_sub_one_mod  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.pred_div_add_one_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.uint256_ofNat_val_of_lt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.uint256_ofNat_mul_ofNat_val  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.uint256_div_ofNat_val  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.uint256_ofNat_sub_one_val  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.uint256_add_sub_one_div_val  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_roundUpDiv_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_ceilDiv_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.uint256_ceilDiv_val  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_wDivUp_of_values  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_wDivUp_of_compiled
   -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_mulDivDown_of_values  -- private
@@ -3714,11 +3732,98 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_localVar_lt_evmModulus_of_bindingsBounded
   Compiler.Proofs.IRGeneration.FunctionBody.exprBoundNamesPresent_of_subset
   Compiler.Proofs.IRGeneration.FunctionBody.compileExpr_core_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.option_bind_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.option_bind_lt_evmModulus_of_lt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.some_lt_evmModulus_of_lt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.onExpr_hyps_of_subset  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_constructorArg_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_ceilDiv_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.returndataOptionalBool_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_lt_evmModulus_of_subexpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_min_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_max_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_ite_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExprBounded_min  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExprBounded_max  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExprBounded_ite  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_calldataload_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_returndataOptionalBoolAt_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_keccak256_lt_evmModulus  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExprBounded_of_core  -- private
+  Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_lt_evmModulus_core_onExpr
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_of_compileExpr_eq_ok  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_subexpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_unary  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_binary  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_literal  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_param  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_constructorArg  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_localVar  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_caller  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_contractAddress  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_txOrigin  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_msgValue  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_blockTimestamp  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_blockNumber  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_chainid  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_blobbasefee  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_calldatasize  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_returndataSize  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_sub  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_div  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_mod  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_eq  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_lt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_gt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_ge  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_le  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_logicalAnd  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_logicalOr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_bitAnd  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_bitOr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_bitXor  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_shl  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_shr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_min  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_max  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_ceilDiv  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_wMulDown  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_wDivUp  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_slt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_sgt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_sdiv  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_smod  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_sar  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_byte  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_signextend  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_add  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_mul  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_builtinExp  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_keccak256  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_logicalNot  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_bitNot  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_tload  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_extcodesize  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_calldataload  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_mload  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_returndataOptionalBoolAt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_ite  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_mulDivDown  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_mulDivUp  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileExprSound_of_core  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_core_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileExpr_core
-  Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_lt_evmModulus_core_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_lt_evmModulus_core
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileRequireFailCond_eq_iszero_of_compileExpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileRequireFailCond_ge_eq  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileRequireFailCond_le_eq  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileRequireFailCond_core_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalIRExpr_iszero_of_compileExpr_core_onExpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.exists_compiled_value_of_subexpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_ge_of_values  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_le_of_values  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileRequireFailCond_ge  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.eval_compileRequireFailCond_le  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileRequireFailCond_core_onExpr
 
   -- Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean
@@ -8559,4 +8664,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7835 theorems/lemmas (5562 public, 2273 private, 0 sorry'd)
+-- Total: 7940 theorems/lemmas (5562 public, 2378 private, 0 sorry'd)

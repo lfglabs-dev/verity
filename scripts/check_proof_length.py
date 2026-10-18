@@ -106,12 +106,6 @@ ALLOWLIST: set[str] = {
     # mutual recursion shape.
     "execForEachLoop_agree",
     # --- Expression compilation correctness proofs ---
-    "eval_compileExpr_ceilDiv_of_compiled",
-    "eval_compileExpr_wDivUp_of_compiled",
-    "eval_compileExpr_mulDivDown_of_compiled",
-    "eval_compileExpr_mulDivUp_of_compiled",
-    "eval_compileExpr_logicalAnd_of_compiled",
-    "eval_compileExpr_logicalOr_of_compiled",
     # Per-constructor cases-on-Expr proofs: each new Expr constructor (e.g.
     # paramDynamicHeadWord, mulDiv512Down/Up from upstream commits cf5cb844 +
     # 6b2af37c) adds a new arm. The proof body is mechanical (same simp pattern
@@ -126,8 +120,6 @@ ALLOWLIST: set[str] = {
     "supportedStmtList_usesParamDynamicHeadWord_false",
     "supportedStmtList_usesMulDiv512_false",
     # --- Core expression/statement compilation ---
-    "compileExpr_core_ok",
-    "compileRequireFailCond_core_ok",
     "compileStmt_core_ok_any_scope",  # mstore/tstore widening — mechanical per-constructor cases
     "compileStmtList_core_ok",
     "compileStmtList_terminal_core_ok",
@@ -156,9 +148,6 @@ ALLOWLIST: set[str] = {
     # event/error catalogs off the contract surface; one mechanical arm per
     # statement constructor (~35 cases), so splitting would only duplicate it.
     "compileStmt_eventsErrorsAgnostic_aux",
-    "eval_compileExpr_core_onExpr",
-    "evalExpr_lt_evmModulus_core_onExpr",
-    "eval_compileRequireFailCond_core_onExpr",
     # Constructor mode equivalence is a structural expression-constructor split;
     # each case is direct, but splitting further would duplicate the same
     # surface-closure plumbing across dozens of one-line cases.
