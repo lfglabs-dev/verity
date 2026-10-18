@@ -45,6 +45,55 @@ def spliceSimCheckList : List YulStmt → Bool
 
 end
 
+/-- `spliceSimCheck` soundness for a `return` call statement. -/
+private theorem spliceSimCheck_sound_return (args : List YulExpr)
+    (h : spliceSimCheck (.exprStmt (.call "return" args)) = true) :
+    SpliceSim (.exprStmt (.call "return" args)) := by
+  simp only [SpliceSim]
+  cases args with
+  | nil => simp [spliceSimCheck] at h
+  | cons a rest =>
+      cases rest with
+      | nil => cases a <;> simp [spliceSimCheck] at h
+      | cons b rest' =>
+          cases rest' with
+          | cons _ _ => cases a <;> cases b <;> simp [spliceSimCheck] at h
+          | nil =>
+              cases a <;> cases b <;>
+                first
+                  | exact ⟨_, _, rfl⟩
+                  | simp [spliceSimCheck] at h
+
+/-- `spliceSimCheck` soundness for a call statement other than `return`. -/
+private theorem spliceSimCheck_sound_call_ne_return (f : String) (args : List YulExpr)
+    (hret : f ≠ "return") (h : spliceSimCheck (.exprStmt (.call f args)) = true) :
+    SpliceSim (.exprStmt (.call f args)) := by
+  by_cases hstop : f = "stop"
+  · subst hstop
+    simp only [SpliceSim]
+    cases args with
+    | nil => rfl
+    | cons _ _ => simp [spliceSimCheck] at h
+  · by_cases hsd : f = "selfdestruct"
+    · subst hsd
+      simp [spliceSimCheck] at h
+    · rw [SpliceSim.eq_def]
+      split <;> simp_all
+
+/-- `spliceSimCheck` soundness for expression statements. -/
+private theorem spliceSimCheck_sound_exprStmt (e : YulExpr)
+    (h : spliceSimCheck (.exprStmt e) = true) : SpliceSim (.exprStmt e) := by
+  cases e with
+  | call f args =>
+      by_cases hret : f = "return"
+      · subst hret
+        exact spliceSimCheck_sound_return args h
+      · exact spliceSimCheck_sound_call_ne_return f args hret h
+  | lit _ => trivial
+  | hex _ => trivial
+  | ident _ => trivial
+  | str _ => trivial
+
 mutual
 
 /-- Soundness: a checked statement is in the fragment. -/
@@ -68,40 +117,7 @@ theorem spliceSimCheck_sound : ∀ (s : YulStmt), spliceSimCheck s = true →
   | .assign _ _, _ => trivial
   | .leave, _ => trivial
   | .funcDef _ _ _ _, _ => trivial
-  | .exprStmt e, h => by
-      cases e with
-      | call f args =>
-          by_cases hret : f = "return"
-          · subst hret
-            simp only [SpliceSim]
-            cases args with
-            | nil => simp [spliceSimCheck] at h
-            | cons a rest =>
-                cases rest with
-                | nil => cases a <;> simp [spliceSimCheck] at h
-                | cons b rest' =>
-                    cases rest' with
-                    | cons _ _ => cases a <;> cases b <;> simp [spliceSimCheck] at h
-                    | nil =>
-                        cases a <;> cases b <;>
-                          first
-                            | exact ⟨_, _, rfl⟩
-                            | simp [spliceSimCheck] at h
-          · by_cases hstop : f = "stop"
-            · subst hstop
-              simp only [SpliceSim]
-              cases args with
-              | nil => rfl
-              | cons _ _ => simp [spliceSimCheck] at h
-            · by_cases hsd : f = "selfdestruct"
-              · subst hsd
-                simp [spliceSimCheck] at h
-              · rw [SpliceSim.eq_def]
-                split <;> simp_all
-      | lit _ => trivial
-      | hex _ => trivial
-      | ident _ => trivial
-      | str _ => trivial
+  | .exprStmt e, h => spliceSimCheck_sound_exprStmt e h
 
 theorem spliceSimCheckCases_sound :
     ∀ (cs : List (Nat × List YulStmt)), spliceSimCheckCases cs = true →

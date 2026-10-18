@@ -43,26 +43,11 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
-    # #2276 fuel stability: mutual well-founded induction mirroring the
-    # interpreter's statement/list recursion; extracting per-case lemmas would
-    # break the shared sizeOf termination measure across the mutual block.
-    "execIRStmt_stable",
-    "execIRStmts_stable",
-    "execIRStmts_mstore_ptr_expr_block",
-    # decidable-checker soundness: exhaustive constructor sweep of the
-    # executable mirror; splitting per constructor would break the mutual
-    # recursion with the Cases/Dflt/List companions.
-    "spliceSimCheck_sound",
-    # #2083 expression-surface closure: both proofs are mechanical constructor/list
-    # traversals kept whole so the denotation and scanner cases remain auditable
-    # against the corresponding exhaustive expression definitions.
-    "denote_evalExpr_eq",
+    # #2083 expression-surface closure: a mechanical constructor/list traversal
+    # kept whole so the scanner cases remain auditable against the exhaustive
+    # expression definition.
     "exprListTouchesUnsupportedContractSurface_eq_false_of_featureClosed",
     # --- Denote/SourceSemantics agreement (P4 seed) ---
-    # Mutual recursion with execStmtList_eq: each new Stmt constructor
-    # (externalCallBind, tryExternalCallBind, ecm) adds an arm; extracting per-case
-    # lemmas would break the shared structural induction across the mutual block.
-    "execStmt_eq",
     # Structural recursion over the fuelless forEach loop; the succ case must
     # spell out the loop-state literal inside a `show`-match to align the two
     # interpreters' unfoldings, which cannot be factored without changing the
@@ -94,12 +79,7 @@ ALLOWLIST: set[str] = {
     # user body. This deliberately stays private until the execution bridge is
     # closed.
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
-    # ERC-4337 dynamic ABI view projection: mechanical destructuring of the
-    # nine-field PackedUserOperation decoder to expose its four dynamic bytes
-    # member bindings. Splitting would duplicate the same option-case spine.
-    "decodePackedUserOperationAt",
     # --- Generic induction and scope proofs ---
-    "stmtListGenericCore_of_supportedStmtList_of_surface",
     # Source storage-read steps need to bridge `sload(lit slot)` through
     # `wordNormalize slot` and then repackage the updated binding/state
     # invariants. These are four parallel cases for uint/address let/assign.
@@ -112,21 +92,7 @@ ALLOWLIST: set[str] = {
     "compatScratch_startsWith_reserved",
     # --- Function-level compilation proofs ---
     "bindSupportedParams_lookupBinding",
-    # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
-    # generic keystones above; the line count is the inherited hypothesis
-    # block, not proof complexity (proof bodies are <10 lines each).
-    "denote_sound",
-    "denote_sound_with_helpers",
     # --- Legacy compatibility and dispatch ---
-    # bounded-loop fuel stability: the induction on remaining iterations must
-    # thread the counter invariant through the three body outcomes and the
-    # post-increment in one pass; splitting per-outcome would duplicate the
-    # loop-unfold plumbing at both fuel indices.
-    "execIRStmt_boundedFor_stable",
-    # counter-preservation soundness: mutual structural recursion over the
-    # statement grammar (mirrors execIRStmt_stable); per-constructor splits
-    # would break the mutual recursion with the list companion.
-    "execIRStmt_getVar_of_checked",
     "resultsMatch_of_execResultsAligned",
     # --- SimpleStorage native EVMYulLean dispatcher closed forms ---
     # These are concrete generated-code reductions for the store(uint256)
@@ -151,8 +117,6 @@ ALLOWLIST: set[str] = {
     # Native zero-sstore projection composes calldata, sstore, stop, and the
     # RBMap erase-self lookup fact in one generated store-body endpoint.
     "primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_projectResult_slot0_zero_of_erase",
-    # --- Helper-aware theorem stack (Issue #1630 / PR #1633 / PR #1639) ---
-    "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
     # --- Return statement compilation (memory sync adds steps) ---
     "exec_compileStmt_return_core_extraFuel",
     # --- Helper-aware IR compatibility proofs ---

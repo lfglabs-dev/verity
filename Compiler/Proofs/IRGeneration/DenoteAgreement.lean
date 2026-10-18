@@ -107,75 +107,85 @@ def outcomeRawFree : StmtOutcome → Prop
 
 /-! ## Expression-level agreement -/
 
+/-- Shorthand for expression-level agreement at one expression. -/
+private abbrev ExprAgree (fields : List Field) (s : DenoteState) (e : Expr) : Prop :=
+  Denote.evalExpr sourceOracle fields s e = SourceSemantics.evalExpr fields (toRuntimeState s) e
+
+/-- `returndatasize` agreement: with no raw buffer both read the world's size. -/
+private theorem denote_evalExpr_returndataSize_eq (fields : List Field) (s : DenoteState)
+    (hraw : s.rawReturndata = none) : ExprAgree fields s .returndataSize := by
+  show some ((s.rawReturndata.map List.length).getD s.world.returndataSize) = _
+  rw [hraw]
+  rfl
+
+/-- Optional-bool returndata read agreement, given agreement on the offset. -/
+private theorem denote_evalExpr_returndataOptionalBoolAt_eq (fields : List Field)
+    (s : DenoteState) (hraw : s.rawReturndata = none) (a : Expr)
+    (ih : ExprAgree fields s a) : ExprAgree fields s (.returndataOptionalBoolAt a) :=
+  bindAgree ih fun _ => by
+    simp only [hraw]
+    rfl
+
+/-- Conditional-expression agreement, given agreement on all three operands. -/
+private theorem denote_evalExpr_ite_eq (fields : List Field) (s : DenoteState)
+    (c t e : Expr) (ihc : ExprAgree fields s c) (iht : ExprAgree fields s t)
+    (ihe : ExprAgree fields s e) : ExprAgree fields s (.ite c t e) :=
+  bindAgree ihc fun v => by
+    by_cases h : (v != 0) = true
+    · simpa [h] using iht
+    · simpa [h] using ihe
+
+/-- Both evaluators guard the reserved `exp` builtin lane on the same name
+test, so the two-argument external-call arms agree branch-for-branch. -/
+private theorem denote_evalExpr_externalCall_two_eq (fields : List Field) (s : DenoteState)
+    (name : String) (base exponent : Expr) (ihb : ExprAgree fields s base)
+    (ihe : ExprAgree fields s exponent) :
+    ExprAgree fields s (.externalCall name [base, exponent]) := by
+  have guard : ∀ (c : Bool) (x y : Option Nat),
+      x = y → (if c then x else none) = (if c then y else none) := by
+    intro c x y h; cases c <;> simp [h]
+  exact guard _ _ _ (bindAgree ihb fun _ => bindAgree ihe fun _ => rfl)
+
 theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState)
     (hraw : s.rawReturndata = none) :
     ∀ e : Expr,
       Denote.evalExpr sourceOracle fields s e =
         SourceSemantics.evalExpr fields (toRuntimeState s) e
   | .literal _ | .param _ | .immutable _ | .constructorArg _ | .storage _ | .storageAddr _
-  | .mappingChain _ [] | .mappingChain _ (_ :: _ :: _ :: _) | .localVar _
-  | .storageArrayLength _ | .dynamicBytesEq ..
-  | .memoryArrayLength _ | .paramDynamicMemberLength ..
-  | .paramDynamicMemberDataOffset .. | .paramDynamicMemberElement ..
-  | .paramDynamicStaticComposite .. | .paramDynamicHeadWord ..
-  | .arrayLength _ | .arrayElementWord ..
-  | .call .. | .staticcall .. | .delegatecall ..
-  | .externalCall _ [] | .externalCall _ [_] | .externalCall _ (_ :: _ :: _ :: _)
-  | .internalCall ..
-  | .intrinsic .. | .forkIfAtLeast .. | .mulDiv512Down .. | .mulDiv512Up ..
-  | .adtConstruct .. | .adtTag .. | .adtField ..
+  | .mappingChain _ [] | .mappingChain _ (_ :: _ :: _ :: _) | .localVar _ | .dynamicBytesEq ..
+  | .storageArrayLength _ | .memoryArrayLength _ | .paramDynamicMemberLength ..
+  | .paramDynamicMemberDataOffset .. | .paramDynamicMemberElement .. | .arrayLength _
+  | .paramDynamicStaticComposite .. | .paramDynamicHeadWord .. | .arrayElementWord ..
+  | .call .. | .staticcall .. | .delegatecall .. | .externalCall _ [] | .externalCall _ [_]
+  | .externalCall _ (_ :: _ :: _ :: _) | .internalCall .. | .intrinsic .. | .forkIfAtLeast ..
+  | .mulDiv512Down .. | .mulDiv512Up .. | .adtConstruct .. | .adtTag .. | .adtField ..
   | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
   | .blockTimestamp | .blockNumber | .blobbasefee | .calldatasize => rfl
-  | .returndataSize => by
-      show some ((s.rawReturndata.map List.length).getD s.world.returndataSize) = _
-      rw [hraw]
-      rfl
-  | .returndataOptionalBoolAt a =>
-      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ => by
-        simp only [hraw]
-        rfl
+  | .returndataSize => denote_evalExpr_returndataSize_eq fields s hraw
+  | .returndataOptionalBoolAt a => denote_evalExpr_returndataOptionalBoolAt_eq fields s hraw a
+      (denote_evalExpr_eq fields s hraw a)
   | .bitNot a | .logicalNot a | .mload a | .tload a | .calldataload a | .extcodesize a
-  | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _
-  | .mappingUint _ a | .mappingChain _ [a] | .structMember _ a _
-  | .storageArrayElement _ a
-  | .arrayElement _ a
-  | .arrayElementDynamicWord _ a _
-  | .arrayElementDynamicDataOffset _ a
-  | .arrayElementDynamicMemberLength _ a _
-  | .arrayElementDynamicMemberDataOffset _ a _
-  | .memoryArrayElement _ a =>
-      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ => rfl
-  | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
-  | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b
-  | .byte a b | .signextend a b | .eq a b | .ge a b | .gt a b | .sgt a b
-  | .lt a b | .slt a b | .le a b | .logicalAnd a b | .logicalOr a b
-  | .ceilDiv a b | .wMulDown a b | .wDivUp a b | .min a b | .max a b
-  | .keccak256 a b | .mapping2 _ a b | .mapping2Word _ a b _
-  | .mappingChain _ [a, b]
-  | .structMember2 _ a b _ =>
+  | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _ | .mappingUint _ a
+  | .mappingChain _ [a] | .structMember _ a _ | .storageArrayElement _ a | .arrayElement _ a
+  | .arrayElementDynamicWord _ a _ | .arrayElementDynamicDataOffset _ a
+  | .arrayElementDynamicMemberLength _ a _ | .arrayElementDynamicMemberDataOffset _ a _
+  | .memoryArrayElement _ a => bindAgree (denote_evalExpr_eq fields s hraw a) fun _ => rfl
+  | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b | .bitAnd a b
+  | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b | .byte a b | .signextend a b
+  | .eq a b | .ge a b | .gt a b | .sgt a b | .lt a b | .slt a b | .le a b | .logicalAnd a b
+  | .logicalOr a b | .ceilDiv a b | .wMulDown a b | .wDivUp a b | .min a b | .max a b
+  | .keccak256 a b | .mapping2 _ a b | .mapping2Word _ a b _ | .mappingChain _ [a, b]
+  | .structMember2 _ a b _ | .arrayElementDynamicMemberElement _ a _ b =>
       bindAgree (denote_evalExpr_eq fields s hraw a) fun _ =>
         bindAgree (denote_evalExpr_eq fields s hraw b) fun _ => rfl
   | .mulDivDown a b c | .mulDivUp a b c =>
       bindAgree (denote_evalExpr_eq fields s hraw a) fun _ =>
         bindAgree (denote_evalExpr_eq fields s hraw b) fun _ =>
           bindAgree (denote_evalExpr_eq fields s hraw c) fun _ => rfl
-  | .arrayElementDynamicMemberElement _ a _ b =>
-      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ =>
-        bindAgree (denote_evalExpr_eq fields s hraw b) fun _ => rfl
-  | .ite c t e =>
-      bindAgree (denote_evalExpr_eq fields s hraw c) fun v => by
-        by_cases h : (v != 0) = true
-        · simpa [h] using denote_evalExpr_eq fields s hraw t
-        · simpa [h] using denote_evalExpr_eq fields s hraw e
-  -- Both evaluators guard the reserved `exp` builtin lane on the same name
-  -- test, so the arms agree branch-for-branch.
-  | .externalCall _ [base, exponent] => by
-      have guard : ∀ (c : Bool) (x y : Option Nat),
-          x = y → (if c then x else none) = (if c then y else none) := by
-        intro c x y h; cases c <;> simp [h]
-      exact guard _ _ _
-        (bindAgree (denote_evalExpr_eq fields s hraw base) fun _ =>
-          bindAgree (denote_evalExpr_eq fields s hraw exponent) fun _ => rfl)
+  | .ite c t e => denote_evalExpr_ite_eq fields s c t e (denote_evalExpr_eq fields s hraw c)
+      (denote_evalExpr_eq fields s hraw t) (denote_evalExpr_eq fields s hraw e)
+  | .externalCall _ [base, exponent] => denote_evalExpr_externalCall_two_eq fields s _ base
+      exponent (denote_evalExpr_eq fields s hraw base) (denote_evalExpr_eq fields s hraw exponent)
 
 theorem denote_evalExprList_eq (fields : List Field) (s : DenoteState)
     (hraw : s.rawReturndata = none) :
@@ -786,6 +796,122 @@ theorem execStmt_forEachSetBit_eq (fields : List Field)
         (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
         hbody hfree 256 st bits hraw
 
+/-- Shorthand for statement-level agreement at one statement. -/
+private abbrev StmtAgree (fields : List Field) (st : DenoteState) (stmt : Stmt) : Prop :=
+  toStmtResult (Denote.execStmt sourceOracle fields st stmt) =
+    SourceSemantics.execStmt fields (toRuntimeState st) stmt
+
+/-- Shorthand for statement-list agreement at one statement list. -/
+private abbrev StmtListAgree (fields : List Field) (st : DenoteState) (stmts : List Stmt) :
+    Prop :=
+  toStmtResult (Denote.execStmtList sourceOracle fields st stmts) =
+    SourceSemantics.execStmtList fields (toRuntimeState st) stmts
+
+/-- `ite` agreement, given agreement on both branches from the same frame. -/
+private theorem execStmt_ite_eq (fields : List Field) (st : DenoteState) (c : Expr)
+    (t e : List Stmt) (h : st.rawReturndata = none) (iht : StmtListAgree fields st t)
+    (ihe : StmtListAgree fields st e) : StmtAgree fields st (.ite c t e) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
+    ← denote_evalExpr_eq _ _ h]
+  cases Denote.evalExpr sourceOracle fields st c with
+  | none => rfl
+  | some v =>
+      by_cases hv : (v != 0) = true
+      · simp only [if_pos hv]
+        exact iht
+      · simp only [if_neg hv]
+        exact ihe
+
+/-- `forEach` agreement, given agreement and raw-freedom of the body from every
+raw-free frame. -/
+private theorem execStmt_forEach_eq (fields : List Field) (st : DenoteState) (v : String)
+    (cnt : Expr) (body : List Stmt) (h : st.rawReturndata = none)
+    (hbody : ∀ ls : DenoteState, ls.rawReturndata = none → StmtListAgree fields ls body)
+    (hfree : ∀ ls : DenoteState, ls.rawReturndata = none →
+      outcomeRawFree (Denote.execStmtList sourceOracle fields ls body)) :
+    StmtAgree fields st (.forEach v cnt body) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
+    ← denote_evalExpr_eq _ _ h]
+  cases Denote.evalExpr sourceOracle fields st cnt with
+  | none => rfl
+  | some bound =>
+      exact execForEachLoop_agree
+        (runBody' := fun ls => SourceSemantics.execStmtList fields ls body) hbody hfree
+        { st with bindings := Denote.bindValue st.bindings v (Denote.wordNormalize 0) }
+        0 bound h
+
+/-- `externalCallBind` agreement: both lanes read the same oracle answer. -/
+private theorem execStmt_externalCallBind_eq (fields : List Field) (st : DenoteState)
+    (resultVars : List String) (externalName : String) (args : List Expr)
+    (h : st.rawReturndata = none) :
+    StmtAgree fields st (.externalCallBind resultVars externalName args) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
+    ← denote_evalExprList_eq _ _ h]
+  cases Denote.evalExprList sourceOracle fields st args with
+  | none => rfl
+  | some _ =>
+      have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
+        funext wordNormalize_eq
+      by_cases h : st.externalCallSucceeded st.externalCallIndex = true
+      · simp only [h, ite_true]
+        by_cases harity :
+            (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
+        · simp [toStmtResult, toRuntimeState, h, harity]
+        · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq,
+            SourceSemantics.returndataAfterCall]
+      · simp [toStmtResult, toRuntimeState, h]
+
+/-- `tryExternalCallBind` agreement: both lanes read the same oracle answer. -/
+private theorem execStmt_tryExternalCallBind_eq (fields : List Field) (st : DenoteState)
+    (successVar : String) (resultVars : List String) (externalName : String)
+    (args : List Expr) (h : st.rawReturndata = none) :
+    StmtAgree fields st (.tryExternalCallBind successVar resultVars externalName args) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
+    ← denote_evalExprList_eq _ _ h]
+  cases Denote.evalExprList sourceOracle fields st args with
+  | none => rfl
+  | some _ =>
+      have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
+        funext wordNormalize_eq
+      by_cases h : st.externalCallSucceeded st.externalCallIndex = true
+      · simp only [h, ite_true]
+        by_cases harity :
+            (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
+        · simp [toStmtResult, toRuntimeState, h, harity]
+        · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValue_eq, bindValues_eq,
+            SourceSemantics.returndataAfterCall]
+      · simp [toStmtResult, toRuntimeState, h, hw, bindValue_eq, bindValues_eq,
+          SourceSemantics.returndataAfterCall]
+
+/-- Agreement for an ECM without a closed byte transport: both lanes read the
+same oracle answer. -/
+private theorem execStmt_ecm_eq (fields : List Field) (st : DenoteState)
+    (mod : ECM.ExternalCallModule) (args : List Expr) (hb : mod.byteTransport = none)
+    (h : st.rawReturndata = none) : StmtAgree fields st (.ecm mod args) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt, hb,
+    ← denote_evalExprList_eq _ _ h]
+  cases Denote.evalExprList sourceOracle fields st args with
+  | none => rfl
+  | some _ =>
+      have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
+        funext wordNormalize_eq
+      by_cases h : st.externalCallSucceeded st.externalCallIndex = true
+      · simp only [h, ite_true]
+        by_cases harity :
+            (st.externalCallReturnValues st.externalCallIndex).length != mod.resultVars.length
+        · simp [toStmtResult, toRuntimeState, h, harity]
+        · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq,
+            SourceSemantics.returndataAfterCall]
+      · simp [toStmtResult, toRuntimeState, h]
+
+/-- `returnBytes` agreement: both lanes look up the same dynamic-array binding. -/
+private theorem execStmt_returnBytes_eq (fields : List Field) (st : DenoteState)
+    (name : String) : StmtAgree fields st (.returnBytes name) := by
+  simp only [StmtAgree, Denote.execStmt, SourceSemantics.execStmt,
+    Denote.dynamicArrayBinding?, SourceSemantics.dynamicArrayBinding?,
+    toRuntimeState_bindings]
+  cases DynamicAbi.dynamicArrayBinding? st.bindings name <;> rfl
+
 mutual
 
 /-- Statement agreement on byte-free statements from a raw-free frame. Closed
@@ -796,111 +922,39 @@ theorem execStmt_eq (fields : List Field) :
       st.rawReturndata = none →
       toStmtResult (Denote.execStmt sourceOracle fields st stmt) =
         SourceSemantics.execStmt fields (toRuntimeState st) stmt
-  | _, .letVar n v, _, h | _, .assignVar n v, _, h => by denote_stmt_arm h
-  | _, .setStorage f v, _, h | _, .setStorageAddr f v, _, h
-  | _, .setImmutable f v, _, h => by denote_stmt_arm h
-  | _, .setStorageWord f w v, _, h => by denote_stmt_arm h
-  | _, .setMapping f k v, _, h | _, .setMappingUint f k v, _, h => by denote_stmt_arm h
-  | _, .setMappingWord f k w v, _, h => by denote_stmt_arm h
-  | _, .setMappingPackedWord f k w p v, _, h => by denote_stmt_arm h
-  | _, .setStructMember f k m v, _, h => by denote_stmt_arm h
-  | _, .setMapping2 f k1 k2 v, _, h => by denote_stmt_arm h
-  | _, .setMapping2Word f k1 k2 w v, _, h => by denote_stmt_arm h
-  | _, .setStructMember2 f k1 k2 m v, _, h => by denote_stmt_arm h
-  | _, .setMappingChain f ks v, _, h => by denote_stmt_arm h
-  | _, .storageArrayPush f v, _, h | _, .storageArrayPop f, _, h => by denote_stmt_arm h
-  | _, .setStorageArrayElement f i v, _, h => by denote_stmt_arm h
-  | _, .mstore o v, _, h | _, .tstore o v, _, h => by denote_stmt_arm h
-  | _, .require _ _, _, h | _, .requireError .., _, h | _, .revertError .., _, h
-  | _, .panicCode _, _, h | _, .panic _, _, h => by denote_stmt_arm h
-  | _, .return v, _, h => by denote_stmt_arm h
-  | _, .stop, _, _ => rfl
-  | _, .emit n args, _, h => by denote_stmt_arm h
-  | st, .ite c t e, hb, h => by
-      simp only [stmtByteFree, Bool.and_eq_true] at hb
-      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq _ _ h]
-      cases Denote.evalExpr sourceOracle fields st c with
-      | none => rfl
-      | some v =>
-          by_cases hv : (v != 0) = true
-          · simp only [if_pos hv]
-            exact execStmtList_eq fields st t hb.1 h
-          · simp only [if_neg hv]
-            exact execStmtList_eq fields st e hb.2 h
-  | st, .forEach v cnt body, hb, h => by
-      simp only [stmtByteFree] at hb
-      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExpr_eq _ _ h]
-      cases Denote.evalExpr sourceOracle fields st cnt with
-      | none => rfl
-      | some bound =>
-          exact execForEachLoop_agree
-            (runBody' := fun ls => SourceSemantics.execStmtList fields ls body)
-            (fun ls hls => execStmtList_eq fields ls body hb hls)
-            (fun ls hls => execStmtList_rawFree fields ls body hb hls)
-            { st with bindings := Denote.bindValue st.bindings v (Denote.wordNormalize 0) }
-            0 bound h
-  | st, .forEachSetBit v bitmap body, hb, h => by
-      simp only [stmtByteFree] at hb
-      exact execStmt_forEachSetBit_eq fields st v bitmap body h
-        (fun ls hls => execStmtList_eq fields ls body hb hls)
-        (fun ls hls => execStmtList_rawFree fields ls body hb hls)
-  | _, .calldatacopy _ _ _, _, h => by denote_stmt_arm h
+  | _, .letVar .., _, h | _, .assignVar .., _, h | _, .setStorage .., _, h
+  | _, .setStorageAddr .., _, h | _, .setImmutable .., _, h | _, .setStorageWord .., _, h
+  | _, .setMapping .., _, h | _, .setMappingUint .., _, h | _, .setMappingWord .., _, h
+  | _, .setMappingPackedWord .., _, h | _, .setStructMember .., _, h | _, .setMapping2 .., _, h
+  | _, .setMapping2Word .., _, h | _, .setStructMember2 .., _, h | _, .setMappingChain .., _, h
+  | _, .storageArrayPush .., _, h | _, .storageArrayPop .., _, h | _, .mstore .., _, h
+  | _, .setStorageArrayElement .., _, h | _, .tstore .., _, h | _, .require .., _, h
+  | _, .requireError .., _, h | _, .revertError .., _, h | _, .panicCode .., _, h
+  | _, .panic .., _, h | _, .return .., _, h | _, .emit .., _, h | _, .calldatacopy .., _, h
+  | _, .returnValues .., _, h => by denote_stmt_arm h
   -- On a raw-free frame both lanes use definitionally equal padded-copy mirrors.
   | _, .returndataCopy _ _ _, _, h => by denote_stmt_arm h; rfl
-  | st, .externalCallBind resultVars _externalName args, _, h => by
-      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq _ _ h]
-      cases Denote.evalExprList sourceOracle fields st args with
-      | none => rfl
-      | some _ =>
-          have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
-            funext wordNormalize_eq
-          by_cases h : st.externalCallSucceeded st.externalCallIndex = true
-          · simp only [h, ite_true]
-            by_cases harity :
-                (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
-            · simp [toStmtResult, toRuntimeState, h, harity]
-            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq,
-                SourceSemantics.returndataAfterCall]
-          · simp [toStmtResult, toRuntimeState, h]
-  | st, .tryExternalCallBind successVar resultVars _externalName args, _, h => by
-      simp only [Denote.execStmt, SourceSemantics.execStmt, ← denote_evalExprList_eq _ _ h]
-      cases Denote.evalExprList sourceOracle fields st args with
-      | none => rfl
-      | some _ =>
-          have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
-            funext wordNormalize_eq
-          by_cases h : st.externalCallSucceeded st.externalCallIndex = true
-          · simp only [h, ite_true]
-            by_cases harity :
-                (st.externalCallReturnValues st.externalCallIndex).length != resultVars.length
-            · simp [toStmtResult, toRuntimeState, h, harity]
-            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValue_eq, bindValues_eq,
-                SourceSemantics.returndataAfterCall]
-          · simp [toStmtResult, toRuntimeState, h, hw, bindValue_eq, bindValues_eq,
-              SourceSemantics.returndataAfterCall]
-  | st, .ecm mod args, hb, h => by
-      simp only [stmtByteFree, Option.isNone_iff_eq_none] at hb
-      simp only [Denote.execStmt, SourceSemantics.execStmt, hb, ← denote_evalExprList_eq _ _ h]
-      cases Denote.evalExprList sourceOracle fields st args with
-      | none => rfl
-      | some _ =>
-          have hw : (wordNormalize : Nat → Nat) = SourceSemantics.wordNormalize :=
-            funext wordNormalize_eq
-          by_cases h : st.externalCallSucceeded st.externalCallIndex = true
-          · simp only [h, ite_true]
-            by_cases harity :
-                (st.externalCallReturnValues st.externalCallIndex).length != mod.resultVars.length
-            · simp [toStmtResult, toRuntimeState, h, harity]
-            · simp [toStmtResult, toRuntimeState, h, harity, hw, bindValues_eq,
-                SourceSemantics.returndataAfterCall]
-          · simp [toStmtResult, toRuntimeState, h]
-  | _, .returnValues _, _, h => by denote_stmt_arm h
-  | st, .returnBytes name, _, _ => by
-      simp only [Denote.execStmt, SourceSemantics.execStmt,
-        Denote.dynamicArrayBinding?, SourceSemantics.dynamicArrayBinding?,
-        toRuntimeState_bindings]
-      cases DynamicAbi.dynamicArrayBinding? st.bindings name <;> rfl
-  | _, .returnArray .., _, _ | _, .returnStorageWords .., _, _
+  | st, .ite c t e, hb, h =>
+      have hb : stmtListByteFree t = true ∧ stmtListByteFree e = true := by
+        simpa only [stmtByteFree, Bool.and_eq_true] using hb
+      execStmt_ite_eq fields st c t e h (execStmtList_eq fields st t hb.1 h)
+        (execStmtList_eq fields st e hb.2 h)
+  | st, .forEach v cnt body, hb, h =>
+      execStmt_forEach_eq fields st v cnt body h
+        (fun ls hls => execStmtList_eq fields ls body hb hls)
+        (fun ls hls => execStmtList_rawFree fields ls body hb hls)
+  | st, .forEachSetBit v bitmap body, hb, h =>
+      execStmt_forEachSetBit_eq fields st v bitmap body h
+        (fun ls hls => execStmtList_eq fields ls body hb hls)
+        (fun ls hls => execStmtList_rawFree fields ls body hb hls)
+  | st, .externalCallBind rv n args, _, h => execStmt_externalCallBind_eq fields st rv n args h
+  | st, .tryExternalCallBind sv rv n args, _, h =>
+      execStmt_tryExternalCallBind_eq fields st sv rv n args h
+  | st, .ecm mod args, hb, h =>
+      execStmt_ecm_eq fields st mod args (by simpa only [stmtByteFree, Option.isNone_iff_eq_none]
+        using hb) h
+  | st, .returnBytes name, _, _ => execStmt_returnBytes_eq fields st name
+  | _, .stop, _, _ | _, .returnArray .., _, _ | _, .returnStorageWords .., _, _
   | _, .returnCodeData .., _, _ | _, .revertEmpty, _, _ | _, .revertReturndata .., _, _
   | _, .internalCall .., _, _ | _, .internalCallAssign .., _, _ | _, .rawLog .., _, _
   | _, .unsafeBlock .., _, _ | _, .unsafeYul .., _, _ | _, .matchAdt .., _, _ => rfl

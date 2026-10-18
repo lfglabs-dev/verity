@@ -140,6 +140,124 @@ theorem LoopFreeCases.mem :
       · exact hx
       · exact ih hrest hmem
 
+/-- Stability at a bound transfers to every larger fuel. -/
+private theorem execIRStmt_stable_mono {stmt : YulStmt} {b m : Nat}
+    (ih : ∀ (f : Nat) (state : IRState),
+      execIRStmt (b + f) state stmt = execIRStmt b state stmt)
+    (hle : b ≤ m) (f : Nat) (state : IRState) :
+    execIRStmt (m + f) state stmt = execIRStmt m state stmt := by
+  obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hle
+  rw [Nat.add_assoc, ih, ih]
+
+/-- Stability at a bound transfers to every larger fuel (statement lists). -/
+private theorem execIRStmts_stable_mono {xs : List YulStmt} {b m : Nat}
+    (ih : ∀ (f : Nat) (state : IRState),
+      execIRStmts (b + f) state xs = execIRStmts b state xs)
+    (hle : b ≤ m) (f : Nat) (state : IRState) :
+    execIRStmts (m + f) state xs = execIRStmts m state xs := by
+  obtain ⟨d, rfl⟩ := Nat.exists_eq_add_of_le hle
+  rw [Nat.add_assoc, ih, ih]
+
+/-- One unfolding of `execIRStmts` on a cons at successor fuel. -/
+private theorem execIRStmts_succ_cons_eq (n : Nat) (state : IRState) (x : YulStmt)
+    (rest : List YulStmt) :
+    execIRStmts (n + 1) state (x :: rest) =
+      match execIRStmt n state x with
+      | .continue s₁ => execIRStmts n s₁ rest
+      | .return v s => .return v s
+      | .stop s => .stop s
+      | .revert s => .revert s := rfl
+
+/-- `if` step of fuel stability, given stability of the body. -/
+private theorem execIRStmt_if_stable (cond : YulExpr) (body : List YulStmt)
+    (ih : ∀ (f : Nat) (state : IRState),
+      execIRStmts (stmtsFuelBound body + f) state body =
+        execIRStmts (stmtsFuelBound body) state body)
+    (f : Nat) (state : IRState) :
+    execIRStmt (stmtFuelBound (.if_ cond body) + f) state (.if_ cond body) =
+      execIRStmt (stmtFuelBound (.if_ cond body)) state (.if_ cond body) := by
+  simp only [stmtFuelBound]
+  rw [show stmtsFuelBound body + 1 + f = (stmtsFuelBound body + f) + 1 from by omega]
+  show (match evalIRExpr state cond with
+    | some c => if c ≠ 0 then execIRStmts (stmtsFuelBound body + f) state body
+      else .continue state
+    | none => .revert state) =
+    (match evalIRExpr state cond with
+    | some c => if c ≠ 0 then execIRStmts (stmtsFuelBound body) state body
+      else .continue state
+    | none => .revert state)
+  cases evalIRExpr state cond with
+  | none => rfl
+  | some c => by_cases hc : c ≠ 0 <;> simp [hc, ih f state]
+
+/-- `block` step of fuel stability, given stability of the body. -/
+private theorem execIRStmt_block_stable (stmts : List YulStmt)
+    (ih : ∀ (f : Nat) (state : IRState),
+      execIRStmts (stmtsFuelBound stmts + f) state stmts =
+        execIRStmts (stmtsFuelBound stmts) state stmts)
+    (f : Nat) (state : IRState) :
+    execIRStmt (stmtFuelBound (.block stmts) + f) state (.block stmts) =
+      execIRStmt (stmtFuelBound (.block stmts)) state (.block stmts) := by
+  simp only [stmtFuelBound]
+  rw [show stmtsFuelBound stmts + 1 + f = (stmtsFuelBound stmts + f) + 1 from by omega]
+  exact ih f state
+
+/-- Fuel stability of a statement list at its structural bound. -/
+private abbrev StmtsFuelStable (body : List YulStmt) : Prop :=
+  ∀ (f : Nat) (state : IRState),
+    execIRStmts (stmtsFuelBound body + f) state body = execIRStmts (stmtsFuelBound body) state body
+
+/-- `switch` step of fuel stability, given stability of every case body and of
+the default body. -/
+private theorem execIRStmt_switch_stable (e : YulExpr) (cases : List (Nat × List YulStmt))
+    (dflt : Option (List YulStmt))
+    (ihCase : ∀ k body, (k, body) ∈ cases → StmtsFuelStable body)
+    (ihDflt : ∀ body, dflt = some body → StmtsFuelStable body)
+    (f : Nat) (state : IRState) :
+    execIRStmt (stmtFuelBound (.switch e cases dflt) + f) state (.switch e cases dflt) =
+      execIRStmt (stmtFuelBound (.switch e cases dflt)) state (.switch e cases dflt) := by
+  simp only [stmtFuelBound]
+  rw [show Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + 1 + f =
+    (Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + f) + 1 from by omega]
+  cases heval : evalIRExpr state e with
+  | none => simp [execIRStmt, heval]
+  | some v =>
+      cases hfind : List.find? (fun (c : Nat × List YulStmt) => c.1 == v) cases with
+      | some c =>
+          obtain ⟨k, body⟩ := c
+          have hmem := List.mem_of_find?_eq_some hfind
+          simp only [execIRStmt, heval, hfind]
+          exact execIRStmts_stable_mono (ihCase k body hmem) (Nat.le_trans
+            (stmtsFuelBound_le_casesFuelBound cases (k, body) hmem) (Nat.le_max_left _ _)) f state
+      | none =>
+          cases hdd : dflt with
+          | none => simp [execIRStmt, heval, hfind]
+          | some body =>
+              simp only [execIRStmt, heval, hfind]
+              exact execIRStmts_stable_mono (ihDflt body hdd)
+                (Nat.le_max_right _ (dfltFuelBound (some body))) f state
+
+/-- Cons step of list fuel stability, given stability of the head and the tail. -/
+private theorem execIRStmts_cons_stable (x : YulStmt) (rest : List YulStmt)
+    (ihHead : ∀ (f : Nat) (state : IRState),
+      execIRStmt (stmtFuelBound x + f) state x = execIRStmt (stmtFuelBound x) state x)
+    (ihRest : ∀ (f : Nat) (state : IRState),
+      execIRStmts (stmtsFuelBound rest + f) state rest =
+        execIRStmts (stmtsFuelBound rest) state rest)
+    (f : Nat) (state : IRState) :
+    execIRStmts (stmtsFuelBound (x :: rest) + f) state (x :: rest) =
+      execIRStmts (stmtsFuelBound (x :: rest)) state (x :: rest) := by
+  simp only [stmtsFuelBound]
+  rw [show Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + 1 + f =
+    (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f) + 1 from by omega,
+    execIRStmts_succ_cons_eq, execIRStmts_succ_cons_eq,
+    execIRStmt_stable_mono ihHead (Nat.le_max_left _ _) f state]
+  cases execIRStmt (Nat.max (stmtFuelBound x) (stmtsFuelBound rest)) state x with
+  | «continue» s₁ => exact execIRStmts_stable_mono ihRest (Nat.le_max_right _ _) f s₁
+  | «return» v s => rfl
+  | stop s => rfl
+  | revert s => rfl
+
 mutual
 
 /-- Fuel stability: a loop-free statement executes identically at its bound
@@ -148,108 +266,25 @@ theorem execIRStmt_stable : ∀ (stmt : YulStmt), LoopFree stmt →
     ∀ (f : Nat) (state : IRState),
       execIRStmt (stmtFuelBound stmt + f) state stmt =
         execIRStmt (stmtFuelBound stmt) state stmt
-  | .comment _, _, f, state => by
-      simp only [stmtFuelBound]
-      rw [Nat.add_comm 1 f]
-      rfl
-  | .let_ _ _, _, f, state => by
-      simp only [stmtFuelBound]
-      rw [Nat.add_comm 1 f]
-      rfl
-  | .letMany _ _, _, f, state => by
-      simp only [stmtFuelBound]
-      rw [Nat.add_comm 1 f]
-      rfl
-  | .assign _ _, _, f, state => by
-      simp only [stmtFuelBound]
-      rw [Nat.add_comm 1 f]
-      rfl
-  | .leave, _, f, state => by
-      simp only [stmtFuelBound]
-      rw [Nat.add_comm 1 f]
-      rfl
-  | .exprStmt _, _, f, state => by
-      simp only [stmtFuelBound]
-      rw [Nat.add_comm 1 f]
-      rfl
+  | .comment _, _, f, state | .let_ _ _, _, f, state | .letMany _ _, _, f, state
+  | .assign _ _, _, f, state | .leave, _, f, state | .exprStmt _, _, f, state
   | .funcDef _ _ _ _, _, f, state => by
       simp only [stmtFuelBound]
       rw [Nat.add_comm 1 f]
       rfl
   | .for_ _ _ _ _, hLF, _, _ => absurd hLF (by simp [LoopFree])
-  | .if_ cond body, hLF, f, state => by
-      simp only [stmtFuelBound]
-      rw [show stmtsFuelBound body + 1 + f = (stmtsFuelBound body + f) + 1 from by omega]
-      show (match evalIRExpr state cond with
-        | some c => if c ≠ 0 then
-            execIRStmts (stmtsFuelBound body + f) state body
-          else .continue state
-        | none => .revert state) =
-      (match evalIRExpr state cond with
-        | some c => if c ≠ 0 then
-            execIRStmts (stmtsFuelBound body) state body
-          else .continue state
-        | none => .revert state)
-      cases evalIRExpr state cond with
-      | none => rfl
-      | some c =>
-          by_cases hc : c ≠ 0 <;>
-            simp [hc, execIRStmts_stable body (by simpa [LoopFree] using hLF) f state]
-  | .block stmts, hLF, f, state => by
-      simp only [stmtFuelBound]
-      rw [show stmtsFuelBound stmts + 1 + f = (stmtsFuelBound stmts + f) + 1 from by omega]
-      show execIRStmts (stmtsFuelBound stmts + f) state stmts =
-        execIRStmts (stmtsFuelBound stmts) state stmts
-      exact execIRStmts_stable stmts (by simpa [LoopFree] using hLF) f state
-  | .switch e cases dflt, hLF, f, state => by
-      simp only [stmtFuelBound]
-      rw [show Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + 1 + f =
-        (Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + f) + 1 from by omega]
-      obtain ⟨hcases, hdflt⟩ : LoopFreeCases cases ∧ LoopFreeDflt dflt := by
-        simpa [LoopFree] using hLF
-      cases heval : evalIRExpr state e with
-      | none => simp [execIRStmt, heval]
-      | some v =>
-          cases hfind : List.find? (fun (c : Nat × List YulStmt) => c.1 == v) cases with
-          | some c =>
-              obtain ⟨k, body⟩ := c
-              have hmem := List.mem_of_find?_eq_some hfind
-              have hle : stmtsFuelBound body ≤
-                  Nat.max (casesFuelBound cases) (dfltFuelBound dflt) :=
-                Nat.le_trans (stmtsFuelBound_le_casesFuelBound cases (k, body) hmem)
-                  (Nat.le_max_left _ _)
-              have hLFb := LoopFreeCases.mem hcases hmem
-              simp only [execIRStmt, heval, hfind]
-              rw [show Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + f =
-                  stmtsFuelBound body + (Nat.max (casesFuelBound cases)
-                    (dfltFuelBound dflt) - stmtsFuelBound body + f) from by omega,
-                execIRStmts_stable body hLFb _ state,
-                show Nat.max (casesFuelBound cases) (dfltFuelBound dflt) =
-                  stmtsFuelBound body + (Nat.max (casesFuelBound cases)
-                    (dfltFuelBound dflt) - stmtsFuelBound body) from by omega,
-                execIRStmts_stable body hLFb _ state]
-          | none =>
-              cases hdd : dflt with
-              | none => simp [execIRStmt, heval, hfind]
-              | some body =>
-                  have hLFb : LoopFreeList body := by
-                    rw [hdd] at hdflt
-                    simpa [LoopFreeDflt] using hdflt
-                  have hle : stmtsFuelBound body ≤
-                      Nat.max (casesFuelBound cases) (dfltFuelBound (some body)) := by
-                    have hh : stmtsFuelBound body = dfltFuelBound (some body) := rfl
-                    rw [hh]
-                    exact Nat.le_max_right _ _
-                  simp only [execIRStmt, heval, hfind]
-                  rw [show Nat.max (casesFuelBound cases) (dfltFuelBound (some body)) + f =
-                      stmtsFuelBound body + (Nat.max (casesFuelBound cases)
-                        (dfltFuelBound (some body)) - stmtsFuelBound body + f) from by omega,
-                    execIRStmts_stable body hLFb _ state,
-                    show Nat.max (casesFuelBound cases) (dfltFuelBound (some body)) =
-                      stmtsFuelBound body + (Nat.max (casesFuelBound cases)
-                        (dfltFuelBound (some body)) - stmtsFuelBound body) from by omega,
-                    execIRStmts_stable body hLFb _ state]
-
+  | .if_ cond body, hLF, f, state =>
+      execIRStmt_if_stable cond body
+        (execIRStmts_stable body (by simpa [LoopFree] using hLF)) f state
+  | .block stmts, hLF, f, state =>
+      execIRStmt_block_stable stmts
+        (execIRStmts_stable stmts (by simpa [LoopFree] using hLF)) f state
+  | .switch e cases dflt, hLF, f, state =>
+      have hLF' : LoopFreeCases cases ∧ LoopFreeDflt dflt := by simpa [LoopFree] using hLF
+      execIRStmt_switch_stable e cases dflt
+        (fun _ body hmem => execIRStmts_stable body (LoopFreeCases.mem hLF'.1 hmem))
+        (fun body hdd => execIRStmts_stable body (by subst hdd; simpa [LoopFreeDflt] using hLF'.2))
+        f state
 termination_by stmt _ _ _ => sizeOf stmt
 decreasing_by
   all_goals simp_wf
@@ -265,60 +300,10 @@ theorem execIRStmts_stable : ∀ (xs : List YulStmt), LoopFreeList xs →
       simp only [stmtsFuelBound]
       rw [Nat.add_comm 1 f]
       rfl
-  | x :: rest, hLF, f, state => by
-      simp only [stmtsFuelBound]
-      rw [show Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + 1 + f =
-        (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f) + 1 from by omega]
-      obtain ⟨hx, hrest⟩ : LoopFree x ∧ LoopFreeList rest := by
-        simpa [LoopFreeList] using hLF
-      have hax : stmtFuelBound x ≤ Nat.max (stmtFuelBound x) (stmtsFuelBound rest) :=
-        Nat.le_max_left _ _
-      have hbx : stmtsFuelBound rest ≤ Nat.max (stmtFuelBound x) (stmtsFuelBound rest) :=
-        Nat.le_max_right _ _
-      show (match execIRStmt (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f)
-          state x with
-        | .continue s₁ => execIRStmts
-            (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f) s₁ rest
-        | .return v s => .return v s
-        | .stop s => .stop s
-        | .revert s => .revert s) =
-      (match execIRStmt (Nat.max (stmtFuelBound x) (stmtsFuelBound rest))
-          state x with
-        | .continue s₁ => execIRStmts
-            (Nat.max (stmtFuelBound x) (stmtsFuelBound rest)) s₁ rest
-        | .return v s => .return v s
-        | .stop s => .stop s
-        | .revert s => .revert s)
-      have hhead1 : execIRStmt (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f)
-          state x = execIRStmt (stmtFuelBound x) state x := by
-        rw [show Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f =
-          stmtFuelBound x + (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) -
-            stmtFuelBound x + f) from by omega]
-        exact execIRStmt_stable x hx _ state
-      have hhead2 : execIRStmt (Nat.max (stmtFuelBound x) (stmtsFuelBound rest))
-          state x = execIRStmt (stmtFuelBound x) state x := by
-        rw [show Nat.max (stmtFuelBound x) (stmtsFuelBound rest) =
-          stmtFuelBound x + (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) -
-            stmtFuelBound x) from by omega]
-        exact execIRStmt_stable x hx _ state
-      have htail : ∀ s₁ : IRState,
-          execIRStmts (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f) s₁ rest =
-            execIRStmts (Nat.max (stmtFuelBound x) (stmtsFuelBound rest)) s₁ rest := by
-        intro s₁
-        rw [show Nat.max (stmtFuelBound x) (stmtsFuelBound rest) + f =
-          stmtsFuelBound rest + (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) -
-            stmtsFuelBound rest + f) from by omega,
-          execIRStmts_stable rest hrest _ s₁,
-          show Nat.max (stmtFuelBound x) (stmtsFuelBound rest) =
-            stmtsFuelBound rest + (Nat.max (stmtFuelBound x) (stmtsFuelBound rest) -
-              stmtsFuelBound rest) from by omega,
-          execIRStmts_stable rest hrest _ s₁]
-      rw [hhead1, hhead2]
-      cases execIRStmt (stmtFuelBound x) state x with
-      | «continue» s₁ => exact htail s₁
-      | «return» v s => rfl
-      | stop s => rfl
-      | revert s => rfl
+  | x :: rest, hLF, f, state =>
+      have hLF' : LoopFree x ∧ LoopFreeList rest := by simpa [LoopFreeList] using hLF
+      execIRStmts_cons_stable x rest (execIRStmt_stable x hLF'.1)
+        (execIRStmts_stable rest hLF'.2) f state
 termination_by xs _ _ _ => sizeOf xs
 decreasing_by
   all_goals simp_wf

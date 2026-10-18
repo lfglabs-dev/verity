@@ -1183,6 +1183,49 @@ theorem
           hdirect hexpr hstruct)
         hresidual)
 
+/-- Helper-aware head step for a helper-surface-closed statement, lifted from
+its helper-free step through legacy compatibility of the compiled IR. -/
+private theorem compiledStmtStepWithHelpersAndHelperIR_of_helperFreeHead
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {stmt : Stmt}
+    (hheadFree : stmtTouchesUnsupportedHelperSurface stmt = false →
+      ∃ compiledIR, CompiledStmtStep fields scope stmt compiledIR)
+    (hheadLegacy : stmtTouchesUnsupportedHelperSurface stmt = false → ∀ compiledIR,
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt =
+        Except.ok compiledIR → LegacyCompatibleExternalStmtList compiledIR)
+    (hnoEvents : spec.events = []) (hnoErrors : spec.errors = [])
+    (hnoInternalFunctions : runtimeContract.internalFunctions = [])
+    (hsurface : stmtTouchesUnsupportedHelperSurface stmt = false) :
+    ∃ compiledIR, CompiledStmtStepWithHelpersAndHelperIR
+      runtimeContract spec fields scope stmt compiledIR := by
+  rcases hheadFree hsurface with ⟨compiledIR, hcore⟩
+  have hhelpers := hcore.withHelpers_of_helperSurfaceClosed hnoEvents hnoErrors hsurface
+  exact ⟨compiledIR, hhelpers.withHelperIR_of_legacyCompatible
+    (hheadLegacy hsurface compiledIR hcore.compileOk) hnoInternalFunctions⟩
+
+/-- Helper-aware head step for one statement, assembled from the helper-surface-closed,
+internal-helper, and residual-helper head steps. -/
+private theorem compiledStmtStepWithHelpersAndHelperIR_of_headSteps
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {stmt : Stmt}
+    (hheadClosed : stmtTouchesUnsupportedHelperSurface stmt = false →
+      ∃ compiledIR, CompiledStmtStepWithHelpersAndHelperIR
+        runtimeContract spec fields scope stmt compiledIR)
+    (hheadInternal : stmtTouchesInternalHelperSurface stmt = true →
+      ∃ compiledIR, CompiledStmtStepWithHelpersAndHelperIR
+        runtimeContract spec fields scope stmt compiledIR)
+    (hheadResidual : stmtTouchesUnsupportedHelperSurface stmt = true →
+      stmtTouchesInternalHelperSurface stmt = false →
+      ∃ compiledIR, CompiledStmtStepWithHelpersAndHelperIR
+        runtimeContract spec fields scope stmt compiledIR) :
+    ∃ compiledIR, CompiledStmtStepWithHelpersAndHelperIR
+      runtimeContract spec fields scope stmt compiledIR := by
+  cases hsurface : stmtTouchesUnsupportedHelperSurface stmt
+  · exact hheadClosed hsurface
+  · cases hactual : stmtTouchesInternalHelperSurface stmt
+    · exact hheadResidual hsurface hactual
+    · exact hheadInternal hactual
+
 /-- Exact helper-aware list bridge with the helper-positive work split cleanly:
 genuine internal-helper heads are supplied through a narrow helper-specific
 interface, while residual coarse helper-surface heads are tracked separately so
@@ -1204,8 +1247,7 @@ theorem stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_int
     (hnoInternalFunctions : runtimeContract.internalFunctions = []) :
     StmtListGenericWithHelpersAndHelperIR runtimeContract spec fields scope stmts := by
   induction hhelperFree with
-  | nil =>
-      exact .nil
+  | nil => exact .nil
   | @cons scope stmt rest hheadFree htailFree ih =>
       cases hinternal with
       | cons hheadInternal htailInternal =>
@@ -1213,30 +1255,11 @@ theorem stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_int
           | cons hheadResidual htailResidual =>
               cases hlegacy with
               | cons hheadLegacy htailLegacy =>
-                  by_cases hsurface : stmtTouchesUnsupportedHelperSurface stmt = false
-                  · rcases hheadFree hsurface with ⟨compiledIR, hcore⟩
-                    exact .cons
-                      ((hcore.withHelpers_of_helperSurfaceClosed hnoEvents hnoErrors hsurface).withHelperIR_of_legacyCompatible
-                        (hheadLegacy hsurface compiledIR hcore.compileOk)
-                        hnoInternalFunctions)
-                      (ih htailInternal htailResidual htailLegacy)
-                  · have hsurfaceTrue : stmtTouchesUnsupportedHelperSurface stmt = true := by
-                      cases hstmt : stmtTouchesUnsupportedHelperSurface stmt <;>
-                        simp [hstmt] at hsurface ⊢
-                    -- Combine the internal and residual interfaces for this head
-                    have hheadStep : stmtTouchesUnsupportedHelperSurface stmt = true →
-                        ∃ compiledIR,
-                          CompiledStmtStepWithHelpersAndHelperIR
-                            runtimeContract spec fields scope stmt compiledIR := by
-                      intro _
-                      by_cases hactual : stmtTouchesInternalHelperSurface stmt = true
-                      · exact hheadInternal hactual
-                      · have hactualFalse : stmtTouchesInternalHelperSurface stmt = false := by
-                          cases hactual' : stmtTouchesInternalHelperSurface stmt <;>
-                            simp [hactual'] at hactual ⊢
-                        exact hheadResidual hsurfaceTrue hactualFalse
-                    rcases hheadStep hsurfaceTrue with ⟨compiledIR, hcompiled⟩
-                    exact .cons hcompiled (ih htailInternal htailResidual htailLegacy)
+                  obtain ⟨_, hcompiled⟩ := compiledStmtStepWithHelpersAndHelperIR_of_headSteps
+                    (compiledStmtStepWithHelpersAndHelperIR_of_helperFreeHead hheadFree
+                      hheadLegacy hnoEvents hnoErrors hnoInternalFunctions)
+                    hheadInternal hheadResidual
+                  exact .cons hcompiled (ih htailInternal htailResidual htailLegacy)
 
 /-- Exact helper-aware list bridge over the fully split helper-positive
 interfaces: direct helper statements, expression-position helper heads, and

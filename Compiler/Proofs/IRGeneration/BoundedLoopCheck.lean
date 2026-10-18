@@ -99,6 +99,146 @@ theorem varUntouchedCheckCases_mem
 
 variable {v : String}
 
+/-- A `let` of a variable other than `v` preserves `getVar v`. -/
+private theorem execIRStmt_let_getVar_of_ne (n : String) (value : YulExpr) (hne : n ≠ v)
+    (fuel : Nat) (state : IRState) :
+    ((execIRStmt fuel state (.let_ n value)).state).getVar v = state.getVar v := by
+  cases fuel with
+  | zero => rfl
+  | succ fuel =>
+      show ((match evalIRExpr state value with
+        | some w => IRExecResult.continue (state.setVar n w)
+        | none => IRExecResult.revert state).state).getVar v = state.getVar v
+      cases evalIRExpr state value with
+      | none => rfl
+      | some w => exact IRState.getVar_setVar_ne state n v w (Ne.symm hne)
+
+/-- An assignment to a variable other than `v` preserves `getVar v`. -/
+private theorem execIRStmt_assign_getVar_of_ne (n : String) (value : YulExpr) (hne : n ≠ v)
+    (fuel : Nat) (state : IRState) :
+    ((execIRStmt fuel state (.assign n value)).state).getVar v = state.getVar v := by
+  cases fuel with
+  | zero => rfl
+  | succ fuel =>
+      show ((match evalIRExpr state value with
+        | some w => IRExecResult.continue (state.setVar n w)
+        | none => IRExecResult.revert state).state).getVar v = state.getVar v
+      cases evalIRExpr state value with
+      | none => rfl
+      | some w => exact IRState.getVar_setVar_ne state n v w (Ne.symm hne)
+
+/-- `if` step of `getVar v` preservation, given preservation by the body. -/
+private theorem execIRStmt_if_getVar (cond : YulExpr) (body : List YulStmt)
+    (ih : ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmts fuel state body).state).getVar v = state.getVar v)
+    (fuel : Nat) (state : IRState) :
+    ((execIRStmt fuel state (.if_ cond body)).state).getVar v = state.getVar v := by
+  cases fuel with
+  | zero => rfl
+  | succ fuel =>
+      show ((match evalIRExpr state cond with
+        | some c => if c ≠ 0 then execIRStmts fuel state body
+            else IRExecResult.continue state
+        | none => IRExecResult.revert state).state).getVar v = state.getVar v
+      cases evalIRExpr state cond with
+      | none => rfl
+      | some c =>
+          simp only []
+          by_cases hc : c ≠ 0
+          · rw [if_pos hc]
+            exact ih fuel state
+          · rw [if_neg hc]
+            rfl
+
+/-- `block` step of `getVar v` preservation, given preservation by the body. -/
+private theorem execIRStmt_block_getVar (stmts : List YulStmt)
+    (ih : ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmts fuel state stmts).state).getVar v = state.getVar v)
+    (fuel : Nat) (state : IRState) :
+    ((execIRStmt fuel state (.block stmts)).state).getVar v = state.getVar v := by
+  cases fuel with
+  | zero => rfl
+  | succ fuel => exact ih fuel state
+
+/-- `switch` step of `getVar v` preservation, given preservation by every case
+body and by the default body. -/
+private theorem execIRStmt_switch_getVar (e : YulExpr) (cases : List (Nat × List YulStmt))
+    (dflt : Option (List YulStmt))
+    (ihCase : ∀ k body, (k, body) ∈ cases → ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmts fuel state body).state).getVar v = state.getVar v)
+    (ihDflt : ∀ body, dflt = some body → ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmts fuel state body).state).getVar v = state.getVar v)
+    (fuel : Nat) (state : IRState) :
+    ((execIRStmt fuel state (.switch e cases dflt)).state).getVar v = state.getVar v := by
+  cases fuel with
+  | zero => rfl
+  | succ fuel =>
+      cases heval : evalIRExpr state e with
+      | none => simp [execIRStmt, heval, IRExecResult.state]
+      | some w =>
+          cases hfind : List.find? (fun (c : Nat × List YulStmt) => c.1 == w) cases with
+          | some c =>
+              obtain ⟨k, body⟩ := c
+              simp only [execIRStmt, heval, hfind]
+              exact ihCase k body (List.mem_of_find?_eq_some hfind) fuel state
+          | none =>
+              cases hdd : dflt with
+              | none => simp [execIRStmt, heval, hfind, IRExecResult.state]
+              | some body =>
+                  simp only [execIRStmt, heval, hfind]
+                  exact ihDflt body hdd fuel state
+
+/-- `switch` step of `getVar v` preservation for a checked loop-free switch, given
+preservation by every checked loop-free case and default body. -/
+private theorem execIRStmt_switch_getVar_of_checked (e : YulExpr)
+    (cases : List (Nat × List YulStmt)) (dflt : Option (List YulStmt))
+    (hLF : LoopFree (.switch e cases dflt))
+    (hchk : varUntouchedCheck v (.switch e cases dflt) = true)
+    (ihCase : ∀ k body, (k, body) ∈ cases → LoopFreeList body →
+      varUntouchedCheckList v body = true → ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmts fuel state body).state).getVar v = state.getVar v)
+    (ihDflt : ∀ body, dflt = some body → LoopFreeList body →
+      varUntouchedCheckList v body = true → ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmts fuel state body).state).getVar v = state.getVar v) :
+    ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmt fuel state (.switch e cases dflt)).state).getVar v = state.getVar v := by
+  obtain ⟨hLFc, hLFd⟩ : LoopFreeCases cases ∧ LoopFreeDflt dflt := by simpa [LoopFree] using hLF
+  obtain ⟨hchkc, hchkd⟩ : varUntouchedCheckCases v cases = true ∧
+      varUntouchedCheckDflt v dflt = true := by
+    simpa [varUntouchedCheck, Bool.and_eq_true] using hchk
+  refine execIRStmt_switch_getVar e cases dflt
+    (fun k body hmem => ihCase k body hmem (LoopFreeCases.mem hLFc hmem)
+      (varUntouchedCheckCases_mem hchkc hmem)) (fun body hdd => ?_)
+  subst hdd
+  exact ihDflt body rfl (by simpa [LoopFreeDflt] using hLFd)
+    (by simpa [varUntouchedCheckDflt] using hchkd)
+
+/-- Cons step of list `getVar v` preservation, given preservation by the head
+and by the tail. -/
+private theorem execIRStmts_cons_getVar (x : YulStmt) (rest : List YulStmt)
+    (ihHead : ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmt fuel state x).state).getVar v = state.getVar v)
+    (ihRest : ∀ (fuel : Nat) (state : IRState),
+      ((execIRStmts fuel state rest).state).getVar v = state.getVar v)
+    (fuel : Nat) (state : IRState) :
+    ((execIRStmts fuel state (x :: rest)).state).getVar v = state.getVar v := by
+  cases fuel with
+  | zero => rfl
+  | succ fuel =>
+      show ((match execIRStmt fuel state x with
+        | .continue s' => execIRStmts fuel s' rest
+        | .return w s => IRExecResult.return w s
+        | .stop s => IRExecResult.stop s
+        | .revert s => IRExecResult.revert s).state).getVar v = state.getVar v
+      have hhead := ihHead fuel state
+      cases hres : execIRStmt fuel state x with
+      | «continue» s' =>
+          rw [hres] at hhead
+          exact (ihRest fuel s').trans hhead
+      | «return» w s => rw [hres] at hhead; exact hhead
+      | stop s => rw [hres] at hhead; exact hhead
+      | revert s => rw [hres] at hhead; exact hhead
+
 mutual
 
 /-- Soundness: a checked, loop-free statement preserves `getVar v` in every
@@ -107,110 +247,30 @@ theorem execIRStmt_getVar_of_checked :
     ∀ (s : YulStmt), LoopFree s → varUntouchedCheck v s = true →
     ∀ (fuel : Nat) (state : IRState),
       ((execIRStmt fuel state s).state).getVar v = state.getVar v
-  | .comment _, _, _, fuel, state => by
-      cases fuel <;> rfl
-  | .leave, _, _, fuel, state => by
-      cases fuel <;> rfl
-  | .funcDef _ _ _ _, _, _, fuel, state => by
-      cases fuel <;> rfl
-  | .letMany _ _, _, _, fuel, state => by
-      cases fuel <;> rfl
-  | .let_ n value, _, hchk, fuel, state => by
-      cases fuel with
-      | zero => rfl
-      | succ fuel =>
-          have hne : n ≠ v := by simpa [varUntouchedCheck] using hchk
-          show ((match evalIRExpr state value with
-            | some w => IRExecResult.continue (state.setVar n w)
-            | none => IRExecResult.revert state).state).getVar v =
-            state.getVar v
-          cases evalIRExpr state value with
-          | none => rfl
-          | some w =>
-              simp only [IRExecResult.state]
-              exact IRState.getVar_setVar_ne state n v w (Ne.symm hne)
-  | .assign n value, _, hchk, fuel, state => by
-      cases fuel with
-      | zero => rfl
-      | succ fuel =>
-          have hne : n ≠ v := by simpa [varUntouchedCheck] using hchk
-          show ((match evalIRExpr state value with
-            | some w => IRExecResult.continue (state.setVar n w)
-            | none => IRExecResult.revert state).state).getVar v =
-            state.getVar v
-          cases evalIRExpr state value with
-          | none => rfl
-          | some w =>
-              simp only [IRExecResult.state]
-              exact IRState.getVar_setVar_ne state n v w (Ne.symm hne)
+  | .comment _, _, _, fuel, _ | .leave, _, _, fuel, _ | .funcDef _ _ _ _, _, _, fuel, _
+  | .letMany _ _, _, _, fuel, _ => by cases fuel <;> rfl
+  | .let_ n value, _, hchk, fuel, state =>
+      execIRStmt_let_getVar_of_ne n value (by simpa [varUntouchedCheck] using hchk) fuel state
+  | .assign n value, _, hchk, fuel, state =>
+      execIRStmt_assign_getVar_of_ne n value (by simpa [varUntouchedCheck] using hchk) fuel state
   | .exprStmt e, _, _, fuel, state =>
-      IRState.getVar_congr_vars state _ v
-        (execIRStmt_exprStmt_state_vars fuel state e)
+      IRState.getVar_congr_vars state _ v (execIRStmt_exprStmt_state_vars fuel state e)
   | .for_ _ _ _ _, hLF, _, _, _ => absurd hLF (by simp [LoopFree])
-  | .if_ cond body, hLF, hchk, fuel, state => by
-      cases fuel with
-      | zero => rfl
-      | succ fuel =>
-          have hLFb : LoopFreeList body := by simpa [LoopFree] using hLF
-          have hchkb : varUntouchedCheckList v body = true := by
-            simpa [varUntouchedCheck] using hchk
-          show ((match evalIRExpr state cond with
-            | some c => if c ≠ 0 then execIRStmts fuel state body
-                else IRExecResult.continue state
-            | none => IRExecResult.revert state).state).getVar v =
-            state.getVar v
-          cases evalIRExpr state cond with
-          | none => rfl
-          | some c =>
-              simp only []
-              by_cases hc : c ≠ 0
-              · rw [if_pos hc]
-                exact execIRStmts_getVar_of_checked body hLFb hchkb fuel state
-              · rw [if_neg hc]
-                rfl
-  | .block stmts, hLF, hchk, fuel, state => by
-      cases fuel with
-      | zero => rfl
-      | succ fuel =>
-          have hLFb : LoopFreeList stmts := by simpa [LoopFree] using hLF
-          have hchkb : varUntouchedCheckList v stmts = true := by
-            simpa [varUntouchedCheck] using hchk
-          show ((execIRStmts fuel state stmts).state).getVar v = state.getVar v
-          exact execIRStmts_getVar_of_checked stmts hLFb hchkb fuel state
-  | .switch e cases dflt, hLF, hchk, fuel, state => by
-      cases fuel with
-      | zero => rfl
-      | succ fuel =>
-          obtain ⟨hLFc, hLFd⟩ : LoopFreeCases cases ∧ LoopFreeDflt dflt := by
-            simpa [LoopFree] using hLF
-          obtain ⟨hchkc, hchkd⟩ : varUntouchedCheckCases v cases = true ∧
-              varUntouchedCheckDflt v dflt = true := by
-            simpa [varUntouchedCheck, Bool.and_eq_true] using hchk
-          cases heval : evalIRExpr state e with
-          | none => simp [execIRStmt, heval, IRExecResult.state]
-          | some w =>
-              cases hfind : List.find?
-                  (fun (c : Nat × List YulStmt) => c.1 == w) cases with
-              | some c =>
-                  obtain ⟨k, body⟩ := c
-                  have hmem := List.mem_of_find?_eq_some hfind
-                  simp only [execIRStmt, heval, hfind]
-                  exact execIRStmts_getVar_of_checked body
-                    (LoopFreeCases.mem hLFc hmem)
-                    (varUntouchedCheckCases_mem hchkc hmem) fuel state
-              | none =>
-                  cases hdd : dflt with
-                  | none => simp [execIRStmt, heval, hfind, IRExecResult.state]
-                  | some body =>
-                      have hLFb : LoopFreeList body := by
-                        rw [hdd] at hLFd
-                        simpa [LoopFreeDflt] using hLFd
-                      have hchkb : varUntouchedCheckList v body = true := by
-                        rw [hdd] at hchkd
-                        simpa [varUntouchedCheckDflt] using hchkd
-                      simp only [execIRStmt, heval, hfind]
-                      exact execIRStmts_getVar_of_checked body hLFb hchkb
-                        fuel state
+  | .if_ cond body, hLF, hchk, fuel, state =>
+      execIRStmt_if_getVar cond body (execIRStmts_getVar_of_checked body
+        (by simpa [LoopFree] using hLF) (by simpa [varUntouchedCheck] using hchk)) fuel state
+  | .block stmts, hLF, hchk, fuel, state =>
+      execIRStmt_block_getVar stmts (execIRStmts_getVar_of_checked stmts
+        (by simpa [LoopFree] using hLF) (by simpa [varUntouchedCheck] using hchk)) fuel state
+  | .switch e cases dflt, hLF, hchk, fuel, state =>
+      execIRStmt_switch_getVar_of_checked e cases dflt hLF hchk
+        (fun _ body hmem hLFb hchkb => execIRStmts_getVar_of_checked body hLFb hchkb)
+        (fun body hdd hLFb hchkb => execIRStmts_getVar_of_checked body hLFb hchkb) fuel state
+termination_by s _ _ _ _ => sizeOf s
+decreasing_by
+  all_goals simp_wf
+  all_goals try (have h1 := List.sizeOf_lt_of_mem hmem; simp at h1 ⊢; omega)
+  all_goals (try simp [*, Option.some.sizeOf_spec]); omega
 
 /-- List soundness. -/
 theorem execIRStmts_getVar_of_checked :
@@ -219,37 +279,16 @@ theorem execIRStmts_getVar_of_checked :
       ((execIRStmts fuel state xs).state).getVar v = state.getVar v
   | [], _, _, fuel, state => by
       simp [execIRStmts, IRExecResult.state]
-  | x :: rest, hLF, hchk, fuel, state => by
-      obtain ⟨hx, hrest⟩ : LoopFree x ∧ LoopFreeList rest := by
-        simpa [LoopFreeList] using hLF
-      obtain ⟨hchkx, hchkrest⟩ : varUntouchedCheck v x = true ∧
-          varUntouchedCheckList v rest = true := by
+  | x :: rest, hLF, hchk, fuel, state =>
+      have hLF' : LoopFree x ∧ LoopFreeList rest := by simpa [LoopFreeList] using hLF
+      have hchk' : varUntouchedCheck v x = true ∧ varUntouchedCheckList v rest = true := by
         simpa [varUntouchedCheckList, Bool.and_eq_true] using hchk
-      cases fuel with
-      | zero => rfl
-      | succ fuel =>
-          show ((match execIRStmt fuel state x with
-            | .continue s' => execIRStmts fuel s' rest
-            | .return w s => IRExecResult.return w s
-            | .stop s => IRExecResult.stop s
-            | .revert s => IRExecResult.revert s).state).getVar v =
-            state.getVar v
-          have hhead := execIRStmt_getVar_of_checked x hx hchkx fuel state
-          cases hres : execIRStmt fuel state x with
-          | «continue» s' =>
-              rw [hres] at hhead
-              simp only [IRExecResult.state] at hhead
-              rw [execIRStmts_getVar_of_checked rest hrest hchkrest fuel s']
-              exact hhead
-          | «return» w s =>
-              rw [hres] at hhead
-              exact hhead
-          | stop s =>
-              rw [hres] at hhead
-              exact hhead
-          | revert s =>
-              rw [hres] at hhead
-              exact hhead
+      execIRStmts_cons_getVar x rest (execIRStmt_getVar_of_checked x hLF'.1 hchk'.1)
+        (execIRStmts_getVar_of_checked rest hLF'.2 hchk'.2) fuel state
+termination_by xs _ _ _ _ => sizeOf xs
+decreasing_by
+  all_goals simp_wf
+  all_goals omega
 
 end
 

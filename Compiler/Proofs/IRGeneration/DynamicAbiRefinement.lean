@@ -287,61 +287,10 @@ theorem decodePackedUserOperationAt?_dynamic_bytes_members
       decodePackedUserOperationBytesMember? selector calldata ops index signatureWordOffset =
         some view.signature := by
   unfold decodePackedUserOperationAt? at h
-  cases hsender :
-      arrayElementDynamicWord? selector calldata ops.dataOffset ops.length index 0 with
-  | none => simp [hsender] at h
-  | some sender =>
-      cases hnonce :
-          arrayElementDynamicWord? selector calldata ops.dataOffset ops.length index 1 with
-      | none => simp [hsender, hnonce] at h
-      | some nonce =>
-          cases haccountGasLimits :
-              arrayElementDynamicWord? selector calldata ops.dataOffset ops.length index 4 with
-          | none => simp [hsender, hnonce, haccountGasLimits] at h
-          | some accountGasLimits =>
-              cases hpreVerificationGas :
-                  arrayElementDynamicWord? selector calldata ops.dataOffset ops.length index 5 with
-              | none => simp [hsender, hnonce, haccountGasLimits, hpreVerificationGas] at h
-              | some preVerificationGas =>
-                  cases hgasFees :
-                      arrayElementDynamicWord? selector calldata ops.dataOffset ops.length index 6 with
-                  | none =>
-                      simp [hsender, hnonce, haccountGasLimits, hpreVerificationGas, hgasFees] at h
-                  | some gasFees =>
-                      cases hinit :
-                          decodePackedUserOperationBytesMember?
-                            selector calldata ops index initCodeWordOffset with
-                      | none =>
-                          simp [hsender, hnonce, haccountGasLimits, hpreVerificationGas,
-                            hgasFees, hinit] at h
-                      | some initCode =>
-                          cases hcall :
-                              decodePackedUserOperationBytesMember?
-                                selector calldata ops index callDataWordOffset with
-                          | none =>
-                              simp [hsender, hnonce, haccountGasLimits, hpreVerificationGas,
-                                hgasFees, hinit, hcall] at h
-                          | some callData =>
-                              cases hpaymaster :
-                                  decodePackedUserOperationBytesMember?
-                                    selector calldata ops index paymasterAndDataWordOffset with
-                              | none =>
-                                  simp [hsender, hnonce, haccountGasLimits, hpreVerificationGas,
-                                    hgasFees, hinit, hcall, hpaymaster] at h
-                              | some paymasterAndData =>
-                                  cases hsignature :
-                                      decodePackedUserOperationBytesMember?
-                                        selector calldata ops index signatureWordOffset with
-                                  | none =>
-                                      simp [hsender, hnonce, haccountGasLimits,
-                                        hpreVerificationGas, hgasFees, hinit, hcall,
-                                        hpaymaster, hsignature] at h
-                                  | some signature =>
-                                      simp [hsender, hnonce, haccountGasLimits,
-                                        hpreVerificationGas, hgasFees, hinit, hcall,
-                                        hpaymaster, hsignature] at h
-                                      cases h
-                                      exact ⟨rfl, rfl, rfl, rfl⟩
+  simp only [bind, Option.bind_eq_some_iff, Option.some.injEq] at h
+  obtain ⟨_, _, _, _, _, _, _, _, _, _, initCode, hinit, callData, hcall,
+    paymasterAndData, hpay, signature, hsig, rfl⟩ := h
+  exact ⟨hinit, hcall, hpay, hsig⟩
 
 structure HandleOpsAbiView where
   ops : LengthPrefixedDynamicParam

@@ -107,6 +107,47 @@ theorem evalIRExprs_applyStores (es : List YulExpr) (h : MemInsensitiveExprs es)
   rw [applyStores_eq_memory_update]
   exact evalIRExprs_memory_insensitive es h state _ _
 
+/-- The pointer-offset `mstore` statement emitted for one `(offset, value)` store. -/
+private abbrev mstorePtrStmt (ptrName : String) (ov : Nat × YulExpr) : YulStmt :=
+  YulStmt.exprStmt (.call "mstore" [.call "add" [.ident ptrName, .lit ov.1], ov.2])
+
+/-- One pointer-offset `mstore` continues with the physical write applied. -/
+private theorem execIRStmt_mstorePtrStmt (ptrName : String) (p o w n : Nat)
+    (v : YulExpr) (state : IRState) (hptr : state.getVar ptrName = some p)
+    (hev : evalIRExpr state v = some w) :
+    execIRStmt (n + 1) state (mstorePtrStmt ptrName (o, v)) =
+      .continue (state.writePhysicalMemoryValue
+        (Verity.Core.Uint256.ofNat ((p + o) % Compiler.Constants.evmModulus)).val w) := by
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hptr, hev,
+    YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]
+
+/-- A statement list whose head continues runs its tail at the same fuel. -/
+private theorem execIRStmts_cons_of_continue (fuel : Nat) (state next : IRState)
+    (s : YulStmt) (ss : List YulStmt) (h : execIRStmt fuel state s = .continue next) :
+    execIRStmts (fuel + 1) state (s :: ss) = execIRStmts fuel next ss := by
+  show (match execIRStmt fuel state s with
+    | .continue s₁ => execIRStmts fuel s₁ ss
+    | .return v' s => .return v' s
+    | .stop s => .stop s
+    | .revert s => .revert s) = _
+  rw [h]
+
+/-- Split a successful `evalIRExprs` over a cons into its head and tail values. -/
+private theorem evalIRExprs_cons_some (state : IRState) (v : YulExpr) (es : List YulExpr)
+    (vals : List Nat) (h : evalIRExprs state (v :: es) = some vals) :
+    ∃ w ws, evalIRExpr state v = some w ∧ evalIRExprs state es = some ws ∧
+      vals = w :: ws := by
+  simp only [evalIRExprs] at h
+  cases hev : evalIRExpr state v with
+  | none => rw [hev] at h; cases h
+  | some w =>
+      rw [hev] at h
+      cases hevs : evalIRExprs state es with
+      | none => rw [hevs] at h; cases h
+      | some ws =>
+          rw [hevs] at h
+          exact ⟨w, ws, rfl, rfl, by simpa using h.symm⟩
+
 /-- Pointer-offset stores with memory-insensitive expression values: the block
 executes to its evaluated physical writes applied at the pointer, evaluations
 taken in the initial state (the values commute with the block's own writes). -/
@@ -128,43 +169,15 @@ theorem execIRStmts_mstore_ptr_expr_block (ptrName : String) (p : Nat) :
       subst hnil
       simp [execIRStmts, PhysicalPayloadStores.applyStores]
   | (o, v) :: rest, vals, fuel, state, hptr, hmi, hvals => by
-      obtain ⟨hv, hrest⟩ : MemInsensitiveExpr v ∧
-          MemInsensitiveExprs (rest.map (fun (x : Nat × YulExpr) => x.2)) := hmi
-      simp only [List.map, evalIRExprs] at hvals
-      cases hev : evalIRExpr state v with
-      | none => rw [hev] at hvals; cases hvals
-      | some w =>
-          rw [hev] at hvals
-          cases hevs : evalIRExprs state (rest.map (·.2)) with
-          | none => rw [hevs] at hvals; cases hvals
-          | some ws =>
-              rw [hevs] at hvals
-              obtain rfl : w :: ws = vals := by simpa using hvals
-              let next := state.writePhysicalMemoryValue
-                (Verity.Core.Uint256.ofNat ((p + o) % Compiler.Constants.evmModulus)).val w
-              rw [show ((o, v) :: rest).length + fuel + 1 =
-                (rest.length + fuel + 1) + 1 from by simp [List.length]; omega]
-              show (match execIRStmt (rest.length + fuel + 1) state
-                  (.exprStmt (.call "mstore"
-                    [.call "add" [.ident ptrName, .lit o], v])) with
-                | .continue s₁ => execIRStmts (rest.length + fuel + 1) s₁
-                    (rest.map fun (ov : Nat × YulExpr) =>
-                      YulStmt.exprStmt (.call "mstore"
-                        [.call "add" [.ident ptrName, .lit ov.1], ov.2]))
-                | .return v' s => .return v' s
-                | .stop s => .stop s
-                | .revert s => .revert s) = _
-              rw [show execIRStmt (rest.length + fuel + 1) state
-                  (.exprStmt (.call "mstore"
-                    [.call "add" [.ident ptrName, .lit o], v])) = .continue next from by
-                simp [next, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hptr, hev,
-                  YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext]]
-              have hptr' : next.getVar ptrName = some p := hptr
-              have hevs' : evalIRExprs next (rest.map (·.2)) = some ws := by
-                rw [evalIRExprs_writePhysicalMemoryValue (rest.map (·.2)) hrest state _ _]
-                exact hevs
-              exact execIRStmts_mstore_ptr_expr_block ptrName p rest ws fuel _
-                hptr' hrest hevs'
+      have hrest : MemInsensitiveExprs (rest.map (·.2)) := hmi.2
+      obtain ⟨w, ws, hev, hevs, rfl⟩ := evalIRExprs_cons_some state v _ vals hvals
+      rw [show ((o, v) :: rest).length + fuel + 1 =
+        (rest.length + fuel + 1) + 1 from by simp [List.length]; omega]
+      rw [List.map_cons, execIRStmts_cons_of_continue _ state _ _ _
+        (execIRStmt_mstorePtrStmt ptrName p o w (rest.length + fuel) v state hptr hev)]
+      have hevs' := (evalIRExprs_writePhysicalMemoryValue (rest.map (·.2)) hrest state
+        (Verity.Core.Uint256.ofNat ((p + o) % Compiler.Constants.evmModulus)).val w).trans hevs
+      exact execIRStmts_mstore_ptr_expr_block ptrName p rest ws fuel _ hptr hrest hevs'
 
 /-- `normalizeEventWord` preserves memory insensitivity: every wrapper it
 emits (`and`/`signextend`/`iszero∘iszero`) is a non-memory builtin over the
