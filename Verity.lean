@@ -10,6 +10,7 @@ import Verity.Core.Free.TypedIR
 import Verity.Core.Free.ContractStep
 import Verity.Core.Model.DenoteExternalCode
 import Verity.Core.Model.DenoteLowLevelCall
+import Verity.Core.Model.DenoteExternalCodeCopy
 import Verity.EVM.Int256
 import Verity.EVM.Uint256
 import Verity.Stdlib.Math

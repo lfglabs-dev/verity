@@ -1440,6 +1440,44 @@ def executeByteExtCodeSize (oracle : DenoteOracle) (fields : List Field)
   let size := DenoteExternalCode.extCodeSize state.world (Verity.Core.Address.ofNat target)
   return .continue { state with bindings := bindValue state.bindings resultVar size }
 
+/-- The closed `<address>.code` transport, as solc's `external_code_at`: the
+runtime code of the account world (`DenoteExternalCode.accountCode`, target taken
+modulo `2^160`) is copied into a fresh `bytes memory` allocation at the free
+pointer. The free pointer is advanced past the rounded-up array, then the length
+word and the code bytes are written in that order; a length or new free pointer
+beyond 64 bits (or a wrapping one) is `Panic(0x41)`. -/
+def executeByteExtCodeCopy (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (resultVar : String)
+    (args : List Expr) : Except String StmtOutcome := do
+  unless mod == Compiler.ECM.SolidityExtCodeCopy.module resultVar do
+    throw "closed external code metadata differs"
+  let some [account] := evalExprList oracle fields state args
+    | throw "external code argument evaluation unsupported"
+  let code := DenoteExternalCode.accountCode state.world (Verity.Core.Address.ofNat account)
+  let pointer := (state.world.memory 64).val
+  if 2^64 - 1 < code.length then return .revertWithData (panicBytes 0x41)
+  let next := (pointer + ((code.length + 31) / 32 * 32 + 32)) % 2^256
+  if 2^64 - 1 < next ∨ next < pointer then return .revertWithData (panicBytes 0x41)
+  let world := ((state.world.writePhysicalMemoryValue 64 (Verity.Core.Uint256.ofNat next)
+    ).writePhysicalMemoryValue pointer (Verity.Core.Uint256.ofNat code.length)
+    ).copyPhysicalMemory (rawPhysicalByte code) (pointer + 32) 0 code.length
+  return .continue { state with world, bindings := bindValue state.bindings resultVar pointer }
+
+/-- The closed `return(offset, size)` transport of an ABI-encoded memory buffer:
+the frame stops and `observedReturnWords` holds the buffer's words, read from
+physical memory. A buffer that is not whole words is an instrumentation error. -/
+def executeByteReturnMemory (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) :
+    Except String StmtOutcome := do
+  unless mod == Compiler.ECM.SolidityReturnMemory.module do
+    throw "closed memory return metadata differs"
+  let some [offset, size] := evalExprList oracle fields state args
+    | throw "memory return argument evaluation unsupported"
+  unless size % 32 == 0 do throw "returned memory is not word aligned"
+  let returned := (List.range (size / 32)).map fun index =>
+    (DenoteMemory.wordValue (state.world.byteMemory.readWord (offset + 32 * index))).val
+  return .stop { state with observedReturnWords := some returned, observedStop := false }
+
 /-! ## Statement denotation (mirrors event-less `SourceSemantics.execStmt`) -/
 
 def valuesAsEventArgs (values : List Nat) : List Verity.Core.Uint256 :=
@@ -1878,6 +1916,14 @@ mutual
             | .error _ => .revert
         | some (.extCodeSize resultVar) =>
             match executeByteExtCodeSize oracle fields state mod resultVar args with
+            | .ok outcome => outcome
+            | .error _ => .revert
+        | some (.extCodeCopy resultVar) =>
+            match executeByteExtCodeCopy oracle fields state mod resultVar args with
+            | .ok outcome => outcome
+            | .error _ => .revert
+        | some .returnMemory =>
+            match executeByteReturnMemory oracle fields state mod args with
             | .ok outcome => outcome
             | .error _ => .revert
         | none =>

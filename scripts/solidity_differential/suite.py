@@ -136,6 +136,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('external-code-low-level-call-rejections', ['-m',
         'solidity_differential.check_external_code_and_low_level_call_rejections',
         '--output', str(output / 'external-code-low-level-call-rejections')]))
+    checks.append(('extcodecopy-struct-decode', ['-m', 'solidity_differential.check_extcodecopy_struct_decode',
+        '--transactions', str(max(96, min(transactions, 128))), '--seed', str(seed),
+        '--output', str(output / 'extcodecopy-struct-decode')]))
+    checks.append(('extcodecopy-struct-decode-rejections', ['-m',
+        'solidity_differential.check_extcodecopy_struct_decode_rejections',
+        '--output', str(output / 'extcodecopy-struct-decode-rejections')]))
     return run_checks(output, checks, transactions, seed, jobs)
 
 

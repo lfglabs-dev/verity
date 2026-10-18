@@ -6,6 +6,7 @@ import Compiler.SolidityImport.Profile
 import Compiler.SolidityImport.Quote
 import Compiler.SolidityImport.Report
 import Compiler.SolidityImport.AbiRootLowering
+import Compiler.SolidityImport.AbiMemoryDecode
 import Compiler.SolidityImport.AbiEncoding
 
 /-!
@@ -393,6 +394,8 @@ private structure Env where
   rootFlatStructReturn : Option (Nat × String × Array (String × String × String) × Bool) := none
   rootMsgDataReturn : Bool := false
   rootDynamicBytesReturn : Option ParamType := none
+  /-- `returns (S memory)` of a struct with dynamic members: its id and schema. -/
+  rootDynamicStructReturn : Option (Nat × List AbiSchema.Member) := none
   publicVarGetterReturns : Array ParamType := #[]
   rootPost : Array Stmt := #[]
   modifiers : RBMap Nat Json compare := RBMap.empty
@@ -633,6 +636,18 @@ private def freshAbiStem (schema : List AbiSchema.Member) (inMemory : Bool) : M 
       modify fun e => { e with bound := names ++ e.bound }
       return stem
   throwError "unable to allocate hygienic ABI bindings"
+
+/-- A stem whose `AbiMemoryDecode.materialize` names are all unused. -/
+private def freshMemoryDecodeStem (schema : List AbiSchema.Member) : M String := do
+  let budget := (← get).sourceNames.length + (← get).bound.length + 1
+  for _ in [:budget] do
+    let stem ← fresh
+    let names := (AbiMemoryDecode.materialize (.literal 0) (.literal 0) stem schema).names
+    let reserved := (← get).sourceNames ++ (← get).bound
+    unless names.any reserved.contains do
+      modify fun e => { e with bound := names ++ e.bound }
+      return stem
+  throwError "unable to allocate hygienic ABI decoding bindings"
 
 private def freshAbiElementStem (fields : List AbiSchema.ScalarField) : M String := do
   let budget := (← get).sourceNames.length + (← get).bound.length + 1
@@ -3650,6 +3665,9 @@ private inductive AbiDecodeTypeItem where
   | flatStruct (sid : Nat) (sName : String) (members : Array (String × String))
   | scalarArray (elemStr : String) (elemPty : ParamType) (abiKind : SolidityAbi.ScalarKind)
   | dynamicBytes (isString : Bool)
+  /-- A struct with dynamic array members, decoded from memory by `AbiMemoryDecode`. -/
+  | dynamicStruct (sid : Nat) (sName : String) (members : Array (String × String))
+      (schema : List AbiSchema.Member)
 
 private instance : Inhabited AbiDecodeTypeItem := ⟨.dynamicBytes false⟩
 
@@ -3658,6 +3676,8 @@ private inductive AbiDecodedValue where
   | flatStruct (sid : Nat) (sName : String) (members : Array (String × String × Expr))
   | scalarArray (elemStr : String) (elemPty : ParamType) (abiKind : SolidityAbi.ScalarKind) (desc : ScalarArrayParam)
   | dynamicBytes (isString : Bool) (buf : EncodedBytes)
+  /-- A memory struct materialized in solc's layout, with its complete schema. -/
+  | dynamicStruct (descriptor : MemParam)
 
 private instance : Inhabited AbiDecodedValue := ⟨.scalar "" .uint256 (.literal 0)⟩
 
@@ -3706,6 +3726,18 @@ private def isClosedExtCodeSize (mod : Compiler.ECM.ExternalCallModule) : Bool :
   | some (.extCodeSize resultVar) => mod == Compiler.ECM.SolidityExtCodeSize.module resultVar
   | _ => false
 
+/-- The closed `<address>.code` transport emitted by the importer. -/
+private def isClosedExtCodeCopy (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some (.extCodeCopy resultVar) => mod == Compiler.ECM.SolidityExtCodeCopy.module resultVar
+  | _ => false
+
+/-- The closed memory `return` transport emitted by the importer. -/
+private def isClosedReturnMemory (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some .returnMemory => mod == Compiler.ECM.SolidityReturnMemory.module
+  | _ => false
+
 /-- The closed typed-interface `staticcall` transport emitted by the importer. -/
 private def isClosedStaticCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   match mod.byteTransport with
@@ -3740,13 +3772,16 @@ private def isClosedLog (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   | _ => false
 
 /-- Replace every closed transport except the low-level `CALL` by a call-free
-statement: a staticcall, `create2` or code length by its zero-initialised result
-binding, a log by an empty branch. -/
+statement: a staticcall, `create2`, code length or code copy by its
+zero-initialised result binding, a log by an empty branch, a memory return by
+`stop`. -/
 private partial def eraseClosedTransports : Stmt → Stmt
   | .ecm mod args =>
-      if isClosedStaticCall mod || isClosedCreate2 mod || isClosedExtCodeSize mod then
+      if isClosedStaticCall mod || isClosedCreate2 mod || isClosedExtCodeSize mod ||
+          isClosedExtCodeCopy mod then
         .letVar (mod.resultVars.headD "") (.literal 0)
       else if isClosedLog mod then .ite (.literal 0) [] []
+      else if isClosedReturnMemory mod then .stop
       else .ecm mod args
   | .ite cond yes no => .ite cond (yes.map eraseClosedTransports) (no.map eraseClosedTransports)
   | .forEach name count body => .forEach name count (body.map eraseClosedTransports)
@@ -3758,8 +3793,8 @@ private partial def eraseClosedTransports : Stmt → Stmt
         (tag, names, body.map eraseClosedTransports))
   | statement => statement
 
-/-- A body whose only CEI barriers are closed transports. A log or code-length
-read hands control to no account; Denote admits `create2` only for checked
+/-- A body whose only CEI barriers are closed transports. A log, code read or
+memory return hands control to no account; Denote admits `create2` only for checked
 initcode templates, which copy and return their payload without executing any
 call. Low-level `CALL`s are never erased. -/
 private def onlyClosedTransportCEIBarriers (body : List Stmt) : Bool :=
@@ -5749,6 +5784,11 @@ to the array's struct elements. Calldata is validated as it is consumed. -/
 private partial def lowerEncodedRoot (arg : Json) : M EncodedBytes := do
   let .mem id effects ← lowerRef arg
     | failAt arg "ABI encoding requires a root struct reference"
+  lowerEncodedMem id effects arg
+
+/-- Encode the root tuple of the struct reference `id` after its `effects`. -/
+private partial def lowerEncodedMem (id : Nat) (effects : Array Stmt) (arg : Json) :
+    M EncodedBytes := do
   let some mem := (← get).mems.find? id | failAt arg "unknown encoding root"
   let pointer ← fresh
   let finish ← fresh
@@ -6555,6 +6595,16 @@ private partial def parseAbiDecodeItem (comp : Json) : M AbiDecodeTypeItem := do
     let sMembers ← mArr (← mField sDecl "members")
     if sMembers.isEmpty then
       failAt comp "empty struct in abi.decode is unsupported"
+    -- Structs with dynamic scalar or flat-struct array members decode from
+    -- memory by their complete schema; every other member keeps its diagnostic.
+    let memberTypes ← sMembers.mapM mType
+    unless memberTypes.all fun mTy => !mTy.startsWith "enum " && (paramType mTy).isSome do
+      let structs := (← get).structs
+      if let .ok schema := AbiSchema.root (fun id => structs.find? id) sDecl then
+        if schema.all AbiMemoryDecode.supportedMember && schema.any AbiSchema.isDynamicMember then
+          let members ← sMembers.mapM fun mNode => do
+            return (← mStr (← mField mNode "name"), ← mType mNode)
+          return .dynamicStruct sid sName members schema
     let mut members : Array (String × String) := #[]
     for mNode in sMembers do
       let mName ← mStr (← mField mNode "name")
@@ -6575,6 +6625,20 @@ private partial def parseAbiDecodeItem (comp : Json) : M AbiDecodeTypeItem := do
   let some pty := paramType scalarTy
     | failAt comp s!"unsupported abi.decode type {cleanTy}"
   return .scalar scalarTy pty enumBound?
+
+/-- `abi.decode(data, (S))` whose single target is a struct with dynamic members. -/
+private partial def abiDecodesDynamicStruct (j : Json) : M Bool := do
+  unless ← isAbiDecodeCall j do return false
+  let j ← stripParens j
+  let args ← mArr (← mField j "arguments")
+  let some typeArg := args[1]? | return false
+  let typeArg ← stripParens typeArg
+  let comps ← if (← mKind typeArg) == "TupleExpression" then mArr (← mField typeArg "components")
+    else pure #[typeArg]
+  let #[comp] := comps | return false
+  match ← parseAbiDecodeItem comp with
+  | .dynamicStruct .. => return true
+  | _ => return false
 
 private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array Stmt × Bool × Expr × Expr) := do
   let inner ← unwrapBytesConversion (← stripParens rawNode)
@@ -6621,6 +6685,9 @@ private partial def lowerAbiDecodeDataSource (rawNode callee : Json) : M (Array 
         .letVar lenVar buf.size
       ], false, .localVar ptrVar, .localVar lenVar)
   if (← mKind inner) == "MemberAccess" then
+    if ← isAddressCodeAccess inner then
+      let buf ← lowerExtCodeCopy inner
+      return (buf.pre, false, buf.pointer, buf.size)
     if let some (pre, storageName, slotExpr, _) ← resolveStorageBytesTarget? inner then
       let buf ← lowerStorageBytesRead pre storageName slotExpr inner
       let ptrVar ← fresh
@@ -6676,11 +6743,18 @@ private partial def lowerAbiDecodeItems (j : Json) : M (Array Stmt × Array AbiD
   let mut items : Array AbiDecodeTypeItem := #[]
   for comp in typeComps do
     items := items.push (← parseAbiDecodeItem comp)
+  let decodesDynamicStruct := items.any fun
+    | .dynamicStruct .. => true
+    | _ => false
+  if decodesDynamicStruct && items.size != 1 then
+    failAt typeArg "abi.decode of a dynamic struct requires it as the only target type"
   let (srcPre, fromCalldata, basePtr, lenExpr) ← lowerAbiDecodeDataSource args[0]! callee
+  if decodesDynamicStruct && fromCalldata then
+    failAt args[0]! "abi.decode of a dynamic struct requires a bytes memory source"
   let mut totalHeadSize : Nat := 0
   for item in items do
     match item with
-    | .scalar _ _ _ | .scalarArray _ _ _ | .dynamicBytes _ =>
+    | .scalar _ _ _ | .scalarArray _ _ _ | .dynamicBytes _ | .dynamicStruct .. =>
         totalHeadSize := totalHeadSize + 32
     | .flatStruct _ _ members =>
         totalHeadSize := totalHeadSize + 32 * members.size
@@ -6716,6 +6790,15 @@ private partial def lowerAbiDecodeItems (j : Json) : M (Array Stmt × Array AbiD
           memberVals := memberVals.push (mName, mTy, .localVar wordVar)
         decoded := decoded.push (.flatStruct sid sName memberVals)
         headCursor := headCursor + 32 * members.size
+    | .dynamicStruct sid sName members schema =>
+        let stem ← freshMemoryDecodeStem schema
+        modify fun e => { e with encodingMemory := true }
+        let plan := AbiMemoryDecode.materialize basePtr (.add basePtr lenExpr) stem schema
+        pre := pre ++ plan.body.toArray
+        decoded := decoded.push (.dynamicStruct
+          { structId := sid, param := stem, structName := sName, members,
+            schema := some schema, abiStem := stem })
+        headCursor := headCursor + 32
     | .scalarArray elemStr elemPty abiKind =>
         let relOff ← fresh
         let arrHeader ← fresh
@@ -7743,6 +7826,27 @@ private partial def lowerExtCodeSize (code : Json) : M Val := do
   let result ← fresh
   let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]
   pure { pre := target.pre.push read, expr := .localVar result }
+
+/-- `<address>.code` of an address-typed account other than the executing
+contract, as a fresh `bytes memory` buffer: `EXTCODESIZE` and `EXTCODECOPY` through
+the closed code-copy transport, which Denote answers from the account world
+(`DenoteExternalCode.accountCode`). The buffer's data pointer and length are
+bound atoms. The executing contract's own code differs between the source and
+compiled routes and is not modeled, so `address(this).code` is rejected. -/
+private partial def lowerExtCodeCopy (code : Json) : M EncodedBytes := do
+  let account ← mField code "expression"
+  if (← isThisAddressConv account) then
+    failAt code "code of the executing contract is unsupported"
+  let target ← atom (← lowerExpr account)
+  let array ← fresh
+  let data ← fresh
+  let length ← fresh
+  modify fun e => { e with encodingMemory := true }
+  let copy := Stmt.ecm (Compiler.ECM.SolidityExtCodeCopy.module array) [target.expr]
+  return { pre := target.pre ++ #[copy,
+             .letVar data (.add (.localVar array) (.literal 32)),
+             .letVar length (.mload (.localVar array))],
+           pointer := .localVar data, size := .localVar length }
 
 /-- The Solady/OpenZeppelin `SafeTransferLib` sequence over a value-free low-level call:
 
@@ -13285,6 +13389,8 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                        yulNames := e.yulNames.erase name,
                        yulMemoryArrays := e.yulMemoryArrays.insert name desc.memoryPointer,
                        yulMemoryStructs := e.yulMemoryStructs.erase name }
+        | .dynamicStruct _ =>
+            failAt d "dynamic struct abi.decode requires a single memory struct local"
         | .dynamicBytes isString buf =>
             let expectedBase := if isString then "string" else "bytes"
             unless loc == "memory" && (dTy == expectedBase || dTy == expectedBase ++ " memory") do
@@ -13470,7 +13576,10 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
                    yulNames := e.yulNames.insert name (.localVar headerPtr) }
       return allocStmts
     let isNonLiteralInit := (← mKind (← stripParens init)) != "Literal"
-    let buffer ← lowerEncodedBytes init
+    -- `bytes memory data = account.code;` copies the code into a fresh buffer.
+    let buffer ← if !isString && (← isAddressCodeAccess (← stripParens init)) then
+        lowerExtCodeCopy (← stripParens init)
+      else lowerEncodedBytes init
     let pointer ← freshFor name
     let size ← fresh
     if isString then
@@ -13729,6 +13838,19 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     let sid ← refInt (← mField d "typeName")
     if sid < 0 then failAt d "builtin struct"
     let innerInit ← stripParens init
+    if loc == "memory" && (← abiDecodesDynamicStruct innerInit) then
+      if (← get).bodyAssigned.contains id then
+        failAt d "reassigned struct locals are outside this slice"
+      let (decodePre, decoded) ← lowerAbiDecodeItems innerInit
+      let #[.dynamicStruct descriptor] := decoded
+        | failAt innerInit "expected one decoded dynamic struct"
+      unless descriptor.structId == sid.toNat do
+        failAt d "struct local declaration differs from initializer"
+      modify fun e =>
+        { e with mems := e.mems.insert id descriptor,
+                 yulNames := e.yulNames.erase name,
+                 yulMemoryStructs := e.yulMemoryStructs.insert name id }
+      return decodePre
     if loc == "memory" &&
         (((← mKind innerInit) == "FunctionCall" &&
           (optStr innerInit "kind" == some "structConstructorCall" || optStr innerInit "kind" == some "functionCall")) ||
@@ -13948,6 +14070,51 @@ private def functionFlatStructReturnType? (fn : Json) :
   let rname ← mStr (← mField r "name")
   let rid ← mNat (← mField r "id")
   return some (retSid, retStructName, rname, rid, memberSpecs)
+
+/-- `returns (S memory)` of a struct that is not flat and whose complete schema
+`AbiMemoryDecode` supports: its declaration id and schema. The return value is
+ABI-encoded into memory and returned by the closed memory `return` transport.
+Named returns of such structs are rejected. -/
+private def functionDynamicStructReturn? (fn : Json) :
+    M (Option (Nat × List AbiSchema.Member)) := do
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless rets.size == 1 do return none
+  let r := rets[0]!
+  unless optStr r "storageLocation" == some "memory" do return none
+  let rty ← mType r
+  unless rty.startsWith "struct " && !rty.contains "[" do return none
+  if (← functionFlatStructReturnType? fn).isSome then return none
+  let sid ← refInt (← mField r "typeName")
+  unless sid ≥ 0 do return none
+  let structs := (← get).structs
+  let some decl := structs.find? sid.toNat | return none
+  let .ok schema := AbiSchema.root (fun id => structs.find? id) decl | return none
+  unless schema.all AbiMemoryDecode.supportedMember && schema.any AbiSchema.isDynamicMember do
+    return none
+  unless (← mStr (← mField r "name")) == "" do
+    failAt r "named dynamic struct return parameters are unsupported"
+  return some (sid.toNat, schema)
+
+/-- The memory struct returned by `return expr` from a root returning the dynamic
+struct `retSid`: `abi.decode(bytes, (S))`, materialized under a fresh root id, or a
+memory struct variable with a complete schema. Returns the root id and effects. -/
+private def lowerDynamicStructReturnValue (expr : Json) (retSid : Nat) :
+    M (Nat × Array Stmt) := do
+  let unsupported := "dynamic struct returns require abi.decode or a memory struct variable"
+  let expr ← stripParens expr
+  if ← abiDecodesDynamicStruct expr then
+    let (decodePre, decoded) ← lowerAbiDecodeItems expr
+    let #[.dynamicStruct descriptor] := decoded | failAt expr unsupported
+    unless descriptor.structId == retSid do failAt expr "struct abi.decode return type mismatch"
+    let rootId := 1000000000 + (← get).next
+    modify fun e => { e with next := e.next + 1, mems := e.mems.insert rootId descriptor }
+    return (rootId, decodePre)
+  unless (← mKind expr) == "Identifier" do failAt expr unsupported
+  let .mem rootId effects ← lowerRef expr | failAt expr unsupported
+  let some mem := (← get).mems.find? rootId | failAt expr unsupported
+  unless mem.structId == retSid && mem.schema.isSome && !mem.calldataLocation do
+    failAt expr "dynamic struct returns require a memory struct with a complete ABI schema"
+  return (rootId, effects)
 
 private partial def canLowerDynamicBytesReturnExpr (j : Json) : M Bool := do
   match ← mKind j with
@@ -14375,6 +14542,17 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
                      bound := dataBinding :: lenBinding :: e.bound }
           let bindStmts := #[Stmt.letVar dataBinding buf.pointer, Stmt.letVar lenBinding buf.size]
           out := (out ++ buf.pre ++ bindStmts ++ env.rootPost).push (.returnBytes memStem)
+        else if let some (retSid, _) := env.rootDynamicStructReturn then
+          let (rootId, effects) ← lowerDynamicStructReturnValue expr retSid
+          let buffer ← lowerEncodedMem rootId effects expr
+          let pointer ← atom { pre := buffer.pre, expr := buffer.pointer }
+          let returnSize ← atom { pre := #[], expr := buffer.size }
+          -- The transport halts the frame. `Stmt.ecm` metadata cannot state
+          -- termination, so an unreachable empty revert closes the path for
+          -- the compiler's exhaustive return analysis (#738).
+          out := (out ++ pointer.pre ++ returnSize.pre ++ env.rootPost) ++
+            #[.ecm Compiler.ECM.SolidityReturnMemory.module [pointer.expr, returnSize.expr],
+              .revertEmpty]
         else if env.rootMsgDataReturn then
           let msgDataPre ← lowerMsgDataExpr expr
           out := (out ++ msgDataPre ++ env.rootPost).push
@@ -14794,6 +14972,7 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
   let flatStructRet? ← functionFlatStructReturnType? fn
   let msgDataRet ← functionMsgDataReturn? fn
   let dynamicBytesRet? ← functionDynamicBytesReturn? fn
+  let dynamicStructRet? ← functionDynamicStructReturn? fn
   let rootReturnTypes ← returns.mapM mType
   let mut rootRetExprs : Array Expr := #[]
   let mut rootNamedReturn? : Option (Nat × String × String × String) := none
@@ -14844,7 +15023,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
              rootFixedArrayReturn := fixedArrayRet?,
              rootFlatStructReturn := rootFlatStructState?,
              rootMsgDataReturn := msgDataRet,
-             rootDynamicBytesReturn := dynamicBytesRet? }
+             rootDynamicBytesReturn := dynamicBytesRet?,
+             rootDynamicStructReturn := dynamicStructRet? }
   let (modStmts, modPost) ← lowerModifiers mods
   modify fun e => { e with rootPost := modPost }
   let (bodyOut, returned) ← lowerRootStatements stmts true
@@ -15474,6 +15654,8 @@ private def importSlice
         return Array.replicate length elemPty
       if let some (_, _, _, _, memberSpecs) ← functionFlatStructReturnType? fn then
         return (memberSpecs.map (fun (p : String × String × ParamType) => p.2.2) : Array ParamType)
+      if let some (_, schema) ← functionDynamicStructReturn? fn then
+        return #[AbiSchema.paramType schema]
       if ← functionMsgDataReturn? fn then
         return #[.bytes]
       if let some dynRetTy ← functionDynamicBytesReturn? fn then

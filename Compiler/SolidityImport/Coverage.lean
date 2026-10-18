@@ -122,8 +122,9 @@ def staticUint256Covered (mod : Compiler.ECM.ExternalCallModule) (args : List Ex
 
 /-- The closed byte transports admitted by the importer: the typed-interface
 `staticcall`, `create2` over physical memory, ABI event logs, the optional-bool
-low-level `call` and `<address>.code.length`. Each has a dedicated Denote arm
-whose metadata must equal its canonical module. -/
+low-level `call`, `<address>.code.length`, `<address>.code` and the memory
+`return`. Each has a dedicated Denote arm whose metadata must equal its
+canonical module. -/
 def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
   match mod.byteTransport with
   | some (.staticUint256 ..) => staticUint256Covered mod args
@@ -139,6 +140,11 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
   | some (.extCodeSize resultVar) =>
       mod == Compiler.ECM.SolidityExtCodeSize.module resultVar && args.length == 1 &&
         exprListCovered args
+  | some (.extCodeCopy resultVar) =>
+      mod == Compiler.ECM.SolidityExtCodeCopy.module resultVar && args.length == 1 &&
+        exprListCovered args
+  | some .returnMemory =>
+      mod == Compiler.ECM.SolidityReturnMemory.module && args.length == 2 && exprListCovered args
   | none => false
 
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
@@ -354,6 +360,26 @@ theorem execStmt_ecm_extCodeSize_arm (oracle : DenoteOracle) (fields : List Fiel
     execStmt oracle fields state (.ecm (Compiler.ECM.SolidityExtCodeSize.module resultVar) args) =
       (match executeByteExtCodeSize oracle fields state
           (Compiler.ECM.SolidityExtCodeSize.module resultVar) resultVar args with
+       | .ok outcome => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed `<address>.code` arm copies the account world's code into a
+fresh allocation; an instrumentation error is a payload-free `.revert`. -/
+theorem execStmt_ecm_extCodeCopy_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (args : List Expr) :
+    execStmt oracle fields state (.ecm (Compiler.ECM.SolidityExtCodeCopy.module resultVar) args) =
+      (match executeByteExtCodeCopy oracle fields state
+          (Compiler.ECM.SolidityExtCodeCopy.module resultVar) resultVar args with
+       | .ok outcome => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed memory `return` arm stops with the buffer's words; an
+instrumentation error is a payload-free `.revert`. -/
+theorem execStmt_ecm_returnMemory_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (args : List Expr) :
+    execStmt oracle fields state (.ecm Compiler.ECM.SolidityReturnMemory.module args) =
+      (match executeByteReturnMemory oracle fields state
+          Compiler.ECM.SolidityReturnMemory.module args with
        | .ok outcome => outcome
        | .error _ => .revert) := rfl
 

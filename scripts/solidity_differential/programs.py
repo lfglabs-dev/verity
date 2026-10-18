@@ -401,6 +401,54 @@ def stateful_external_code_and_low_level_call_source(original, variant):
     raise ValueError('unknown code-length/low-level call program variant')
 
 
+def stateful_extcodecopy_struct_decode_source(original, variant):
+    """Equivalent `<address>.code` / dynamic-struct `abi.decode` programs over one sequence.
+
+    Observable names stay fixed: root functions, the custom errors, and the
+    struct types named by the model driver's signatures. The `.code` member is
+    never renamed.
+    """
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('CodeStore', 'PointerStore'), ('PREFIX', 'HEADER'), ('write', 'persist'),
+                         ('ids', 'registry'), ('total', 'tally'), ('key', 'digest'), ('id', 'handle'),
+                         ('payload', 'blob'), ('salt', 'seed'), ('pointer', 'target'),
+                         ('spec', 'config'), ('tag', 'label'), ('owner', 'holder'), ('legs', 'parts'),
+                         ('marks', 'stamps'), ('deadline', 'expiry'), ('token', 'asset'),
+                         ('weight', 'amount'), ('active', 'enabled')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ("""        address pointer = address(uint160(uint256(id)));
+        return abi.decode(pointer.code, (Spec));""",
+             """        address pointer = address(uint160(uint256(id)));
+        bytes memory data = pointer.code;
+        Spec memory decoded = abi.decode(data, (Spec));
+        return decoded;"""),
+            ("""        return (spec.owner, spec.legs.length, spec.marks.length);""",
+             """        uint256 legCount = spec.legs.length;
+        return (spec.owner, legCount, spec.marks.length);"""),
+            ("""    function echo(Spec memory spec) external pure returns (Spec memory) {
+        return spec;""",
+             """    function echo(Spec memory spec) external pure returns (Spec memory) {
+        Spec memory copy = spec;
+        return copy;"""),
+            ("total += 1;", "total = total + 1;"),
+            ('bytes memory code = bytes.concat(hex"600b380380600b5f395ff3", payload);',
+             'bytes memory code = abi.encodePacked(hex"600b380380600b5f395ff3", payload);'),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError('nonunique code-decoding variant anchor')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown code-decoding program variant')
+
+
 def stateful_storage_source(original, variant):
     """Equivalent packed scalar writes/deletes, imported independently per variant."""
     if variant == 'baseline':

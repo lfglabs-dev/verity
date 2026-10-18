@@ -128,6 +128,11 @@ inductive ByteTransport where
   | optionalBoolCall (resultVar : String) (selector numWordArgs : Nat)
   /-- `resultVar := extcodesize(target)`: the runtime code length of an account. -/
   | extCodeSize (resultVar : String)
+  /-- `resultVar := <target>.code`: `extcodesize` then `extcodecopy` of the runtime
+  code into a fresh `bytes memory` allocation (length word, then the bytes). -/
+  | extCodeCopy (resultVar : String)
+  /-- `return(offset, size)` of an ABI-encoded memory buffer, ending the frame. -/
+  | returnMemory
   deriving DecidableEq, Repr
 
 /-- An External Call Module packages a reusable external call pattern.
@@ -438,6 +443,82 @@ def module (resultVar : String) : ExternalCallModule where
 
 end SolidityExtCodeSize
 
+namespace SolidityExtCodeCopy
+
+/-- Solidity's `Panic(0x41)` allocation failure. -/
+def panicAllocation : List YulStmt :=
+  [.exprStmt (.call "mstore" [.lit 0, .call "shl" [.lit 224, .hex 0x4e487b71]]),
+   .exprStmt (.call "mstore" [.lit 4, .lit 0x41]),
+   .exprStmt (.call "revert" [.lit 0, .lit 0x24])]
+
+/-- `<address>.code` of an atomic target, as solc's `external_code_at`: the
+length is `extcodesize`, a `bytes memory` array of that length is allocated at
+the free pointer (`Panic(0x41)` when the length or the new free pointer exceeds
+64 bits or wraps), the length word is stored and the code is copied after it.
+`resultVar` is the array pointer. -/
+def compile (resultVar : String) (args : List YulExpr) : Except String (List YulStmt) := do
+  let target ← match args with
+    | [target] => pure target
+    | _ => throw "Solidity external code expects one target"
+  let occupied := resultVar :: SolidityStaticCall.argumentNames target
+  let sizeName := SolidityStaticCall.scratchName "__solidity_code_size" occupied
+  let nextName := SolidityStaticCall.scratchName "__solidity_code_next" (sizeName :: occupied)
+  let pointer := YulExpr.ident resultVar
+  let size := YulExpr.ident sizeName
+  let next := YulExpr.ident nextName
+  let maxWord := YulExpr.hex (2^64 - 1)
+  return [
+    .let_ resultVar (.call "mload" [.lit 64]),
+    .block [
+      .let_ sizeName (.call "extcodesize" [target]),
+      .if_ (.call "gt" [size, maxWord]) panicAllocation,
+      .let_ nextName (.call "add" [pointer,
+        .call "add" [.call "and" [.call "add" [size, .lit 31], .call "not" [.lit 31]], .lit 32]]),
+      .if_ (.call "or" [.call "gt" [next, maxWord], .call "lt" [next, pointer]]) panicAllocation,
+      .exprStmt (.call "mstore" [.lit 64, next]),
+      .exprStmt (.call "mstore" [pointer, size]),
+      .exprStmt (.call "extcodecopy" [target, .call "add" [pointer, .lit 32], .lit 0, size])]]
+
+def module (resultVar : String) : ExternalCallModule where
+  name := "solidityExtCodeCopy"
+  numArgs := 1
+  resultVars := [resultVar]
+  writesState := false
+  readsState := true
+  compile := fun _ args => compile resultVar args
+  byteTransport := some (.extCodeCopy resultVar)
+  axioms := []
+  proofStatus := .assumed
+  summaryName := "solidity_external_code_copy"
+  -- Reading code hands control to no account.
+  summaryMutability := .staticcall
+
+end SolidityExtCodeCopy
+
+namespace SolidityReturnMemory
+
+/-- `return(offset, size)` of an ABI-encoded buffer in memory. -/
+def compile (args : List YulExpr) : Except String (List YulStmt) :=
+  match args with
+  | [offset, size] => pure [.exprStmt (.call "return" [offset, size])]
+  | _ => throw "Solidity memory return expects an offset and a size"
+
+def module : ExternalCallModule where
+  name := "solidityReturnMemory"
+  numArgs := 2
+  resultVars := []
+  writesState := false
+  readsState := false
+  compile := fun _ args => compile args
+  byteTransport := some .returnMemory
+  axioms := []
+  proofStatus := .assumed
+  summaryName := "solidity_return_memory"
+  -- Returning hands control to no account.
+  summaryMutability := .staticcall
+
+end SolidityReturnMemory
+
 namespace ExternalCallModule
 
 /-- Compile closed byte transports from their data descriptor. Their metadata
@@ -468,6 +549,14 @@ def compileCanonical (module : ExternalCallModule) (context : CompilationContext
       unless module == SolidityExtCodeSize.module resultVar do
         throw "closed Solidity code length transport metadata differs"
       SolidityExtCodeSize.compile resultVar args
+  | some (.extCodeCopy resultVar) =>
+      unless module == SolidityExtCodeCopy.module resultVar do
+        throw "closed Solidity external code transport metadata differs"
+      SolidityExtCodeCopy.compile resultVar args
+  | some .returnMemory =>
+      unless module == SolidityReturnMemory.module do
+        throw "closed Solidity memory return transport metadata differs"
+      SolidityReturnMemory.compile args
 
 end ExternalCallModule
 
