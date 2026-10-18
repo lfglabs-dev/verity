@@ -43,6 +43,11 @@ SETTINGS = {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True,
 ANCHOR = 'from "Contracts/SolidityImportSmoke" entry "ExtCodeCopyStructDecodeSequence.sol"'
 # Length of the deterministic prefix of `transactions_for`.
 PREFIX_TRANSACTIONS = 81
+# Seconds between transaction timestamps. A shrunk sequence fills deleted
+# positions with empty blocks whose timestamps follow the node's clock; a wide
+# spacing keeps them below the next transaction's pinned timestamp even when
+# tracing a long sequence is slow.
+TIMESTAMP_SPACING = 3600
 
 
 def address(nonce):
@@ -139,7 +144,8 @@ def transactions_for(count, seed, caller):
                       'args': [int.from_bytes(payload[i:i + 32], 'big') for i in range(0, len(payload), 32)],
                       'sender': SENDER, 'target': caller,
                       'data': '0x' + keccak(text=signature)[:4].hex() + payload.hex(),
-                      'value': '0x0', 'timestamp': 1000000100 + index, 'blockNumber': 2 + index})
+                      'value': '0x0', 'timestamp': 1000000100 + TIMESTAMP_SPACING * index,
+                      'blockNumber': 2 + index})
 
     store, store_raw, load, summary, echo = SIGNATURES
 
