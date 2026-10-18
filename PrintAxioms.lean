@@ -6869,6 +6869,11 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_call_single  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_call_pair  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.BridgedStmts_map  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.except_bind_map_ok_inv  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.except_bind_bind_map_ok_inv  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_mappingSlot_local  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_add_local  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_storageStore_lit  -- private
@@ -6892,10 +6897,12 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_lt_calldatasize  -- private
   Compiler.Proofs.YulGeneration.Backends.genScalarLoad_calldataload_bridged
   -- Compiler.Proofs.YulGeneration.Backends.BridgedStmts_flatMap  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.genStaticTypeLoads_go_calldataload_bridged  -- private
   Compiler.Proofs.YulGeneration.Backends.genStaticTypeLoads_calldataload_bridged
   -- Compiler.Proofs.YulGeneration.Backends.fixedArrayFirstAlias_bridged  -- private
   -- Compiler.Proofs.YulGeneration.Backends.genParamLoadBodyFrom_cons_scalar  -- private
   -- Compiler.Proofs.YulGeneration.Backends.genParamLoadBodyFrom_calldataload_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.genParamLoadBodyFrom_calldataload_static_scalar_cons  -- private
   -- Compiler.Proofs.YulGeneration.Backends.genParamLoadBodyFrom_calldataload_static_scalar_bridged  -- private
   Compiler.Proofs.YulGeneration.Backends.genParamLoads_scalar_bridged
   -- Compiler.Proofs.YulGeneration.Backends.genScalarLoad_noFuncDefs  -- private
@@ -6944,6 +6951,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmt_external_body_fragment_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_internal_body_fragment_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_internal_body_fragment_noFuncDefs
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_ite_bridged_of_branches  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_external_recursive_body_fragment_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_external_recursive_body_fragment_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_external_recursive_body_fragment_noFuncDefs
@@ -6954,11 +6962,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_internal_recursive_body_fragment_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_memoryWrite_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_memoryWrite_noFuncDefs
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStmt_forEach_loop  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_forEach_with_bridged_body
   Compiler.Proofs.YulGeneration.Backends.compileStmt_ite_with_noFuncDefs_body
   Compiler.Proofs.YulGeneration.Backends.compileStmt_forEach_with_noFuncDefs_body
   -- Compiler.Proofs.YulGeneration.Backends.sigStores_bridged  -- private
   -- Compiler.Proofs.YulGeneration.Backends.sigStores_noFuncDefs  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.revertWithCustomError_zero_eq  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStmt_revertWithCustomErrorZeroBlock  -- private
   -- Compiler.Proofs.YulGeneration.Backends.revertWithCustomError_zero_bridged  -- private
   -- Compiler.Proofs.YulGeneration.Backends.revertWithCustomError_zero_noFuncDefs  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_revertError_zero_bridged
@@ -6982,6 +6993,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.BridgedSourceInternalRecursiveBodyWithErrorsStmts_of_plain_recursive
   Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalStructuredBodyWithErrorsStmt_of_structured
   Compiler.Proofs.YulGeneration.Backends.BridgedSourceExternalStructuredBodyWithErrorsStmts_of_structured
+  -- Compiler.Proofs.YulGeneration.Backends.isYulLogName_of_length_le_four  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedStraightStmt_rawLog  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_rawLog_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_rawLog_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_external_body_with_raw_log_bridged
@@ -7146,6 +7159,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmt_setStructMember2_multiSlot_nonzero_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_structMember2MultiSlotNonzero_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_structMember2MultiSlotNonzero_noFuncDefs
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_packedMasked  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_packedCleared  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_packedMerged  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_setMappingPackedWord_singleSlot_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_setMappingPackedWord_singleSlot_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWord_bridged
@@ -9019,4 +9035,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8295 theorems/lemmas (5564 public, 2731 private, 0 sorry'd)
+-- Total: 8311 theorems/lemmas (5564 public, 2747 private, 0 sorry'd)
