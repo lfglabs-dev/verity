@@ -289,66 +289,46 @@ private lemma inRange_of_natAbs_lt_signBit {z : Int} (h : z.natAbs < signBit) :
   refine ⟨?_, h1.2⟩
   linarith [neg_maxValue, h1.1]
 
+/-- The word of `ofInt z` for a negative in-range `z`. -/
+private lemma ofInt_word_of_neg {z : Int} (h : inRange z) (hz : z < 0) :
+    (ofInt z).word.val = modulus - z.natAbs := by
+  have habs_lt : z.natAbs < modulus :=
+    Nat.lt_of_le_of_lt (natAbs_le_signBit_of_inRange h) signBit_lt_modulus
+  have hpos : 0 < z.natAbs := Int.natAbs_pos.mpr (ne_of_lt hz)
+  change (ofInt z).toUint256.val = _
+  rw [ofInt_neg z hz, Uint256.val_ofNat, ← modulus, Nat.mod_eq_of_lt habs_lt]
+  exact Nat.mod_eq_of_lt (Nat.sub_lt modulus_pos hpos)
+
+/-- `ofInt` is the identity on negative in-range integers. -/
+private lemma toInt_ofInt_of_neg {z : Int} (h : inRange z) (hz : z < 0) :
+    (ofInt z : Int) = z := by
+  have habs_le : z.natAbs ≤ signBit := natAbs_le_signBit_of_inRange h
+  have hm := modulus_eq_two_mul_signBit
+  have hword := ofInt_word_of_neg h hz
+  have hge : signBit ≤ (ofInt z).word.val := by omega
+  rw [toInt_of_ge_signBit hge, hword]
+  have hle_m : z.natAbs ≤ modulus := by omega
+  have hzabs : (z.natAbs : Int) = -z := by omega
+  simp only [Int.ofNat_eq_natCast, Int.natCast_sub hle_m, hzabs]
+  ring
+
+/-- `ofInt` is the identity on nonnegative in-range integers. -/
+private lemma toInt_ofInt_of_nonneg {z : Int} (h : inRange z) (hz : ¬ z < 0) :
+    (ofInt z : Int) = z := by
+  have hnn : 0 ≤ z := le_of_not_gt hz
+  have hlt := toNat_lt_signBit_of_nonneg hnn h.2
+  have hword : (ofInt z).word.val = z.toNat := by
+    change (ofInt z).toUint256.val = _
+    rw [ofInt_nonneg z hz, Uint256.val_ofNat, ← modulus]
+    exact Nat.mod_eq_of_lt (Nat.lt_trans hlt signBit_lt_modulus)
+  rw [toInt_of_lt_signBit (hword ▸ hlt), hword]
+  exact Int.toNat_of_nonneg hnn
+
 /-- `ofInt` is the identity on the `int256` range. -/
 theorem toInt_ofInt {z : Int} (h : inRange z) : (ofInt z : Int) = z := by
   by_cases hz : z < 0
-  · have habs_le : z.natAbs ≤ signBit := natAbs_le_signBit_of_inRange h
-    have habs_lt : z.natAbs < modulus :=
-      Nat.lt_of_le_of_lt habs_le signBit_lt_modulus
-    have hmod : z.natAbs % modulus = z.natAbs := Nat.mod_eq_of_lt habs_lt
-    have hword :
-        (ofInt z).word.val = (modulus - z.natAbs) % modulus := by
-      have hw := ofInt_neg z hz
-      have hval : (ofInt z).word.val =
-          (modulus - (z.natAbs % modulus)) % modulus := by
-        change (ofInt z).toUint256.val = _
-        rw [hw, Uint256.val_ofNat, modulus]
-      rw [hval, hmod]
-    have hpos : 0 < z.natAbs := Int.natAbs_pos.mpr (ne_of_lt hz)
-    have hdiff : modulus - z.natAbs < modulus := Nat.sub_lt modulus_pos hpos
-    have hmod' : (modulus - z.natAbs) % modulus = modulus - z.natAbs :=
-      Nat.mod_eq_of_lt hdiff
-    have hge : signBit ≤ (ofInt z).word.val := by
-      rw [hword, hmod']
-      have htwo : modulus - signBit = signBit := by
-        have := modulus_eq_two_mul_signBit
-        omega
-      omega
-    have hv := toInt_of_ge_signBit (value := ofInt z) hge
-    have hle_m : z.natAbs ≤ modulus := Nat.le_of_lt habs_lt
-    have hcast :
-        ((ofInt z).word.val : Int) = (modulus : Int) - (z.natAbs : Int) := by
-      rw [hword, hmod', Int.natCast_sub hle_m]
-    have hzneg : z = - (z.natAbs : Int) := by
-      have : 0 ≤ -z := by linarith
-      have h1 : ((-z).natAbs : Int) = -z := Int.natAbs_of_nonneg this
-      have : (z.natAbs : Int) = -z := by simpa [Int.natAbs_neg] using h1
-      linarith
-    calc
-      (ofInt z : Int)
-          = ((ofInt z).word.val : Int) - (modulus : Int) := by simpa using hv
-      _ = (modulus : Int) - (z.natAbs : Int) - (modulus : Int) := by rw [hcast]
-      _ = z := by linarith
-  · have hnn : 0 ≤ z := le_of_not_gt hz
-    have hlt := toNat_lt_signBit_of_nonneg hnn h.2
-    have hword : (ofInt z).word.val = z.toNat % modulus := by
-      have hw := ofInt_nonneg z hz
-      change (ofInt z).toUint256.val = _
-      rw [hw, Uint256.val_ofNat, modulus]
-    have hto : z.toNat < modulus := Nat.lt_trans hlt signBit_lt_modulus
-    have hmod : z.toNat % modulus = z.toNat := Nat.mod_eq_of_lt hto
-    have hsb : (ofInt z).word.val < signBit := by
-      rw [hword, hmod]
-      exact hlt
-    have hv := toInt_of_lt_signBit (value := ofInt z) hsb
-    have hz' : (z.toNat : Int) = z := Int.toNat_of_nonneg hnn
-    calc
-      (ofInt z : Int)
-          = Int.ofNat (ofInt z).word.val := hv
-      _ = (z.toNat : Int) := by
-            rw [hword, hmod]
-            rfl
-      _ = z := hz'
+  · exact toInt_ofInt_of_neg h hz
+  · exact toInt_ofInt_of_nonneg h hz
 
 private lemma decide_natCast_lt_zero (n : Nat) :
     decide ((n : Int) < 0) = false :=
@@ -406,6 +386,37 @@ theorem div_eq_ofInt_tdiv (a b : Int256) (hb : (b : Int) ≠ 0) :
   rw [tdiv_eq_sign_natAbs (a : Int) (b : Int) hb]
   split_ifs <;> rfl
 
+/-- A truncated quotient of absolute value `signBit` forces `a = minValue` and `|b| = 1`. -/
+private lemma eq_minValue_of_tdiv_natAbs_eq_signBit {a b : Int256} (hb : (b : Int) ≠ 0)
+    (heq : (Int.tdiv (a : Int) (b : Int)).natAbs = signBit) :
+    (a : Int) = minValue ∧ (b : Int).natAbs = 1 := by
+  have ha_le : (a : Int).natAbs ≤ signBit :=
+    natAbs_le_signBit_of_inRange (inRange_toInt a)
+  rw [Int.natAbs_tdiv] at heq
+  have hmul : signBit * (b : Int).natAbs ≤ (a : Int).natAbs := by
+    rw [← heq]
+    exact Nat.div_mul_le_self _ _
+  have hb1 : (b : Int).natAbs = 1 := by
+    have : signBit * (b : Int).natAbs ≤ signBit * 1 := by
+      simpa using (le_trans hmul ha_le)
+    have : (b : Int).natAbs ≤ 1 := Nat.le_of_mul_le_mul_left this signBit_pos
+    have hbpos : 0 < (b : Int).natAbs := Int.natAbs_pos.mpr hb
+    omega
+  have ha_eq : (a : Int).natAbs = signBit := by
+    have : signBit ≤ (a : Int).natAbs := by simpa [hb1] using hmul
+    omega
+  have hle := (inRange_toInt a).2
+  refine ⟨?_, hb1⟩
+  simp only [maxValue, minValue, Int.ofNat_eq_natCast] at hle ⊢
+  omega
+
+/-- `minValue` is representable. -/
+private lemma inRange_minValue : inRange minValue := by
+  have hs := signBit_pos
+  refine ⟨le_rfl, ?_⟩
+  simp only [minValue, maxValue, Int.ofNat_eq_natCast]
+  omega
+
 private lemma tdiv_inRange_of_not_divFails (a b : Int256) (h : ¬ divFails a b) :
     inRange (Int.tdiv (a : Int) (b : Int)) := by
   have hb : (b : Int) ≠ 0 := fun hz => h (Or.inl hz)
@@ -416,49 +427,10 @@ private lemma tdiv_inRange_of_not_divFails (a b : Int256) (h : ¬ divFails a b) 
     exact Nat.le_trans (Nat.div_le_self _ _) ha_le
   by_cases hlt : (Int.tdiv (a : Int) (b : Int)).natAbs < signBit
   · exact inRange_of_natAbs_lt_signBit hlt
-  · have heq : (Int.tdiv (a : Int) (b : Int)).natAbs = signBit := by omega
-    have hdiv : (a : Int).natAbs / (b : Int).natAbs = signBit := by
-      have h := heq
-      rw [Int.natAbs_tdiv] at h
-      exact h
-    have hmul : signBit * (b : Int).natAbs ≤ (a : Int).natAbs := by
-      rw [← hdiv]
-      exact Nat.div_mul_le_self _ _
-    have hb1 : (b : Int).natAbs = 1 := by
-      have : signBit * (b : Int).natAbs ≤ signBit * 1 := by
-        simpa using (le_trans hmul ha_le)
-      have : (b : Int).natAbs ≤ 1 :=
-        Nat.le_of_mul_le_mul_left this signBit_pos
-      have hbpos : 0 < (b : Int).natAbs := Int.natAbs_pos.mpr hb
-      omega
-    have ha_eq : (a : Int).natAbs = signBit := by
-      have : signBit ≤ (a : Int).natAbs := by simpa [hb1] using hmul
-      omega
-    have ha_min : (a : Int) = minValue := by
-      have hx := (Int.natAbs_eq_iff (a := (a : Int)) (n := signBit)).1 ha_eq
-      cases hx with
-      | inl hpos =>
-          have hle := (inRange_toInt a).2
-          have hbad : (signBit : Int) ≤ maxValue := hpos ▸ hle
-          simp only [maxValue] at hbad
-          change (signBit : Int) ≤ (signBit : Int) - 1 at hbad
-          omega
-      | inr hneg =>
-          simpa [minValue] using hneg
-    have hb_pm : (b : Int) = 1 ∨ (b : Int) = -1 :=
-      (Int.natAbs_eq_iff (a := (b : Int)) (n := 1)).1 hb1
-    cases hb_pm with
-    | inl hp =>
-        have htd : Int.tdiv (a : Int) (b : Int) = minValue := by
-          rw [ha_min, hp, Int.tdiv_one]
-        rw [htd]
-        refine ⟨le_rfl, ?_⟩
-        have hz := toInt_in_range (0 : Int256)
-        have h0 : ((0 : Int256) : Int) = 0 := val_zero
-        rw [h0] at hz
-        exact le_trans hz.1 hz.2
-    | inr hn =>
-        exact (h (Or.inr ⟨ha_min, hn⟩)).elim
+  · obtain ⟨ha_min, hb1⟩ := eq_minValue_of_tdiv_natAbs_eq_signBit (a := a) hb (by omega)
+    rcases (Int.natAbs_eq_iff (a := (b : Int)) (n := 1)).1 hb1 with hp | hn
+    · simpa [ha_min, hp] using inRange_minValue
+    · exact (h (Or.inr ⟨ha_min, hn⟩)).elim
 
 theorem toInt_div_of_not_divFails (a b : Int256) (h : ¬ divFails a b) :
     ((a.div b) : Int) = Int.tdiv (a : Int) (b : Int) := by

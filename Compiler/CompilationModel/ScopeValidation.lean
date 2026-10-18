@@ -792,42 +792,10 @@ theorem validateFunctionIdentifierReferences_prefix_stmt_ok
         localScope
         none
         stmt = Except.ok nextScope := by
-  have hprefix :
-      ∃ midScope,
-        validateScopedStmtListIdentifiers
-          s!"function '{spec.name}'"
-          spec.params
-          (paramScopeNames spec.params)
-          (dynamicParamBases spec.params)
-          []
-          []
-          none
-          (pre ++ stmt :: []) = Except.ok midScope := by
-    have hbody' : spec.body = (pre ++ stmt :: []) ++ post := by
-      simpa [List.append_assoc] using hbody
-    rcases validateFunctionIdentifierReferences_prefix_ok hvalidate hbody' with
-      ⟨midScope, hprefix'⟩
-    exact ⟨midScope, hprefix'⟩
-  rcases hprefix with ⟨midScope, hprefix⟩
-  rcases validateScopedStmtListIdentifiers_append_ok_inv hprefix with
-    ⟨localScope, hprefixOnly, hstmtOnly⟩
-  simp [validateScopedStmtListIdentifiers] at hstmtOnly
-  cases hnext :
-      validateScopedStmtIdentifiers
-        s!"function '{spec.name}'"
-        spec.params
-        (paramScopeNames spec.params)
-        (dynamicParamBases spec.params)
-        []
-        localScope
-        none
-        stmt with
-  | error err =>
-      simp [hnext] at hstmtOnly
-  | ok nextScope =>
-      simp [hnext] at hstmtOnly
-      refine ⟨localScope, nextScope, hprefixOnly, ?_⟩
-      simp [hnext]
+  obtain ⟨_, hprefix⟩ := validateFunctionIdentifierReferences_prefix_ok (pre := pre ++ [stmt])
+    hvalidate (by simpa [List.append_assoc] using hbody)
+  obtain ⟨localScope, hpre, hstmt⟩ := validateScopedStmtListIdentifiers_append_ok_inv hprefix
+  exact ⟨localScope, _, hpre, validateScopedStmtListIdentifiers_singleton_ok_inv hstmt⟩
 
 def validateConstructorIdentifierReferencesWithImmutables
     (immutableNames : List String) (ctor : Option ConstructorSpec) : Except String Unit := do

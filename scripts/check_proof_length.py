@@ -58,17 +58,6 @@ ALLOWLIST: set[str] = {
     # against the corresponding exhaustive expression definitions.
     "denote_evalExpr_eq",
     "exprListTouchesUnsupportedContractSurface_eq_false_of_featureClosed",
-    # #2081 canonical-storage consequences: these wrappers are signature-dominated
-    # adapters carrying the exact compile, execution, helper-interface, and state
-    # premises. Their proof bodies only invoke the corresponding generic theorem;
-    # splitting would hide which premises tie storage to the actual executions.
-    "compilerStmtList_obeys_canonical_storage",
-    "compilerStmtListWithInternals_obeys_canonical_storage",
-    # #2080 direct-helper dispatch seams: these are signature-dominated adapters
-    # that carry the helper table, compilation, and state/fuel relations together.
-    # Splitting them would duplicate the same witness plumbing without reducing
-    # the proof search performed by their bodies.
-    "directInternalHelperStatementContextBridge_sourceAssignEvidence",
     # --- Denote/SourceSemantics agreement (P4 seed) ---
     # Mutual recursion with execStmtList_eq: each new Stmt constructor
     # (externalCallBind, tryExternalCallBind, ecm) adds an arm; extracting per-case
@@ -105,24 +94,6 @@ ALLOWLIST: set[str] = {
     # user body. This deliberately stays private until the execution bridge is
     # closed.
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
-    # First concrete letVar statement-head adapter (#2080 phase 10): threads a
-    # single compositional-expression existential through source execution, IR
-    # fuel alignment, and four scope/runtime invariant re-establishment steps
-    # that all share the locally-bound post-binding runtime'/state'. Splitting
-    # would duplicate the compositional-result unpacking plumbing in each part.
-    "exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult",
-    # #2080 phase 9 concrete add-right helper bridge: constructor-specific
-    # source/compile/IR facts have to be assembled around the threaded binary
-    # adapter while preserving the original helper payload unchanged.
-    "exprInternalHelperCompositionalContextResult_add_right_threaded",
-    # #2080 phase 11 spec-functions letVar adapter: same invariant
-    # re-establishment spine as the phase-10 legacy adapter, but consuming the
-    # post-expression state companion directly from the expression payload.
-    "exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult",
-    # #2080 phase 11 concrete letVar/add-right instantiation: the wrapper must
-    # expose the phase-9 add payload at statement-head shape while preserving
-    # the caller's left/right source and IR state-threading evidence.
-    "exprInternalHelperHeadStepBridgeWithInternals_letVar_add_right_threaded",
     # ERC-4337 dynamic ABI view projection: mechanical destructuring of the
     # nine-field PackedUserOperation decoder to expose its four dynamic bytes
     # member bindings. Splitting would duplicate the same option-case spine.
@@ -243,10 +214,6 @@ ALLOWLIST: set[str] = {
     # plumbing around one public transition theorem.
     # --- Contract proofs (Contracts/) ---
     "constructor_increment_getCount",
-    "add_one_preserves_order_iff_no_overflow",
-    "sub_add_cancel_of_lt",
-    "sub_add_cancel_left",
-    "safeDiv_result_le_numerator",
     "bridge_eval_byte_normalized",
     "sdiv_int256_eq_uint256Sdiv",
     "smod_int256_eq_uint256Smod",
@@ -651,30 +618,6 @@ ALLOWLIST: set[str] = {
     # them apart would force each fragment to restate the full intermediate
     # state and the bounds already established by its predecessors.
     "exec_bytesLoaderStmts_then",
-    # #2085 decode-of-encode round trip: one arithmetic argument tying the
-    # encoder's head/tail layout to the binder's bounds checks. Its `have`s are
-    # mutually dependent size facts about a single encoded block; splitting them
-    # would duplicate that context in every fragment.
-    "bindExternalParam_bytes_of_abiEncodeArgs",
-    # #2085 slice 5 decode-of-encode round trip for `T[]`, matching
-    # `bindExternalParam_bytes_of_abiEncodeArgs` above. The `have`s are mutually
-    # dependent size facts about one encoded block, and each restates the same
-    # `abiTailOffset (pre ++ ...)` index expression; splitting them would
-    # duplicate that context in every fragment.
-    "bindExternalParam_scalarArray_of_abiEncodeArgs",
-    # #2085 slice 5 binder inversions: exhaustive sweeps of the decoder's own
-    # `Option`/`if` branch structure, where every branch but the success case is
-    # a one-line contradiction discharge. Both are marginally over the limit and
-    # mirror a case split that exists only inside the decoder.
-    # (`decodeLengthPrefixedDynamicParam` is the linter's truncation of
-    # `decodeLengthPrefixedDynamicParam?_array_eq_some_inv` at the `?`.)
-    "decodeLengthPrefixedDynamicParam",
-    "bindExternalParam_array_eq_some_inv",
-    # Pareto int256 wrapping: two's-complement uniqueness for `ofInt` needs
-    # both sign cases plus modulus bookkeeping; `tdiv` in-range needs the
-    # `minValue / -1` boundary. Splitting would duplicate the residue lemmas.
-    "toInt_ofInt",
-    "tdiv_inRange_of_not_divFails",
 }
 
 # PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover

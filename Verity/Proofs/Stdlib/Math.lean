@@ -2926,6 +2926,8 @@ theorem safeDiv_self (a : Uint256) (h : a ≠ 0) :
 
 /-! ## Cross-Operation Properties -/
 
+section CrossOperation
+
 /-- safeMul result is always bounded by MAX_UINT256 when successful. -/
 theorem safeMul_result_bounded (a b : Uint256) (c : Uint256)
   (_h : safeMul a b = some c) : c ≤ MAX_UINT256 :=
@@ -2947,6 +2949,8 @@ theorem safeDiv_result_le_numerator (a b : Uint256) (c : Uint256)
       (hdiv.symm.trans (congrArg (fun x => x.val) hc)).symm
     simp only [Verity.Core.Uint256.le_def, hcval]
     exact Nat.div_le_self _ _
+
+end CrossOperation
 
 /-! ## Summary
 

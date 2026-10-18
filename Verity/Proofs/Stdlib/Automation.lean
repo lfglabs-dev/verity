@@ -870,59 +870,17 @@ These lemmas handle the case where modular addition causes wraparound at MAX_UIN
 theorem add_one_preserves_order_iff_no_overflow (a : Verity.Core.Uint256) :
     ((Verity.Core.Uint256.add a 1) : Nat) > (a : Nat) ↔
     (a : Nat) < Verity.Core.MAX_UINT256 := by
-  -- Strategy: case split on whether a is at max or not
-  by_cases h : (a : Nat) = Verity.Core.MAX_UINT256
-  case pos =>
-    -- When a = MAX_UINT256, overflow occurs
-    -- (MAX_UINT256 + 1) mod 2^256 = 0, and 0 ≯ MAX_UINT256
-    constructor
-    · intro h_gt
-      -- Show contradiction: (a + 1).val = 0, so 0 > MAX_UINT256 is false
-      unfold Verity.Core.Uint256.add at h_gt
-      simp [Verity.Core.Uint256.ofNat] at h_gt
-      rw [h] at h_gt
-      -- Now: (MAX_UINT256 + 1) % modulus > MAX_UINT256
-      have h_mod : (Verity.Core.MAX_UINT256 + 1) % Verity.Core.Uint256.modulus = 0 := by
-        have h_eq : Verity.Core.MAX_UINT256 + 1 = Verity.Core.Uint256.modulus := by
-          exact Verity.Core.Uint256.max_uint256_succ_eq_modulus
-        rw [h_eq]
-        simp [Nat.mod_self]
-      rw [h_mod] at h_gt
-      -- Now: 0 > MAX_UINT256, which is false
-      have h_max_pos : Verity.Core.MAX_UINT256 > 0 := by
-        unfold Verity.Core.MAX_UINT256
-        omega
-      omega
-    · intro h_lt
-      -- a.val < MAX_UINT256 contradicts h : a.val = MAX_UINT256
-      rw [h] at h_lt
-      omega
-  case neg =>
-    -- When a < MAX_UINT256, no overflow occurs
-    -- (a + 1) mod 2^256 = a + 1, so (a + 1) > a
-    constructor
-    · intro _
-      -- From a.val ≤ MAX_UINT256 and a.val ≠ MAX_UINT256, we get a.val < MAX_UINT256
-      have h_le : (a : Nat) ≤ Verity.Core.MAX_UINT256 := by
-        exact Verity.Core.Uint256.val_le_max a
-      omega
-    · intro h_lt
-      -- Show (a + 1).val > a.val when no overflow
-      unfold Verity.Core.Uint256.add
-      simp [Verity.Core.Uint256.ofNat]
-      -- Need to show: (a.val + 1) % modulus > a.val
-      -- Since a.val < MAX_UINT256, we have a.val + 1 < modulus
-      have h_sum_lt : (a : Nat) + 1 < Verity.Core.Uint256.modulus := by
-        have h_max : (a : Nat) < Verity.Core.MAX_UINT256 := h_lt
-        calc
-          (a : Nat) + 1 < Verity.Core.MAX_UINT256 + 1 := by omega
-          _ = Verity.Core.Uint256.modulus := by
-            exact Verity.Core.Uint256.max_uint256_succ_eq_modulus
-      -- When a.val + 1 < modulus, the mod is identity
-      have h_mod : ((a : Nat) + 1) % Verity.Core.Uint256.modulus = (a : Nat) + 1 := by
-        exact Nat.mod_eq_of_lt h_sum_lt
-      rw [h_mod]
-      omega
+  have hm := Verity.Core.Uint256.max_uint256_succ_eq_modulus
+  have hlt : (a : Nat) < Verity.Core.Uint256.modulus := a.isLt
+  have hval : ((Verity.Core.Uint256.add a 1) : Nat) =
+      ((a : Nat) + 1) % Verity.Core.Uint256.modulus := by
+    simp [Verity.Core.Uint256.add, Verity.Core.Uint256.ofNat]
+  rw [hval]
+  by_cases h : (a : Nat) + 1 < Verity.Core.Uint256.modulus
+  · rw [Nat.mod_eq_of_lt h]
+    omega
+  · rw [show (a : Nat) + 1 = Verity.Core.Uint256.modulus by omega, Nat.mod_self]
+    omega
 
 /-!
 ## Well-Formedness Preservation

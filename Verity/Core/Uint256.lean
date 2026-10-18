@@ -550,60 +550,26 @@ theorem sub_val_of_gt {a b : Uint256} (h : b.val > a.val) :
     _ = (a * c + b * c).val := by
             simp [HMul.hMul, HAdd.hAdd, add, mul, ofNat, m]
 
+/-- Wrapping subtraction as a single modular expression. -/
+private theorem sub_val_eq_mod (a b : Uint256) :
+    (a - b).val = (a.val + (modulus - b.val)) % modulus := by
+  have hb : b.val < modulus := b.isLt
+  show (sub a b).val = _
+  by_cases h : b.val ≤ a.val
+  · have hsum : a.val + (modulus - b.val) = (a.val - b.val) + modulus := by omega
+    simp only [sub, h, if_true, ofNat]
+    rw [hsum, Nat.add_mod_right]
+  · have hsum : a.val + (modulus - b.val) = modulus - (b.val - a.val) := by omega
+    simp only [sub, h, if_false, ofNat]
+    rw [hsum]
+
 @[simp] theorem sub_add_cancel_left (a b : Uint256) : (a - b) + b = a := by
   apply ext
-  let m : Nat := modulus
-  by_cases h : b.val ≤ a.val
-  · have hlt : a.val - b.val < m := by
-      exact Nat.lt_of_le_of_lt (Nat.sub_le _ _) a.isLt
-    have hle : a.val - b.val ≤ m := Nat.le_of_lt hlt
-    calc
-      ((a - b) + b).val
-          = (((a.val - b.val) % m) + b.val) % m := by
-              simp [HAdd.hAdd, HSub.hSub, sub, h, add, ofNat, m]
-      _ = ((a.val - b.val) + b.val) % m := by
-              simp [Nat.mod_eq_of_lt hlt]
-      _ = a.val % m := by
-              simp [Nat.sub_add_cancel h]
-      _ = a.val := by
-              exact Nat.mod_eq_of_lt (by
-                simp [m]
-                exact a.isLt)
-  · have hgt : b.val > a.val := Nat.lt_of_not_ge h
-    let d : Nat := b.val - a.val
-    have hba : d < m := by
-      exact Nat.lt_of_le_of_lt (Nat.sub_le _ _) b.isLt
-    have hsum : m - d + b.val = m + a.val := by
-      -- b = a + (b - a)
-      have hba_eq : b.val = a.val + d := by
-        have h' : b.val = d + a.val := by
-          symm
-          exact Nat.sub_add_cancel (Nat.le_of_lt hgt)
-        calc
-          b.val = d + a.val := h'
-          _ = a.val + d := by simp [Nat.add_comm]
-      calc
-        m - d + b.val
-            = m - d + (a.val + d) := by simp [hba_eq]
-        _ = (m - d + d) + a.val := by
-            simp [Nat.add_assoc, Nat.add_comm]
-        _ = m + a.val := by
-            have hle : d ≤ m := Nat.le_of_lt hba
-            simp [Nat.sub_add_cancel hle]
-    calc
-      ((a - b) + b).val
-          = (((m - d) % m) + b.val) % m := by
-              simp [HAdd.hAdd, HSub.hSub, sub, add, ofNat, m, h, d]
-      _ = ((m - d) + b.val) % m := by
-              simp
-      _ = (m + a.val) % m := by
-              simp [hsum]
-      _ = a.val % m := by
-              simp [Nat.add_mod_left]
-      _ = a.val := by
-              exact Nat.mod_eq_of_lt (by
-                simp [m]
-                exact a.isLt)
+  have hb : b.val < modulus := b.isLt
+  have hsum : a.val + (modulus - b.val) + b.val = a.val + modulus := by omega
+  show ((a - b).val + b.val) % modulus = a.val
+  rw [sub_val_eq_mod, Nat.mod_add_mod, hsum, Nat.add_mod_right]
+  exact Nat.mod_eq_of_lt a.isLt
 
 @[simp] theorem div_one (a : Uint256) : a / (1 : Uint256) = a := by
   apply ext
@@ -629,107 +595,12 @@ theorem sub_val_of_gt {a b : Uint256} (h : b.val > a.val) :
 
 theorem sub_add_cancel_of_lt {a b : Uint256} (ha : a.val < modulus) (hb : b.val < modulus) :
   (a + b - b) = a := by
-  cases a with
-  | mk a ha' =>
-    cases b with
-    | mk b hb' =>
-      apply ext
-      let m : Nat := modulus
-      have ha'' : a < m := by
-        simp [m]
-        exact ha
-      have hb'' : b < m := by
-        simp [m]
-        exact hb
-      by_cases h : a + b < m
-      · have hb_le : b ≤ a + b := Nat.le_add_left _ _
-        have hmod : (a + b) % m = a + b := Nat.mod_eq_of_lt h
-        have hb_le' : b ≤ (a + b) % m := by
-          calc b
-            _ ≤ a + b := hb_le
-            _ = (a + b) % m := hmod.symm
-        have hb_le_modulus : b ≤ (a + b) % modulus := by
-          simpa [m] using hb_le'
-        -- No overflow: direct cancellation.
-        calc
-          (sub (add ⟨a, ha'⟩ ⟨b, hb'⟩) ⟨b, hb'⟩).val = ((a + b) % m - b) % m := by
-            simp [add, sub, ofNat, hb_le_modulus, m]
-          _ = ((a + b) % m - b) % m := rfl
-          _ = (a + b - b) % m := by rw [hmod]
-          _ = a % m := by rw [Nat.add_sub_cancel]
-          _ = a := Nat.mod_eq_of_lt ha''
-      · have h_ge : m ≤ a + b := Nat.le_of_not_gt h
-        have hlt_sum : a + b < m + m := Nat.add_lt_add ha'' hb''
-        have hlt : a + b - m < m := Nat.sub_lt_left_of_lt_add h_ge hlt_sum
-        have hmod : (a + b) % m = a + b - m := by
-          have hmod' : (a + b) % m = (a + b - m) % m := Nat.mod_eq_sub_mod h_ge
-          have hmod'' : (a + b - m) % m = a + b - m := Nat.mod_eq_of_lt hlt
-          simp [hmod', hmod'']
-        have hlt' : a + b < b + m := by
-          have h' : a + b < m + b := Nat.add_lt_add_right ha'' b
-          calc
-            a + b < m + b := h'
-            _ = b + m := by
-              simp [Nat.add_comm]
-        have hbgt : b > a + b - m := by
-          exact Nat.sub_lt_right_of_lt_add h_ge hlt'
-        have hbnot : ¬ b ≤ a + b - m := Nat.not_le_of_gt hbgt
-        have hle : a + b - m ≤ b := Nat.le_of_lt hbgt
-        have hsum : (m - a) + (a + b - m) = b := by
-          have hma : a ≤ m := Nat.le_of_lt ha''
-          calc
-            (m - a) + (a + b - m)
-                = (m - a) + (a + b) - m := by
-                    symm
-                    exact Nat.add_sub_assoc h_ge (m - a)
-            _ = ((m - a) + a) + b - m := by
-                    simp [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm]
-            _ = m + b - m := by
-                    simp [Nat.sub_add_cancel hma]
-            _ = b := by
-                    exact Nat.add_sub_cancel_left m b
-        have hdiff : b - (a + b - m) = m - a := by
-          exact (Nat.sub_eq_iff_eq_add hle).2 hsum.symm
-        have hbnot' : ¬ b ≤ (a + b) % m := by
-          intro hc
-          have : b ≤ a + b - m := by calc b
-            _ ≤ (a + b) % m := hc
-            _ = a + b - m := hmod
-          exact hbnot this
-        -- Overflow: wrap-around branch.
-        let aU : Uint256 := ⟨a, ha'⟩
-        let bU : Uint256 := ⟨b, hb'⟩
-        have hma : a ≤ m := Nat.le_of_lt ha''
-        have hsub : m - (m - a) = a := by
-          have hle' : m - a ≤ m := Nat.sub_le _ _
-          exact (Nat.sub_eq_iff_eq_add hle').2 (by
-            have h1 : m - a + a = m := Nat.sub_add_cancel hma
-            calc
-              m = m - a + a := h1.symm
-              _ = a + (m - a) := by
-                simp [Nat.add_comm])
-        have hval' : (aU + bU - bU).val = (m - (b - (a + b) % m)) % m := by
-          have hgt : b > (a + b) % m := by
-            exact Nat.lt_of_not_ge hbnot'
-          have hgt' : bU.val > (add aU bU).val := by
-            simp [aU, bU, add, ofNat]
-            exact hgt
-          calc
-            (aU + bU - bU).val = (sub (add aU bU) bU).val := rfl
-            _ = (m - (bU.val - (add aU bU).val)) % m := by
-                simp [sub_val_of_gt, hgt', m]
-            _ = (m - (b - (a + b) % m)) % m := by
-                simp [aU, bU, add, ofNat, m]
-        calc
-          (aU + bU - bU).val = (m - (b - (a + b) % m)) % m := hval'
-          _ = (m - (b - (a + b - m))) % m := by
-                  simp [hmod]
-          _ = (m - (m - a)) % m := by
-                  simp [hdiff]
-          _ = a % m := by
-                  simp [hsub]
-          _ = a := by
-                  exact Nat.mod_eq_of_lt ha''
+  apply ext
+  have hsum : a.val + b.val + (modulus - b.val) = a.val + modulus := by omega
+  rw [sub_val_eq_mod]
+  show ((a.val + b.val) % modulus + (modulus - b.val)) % modulus = a.val
+  rw [Nat.mod_add_mod, hsum, Nat.add_mod_right]
+  exact Nat.mod_eq_of_lt ha
 
 theorem sub_add_cancel (a b : Uint256) : (a + b - b) = a :=
   sub_add_cancel_of_lt a.isLt b.isLt

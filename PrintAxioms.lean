@@ -1389,11 +1389,16 @@ end Verity.AxiomAudit
   -- Verity.Proofs.Stdlib.Int256.toNat_lt_signBit_of_nonneg  -- private
   -- Verity.Proofs.Stdlib.Int256.natAbs_le_signBit_of_inRange  -- private
   -- Verity.Proofs.Stdlib.Int256.inRange_of_natAbs_lt_signBit  -- private
+  -- Verity.Proofs.Stdlib.Int256.ofInt_word_of_neg  -- private
+  -- Verity.Proofs.Stdlib.Int256.toInt_ofInt_of_neg  -- private
+  -- Verity.Proofs.Stdlib.Int256.toInt_ofInt_of_nonneg  -- private
   Verity.Proofs.Stdlib.Int256.toInt_ofInt
   -- Verity.Proofs.Stdlib.Int256.decide_natCast_lt_zero  -- private
   -- Verity.Proofs.Stdlib.Int256.tdiv_eq_sign_natAbs  -- private
   -- Verity.Proofs.Stdlib.Int256.tmod_eq_sign_natAbs  -- private
   Verity.Proofs.Stdlib.Int256.div_eq_ofInt_tdiv
+  -- Verity.Proofs.Stdlib.Int256.eq_minValue_of_tdiv_natAbs_eq_signBit  -- private
+  -- Verity.Proofs.Stdlib.Int256.inRange_minValue  -- private
   -- Verity.Proofs.Stdlib.Int256.tdiv_inRange_of_not_divFails  -- private
   Verity.Proofs.Stdlib.Int256.toInt_div_of_not_divFails
   Verity.Proofs.Stdlib.Int256.mod_eq_ofInt_tmod
@@ -1784,7 +1789,16 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.AbiEncoding.abiTailOffset_append_cons  -- private
   -- Compiler.Proofs.AbiEncoding.abiEncodeArgs_getD_dynamic_head  -- private
   -- Compiler.Proofs.AbiEncoding.abiEncodeArgs_getD_tail_first  -- private
+  -- Compiler.Proofs.AbiEncoding.AbiBytes.byteLength_le_of_wellFormed  -- private
+  -- Compiler.Proofs.AbiEncoding.le_div_dynamicArrayElementStride_of_singleWordStatic  -- private
+  -- Compiler.Proofs.AbiEncoding.abiEncodeArgs_length_append_cons  -- private
+  -- Compiler.Proofs.AbiEncoding.externalWordAt?_abiEncodeArgs_dynamic_head  -- private
+  -- Compiler.Proofs.AbiEncoding.externalWordAt?_abiEncodeArgs_dynamic_length  -- private
+  -- Compiler.Proofs.AbiEncoding.abiEncodeArgs_dynamic_loader_facts  -- private
   Compiler.Proofs.AbiEncoding.bindExternalParam_bytes_of_abiEncodeArgs
+  -- Compiler.Proofs.AbiEncoding.abiEncodeArgs_single_bytes_length  -- private
+  -- Compiler.Proofs.AbiEncoding.single_param_length_le_abiEncodeArgs_bytes  -- private
+  -- Compiler.Proofs.AbiEncoding.bindSupportedParams_single_dynamic_abiEncodeArgs_bytes  -- private
   Compiler.Proofs.AbiEncoding.bindExternalParams_bytes_of_abiEncodeArgs
   Compiler.Proofs.AbiEncoding.bindExternalParams_string_of_abiEncodeArgs
   Compiler.Proofs.AbiEncoding.bindExternalParam_scalarArray_of_abiEncodeArgs
@@ -2747,6 +2761,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.compileExprWithInternals_add_of_children
   Compiler.Proofs.HelperStepProofs.evalExprWithHelpers_add_of_values
   Compiler.Proofs.HelperStepProofs.evalBuiltinCallWithEvmYulLeanContext_add_of_values
+  -- Compiler.Proofs.HelperStepProofs.evalIRExprWithInternals_add_of_values  -- private
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_add_left_threaded
@@ -2855,8 +2870,16 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_signextend_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_signextend_left_threaded
   Compiler.Proofs.HelperStepProofs.compileStmt_letVar_of_compileExprWithInternals
+  -- Compiler.Proofs.HelperStepProofs.execStmtWithHelpers_letVar_of_value  -- private
+  -- Compiler.Proofs.HelperStepProofs.execIRStmtsWithInternals_let_of_value  -- private
+  -- Compiler.Proofs.HelperStepProofs.scopeNamesIncluded_stmtNextScope_letVar  -- private
+  -- Compiler.Proofs.HelperStepProofs.stmtStepMatchesIRExecWithInternals_letVar_continue  -- private
+  -- Compiler.Proofs.HelperStepProofs.stmtStepMatchesIRExecWithInternals_letVar_of_postStateResult  -- private
+  -- Compiler.Proofs.HelperStepProofs.compileStmt_letVar_shape_of_slack  -- private
+  -- Compiler.Proofs.HelperStepProofs.letVarStepObligation_of_postStateEvidence  -- private
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
+  -- Compiler.Proofs.HelperStepProofs.exprPostStateResult_add_right_of_letVarPayload  -- private
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_add_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_right_threaded
@@ -8954,4 +8977,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8230 theorems/lemmas (5564 public, 2666 private, 0 sorry'd)
+-- Total: 8253 theorems/lemmas (5564 public, 2689 private, 0 sorry'd)

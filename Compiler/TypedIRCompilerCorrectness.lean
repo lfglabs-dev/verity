@@ -1517,14 +1517,8 @@ def execCompiledLetCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop
     (fields : List Field) (ownerField mappingField senderVar ownerVar currentVar keyParam : String)
     (writeVal : Nat) (msg1 msg2 : String) (init : TExecState) : TExecResult :=
   match (compileStmts fields
-      [ Stmt.letVar senderVar Expr.caller
-      , Stmt.letVar ownerVar (Expr.storage ownerField)
-      , Stmt.require (Expr.eq (Expr.localVar senderVar) (Expr.localVar ownerVar)) msg1
-      , Stmt.letVar currentVar (Expr.mapping mappingField (Expr.param keyParam))
-      , Stmt.require (Expr.eq (Expr.localVar currentVar) (Expr.literal 0)) msg2
-      , Stmt.setMapping mappingField (Expr.param keyParam) (Expr.literal writeVal)
-      , Stmt.stop
-      ]).run
+      (letCallerOwnerGuardMappingReqZeroSetStmts
+        ownerField mappingField senderVar ownerVar currentVar keyParam msg1 msg2 writeVal)).run
       (CompileState.mk 1
         [(keyParam, { id := 0, ty := Ty.address })]
         #[{ id := 0, ty := Ty.address }]
@@ -1562,15 +1556,8 @@ def execCompiledLetCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappin
     (fields : List Field) (ownerField mappingField senderVar ownerVar currentVar keyParam : String)
     (bound writeVal : Nat) (msg1 msg2 msg3 : String) (init : TExecState) : TExecResult :=
   match (compileStmts fields
-      [ Stmt.letVar senderVar Expr.caller
-      , Stmt.letVar ownerVar (Expr.storage ownerField)
-      , Stmt.require (Expr.eq (Expr.localVar senderVar) (Expr.localVar ownerVar)) msg1
-      , Stmt.letVar currentVar (Expr.mappingUint mappingField (Expr.param keyParam))
-      , Stmt.require (Expr.eq (Expr.localVar currentVar) (Expr.literal 0)) msg2
-      , Stmt.require (Expr.lt (Expr.param keyParam) (Expr.literal bound)) msg3
-      , Stmt.setMappingUint mappingField (Expr.param keyParam) (Expr.literal writeVal)
-      , Stmt.stop
-      ]).run
+      (letCallerOwnerGuardMappingUintReqZeroReqLtSetStmts ownerField mappingField
+        senderVar ownerVar currentVar keyParam msg1 msg2 msg3 bound writeVal)).run
       (CompileState.mk 1
         [(keyParam, { id := 0, ty := Ty.uint256 })]
         #[{ id := 0, ty := Ty.uint256 }]
@@ -1613,17 +1600,8 @@ def execCompiledLetCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingAddPar
     (ownerField mappingField supplyField senderVar ownerVar balanceVar supplyVar toParam amountParam : String)
     (msg : String) (init : TExecState) : TExecResult :=
   match (compileStmts fields
-      [ Stmt.letVar senderVar Expr.caller
-      , Stmt.letVar ownerVar (Expr.storage ownerField)
-      , Stmt.require (Expr.eq (Expr.localVar senderVar) (Expr.localVar ownerVar)) msg
-      , Stmt.letVar balanceVar (Expr.mapping mappingField (Expr.param toParam))
-      , Stmt.letVar supplyVar (Expr.storage supplyField)
-      , Stmt.setMapping mappingField (Expr.param toParam)
-          (Expr.add (Expr.localVar balanceVar) (Expr.param amountParam))
-      , Stmt.setStorage supplyField
-          (Expr.add (Expr.localVar supplyVar) (Expr.param amountParam))
-      , Stmt.stop
-      ]).run
+      (letCallerOwnerGuardMappingStorageAddStmts ownerField mappingField supplyField
+        senderVar ownerVar balanceVar supplyVar toParam amountParam msg)).run
       (CompileState.mk 2
         [(amountParam, { id := 1, ty := Ty.uint256 }),
          (toParam, { id := 0, ty := Ty.address })]
@@ -1665,17 +1643,8 @@ def execCompiledLetCallerLetMapping2IteParamReqSetMapping2Stop
     (fields : List Field) (mappingField senderVar currentVar authParam boolParam : String)
     (msg1 msg2 : String) (init : TExecState) : TExecResult :=
   match (compileStmts fields
-      [ Stmt.letVar senderVar Expr.caller
-      , Stmt.letVar currentVar (Expr.mapping2 mappingField (Expr.localVar senderVar) (Expr.param authParam))
-      , Stmt.ite (Expr.param boolParam)
-          [ Stmt.require (Expr.eq (Expr.localVar currentVar) (Expr.literal 0)) msg1
-          , Stmt.setMapping2 mappingField (Expr.localVar senderVar) (Expr.param authParam) (Expr.literal 1)
-          ]
-          [ Stmt.require (Expr.logicalNot (Expr.eq (Expr.localVar currentVar) (Expr.literal 0))) msg2
-          , Stmt.setMapping2 mappingField (Expr.localVar senderVar) (Expr.param authParam) (Expr.literal 0)
-          ]
-      , Stmt.stop
-      ]).run
+      (letCallerMapping2IteParamReqSetStmts
+        mappingField senderVar currentVar authParam boolParam msg1 msg2)).run
       (CompileState.mk 2
         [(boolParam, { id := 1, ty := Ty.bool }),
          (authParam, { id := 0, ty := Ty.address })]
@@ -1788,7 +1757,8 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMapping_letStorage_setMapping_
     compileStmts_letCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingAddParamSetStorageAddParamStop_run,
     *, evalTStmts, defaultEvalFuel]
   by_cases hEq : init.env.sender = init.world.storageAddr ownerSlot <;>
-    simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get,
+    simp [letCallerOwnerGuardMappingStorageAddExpectedState,
+      evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get,
       Verity.ContractState.writeMap, Verity.ContractState.writeSlot]
   exact storageWords_add_slot_add_map_eq _ _ _ _ _ _ _
 
@@ -1814,9 +1784,12 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMapping_reqEqLit_setMapping_st
     evalTStmts, defaultEvalFuel]
   by_cases hEq1 : init.env.sender = init.world.storageAddr ownerSlot
   · by_cases hEq2 : init.world.storageMap mappingSlot (init.vars.address 0) = (0 : Verity.Core.Uint256)
-    · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
-    · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
-  · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, TVars.set, TVars.get]
+    · simp [letCallerOwnerGuardMappingReqZeroSetExpectedState,
+          evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
+    · simp [letCallerOwnerGuardMappingReqZeroSetExpectedState,
+          evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
+  · simp [letCallerOwnerGuardMappingReqZeroSetExpectedState,
+        evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, TVars.set, TVars.get]
 
 /-- Semantic-preservation for the owner-guarded enable-threshold pattern. -/
 theorem compile_letCaller_letStorageAddr_reqEq_letMappingUint_reqEqLit_reqLt_setMappingUint_stop_semantics
@@ -1845,12 +1818,16 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMappingUint_reqEqLit_reqLt_set
     · by_cases hEq3 : (init.vars.uint256 0 : Verity.Core.Uint256) < (bound : Verity.Core.Uint256)
       · have hNat : (init.vars.uint256 0).val < bound % Verity.Core.Uint256.modulus := by
           simpa [Verity.Core.Uint256.lt_def, Verity.Core.Uint256.val_ofNat] using hEq3
-        simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, hEq3, hNat, TVars.set, TVars.get]
+        simp [letCallerOwnerGuardMappingUintReqZeroReqLtSetExpectedState,
+            evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, hEq3, hNat, TVars.set, TVars.get]
       · have hNat : bound % Verity.Core.Uint256.modulus ≤ (init.vars.uint256 0).val :=
           Nat.not_lt.mp (by simpa [Verity.Core.Uint256.lt_def, Verity.Core.Uint256.val_ofNat] using hEq3)
-        simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, hEq3, hNat, TVars.set, TVars.get]
-    · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
-  · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, TVars.set, TVars.get]
+        simp [letCallerOwnerGuardMappingUintReqZeroReqLtSetExpectedState,
+            evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, hEq3, hNat, TVars.set, TVars.get]
+    · simp [letCallerOwnerGuardMappingUintReqZeroReqLtSetExpectedState,
+          evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
+  · simp [letCallerOwnerGuardMappingUintReqZeroReqLtSetExpectedState,
+        evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, TVars.set, TVars.get]
 
 /-- Semantic-preservation for the delegate-authorization pattern. -/
 theorem compile_letCaller_letMapping2_ite_param_req_setMapping2_stop_semantics
@@ -1874,11 +1851,15 @@ theorem compile_letCaller_letMapping2_ite_param_req_setMapping2_stop_semantics
     evalTStmts, defaultEvalFuel]
   by_cases hBool : init.vars.bool 1
   · by_cases hEq : init.world.storageMap2 mappingSlot init.env.sender (init.vars.address 0) = (0 : Verity.Core.Uint256)
-    · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hBool, hEq, TVars.set, TVars.get]
-    · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hBool, hEq, TVars.set, TVars.get]
+    · simp [letCallerMapping2IteParamReqSetExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
+          hBool, hEq, TVars.set, TVars.get]
+    · simp [letCallerMapping2IteParamReqSetExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
+          hBool, hEq, TVars.set, TVars.get]
   · by_cases hEq : init.world.storageMap2 mappingSlot init.env.sender (init.vars.address 0) = (0 : Verity.Core.Uint256)
-    · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hBool, hEq, TVars.set, TVars.get]
-    · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hBool, hEq, TVars.set, TVars.get]
+    · simp [letCallerMapping2IteParamReqSetExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
+          hBool, hEq, TVars.set, TVars.get]
+    · simp [letCallerMapping2IteParamReqSetExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
+          hBool, hEq, TVars.set, TVars.get]
 
 /-- Semantic-preservation for `require (eq caller (storage ownerField)) msg ;
 setStorage countField (add (storage countField) (literal n)) ; stop`. -/

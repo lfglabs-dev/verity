@@ -119,6 +119,33 @@ private theorem add_sub_assoc (a b c : Uint256) : a + (b - c) = (a + b) - c := b
   have rhs_eq : ((a + b) - c) + c = a + b := Uint256.sub_add_cancel_left (a + b) c
   exact Uint256.add_right_cancel (by rw [lhs_eq, rhs_eq])
 
+/-- Helper: head case of `foldl_replace_one`, where the target is the list head. -/
+private theorem foldl_replace_one_head (t : List α) (f g : α → Uint256) (target : α)
+    (new_val : Uint256) (h_not_mem : target ∉ t)
+    (h_other : ∀ x ∈ t, x ≠ target → g x = f x) :
+    t.foldl (fun acc x => acc + g x) new_val =
+    t.foldl (fun acc x => acc + f x) (f target) - f target + new_val := by
+  -- Extract accumulators, then use that `g` agrees with `f` on the tail
+  rw [foldl_acc_comm t g new_val,
+    foldl_congr t g f 0 (fun x hx => h_other x hx (fun heq => h_not_mem (heq ▸ hx))),
+    foldl_acc_comm t f (f target)]
+  -- (f target + X) - f target + new_val = new_val + X
+  rw [Uint256.add_comm (f target) (List.foldl (fun a x => a + f x) 0 t),
+    Uint256.sub_add_cancel]
+  exact Uint256.add_comm new_val _
+
+/-- Helper: tail step of `foldl_replace_one`, pushing a non-target head through. -/
+private theorem foldl_replace_one_tail (t : List α) (f g : α → Uint256) (a target : α)
+    (new_val : Uint256)
+    (ih : t.foldl (fun acc x => acc + g x) 0 =
+      t.foldl (fun acc x => acc + f x) 0 - f target + new_val) :
+    t.foldl (fun acc x => acc + g x) (f a) =
+    t.foldl (fun acc x => acc + f x) (f a) - f target + new_val := by
+  rw [foldl_acc_comm t g (f a), foldl_acc_comm t f (f a), ih]
+  -- f a + ((X - Y) + Z) = ((f a + X) - Y) + Z
+  rw [← Uint256.add_assoc (f a) _ new_val]
+  rw [add_sub_assoc (f a) (List.foldl (fun a x => a + f x) 0 t) (f target)]
+
 /-- Helper: for a nodup list containing target, replacing target's value with new_val
     changes the foldl sum by (new_val - old_val):
     foldl(updated) = (foldl(original) - old_val) + new_val -/
@@ -138,42 +165,13 @@ private theorem foldl_replace_one (l : List α) [DecidableEq α]
     | inl heq =>
       subst heq
       rw [h_target]
-      -- target ∉ t by nodup, so g = f on tail
-      have h_not_mem : target ∉ t := (List.nodup_cons.mp h_nodup).1
-      -- Extract accumulator from LHS
-      rw [foldl_acc_comm t g new_val]
-      -- On tail, g agrees with f
-      rw [foldl_congr t g f 0
-        (fun x hx => h_other x (List.mem_cons_of_mem target hx)
-          (fun heq => h_not_mem (heq ▸ hx)))]
-      -- Extract accumulator from RHS
-      rw [foldl_acc_comm t f (f target)]
-      -- (f target + X) - f target + new_val = new_val + X
-      -- sub_add_cancel: (a + b) - b = a => (f target + X) - f target = X
-      -- But we need the subtraction to reduce first
-      have h_cancel := Uint256.sub_add_cancel (f target) (List.foldl (fun a x => a + f x) 0 t)
-      -- h_cancel : (f target + foldl f 0 t) - (foldl f 0 t) = f target
-      -- Actually sub_add_cancel says (a + b - b) = a, so Uint256.sub_add_cancel a b : a + b - b = a
-      -- We need: (f target + X) - (f target) = X
-      -- That's: (X + f target) - f target = X by sub_add_cancel, after comm
-      rw [Uint256.add_comm (f target) (List.foldl (fun a x => a + f x) 0 t)]
-      rw [Uint256.sub_add_cancel]
-      exact Uint256.add_comm new_val _
+      exact foldl_replace_one_head t f g target new_val (List.nodup_cons.mp h_nodup).1
+        (fun x hx hne => h_other x (List.mem_cons_of_mem _ hx) hne)
     | inr hmem =>
-      have h_ne : a ≠ target := by
-        intro heq
-        exact (List.nodup_cons.mp h_nodup).1 (heq ▸ hmem)
+      have h_ne : a ≠ target := fun heq => (List.nodup_cons.mp h_nodup).1 (heq ▸ hmem)
       rw [h_other a (by simp) h_ne]
-      rw [foldl_acc_comm t g (f a)]
-      rw [foldl_acc_comm t f (f a)]
-      rw [ih hmem h_nodup_t (fun x hx hne => h_other x (List.mem_cons_of_mem a hx) hne)]
-      -- Goal: f a + (foldl f 0 t - f target + new_val)
-      --     = (f a + foldl f 0 t) - f target + new_val
-      -- Rewrite using add_sub_assoc: a + (b - c) = (a + b) - c
-      -- First isolate: f a + (X - Y + Z) = (f a + X) - Y + Z
-      -- = f a + ((X - Y) + Z) = ((f a + (X - Y)) + Z) = (((f a + X) - Y) + Z)
-      rw [← Uint256.add_assoc (f a) _ new_val]
-      rw [add_sub_assoc (f a) (List.foldl (fun a x => a + f x) 0 t) (f target)]
+      exact foldl_replace_one_tail t f g a target new_val
+        (ih hmem h_nodup_t (fun x hx hne => h_other x (List.mem_cons_of_mem a hx) hne))
 
 /-- Helper: sum changes when updating balance of existing address -/
 theorem sumBalances_update_existing {slot : Nat} {addr : Address} {addrs : FiniteAddressSet}

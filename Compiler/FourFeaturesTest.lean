@@ -263,6 +263,8 @@ theorem selfDelegate_sequence_preserves_frame_context :
       [(outerSender, 5), (outerSender, 5)] := by
   decide
 
+section RuntimeChecks
+
 #eval! do
   -- FixedArray-under-mapping: mapping(address => uint256[4]) element 1.
   let mappingYul ←
@@ -344,5 +346,7 @@ theorem selfDelegate_sequence_preserves_frame_context :
   expectTrue "transient fieldRootKey stays off persistent storageKeySlot"
     (storageKeySlot (fieldRootKey transientItemsField 0) == none)
   IO.println "ok: four-features increment"
+
+end RuntimeChecks
 
 end Compiler.FourFeaturesTest
