@@ -52,67 +52,21 @@ ALLOWLIST: set[str] = {
     # user body. This deliberately stays private until the execution bridge is
     # closed.
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
-    # --- SimpleStorage native EVMYulLean dispatcher closed forms ---
-    # These are concrete generated-code reductions for the store(uint256)
-    # selected path. The long proofs are linear fuel/body-shape plumbing over
-    # generated Yul and are kept local to the Phase 3 bridge discharge.
-    "exec_block_simpleStorageLoweredStoreCaseBodyTail3_halt",
-    "simpleStorageNativeContract_dispatcherExec_storeHit_halt_atFuel",
-    # Phase 3 short-calldata store-hit endpoint: same generated dispatcher
-    # plumbing as the halt endpoint, but the selected body takes the ABI
-    # argument-length revert branch before reaching the store payload.
-    "simpleStorageNativeContract_dispatcherExec_storeHit_short_revert_atFuel",
-    # Phase 3 store-hit storage projection: zero sstore erases the EVM RBMap
-    # key, while the IR stores a bounded zero word. The proof must split zero
-    # and nonzero writes plus same-key/other-key projected lookups.
-    "projectStorageFromState_storeHit_initialState_materialized",
-    # Phase 2 retrieve-hit prerequisites: closed-form interpretIR reduction
-    # over the retrieve body's two-statement form (`mstore(0, sload(0));
-    # return(0, 32)`); the proof must walk the EDSL execIRStmts/execIRStmt
-    # state machine through the call/expr/builtin layers and discharge a
-    # fuel-bound side condition. Cannot be split without exposing internal
-    # IR-evaluation helpers.
-    "interpretIR_simpleStorage_retrieveHit",
-    # Phase 2 retrieve-hit prerequisites: dispatcher-exec halt-form chain.
-    # Composes the body-level closed form with the existing tail3 reduction
-    # endpoint after opening the source-lowered existential and pinning the
-    # switch case shape. The 155-line span is the union of fuel-reshape,
-    # existential-opening, body-state plumbing, and `_via_reduction`'s
-    # decomposition obligation; each piece is mechanical but inseparable.
-    "simpleStorageNativeContract_dispatcherExec_retrieveHit_halt_atFuel",
-    # Phase 2 retrieve-hit prerequisites: closed-form `projectResult`
-    # evaluation on the YulHalt halt produced by the lowered retrieve body.
-    # The proof must thread `mstore0_then_return32_*` harness lemmas across
-    # the chained `setMachineState` overrides to extract the 32-byte
-    # `H_return` window before computing `projectHaltReturn`.
-    "projectResult_retrieveHit_eq",
-    # Direct native-vs-IR retrieve-hit closure: intentionally mirrors the
-    # concrete native dispatcher halt and projected-storage plumbing above, but
-    # targets `nativeDispatcherExecMatchesIRPositive` directly.
-    "simpleStorageNativeRetrieveHitMatchBridge_proved",
-    # Direct native-vs-IR store-hit closure: it intentionally keeps the
-    # short-calldata revert and argument-present storage-update branches in one
-    # proof so the direct native case split stays explicit.
-    "simpleStorageNativeStoreHitMatchBridge_proved",
     # Projected native dispatcher result wrapper has a short proof body, but
     # the scanner includes the following public runtime-harness doc block.
     "nativeDispatcherExecMatchesIRPositive_of_project_eq_match",
     # --- Misc ---
     # PR #1915 init-prefixed dispatcher bridge. These proofs are generated-code
     # shape peel/reduction endpoints for `initFreeMemoryPointer; buildSwitch`.
-    # They keep the concrete init `mstore(0x40, 128)` state transition, selector
-    # switch lowering, and SimpleStorage closed-form reductions explicit; splitting
-    # further would mainly create one-use wrappers around the same generated
-    # dispatcher case analysis.
+    # They keep the concrete init `mstore(0x40, 128)` state transition and
+    # selector switch lowering explicit; splitting further would mainly create
+    # one-use wrappers around the same generated dispatcher case analysis.
     "sizeOf_emitYul_runtimeCode_mapping_ge_lowered_cases_length_plus25",
     "lowerStmtsNative_initFreeMemoryPointer_buildSwitch_noFallback_noReceive_ok_prefixed_block",
     "nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_atFuel",
     "nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive",
     "nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds_atFuel",
     "nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds",
-    "simpleStorageNativeRuntimeDispatcherStmts_exists_init_block",
-    "simpleStorageNativeContract_dispatcherExec_storeHit_error_via_reduction",
-    "simpleStorageNativeContract_dispatcherExec_retrieveHit_error_via_reduction",
     "exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasSelectorState_projectResult_eq",
     "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_error_projectResult_eq",
     "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_ok_projectResult_eq_finalMatched",
@@ -142,10 +96,6 @@ ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"^nativeGeneratedSelectorHitBodyPreservesMatched_.*$",
         r"^nativeGeneratedSelectorHit_success_of_user_body_exec_bridge_atFuel_revived.*$",
         r"^nativeResultsMatchOn_execIRFunction_.*_markedPrefix$",
-        r"^execIRFunction_(?:zeroParam|oneParam)_.*$",
-        r"^projectResult_literalReturnHit_eq$",
-        r"^exec_block_(?:store0_calldataload4_stop|simpleStorageLoweredStoreCaseBodyTail2)"
-        r"_markedPrefix_halt$",
         r"^lowerRuntimeContractNative_of_compile_ok_supported_exists$",
         r"^lowerStmtsNative(?:WithSwitchIds)?_buildSwitch_noFallback_noReceive_ok_block$",
         r"^sizeOf_(?:buildSwitch_noFallback_noReceive_ge_source_cases_length"
@@ -153,9 +103,6 @@ ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"(?:_plus24)?)$",
         r"^supportedStmtList_safe_of_state_"
         r"(?:effect_closed|except_mapping_writes_stmt_safety)$",
-        # Thin denote-headed wrapper; the count is inflated by the trailing
-        # module comment block (proof body is a single composition term).
-        r"^simpleStorage_denote_endToEnd_native_evmYulLean_of_sourceIR$",
     )
 )
 

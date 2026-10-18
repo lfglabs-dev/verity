@@ -2431,6 +2431,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcher_eq_lowered_stmts  -- private
   -- Compiler.Proofs.EndToEnd.lowerStmtsNative_single_block_ok_singleton  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeDispatcherStmts_lowering_ok  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_expr_block_ok  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_buildSwitch_eq_block  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeRuntimeDispatcherStmts_exists_init_block  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeRuntimeDispatcherStmts_eq_init_block  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeDispatcherInnerStmts_lowering_ok  -- private
@@ -2478,6 +2480,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_weiValue  -- private
   -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_calldata_size  -- private
   -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_perm  -- private
+  -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_calldataload4  -- private
   -- Compiler.Proofs.EndToEnd.exec_block_store0_calldataload4_stop_markedPrefix_halt  -- private
   -- Compiler.Proofs.EndToEnd.exec_block_simpleStorageLoweredStoreCaseBodyTail_callvalue_strip_error  -- private
   -- Compiler.Proofs.EndToEnd.exec_block_simpleStorageLoweredRetrieveCaseBodyTail_callvalue_strip_error  -- private
@@ -2486,6 +2489,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.exec_block_store0_calldataload4_stop_shared_halt  -- private
   -- Compiler.Proofs.EndToEnd.exec_block_store0_calldataload4_stop_shared_halt_tight  -- private
   -- Compiler.Proofs.EndToEnd.exec_block_simpleStorageLoweredStoreCaseBodyTail2_lt_strip_error_tight  -- private
+  -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_calldata_bounds_36  -- private
   -- Compiler.Proofs.EndToEnd.exec_block_simpleStorageLoweredStoreCaseBodyTail2_markedPrefix_halt  -- private
   -- Compiler.Proofs.EndToEnd.exec_block_simpleStorageLoweredStoreCaseBodyTail2_short_revert  -- private
   -- Compiler.Proofs.EndToEnd.exec_block_simpleStorageLoweredStoreCaseBodyTail3_halt  -- private
@@ -2499,6 +2503,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.exec_block_simpleStorageLoweredRetrieveCaseBody_halt  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageBuildSwitchSourceCases_lowered_concrete  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_selectorMiss_revert  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageHitCases_tagsRange  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_storeHit_error_via_reduction  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_storeHit_error  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageLoweredHitCasesShape_concrete  -- private
@@ -2515,9 +2520,17 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeDispatcherFuel_ge_22  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_selectorMiss_revert_atFuel  -- private
   -- Compiler.Proofs.EndToEnd.interpretIR_simpleStorage_selectorMiss  -- private
+  -- Compiler.Proofs.EndToEnd.execIRStmts_simpleStorageRetrieveIRBody  -- private
   -- Compiler.Proofs.EndToEnd.interpretIR_simpleStorage_retrieveHit  -- private
   -- Compiler.Proofs.EndToEnd.interpretIR_simpleStorage_storeHit_arg  -- private
   -- Compiler.Proofs.EndToEnd.interpretIR_simpleStorage_storeHit_short  -- private
+  -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_weiValue_zero  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageLoweredHitCases_store_decomp  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageLoweredHitCases_retrieve_decomp  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_hitCases_reduction  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageNativeDispatcherFuel_eq_hitCases  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_storeHit_atFuel_of_body  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_retrieveHit_atFuel_of_body  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_retrieveHit_halt_atFuel  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_storeHit_halt_atFuel  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeContract_dispatcherExec_storeHit_short_revert_atFuel  -- private
@@ -2528,10 +2541,17 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.simpleStorage_account_updateStorage_storage_of_zero  -- private
   -- Compiler.Proofs.EndToEnd.projectStorageFromState_eq_of_accountMap_eq  -- private
   -- Compiler.Proofs.EndToEnd.projectStorageFromState_insert_sstore_eq_of_toState_eq  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_projectStorage_lookup_ne_zero  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_uint256_eq_zero_of_beq_default  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_projectStorage_erase_zero_lookup  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_projectStorage_insert_zero_lookup  -- private
   -- Compiler.Proofs.EndToEnd.projectStorageFromState_storeHit_initialState_materialized  -- private
   -- Compiler.Proofs.EndToEnd.projectStorageFromState_storeHit_markedPrefix_materialized  -- private
   -- Compiler.Proofs.EndToEnd.projectStorageFromState_storeHit_postInit_materialized  -- private
+  -- Compiler.Proofs.EndToEnd.projectResult_store0_calldataload4_stop_markedPrefix_finalStorage  -- private
+  -- Compiler.Proofs.EndToEnd.projectResult_store0_calldataload4_stop_markedPrefix_events  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_store0_calldataload4_stop_markedPrefix  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_store0_calldataload4_stop  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_store0_calldataload4_stop  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_store0_calldataload4_stop  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_store0_calldataload4_stop  -- private
@@ -2545,13 +2565,31 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_memory_size_ge_32  -- private
   -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_accountMap  -- private
   -- Compiler.Proofs.EndToEnd.mstore0_then_return32_hReturn_eq_toByteArray  -- private
+  -- Compiler.Proofs.EndToEnd.projectHaltReturn_mstore0_return32  -- private
   -- Compiler.Proofs.EndToEnd.projectResult_retrieveHit_eq  -- private
   -- Compiler.Proofs.EndToEnd.projectResult_literalReturnHit_eq  -- private
+  -- Compiler.Proofs.EndToEnd.projectStorageFromState_of_initial_accountMap  -- private
+  -- Compiler.Proofs.EndToEnd.mem_materializedStorageSlots_of_mem  -- private
+  -- Compiler.Proofs.EndToEnd.projectLogsFromState_postInit  -- private
+  -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_mstore0_return32_of_accountMap  -- private
+  -- Compiler.Proofs.EndToEnd.natToUInt256_toNat_eq_mod  -- private
+  -- Compiler.Proofs.EndToEnd.uint256_ofNat_toNat_of_lt  -- private
+  -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_mstore0_return32_postInit  -- private
+  -- Compiler.Proofs.EndToEnd.nativeSwitchPostInitFreeMemorySharedState_sload0_value  -- private
+  -- Compiler.Proofs.EndToEnd.projectLogsFromState_postInit_sload0  -- private
+  -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_mstore0_sload0_return32_postInit  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_mstore0_sload0_return32_markedPrefix  -- private
+  -- Compiler.Proofs.EndToEnd.execIRFunction_of_execIRStmts_return  -- private
+  -- Compiler.Proofs.EndToEnd.execIRFunction_of_execIRStmts_stop  -- private
+  -- Compiler.Proofs.EndToEnd.execIRStmts_genParamLoads_append_sizeOf  -- private
+  -- Compiler.Proofs.EndToEnd.execIRStmts_mstore0_lit_return32  -- private
+  -- Compiler.Proofs.EndToEnd.execIRStmts_sstore0_value_stop  -- private
   -- Compiler.Proofs.EndToEnd.execIRFunction_zeroParam_mstore0_lit_return32  -- private
   -- Compiler.Proofs.EndToEnd.execIRFunction_zeroParam_mstore0_sload0_return32  -- private
+  -- Compiler.Proofs.EndToEnd.execIRStmts_genParamLoads_value_sstore0_stop  -- private
   -- Compiler.Proofs.EndToEnd.execIRFunction_oneParam_store0_value_stop  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_oneParam_store0_value_stop_markedPrefix  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_oneParam_store0_value_stop  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_oneParam_store0_value_stop  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_oneParam_store0_value_stop  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_oneParam_store0_value_stop  -- private
@@ -2565,11 +2603,17 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.list_getD_eq_of_drop_eq_cons  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_mstore0_calldataload_aligned_return32_markedPrefix  -- private
   -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_execIRFunction_mstore0_calldataload4_return32_markedPrefix  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_mstore0_sload0_return32  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_sload0_return32  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_zeroParam_mstore0_sload0_return32  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_zeroParam_mstore0_sload0_return32  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_mstore0_lit_return32  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_lit_return32  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_zeroParam_mstore0_lit_return32  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_zeroParam_mstore0_lit_return32  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_mstore0_calldataload4_return32  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_calldataload4_return32  -- private
+  -- Compiler.Proofs.EndToEnd.lowerStmtsNativeWithSwitchIds_mstore0_calldataload_aligned_return32  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyHaltExecBridgeAtFuel.of_mstore0_calldataload_aligned_return32  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_mstore0_sload0_return32  -- private
   -- Compiler.Proofs.EndToEnd.NativeGeneratedSelectedUserBodyResultBridgeAtFuel.of_zeroParam_mstore0_sload0_return32  -- private
@@ -2591,6 +2635,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.compile_preserves_native_evmYulLean_of_compile_ok_supported_generated_callDispatcher_source_zeroParam_sload0_return32  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_mstore0_calldataload4_return32  -- private
   -- Compiler.Proofs.EndToEnd.nativeGeneratedCallDispatcherMatchesIR_of_compile_ok_supported_mstore0_calldataload_aligned_return32  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorage_msgValue_mod_zero_of_dispatchGuardSafe  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageNativeStoreHitMatch_short  -- private
+  -- Compiler.Proofs.EndToEnd.nativeResultsMatchOn_storeHit_postInit  -- private
+  -- Compiler.Proofs.EndToEnd.simpleStorageNativeStoreHitMatch_arg  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeRetrieveHitMatchBridge_proved  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeStoreHitMatchBridge_proved  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorageNativeSelectorMissMatchBridge_proved  -- private
@@ -9138,4 +9186,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8414 theorems/lemmas (5564 public, 2850 private, 0 sorry'd)
+-- Total: 8462 theorems/lemmas (5564 public, 2898 private, 0 sorry'd)
