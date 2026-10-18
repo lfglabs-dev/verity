@@ -4169,6 +4169,23 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventIndexedEntryParams_eq_filter  -- private
   -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_le_three  -- private
   -- Compiler.Proofs.IRGeneration.eventExecIRStmts_single_event_block  -- private
+  -- Compiler.Proofs.IRGeneration.eventRuntimeMatch_memory_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventTopicStmt_continue  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmitPrefix_continue  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_irEval_topic  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_unindexedRel  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_indexedRel  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_sourceWorld_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmitBlock_exec  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_execWithInternals_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_logData_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_log_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_world_eq  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_bindingsExact_next  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmit_stepMatches  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmitBridge_of_scratch  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmitBridge_of_ctx  -- private
+  -- Compiler.Proofs.IRGeneration.eventEmitBridge_of_compiled  -- private
   Compiler.Proofs.IRGeneration.eventEmitHeadStepSemanticBridge
   Compiler.Proofs.IRGeneration.eventHeadStepSemanticBridgeCatalog
 
@@ -4305,6 +4322,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.CompiledStmtStepWithHelpers.withHelperIR_of_legacyCompatible
   Compiler.Proofs.IRGeneration.CompiledStmtStepWithHelpers.withHelperIR_of_callsDisjoint
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_withHelpers_and_compiledLegacyCompatible
+  -- Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_of_plainHead  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_directInternalHelperCallStepInterface_and_directInternalHelperAssignStepInterface_and_exprInternalHelperStepInterface_and_structuralInternalHelperStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible
   Compiler.Proofs.IRGeneration.stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_directInternalHelperStepInterface_and_exprInternalHelperStepInterface_and_structuralInternalHelperStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible
@@ -8506,4 +8524,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7782 theorems/lemmas (5562 public, 2220 private, 0 sorry'd)
+-- Total: 7800 theorems/lemmas (5562 public, 2238 private, 0 sorry'd)

@@ -24,8 +24,15 @@ from property_utils import ROOT, THEOREM_RE, strip_lean_comments
 _DECL_RE = re.compile(
     r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|unsafe)\s+)*"
     r"(?:(?:partial)\s+)?"
-    r"(?:theorem|lemma|def|example|instance|inductive|structure|class|abbrev|opaque)\s+"
+    r"(?:theorem|lemma|def|example|instance|inductive|structure|class|abbrev|opaque)"
+    r"(?:\s+|$)"
 )
+# A theorem header whose name is on the following line (used for names that
+# would not fit in 100 columns), e.g. `theorem` alone, then `    longName`.
+_SPLIT_THEOREM_RE = re.compile(
+    r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected)\s+)*(?:theorem|lemma)\s*$"
+)
+_SPLIT_NAME_RE = re.compile(r"^\s*(?P<name>[A-Za-z_][A-Za-z0-9_.']*)\b")
 _END_RE = re.compile(r"^\s*end\b")
 _SECTION_RE = re.compile(r"^\s*(?:section|namespace)\b")
 
@@ -161,7 +168,6 @@ ALLOWLIST: set[str] = {
     "compiledStmtStep_assignVar",
     "compiledStmtStep_require",
     "compiledStmtStep_return",
-    "compiledStmtStep_ite",
     # Nat-indexed forEach empty-body proof witnesses. Positive non-empty
     # literal loops intentionally remain outside the supported fragment. The
     # longer witnesses below are recurrence/state-relation proofs where
@@ -179,7 +185,6 @@ ALLOWLIST: set[str] = {
     # fuel, and scope bindings aligned in one witness; factoring it would only
     # move that coupled witness into a private wrapper.
     "compiledStmtStep_setStorageWord_singleSlot_zeroOffset",
-    "compiledStmtStep_setStorage_aliasSlots",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipline",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences",
@@ -315,26 +320,10 @@ ALLOWLIST: set[str] = {
     # Splitting would duplicate the eval-agreement spine and fuel accounting.
     "compiledStmtStep_returndatacopy_bounded_single_preserves",
     # --- IR execution proofs (terminal ite, core append/tail) ---
-    "execIRStmt_compiled_terminal_ite_then_branch_entry",
-    "execIRStmt_compiled_terminal_ite_else_branch_entry",
-    "execIRStmt_compiled_terminal_ite_else_branch_entry_tailFuel",
     "execIRStmts_compiled_terminal_ite_then_of_irExec",
     "execIRStmts_compiled_terminal_ite_else_of_irExec",
     "stmtResultMatchesIRExec_compiled_terminal_ite_then",
     "stmtResultMatchesIRExec_compiled_terminal_ite_else",
-    "execIRStmts_compiled_return_core_append_wholeFuel_of_scope",
-    "execIRStmts_compiled_let_core_append_wholeFuel_of_scope",
-    "execIRStmts_compiled_let_core_tailExtraFuel_of_scope",
-    "execIRStmts_compiled_assign_core_append_wholeFuel_of_scope",
-    "execIRStmts_compiled_assign_core_tailExtraFuel_of_scope",
-    "execIRStmts_compiled_require_core_pass_append_wholeFuel_of_scope",
-    "execIRStmts_compiled_require_core_pass_tailExtraFuel_of_scope",
-    "execIRStmts_compiled_require_core_fail_append_wholeFuel_of_scope",
-    "stmtResultMatchesIRExec_compiled_let_core_tailExtraFuel_of_scope",
-    "stmtResultMatchesIRExec_compiled_assign_core_tailExtraFuel_of_scope",
-    "stmtResultMatchesIRExec_compiled_require_core_pass_tailExtraFuel_of_scope",
-    "stmtResultMatchesIRExec_compiled_return_core_append_wholeFuel_of_scope",
-    "exec_compileStmtList_core",
     "exec_compileStmtList_core_extraFuel",
     "exec_compileStmtList_terminal_core_sizeOf_extraFuel",
     "exec_compileStmtList_generic_sizeOf_extraFuel_step",
@@ -348,9 +337,6 @@ ALLOWLIST: set[str] = {
     "stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsupportedContractSurface",
     "stmtListScopeCore_of_unsupportedContractSurface_eq_false",
     "exprBoundNamesInScope_of_validateScopedExprIdentifiers_core",
-    "stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers",
-    "scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers",
-    "stmtListScopeDiscipline_scope_names",
     # --- Surface predicate bridge proofs ---
     "exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false",
     "exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed",
@@ -505,7 +491,16 @@ ALLOWLIST: set[str] = {
     "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step",
     "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel",
     "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
-    "stmtListGenericWithHelpersAndHelperIR_of_withHelpers_and_compiledLegacyCompatible",
+    # Split-header body theorems (name on the line after `theorem`): these were
+    # invisible to the scanner until it learned to read split headers, so their
+    # spans were silently attributed to the preceding declaration. They thread
+    # compile-shape, param-prefix, and helper-IR fuel facts through the generic
+    # list theorem and are queued for a follow-up decomposition track.
+    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw",
+    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_with_internals_raw",
+    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw_with_scalar_events",
+    "generic_with_helpers_and_helper_ir_of_split_internal_helper_surface_callsDisjoint",
+    "supported_function_body_correct_from_exact_state_generic_with_direct_internal_helper_assign_steps_and_helper_ir_callsDisjoint",
     # --- IR interpreter dispatch (mload pre-dispatch adds extra branches) ---
     "evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint",
     "evalIRExprWithInternals_eq_evalIRExpr_of_no_internal",
@@ -1137,6 +1132,22 @@ def _is_proof_terminator(line: str) -> bool:
     return bool(_DECL_RE.match(line) or _END_RE.match(line) or _SECTION_RE.match(line))
 
 
+def _theorem_name_at(lines: list[str], i: int) -> str | None:
+    """Return the theorem name declared at line *i*, if any.
+
+    Handles both `theorem name ...` and split headers where the name sits on
+    the next line.
+    """
+    m = THEOREM_RE.match(lines[i])
+    if m:
+        return m.group("name")
+    if _SPLIT_THEOREM_RE.match(lines[i]) and i + 1 < len(lines):
+        m = _SPLIT_NAME_RE.match(lines[i + 1])
+        if m:
+            return m.group("name")
+    return None
+
+
 def measure_proofs(lean_file: Path) -> list[tuple[str, int, int]]:
     """Return (name, start_line_1indexed, length) for every theorem/lemma."""
     text = lean_file.read_text(encoding="utf-8")
@@ -1148,12 +1159,12 @@ def measure_proofs(lean_file: Path) -> list[tuple[str, int, int]]:
     current_start: int | None = None
 
     for i, line in enumerate(lines):
-        m = THEOREM_RE.match(line)
-        if m:
+        name = _theorem_name_at(lines, i)
+        if name is not None:
             # Close previous proof span.
             if current_name is not None and current_start is not None:
                 results.append((current_name, current_start + 1, i - current_start))
-            current_name = m.group("name")
+            current_name = name
             current_start = i
         elif current_name is not None and _is_proof_terminator(line):
             results.append((current_name, current_start + 1, i - current_start))  # type: ignore[arg-type]
