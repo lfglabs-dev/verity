@@ -92,10 +92,19 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
       return addressReads ++ valueReads ++ [.transient (wordNormalize slot)]
   | .ecm mod args => do
       match mod.byteTransport with
-      | some (.create2 _) | some (.log _ _) =>
-          -- CREATE2 and LOG touch no persistent slot of any account here: the
-          -- created account's storage is empty and only its code is committed.
+      | some (.create2 _) | some (.log _ _) | some (.extCodeSize _) =>
+          -- CREATE2, LOG and EXTCODESIZE touch no persistent slot of any account
+          -- here: the created account's storage is empty and only its code is
+          -- committed; code length reads only the account's code.
           return (← args.mapM (expressionAccesses oracle fields state)).flatten
+      | some (.optionalBoolCall resultVar selector numWordArgs) =>
+          let preparation ← prepareByteWordCall .call oracle fields state resultVar selector
+            numWordArgs args (bumpBeforeCall := false)
+          let reads ← preparation.reads.mapM fun (input, expr) =>
+            expressionAccesses oracle fields input expr
+          let (_, touched) ← executeByteOptionalBoolCall oracle fields state mod resultVar selector
+            numWordArgs args
+          return reads.flatten ++ touched
       | _ => pure ()
       let some (.staticUint256 resultVar selector numStaticArgs) := mod.byteTransport
         | throw "unsupported legacy ECM storage observation"

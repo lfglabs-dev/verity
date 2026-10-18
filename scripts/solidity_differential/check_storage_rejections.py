@@ -685,7 +685,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] abi.decode is outside this slice'),
         ('address-code-read-rejected',
-         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external view returns (uint256) {\n    return address(uint160(x)).code.length;\n  }\n}\n",
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external view returns (uint256) {\n    return uint8(address(uint160(x)).code[0]);\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] external contract code reads are outside this slice'),

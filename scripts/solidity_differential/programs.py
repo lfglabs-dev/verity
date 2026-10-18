@@ -359,6 +359,48 @@ def stateful_create2_struct_emit_source(original, variant):
     raise ValueError('unknown CREATE2/struct-event program variant')
 
 
+def stateful_external_code_and_low_level_call_source(original, variant):
+    """Equivalent code-length and optional-bool low-level call programs over one sequence.
+
+    Observable names stay fixed: root functions, the event, the custom errors
+    (their selectors are revert payloads) and the called interface functions.
+    """
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('SafeCallLib', 'TokenCalls'), ('safeTransferFrom', 'pullFrom'),
+                         ('safeTransfer', 'push'), ('success', 'ok'), ('returndata', 'result'),
+                         ('token', 'asset'), ('amount', 'units'), ('reserve', 'pool'),
+                         ('payments', 'count'), ('credit', 'owed'), ('account', 'holder')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ("require(token.code.length > 0, NoCode());",
+             "if (token.code.length == 0) revert NoCode();", 2),
+            ("revert(add(returndata, 0x20), mload(returndata))",
+             "revert(add(0x20, returndata), mload(returndata))", 3),
+            ("return account.code.length > 0;",
+             """uint256 size = account.code.length;
+        return size != 0;""", 1),
+            ("credit[msg.sender] += amount;",
+             "credit[msg.sender] = credit[msg.sender] + amount;", 1),
+            ("payments += 1;\n        (bool success, bytes memory returndata) = token.call(abi.encodeCall(IToken.transfer, (to, amount)));\n        if (!success) {",
+             """payments = payments + 1;
+        address recipient = to;
+        (bool success, bytes memory returndata) = token.call(abi.encodeCall(IToken.transfer, (recipient, amount)));
+        if (!(success)) {""", 1),
+        ]
+        expanded = original
+        for old, new, count in replacements:
+            if expanded.count(old) != count:
+                raise ValueError('nonunique code-length/low-level call variant anchor')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown code-length/low-level call program variant')
+
+
 def stateful_storage_source(original, variant):
     """Equivalent packed scalar writes/deletes, imported independently per variant."""
     if variant == 'baseline':

@@ -121,8 +121,9 @@ def staticUint256Covered (mod : Compiler.ECM.ExternalCallModule) (args : List Ex
   | _ => false
 
 /-- The closed byte transports admitted by the importer: the typed-interface
-`staticcall`, `create2` over physical memory, and ABI event logs. Each has a
-dedicated Denote arm whose metadata must equal its canonical module. -/
+`staticcall`, `create2` over physical memory, ABI event logs, the optional-bool
+low-level `call` and `<address>.code.length`. Each has a dedicated Denote arm
+whose metadata must equal its canonical module. -/
 def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
   match mod.byteTransport with
   | some (.staticUint256 ..) => staticUint256Covered mod args
@@ -132,6 +133,12 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
   | some (.log eventName topicCount) =>
       mod == Compiler.ECM.SolidityLog.module eventName topicCount &&
         decide (topicCount ≤ 4) && args.length == topicCount + 2 && exprListCovered args
+  | some (.optionalBoolCall resultVar selector numWordArgs) =>
+      mod == Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs &&
+        decide (selector < 2 ^ 32) && args.length == numWordArgs + 1 && exprListCovered args
+  | some (.extCodeSize resultVar) =>
+      mod == Compiler.ECM.SolidityExtCodeSize.module resultVar && args.length == 1 &&
+        exprListCovered args
   | none => false
 
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
@@ -324,6 +331,29 @@ theorem execStmt_ecm_log_arm (oracle : DenoteOracle) (fields : List Field)
         (.ecm (Compiler.ECM.SolidityLog.module eventName topicCount) args) =
       (match executeByteLog oracle fields state
           (Compiler.ECM.SolidityLog.module eventName topicCount) eventName topicCount args with
+       | .ok outcome => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed optional-bool low-level `call` arm is exactly the byte transport;
+an instrumentation error is a payload-free `.revert`. -/
+theorem execStmt_ecm_optionalBoolCall_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector numWordArgs : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs)
+          args) =
+      (match executeByteOptionalBoolCall oracle fields state
+          (Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs)
+          resultVar selector numWordArgs args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed code-length arm reads the account world; an instrumentation error
+is a payload-free `.revert`. -/
+theorem execStmt_ecm_extCodeSize_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (args : List Expr) :
+    execStmt oracle fields state (.ecm (Compiler.ECM.SolidityExtCodeSize.module resultVar) args) =
+      (match executeByteExtCodeSize oracle fields state
+          (Compiler.ECM.SolidityExtCodeSize.module resultVar) resultVar args with
        | .ok outcome => outcome
        | .error _ => .revert) := rfl
 

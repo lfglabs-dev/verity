@@ -83,6 +83,14 @@ private def observeDeployment (account : Nat) (world : Verity.ContractState)
     ("accounts", toJson (planned.map fun address => Json.mkObj (quantities address ++
       [("code", toJson (hexBytes ((state address).code.map fun byte => UInt8.ofNat byte.val)))])))])
 
+/-- Bytes of a `0x`-prefixed, even-length hex string. -/
+private def hexCode? (text : String) : Option (List (Fin 256)) := do
+  unless text.startsWith "0x" do none
+  let digits ← (text.toList.drop 2).mapM Compiler.Hex.hexCharToNat?
+  unless digits.length % 2 == 0 do none
+  return (List.range (digits.length / 2)).map fun index =>
+    ⟨(digits[2 * index]! * 16 + digits[2 * index + 1]!) % 256, Nat.mod_lt _ (by decide)⟩
+
 private def pair (j : Json) : Except String (Nat × Nat) := do
   match (← j.getArr?).toList with
   | [a, b] => return (← word a, ← word b)
@@ -118,6 +126,18 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
   let mut world := storage.foldl
     (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
     { foreignWorld with thisAddress := Address.ofNat account }
+  -- Runtime code of foreign accounts, as deployed on the EVM routes; observed by
+  -- code-length reads. The caller's own code differs between routes and is absent.
+  if let .ok rows := input.getObjVal? "accountCode" then
+    for row in ← rows.getArr? do
+      let [owner, code] := (← row.getArr?).toList | throw "expected account/code pair"
+      let owner ← word owner
+      unless owner < 2^160 && owner != account do throw "invalid foreign code account"
+      let text ← code.getStr?
+      let some code := hexCode? text | throw "foreign account code must be 0x-prefixed hex"
+      let address := Address.ofNat owner
+      unless (world.accountWorld address).code.isEmpty do throw "duplicate foreign code account"
+      world := world.writeAccount address { world.accountWorld address with code }
   -- A deployed EVM contract starts at nonce 1 (EIP-161); the caller states it.
   if let .ok nonce := input.getObjVal? "accountNonce" then
     let nonce ← word nonce

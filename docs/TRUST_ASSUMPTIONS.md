@@ -1837,6 +1837,61 @@ Trust boundary changes:
   discovered from EVM CREATE2 traces), not a proof. `DenoteAgreement` excludes
   every closed byte transport, so no source-semantics agreement is claimed.
 
+### Imported `<address>.code.length` and optional-bool low-level calls
+
+`solidity_import` now admits `<addr>.code.length` on `address`-typed accounts
+other than `address(this)`, and the Solady/OpenZeppelin `SafeTransferLib`
+sequence of a value-free `(bool success, bytes memory returndata) =
+target.call(abi.encodeCall(f, (args...)))`, the returndata-forwarding
+`if (!success) { assembly { revert(add(returndata, 0x20), mload(returndata)) } }`
+and `require(returndata.length == 0 || abi.decode(returndata, (bool)), reason)`,
+where `f`'s parameters are `address`, `bool`, `bytes32` or `uint256`. Call
+options, unbound or unvalidated returndata, other validations or reads of the
+results, other calldata encodings, other placements, `staticcall`/`delegatecall`
+and other `.code` reads fail closed with a located diagnostic. The constructs
+lower to two new closed byte transports, `SolidityExtCodeSize.module` and
+`SolidityLowLevelCall.optionalBoolModule`, whose Denote arms are pinned by
+`execStmt_ecm_extCodeSize_arm` and `execStmt_ecm_optionalBoolCall_arm` and
+admitted by `closedTransportCovered`.
+
+Trust boundary changes:
+- Code length reads the runtime code recorded in `ContractState.accountWorld`
+  (`DenoteExternalCode.extCodeSize`), not the legacy `ContractState.codeSize`
+  view read by `Expr.extcodesize`; the two views agree only where accounts are
+  written through `writeAccount`. Differential campaigns install the deployed
+  runtime code of every foreign account they call (`accountCode` input); the
+  executing contract's own code is not modeled and its code length rejects.
+- The callee is the explicit byte adversary of `ByteExternalCall`: a successful
+  `CALL` may commit any world, including writes to the caller's own storage, so
+  re-entrant effects are part of the Denote semantics rather than excluded.
+  `DenoteLowLevelCall` proves that the request is
+  `DenoteByteExternalCalls.callBytesRequest` from the prepared frame and that the
+  transport's result is `1` exactly when `decodeOptionalBoolCall` accepts; a
+  decoded `false` fails the source's own `reason`, every other rejection is a
+  revert of the transport (forwarded child bytes, or empty for malformed
+  returndata). Missing instrumentation or requests outside the configured
+  adversary's domain are payload-free instrumentation `.revert`s.
+- Gas is not tracked: the transport forwards `gas()` in compiled code and the
+  instrument's `ByteCallEnvironment.gas` in Denote. Outcomes that depend on the
+  gas consumed before the call (out-of-gas in the callee or caller, the 63/64
+  rule) are outside the validated domain.
+- Calldata is written at the free pointer, which is advanced only after the
+  call. Denote frames start with zeroed memory while compiled code initialises
+  the free pointer, so the transport's scratch addresses differ between routes;
+  the request bytes do not, and no admitted construct reads the scratch area.
+- A low-level `CALL` opens a cross-function reentrancy window. Imported
+  functions whose only windows are these calls, followed by no storage read or
+  write and no log, carry `reentrancyTrusted` with the unchecked obligation
+  `solidity_trailing_low_level_call_reentrancy`; this trailing position is
+  checked by the importer, not proved, and such functions do not qualify for
+  `CEIProofBackedExecution`. Code-length reads are erased for the CEI check
+  (`solidity_closed_transport_cei`) because they hand control to no account.
+- Both transports keep compilation `proofStatus := .assumed`; agreement of the
+  compiled model with solc and Denote is differential evidence
+  (`ExternalCodeAndLowLevelCallSequence`, three equivalent variants against
+  recording call responders, an account without code and an EOA), not a proof.
+  `DenoteAgreement` excludes every closed byte transport.
+
 ### ABI memory proof integration
 
 The ABI reserve, clearing and byte-insertion proofs use the canonical physical

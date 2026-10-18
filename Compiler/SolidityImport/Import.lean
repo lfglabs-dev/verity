@@ -3693,6 +3693,19 @@ private def abiDecodeScalarGuard? (ty : String) (enumBound? : Option Nat) (word 
   else
     none
 
+/-- The closed optional-bool low-level call transport emitted by the importer. -/
+private def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some (.optionalBoolCall resultVar selector numWordArgs) =>
+      mod == Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs
+  | _ => false
+
+/-- The closed `<address>.code.length` transport emitted by the importer. -/
+private def isClosedExtCodeSize (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some (.extCodeSize resultVar) => mod == Compiler.ECM.SolidityExtCodeSize.module resultVar
+  | _ => false
+
 /-- The closed typed-interface `staticcall` transport emitted by the importer. -/
 private def isClosedStaticCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   match mod.byteTransport with
@@ -3726,11 +3739,12 @@ private def isClosedLog (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   | some (.log eventName topicCount) => mod == Compiler.ECM.SolidityLog.module eventName topicCount
   | _ => false
 
-/-- Replace every closed transport by a call-free statement: a staticcall or
-`create2` by its zero-initialised result binding, a log by an empty branch. -/
+/-- Replace every closed transport except the low-level `CALL` by a call-free
+statement: a staticcall, `create2` or code length by its zero-initialised result
+binding, a log by an empty branch. -/
 private partial def eraseClosedTransports : Stmt → Stmt
   | .ecm mod args =>
-      if isClosedStaticCall mod || isClosedCreate2 mod then
+      if isClosedStaticCall mod || isClosedCreate2 mod || isClosedExtCodeSize mod then
         .letVar (mod.resultVars.headD "") (.literal 0)
       else if isClosedLog mod then .ite (.literal 0) [] []
       else .ecm mod args
@@ -3744,9 +3758,10 @@ private partial def eraseClosedTransports : Stmt → Stmt
         (tag, names, body.map eraseClosedTransports))
   | statement => statement
 
-/-- A body whose only CEI barriers are closed transports. A log hands control to
-no account; Denote admits `create2` only for checked initcode templates, which
-copy and return their payload without executing any call. -/
+/-- A body whose only CEI barriers are closed transports. A log or code-length
+read hands control to no account; Denote admits `create2` only for checked
+initcode templates, which copy and return their payload without executing any
+call. Low-level `CALL`s are never erased. -/
 private def onlyClosedTransportCEIBarriers (body : List Stmt) : Bool :=
   (Compiler.CompilationModel.stmtListCEIViolation body false).isSome &&
     (Compiler.CompilationModel.stmtListCEIViolation (body.map eraseClosedTransports) false).isNone
@@ -3798,6 +3813,235 @@ private def isInterfaceExternalCall (j : Json) : M Bool := do
   match env.funContractId.find? id.toNat with
   | some cid => return env.contractKinds.find? cid == some "interface"
   | none => return false
+
+/-- Located diagnostic for a low-level `.call` outside the admitted statement sequence. -/
+private def lowLevelCallPlacement : String :=
+  "low-level call must be a (bool success, bytes memory returndata) declaration followed by " ++
+    "returndata forwarding and optional-bool validation"
+
+/-- Strip redundant parentheses (single-component, non-inline tuples). -/
+private partial def unparenJson (j : Json) : Json :=
+  if optStr j "nodeType" == some "TupleExpression" &&
+      (field? j "isInlineArray").bind (·.getBool?.toOption) == some false then
+    match field? j "components" with
+    | some (.arr #[only]) => if only.isNull then j else unparenJson only
+    | _ => j
+  else j
+
+/-- The `call` member of `target.call(...)` or `target.call{...}(...)` on an
+address-typed receiver. -/
+private def lowLevelCallMember? (call : Json) : M (Option Json) := do
+  unless optStr call "nodeType" == some "FunctionCall" && optStr call "kind" == some "functionCall" do
+    return none
+  let some callee := field? call "expression" | return none
+  let member := if optStr callee "nodeType" == some "FunctionCallOptions" then
+      (field? callee "expression").getD Json.null else callee
+  unless optStr member "nodeType" == some "MemberAccess" && optStr member "memberName" == some "call" &&
+      (field? member "referencedDeclaration").isNone do
+    return none
+  let some base := field? member "expression" | return none
+  let ty ← mType base
+  return if ty == "address" || ty == "address payable" then some member else none
+
+/-- `<account>.code` on an `address`-typed account. Total on every node. -/
+private def isAddressCodeAccess (node : Json) : M Bool := do
+  unless optStr node "nodeType" == some "MemberAccess" && optStr node "memberName" == some "code" &&
+      (field? node "referencedDeclaration").isNone do
+    return false
+  let some account := field? node "expression" | return false
+  return ["address", "address payable"].contains (← mType account)
+
+/-- Any Solidity (`referencedDeclaration`) or Yul (`declaration`) reference to `declId`. -/
+private partial def jsonMentionsDecl (j : Json) (declId : Nat) : Bool :=
+  match j with
+  | .obj kvs => kvs.toList.any fun (key, value) =>
+      ((key == "referencedDeclaration" || key == "declaration") &&
+        value.getInt?.toOption == some (Int.ofNat declId)) || jsonMentionsDecl value declId
+  | .arr items => items.any (jsonMentionsDecl · declId)
+  | _ => false
+
+/-- Arguments of the Yul builtin call `fname(...)`. -/
+private def yulBuiltinArgs? (node : Json) (fname : String) : Option (Array Json) :=
+  if optStr node "nodeType" == some "YulFunctionCall" &&
+      (field? node "functionName").bind (optStr · "name") == some fname then
+    match field? node "arguments" with
+    | some (.arr args) => some args
+    | _ => none
+  else none
+
+/-- `if (!success) { assembly { revert(add(returndata, 0x20), mload(returndata)) } }`:
+the complete returndata of a failed call is the revert payload. -/
+private def isReturndataForwarding (s : Json) (successId dataId : Nat) (dataName : String) :
+    M Bool := do
+  unless optStr s "nodeType" == some "IfStatement" do return false
+  if (field? s "falseBody").any (!·.isNull) then return false
+  let some condition := field? s "condition" | return false
+  let condition := unparenJson condition
+  unless optStr condition "nodeType" == some "UnaryOperation" && optStr condition "operator" == some "!" do
+    return false
+  let some operand := field? condition "subExpression" | return false
+  let operand := unparenJson operand
+  unless optStr operand "nodeType" == some "Identifier" &&
+      (field? operand "referencedDeclaration").bind (·.getNat?.toOption) == some successId do
+    return false
+  let some body := field? s "trueBody" | return false
+  let assembly := if optStr body "nodeType" == some "Block" then
+      match field? body "statements" with
+      | some (.arr #[only]) => only
+      | _ => Json.null
+    else body
+  unless optStr assembly "nodeType" == some "InlineAssembly" do return false
+  let some (.arr references) := field? assembly "externalReferences" | return false
+  unless references.all (fun r => (field? r "declaration").bind (·.getNat?.toOption) == some dataId) do
+    return false
+  let some (.arr #[statement]) := (field? assembly "AST").bind (field? · "statements") | return false
+  unless optStr statement "nodeType" == some "YulExpressionStatement" do return false
+  let some #[offset, size] := (field? statement "expression").bind (yulBuiltinArgs? · "revert")
+    | return false
+  let some #[left, right] := yulBuiltinArgs? offset "add" | return false
+  let isData := fun (node : Json) =>
+    optStr node "nodeType" == some "YulIdentifier" && optStr node "name" == some dataName
+  let offsetOk ←
+    if isData left then pure ((← yulNumber? right) == some 32)
+    else if isData right then pure ((← yulNumber? left) == some 32)
+    else pure false
+  let some #[length] := yulBuiltinArgs? size "mload" | return false
+  return offsetOk && isData length
+
+/-- `require(returndata.length == 0 || abi.decode(returndata, (bool)), reason)`:
+the optional-bool validation of the returndata of a successful call. -/
+private def isOptionalBoolValidation (s : Json) (dataId : Nat) : M Bool := do
+  let isData := fun (node : Json) =>
+    let node := unparenJson node
+    optStr node "nodeType" == some "Identifier" &&
+      (field? node "referencedDeclaration").bind (·.getNat?.toOption) == some dataId
+  unless optStr s "nodeType" == some "ExpressionStatement" do return false
+  let some call := field? s "expression" | return false
+  unless optStr call "nodeType" == some "FunctionCall" && optStr call "kind" == some "functionCall" do
+    return false
+  let some callee := field? call "expression" | return false
+  unless optStr callee "nodeType" == some "Identifier" && optStr callee "name" == some "require" do
+    return false
+  let some (.arr #[condition, _]) := field? call "arguments" | return false
+  let condition := unparenJson condition
+  unless optStr condition "nodeType" == some "BinaryOperation" &&
+      optStr condition "operator" == some "||" do
+    return false
+  let some left := (field? condition "leftExpression").map unparenJson | return false
+  let some right := (field? condition "rightExpression").map unparenJson | return false
+  unless optStr left "nodeType" == some "BinaryOperation" && optStr left "operator" == some "==" do
+    return false
+  let some length := (field? left "leftExpression").map unparenJson | return false
+  let some zero := (field? left "rightExpression").map unparenJson | return false
+  unless optStr length "nodeType" == some "MemberAccess" && optStr length "memberName" == some "length" &&
+      (field? length "expression").any isData do
+    return false
+  unless optStr zero "nodeType" == some "Literal" && optStr zero "kind" == some "number" &&
+      optStr zero "value" == some "0" do
+    return false
+  unless optStr right "nodeType" == some "FunctionCall" && optStr right "kind" == some "functionCall" do
+    return false
+  let some decode := field? right "expression" | return false
+  unless optStr decode "nodeType" == some "MemberAccess" && optStr decode "memberName" == some "decode" do
+    return false
+  let some abi := field? decode "expression" | return false
+  unless optStr abi "nodeType" == some "Identifier" && optStr abi "name" == some "abi" &&
+      (field? abi "referencedDeclaration").bind (·.getInt?.toOption) == some (-1) do
+    return false
+  let some (.arr #[data, types]) := field? right "arguments" | return false
+  unless isData data do return false
+  let typeNode := match field? types "components" with
+    | some (.arr #[only]) => only
+    | _ => types
+  return optStr typeNode "nodeType" == some "ElementaryTypeNameExpression" &&
+    (field? typeNode "typeName").bind (optStr · "name") == some "bool"
+
+/-- `abi.encodeCall(f, (args...))` of an external function whose parameters are
+all full-word static types: its selector, parameters and argument expressions. -/
+private def lowLevelEncodeCallParts (init : Json) : M (Nat × Array Json × Array Json) := do
+  let unsupported := "low-level call data must be abi.encodeCall of an external function " ++
+    "with address, bool, bytes32 or uint256 parameters"
+  let args ← mArr (← mField init "arguments")
+  let some encoded := args[0]? | failAt init "low-level call takes one calldata argument"
+  unless args.size == 1 do failAt init "low-level call takes one calldata argument"
+  unless optStr encoded "nodeType" == some "FunctionCall" && optStr encoded "kind" == some "functionCall" do
+    failAt encoded unsupported
+  let some encoder := field? encoded "expression" | failAt encoded unsupported
+  unless optStr encoder "nodeType" == some "MemberAccess" && optStr encoder "memberName" == some "encodeCall" &&
+      (field? encoder "expression").bind (optStr · "name") == some "abi" do
+    failAt encoded unsupported
+  unless (← refInt (← mField encoder "expression")) == -1 do failAt encoded unsupported
+  let encodedArgs ← mArr (← mField encoded "arguments")
+  unless encodedArgs.size == 2 do failAt encoded unsupported
+  let function := encodedArgs[0]!
+  let id ← refInt function
+  unless id ≥ 0 do failAt function unsupported
+  let some declaration := (← get).funs.find? id.toNat
+    | failAt function "unresolved low-level call function declaration"
+  let some hex := optStr declaration "functionSelector"
+    | failAt function "low-level call function has no functionSelector"
+  unless hex.length == 8 do failAt function s!"invalid functionSelector hex length {hex.length}"
+  let mut selector := 0
+  for c in hex.toList do
+    let some digit := Compiler.Hex.hexCharToNat? c
+      | failAt function "invalid functionSelector hex digit"
+    selector := selector * 16 + digit
+  let params ← mArr (← mField (← mField declaration "parameters") "parameters")
+  for param in params do
+    let ty ← mType param
+    unless ["address", "bool", "bytes32", "uint256"].contains ty do
+      failAt param s!"unsupported low-level call parameter type {ty}"
+  let tuple := encodedArgs[1]!
+  let isTuple := optStr tuple "nodeType" == some "TupleExpression" &&
+    (field? tuple "isInlineArray").bind (·.getBool?.toOption) == some false
+  let components ← if isTuple then mArr (← mField tuple "components") else pure #[tuple]
+  unless components.size == params.size && components.all (!·.isNull) do
+    failAt tuple "low-level call arguments differ from the encoded function parameters"
+  return (selector, params, components)
+
+/-- Expressions that read no persistent or transient storage and make no call. -/
+private def exprStorageFree (expression : Expr) : Bool :=
+  !expression.anyDeep fun
+    | .storage _ | .storageAddr _ | .mapping _ _ | .mappingWord _ _ _ | .mappingPackedWord _ _ _ _
+    | .mapping2 _ _ _ | .mapping2Word _ _ _ _ | .mappingUint _ _ | .mappingChain _ _
+    | .structMember _ _ _ | .structMember2 _ _ _ _ | .storageArrayLength _
+    | .storageArrayElement _ _ | .tload _ | .call .. | .staticcall .. | .delegatecall ..
+    | .internalCall _ _ | .externalCall _ _ | .adtTag _ _ | .adtField .. => true
+    | _ => false
+
+/-- Statements allowed after a closed low-level call in a trailing-call body:
+local bindings, checks, returns and further closed low-level calls, none of
+which reads or writes storage or logs. -/
+private partial def stmtAfterTrailingCall : Stmt → Bool
+  | .letVar _ value | .assignVar _ value | .require value _ => exprStorageFree value
+  | .requireError condition _ args => exprStorageFree condition && args.all exprStorageFree
+  | .ite condition yes no =>
+      exprStorageFree condition && yes.all stmtAfterTrailingCall && no.all stmtAfterTrailingCall
+  | .ecm mod args => (isClosedLowLevelCall mod || isClosedExtCodeSize mod) && args.all exprStorageFree
+  | .return value => exprStorageFree value
+  | .returnValues values => values.all exprStorageFree
+  | .revertEmpty | .stop => true
+  | _ => false
+
+/-- A statement list whose only reentrancy windows are closed low-level calls
+after which only `stmtAfterTrailingCall` statements execute. -/
+private partial def onlyTrailingLowLevelCallWindows : List Stmt → Bool
+  | [] => true
+  | statement :: rest =>
+      if !Compiler.CompilationModel.stmtOpensReentrancyWindow statement then
+        onlyTrailingLowLevelCallWindows rest
+      else match statement with
+        | .ecm mod _ => isClosedLowLevelCall mod && rest.all stmtAfterTrailingCall
+        | .ite _ yes no =>
+            onlyTrailingLowLevelCallWindows yes && onlyTrailingLowLevelCallWindows no &&
+              rest.all stmtAfterTrailingCall
+        | _ => false
+
+/-- A body that opens a reentrancy window only through trailing closed
+low-level calls. -/
+private def onlyTrailingCallReentrancyWindows (body : List Stmt) : Bool :=
+  body.any Compiler.CompilationModel.stmtOpensReentrancyWindow &&
+    onlyTrailingLowLevelCallWindows body
 
 set_option maxHeartbeats 1600000 in
 mutual
@@ -4448,6 +4692,8 @@ private partial def lowerRef (j : Json) : M Ref := do
         let some idx := members.findIdx? (· == member)
           | failAt j s!"unknown enum member {member}"
         pure (.expr { pre := #[], expr := .literal idx })
+      else if member == "length" && (← isAddressCodeAccess base) then
+        pure (.expr (← lowerExtCodeSize base))
       else if member == "length" && (← isByteBufferIdent base).isSome then
         let some buf ← isByteBufferIdent base
           | failAt base "internal error: missing byte buffer"
@@ -6734,6 +6980,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
       if info.keyCount == 0 then
         return ← lowerStorageBytesRead #[] name (.literal info.slot) j
     failAt j "mutable byte buffers are unsupported"
+  if (← mKind j) == "MemberAccess" && optStr j "memberName" == some "code" &&
+      (field? j "referencedDeclaration").isNone then
+    failAt j "external contract code reads are outside this slice"
   unless (← mKind j) == "FunctionCall" do
     failAt j "hash input must be a supported ABI encoding"
   if optStr j "kind" == some "typeConversion" then
@@ -7364,6 +7613,8 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
             failAt callee s!"{tname}.concat is only supported as a byte buffer"
         if (field? callee "referencedDeclaration").isNone then
           let member := optStr callee "memberName" |>.getD ""
+          if (baseTy == "address" || baseTy == "address payable") && member == "call" then
+            failAt callee lowLevelCallPlacement
           if (baseTy == "address" || baseTy == "address payable" || baseTy.startsWith "contract ") &&
               ["call", "staticcall", "delegatecall", "transfer", "send"].contains member then
             failAt callee "external contract calls are outside this slice"
@@ -7478,6 +7729,80 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   pure { pre := target.pre.push
            (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result selector 0) [target.expr]),
          expr := .localVar result }
+
+/-- `<address>.code.length` of an address-typed account other than the executing
+contract: `EXTCODESIZE` through the closed code-length transport, which Denote
+answers from the account world (`DenoteExternalCode.extCodeSize`). The executing
+contract's own code differs between the source and compiled routes and is not
+modeled, so `address(this).code.length` is rejected. -/
+private partial def lowerExtCodeSize (code : Json) : M Val := do
+  let account ← mField code "expression"
+  if ← isThisAddressConv account then
+    failAt code "code length of the executing contract is unsupported"
+  let target ← atom (← lowerExpr account)
+  let result ← fresh
+  let read := Stmt.ecm (Compiler.ECM.SolidityExtCodeSize.module result) [target.expr]
+  pure { pre := target.pre.push read, expr := .localVar result }
+
+/-- The Solady/OpenZeppelin `SafeTransferLib` sequence over a value-free low-level call:
+
+    (bool success, bytes memory returndata) = target.call(abi.encodeCall(f, (args...)));
+    if (!success) { assembly { revert(add(returndata, 0x20), mload(returndata)) } }
+    require(returndata.length == 0 || abi.decode(returndata, (bool)), reason);
+
+`s` is the declaration and `following` the rest of its statement list. The first
+two lower to the closed optional-bool transport, which forwards a failed call's
+returndata, reverts empty on malformed returndata and binds the decoded `bool`
+(`1` for empty returndata); the `require` becomes the same `reason` check of that
+result. Neither local may be read anywhere else. `none` when `s` is not a
+low-level call declaration. -/
+private partial def lowerLowLevelCallSequence? (s : Json) (following : List Json) :
+    M (Option (Array Stmt)) := do
+  let some init := (field? s "initialValue").filter (!·.isNull) | return none
+  let some member ← lowLevelCallMember? init | return none
+  let callee ← mField init "expression"
+  if (← mKind callee) == "FunctionCallOptions" then
+    failAt callee "external contract calls are outside this slice"
+  let declarations ← mArr (← mField s "declarations")
+  unless declarations.size == 2 && declarations.all (!·.isNull) do
+    failAt s "low-level call must bind both success and returndata, and validate the returndata"
+  let success := declarations[0]!
+  let data := declarations[1]!
+  unless (← mType success) == "bool" && (← mType data) == "bytes" &&
+      optStr data "storageLocation" == some "memory" do
+    failAt s "low-level call must bind (bool success, bytes memory returndata)"
+  let successId ← mNat (← mField success "id")
+  let dataId ← mNat (← mField data "id")
+  let dataName ← mStr (← mField data "name")
+  let (selector, params, components) ← lowLevelEncodeCallParts init
+  let forward :: validation :: rest := following
+    | failAt s "low-level call must be followed by returndata forwarding and optional-bool validation"
+  unless ← isReturndataForwarding forward successId dataId dataName do
+    failAt forward ("a failed low-level call must forward its returndata: " ++
+      "if (!success) { assembly { revert(add(returndata, 0x20), mload(returndata)) } }")
+  unless ← isOptionalBoolValidation validation dataId do
+    failAt validation ("low-level call returndata must be validated by " ++
+      "require(returndata.length == 0 || abi.decode(returndata, (bool)), ...)")
+  for later in rest do
+    if jsonMentionsDecl later successId || jsonMentionsDecl later dataId then
+      failAt later "low-level call results are read only by the returndata forwarding and validation"
+  let base ← mField member "expression"
+  for operand in #[base] ++ components do
+    if statefulCallIn operand (← get) || assignmentIn operand then
+      failAt operand "low-level call operands require explicit evaluation-order support"
+  -- solc evaluates the receiver, then the encoded arguments in source order.
+  let target ← atom (← lowerExpr base)
+  let mut pre := target.pre
+  let mut words : Array Expr := #[]
+  for (param, component) in params.zip components do
+    let word ← atom (← convert (← mType param) (← mType component) (← lowerExpr component) component)
+    pre := pre ++ word.pre
+    words := words.push word.expr
+  let result ← fresh
+  let call := Stmt.ecm (Compiler.ECM.SolidityLowLevelCall.optionalBoolModule result selector words.size)
+    (target.expr :: words.toList)
+  let check ← lowerRequireWith validation fun _ => pure { pre := #[], expr := .localVar result }
+  return some (pre.push call ++ check)
 
 private partial def lowerCall (j : Json) : M Val := do
   let names ← mArr (← mField j "names")
@@ -10869,6 +11194,9 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
           let tailStmts ← kRest
           pure (inner ++ tailStmts)
     | "VariableDeclarationStatement" =>
+        if let some callStmts ← lowerLowLevelCallSequence? s rest then
+          let tailStmts ← lowerVoidHelperFrom (rest.drop 2) k
+          return callStmts ++ tailStmts
         let localStmts ← lowerLocal s
         let tailStmts ← kRest
         pure (localStmts ++ tailStmts)
@@ -11431,6 +11759,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       let base ← mField callee "expression"
       let baseTy ← mType base
       let member := optStr callee "memberName" |>.getD ""
+      if (baseTy == "address" || baseTy == "address payable") && member == "call" then
+        failAt callee lowLevelCallPlacement
       if (baseTy == "address" || baseTy == "address payable" || baseTy.startsWith "contract ") &&
           ["call", "staticcall", "delegatecall", "transfer", "send"].contains member then
         failAt callee "external contract calls are outside this slice"
@@ -12549,7 +12879,12 @@ private partial def extractStringLiteralOrConstant (message : Json) (forRevert :
     failAt message s!"{label} message bytes are not represented exactly by UTF-8"
   return value
 
-private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
+private partial def lowerRequire (statement : Json) : M (Array Stmt) :=
+  lowerRequireWith statement lowerExpr
+
+/-- A builtin `require` whose condition is lowered by `lowerCondition`. -/
+private partial def lowerRequireWith (statement : Json) (lowerCondition : Json → M Val) :
+    M (Array Stmt) := do
   let call ← mField statement "expression"
   unless (← mKind call) == "FunctionCall" do
     failAt call "only builtin require calls are supported as expression statements"
@@ -12573,11 +12908,11 @@ private partial def lowerRequire (statement : Json) : M (Array Stmt) := do
   unless args.size == 2 do failAt call "require currently needs a literal string message"
   let message := args[1]!
   if signature == "function (bool,error) pure" then
-    let condition ← atom (← lowerExpr args[0]!)
+    let condition ← atom (← lowerCondition args[0]!)
     let (pre, name, values) ← lowerErrorArguments message
     return condition.pre ++ pre |>.push (.requireError condition.expr name values)
   let value ← extractStringLiteralOrConstant message false
-  let condition ← atom (← lowerExpr args[0]!)
+  let condition ← atom (← lowerCondition args[0]!)
   return condition.pre.push (.require condition.expr value)
 
 private partial def lowerBuiltinRevert (statement : Json) : M (Array Stmt) := do
@@ -13888,8 +14223,13 @@ private def bindRoot (fn : Json) : M (Array SrcParam) := do
 private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := false) : M (Array Stmt × Bool) := do
   let mut out : Array Stmt := #[]
   let mut returned := false
+  -- Statements already lowered as part of a low-level call sequence.
+  let mut consumed := 0
   for idx in [:stmts.size] do
     let s := stmts[idx]!
+    if consumed > 0 then
+      consumed := consumed - 1
+      continue
     let stmtIsTail := isTail && idx + 1 == stmts.size
     if returned then failAt s "statement after root return"
     match ← mKind s with
@@ -13912,7 +14252,11 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
         out := out ++ uncheckedNested
         returned := uncheckedReturned
     | "VariableDeclarationStatement" =>
-        out := out ++ (← lowerLocal s)
+        if let some callStmts ← lowerLowLevelCallSequence? s (stmts.toList.drop (idx + 1)) then
+          out := out ++ callStmts
+          consumed := 2
+        else
+          out := out ++ (← lowerLocal s)
     | "ExpressionStatement" =>
         out := out ++ (← lowerEffect s)
         if ← stmtAlwaysReverts [] s then
@@ -15153,7 +15497,8 @@ private def importSlice
         abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
         allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList ||
           onlyClosedTransportCEIBarriers body.toList,
-        reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList,
+        reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList ||
+          onlyTrailingCallReentrancyWindows body.toList,
         localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
           name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
           obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved."
@@ -15165,8 +15510,9 @@ private def importSlice
           (if !onlyStaticCallCEIBarriers body.toList &&
               onlyClosedTransportCEIBarriers body.toList then [{
             name := "solidity_closed_transport_cei"
-            obligation := "State writes follow only closed STATICCALL, CREATE2 and LOG " ++
-              "transports. A LOG hands control to no account, and Denote executes CREATE2 " ++
+            obligation := "State writes follow only closed STATICCALL, CREATE2, LOG and " ++
+              "EXTCODESIZE transports. A LOG or EXTCODESIZE hands control to no account, and " ++
+              "Denote executes CREATE2 " ++
               "only for checked initcode templates that copy and return their payload " ++
               "without a call, so the CEI opt-out admits no reentrant write window. " ++
               "Removing those transports leaves a CEI-clean body; this is checked by the " ++
@@ -15179,6 +15525,14 @@ private def importSlice
               "and returns its payload and calls no account, so no entrypoint can be " ++
               "re-entered. Initcode bytes are checked by Denote at execution, not proved " ++
               "for the compiled model."
+            proofStatus := .unchecked }] else []) ++
+          (if onlyTrailingCallReentrancyWindows body.toList then [{
+            name := "solidity_trailing_low_level_call_reentrancy"
+            obligation := "Every external interaction that can re-enter is a closed value-free " ++
+              "low-level CALL after which the body reads and writes no storage and logs " ++
+              "nothing, so a re-entrant entrypoint observes only the completed state " ++
+              "updates. Denote lets the callee's committed world change any account, " ++
+              "including this one. The trailing position is checked by the importer, not proved."
             proofStatus := .unchecked }] else []) }
     for proj in env.projections do
       let ignored :=

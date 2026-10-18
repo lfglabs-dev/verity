@@ -22,6 +22,8 @@ from pathlib import Path
 
 from solidity_differential.check_interface_static_call_mutations import MUTANTS as INTERFACE_MUTANTS
 from solidity_differential.check_create2_struct_emit_mutations import MUTANTS as CREATE2_STRUCT_EMIT_MUTANTS
+from solidity_differential.check_external_code_and_low_level_call_mutations import (
+    MUTANTS as LOW_LEVEL_CALL_MUTANTS)
 
 ROOT = Path(__file__).resolve().parents[1]
 SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
@@ -762,6 +764,22 @@ def create2_struct_emit_mutant(mutant: str) -> None:
     print(f"pass {mutant}", flush=True)
 
 
+def low_level_call_rejections() -> None:
+    module_campaign_output("check_external_code_and_low_level_call_rejections",
+                           "external-code-low-level-call-rejections", MUTANT_TIMEOUT)
+    print("pass code-length/low-level call located rejections", flush=True)
+
+
+def low_level_call_mutant(mutant: str) -> None:
+    result = module_campaign("check_external_code_and_low_level_call_mutations", mutant,
+                             2 * MUTANT_TIMEOUT, "--only", mutant)
+    if (result["exit"] != 0 or result["selected"] != [mutant]
+            or [r["mutant"] for r in result["results"]] != [mutant]
+            or not all(r["detected"] and r["baselinePassed"] for r in result["results"])):
+        raise SystemExit(f"code-length/low-level call mutant {mutant} was not detected")
+    print(f"pass {mutant}", flush=True)
+
+
 def tasks(update_golden: bool) -> list:
     """Independent work items, most expensive first (each runs in its own snapshot).
 
@@ -783,12 +801,14 @@ def tasks(update_golden: bool) -> list:
              ("create2-opcode", 1, create2_opcode_mutations),
              ("account-storage", 1, account_storage_mutations),
              ("interface-static-call-rejections", 1, interface_static_call_rejections),
-             ("create2-struct-emit-rejections", 1, create2_struct_emit_rejections)]
+             ("create2-struct-emit-rejections", 1, create2_struct_emit_rejections),
+             ("external-code-low-level-call-rejections", 1, low_level_call_rejections)]
     items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
     items += [(m, 1, (lambda m=m: interface_static_call_mutant(m))) for m in INTERFACE_MUTANTS]
     items += [(m, 2, (lambda m=m: create2_struct_emit_mutant(m))) for m in CREATE2_STRUCT_EMIT_MUTANTS]
+    items += [(m, 2, (lambda m=m: low_level_call_mutant(m))) for m in LOW_LEVEL_CALL_MUTANTS]
     return items
 
 

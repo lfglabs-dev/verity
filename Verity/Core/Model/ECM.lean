@@ -123,7 +123,12 @@ inductive ByteTransport where
   | create2 (resultVar : String)
   /-- `log{topicCount}(offset, size, topics...)` of an ABI-encoded event payload. -/
   | log (eventName : String) (topicCount : Nat)
-  deriving BEq, Repr
+  /-- Value-free low-level `CALL` of `selector ++ words` whose returndata is
+  checked by the optional-bool convention (empty, or a valid ABI `bool`). -/
+  | optionalBoolCall (resultVar : String) (selector numWordArgs : Nat)
+  /-- `resultVar := extcodesize(target)`: the runtime code length of an account. -/
+  | extCodeSize (resultVar : String)
+  deriving DecidableEq, Repr
 
 /-- An External Call Module packages a reusable external call pattern.
     Module authors provide the compilation logic; the compiler provides
@@ -334,6 +339,105 @@ def module (eventName : String) (topicCount : Nat) : ExternalCallModule where
 
 end SolidityLog
 
+namespace SolidityLowLevelCall
+
+/-- `(bool success, bytes memory returndata) = target.call(abi.encodeCall(f, (words...)))`
+followed by `if (!success)` forwarding of the complete returndata and the
+optional-bool check `returndata.length == 0 || abi.decode(returndata, (bool))`.
+The calldata is written at the free pointer, which is advanced past it after the
+call (a free pointer word inside the calldata area is then irrelevant). A failed
+child forwards its returndata; empty returndata binds `1`; a non-empty response
+shorter than a word or whose first word is not a valid `bool` reverts with no
+data; otherwise the decoded `bool` is bound. The caller's own error for a decoded
+`false` is a separate `require` on the result. -/
+def compileOptionalBool (resultVar : String) (selector numWordArgs : Nat)
+    (args : List YulExpr) : Except String (List YulStmt) := do
+  unless selector < 2^32 do throw "Solidity low-level call selector exceeds four bytes"
+  unless args.length == numWordArgs + 1 do
+    throw "Solidity low-level call argument count differs"
+  let target ← match args.head? with
+    | some value => pure value
+    | none => throw "Solidity low-level call target is missing"
+  let occupied := resultVar :: args.flatMap SolidityStaticCall.argumentNames
+  let ptrName := SolidityStaticCall.scratchName "__solidity_call_ptr" occupied
+  let successName := SolidityStaticCall.scratchName "__solidity_call_success" (ptrName :: occupied)
+  let sizeName := SolidityStaticCall.scratchName "__solidity_call_size"
+    (successName :: ptrName :: occupied)
+  let wordName := SolidityStaticCall.scratchName "__solidity_call_word"
+    (sizeName :: successName :: ptrName :: occupied)
+  let ptr := YulExpr.ident ptrName
+  let success := YulExpr.ident successName
+  let size := YulExpr.ident sizeName
+  let word := YulExpr.ident wordName
+  let dataSize := 4 + numWordArgs * 32
+  let allocation := ((dataSize + 31) / 32) * 32
+  let stores := (args.drop 1).zipIdx.map fun (value, index) =>
+    YulStmt.exprStmt (.call "mstore" [
+      .call "add" [ptr, .lit (4 + index * 32)], value])
+  return [
+    .let_ resultVar (.lit 0),
+    .block (
+      [.let_ ptrName (.call "mload" [.lit 64]),
+       .exprStmt (.call "mstore" [ptr, .call "shl" [.lit 224, .hex selector]])] ++ stores ++
+      [.let_ successName (.call "call" [
+         .call "gas" [], target, .lit 0, ptr, .lit dataSize, .lit 0, .lit 0]),
+       .let_ sizeName (.call "returndatasize" []),
+       .if_ (.call "iszero" [success]) [
+         .exprStmt (.call "returndatacopy" [.lit 0, .lit 0, size]),
+         .exprStmt (.call "revert" [.lit 0, size])],
+       .exprStmt (.call "mstore" [.lit 64, .call "add" [ptr, .lit allocation]]),
+       .switch size [(0, [.assign resultVar (.lit 1)])] (some [
+         .if_ (.call "lt" [size, .lit 32]) [
+           .exprStmt (.call "revert" [.lit 0, .lit 0])],
+         .exprStmt (.call "returndatacopy" [ptr, .lit 0, .lit 32]),
+         .let_ wordName (.call "mload" [ptr]),
+         .if_ (.call "gt" [word, .lit 1]) [
+           .exprStmt (.call "revert" [.lit 0, .lit 0])],
+         .assign resultVar word])])]
+
+def optionalBoolModule (resultVar : String) (selector numWordArgs : Nat) :
+    ExternalCallModule where
+  name := "solidityLowLevelOptionalBoolCall"
+  numArgs := numWordArgs + 1
+  resultVars := [resultVar]
+  writesState := true
+  readsState := true
+  compile := fun _ args => compileOptionalBool resultVar selector numWordArgs args
+  byteTransport := some (.optionalBoolCall resultVar selector numWordArgs)
+  axioms := []
+  -- Compilation transport is differentially tested; Denote runs the request
+  -- against the explicit byte-call adversary.
+  proofStatus := .assumed
+  summaryName := "solidity_low_level_optional_bool_call"
+  summarySelector := some selector
+  summaryMutability := .call
+
+end SolidityLowLevelCall
+
+namespace SolidityExtCodeSize
+
+/-- `<address>.code.length`, i.e. `extcodesize(target)` of an atomic target. -/
+def compile (resultVar : String) (args : List YulExpr) : Except String (List YulStmt) :=
+  match args with
+  | [target] => pure [.let_ resultVar (.call "extcodesize" [target])]
+  | _ => throw "Solidity code length expects one target"
+
+def module (resultVar : String) : ExternalCallModule where
+  name := "solidityExtCodeSize"
+  numArgs := 1
+  resultVars := [resultVar]
+  writesState := false
+  readsState := true
+  compile := fun _ args => compile resultVar args
+  byteTransport := some (.extCodeSize resultVar)
+  axioms := []
+  proofStatus := .assumed
+  summaryName := "solidity_external_code_size"
+  -- Reading code hands control to no account.
+  summaryMutability := .staticcall
+
+end SolidityExtCodeSize
+
 namespace ExternalCallModule
 
 /-- Compile closed byte transports from their data descriptor. Their metadata
@@ -356,6 +460,14 @@ def compileCanonical (module : ExternalCallModule) (context : CompilationContext
       unless module == SolidityLog.module eventName topicCount do
         throw "closed Solidity event log transport metadata differs"
       SolidityLog.compile topicCount args
+  | some (.optionalBoolCall resultVar selector numWordArgs) =>
+      unless module == SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs do
+        throw "closed Solidity low-level call transport metadata differs"
+      SolidityLowLevelCall.compileOptionalBool resultVar selector numWordArgs args
+  | some (.extCodeSize resultVar) =>
+      unless module == SolidityExtCodeSize.module resultVar do
+        throw "closed Solidity code length transport metadata differs"
+      SolidityExtCodeSize.compile resultVar args
 
 end ExternalCallModule
 

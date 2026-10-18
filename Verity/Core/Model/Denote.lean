@@ -7,6 +7,7 @@ import Verity.Core.Model.Types
 import Verity.Core.Model.PhysicalMemory
 import Verity.Core.Model.ByteExternalCall
 import Verity.Core.Model.Create2Opcode
+import Verity.Core.Model.DenoteExternalCode
 
 
 /-!
@@ -1244,35 +1245,45 @@ structure ByteStaticPreparation where
   /-- Expression observation uses the same intermediate state as execution. -/
   reads : List (DenoteState × Expr)
 
-/-- Prepare precisely the scratch writes made by the canonical Yul transport.
-The target is evaluated after scratch writes, as in the emitted staticcall.
-Calldata is read from physical memory, so overlapping writes are observable. -/
-def prepareByteStaticCall (oracle : DenoteOracle) (fields : List Field)
-    (state : DenoteState) (resultVar : String) (selector numStaticArgs : Nat)
-    (args : List Expr) : Except String ByteStaticPreparation := do
-  unless selector < 2^32 do throw "byte staticcall selector exceeds four bytes"
-  unless args.length == numStaticArgs + 1 do throw "byte staticcall argument count differs"
-  let some gas := state.byteCallGas | throw "byte staticcall gas environment missing"
-  let some targetExpr := args.head? | throw "byte staticcall target missing"
+/-- Prepare precisely the scratch writes made by a canonical selector-and-words
+Yul transport of call kind `kind`. The target is evaluated after scratch writes,
+as in the emitted call. Calldata is read from physical memory, so overlapping
+writes are observable. With `bumpBeforeCall` the free pointer is advanced past
+the calldata before the request is read, as by the staticcall transport;
+otherwise the caller advances it after the call. -/
+def prepareByteWordCall (kind : ByteExternalCall.Kind) (oracle : DenoteOracle)
+    (fields : List Field) (state : DenoteState) (resultVar : String)
+    (selector numStaticArgs : Nat) (args : List Expr) (bumpBeforeCall : Bool := true) :
+    Except String ByteStaticPreparation := do
+  unless selector < 2^32 do throw "byte call selector exceeds four bytes"
+  unless args.length == numStaticArgs + 1 do throw "byte call argument count differs"
+  let some gas := state.byteCallGas | throw "byte call gas environment missing"
+  let some targetExpr := args.head? | throw "byte call target missing"
   let pointer := (state.world.memory 64).val
   let initialized := { state with bindings := bindValue state.bindings resultVar 0 }
   let selectorWorld := initialized.world.writePhysicalMemoryValue
     pointer (Verity.Core.Uint256.ofNat (selector * 2^224))
   let selectorState := { initialized with world := selectorWorld }
   let some (stored, reads) := byteStaticArgumentStores oracle fields pointer selectorState 0 (args.drop 1)
-    | throw "byte staticcall argument evaluation unsupported"
+    | throw "byte call argument evaluation unsupported"
   let dataSize := 4 + numStaticArgs * 32
-  let preparedWorld := stored.world.writePhysicalMemoryValue 64
+  let bumped := stored.world.writePhysicalMemoryValue 64
     (Verity.Core.Uint256.ofNat (pointer + ((dataSize + 31) / 32) * 32))
-  let prepared := { stored with world := preparedWorld }
+  let prepared := if bumpBeforeCall then { stored with world := bumped } else stored
   let some target := evalExpr oracle fields prepared targetExpr
-    | throw "byte staticcall target evaluation unsupported"
+    | throw "byte call target evaluation unsupported"
   let request : ByteExternalCall.Request :=
-    { kind := .staticcall, caller := prepared.world.thisAddress.val,
+    { kind, caller := prepared.world.thisAddress.val,
       target := target % 2^160, value := 0, gas,
       calldata := (List.range dataSize).map fun index =>
         UInt8.ofNat (prepared.world.physicalByte (pointer + index)).val }
   return { request, frame := prepared, pointer, reads := reads ++ [(prepared, targetExpr)] }
+
+/-- The typed-interface staticcall preparation. -/
+def prepareByteStaticCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector numStaticArgs : Nat)
+    (args : List Expr) : Except String ByteStaticPreparation :=
+  prepareByteWordCall .staticcall oracle fields state resultVar selector numStaticArgs args
 
 /-- Canonical closed byte-call dispatch and its cancelled-access observation.
 An absent adversary is an instrumentation error, distinct from an EVM revert.
@@ -1359,6 +1370,74 @@ def executeByteLog (oracle : DenoteOracle) (fields : List Field)
       args := words
       indexedArgs := (values.take topicCount).map Verity.Core.Uint256.ofNat }
   return .continue { state with world := { world with events := world.events ++ [event] } }
+
+/-- Optional-bool view of a low-level `CALL` observation: a failed child
+forwards its returndata, empty returndata is `true`, a non-empty response shorter
+than a word or whose first word is not `0`/`1` is malformed (an empty revert),
+and otherwise the first word is the decoded `bool`. -/
+inductive OptionalBoolCallResult where
+  | forward (data : List UInt8)
+  | malformed
+  | decoded (word : Nat)
+  deriving DecidableEq, Repr
+
+/-- Big-endian value of the first (at most 32) bytes. -/
+def leadingWord (data : List UInt8) : Nat :=
+  (data.take 32).foldl (fun accumulator byte => accumulator * 256 + byte.toNat) 0
+
+def classifyOptionalBoolCall (success : Bool) (data : List UInt8) : OptionalBoolCallResult :=
+  if !success then .forward data
+  else if data.isEmpty then .decoded 1
+  else if data.length < 32 then .malformed
+  else if 1 < leadingWord data then .malformed
+  else .decoded (leadingWord data)
+
+/-- The closed low-level `CALL` transport with optional-bool returndata checking.
+Calldata is prepared as for the staticcall transport, but the request is a
+value-free `CALL` whose committed world is kept, and the free pointer is advanced
+past the calldata only after the call, so a free pointer word inside the calldata
+area cannot alter the request. A failed child forwards its exact returndata; a
+decoded `bool` is bound (`1` for empty returndata) and a non-empty decoded word
+is copied to the call pointer, as in the compiled transport. Missing
+instrumentation is an error, never a revert. -/
+def executeByteOptionalBoolCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (selector numWordArgs : Nat) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs do
+    throw "closed low-level call metadata differs"
+  let some adversary := state.byteCallAdversary | throw "low-level call adversary missing"
+  let preparation ← prepareByteWordCall .call oracle fields state resultVar selector numWordArgs args
+    (bumpBeforeCall := false)
+  let prepared := preparation.frame
+  let observed ← ByteExternalCall.executeChecked adversary preparation.request prepared.world
+  let allocated := observed.world.writePhysicalMemoryValue 64
+    (Verity.Core.Uint256.ofNat (preparation.pointer + ((4 + numWordArgs * 32 + 31) / 32) * 32))
+  match classifyOptionalBoolCall observed.success observed.returndata with
+  | .forward data => return (.revertWithData data, observed.touched)
+  | .malformed => return (.revertWithData [], observed.touched)
+  | .decoded word =>
+      let world := if observed.returndata.isEmpty then allocated
+        else allocated.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+          preparation.pointer 0 32
+      return (.continue { prepared with
+        world
+        bindings := bindValue prepared.bindings resultVar word
+        rawReturndata := some observed.returndata
+        byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
+/-- The closed `<address>.code.length` transport: the runtime code length of
+the account world (`DenoteExternalCode.extCodeSize`), with the target taken
+modulo `2^160` as by `EXTCODESIZE`. -/
+def executeByteExtCodeSize (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule) (resultVar : String)
+    (args : List Expr) : Except String StmtOutcome := do
+  unless mod == Compiler.ECM.SolidityExtCodeSize.module resultVar do
+    throw "closed code length metadata differs"
+  let some [target] := evalExprList oracle fields state args
+    | throw "code length argument evaluation unsupported"
+  let size := DenoteExternalCode.extCodeSize state.world (Verity.Core.Address.ofNat target)
+  return .continue { state with bindings := bindValue state.bindings resultVar size }
 
 /-! ## Statement denotation (mirrors event-less `SourceSemantics.execStmt`) -/
 
@@ -1789,6 +1868,15 @@ mutual
             | .error _ => .revert
         | some (.log eventName topicCount) =>
             match executeByteLog oracle fields state mod eventName topicCount args with
+            | .ok outcome => outcome
+            | .error _ => .revert
+        | some (.optionalBoolCall resultVar selector numWordArgs) =>
+            match executeByteOptionalBoolCall oracle fields state mod resultVar selector
+                numWordArgs args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.extCodeSize resultVar) =>
+            match executeByteExtCodeSize oracle fields state mod resultVar args with
             | .ok outcome => outcome
             | .error _ => .revert
         | none =>
