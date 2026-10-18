@@ -670,6 +670,57 @@ discharged by splitting it into segments and proving each segment's output
 is `BridgedStmts` independently. The composition lemma below packages
 this split-and-recombine pattern. -/
 
+/-- Inversion of one `compileStmtList` cons step: the head and the tail
+compile successfully and the output is their concatenation. -/
+private theorem compileStmtList_cons_ok_inv
+    {fields : List Field} {events : List EventDef} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} {adtTypes : List AdtTypeDef}
+    {stmt : Stmt} {rest : List Stmt}
+    {inScopeNames : List String} {out : List YulStmt}
+    (hOk : compileStmtList fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes (stmt :: rest) = .ok out) :
+    ∃ headOut restOut,
+      compileStmtWithFork fields events errors dynamicSource internalRetNames
+          isInternal inScopeNames adtTypes .cancun stmt = .ok headOut ∧
+      compileStmtList fields events errors dynamicSource internalRetNames isInternal
+          (collectStmtBindNames stmt ++ inScopeNames) adtTypes rest = .ok restOut ∧
+      out = headOut ++ restOut := by
+  simp only [compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
+  cases hHead : compileStmtWithFork fields events errors dynamicSource
+    internalRetNames isInternal inScopeNames adtTypes .cancun stmt with
+  | error _ => simp [hHead] at hOk
+  | ok headOut =>
+    simp [hHead] at hOk
+    cases hRest : compileStmtListWithFork fields events errors dynamicSource
+      internalRetNames isInternal (collectStmtBindNames stmt ++ inScopeNames)
+      adtTypes .cancun rest with
+    | error _ => simp [hRest] at hOk
+    | ok restOut =>
+      simp [hRest, Pure.pure, Except.pure] at hOk
+      exact ⟨headOut, restOut, rfl, by simpa [compileStmtList] using hRest, hOk.symm⟩
+
+/-- Assembly of one `compileStmtList` cons step from successful head and
+tail compilations. -/
+private theorem compileStmtList_cons_ok_of
+    {fields : List Field} {events : List EventDef} {errors : List ErrorDef}
+    {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+    {isInternal : Bool} {adtTypes : List AdtTypeDef}
+    {stmt : Stmt} {rest : List Stmt} {inScopeNames : List String}
+    {headOut restOut : List YulStmt}
+    (hHead : compileStmtWithFork fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes .cancun stmt = .ok headOut)
+    (hRest : compileStmtList fields events errors dynamicSource internalRetNames isInternal
+      (collectStmtBindNames stmt ++ inScopeNames) adtTypes rest = .ok restOut) :
+    compileStmtList fields events errors dynamicSource internalRetNames
+      isInternal inScopeNames adtTypes (stmt :: rest) = .ok (headOut ++ restOut) := by
+  have hRestFork : compileStmtListWithFork fields events errors dynamicSource
+      internalRetNames isInternal (collectStmtBindNames stmt ++ inScopeNames) adtTypes
+      .cancun rest = .ok restOut := by
+    simpa [compileStmtList] using hRest
+  simp [compileStmtList, compileStmtListWithFork, hHead, hRestFork]
+  rfl
+
 /-- Inversion: a successful `compileStmtList` over `pfx ++ sfx` factors
 into successful compilations of `pfx` and of `sfx` (with the scope
 threaded through `pfx`). -/
@@ -698,30 +749,12 @@ theorem compileStmtList_append_ok_inv
     · simp
   | cons s rest ih =>
     intro sfx inScopeNames out hOk
-    simp only [List.cons_append, compileStmtList, compileStmtListWithFork, bind, Except.bind] at hOk
-    cases hHead : compileStmtWithFork fields events errors dynamicSource
-      internalRetNames isInternal inScopeNames adtTypes .cancun s with
-    | error _ => simp [hHead] at hOk
-    | ok headOut =>
-      simp [hHead] at hOk
-      cases hRest : compileStmtListWithFork fields events errors dynamicSource
-        internalRetNames isInternal (collectStmtBindNames s ++ inScopeNames)
-        adtTypes .cancun (rest ++ sfx) with
-      | error _ => simp [hRest] at hOk
-      | ok restOut =>
-        simp [hRest, Pure.pure, Except.pure] at hOk
-        subst out
-        obtain ⟨pfxOut, sfxOut, hPfx, hSfx, hEq⟩ :=
-          ih sfx (collectStmtBindNames s ++ inScopeNames) hRest
-        refine ⟨headOut ++ pfxOut, sfxOut, ?_, ?_, ?_⟩
-        · have hPfxFork := (show
-            compileStmtListWithFork fields events errors dynamicSource internalRetNames isInternal
-                (collectStmtBindNames s ++ inScopeNames) adtTypes .cancun rest = .ok pfxOut by
-            simpa [compileStmtList] using hPfx)
-          simp [compileStmtList, compileStmtListWithFork, hHead, hPfxFork]
-          rfl
-        · simpa using hSfx
-        · subst hEq; simp [List.append_assoc]
+    obtain ⟨headOut, restOut, hHead, hRest, rfl⟩ :=
+      compileStmtList_cons_ok_inv (by simpa using hOk)
+    obtain ⟨pfxOut, sfxOut, hPfx, hSfx, rfl⟩ := ih sfx _ hRest
+    refine ⟨headOut ++ pfxOut, sfxOut, compileStmtList_cons_ok_of hHead hPfx, ?_, ?_⟩
+    · simpa using hSfx
+    · simp [List.append_assoc]
 
 /-- `BridgedStmts` composes over `compileStmtList` split: if a body
 factors into `pfx ++ sfx` and each factor compiles to a `BridgedStmts`

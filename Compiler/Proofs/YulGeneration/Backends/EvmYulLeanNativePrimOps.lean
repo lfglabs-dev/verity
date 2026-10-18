@@ -2057,77 +2057,14 @@ theorem nativeMappingSlotFunctionDefinition_exec_revivable
       calleeState.reviveJump = EvmYul.Yul.State.Ok shared' store' := by
   rw [nativeMappingSlotFunctionDefinition_body] at hExec
   unfold nativeMappingSlotFunctionBody at hExec
-  cases fuel with
-  | zero =>
-      simp [EvmYul.Yul.exec] at hExec
-  | succ f1 =>
-      cases f1 with
-      | zero =>
-          simp [EvmYul.Yul.exec] at hExec
-      | succ f2 =>
-          cases f2 with
-          | zero =>
-              simp [EvmYul.Yul.exec, EvmYul.Yul.execPrimCall,
-                EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.eval,
-                EvmYul.Yul.reverse'] at hExec
-          | succ f3 =>
-              cases f3 with
-              | zero =>
-                  simp [EvmYul.Yul.exec, EvmYul.Yul.execPrimCall,
-                    EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail, EvmYul.Yul.eval,
-                    EvmYul.Yul.reverse'] at hExec
-              | succ f4 =>
-                  cases f4 with
-                  | zero =>
-                      simp [EvmYul.Yul.exec, EvmYul.Yul.execPrimCall,
-                        EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
-                        EvmYul.Yul.eval, EvmYul.Yul.cons',
-                        EvmYul.Yul.reverse'] at hExec
-                  | succ f5 =>
-                      cases f5 with
-                      | zero =>
-                          simp [EvmYul.Yul.exec, EvmYul.Yul.execPrimCall,
-                            EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
-                            EvmYul.Yul.eval, EvmYul.Yul.cons',
-                            EvmYul.Yul.reverse'] at hExec
-                      | succ f6 =>
-                          cases f6 with
-                          | zero =>
-                              simp [EvmYul.Yul.exec, EvmYul.Yul.execPrimCall,
-                                EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
-                                EvmYul.Yul.eval, EvmYul.Yul.cons',
-                                EvmYul.Yul.reverse'] at hExec
-                          | succ f7 =>
-                              cases f7 with
-                              | zero =>
-                                  simp [EvmYul.Yul.exec, EvmYul.Yul.execPrimCall,
-                                    EvmYul.Yul.evalArgs, EvmYul.Yul.evalTail,
-                                    EvmYul.Yul.eval, EvmYul.Yul.cons',
-                                    EvmYul.Yul.reverse', EvmYul.Yul.multifill']
-                                    at hExec
-                              | succ f8 =>
-                                  cases f8 with
-                                  | zero =>
-                                      simp [EvmYul.Yul.exec,
-                                        EvmYul.Yul.execPrimCall,
-                                        EvmYul.Yul.evalArgs,
-                                        EvmYul.Yul.evalTail, EvmYul.Yul.eval,
-                                        EvmYul.Yul.cons', EvmYul.Yul.reverse',
-                                        EvmYul.Yul.multifill'] at hExec
-                                  | succ f9 =>
-                                      simp [EvmYul.Yul.exec,
-                                        EvmYul.Yul.execPrimCall,
-                                        EvmYul.Yul.evalArgs,
-                                        EvmYul.Yul.evalTail, EvmYul.Yul.eval,
-                                        EvmYul.Yul.cons', EvmYul.Yul.reverse',
-                                        EvmYul.Yul.multifill',
-                                        EvmYul.Yul.State.multifill,
-                                        EvmYul.Yul.State.setMachineState,
-                                        EvmYul.Yul.State.lookup!,
-                                        EvmYul.Yul.State.insert,
-                                        EvmYul.Yul.State.reviveJump] at hExec ⊢
-                                      subst calleeState
-                                      simp [EvmYul.Yul.State.reviveJump]
+  rcases fuel with _ | _ | _ | _ | _ | _ | _ | _ | _ | f9 <;>
+    simp [EvmYul.Yul.exec, EvmYul.Yul.execPrimCall, EvmYul.Yul.evalArgs,
+      EvmYul.Yul.evalTail, EvmYul.Yul.eval, EvmYul.Yul.cons', EvmYul.Yul.reverse',
+      EvmYul.Yul.multifill', EvmYul.Yul.State.multifill,
+      EvmYul.Yul.State.setMachineState, EvmYul.Yul.State.lookup!,
+      EvmYul.Yul.State.insert, EvmYul.Yul.State.reviveJump] at hExec ⊢
+  subst calleeState
+  simp [EvmYul.Yul.State.reviveJump]
 
 @[simp] theorem primCall_log0_ok
     (fuel : Nat)

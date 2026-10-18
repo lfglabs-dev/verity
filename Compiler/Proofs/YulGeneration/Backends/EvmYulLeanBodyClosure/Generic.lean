@@ -194,6 +194,249 @@ inductive BridgedSourceStmt
       (h : BridgedSourceExternalCallBindStmt table stmt) :
       BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt
 
+section BridgedSourceFamilies
+
+variable {fields : List Field} {events : List EventDef} {errors : List ErrorDef}
+  {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+  {isInternal : Bool} {inScopeNames : List String} {stmt : Stmt} {out : List YulStmt}
+  {table : BridgedFunctionTable}
+
+/-- Bridged and no-function-definition closure for the external-only
+(`isInternal = false`) arms: recursive raw-log bodies and `returnValues`. -/
+private theorem compileStmt_externalOnlyFamily_closure
+    (h : BridgedSourceExternalRecursiveBodyWithRawLogStmt fields errors dynamicSource stmt ∨
+      BridgedSourceReturnValuesExternalStmt stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames false
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h
+  · exact ⟨compileStmt_external_recursive_body_with_raw_log_bridged _ _ _ _ _ _ h hOk,
+      compileStmt_external_recursive_body_with_raw_log_noFuncDefs _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_returnValuesExternal_fragment_bridged _ _ _ _ _ _ h hOk,
+      compileStmt_returnValuesExternal_fragment_noFuncDefs _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the internal-only
+(`isInternal = true`) arms: recursive raw-log bodies and `returnValues`. -/
+private theorem compileStmt_internalOnlyFamily_closure
+    (h : BridgedSourceInternalRecursiveBodyWithRawLogStmt fields errors dynamicSource stmt ∨
+      BridgedSourceReturnValuesInternalStmt internalRetNames stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames true
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h
+  · exact ⟨compileStmt_internal_recursive_body_with_raw_log_bridged _ _ _ _ _ _ h hOk,
+      compileStmt_internal_recursive_body_with_raw_log_noFuncDefs _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_returnValuesInternal_fragment_bridged _ _ _ _ _ _ h hOk,
+      compileStmt_returnValuesInternal_fragment_noFuncDefs _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the call arms:
+internal helper calls and typed external call binds via a function table. -/
+private theorem compileStmt_callFamily_closure
+    (h : BridgedSourceInternalCallStmt table stmt ∨
+      BridgedSourceExternalCallBindStmt table stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h
+  · exact ⟨compileStmt_internalCall_bridged _ _ _ _ _ _ _ [] h hOk,
+      compileStmt_internalCall_noFuncDefs _ _ _ _ _ _ _ [] h hOk⟩
+  · exact ⟨compileStmt_externalCallBind_bridged _ _ _ _ _ _ _ [] h hOk,
+      compileStmt_externalCallBind_noFuncDefs _ _ _ _ _ _ _ [] h hOk⟩
+
+/-- Bridged and no-function-definition closure for the plain-storage
+arms: scalar/address slots, `require`, and storage arrays. -/
+private theorem compileStmt_storageFamily_closure
+    (h : BridgedSourceStorageStmt fields stmt ∨ BridgedSourceStorageAddrStmt fields stmt ∨
+      BridgedSourceRequireStmt fields dynamicSource stmt ∨
+      BridgedSourceSetStorageArrayElementStmt fields stmt ∨
+      BridgedSourceStorageArrayPushStmt fields stmt ∨
+      BridgedSourceStorageArrayPopStmt fields stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h | h | h | h | h
+  · exact ⟨compileStmt_storage_fragment_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_storage_fragment_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_storageAddr_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_storageAddr_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · cases h with
+    | require _ _ h =>
+        exact ⟨compileStmt_require_bridged _ _ _ _ _ _ _ h hOk,
+          compileStmt_require_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_setStorageArrayElement_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_setStorageArrayElement_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_storageArrayPush_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_storageArrayPush_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_storageArrayPop_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_storageArrayPop_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the mapping-write
+arms: mapping chains and (multi-slot) one/two-key writes. -/
+private theorem compileStmt_mappingWriteFamily_closure
+    (h : BridgedSourceMappingChainStmt fields stmt ∨
+      BridgedSourceMappingWriteStmt fields stmt ∨
+      BridgedSourceMappingWriteMultiSlotStmt fields stmt ∨
+      BridgedSourceMappingWrite2Stmt fields stmt ∨
+      BridgedSourceMappingWrite2MultiSlotStmt fields stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h | h | h | h
+  · exact ⟨compileStmt_mappingChain_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingChain_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingWrite_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingWrite_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingWriteMultiSlot_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingWriteMultiSlot_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingWrite2_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingWrite2_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingWrite2MultiSlot_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingWrite2MultiSlot_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the struct-member
+arms: plain, two-key and nonzero single-slot member writes. -/
+private theorem compileStmt_structMemberFamily_closure
+    (h : BridgedSourceStructMemberStmt fields stmt ∨
+      BridgedSourceStructMember2Stmt fields stmt ∨
+      BridgedSourceStructMemberNonzeroStmt fields stmt ∨
+      BridgedSourceStructMember2NonzeroStmt fields stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h | h | h
+  · exact ⟨compileStmt_structMember_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_structMember_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_structMember2_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_structMember2_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_structMemberNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_structMemberNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_structMember2Nonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_structMember2Nonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the multi-slot
+struct-member arms: plain, two-key and nonzero member writes. -/
+private theorem compileStmt_structMemberMultiSlotFamily_closure
+    (h : BridgedSourceStructMemberMultiSlotStmt fields stmt ∨
+      BridgedSourceStructMember2MultiSlotStmt fields stmt ∨
+      BridgedSourceStructMemberMultiSlotNonzeroStmt fields stmt ∨
+      BridgedSourceStructMember2MultiSlotNonzeroStmt fields stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h | h | h
+  · exact ⟨compileStmt_structMemberMultiSlot_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_structMemberMultiSlot_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_structMember2MultiSlot_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_structMember2MultiSlot_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_structMemberMultiSlotNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_structMemberMultiSlotNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_structMember2MultiSlotNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_structMember2MultiSlotNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the mapping-word
+arms: one/two-key and nonzero single-slot word writes. -/
+private theorem compileStmt_mappingWordFamily_closure
+    (h : BridgedSourceMappingWordStmt fields stmt ∨ BridgedSourceMapping2WordStmt fields stmt ∨
+      BridgedSourceMappingWordNonzeroStmt fields stmt ∨
+      BridgedSourceMapping2WordNonzeroStmt fields stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h | h | h
+  · exact ⟨compileStmt_mappingWord_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingWord_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mapping2Word_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mapping2Word_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingWordNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingWordNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mapping2WordNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mapping2WordNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the multi-slot
+mapping-word arms: one/two-key and nonzero word writes. -/
+private theorem compileStmt_mappingWordMultiSlotFamily_closure
+    (h : BridgedSourceMappingWordMultiSlotStmt fields stmt ∨
+      BridgedSourceMapping2WordMultiSlotStmt fields stmt ∨
+      BridgedSourceMappingWordMultiSlotNonzeroStmt fields stmt ∨
+      BridgedSourceMapping2WordMultiSlotNonzeroStmt fields stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h | h | h
+  · exact ⟨compileStmt_mappingWordMultiSlot_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingWordMultiSlot_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mapping2WordMultiSlot_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mapping2WordMultiSlot_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingWordMultiSlotNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingWordMultiSlotNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mapping2WordMultiSlotNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mapping2WordMultiSlotNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the packed
+mapping-word arms: plain, nonzero and multi-slot packed writes. -/
+private theorem compileStmt_mappingPackedWordFamily_closure
+    (h : BridgedSourceMappingPackedWordStmt fields stmt ∨
+      BridgedSourceMappingPackedWordNonzeroStmt fields stmt ∨
+      BridgedSourceMappingPackedWordMultiSlotStmt fields stmt ∨
+      BridgedSourceMappingPackedWordMultiSlotNonzeroStmt fields stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h | h | h
+  · exact ⟨compileStmt_mappingPackedWord_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingPackedWord_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingPackedWordNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingPackedWordNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingPackedWordMultiSlot_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingPackedWordMultiSlot_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_mappingPackedWordMultiSlotNonzero_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mappingPackedWordMultiSlotNonzero_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+
+/-- Bridged and no-function-definition closure for the memory arms:
+`mstore`, `tstore`, `calldatacopy`, `returndatacopy`, `revert(returndata)`. -/
+private theorem compileStmt_memoryFamily_closure
+    (h : BridgedSourceMstoreStmt stmt ∨ BridgedSourceTstoreStmt stmt ∨
+      BridgedSourceCalldatacopyStmt stmt ∨ BridgedSourceReturndatacopyStmt stmt ∨
+      BridgedSourceRevertReturndataStmt stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  rcases h with h | h | h | h | h
+  · exact ⟨compileStmt_mstore_fragment_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_mstore_fragment_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_tstore_fragment_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_tstore_fragment_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_calldatacopy_fragment_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_calldatacopy_fragment_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_returndatacopy_fragment_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_returndatacopy_fragment_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+  · exact ⟨compileStmt_revertReturndata_fragment_bridged _ _ _ _ _ _ _ h hOk,
+      compileStmt_revertReturndata_fragment_noFuncDefs _ _ _ _ _ _ _ h hOk⟩
+
+/-- Shared per-statement closure behind both master theorems: every
+`BridgedSourceStmt` compiles to a `BridgedStmts` output that contains no
+function definitions. Each constructor is routed to its family helper above,
+whose disjunctive hypothesis is discharged from the constructor premise. -/
+private theorem compileStmt_bridgedSource_closure
+    (hStmt : BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt)
+    (hOk : compileStmt fields events errors dynamicSource internalRetNames isInternal
+      inScopeNames [] stmt = .ok out) :
+    BridgedStmts out ∧ Native.yulStmtsContainFuncDef out = false := by
+  cases hStmt <;> rename_i h <;> first
+    | exact compileStmt_externalOnlyFamily_closure (by simp [h]) hOk
+    | exact compileStmt_internalOnlyFamily_closure (by simp [h]) hOk
+    | exact compileStmt_callFamily_closure (by first | exact .inl h | exact .inr h) hOk
+    | exact compileStmt_storageFamily_closure (by simp [h]) hOk
+    | exact compileStmt_mappingWriteFamily_closure (by simp [h]) hOk
+    | exact compileStmt_structMemberFamily_closure (by simp [h]) hOk
+    | exact compileStmt_structMemberMultiSlotFamily_closure (by simp [h]) hOk
+    | exact compileStmt_mappingWordFamily_closure (by simp [h]) hOk
+    | exact compileStmt_mappingWordMultiSlotFamily_closure (by simp [h]) hOk
+    | exact compileStmt_mappingPackedWordFamily_closure (by simp [h]) hOk
+    | exact compileStmt_memoryFamily_closure (by simp [h]) hOk
+
+end BridgedSourceFamilies
+
 /-- Master per-statement closure: every `BridgedSourceStmt` compiles to a
 Yul statement list accepted by `BridgedStmts`. One constructor dispatch with
 each arm delegating to the matching fragment-specific closure lemma. -/
@@ -209,135 +452,7 @@ theorem compileStmt_bridgedSource_bridged
           isInternal inScopeNames [] stmt = .ok out →
         BridgedStmts out := by
   intro stmt hStmt out hOk
-  cases hStmt with
-  | externalRecursiveRawLog h =>
-      exact compileStmt_external_recursive_body_with_raw_log_bridged fields
-        events errors dynamicSource internalRetNames inScopeNames h hOk
-  | internalRecursiveRawLog h =>
-      exact compileStmt_internal_recursive_body_with_raw_log_bridged fields
-        events errors dynamicSource internalRetNames inScopeNames h hOk
-  | storage h =>
-      exact compileStmt_storage_fragment_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | storageAddr h =>
-      exact compileStmt_storageAddr_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | require h =>
-      cases h with
-      | require cond message hFailCond =>
-          exact compileStmt_require_bridged fields events errors
-            dynamicSource internalRetNames _ inScopeNames hFailCond hOk
-  | setStorageArrayElement h =>
-      exact compileStmt_setStorageArrayElement_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingChain h =>
-      exact compileStmt_mappingChain_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWrite h =>
-      exact compileStmt_mappingWrite_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWriteMultiSlot h =>
-      exact compileStmt_mappingWriteMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWrite2 h =>
-      exact compileStmt_mappingWrite2_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWrite2MultiSlot h =>
-      exact compileStmt_mappingWrite2MultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember h =>
-      exact compileStmt_structMember_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember2 h =>
-      exact compileStmt_structMember2_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMemberNonzero h =>
-      exact compileStmt_structMemberNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember2Nonzero h =>
-      exact compileStmt_structMember2Nonzero_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMemberMultiSlot h =>
-      exact compileStmt_structMemberMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember2MultiSlot h =>
-      exact compileStmt_structMember2MultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWord h =>
-      exact compileStmt_mappingWord_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mapping2Word h =>
-      exact compileStmt_mapping2Word_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWordNonzero h =>
-      exact compileStmt_mappingWordNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mapping2WordNonzero h =>
-      exact compileStmt_mapping2WordNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWordMultiSlot h =>
-      exact compileStmt_mappingWordMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mapping2WordMultiSlot h =>
-      exact compileStmt_mapping2WordMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWordMultiSlotNonzero h =>
-      exact compileStmt_mappingWordMultiSlotNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mapping2WordMultiSlotNonzero h =>
-      exact compileStmt_mapping2WordMultiSlotNonzero_bridged fields events
-        errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMemberMultiSlotNonzero h =>
-      exact compileStmt_structMemberMultiSlotNonzero_bridged fields events
-        errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember2MultiSlotNonzero h =>
-      exact compileStmt_structMember2MultiSlotNonzero_bridged fields events
-        errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingPackedWord h =>
-      exact compileStmt_mappingPackedWord_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingPackedWordNonzero h =>
-      exact compileStmt_mappingPackedWordNonzero_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingPackedWordMultiSlot h =>
-      exact compileStmt_mappingPackedWordMultiSlot_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingPackedWordMultiSlotNonzero h =>
-      exact compileStmt_mappingPackedWordMultiSlotNonzero_bridged fields
-        events errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | returnValuesExternal h =>
-      exact compileStmt_returnValuesExternal_fragment_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames h hOk
-  | returnValuesInternal h =>
-      exact compileStmt_returnValuesInternal_fragment_bridged fields events
-        errors dynamicSource internalRetNames inScopeNames h hOk
-  | mstore h =>
-      exact compileStmt_mstore_fragment_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | tstore h =>
-      exact compileStmt_tstore_fragment_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | calldatacopy h =>
-      exact compileStmt_calldatacopy_fragment_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | returndatacopy h =>
-      exact compileStmt_returndatacopy_fragment_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | revertReturndata h =>
-      exact compileStmt_revertReturndata_fragment_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | storageArrayPush h =>
-      exact compileStmt_storageArrayPush_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | storageArrayPop h =>
-      exact compileStmt_storageArrayPop_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | internalCall h =>
-      exact compileStmt_internalCall_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames [] h hOk
-  | externalCallBind h =>
-      exact compileStmt_externalCallBind_bridged fields events errors
-        dynamicSource internalRetNames _ inScopeNames [] h hOk
+  exact (compileStmt_bridgedSource_closure hStmt hOk).1
 
 /-- Master per-statement no-function-definition closure, mirroring
 `compileStmt_bridgedSource_bridged`. -/
@@ -353,135 +468,7 @@ theorem compileStmt_bridgedSource_noFuncDefs
           isInternal inScopeNames [] stmt = .ok out →
         Native.yulStmtsContainFuncDef out = false := by
   intro stmt hStmt out hOk
-  cases hStmt with
-  | externalRecursiveRawLog h =>
-      exact compileStmt_external_recursive_body_with_raw_log_noFuncDefs fields
-        events errors dynamicSource internalRetNames inScopeNames h hOk
-  | internalRecursiveRawLog h =>
-      exact compileStmt_internal_recursive_body_with_raw_log_noFuncDefs fields
-        events errors dynamicSource internalRetNames inScopeNames h hOk
-  | storage h =>
-      exact compileStmt_storage_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | storageAddr h =>
-      exact compileStmt_storageAddr_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | require h =>
-      cases h with
-      | require cond message hFailCond =>
-          exact compileStmt_require_noFuncDefs fields events errors
-            dynamicSource internalRetNames _ inScopeNames hFailCond hOk
-  | setStorageArrayElement h =>
-      exact compileStmt_setStorageArrayElement_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingChain h =>
-      exact compileStmt_mappingChain_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWrite h =>
-      exact compileStmt_mappingWrite_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWriteMultiSlot h =>
-      exact compileStmt_mappingWriteMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWrite2 h =>
-      exact compileStmt_mappingWrite2_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWrite2MultiSlot h =>
-      exact compileStmt_mappingWrite2MultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember h =>
-      exact compileStmt_structMember_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember2 h =>
-      exact compileStmt_structMember2_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMemberNonzero h =>
-      exact compileStmt_structMemberNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember2Nonzero h =>
-      exact compileStmt_structMember2Nonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMemberMultiSlot h =>
-      exact compileStmt_structMemberMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember2MultiSlot h =>
-      exact compileStmt_structMember2MultiSlot_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWord h =>
-      exact compileStmt_mappingWord_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mapping2Word h =>
-      exact compileStmt_mapping2Word_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWordNonzero h =>
-      exact compileStmt_mappingWordNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mapping2WordNonzero h =>
-      exact compileStmt_mapping2WordNonzero_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWordMultiSlot h =>
-      exact compileStmt_mappingWordMultiSlot_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mapping2WordMultiSlot h =>
-      exact compileStmt_mapping2WordMultiSlot_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingWordMultiSlotNonzero h =>
-      exact compileStmt_mappingWordMultiSlotNonzero_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | mapping2WordMultiSlotNonzero h =>
-      exact compileStmt_mapping2WordMultiSlotNonzero_noFuncDefs fields
-        events errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMemberMultiSlotNonzero h =>
-      exact compileStmt_structMemberMultiSlotNonzero_noFuncDefs fields
-        events errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | structMember2MultiSlotNonzero h =>
-      exact compileStmt_structMember2MultiSlotNonzero_noFuncDefs fields
-        events errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingPackedWord h =>
-      exact compileStmt_mappingPackedWord_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingPackedWordNonzero h =>
-      exact compileStmt_mappingPackedWordNonzero_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingPackedWordMultiSlot h =>
-      exact compileStmt_mappingPackedWordMultiSlot_noFuncDefs fields events
-        errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | mappingPackedWordMultiSlotNonzero h =>
-      exact compileStmt_mappingPackedWordMultiSlotNonzero_noFuncDefs fields
-        events errors dynamicSource internalRetNames _ inScopeNames h hOk
-  | returnValuesExternal h =>
-      exact compileStmt_returnValuesExternal_fragment_noFuncDefs fields events
-        errors dynamicSource internalRetNames inScopeNames h hOk
-  | returnValuesInternal h =>
-      exact compileStmt_returnValuesInternal_fragment_noFuncDefs fields events
-        errors dynamicSource internalRetNames inScopeNames h hOk
-  | mstore h =>
-      exact compileStmt_mstore_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | tstore h =>
-      exact compileStmt_tstore_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | calldatacopy h =>
-      exact compileStmt_calldatacopy_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | returndatacopy h =>
-      exact compileStmt_returndatacopy_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | revertReturndata h =>
-      exact compileStmt_revertReturndata_fragment_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | storageArrayPush h =>
-      exact compileStmt_storageArrayPush_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | storageArrayPop h =>
-      exact compileStmt_storageArrayPop_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames h hOk
-  | internalCall h =>
-      exact compileStmt_internalCall_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames [] h hOk
-  | externalCallBind h =>
-      exact compileStmt_externalCallBind_noFuncDefs fields events errors
-        dynamicSource internalRetNames _ inScopeNames [] h hOk
+  exact (compileStmt_bridgedSource_closure hStmt hOk).2
 
 /-- Cons-inversion of `compileStmtList`, local copy of the (private) generic
 inversion used by the call-closure module. -/

@@ -945,6 +945,66 @@ private theorem mem_of_internalRecursiveRawLogStmts
           | head => exact hHead
           | tail _ hMem => exact ih hTail stmt hMem
 
+section BridgedSourceLift
+
+variable {fields : List Field} {errors : List ErrorDef}
+  {dynamicSource : DynamicDataSource} {internalRetNames : List String}
+  {isInternal : Bool} {stmt : Stmt}
+
+/-- Lifts any of the storage, `require`, storage-array, mapping-write
+and struct-member premises to `BridgedSourceStmt`. -/
+private theorem bridgedSourceStmt_of_storageFamily
+    (h : BridgedSourceStorageStmt fields stmt ∨ BridgedSourceStorageAddrStmt fields stmt ∨
+      BridgedSourceRequireStmt fields dynamicSource stmt ∨
+      BridgedSourceSetStorageArrayElementStmt fields stmt ∨
+      BridgedSourceStorageArrayPushStmt fields stmt ∨
+      BridgedSourceStorageArrayPopStmt fields stmt ∨
+      BridgedSourceMappingChainStmt fields stmt ∨ BridgedSourceMappingWriteStmt fields stmt ∨
+      BridgedSourceMappingWriteMultiSlotStmt fields stmt ∨
+      BridgedSourceMappingWrite2Stmt fields stmt ∨
+      BridgedSourceMappingWrite2MultiSlotStmt fields stmt ∨
+      BridgedSourceStructMemberStmt fields stmt ∨ BridgedSourceStructMember2Stmt fields stmt ∨
+      BridgedSourceStructMemberNonzeroStmt fields stmt ∨
+      BridgedSourceStructMember2NonzeroStmt fields stmt ∨
+      BridgedSourceStructMemberMultiSlotStmt fields stmt ∨
+      BridgedSourceStructMember2MultiSlotStmt fields stmt ∨
+      BridgedSourceStructMemberMultiSlotNonzeroStmt fields stmt ∨
+      BridgedSourceStructMember2MultiSlotNonzeroStmt fields stmt) :
+    BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt := by
+  rcases h with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
+  exacts [.storage h, .storageAddr h, .require h, .setStorageArrayElement h, .storageArrayPush h,
+      .storageArrayPop h, .mappingChain h, .mappingWrite h, .mappingWriteMultiSlot h,
+      .mappingWrite2 h, .mappingWrite2MultiSlot h, .structMember h, .structMember2 h,
+      .structMemberNonzero h, .structMember2Nonzero h, .structMemberMultiSlot h,
+      .structMember2MultiSlot h, .structMemberMultiSlotNonzero h, .structMember2MultiSlotNonzero h]
+
+/-- Lifts any of the mapping-word, packed mapping-word
+and memory/transient/copy premises to `BridgedSourceStmt`. -/
+private theorem bridgedSourceStmt_of_mappingWordFamily
+    (h : BridgedSourceMappingWordStmt fields stmt ∨ BridgedSourceMapping2WordStmt fields stmt ∨
+      BridgedSourceMappingWordNonzeroStmt fields stmt ∨
+      BridgedSourceMapping2WordNonzeroStmt fields stmt ∨
+      BridgedSourceMappingWordMultiSlotStmt fields stmt ∨
+      BridgedSourceMapping2WordMultiSlotStmt fields stmt ∨
+      BridgedSourceMappingWordMultiSlotNonzeroStmt fields stmt ∨
+      BridgedSourceMapping2WordMultiSlotNonzeroStmt fields stmt ∨
+      BridgedSourceMappingPackedWordStmt fields stmt ∨
+      BridgedSourceMappingPackedWordNonzeroStmt fields stmt ∨
+      BridgedSourceMappingPackedWordMultiSlotStmt fields stmt ∨
+      BridgedSourceMappingPackedWordMultiSlotNonzeroStmt fields stmt ∨
+      BridgedSourceMstoreStmt stmt ∨ BridgedSourceTstoreStmt stmt ∨
+      BridgedSourceCalldatacopyStmt stmt ∨ BridgedSourceReturndatacopyStmt stmt ∨
+      BridgedSourceRevertReturndataStmt stmt) :
+    BridgedSourceStmt fields errors dynamicSource internalRetNames isInternal stmt := by
+  rcases h with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h
+  exacts [.mappingWord h, .mapping2Word h, .mappingWordNonzero h, .mapping2WordNonzero h,
+      .mappingWordMultiSlot h, .mapping2WordMultiSlot h, .mappingWordMultiSlotNonzero h,
+      .mapping2WordMultiSlotNonzero h, .mappingPackedWord h, .mappingPackedWordNonzero h,
+      .mappingPackedWordMultiSlot h, .mappingPackedWordMultiSlotNonzero h, .mstore h, .tstore h,
+      .calldatacopy h, .returndatacopy h, .revertReturndata h]
+
+end BridgedSourceLift
+
 /-- Every list-level whitelist witness flattens to the per-statement union:
 a `BridgedSafeStmts` list is pointwise `BridgedSourceStmt`. Pointwise
 fragment arms forward their member hypothesis; the two recursive raw-log
@@ -959,99 +1019,21 @@ theorem BridgedSafeStmts.toBridgedSource
     ∀ stmt ∈ stmts,
       BridgedSourceStmt fields errors dynamicSource internalRetNames
         isInternal stmt := by
-  induction hSafe with
-  | externalRecursiveRawLog hStmts =>
-      exact fun stmt hMem => .externalRecursiveRawLog
-        (mem_of_externalRecursiveRawLogStmts _ hStmts stmt hMem)
-  | internalRecursiveRawLog hStmts =>
-      exact fun stmt hMem => .internalRecursiveRawLog
-        (mem_of_internalRecursiveRawLogStmts _ hStmts stmt hMem)
-  | storage hStmts =>
-      exact fun stmt hMem => .storage (hStmts stmt hMem)
-  | storageAddr hStmts =>
-      exact fun stmt hMem => .storageAddr (hStmts stmt hMem)
-  | require hStmts =>
-      exact fun stmt hMem => .require (hStmts stmt hMem)
-  | setStorageArrayElement hStmts =>
-      exact fun stmt hMem => .setStorageArrayElement (hStmts stmt hMem)
-  | mappingChain hStmts =>
-      exact fun stmt hMem => .mappingChain (hStmts stmt hMem)
-  | mappingWrite hStmts =>
-      exact fun stmt hMem => .mappingWrite (hStmts stmt hMem)
-  | mappingWriteMultiSlot hStmts =>
-      exact fun stmt hMem => .mappingWriteMultiSlot (hStmts stmt hMem)
-  | mappingWrite2 hStmts =>
-      exact fun stmt hMem => .mappingWrite2 (hStmts stmt hMem)
-  | mappingWrite2MultiSlot hStmts =>
-      exact fun stmt hMem => .mappingWrite2MultiSlot (hStmts stmt hMem)
-  | structMember hStmts =>
-      exact fun stmt hMem => .structMember (hStmts stmt hMem)
-  | structMember2 hStmts =>
-      exact fun stmt hMem => .structMember2 (hStmts stmt hMem)
-  | structMemberNonzero hStmts =>
-      exact fun stmt hMem => .structMemberNonzero (hStmts stmt hMem)
-  | structMember2Nonzero hStmts =>
-      exact fun stmt hMem => .structMember2Nonzero (hStmts stmt hMem)
-  | structMemberMultiSlot hStmts =>
-      exact fun stmt hMem => .structMemberMultiSlot (hStmts stmt hMem)
-  | structMember2MultiSlot hStmts =>
-      exact fun stmt hMem => .structMember2MultiSlot (hStmts stmt hMem)
-  | mappingWord hStmts =>
-      exact fun stmt hMem => .mappingWord (hStmts stmt hMem)
-  | mapping2Word hStmts =>
-      exact fun stmt hMem => .mapping2Word (hStmts stmt hMem)
-  | mappingWordNonzero hStmts =>
-      exact fun stmt hMem => .mappingWordNonzero (hStmts stmt hMem)
-  | mapping2WordNonzero hStmts =>
-      exact fun stmt hMem => .mapping2WordNonzero (hStmts stmt hMem)
-  | mappingWordMultiSlot hStmts =>
-      exact fun stmt hMem => .mappingWordMultiSlot (hStmts stmt hMem)
-  | mapping2WordMultiSlot hStmts =>
-      exact fun stmt hMem => .mapping2WordMultiSlot (hStmts stmt hMem)
-  | mappingWordMultiSlotNonzero hStmts =>
-      exact fun stmt hMem => .mappingWordMultiSlotNonzero (hStmts stmt hMem)
-  | mapping2WordMultiSlotNonzero hStmts =>
-      exact fun stmt hMem => .mapping2WordMultiSlotNonzero (hStmts stmt hMem)
-  | structMemberMultiSlotNonzero hStmts =>
-      exact fun stmt hMem => .structMemberMultiSlotNonzero (hStmts stmt hMem)
-  | structMember2MultiSlotNonzero hStmts =>
-      exact fun stmt hMem => .structMember2MultiSlotNonzero (hStmts stmt hMem)
-  | mappingPackedWord hStmts =>
-      exact fun stmt hMem => .mappingPackedWord (hStmts stmt hMem)
-  | mappingPackedWordNonzero hStmts =>
-      exact fun stmt hMem => .mappingPackedWordNonzero (hStmts stmt hMem)
-  | mappingPackedWordMultiSlot hStmts =>
-      exact fun stmt hMem => .mappingPackedWordMultiSlot (hStmts stmt hMem)
-  | mappingPackedWordMultiSlotNonzero hStmts =>
-      exact fun stmt hMem =>
-        .mappingPackedWordMultiSlotNonzero (hStmts stmt hMem)
-  | returnValuesExternal hStmts =>
-      exact fun stmt hMem => .returnValuesExternal (hStmts stmt hMem)
-  | returnValuesInternal hStmts =>
-      exact fun stmt hMem => .returnValuesInternal (hStmts stmt hMem)
-  | mstore hStmts =>
-      exact fun stmt hMem => .mstore (hStmts stmt hMem)
-  | tstore hStmts =>
-      exact fun stmt hMem => .tstore (hStmts stmt hMem)
-  | calldatacopy hStmts =>
-      exact fun stmt hMem => .calldatacopy (hStmts stmt hMem)
-  | returndatacopy hStmts =>
-      exact fun stmt hMem => .returndatacopy (hStmts stmt hMem)
-  | revertReturndata hStmts =>
-      exact fun stmt hMem => .revertReturndata (hStmts stmt hMem)
-  | storageArrayPush hStmts =>
-      exact fun stmt hMem => .storageArrayPush (hStmts stmt hMem)
-  | storageArrayPop hStmts =>
-      exact fun stmt hMem => .storageArrayPop (hStmts stmt hMem)
-  | internalCall hStmts =>
-      exact fun stmt hMem => .internalCall (hStmts stmt hMem)
-  | externalCallBind hStmts =>
-      exact fun stmt hMem => .externalCallBind (hStmts stmt hMem)
-  | append _ _ ihPfx ihSfx =>
-      intro stmt hMem
-      rcases List.mem_append.mp hMem with h | h
-      · exact ihPfx stmt h
-      · exact ihSfx stmt h
+  induction hSafe
+  case append ihPfx ihSfx =>
+    exact fun stmt hMem => (List.mem_append.mp hMem).elim (ihPfx stmt) (ihSfx stmt)
+  case externalRecursiveRawLog hStmts =>
+    exact fun stmt hMem =>
+      .externalRecursiveRawLog (mem_of_externalRecursiveRawLogStmts _ hStmts stmt hMem)
+  case internalRecursiveRawLog hStmts =>
+    exact fun stmt hMem =>
+      .internalRecursiveRawLog (mem_of_internalRecursiveRawLogStmts _ hStmts stmt hMem)
+  all_goals (intro stmt hMem; rename_i hStmts; have h := hStmts stmt hMem)
+  all_goals first
+    | exact bridgedSourceStmt_of_storageFamily (by simp [h])
+    | exact bridgedSourceStmt_of_mappingWordFamily (by simp [h])
+    | exact .returnValuesExternal h | exact .returnValuesInternal h
+    | exact .internalCall h | exact .externalCallBind h
 
 /-- Every source statement list accepted by `BridgedSafeStmts` compiles to a
 Yul statement list accepted by `BridgedStmts`. This is the B7 aggregation

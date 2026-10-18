@@ -7190,6 +7190,18 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Generic.lean
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_externalOnlyFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_internalOnlyFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_callFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_storageFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingWriteFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_structMemberFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_structMemberMultiSlotFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingWordFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingWordMultiSlotFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_mappingPackedWordFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_memoryFamily_closure  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_closure  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmt_bridgedSource_noFuncDefs
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_cons_ok_inv  -- private
@@ -7231,6 +7243,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setStructMember2SingleSlotNonzero
   -- Compiler.Proofs.YulGeneration.Backends.mem_of_externalRecursiveRawLogStmts  -- private
   -- Compiler.Proofs.YulGeneration.Backends.mem_of_internalRecursiveRawLogStmts  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedSourceStmt_of_storageFamily  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedSourceStmt_of_mappingWordFamily  -- private
   Compiler.Proofs.YulGeneration.Backends.BridgedSafeStmts.toBridgedSource
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_always_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_always_noFuncDefs
@@ -7402,6 +7416,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_externalCallBind_noFuncDefs
   Compiler.Proofs.YulGeneration.Backends.compileStmt_ecm_bridged
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_ecm_bridged
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_cons_ok_inv  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileStmtList_cons_ok_of  -- private
   Compiler.Proofs.YulGeneration.Backends.compileStmtList_append_ok_inv
   Compiler.Proofs.YulGeneration.Backends.BridgedStmts_of_compileStmtList_append
   -- Compiler.Proofs.YulGeneration.Backends.G3Smoke.smokeTable_lookup_some  -- private
@@ -8673,6 +8689,12 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.uint256_fin_zero_mul_neg1_val  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_fin_mul_neg1_val_of_zero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.natAbs_ofNat_sub  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_neg_quot_word_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_zero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_pos_pos  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_pos_neg  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_neg_pos  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv_of_neg_neg  -- private
   Compiler.Proofs.YulGeneration.Backends.int256_div_toUint256_val_eq_uint256_sdiv
   -- Compiler.Proofs.YulGeneration.Backends.eq0_true_of_val_eq_zero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.eq0_false_of_val_ne_zero  -- private
@@ -8684,23 +8706,38 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.signedAbsNat_of_ofUint256  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_coe_lt_zero_iff  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_coe_eq_zero_iff  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.specAbs_pos_of_ne_zero  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.specAbs_mod_lt_evmModulus  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_mod_toUint256_val_eq_smodSpec  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_abs_toNat_eq_specAbs  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_mod_toNat_of_nonzero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_toSigned_ofNat_toNat_of_lt  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_toSigned_negSucc_toNat_of_lt  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_toSigned_zero_toNat  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_toSigned_neg_toNat  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_toSigned_sgn_mul_mod_toNat  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_smod_toNat_eq_smodSpec  -- private
   Compiler.Proofs.YulGeneration.Backends.int256_mod_toUint256_val_eq_uint256_smod
   -- Compiler.Proofs.YulGeneration.Backends.uint256_lt_zero_false  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_complement_val  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_complement_eq  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_shiftRight_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_sltBool_zero_of_lt  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_sltBool_zero_of_ge  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_sar_toNat_eq_sarSpec_of_nonneg  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_complement_shiftRight_toNat  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.uint256_sar_toNat_eq_sarSpec_of_neg  -- private
   -- Compiler.Proofs.YulGeneration.Backends.uint256_sar_toNat_eq_sarSpec  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int_two_pow_eq_nat  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int_fdiv_ofNat_two_pow  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int_sub_modulus_eq_negSucc  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int_fdiv_neg_raw_two_pow  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_ofInt_negSucc_toUint256_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_toInt_of_lt_specSignBit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_toInt_of_specSignBit_le  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_sar_val_of_lt_of_nonneg  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_sar_val_of_lt_of_neg  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.int256_sar_val_of_shift_ge  -- private
   -- Compiler.Proofs.YulGeneration.Backends.int256_sar_toUint256_val_eq_sarSpec  -- private
   Compiler.Proofs.YulGeneration.Backends.int256_sar_toUint256_val_eq_uint256_sar
   -- Compiler.Proofs.YulGeneration.Backends.se_uint256_eq_of_val  -- private
@@ -8720,6 +8757,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.se_nat_to_sign  -- private
   -- Compiler.Proofs.YulGeneration.Backends.se_verity_ofNat  -- private
   -- Compiler.Proofs.YulGeneration.Backends.se_size_to_uint256_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.se_sign_bit_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.se_evm_branch_val  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.se_or_two_pow_of_testBit  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.se_and_mask_255_of_clear  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.se_sign_form_255  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.se_verity_branch_val_of_lt  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.se_verity_branch_val  -- private
   Compiler.Proofs.YulGeneration.Backends.uint256_signextend_val_eq_uint256_signextend
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeState.lean
@@ -8731,6 +8775,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.yulStmtsContainFuncDef_cons
   Compiler.Proofs.YulGeneration.Backends.Native.yulStmtsContainFuncDef_append
   Compiler.Proofs.YulGeneration.Backends.Native.yulStmtsContainFuncDef_flatMap_false
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtGroupNativeWithSwitchIds_for_ok_of_parts  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtGroupNativeWithSwitchIds_switch_ok_of_parts  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtGroupNativeWithSwitchIds_ok_of_yulStmtContainsFuncDef_false
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
   Compiler.Proofs.YulGeneration.Backends.Native.lowerSwitchCasesNativeWithSwitchIds_ok_of_yulSwitchCasesContainFuncDef_false
@@ -8772,6 +8818,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_comment_head_eq
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_if_head_eq
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_eq
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_afterComment  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_eq
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_singleton_switch_eq
   Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtWriteNames_nativeRevertZeroZeroStmt
@@ -8782,6 +8829,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtsWriteNames_nonpayable_dispatch_guard_prefix
   -- Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_revert_zero_zero  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_revert_zero_zero
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_revertGuard_head_eq  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_afterComment  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_revert_eq
   Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtsWriteNames_lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_eq_body
   Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_revert_eq
@@ -8812,6 +8861,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero
   Compiler.Proofs.YulGeneration.Backends.Native.lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero_body
   Compiler.Proofs.YulGeneration.Backends.Native.nativeMappingSlotFunctionDefinition_body
+  -- Compiler.Proofs.YulGeneration.Backends.Native.initFreeMemoryPointer_buildSwitch_ne_funcDef  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.lowerRuntimeContractNative_emitYul_mapping_noInternals_noFallback_noReceive_reserved
   Compiler.Proofs.YulGeneration.Backends.Native.lowerRuntimeContractNative_emitYul_mapping_ok_dispatcher_reserved
   Compiler.Proofs.YulGeneration.Backends.Native.generatedRuntimeFunctionBodiesHaveNoNestedFuncDefs_append
@@ -8932,11 +8982,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_min  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_max  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_ite  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_yulBinOp_ok  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_yulNegatedBinOp_ok  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_yulBoolBinOp_ok  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_unopBuiltin_ok  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_returndataOptionalBoolAtShape_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload_lit  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_sload  -- private
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_storageLoad  -- private
@@ -8965,6 +9010,23 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_packed_read  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_binaryShape_ok  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileExpr_ternaryShape_ok  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridged_of_unaryShape_ok  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridged_of_binaryShape_ok  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridged_of_ternaryShape_ok  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridgedExpr_yulBoolBinOp  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_storage_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_storageAddr_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_storageArrayLength_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_adtTag_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_adtField_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridged_of_mappingSlotRead_ok  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.bridged_of_packedMappingSlotRead_ok  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_mappingPackedWord_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_mapping2_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_mapping2Word_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_structMember_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_structMember2_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.compileExpr_builtinExp_bridged  -- private
   Compiler.Proofs.YulGeneration.Backends.compileExpr_bridgedSource
   Compiler.Proofs.YulGeneration.Backends.compileExpr_keccak256_bridgedSource_of_exprCompileCore
   -- Compiler.Proofs.YulGeneration.Backends.compileRequireFailCond_default_bridgedSource  -- private
@@ -9035,4 +9097,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8311 theorems/lemmas (5564 public, 2747 private, 0 sorry'd)
+-- Total: 8373 theorems/lemmas (5564 public, 2809 private, 0 sorry'd)

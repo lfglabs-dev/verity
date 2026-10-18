@@ -270,6 +270,8 @@ theorem decrement_preserves_wellformedness (s : ContractState)
 
 /-! ## Composition Sequence: constructor → increment → getCount -/
 
+section CompositionSequence
+
 theorem constructor_increment_getCount (s : ContractState) (initialOwner : Address)
   (h_sender : s.sender = initialOwner) :
   let s1 := ((setStorageAddr owner initialOwner).run s).snd
@@ -282,8 +284,9 @@ theorem constructor_increment_getCount (s : ContractState) (initialOwner : Addre
     ContractState.writeAddrSlot, ContractState.readAddrSlot,
     ContractState.writeSlot, ContractState.readSlot,
     Bind.bind, Pure.pure, Contract.run, ContractResult.snd, ContractResult.fst]
-  simp [h_sender, ContractState.storageAddr, ContractState.storage,
-     ]
+  simp [h_sender, ContractState.storageAddr, ContractState.storage]
+
+end CompositionSequence
 
 /-! ## Summary of Proven Properties
 

@@ -271,6 +271,61 @@ theorem yulStmtsContainFuncDef_flatMap_false {α : Type}
         yulStmtsContainFuncDef_append, hx, Bool.false_or]
       exact ih hrest
 
+/-- Native `for` lowering succeeds once its init, post and body lists lower
+successfully from every starting switch counter. -/
+private theorem lowerStmtGroupNativeWithSwitchIds_for_ok_of_parts
+    (reservedNames : List String) (nextSwitchId : Nat)
+    (init post body : List YulStmt) (cond : YulExpr)
+    (hInit : ∀ n, ∃ (native : List EvmYul.Yul.Ast.Stmt) (next : Nat),
+      Backends.lowerStmtsNativeWithSwitchIds reservedNames n init = .ok (native, next))
+    (hPost : ∀ n, ∃ (native : List EvmYul.Yul.Ast.Stmt) (next : Nat),
+      Backends.lowerStmtsNativeWithSwitchIds reservedNames n post = .ok (native, next))
+    (hBody : ∀ n, ∃ (native : List EvmYul.Yul.Ast.Stmt) (next : Nat),
+      Backends.lowerStmtsNativeWithSwitchIds reservedNames n body = .ok (native, next)) :
+    ∃ (native : List EvmYul.Yul.Ast.Stmt) (next : Nat),
+      Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
+        (.for_ init cond post body) = .ok (native, next) := by
+  obtain ⟨initNative, afterInit, hLowerInit⟩ := hInit nextSwitchId
+  obtain ⟨postNative, afterPost, hLowerPost⟩ := hPost afterInit
+  obtain ⟨bodyNative, next, hLowerBody⟩ := hBody afterPost
+  refine
+    ⟨initNative ++ [.For (Backends.lowerExprNative cond) postNative bodyNative],
+      next, ?_⟩
+  rw [Backends.lowerStmtGroupNativeWithSwitchIds, hLowerInit]
+  simp only [Bind.bind, Except.bind]
+  rw [hLowerPost]
+  simp
+  rw [hLowerBody]
+  simp [Pure.pure, Except.pure]
+
+/-- Native `switch` lowering succeeds once its cases and optional default body
+lower successfully from every starting switch counter. -/
+private theorem lowerStmtGroupNativeWithSwitchIds_switch_ok_of_parts
+    (reservedNames : List String) (nextSwitchId : Nat) (expr : YulExpr)
+    (cases : List (Nat × List YulStmt)) (defaultCase : Option (List YulStmt))
+    (hCases : ∀ n, ∃ (native : List (Nat × List EvmYul.Yul.Ast.Stmt)) (next : Nat),
+      Backends.lowerSwitchCasesNativeWithSwitchIds reservedNames n cases =
+        .ok (native, next))
+    (hDefault : ∀ d ∈ defaultCase, ∀ n, ∃ (native : List EvmYul.Yul.Ast.Stmt) (next : Nat),
+      Backends.lowerStmtsNativeWithSwitchIds reservedNames n d = .ok (native, next)) :
+    ∃ (native : List EvmYul.Yul.Ast.Stmt) (next : Nat),
+      Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId
+        (.switch expr cases defaultCase) = .ok (native, next) := by
+  obtain ⟨casesNative, afterCases, hLowerCases⟩ :=
+    hCases (Backends.freshNativeSwitchId reservedNames nextSwitchId + 1)
+  cases defaultCase with
+  | none =>
+      exact ⟨[Backends.lowerNativeSwitchBlock expr
+        (Backends.freshNativeSwitchId reservedNames nextSwitchId) casesNative []],
+        afterCases, by simp [Backends.lowerStmtGroupNativeWithSwitchIds, hLowerCases]⟩
+  | some defaultBody =>
+      obtain ⟨defaultNative, next, hLowerDefault⟩ := hDefault defaultBody rfl afterCases
+      refine ⟨[Backends.lowerNativeSwitchBlock expr
+        (Backends.freshNativeSwitchId reservedNames nextSwitchId)
+        casesNative defaultNative], next, ?_⟩
+      simp [Backends.lowerStmtGroupNativeWithSwitchIds, hLowerCases, Bind.bind, Except.bind,
+        hLowerDefault, Pure.pure, Except.pure]
+
 mutual
 /-- Native statement-group lowering succeeds for any statement with no nested
 function definitions. The native lowerer only rejects inline `funcDef`s; this
@@ -282,99 +337,41 @@ theorem lowerStmtGroupNativeWithSwitchIds_ok_of_yulStmtContainsFuncDef_false
       Backends.lowerStmtGroupNativeWithSwitchIds reservedNames nextSwitchId stmt =
         .ok (native, next) := by
   cases stmt with
-  | comment c => simp
-  | let_ name value => simp
-  | letMany names value => simp
-  | assign name value => simp
-  | exprStmt e => simp
-  | «leave» => simp
   | if_ cond body =>
-      have hBody : yulStmtsContainFuncDef body = false := by
-        simpa [yulStmtContainsFuncDef] using hNoFunc
-      rcases
+      obtain ⟨bodyNative, next, h⟩ :=
         lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
-          reservedNames nextSwitchId body hBody with
-        ⟨bodyNative, next, hLowerBody⟩
-      refine ⟨[.If (Backends.lowerExprNative cond) bodyNative], next, ?_⟩
-      simp [Backends.lowerStmtGroupNativeWithSwitchIds, hLowerBody]
+          reservedNames nextSwitchId body (by simpa [yulStmtContainsFuncDef] using hNoFunc)
+      exact ⟨[.If (Backends.lowerExprNative cond) bodyNative], next,
+        by simp [Backends.lowerStmtGroupNativeWithSwitchIds, h]⟩
   | for_ init cond post body =>
-      have hAll :
-          (yulStmtsContainFuncDef init = false ∧
-            yulStmtsContainFuncDef post = false) ∧
-            yulStmtsContainFuncDef body = false := by
-        simpa [yulStmtContainsFuncDef] using hNoFunc
-      rcases
-        lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
-          reservedNames nextSwitchId init hAll.1.1 with
-        ⟨initNative, afterInit, hLowerInit⟩
-      rcases
-        lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
-          reservedNames afterInit post hAll.1.2 with
-        ⟨postNative, afterPost, hLowerPost⟩
-      rcases
-        lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
-          reservedNames afterPost body hAll.2 with
-        ⟨bodyNative, next, hLowerBody⟩
-      refine
-        ⟨initNative ++ [.For (Backends.lowerExprNative cond) postNative bodyNative],
-          next, ?_⟩
-      rw [Backends.lowerStmtGroupNativeWithSwitchIds]
-      rw [hLowerInit]
-      simp only [Bind.bind, Except.bind]
-      rw [hLowerPost]
-      simp
-      rw [hLowerBody]
-      simp [Pure.pure, Except.pure]
+      simp only [yulStmtContainsFuncDef, Bool.or_eq_false_iff] at hNoFunc
+      exact lowerStmtGroupNativeWithSwitchIds_for_ok_of_parts _ _ _ _ _ _
+        (fun n => lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
+          reservedNames n init hNoFunc.1.1)
+        (fun n => lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
+          reservedNames n post hNoFunc.1.2)
+        (fun n => lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
+          reservedNames n body hNoFunc.2)
   | «switch» expr cases defaultCase =>
-      cases defaultCase with
-      | none =>
-          have hCases : yulSwitchCasesContainFuncDef cases = false := by
-            simpa [yulStmtContainsFuncDef] using hNoFunc
-          rcases
-            lowerSwitchCasesNativeWithSwitchIds_ok_of_yulSwitchCasesContainFuncDef_false
-              reservedNames (Backends.freshNativeSwitchId reservedNames nextSwitchId + 1)
-              cases hCases with
-            ⟨casesNative, next, hLowerCases⟩
-          refine
-            ⟨[Backends.lowerNativeSwitchBlock expr
-                (Backends.freshNativeSwitchId reservedNames nextSwitchId)
-                casesNative []],
-              next, ?_⟩
-          simp [Backends.lowerStmtGroupNativeWithSwitchIds, hLowerCases]
-      | some defaultBody =>
-          have hAll :
-              yulSwitchCasesContainFuncDef cases = false ∧
-                yulStmtsContainFuncDef defaultBody = false := by
-            simpa [yulStmtContainsFuncDef] using hNoFunc
-          rcases
-            lowerSwitchCasesNativeWithSwitchIds_ok_of_yulSwitchCasesContainFuncDef_false
-              reservedNames (Backends.freshNativeSwitchId reservedNames nextSwitchId + 1)
-              cases hAll.1 with
-            ⟨casesNative, afterCases, hLowerCases⟩
-          rcases
-            lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
-              reservedNames afterCases defaultBody hAll.2 with
-            ⟨defaultNative, next, hLowerDefault⟩
-          refine
-            ⟨[Backends.lowerNativeSwitchBlock expr
-                (Backends.freshNativeSwitchId reservedNames nextSwitchId)
-                casesNative defaultNative],
-              next, ?_⟩
-          rw [Backends.lowerStmtGroupNativeWithSwitchIds]
-          simp only [hLowerCases, Bind.bind, Except.bind]
-          rw [hLowerDefault]
-          simp [Pure.pure, Except.pure]
+      cases defaultCase <;>
+        simp only [yulStmtContainsFuncDef, Bool.or_eq_false_iff, Bool.or_false] at hNoFunc
+      · exact lowerStmtGroupNativeWithSwitchIds_switch_ok_of_parts _ _ _ _ _
+          (fun n => lowerSwitchCasesNativeWithSwitchIds_ok_of_yulSwitchCasesContainFuncDef_false
+            reservedNames n cases hNoFunc) (by simp)
+      · exact lowerStmtGroupNativeWithSwitchIds_switch_ok_of_parts _ _ _ _ _
+          (fun n => lowerSwitchCasesNativeWithSwitchIds_ok_of_yulSwitchCasesContainFuncDef_false
+            reservedNames n cases hNoFunc.1)
+          (fun _ hd n => by
+            cases Option.mem_some_iff.mp hd
+            exact lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false _ n _ hNoFunc.2)
   | block stmts =>
-      have hStmts : yulStmtsContainFuncDef stmts = false := by
-        simpa [yulStmtContainsFuncDef] using hNoFunc
-      rcases
+      obtain ⟨stmtsNative, next, h⟩ :=
         lowerStmtsNativeWithSwitchIds_ok_of_yulStmtsContainFuncDef_false
-          reservedNames nextSwitchId stmts hStmts with
-        ⟨stmtsNative, next, hLowerStmts⟩
-      refine ⟨[.Block stmtsNative], next, ?_⟩
-      simp [Backends.lowerStmtGroupNativeWithSwitchIds, hLowerStmts]
-  | funcDef name params rets body =>
-      simp [yulStmtContainsFuncDef] at hNoFunc
+          reservedNames nextSwitchId stmts (by simpa [yulStmtContainsFuncDef] using hNoFunc)
+      exact ⟨[.Block stmtsNative], next,
+        by simp [Backends.lowerStmtGroupNativeWithSwitchIds, h]⟩
+  | funcDef name params rets body => simp [yulStmtContainsFuncDef] at hNoFunc
+  | _ => simp
 
 /-- Native statement-list lowering succeeds for statement lists with no nested
 function definitions. -/
@@ -1240,6 +1237,24 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_eq
   refine ⟨guardBody, bodyNative, bodyStart, ?_, hBody⟩
   rw [hInner, hAfterCommentShape]
 
+/-- A non-payable generated switch-case body lowers to the label no-op followed
+by the lowering of its callvalue guard, calldata guard and user body. -/
+private theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_afterComment
+    (reservedNames : List String) (n0 : Nat) (fn : IRFunction)
+    (inner : List EvmYul.Yul.Ast.Stmt) (next : Nat)
+    (hPayable : fn.payable = false)
+    (h : Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
+      (switchCaseBody fn) = .ok (inner, next)) :
+    ∃ afterComment : List EvmYul.Yul.Ast.Stmt,
+      inner = EvmYul.Yul.Ast.Stmt.Block [] :: afterComment ∧
+      Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
+        (Compiler.CodegenCommon.callvalueGuard ::
+          Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body) =
+        .ok (afterComment, next) := by
+  apply lowerStmtsNativeWithSwitchIds_comment_head_eq reservedNames n0 s!"{fn.name}()"
+  simpa [switchCaseBody, Compiler.CodegenCommon.dispatchBody,
+    Compiler.CodegenCommon.callvalueGuard, hPayable] using h
+
 /-- Successful native lowering of a non-payable generated switch-case body
 exposes the label no-op, the callvalue guard, the calldata-size guard, and the
 lowered user body tail. -/
@@ -1267,42 +1282,15 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_eq
         bodyNative ∧
       Backends.lowerStmtsNativeWithSwitchIds reservedNames bodyStart fn.body =
         .ok (bodyNative, next) := by
-  have hShape :
-      Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
-        (YulStmt.comment s!"{fn.name}()" ::
-          Compiler.CodegenCommon.callvalueGuard ::
-          Compiler.CodegenCommon.calldatasizeGuard fn.params.length ::
-          fn.body) = .ok (inner, next) := by
-    simpa [switchCaseBody, Compiler.CodegenCommon.dispatchBody,
-      Compiler.CodegenCommon.callvalueGuard, hPayable] using h
-  rcases lowerStmtsNativeWithSwitchIds_comment_head_eq
-      reservedNames n0 s!"{fn.name}()"
-      (Compiler.CodegenCommon.callvalueGuard ::
-        Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body)
-      inner next hShape with
-    ⟨afterComment, hInner, hAfterComment⟩
-  rcases lowerStmtsNativeWithSwitchIds_if_head_eq
-      reservedNames n0
-      (Yul.YulExpr.call "callvalue" [])
-      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
-        Yul.YulExpr.lit 0])]
-      (Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body)
-      afterComment next hAfterComment with
-    ⟨callvalueGuardBody, calldataGuardStart, afterCallvalue,
-      hAfterCommentShape, _hCallvalueGuard, hAfterCallvalue⟩
-  rcases lowerStmtsNativeWithSwitchIds_if_head_eq
-      reservedNames calldataGuardStart
-      (Yul.YulExpr.call "lt"
-        [Yul.YulExpr.call "calldatasize" [],
-         Yul.YulExpr.lit (4 + fn.params.length * 32)])
-      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
-        Yul.YulExpr.lit 0])]
-      fn.body afterCallvalue next hAfterCallvalue with
-    ⟨calldataGuardBody, bodyStart, bodyNative, hAfterCallvalueShape,
-      _hCalldataGuard, hBody⟩
-  refine ⟨callvalueGuardBody, calldataGuardBody, bodyNative, bodyStart,
-    ?_, hBody⟩
-  rw [hInner, hAfterCommentShape, hAfterCallvalueShape]
+  obtain ⟨afterComment, hInner, hAfterComment⟩ :=
+    lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_afterComment
+      reservedNames n0 fn inner next hPayable h
+  obtain ⟨callvalueGuardBody, calldataGuardStart, afterCallvalue, hAfterCommentShape, -,
+      hAfterCallvalue⟩ := lowerStmtsNativeWithSwitchIds_if_head_eq _ _ _ _ _ _ _ hAfterComment
+  obtain ⟨calldataGuardBody, bodyStart, bodyNative, hAfterCallvalueShape, -, hBody⟩ :=
+    lowerStmtsNativeWithSwitchIds_if_head_eq _ _ _ _ _ _ _ hAfterCallvalue
+  exact ⟨callvalueGuardBody, calldataGuardBody, bodyNative, bodyStart,
+    by rw [hInner, hAfterCommentShape, hAfterCallvalueShape], hBody⟩
 
 set_option linter.unusedSimpArgs false in
 /-- A singleton `.switch`-headed statement-list lowering reduces to a singleton
@@ -1428,6 +1416,42 @@ theorem lowerStmtsNativeWithSwitchIds_revert_zero_zero
     Bind.bind, Except.bind, Pure.pure, Except.pure,
     List.append_nil]
 
+/-- A generated `revert(0, 0)` guard at the head of a statement list lowers to
+a native `If` around `[nativeRevertZeroZeroStmt]` without advancing the counter. -/
+private theorem lowerStmtsNativeWithSwitchIds_revertGuard_head_eq
+    (reservedNames : List String) (n0 : Nat) (cond : YulExpr) (rest : List YulStmt)
+    (inner : List EvmYul.Yul.Ast.Stmt) (next : Nat)
+    (h : Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
+      (YulStmt.if_ cond
+        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] ::
+        rest) = .ok (inner, next)) :
+    ∃ rest' : List EvmYul.Yul.Ast.Stmt,
+      inner = EvmYul.Yul.Ast.Stmt.If (Backends.lowerExprNative cond)
+        [nativeRevertZeroZeroStmt] :: rest' ∧
+      Backends.lowerStmtsNativeWithSwitchIds reservedNames n0 rest = .ok (rest', next) := by
+  obtain ⟨body', midN, rest', hInner, hGuard, hRest⟩ :=
+    lowerStmtsNativeWithSwitchIds_if_head_eq _ _ _ _ _ _ _ h
+  rw [lowerStmtsNativeWithSwitchIds_revert_zero_zero] at hGuard
+  cases hGuard
+  exact ⟨rest', hInner, hRest⟩
+
+/-- A payable generated switch-case body lowers to the label no-op followed by
+the lowering of its calldata guard and user body. -/
+private theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_afterComment
+    (reservedNames : List String) (n0 : Nat) (fn : IRFunction)
+    (inner : List EvmYul.Yul.Ast.Stmt) (next : Nat)
+    (hPayable : fn.payable = true)
+    (h : Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
+      (switchCaseBody fn) = .ok (inner, next)) :
+    ∃ afterComment : List EvmYul.Yul.Ast.Stmt,
+      inner = EvmYul.Yul.Ast.Stmt.Block [] :: afterComment ∧
+      Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
+        (Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body) =
+        .ok (afterComment, next) := by
+  apply lowerStmtsNativeWithSwitchIds_comment_head_eq reservedNames n0 s!"{fn.name}()"
+  simpa [switchCaseBody, Compiler.CodegenCommon.dispatchBody,
+    Compiler.CodegenCommon.callvalueGuard, hPayable] using h
+
 /-- Concrete generated-guard variant of
 `lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_eq`: the payable case
 prefix lowers the generated calldata-size guard body to
@@ -1452,37 +1476,12 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_revert_eq
         bodyNative ∧
       Backends.lowerStmtsNativeWithSwitchIds reservedNames bodyStart fn.body =
         .ok (bodyNative, next) := by
-  have hShape :
-      Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
-        (YulStmt.comment s!"{fn.name}()" ::
-          Compiler.CodegenCommon.calldatasizeGuard fn.params.length ::
-          fn.body) = .ok (inner, next) := by
-    simpa [switchCaseBody, Compiler.CodegenCommon.dispatchBody,
-      Compiler.CodegenCommon.callvalueGuard, hPayable] using h
-  rcases lowerStmtsNativeWithSwitchIds_comment_head_eq
-      reservedNames n0 s!"{fn.name}()"
-      (Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body)
-      inner next hShape with
-    ⟨afterComment, hInner, hAfterComment⟩
-  rcases lowerStmtsNativeWithSwitchIds_if_head_eq
-      reservedNames n0
-      (Yul.YulExpr.call "lt"
-        [Yul.YulExpr.call "calldatasize" [],
-         Yul.YulExpr.lit (4 + fn.params.length * 32)])
-      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
-        Yul.YulExpr.lit 0])]
-      fn.body afterComment next hAfterComment with
-    ⟨guardBody, bodyStart, bodyNative, hAfterCommentShape, hGuard,
-      hBody⟩
-  have hGuardPair :
-      ([nativeRevertZeroZeroStmt], n0) = (guardBody, bodyStart) := by
-    exact Except.ok.inj
-      ((lowerStmtsNativeWithSwitchIds_revert_zero_zero reservedNames n0).symm.trans
-        hGuard)
-  have hGuardBody : guardBody = [nativeRevertZeroZeroStmt] := by
-    exact (congrArg Prod.fst hGuardPair).symm
-  refine ⟨bodyNative, bodyStart, ?_, hBody⟩
-  rw [hInner, hAfterCommentShape, hGuardBody]
+  obtain ⟨afterComment, hInner, hAfterComment⟩ :=
+    lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_afterComment
+      reservedNames n0 fn inner next hPayable h
+  obtain ⟨bodyNative, hAfterCommentShape, hBody⟩ :=
+    lowerStmtsNativeWithSwitchIds_revertGuard_head_eq _ _ _ _ _ _ hAfterComment
+  exact ⟨bodyNative, n0, by rw [hInner, hAfterCommentShape], hBody⟩
 
 theorem nativeStmtsWriteNames_lowerStmtsNativeWithSwitchIds_switchCaseBody_payable_eq_body
     (reservedNames : List String) (n0 : Nat)
@@ -1530,60 +1529,15 @@ theorem lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_revert_eq
         bodyNative ∧
       Backends.lowerStmtsNativeWithSwitchIds reservedNames bodyStart fn.body =
         .ok (bodyNative, next) := by
-  have hShape :
-      Backends.lowerStmtsNativeWithSwitchIds reservedNames n0
-        (YulStmt.comment s!"{fn.name}()" ::
-          Compiler.CodegenCommon.callvalueGuard ::
-          Compiler.CodegenCommon.calldatasizeGuard fn.params.length ::
-          fn.body) = .ok (inner, next) := by
-    simpa [switchCaseBody, Compiler.CodegenCommon.dispatchBody,
-      Compiler.CodegenCommon.callvalueGuard, hPayable] using h
-  rcases lowerStmtsNativeWithSwitchIds_comment_head_eq
-      reservedNames n0 s!"{fn.name}()"
-      (Compiler.CodegenCommon.callvalueGuard ::
-        Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body)
-      inner next hShape with
-    ⟨afterComment, hInner, hAfterComment⟩
-  rcases lowerStmtsNativeWithSwitchIds_if_head_eq
-      reservedNames n0
-      (Yul.YulExpr.call "callvalue" [])
-      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
-        Yul.YulExpr.lit 0])]
-      (Compiler.CodegenCommon.calldatasizeGuard fn.params.length :: fn.body)
-      afterComment next hAfterComment with
-    ⟨callvalueGuardBody, calldataGuardStart, afterCallvalue,
-      hAfterCommentShape, hCallvalueGuard, hAfterCallvalue⟩
-  rcases lowerStmtsNativeWithSwitchIds_if_head_eq
-      reservedNames calldataGuardStart
-      (Yul.YulExpr.call "lt"
-        [Yul.YulExpr.call "calldatasize" [],
-         Yul.YulExpr.lit (4 + fn.params.length * 32)])
-      [YulStmt.exprStmt (Yul.YulExpr.call "revert" [Yul.YulExpr.lit 0,
-        Yul.YulExpr.lit 0])]
-      fn.body afterCallvalue next hAfterCallvalue with
-    ⟨calldataGuardBody, bodyStart, bodyNative, hAfterCallvalueShape,
-      hCalldataGuard, hBody⟩
-  have hCallvaluePair :
-      ([nativeRevertZeroZeroStmt], n0) =
-        (callvalueGuardBody, calldataGuardStart) := by
-    exact Except.ok.inj
-      ((lowerStmtsNativeWithSwitchIds_revert_zero_zero reservedNames n0).symm.trans
-        hCallvalueGuard)
-  have hCallvalueGuardBody :
-      callvalueGuardBody = [nativeRevertZeroZeroStmt] := by
-    exact (congrArg Prod.fst hCallvaluePair).symm
-  have hCalldataPair :
-      ([nativeRevertZeroZeroStmt], calldataGuardStart) =
-        (calldataGuardBody, bodyStart) := by
-    exact Except.ok.inj
-      ((lowerStmtsNativeWithSwitchIds_revert_zero_zero
-        reservedNames calldataGuardStart).symm.trans hCalldataGuard)
-  have hCalldataGuardBody :
-      calldataGuardBody = [nativeRevertZeroZeroStmt] := by
-    exact (congrArg Prod.fst hCalldataPair).symm
-  refine ⟨bodyNative, bodyStart, ?_, hBody⟩
-  rw [hInner, hAfterCommentShape, hAfterCallvalueShape,
-    hCallvalueGuardBody, hCalldataGuardBody]
+  obtain ⟨afterComment, hInner, hAfterComment⟩ :=
+    lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_afterComment
+      reservedNames n0 fn inner next hPayable h
+  obtain ⟨afterCallvalue, hAfterCommentShape, hAfterCallvalue⟩ :=
+    lowerStmtsNativeWithSwitchIds_revertGuard_head_eq _ _ _ _ _ _ hAfterComment
+  obtain ⟨bodyNative, hAfterCallvalueShape, hBody⟩ :=
+    lowerStmtsNativeWithSwitchIds_revertGuard_head_eq _ _ _ _ _ _ hAfterCallvalue
+  exact ⟨bodyNative, n0,
+    by rw [hInner, hAfterCommentShape, hAfterCallvalueShape], hBody⟩
 
 theorem nativeStmtsWriteNames_lowerStmtsNativeWithSwitchIds_switchCaseBody_nonpayable_eq_body
     (reservedNames : List String) (n0 : Nat)
@@ -2297,6 +2251,19 @@ theorem nativeMappingSlotFunctionDefinition_body :
     nativeMappingSlotFunctionDefinition.body = nativeMappingSlotFunctionBody := by
   rfl
 
+/-- The free-memory-pointer initializer and the generated dispatcher switch are
+not inline function definitions. -/
+private theorem initFreeMemoryPointer_buildSwitch_ne_funcDef
+    (functions : List IRFunction) :
+    ∀ stmt, stmt ∈ [Compiler.CodegenCommon.initFreeMemoryPointer,
+        Compiler.CodegenCommon.buildSwitch functions none none] →
+      ∀ name params rets body, stmt ≠ YulStmt.funcDef name params rets body := by
+  intro stmt hmem name params rets body h
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with rfl | rfl
+  · simp [Compiler.CodegenCommon.initFreeMemoryPointer] at h
+  · simp [Compiler.CodegenCommon.buildSwitch] at h
+
 /-- Mapping-helper, no-internal/no-fallback/no-receive emitted runtimes lower
 by first packaging the generated `mappingSlot` helper into the native function
 map, then lowering the dispatcher in the full emitted-runtime reserved-name
@@ -2326,34 +2293,9 @@ theorem lowerRuntimeContractNative_emitYul_mapping_noInternals_noFallback_noRece
   simp only [Compiler.CodegenCommon.mappingSlotFuncAt]
   rw [Backends.lowerRuntimeContractNativeAux_funcDef_cons_empty_of_lowerFunctionDefinition
     (definition := nativeMappingSlotFunctionDefinition)]
-  · rw [lowerRuntimeContractNativeAux_nonFunc_eq_lowerStmtsNativeWithSwitchIds]
-    · cases hLower :
-        Backends.lowerStmtsNativeWithSwitchIds
-        (Backends.yulStmtsIdentifierNames
-          [YulStmt.funcDef "mappingSlot" ["baseSlot", "key"] ["slot"]
-              [YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 0, YulExpr.ident "key"]),
-                YulStmt.exprStmt (YulExpr.call "mstore" [YulExpr.lit 32, YulExpr.ident "baseSlot"]),
-                YulStmt.assign "slot" (YulExpr.call "keccak256" [YulExpr.lit 0, YulExpr.lit 64])],
-            Compiler.CodegenCommon.initFreeMemoryPointer,
-            Compiler.CodegenCommon.buildSwitch contract.functions none none])
-        0 [Compiler.CodegenCommon.initFreeMemoryPointer,
-          Compiler.CodegenCommon.buildSwitch contract.functions none none] with
-      | error err =>
-          simp [   Bind.bind, Except.bind,
-            ]
-      | ok pair =>
-          cases pair
-          simp [   Bind.bind, Except.bind,
-            Pure.pure, Except.pure]
-    · intro stmt hmem name params rets body h
-      simp only [List.mem_cons] at hmem
-      rcases hmem with hInit | hSwitch
-      · subst hInit
-        simp [Compiler.CodegenCommon.initFreeMemoryPointer] at h
-      · rcases hSwitch with hSwitch | hNil
-        · subst hSwitch
-          simp [Compiler.CodegenCommon.buildSwitch] at h
-        · cases hNil
+  · rw [lowerRuntimeContractNativeAux_nonFunc_eq_lowerStmtsNativeWithSwitchIds _ _ _ _ _
+      (initFreeMemoryPointer_buildSwitch_ne_funcDef contract.functions)]
+    split <;> simp_all [Bind.bind, Except.bind, Pure.pure, Except.pure]
   · exact lowerFunctionDefinitionNativeWithReserved_mappingSlotFuncAt_zero_body _
 
 /-- If mapping-helper emitted runtime lowering succeeds, the successful
