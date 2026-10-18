@@ -146,7 +146,7 @@ example :
       defaultState).getValue? = some 9 := by
   native_decide
 
-verity_contract MorphoStyleOracleSummarySmoke where
+verity_contract OracleSummarySmoke where
   storage
     lastPrice : Uint256 := slot 0
 
@@ -160,8 +160,8 @@ verity_contract MorphoStyleOracleSummarySmoke where
     setStorage lastPrice price
     return price
 
-def morphoOracleReadUsesSummary : Bool :=
-  (MorphoStyleOracleSummarySmoke.spec.functions).any (fun fn =>
+def oracleReadUsesSummary : Bool :=
+  (OracleSummarySmoke.spec.functions).any (fun fn =>
     fn.name == "snapshotPrice" &&
       fn.body.any (fun stmt =>
         match stmt with
@@ -179,11 +179,11 @@ def morphoOracleReadUsesSummary : Bool :=
               args.length == 1
         | _ => false))
 
-example : morphoOracleReadUsesSummary = true := by
+example : oracleReadUsesSummary = true := by
   decide
 
 example :
-    let result := (MorphoStyleOracleSummarySmoke.snapshotPrice (23 : Address)).run defaultState
+    let result := (OracleSummarySmoke.snapshotPrice (23 : Address)).run defaultState
     result.getState.calls.map (·.kind) = [.staticcall] ∧
       result.getState.calls.map (·.target) = [23] := by
   decide

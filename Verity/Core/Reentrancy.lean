@@ -12,7 +12,9 @@
     * `System`/`lift`/`Isys` — the additive multi-contract (vN) layer. The v1
       `ReentrancySpec` is the single-slot instance; no v1 proof is redone.
 
-  The design intent is the Midnight `take` callback-reentrancy bug: with a
+  The design intent is the cross-function callback-reentrancy bug, where an
+  external call hands control to a callee that re-enters a *different*
+  entrypoint and observes transiently inconsistent state: with a
   lock-as-disjunct invariant `I s := healthy s ∨ locked s`, a transiently
   unhealthy but *locked* position still satisfies `I`, so no reentrant
   `liquidate` can fire during the trade window. See

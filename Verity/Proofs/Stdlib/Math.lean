@@ -171,7 +171,7 @@ private theorem max_uint256_lt_modulus :
     MAX_UINT256 < Verity.Core.Uint256.modulus :=
   lt_modulus_of_le_max (Nat.le_refl MAX_UINT256)
 
-/-! ## TickLib fixed-point exponential reference -/
+/-! ## Fixed-point exponential (`wadExp`) reference -/
 
 /-- The nonnegative residual kernel used by `tickWExpReference` is monotone. -/
 theorem wExpCubicKernel_mono {a b : Nat} (h : a ≤ b) :
@@ -196,7 +196,7 @@ theorem wExpCubicKernel_ge_linear (r : Nat) :
     WAD_NAT + r ≤ wExpCubicKernel r := by
   simp [wExpCubicKernel, Nat.add_assoc]
 
-/-- The wad scale used by the TickLib exponential kernel is positive. -/
+/-- The wad scale used by the fixed-point exponential (`wadExp`) kernel is positive. -/
 private theorem WAD_NAT_pos : 0 < WAD_NAT := by
   decide
 
@@ -288,7 +288,7 @@ theorem exact_cubic_lt_wExpCubicKernel_scaled_add_error (r : Nat) :
         simp [wExpCubicKernel, second, third, q]
         ring
 
-/-- On the nonnegative TickLib residual interval (`r ≤ WEXP_LN2`), the
+/-- On the nonnegative `wadExp` residual interval (`r ≤ WEXP_LN2`), the
 unbounded floor-propagation term vanishes, giving a constant-`3` lower sandwich
 for the exact cubic numerator. -/
 theorem exact_cubic_lt_wExpCubicKernel_scaled_add_three {r : Nat}
@@ -307,7 +307,7 @@ theorem exact_cubic_lt_wExpCubicKernel_scaled_add_three {r : Nat}
         rw [hq_zero]
 
 /-- The exact cubic Taylor polynomial used by the residual kernel has a
-fourth-order analytic error against `Real.exp` on the TickLib residual range. -/
+fourth-order analytic error against `Real.exp` on the `wadExp` residual range. -/
 theorem exact_cubic_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
     |Real.exp ((r : ℝ) / WAD_NAT)
         - (1 + (r:ℝ)/WAD_NAT + ((r:ℝ)/WAD_NAT)^2 / 2 + ((r:ℝ)/WAD_NAT)^3 / 6)|
@@ -337,7 +337,7 @@ theorem exact_cubic_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
   simpa [x] using h
 
 /-- The integer residual kernel differs from the real exponential by the sum of
-its floor-truncation slack and the cubic Taylor remainder on the TickLib
+its floor-truncation slack and the cubic Taylor remainder on the `wadExp`
 residual range. -/
 theorem wExpCubicKernel_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
     |((wExpCubicKernel r : ℝ) / WAD_NAT) - Real.exp ((r:ℝ)/WAD_NAT)|
@@ -378,7 +378,7 @@ theorem wExpCubicKernel_real_error {r : Nat} (hr : r ≤ WEXP_LN2) :
     |k - Real.exp x| ≤ |k - P| + |P - Real.exp x| := abs_sub_le k P (Real.exp x)
     _ ≤ 3 / (WAD_NAT : ℝ) + x^4 * (5 / 96) := add_le_add hkP hPexp
 
-/-- The TickLib range-reduction `ln 2` constant approximates `Real.log 2`
+/-- The `wadExp` range-reduction `ln 2` constant approximates `Real.log 2`
 within three tenths of a nanounit at WAD scale. -/
 theorem wExpLn2_approx_error :
     |((WEXP_LN2 : ℝ) / WAD_NAT) - Real.log 2| ≤ 3 / 10 ^ 10 := by
@@ -391,7 +391,7 @@ theorem wExpLn2_approx_error :
     norm_num [WEXP_LN2, WAD_NAT] at hlog_gt ⊢
     linarith
 
-/-- `Real.exp` of the TickLib range-reduction `ln 2` constant equals `2` to
+/-- `Real.exp` of the `wadExp` range-reduction `ln 2` constant equals `2` to
 within two parts per billion: the base of the `2^q` scaling in
 `tickWExpReference`. -/
 theorem wExpLn2_exp_approx_two :
@@ -510,7 +510,7 @@ theorem abs_pow_sub_pow_le (b c : ℝ) (n : Nat) :
             exact add_le_add hleft hright
         _ ≤ ((n + 1 : Nat) : ℝ) * M ^ n * d := pow_step_bound M d n
 
-/-- Power error for the TickLib `ln 2` range-reduction base.
+/-- Power error for the `wadExp` `ln 2` range-reduction base.
 
 We use the closed form
 `q * (2001/1000)^q * (2/10^9)`: the existing `2e-9` estimate shows
@@ -678,7 +678,7 @@ private theorem sdivTrunc_neg_third_of_nat (secondNat s : Nat) :
   simpa [Int.natCast_mul] using
     sdivTrunc_neg_ofNat_mul_WAD (secondNat * s) 3 (by norm_num)
 
-/-- On a negative residual, signed truncating division evaluates the TickLib
+/-- On a negative residual, signed truncating division evaluates the `wadExp`
 cubic kernel as the expected alternating floor expression. -/
 theorem wExpSignedCubicKernel_neg_eq (s : Nat) :
     wExpSignedCubicKernel (-(s:Int))
@@ -929,7 +929,7 @@ theorem wExpRangeR_eq_mod_sub_offset (xAbs : Nat) :
       ((WEXP_RANGE_OFFSET : Nat) : Int)
   omega
 
-/-- Lower bound for the TickLib range-reduction residual. -/
+/-- Lower bound for the `wadExp` range-reduction residual. -/
 theorem wExpRangeR_lower_bound (xAbs : Nat) :
     -Int.ofNat WEXP_RANGE_OFFSET ≤ wExpRangeR xAbs := by
   rw [wExpRangeR_eq_mod_sub_offset]
@@ -937,7 +937,7 @@ theorem wExpRangeR_lower_bound (xAbs : Nat) :
     exact Int.natCast_nonneg _
   omega
 
-/-- Upper bound for the TickLib range-reduction residual. -/
+/-- Upper bound for the `wadExp` range-reduction residual. -/
 theorem wExpRangeR_upper_bound (xAbs : Nat) :
     wExpRangeR xAbs < Int.ofNat (WEXP_LN2 - WEXP_RANGE_OFFSET) := by
   rw [wExpRangeR_eq_mod_sub_offset]
@@ -954,7 +954,7 @@ theorem wExpRangeR_upper_bound (xAbs : Nat) :
   rw [Int.natCast_sub hoff_le]
   omega
 
-/-- Tight interval for the TickLib range-reduction residual. -/
+/-- Tight interval for the `wadExp` range-reduction residual. -/
 theorem wExpRangeR_bounds (xAbs : Nat) :
     -Int.ofNat WEXP_RANGE_OFFSET ≤ wExpRangeR xAbs ∧
       wExpRangeR xAbs < Int.ofNat (WEXP_LN2 - WEXP_RANGE_OFFSET) :=
@@ -1000,7 +1000,7 @@ private theorem wExpSignedCubicKernel_neg_nonneg_of_le_offset {s : Nat}
     add_nonneg hbase htail
   simpa [sub_eq_add_neg, add_assoc] using hsum
 
-/-- The signed cubic kernel is non-negative throughout the TickLib
+/-- The signed cubic kernel is non-negative throughout the `wadExp`
 range-reduction residual interval. -/
 theorem wExpSignedCubicKernel_nonneg_of_range {r : Int}
     (hr0 : -(WEXP_RANGE_OFFSET : Int) ≤ r) (_hr1 : r ≤ (WEXP_LN2 : Int)) :
@@ -1045,7 +1045,7 @@ private theorem wExpSignedCubicKernel_neg_pos_of_le_offset {s : Nat}
     add_pos_of_pos_of_nonneg hbase htail
   simpa [sub_eq_add_neg, add_assoc] using hsum
 
-/-- The signed cubic kernel is strictly positive throughout the TickLib
+/-- The signed cubic kernel is strictly positive throughout the `wadExp`
 range-reduction residual interval. -/
 theorem wExpSignedCubicKernel_pos_of_range {r : Int}
     (hr0 : -(WEXP_RANGE_OFFSET : Int) ≤ r) (_hr1 : r ≤ (WEXP_LN2 : Int)) :
@@ -1149,7 +1149,7 @@ private theorem real_abs_mul_sub_mul_le
 
 /-- Capstone real-error bound for `tickWExpReference` on the non-negative input
 branch. This composes the residual cubic-kernel error with the `ln 2`
-power approximation after TickLib's exact range decomposition. -/
+power approximation after the `wadExp` exact range decomposition. -/
 theorem tickWExpReference_real_error_nonneg {x : Int} (hx : 0 ≤ x) :
     |((tickWExpReference x : ℝ) / (WAD_NAT : ℝ))
         - Real.exp ((wExpAbsInput x : ℝ) / (WAD_NAT : ℝ))|

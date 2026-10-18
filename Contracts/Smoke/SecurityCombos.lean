@@ -360,18 +360,18 @@ error: #check_contract failed for 'Contracts.Smoke.CEICallBothBranchesWrite': Co
 #check_contract CEICallBothBranchesWrite
 
 -- ════════════════════════════════════════════════════════════════════════════
--- Cross-function reentrancy gate (#1728): the Midnight `take`/`liquidate` shape
+-- Cross-function reentrancy gate (#1728): the callback-then-reenter shape
 -- ════════════════════════════════════════════════════════════════════════════
 -- `takeWithoutDisposition` is textbook CEI-CLEAN: every state write precedes the
 -- external call, so the single-function CEI check is satisfied — yet the
 -- contract is still REJECTED. That is the entire point of the gate. A CEI-clean
--- `take` is exactly the Midnight bug shape: while the external call is in
--- flight, control is handed to an untrusted callee that can re-enter a
--- *different* entrypoint (e.g. `liquidate`) and observe this contract's
+-- `take` is exactly the cross-function callback-reentrancy shape: while the
+-- external call is in flight, control is handed to an untrusted callee that can
+-- re-enter a *different* entrypoint (e.g. `liquidate`) and observe this contract's
 -- half-updated state. CEI reasons within one function and cannot see that
 -- cross-function window; only an explicit disposition can close it. This is the
--- keystone regression test — it proves the Midnight callback reentrancy bug
--- cannot pass `#check_contract` undeclared.
+-- keystone regression test — it proves the cross-function callback-reentrancy
+-- bug cannot pass `#check_contract` undeclared.
 verity_contract ReentrancyDispositionRequired where
   storage
     balance : Uint256 := slot 0

@@ -3,7 +3,7 @@ pragma solidity 0.8.34;
 
 bytes32 constant COLLATERAL_PARAMS_TYPEHASH = 0x39ed3f928d24fd00574b1a02aba9c2483abcf5d9a3a366118c9a5aa29885b841;
 bytes32 constant EIP712_DOMAIN_TYPEHASH = 0x47e79534a245952e8b16893a336b85a3d9ea9fa8c573f3d803afb92a79469218;
-bytes32 constant CALLBACK_SUCCESS = keccak256("morpho.midnight.callbackSuccess");
+bytes32 constant CALLBACK_SUCCESS = keccak256("verity.smoke.callbackSuccess");
 int256 constant LN_ONE_PLUS_DELTA = 9999500033329732;
 int256 constant NEGATIVE_SLOPE = -125;
 address constant DEFAULT_TREASURY = address(0x000000000000000000000000000000000000dEaD);
