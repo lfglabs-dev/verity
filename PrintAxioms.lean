@@ -2977,6 +2977,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.storageArray  -- private
   -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.dynamicBytesEq  -- private
   -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.checkedArithmetic  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.except_bind_eq_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.except_ite_bind  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.templateIntrinsicHelpers_reserved_of_ite_ok  -- private
+  -- Compiler.Proofs.IRGeneration.Contract.compileValidatedCore_ok_internalFunctions_shape  -- private
   -- Compiler.Proofs.IRGeneration.Contract.DecodedInternalHelperNamesReserved.compileValidatedCore_helpers  -- private
   Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
   Compiler.Proofs.IRGeneration.Contract.InternalTableNamesReserved_of_compileValidatedCore
@@ -2984,6 +2988,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Contract.legacyCompatibleRuntimeContract_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
   Compiler.Proofs.IRGeneration.Contract.compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
+  -- Compiler.Proofs.IRGeneration.Contract.validateCompileInputs_ok_of_compile  -- private
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics
   -- Compiler.Proofs.IRGeneration.Contract.scalar_events_contract_function_callback  -- private
   Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_scalar_events
@@ -3018,6 +3023,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.stopOnly_txNormalized  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.stopOnly_calldataFits  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_noConflict  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileBody_head  -- private
+  -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileBody_tail  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileBody_empty_surfaces_withFork  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileBody  -- private
   -- Compiler.Proofs.IRGeneration.ContractFeatureTest.constructorOnly_compileConstructor  -- private
@@ -5055,6 +5062,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execResultToIRResult_releasedResult
   Compiler.Proofs.IRGeneration.prebindRawArgs_transient
   Compiler.Proofs.IRGeneration.acquiredBoundState_eq
+  -- Compiler.Proofs.IRGeneration.guardedFn_body_params_eq  -- private
+  -- Compiler.Proofs.IRGeneration.execIRFunctionFuel_eq_of_prebound  -- private
+  -- Compiler.Proofs.IRGeneration.exec_guardedFn_eq_of_prebound  -- private
+  -- Compiler.Proofs.IRGeneration.execResultToIRResult_guarded  -- private
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_fallthrough
   Compiler.Proofs.IRGeneration.exec_compiledGuardedFunctionIR_of_body_halting
 
@@ -8908,4 +8919,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8184 theorems/lemmas (5562 public, 2622 private, 0 sorry'd)
+-- Total: 8195 theorems/lemmas (5562 public, 2633 private, 0 sorry'd)

@@ -179,49 +179,24 @@ theorem compileInternalFunction_body_eq_external_of_returnFree
     (hreturnFree : stmtListUsesReturnFamily spec.body = false) :
     ∃ returns retNames bodyStmts,
       CompilationModel.functionReturns spec = Except.ok returns ∧
-      CompilationModel.compileStmtListWithFork fields events errors .calldata
-        [] false
+      CompilationModel.compileStmtListWithFork fields events errors .calldata [] false
         (CompilationModel.internalFunctionYulParamNames spec.params ++ retNames)
         adtTypes targetFork spec.body internalFunctions = Except.ok bodyStmts ∧
-      stmt = YulStmt.funcDef
-        (CompilationModel.internalFunctionYulName spec.name)
+      stmt = YulStmt.funcDef (CompilationModel.internalFunctionYulName spec.name)
         (CompilationModel.internalFunctionYulParamNames spec.params) retNames bodyStmts := by
   simp only [CompilationModel.compileInternalFunction, bind, Except.bind] at hcompile
-  cases hvalidate : CompilationModel.validateFunctionSpec spec with
-  | error e =>
-      simp [hvalidate] at hcompile
-  | ok _ =>
-      simp only [hvalidate] at hcompile
-      cases hreturns : CompilationModel.functionReturns spec with
-      | error e =>
-          simp [hreturns] at hcompile
-      | ok returns =>
-          simp only [hreturns] at hcompile
-          let paramNames := CompilationModel.internalFunctionYulParamNames spec.params
-          let usedNames := paramNames ++ collectStmtListBindNames spec.body
-          let retNames := CompilationModel.freshInternalRetNames returns usedNames
-          have hirrel :
-              CompilationModel.compileStmtListWithFork fields events errors .calldata
-                retNames true (paramNames ++ retNames) adtTypes targetFork
-                spec.body internalFunctions =
-              CompilationModel.compileStmtListWithFork fields events errors .calldata
-                [] false (paramNames ++ retNames) adtTypes targetFork
-                spec.body internalFunctions :=
-            compileStmtListWithFork_internal_shape_irrelevant_of_returnFree fields events errors
-              .calldata retNames true (paramNames ++ retNames) adtTypes targetFork
-              spec.body internalFunctions hreturnFree
-          cases hbody :
-              CompilationModel.compileStmtListWithFork fields events errors .calldata
-                retNames true (paramNames ++ retNames) adtTypes targetFork spec.body
-                internalFunctions with
-          | error e =>
-              rw [hbody] at hcompile
-              cases hcompile
-          | ok bodyStmts =>
-              rw [hbody] at hcompile
-              simp only [pure, Except.pure, Except.ok.injEq] at hcompile
-              refine ⟨returns, retNames, bodyStmts, rfl, ?_, hcompile.symm⟩
-              rw [← hirrel, hbody]
+  rcases hvalidate : CompilationModel.validateFunctionSpec spec with _ | _
+  · simp [hvalidate] at hcompile
+  rcases hreturns : CompilationModel.functionReturns spec with _ | returns
+  · simp [hvalidate, hreturns] at hcompile
+  simp only [hvalidate, hreturns] at hcompile
+  split at hcompile
+  · cases hcompile
+  rename_i bodyStmts hbody
+  simp only [pure, Except.pure, Except.ok.injEq] at hcompile
+  refine ⟨returns, _, bodyStmts, rfl, ?_, hcompile.symm⟩
+  exact (compileStmtListWithFork_internal_shape_irrelevant_of_returnFree _ _ _ _ _ true _ _ _ _ _
+    hreturnFree).symm.trans hbody
 
 /-- Exact runtime-table lookup for a supported compiled helper, specialized to
 the witness type consumed by helper-call bridge code.  The uniqueness

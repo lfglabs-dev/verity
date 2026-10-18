@@ -535,18 +535,11 @@ theorem compile_ok_yields_noReceiveEntrypoint_except_mapping_writes
 `compileFunctionSpec`, with no residual body-level premises such as `hsource`,
 `hbodyExec`, or `hmatch`. -/
 theorem compileFunctionSpec_correct_generic
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (fn : FunctionSpec) (sel : Nat) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hcompileFn :
       compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
@@ -554,33 +547,18 @@ theorem compileFunctionSpec_correct_generic
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  have hfnModel : fn ∈ model.functions := List.mem_of_mem_filter hfn
   rcases Function.compileFunctionSpec_ok_components
       (habi := (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
       model.fields model.events model.errors sel fn irFn hcompileFn with
     ⟨returns, bodyStmts, hvalidate, hreturns, hbodyCompile, hirFn⟩
   subst hirFn
-  have hcorrect :=
-    Function.supported_function_correct
-    (model := model)
-    (selectors := selectors)
-    (hSupported := hSupported)
-    (hvalidateInputs := hvalidateInputs)
-    (fn := fn)
-    (selector := sel)
-    (returns := returns)
-    (bodyStmts := bodyStmts)
-    (irFn := Function.compiledFunctionIR sel fn returns bodyStmts)
-    (tx := tx)
-    (initialWorld := initialWorld)
-    (htxNormalized := htxNormalized)
-    (bindings := bindings)
-    (hfn := hfn)
-    (hvalidate := hvalidate)
-    (hreturns := hreturns)
-    (hbodyCompile := hbodyCompile)
-    (hcompile := by simpa using hcompileFn)
-    (hbind := hbind)
+  have hcorrect := Function.supported_function_correct (model := model)
+    (selectors := selectors) (hSupported := hSupported) (hvalidateInputs := hvalidateInputs)
+    (fn := fn) (selector := sel) (returns := returns) (bodyStmts := bodyStmts)
+    (irFn := Function.compiledFunctionIR sel fn returns bodyStmts) (tx := tx)
+    (initialWorld := initialWorld) (htxNormalized := htxNormalized) (bindings := bindings)
+    (hfn := hfn) (hvalidate := hvalidate) (hreturns := hreturns)
+    (hbodyCompile := hbodyCompile) (hcompile := by simpa using hcompileFn) (hbind := hbind)
     (hcalldataSizeFits := hcalldataSizeFits)
   simpa [supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
     (hSupported := hSupported) hfn tx initialWorld] using hcorrect
@@ -632,17 +610,11 @@ theorem compileFunctionSpec_correct_generic_except_mapping_writes
     (hSupported := hSupported) hfn tx initialWorld] using hcorrect
 
 theorem compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety
-    (model : CompilationModel)
-    (selectors : List Nat)
+    (model : CompilationModel) (selectors : List Nat)
     (hSupported : SupportedSpecExceptMappingWrites model selectors)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (fn : FunctionSpec) (sel : Nat) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hnoConflict : firstFieldWriteSlotConflict model.fields = none)
     (hsafety : ∀ stmt ∈ fn.body, StmtMappingWriteSlotSafe model.fields stmt)
     (hfn : fn ∈ selectorDispatchedFunctions model)
@@ -654,21 +626,10 @@ theorem compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety
       (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   have hcorrect :=
     Function.supported_function_correct_except_mapping_writes_stmtSafety
-      (model := model)
-      (selectors := selectors)
-      (hSupported := hSupported)
-      (fn := fn)
-      (selector := sel)
-      (irFn := irFn)
-      (tx := tx)
-      (initialWorld := initialWorld)
-      (bindings := bindings)
-      (hfn := hfn)
-      (hcompileFn := hcompileFn)
-      (hbind := hbind)
-      (hnoConflict := hnoConflict)
-      (hsafety := hsafety)
-      (htxNormalized := htxNormalized)
+      (model := model) (selectors := selectors) (hSupported := hSupported) (fn := fn)
+      (selector := sel) (irFn := irFn) (tx := tx) (initialWorld := initialWorld)
+      (bindings := bindings) (hfn := hfn) (hcompileFn := hcompileFn) (hbind := hbind)
+      (hnoConflict := hnoConflict) (hsafety := hsafety) (htxNormalized := htxNormalized)
       (hcalldataSizeFits := hcalldataSizeFits)
   simpa [supportedSourceFunctionSemanticsExceptMappingWrites_eq_interpretFunction_of_selectorDispatched
     (hSupported := hSupported) hfn tx initialWorld] using hcorrect
@@ -683,19 +644,12 @@ function proof still reduces through the helper-excluding `SupportedStmtList`
 fragment, so consuming that reuse interface here — retargeting the body proof —
 is the tracked next step; the trusted boundary is unchanged. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (fn : FunctionSpec) (sel : Nat) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hcompileFn :
       compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
@@ -708,27 +662,13 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs
       model.fields model.events model.errors sel fn irFn hcompileFn with
     ⟨returns, bodyStmts, hvalidate, hreturns, hbodyCompile, hirFn⟩
   subst hirFn
-  exact Function.supported_function_correct_with_helper_proofs
-    (model := model)
-    (selectors := selectors)
-    (hSupported := hSupported)
-    (hHelperProofs := hHelperProofs)
-    (hvalidateInputs := hvalidateInputs)
-    (fn := fn)
-    (selector := sel)
-    (returns := returns)
-    (bodyStmts := bodyStmts)
-    (irFn := Function.compiledFunctionIR sel fn returns bodyStmts)
-    (tx := tx)
-    (initialWorld := initialWorld)
-    (bindings := bindings)
-    (hfn := hfn)
-    (hvalidate := hvalidate)
-    (hreturns := hreturns)
-    (hbodyCompile := hbodyCompile)
-    (hcompile := by simpa using hcompileFn)
-    (hbind := hbind)
-    (htxNormalized := htxNormalized)
+  exact Function.supported_function_correct_with_helper_proofs (model := model)
+    (selectors := selectors) (hSupported := hSupported) (hHelperProofs := hHelperProofs)
+    (hvalidateInputs := hvalidateInputs) (fn := fn) (selector := sel) (returns := returns)
+    (bodyStmts := bodyStmts) (irFn := Function.compiledFunctionIR sel fn returns bodyStmts)
+    (tx := tx) (initialWorld := initialWorld) (bindings := bindings) (hfn := hfn)
+    (hvalidate := hvalidate) (hreturns := hreturns) (hbodyCompile := hbodyCompile)
+    (hcompile := by simpa using hcompileFn) (hbind := hbind) (htxNormalized := htxNormalized)
     (hcalldataSizeFits := hcalldataSizeFits)
 
 /-- Helper-aware compiled-side wrapper for the generic function theorem.
@@ -737,20 +677,13 @@ eventual retarget from `execIRFunction` to `execIRFunctionWithInternals` behind
 the exact conservative-extension equality that still remains to be proved on the
 compiled side. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
     (runtimeContract : IRContract)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (fn : FunctionSpec) (sel : Nat) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hcompileFn :
       compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
@@ -764,24 +697,13 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
       (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  have hlegacy :=
-    compileFunctionSpec_correct_generic_with_helper_proofs
-      (model := model)
-      (selectors := selectors)
-      (hSupported := hSupported)
-      (hHelperProofs := hHelperProofs)
-      (hvalidateInputs := hvalidateInputs)
-      (fn := fn)
-      (sel := sel)
-      (irFn := irFn)
-      (tx := tx)
-      (initialWorld := initialWorld)
-      (htxNormalized := htxNormalized)
-      (bindings := bindings)
-      (hcalldataSizeFits := hcalldataSizeFits)
-      (hfn := hfn)
-      (hcompileFn := hcompileFn)
-      (hbind := hbind)
+  have hlegacy := compileFunctionSpec_correct_generic_with_helper_proofs
+    (model := model) (selectors := selectors) (hSupported := hSupported)
+    (hHelperProofs := hHelperProofs) (hvalidateInputs := hvalidateInputs) (fn := fn)
+    (sel := sel) (irFn := irFn) (tx := tx) (initialWorld := initialWorld)
+    (htxNormalized := htxNormalized) (bindings := bindings)
+    (hcalldataSizeFits := hcalldataSizeFits) (hfn := hfn) (hcompileFn := hcompileFn)
+    (hbind := hbind)
   simpa [hhelperIR] using hlegacy
 
 /-- Direct helper-aware compiled-side wrapper for the generic function theorem.
@@ -790,48 +712,30 @@ function through `execIRFunctionWithInternals` directly, leaving only the
 generated ABI parameter-load prefix disjointness as an explicit compiled-side
 premise. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
-    (runtimeContract : IRContract)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (returns : List ParamType)
-    (bodyStmts : List YulStmt)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (internalFunctions : List FunctionSpec)
-    (irFuelSlack : Nat)
-    (extraFuel : Nat)
-    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (runtimeContract : IRContract) (fn : FunctionSpec) (sel : Nat) (returns : List ParamType)
+    (bodyStmts : List YulStmt) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (internalFunctions : List FunctionSpec)
+    (irFuelSlack : Nat) (extraFuel : Nat) (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hvalidate : validateFunctionSpec fn = Except.ok ())
     (hreturns : functionReturns fn = Except.ok returns)
-    (hbodyCompile :
-      compileStmtList model.fields model.events model.errors .calldata [] false
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
         (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
-    (hcompileFn :
-      compileFunctionSpec model.fields model.events model.errors [] sel fn
+    (hcompileFn : compileFunctionSpec model.fields model.events model.errors [] sel fn
         (internalFunctions := internalFunctions) = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
-    (hcompiledBodyFuel :
-      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
         sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
-    (hbodyCorrect :
-      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
-        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
-        (ParamLoading.applyBindingsToIRState
-          (Function.prebindRawArgs
-            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
-          bindings)
+    (hbodyCorrect : SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState (Function.prebindRawArgs
+          (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
         bindings extraFuel)
-    (hparamDisjoint :
-      YulStmtListCallsDisjointFromInternalTable runtimeContract
+    (hparamDisjoint : YulStmtListCallsDisjointFromInternalTable runtimeContract
         (genParamLoads fn.params)) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
@@ -852,45 +756,28 @@ per-function correctness obligation feeds straight into
 `execIRFunctionWithInternals` without the `genParamLoads` disjointness witness
 having to be supplied by hand. Param supportedness comes from `SupportedSpec`. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
-    (runtimeContract : IRContract)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (returns : List ParamType)
-    (bodyStmts : List YulStmt)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (internalFunctions : List FunctionSpec)
-    (irFuelSlack : Nat)
-    (extraFuel : Nat)
-    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (runtimeContract : IRContract) (fn : FunctionSpec) (sel : Nat) (returns : List ParamType)
+    (bodyStmts : List YulStmt) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (internalFunctions : List FunctionSpec)
+    (irFuelSlack : Nat) (extraFuel : Nat) (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hvalidate : validateFunctionSpec fn = Except.ok ())
     (hreturns : functionReturns fn = Except.ok returns)
-    (hbodyCompile :
-      compileStmtList model.fields model.events model.errors .calldata [] false
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
         (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
-    (hcompileFn :
-      compileFunctionSpec model.fields model.events model.errors [] sel fn
+    (hcompileFn : compileFunctionSpec model.fields model.events model.errors [] sel fn
         (internalFunctions := internalFunctions) = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
-    (hcompiledBodyFuel :
-      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
         sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
-    (hbodyCorrect :
-      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
-        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
-        (ParamLoading.applyBindingsToIRState
-          (Function.prebindRawArgs
-            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
-          bindings)
+    (hbodyCorrect : SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState (Function.prebindRawArgs
+          (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
         bindings extraFuel)
     (hinv : InternalTableNamesInternalPrefixed runtimeContract) :
     FunctionBody.sourceResultMatchesIRResult
@@ -900,8 +787,8 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
   compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
     bodyStmts irFn tx initialWorld htxNormalized bindings internalFunctions irFuelSlack extraFuel
-    hcalldataSizeFits hfn
-    hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
+    hcalldataSizeFits hfn hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel
+    hbodyCorrect
     (Function.genParamLoads_callsDisjoint_of_internalNamesPrefixed runtimeContract fn.params
       (supported_params_of_supportedSpec model selectors hSupported fn hfn) hinv)
 
@@ -915,45 +802,28 @@ discharges the ABI parameter-load prefix disjointness through
 that lets the whole-contract `WithInternals` dispatch retarget consume a populated
 internal table containing non-`internal_` compiler helpers. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
-    (runtimeContract : IRContract)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (returns : List ParamType)
-    (bodyStmts : List YulStmt)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (internalFunctions : List FunctionSpec)
-    (irFuelSlack : Nat)
-    (extraFuel : Nat)
-    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (runtimeContract : IRContract) (fn : FunctionSpec) (sel : Nat) (returns : List ParamType)
+    (bodyStmts : List YulStmt) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (internalFunctions : List FunctionSpec)
+    (irFuelSlack : Nat) (extraFuel : Nat) (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hvalidate : validateFunctionSpec fn = Except.ok ())
     (hreturns : functionReturns fn = Except.ok returns)
-    (hbodyCompile :
-      compileStmtList model.fields model.events model.errors .calldata [] false
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
         (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
-    (hcompileFn :
-      compileFunctionSpec model.fields model.events model.errors [] sel fn
+    (hcompileFn : compileFunctionSpec model.fields model.events model.errors [] sel fn
         (internalFunctions := internalFunctions) = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
-    (hcompiledBodyFuel :
-      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
         sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
-    (hbodyCorrect :
-      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
-        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
-        (ParamLoading.applyBindingsToIRState
-          (Function.prebindRawArgs
-            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
-          bindings)
+    (hbodyCorrect : SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState (Function.prebindRawArgs
+          (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
         bindings extraFuel)
     (hinv : InternalTableNamesReserved runtimeContract) :
     FunctionBody.sourceResultMatchesIRResult
@@ -963,8 +833,8 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
   compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
     bodyStmts irFn tx initialWorld htxNormalized bindings internalFunctions irFuelSlack extraFuel
-    hcalldataSizeFits hfn
-    hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
+    hcalldataSizeFits hfn hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel
+    hbodyCorrect
     (Function.genParamLoads_callsDisjoint_of_reserved runtimeContract fn.params
       (supported_params_of_supportedSpec model selectors hSupported fn hfn) hinv)
 
@@ -978,49 +848,33 @@ internal table as compiled internal helpers, the per-function obligation flows
 into `execIRFunctionWithInternals` with no hand-supplied disjointness witness and
 no `internalFunctions = []` default-empty helper-world assumption. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
-    (runtimeContract : IRContract)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (returns : List ParamType)
-    (bodyStmts : List YulStmt)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (irFuelSlack : Nat)
-    (extraFuel : Nat)
+    (runtimeContract : IRContract) (fn : FunctionSpec) (sel : Nat) (returns : List ParamType)
+    (bodyStmts : List YulStmt) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (irFuelSlack : Nat) (extraFuel : Nat)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hvalidate : validateFunctionSpec fn = Except.ok ())
     (hreturns : functionReturns fn = Except.ok returns)
-    (hbodyCompile :
-      compileStmtList model.fields model.events model.errors .calldata [] false
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
         (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
     (hcompileFn :
       compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
-    (hcompiledBodyFuel :
-      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
         sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
-    (hbodyCorrect :
-      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
-        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
-        (ParamLoading.applyBindingsToIRState
-          (Function.prebindRawArgs
-            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
-          bindings)
+    (hbodyCorrect : SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState (Function.prebindRawArgs
+          (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
         bindings extraFuel)
     (hcompiledTable : ∀ stmt ∈ runtimeContract.internalFunctions,
         ∃ (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
           (adtTypes : List AdtTypeDef) (spec : FunctionSpec)
-          (targetFork : Verity.Core.Intrinsics.HardFork)
-          (internalFunctions : List FunctionSpec),
+          (targetFork : Verity.Core.Intrinsics.HardFork) (internalFunctions : List FunctionSpec),
           compileInternalFunction fields events errors adtTypes spec targetFork internalFunctions
             = Except.ok stmt) :
     FunctionBody.sourceResultMatchesIRResult
@@ -1029,8 +883,9 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
   compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
-    bodyStmts irFn tx initialWorld htxNormalized bindings [] irFuelSlack extraFuel hcalldataSizeFits hfn
-    hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
+    bodyStmts irFn tx initialWorld htxNormalized bindings [] irFuelSlack extraFuel
+    hcalldataSizeFits hfn hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel
+    hbodyCorrect
     (Function.InternalTableNamesInternalPrefixed_of_all_compiledInternal runtimeContract
       hcompiledTable)
 
@@ -1497,99 +1352,6 @@ private theorem DecodedInternalHelperNamesReserved.checkedArithmetic :
     checkedMulUint256HelperName, checkedDivUint256HelperName] at hname
   rcases hname with rfl | rfl | rfl | rfl | rfl | rfl <;> decide)
 
-private theorem DecodedInternalHelperNamesReserved.compileValidatedCore_helpers
-    (arrayHelpersRequired arrayElementWordHelpersRequired
-      paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
-      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
-      checkedArithmeticHelpersRequired : Bool)
-    (templateIntrinsicHelpers : List YulStmt)
-    (htemplate : DecodedInternalHelperNamesReserved templateIntrinsicHelpers) :
-    DecodedInternalHelperNamesReserved
-      (((if arrayHelpersRequired then
-          [ checkedArrayElementCalldataHelper
-          , checkedArrayElementMemoryHelper
-          ]
-        else
-          []) ++
-        (if arrayElementWordHelpersRequired then
-          [ checkedArrayElementWordCalldataHelper
-          , checkedArrayElementWordMemoryHelper
-          , checkedArrayElementDynamicWordCalldataHelper
-          , checkedArrayElementDynamicWordMemoryHelper
-          , checkedArrayElementDynamicDataOffsetCalldataHelper
-          , checkedArrayElementDynamicDataOffsetMemoryHelper
-          , checkedArrayElementDynamicMemberLengthCalldataHelper
-          , checkedArrayElementDynamicMemberLengthMemoryHelper
-          , checkedArrayElementDynamicMemberDataOffsetCalldataHelper
-          , checkedArrayElementDynamicMemberDataOffsetMemoryHelper
-          , checkedArrayElementDynamicMemberElementCalldataHelper
-          , checkedArrayElementDynamicMemberElementMemoryHelper
-          ]
-        else
-          []) ++
-        (if paramDynamicHeadWordHelpersRequired then
-          [ checkedParamDynamicHeadWordCalldataHelper
-          , checkedParamDynamicHeadWordMemoryHelper
-          , checkedParamDynamicMemberLengthCalldataHelper
-          , checkedParamDynamicMemberLengthMemoryHelper
-          , checkedParamDynamicMemberDataOffsetCalldataHelper
-          , checkedParamDynamicMemberDataOffsetMemoryHelper
-          , checkedParamDynamicMemberElementCalldataHelper
-          , checkedParamDynamicMemberElementMemoryHelper
-          ]
-        else
-          []) ++
-        (if mulDiv512HelpersRequired then
-          [ fullMulDivHelper
-          , fullMulDivUpHelper
-          ]
-        else
-          [])) ++
-      (if storageArrayHelpersRequired then
-        [checkedStorageArrayElementHelper, checkedFixedUint128ArrayElementHelper,
-      checkedTransientFixedUint128ArrayElementHelper]
-      else
-        []) ++
-      (if dynamicBytesEqHelpersRequired then
-        [dynamicBytesEqCalldataHelper, dynamicBytesEqMemoryHelper]
-      else
-        []) ++
-      (if checkedArithmeticHelpersRequired then
-        [ panicError0x11Helper
-        , panicError0x12Helper
-        , checkedAddUint256Helper
-        , checkedSubUint256Helper
-        , checkedMulUint256Helper
-        , checkedDivUint256Helper
-        ]
-      else
-        []) ++
-      templateIntrinsicHelpers) :=
-  by
-  simpa [List.append_assoc] using
-  DecodedInternalHelperNamesReserved.append
-    (DecodedInternalHelperNamesReserved.append
-      (DecodedInternalHelperNamesReserved.append
-        (DecodedInternalHelperNamesReserved.append
-          (DecodedInternalHelperNamesReserved.append
-            (DecodedInternalHelperNamesReserved.ifList arrayHelpersRequired
-              DecodedInternalHelperNamesReserved.arrayElementBase)
-            (DecodedInternalHelperNamesReserved.ifList arrayElementWordHelpersRequired
-              DecodedInternalHelperNamesReserved.arrayElementWord))
-          (DecodedInternalHelperNamesReserved.ifList paramDynamicHeadWordHelpersRequired
-            DecodedInternalHelperNamesReserved.paramDynamicHeadWord))
-        (DecodedInternalHelperNamesReserved.ifList mulDiv512HelpersRequired
-          DecodedInternalHelperNamesReserved.mulDiv512))
-      (DecodedInternalHelperNamesReserved.ifList storageArrayHelpersRequired
-        DecodedInternalHelperNamesReserved.storageArray))
-    (DecodedInternalHelperNamesReserved.append
-      (DecodedInternalHelperNamesReserved.ifList dynamicBytesEqHelpersRequired
-        DecodedInternalHelperNamesReserved.dynamicBytesEq)
-      (DecodedInternalHelperNamesReserved.append
-        (DecodedInternalHelperNamesReserved.ifList checkedArithmeticHelpersRequired
-          DecodedInternalHelperNamesReserved.checkedArithmetic)
-        htemplate))
-
 def compileValidatedCoreHelperSegment
     (arrayHelpersRequired arrayElementWordHelpersRequired
       paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
@@ -1657,6 +1419,78 @@ def compileValidatedCoreHelperSegment
     []) ++
   templateIntrinsicHelpers)
 
+private theorem except_bind_eq_ok_inv {ε α β : Type} {x : Except ε α} {f : α → Except ε β}
+    {b : β} (h : x >>= f = Except.ok b) : ∃ a, x = Except.ok a ∧ f a = Except.ok b := by
+  cases x with
+  | error e => cases h
+  | ok a => exact ⟨a, rfl, h⟩
+
+private theorem except_ite_bind {ε α β : Type} (c : Prop) [Decidable c]
+    (x y : Except ε α) (f : α → Except ε β) :
+    (if c then x >>= f else y >>= f) = (if c then x else y) >>= f := by
+  split <;> rfl
+
+private theorem templateIntrinsicHelpers_reserved_of_ite_ok
+    (model : CompilationModel) (templateIntrinsicHelpers : List YulStmt)
+    (htemplate : (if (templateIntrinsicItems model).isEmpty then pure []
+      else compileTemplateIntrinsicHelpers model) = Except.ok templateIntrinsicHelpers) :
+    DecodedInternalHelperNamesReserved templateIntrinsicHelpers := by
+  by_cases hitems : (templateIntrinsicItems model).isEmpty
+  · rw [if_pos hitems] at htemplate
+    cases htemplate
+    exact DecodedInternalHelperNamesReserved.nil
+  · rw [if_neg hitems] at htemplate
+    exact compileTemplateIntrinsicHelpers_reserved model templateIntrinsicHelpers htemplate
+
+private theorem compileValidatedCore_ok_internalFunctions_shape
+    (model : CompilationModel) (selectors : List Nat) (runtimeContract : IRContract)
+    (hcore : compileValidatedCore model selectors = Except.ok runtimeContract) :
+    ∃ templateIntrinsicHelpers internalDefs,
+      DecodedInternalHelperNamesReserved templateIntrinsicHelpers ∧
+      (model.functions.filter (·.isInternal)).mapM (fun fn =>
+        compileInternalFunction (applySlotAliasRanges model.fields model.slotAliasRanges)
+          model.events model.errors model.adtTypes fn .cancun
+          (model.functions.filter (·.isInternal))) = Except.ok internalDefs ∧
+      runtimeContract.internalFunctions =
+        compileValidatedCoreHelperSegment (contractUsesPlainArrayElement model)
+          (contractUsesArrayElementWord model) (contractUsesParamDynamicHeadWord model)
+          (contractUsesMulDiv512 model) (contractUsesStorageArrayElement model)
+          (contractUsesDynamicBytesEq model) (contractUsesCheckedArithmetic model)
+          templateIntrinsicHelpers ++ internalDefs := by
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨internalDefs, hmap, hcore⟩ := except_bind_eq_ok_inv hcore
+  dsimp only at hcore
+  rw [except_ite_bind] at hcore
+  obtain ⟨templateIntrinsicHelpers, htemplate, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  refine ⟨templateIntrinsicHelpers, internalDefs,
+    templateIntrinsicHelpers_reserved_of_ite_ok model _ htemplate, hmap, ?_⟩
+  rw [← Except.ok.inj hcore]
+  simp [compileValidatedCoreHelperSegment, List.append_assoc]
+
+private theorem DecodedInternalHelperNamesReserved.compileValidatedCore_helpers
+    (arrayHelpersRequired arrayElementWordHelpersRequired
+      paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+      checkedArithmeticHelpersRequired : Bool)
+    (templateIntrinsicHelpers : List YulStmt)
+    (htemplate : DecodedInternalHelperNamesReserved templateIntrinsicHelpers) :
+    DecodedInternalHelperNamesReserved
+      (compileValidatedCoreHelperSegment
+        arrayHelpersRequired arrayElementWordHelpersRequired
+        paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
+        storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+        checkedArithmeticHelpersRequired templateIntrinsicHelpers) := by
+  unfold compileValidatedCoreHelperSegment
+  exact (((((((DecodedInternalHelperNamesReserved.ifList _ .arrayElementBase).append
+    (.ifList _ .arrayElementWord)).append (.ifList _ .paramDynamicHeadWord)).append
+    (.ifList _ .mulDiv512)).append (.ifList _ .storageArray)).append
+    (.ifList _ .dynamicBytesEq)).append (.ifList _ .checkedArithmetic)).append htemplate
+
 /-- Populated-table connector for the exact prebuilt helper segment shape emitted
 by `compileValidatedCore`. It removes the caller-supplied helper-segment
 reserved-name premise from
@@ -1665,19 +1499,14 @@ only provide the template-helper compilation equation and the already-existing
 compiled source-internal `mapM` equation. -/
 theorem InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
     (runtimeContract : IRContract)
-    (arrayHelpersRequired arrayElementWordHelpersRequired
-      paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
-      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
+    (arrayHelpersRequired arrayElementWordHelpersRequired paramDynamicHeadWordHelpersRequired
+      mulDiv512HelpersRequired storageArrayHelpersRequired dynamicBytesEqHelpersRequired
       checkedArithmeticHelpersRequired : Bool)
     (templateIntrinsicHelpers : List YulStmt)
     (htemplate : DecodedInternalHelperNamesReserved templateIntrinsicHelpers)
-    (fields : List Field)
-    (events : List EventDef)
-    (errors : List ErrorDef)
-    (adtTypes : List AdtTypeDef)
-    (targetFork : Verity.Core.Intrinsics.HardFork)
-    (internalFns : List FunctionSpec)
-    (internalDefs : List YulStmt)
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (adtTypes : List AdtTypeDef) (targetFork : Verity.Core.Intrinsics.HardFork)
+    (internalFns : List FunctionSpec) (internalDefs : List YulStmt)
     (hmap : internalFns.mapM (fun fn =>
         compileInternalFunction fields events errors adtTypes fn targetFork internalFns) =
         Except.ok internalDefs)
@@ -1687,30 +1516,11 @@ theorem InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compil
         paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
         storageArrayHelpersRequired dynamicBytesEqHelpersRequired
         checkedArithmeticHelpersRequired templateIntrinsicHelpers ++ internalDefs) :
-    InternalTableNamesReserved runtimeContract := by
-  refine InternalTableNamesReserved_of_helpers_append_compiledInternalTable
-    runtimeContract
-    (compileValidatedCoreHelperSegment
-      arrayHelpersRequired arrayElementWordHelpersRequired
-      paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
-      storageArrayHelpersRequired dynamicBytesEqHelpersRequired
-      checkedArithmeticHelpersRequired templateIntrinsicHelpers)
-    fields events errors adtTypes targetFork internalFns internalDefs hmap ?_ ?_
-  · simpa [List.append_assoc] using hcontract
-  · intro d hd
-    have hhelpers : DecodedInternalHelperNamesReserved
-        (compileValidatedCoreHelperSegment
-          arrayHelpersRequired arrayElementWordHelpersRequired
-          paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
-          storageArrayHelpersRequired dynamicBytesEqHelpersRequired
-          checkedArithmeticHelpersRequired templateIntrinsicHelpers) := by
-      simpa [compileValidatedCoreHelperSegment, List.append_assoc] using
-        (DecodedInternalHelperNamesReserved.compileValidatedCore_helpers
-          arrayHelpersRequired arrayElementWordHelpersRequired
-          paramDynamicHeadWordHelpersRequired mulDiv512HelpersRequired
-          storageArrayHelpersRequired dynamicBytesEqHelpersRequired
-          checkedArithmeticHelpersRequired templateIntrinsicHelpers htemplate)
-    exact hhelpers d hd
+    InternalTableNamesReserved runtimeContract :=
+  InternalTableNamesReserved_of_helpers_append_compiledInternalTable runtimeContract _
+    fields events errors adtTypes targetFork internalFns internalDefs hmap hcontract
+    (DecodedInternalHelperNamesReserved.compileValidatedCore_helpers
+      _ _ _ _ _ _ _ templateIntrinsicHelpers htemplate)
 
 /-- Full table-shape connector for the concrete `compileValidatedCore` output.
 
@@ -1732,155 +1542,15 @@ theorem InternalTableNamesReserved_of_compileValidatedCore
     (runtimeContract : IRContract)
     (hcore : compileValidatedCore model selectors = Except.ok runtimeContract) :
     InternalTableNamesReserved runtimeContract := by
-  unfold compileValidatedCore at hcore
-  simp only [bind, Except.bind, pure, Except.pure] at hcore
-  rcases hfallback :
-      pickUniqueFunctionByName "fallback" model.functions with _ | fallbackSpec
-  · simp [hfallback] at hcore
-  · rcases hreceive :
-        pickUniqueFunctionByName "receive" model.functions with _ | receiveSpec
-    · simp [hfallback, hreceive] at hcore
-    · rcases hfunctions :
-          (((model.functions.filter fun fn => !fn.isInternal && !isInteropEntrypointName fn.name).zip
-              selectors).mapM fun entry =>
-            compileGuardedFunctionSpec (applySlotAliasRanges model.fields model.slotAliasRanges)
-              model.events model.errors model.adtTypes (model.functions.filter (·.isInternal))
-              entry.2 entry.1) with _ | functions
-      · simp [hfallback, hreceive, hfunctions] at hcore
-      · rcases hinternalDefs :
-            ((model.functions.filter (·.isInternal)).mapM fun fn =>
-              compileInternalFunction (applySlotAliasRanges model.fields model.slotAliasRanges)
-                model.events model.errors model.adtTypes fn (targetFork := .cancun)
-                (model.functions.filter (·.isInternal))) with _ | internalDefs
-        · simp [hfallback, hreceive, hfunctions, hinternalDefs] at hcore
-        · rcases htemplate :
-              (if (templateIntrinsicItems model).isEmpty then
-                pure []
-              else
-                compileTemplateIntrinsicHelpers model) with _ | templateIntrinsicHelpers
-          · by_cases hitems : (templateIntrinsicItems model).isEmpty
-            · simp [hitems] at htemplate
-              cases htemplate
-            · simp [hitems] at htemplate
-              simp [hfallback, hreceive, hfunctions, hinternalDefs, hitems, htemplate] at hcore
-          · simp [hfallback, hreceive, hfunctions, hinternalDefs] at hcore
-            by_cases hitems : (templateIntrinsicItems model).isEmpty
-            · simp [hitems] at htemplate
-              cases htemplate
-              have hitemsNil := List.isEmpty_iff.mp hitems
-              rw [if_pos hitemsNil] at hcore
-              rcases hfallbackEntrypoint :
-                  fallbackSpec.mapM
-                    (compileSpecialEntrypoint
-                      (applySlotAliasRanges model.fields model.slotAliasRanges)
-                      model.events model.errors model.adtTypes (targetFork := .cancun)
-                      (model.functions.filter (·.isInternal))) with _ | fallbackEntrypoint
-              · simp [hfallbackEntrypoint] at hcore
-              · rcases hreceiveEntrypoint :
-                    receiveSpec.mapM
-                      (compileSpecialEntrypoint
-                        (applySlotAliasRanges model.fields model.slotAliasRanges)
-                        model.events model.errors model.adtTypes (targetFork := .cancun)
-                        (model.functions.filter (·.isInternal))) with _ | receiveEntrypoint
-                · simp [hfallbackEntrypoint, hreceiveEntrypoint] at hcore
-                · rcases hdeploy :
-                      compileConstructor
-                        (applySlotAliasRanges model.fields model.slotAliasRanges)
-                        model.events model.errors model.adtTypes model.constructor
-                        (targetFork := .cancun) (model.functions.filter (·.isInternal)) with
-                    _ | deploy
-                  · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
-                  · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
-                    have hcontract :
-                        runtimeContract.internalFunctions =
-                          compileValidatedCoreHelperSegment
-                            (contractUsesPlainArrayElement model)
-                            (contractUsesArrayElementWord model)
-                            (contractUsesParamDynamicHeadWord model)
-                            (contractUsesMulDiv512 model)
-                            (contractUsesStorageArrayElement model)
-                            (contractUsesDynamicBytesEq model)
-                            (contractUsesCheckedArithmetic model)
-                            [] ++ internalDefs := by
-                      rw [← hcore]
-                      simp [compileValidatedCoreHelperSegment, List.append_assoc]
-                    exact
-                      InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
-                        runtimeContract
-                        (contractUsesPlainArrayElement model)
-                        (contractUsesArrayElementWord model)
-                        (contractUsesParamDynamicHeadWord model)
-                        (contractUsesMulDiv512 model)
-                        (contractUsesStorageArrayElement model)
-                        (contractUsesDynamicBytesEq model)
-                        (contractUsesCheckedArithmetic model)
-                        [] DecodedInternalHelperNamesReserved.nil
-                        (applySlotAliasRanges model.fields model.slotAliasRanges)
-                        model.events model.errors model.adtTypes
-                        Verity.Core.Intrinsics.HardFork.cancun
-                        (model.functions.filter (·.isInternal))
-                        internalDefs hinternalDefs hcontract
-            · simp [hitems] at htemplate
-              have hitemsNe : templateIntrinsicItems model ≠ [] := by
-                intro hnil
-                rw [hnil] at hitems
-                simp at hitems
-              rw [if_neg hitemsNe] at hcore
-              simp [htemplate] at hcore
-              rcases hfallbackEntrypoint :
-                  fallbackSpec.mapM
-                    (compileSpecialEntrypoint
-                      (applySlotAliasRanges model.fields model.slotAliasRanges)
-                      model.events model.errors model.adtTypes (targetFork := .cancun)
-                      (model.functions.filter (·.isInternal))) with _ | fallbackEntrypoint
-              · simp [hfallbackEntrypoint] at hcore
-              · rcases hreceiveEntrypoint :
-                    receiveSpec.mapM
-                      (compileSpecialEntrypoint
-                        (applySlotAliasRanges model.fields model.slotAliasRanges)
-                        model.events model.errors model.adtTypes (targetFork := .cancun)
-                        (model.functions.filter (·.isInternal))) with _ | receiveEntrypoint
-                · simp [hfallbackEntrypoint, hreceiveEntrypoint] at hcore
-                · rcases hdeploy :
-                      compileConstructor
-                        (applySlotAliasRanges model.fields model.slotAliasRanges)
-                        model.events model.errors model.adtTypes model.constructor
-                        (targetFork := .cancun) (model.functions.filter (·.isInternal)) with
-                    _ | deploy
-                  · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
-                  · simp [hfallbackEntrypoint, hreceiveEntrypoint, hdeploy] at hcore
-                    have htemplateReserved :
-                        DecodedInternalHelperNamesReserved templateIntrinsicHelpers :=
-                      compileTemplateIntrinsicHelpers_reserved model templateIntrinsicHelpers htemplate
-                    have hcontract :
-                        runtimeContract.internalFunctions =
-                          compileValidatedCoreHelperSegment
-                            (contractUsesPlainArrayElement model)
-                            (contractUsesArrayElementWord model)
-                            (contractUsesParamDynamicHeadWord model)
-                            (contractUsesMulDiv512 model)
-                            (contractUsesStorageArrayElement model)
-                            (contractUsesDynamicBytesEq model)
-                            (contractUsesCheckedArithmetic model)
-                            templateIntrinsicHelpers ++ internalDefs := by
-                      rw [← hcore]
-                      simp [compileValidatedCoreHelperSegment, List.append_assoc]
-                    exact
-                      InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
-                        runtimeContract
-                        (contractUsesPlainArrayElement model)
-                        (contractUsesArrayElementWord model)
-                        (contractUsesParamDynamicHeadWord model)
-                        (contractUsesMulDiv512 model)
-                        (contractUsesStorageArrayElement model)
-                        (contractUsesDynamicBytesEq model)
-                        (contractUsesCheckedArithmetic model)
-                        templateIntrinsicHelpers htemplateReserved
-                        (applySlotAliasRanges model.fields model.slotAliasRanges)
-                        model.events model.errors model.adtTypes
-                        Verity.Core.Intrinsics.HardFork.cancun
-                        (model.functions.filter (·.isInternal))
-                        internalDefs hinternalDefs hcontract
+  obtain ⟨templateIntrinsicHelpers, internalDefs, htemplate, hmap, hcontract⟩ :=
+    compileValidatedCore_ok_internalFunctions_shape model selectors runtimeContract hcore
+  exact InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable
+    runtimeContract (contractUsesPlainArrayElement model) (contractUsesArrayElementWord model)
+    (contractUsesParamDynamicHeadWord model) (contractUsesMulDiv512 model)
+    (contractUsesStorageArrayElement model) (contractUsesDynamicBytesEq model)
+    (contractUsesCheckedArithmetic model) templateIntrinsicHelpers htemplate
+    (applySlotAliasRanges model.fields model.slotAliasRanges) model.events model.errors
+    model.adtTypes .cancun (model.functions.filter (·.isInternal)) internalDefs hmap hcontract
 
 /-- Pipeline connector for the current `SupportedSpec` world: a contract produced
 by `compileValidatedCore` discharges the structural `hcompiledTable` premise
@@ -1939,44 +1609,29 @@ emitted by the compiler, so the internal-table naming invariant is discharged by
 the pipeline itself and no `internalFunctions = []` default-empty assumption is
 introduced at the call site. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
     (runtimeContract : IRContract)
     (hcore : compileValidatedCore model selectors = Except.ok runtimeContract)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (returns : List ParamType)
-    (bodyStmts : List YulStmt)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (irFuelSlack : Nat)
-    (extraFuel : Nat)
-    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
+    (fn : FunctionSpec) (sel : Nat) (returns : List ParamType) (bodyStmts : List YulStmt)
+    (irFn : IRFunction) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx) (bindings : List (String × Nat))
+    (irFuelSlack : Nat) (extraFuel : Nat) (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hvalidate : validateFunctionSpec fn = Except.ok ())
     (hreturns : functionReturns fn = Except.ok returns)
-    (hbodyCompile :
-      compileStmtList model.fields model.events model.errors .calldata [] false
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
         (fn.params.map (·.name)) [] fn.body = Except.ok bodyStmts)
     (hcompileFn :
       compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
-    (hcompiledBodyFuel :
-      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
         sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
-    (hbodyCorrect :
-      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
-        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
-        (ParamLoading.applyBindingsToIRState
-          (Function.prebindRawArgs
-            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
-          bindings)
+    (hbodyCorrect : SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState (Function.prebindRawArgs
+          (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
         bindings extraFuel) :
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceFunctionSemantics model selectors hSupported fn tx initialWorld)
@@ -1984,27 +1639,21 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
         (FunctionBody.initialIRStateForTx model tx initialWorld)) :=
   compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved
     model selectors hSupported hHelperProofs hvalidateInputs runtimeContract fn sel returns
-    bodyStmts irFn tx initialWorld htxNormalized bindings [] irFuelSlack extraFuel hcalldataSizeFits hfn
-    hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel hbodyCorrect
+    bodyStmts irFn tx initialWorld htxNormalized bindings [] irFuelSlack extraFuel
+    hcalldataSizeFits hfn hvalidate hreturns hbodyCompile hcompileFn hbind hcompiledBodyFuel
+    hbodyCorrect
     (InternalTableNamesReserved_of_compileValidatedCore model selectors runtimeContract hcore)
 
 /-- Structured helper-aware compiled-side wrapper for the generic function
 theorem. This replaces the raw function-level conservative-extension equality
 premise by the compiled-body disjointness witness that proves it. -/
 theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint
-    (model : CompilationModel)
-    (selectors : List Nat)
-    (hSupported : SupportedSpec model selectors)
+    (model : CompilationModel) (selectors : List Nat) (hSupported : SupportedSpec model selectors)
     (hHelperProofs : SourceSemantics.SupportedSpecHelperProofs model selectors hSupported)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
-    (runtimeContract : IRContract)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
+    (runtimeContract : IRContract) (fn : FunctionSpec) (sel : Nat) (irFn : IRFunction)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (htxNormalized : Function.TxContextNormalized tx) (bindings : List (String × Nat))
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hcompileFn :
@@ -2017,30 +1666,15 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
       (execIRFunctionWithInternals runtimeContract 0 irFn tx.args
         (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
   exact compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir
-    (model := model)
-    (selectors := selectors)
-    (hSupported := hSupported)
-    (hHelperProofs := hHelperProofs)
-    (hvalidateInputs := hvalidateInputs)
-    (runtimeContract := runtimeContract)
-    (fn := fn)
-    (sel := sel)
-    (irFn := irFn)
-    (tx := tx)
-    (initialWorld := initialWorld)
-    (htxNormalized := htxNormalized)
-    (bindings := bindings)
-    (hcalldataSizeFits := hcalldataSizeFits)
-    (hfn := hfn)
-    (hcompileFn := hcompileFn)
+    (model := model) (selectors := selectors) (hSupported := hSupported)
+    (hHelperProofs := hHelperProofs) (hvalidateInputs := hvalidateInputs)
+    (runtimeContract := runtimeContract) (fn := fn) (sel := sel) (irFn := irFn) (tx := tx)
+    (initialWorld := initialWorld) (htxNormalized := htxNormalized) (bindings := bindings)
+    (hcalldataSizeFits := hcalldataSizeFits) (hfn := hfn) (hcompileFn := hcompileFn)
     (hbind := hbind)
-    (hhelperIR :=
-      execIRFunctionWithInternals_eq_execIRFunction_of_bodyCallsDisjoint
-        runtimeContract
-        irFn
-        tx.args
-        (FunctionBody.initialIRStateForTx model tx initialWorld)
-        hbodyDisjoint)
+    (hhelperIR := execIRFunctionWithInternals_eq_execIRFunction_of_bodyCallsDisjoint
+      runtimeContract irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)
+      hbodyDisjoint)
 
 -- NOTE: ~1174 lines of SORRY'D dead code removed here.  They were 16 commented-out
 -- helper-composition theorem sketches (escalating from DirectInternalHelper…Surface
@@ -2048,6 +1682,17 @@ theorem compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_
 -- plus an alternative proof body.  All were blocked by missing
 -- DirectInternalHelperPerCalleeCompileCatalog infrastructure.  See git history for
 -- the original sketches.
+
+private theorem validateCompileInputs_ok_of_compile
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    validateCompileInputs model selectors = Except.ok () := by
+  unfold CompilationModel.compile at hcompile
+  simp only [bind, Except.bind] at hcompile
+  rcases hvalidate : validateCompileInputs model selectors with _ | validated
+  · simp [hvalidate] at hcompile
+  · simpa using hvalidate
+
 /-- Primary whole-contract Layer 2 theorem: compilation preserves semantics
 for any supported `CompilationModel`. No contract-specific bridge premise.
 Layer 2 itself is axiom-free; the remaining documented project axiom is the
@@ -2065,67 +1710,18 @@ theorem compile_preserves_semantics
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceContractSemantics model selectors hSupported tx initialWorld)
       (interpretIR ir tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  have hvalidateInputs : validateCompileInputs model selectors = Except.ok () := by
-    unfold CompilationModel.compile at hcompile
-    simp only [bind, Except.bind] at hcompile
-    rcases hvalidate : validateCompileInputs model selectors with _ | validated
-    · simp [hvalidate] at hcompile
-    · simpa using hvalidate
-  have hcompiled :
-      List.Forall₂
-        (fun entry irFn =>
-          compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
-        (SourceSemantics.selectorFunctionPairs model selectors)
-        ir.functions :=
-    compile_ok_yields_compiled_functions
-      (model := model)
-      (selectors := selectors)
-      (hSupported := hSupported)
-      (ir := ir)
-      (hcompile := hcompile)
-  have hparamsSupported :
-      ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
-    supported_params_of_supportedSpec model selectors hSupported
-  have hfunction :
-      ∀ fn sel irFn bindings,
-        fn ∈ selectorDispatchedFunctions model →
-        compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn →
-        SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
-        FunctionBody.sourceResultMatchesIRResult
-          (SourceSemantics.interpretFunction model fn tx initialWorld)
-          (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-    intro fn sel irFn bindings hfn hcompileFn hbind
-    simpa [supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
-      (hSupported := hSupported) hfn tx initialWorld] using
-      (compileFunctionSpec_correct_generic
-        (model := model)
-        (selectors := selectors)
-        (hSupported := hSupported)
-        (hvalidateInputs := hvalidateInputs)
-        (fn := fn)
-        (sel := sel)
-        (irFn := irFn)
-        (tx := tx)
-        (initialWorld := initialWorld)
-        (htxNormalized := htxNormalized)
-        (bindings := bindings)
-        (hcalldataSizeFits := hcalldataSizeFits)
-        (hfn := hfn)
-        (hcompileFn := hcompileFn)
-        (hbind := hbind))
-  have hcontract :=
-    compile_preserves_semantics_of_compiled_functions
-      (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
-      (model := model)
-      (selectors := selectors)
-      (ir := ir)
-      (tx := tx)
-      (initialWorld := initialWorld)
-      (_hcompile := hcompile)
-      (hcompiled := hcompiled)
-      (hparamsSupported := hparamsSupported)
-      (hfunction := hfunction)
+  have hvalidateInputs := validateCompileInputs_ok_of_compile model selectors ir hcompile
+  have hcontract := compile_preserves_semantics_of_compiled_functions
+    (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
+    (model := model) (selectors := selectors) (ir := ir) (tx := tx)
+    (initialWorld := initialWorld) (_hcompile := hcompile)
+    (hcompiled := compile_ok_yields_compiled_functions model selectors hSupported ir hcompile)
+    (hparamsSupported := supported_params_of_supportedSpec model selectors hSupported)
+    (hfunction := fun fn sel irFn bindings hfn hcompileFn hbind => by
+      simpa [supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
+        (hSupported := hSupported) hfn tx initialWorld] using
+        compileFunctionSpec_correct_generic model selectors hSupported hvalidateInputs fn sel
+          irFn tx initialWorld htxNormalized bindings hcalldataSizeFits hfn hcompileFn hbind)
   simpa [supportedSourceContractSemantics_eq_sourceContractSemantics
     (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using hcontract
 
@@ -2227,58 +1823,17 @@ theorem compile_preserves_semantics_except_mapping_writes
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceContractSemanticsExceptMappingWrites model selectors hSupported tx initialWorld)
       (interpretIR ir tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  have hcompiled :
-      List.Forall₂
-        (fun entry irFn =>
-          compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
-        (SourceSemantics.selectorFunctionPairs model selectors)
-        ir.functions :=
-    compile_ok_yields_compiled_functions_except_mapping_writes
-      (model := model)
-      (selectors := selectors)
-      (hSupported := hSupported)
-      (ir := ir)
-      (hcompile := hcompile)
-  have hparamsSupported :
-      ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
-    supported_params_of_supportedSpec_except_mapping_writes model selectors hSupported
-  have hfunction :
-      ∀ fn sel irFn bindings,
-        fn ∈ selectorDispatchedFunctions model →
-        compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn →
-        SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
-        FunctionBody.sourceResultMatchesIRResult
-          (supportedSourceFunctionSemanticsExceptMappingWrites model selectors hSupported fn tx initialWorld)
-          (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-    intro fn sel irFn bindings hfn hcompileFn hbind
-    exact compileFunctionSpec_correct_generic_except_mapping_writes
-      (model := model)
-      (selectors := selectors)
-      (hSupported := hSupported)
-      (fn := fn)
-      (sel := sel)
-      (irFn := irFn)
-      (tx := tx)
-      (initialWorld := initialWorld)
-      (bindings := bindings)
-      (htxNormalized := htxNormalized)
-      (hcalldataSizeFits := hcalldataSizeFits)
-      (hnoConflict := hnoConflict)
-      (hsafety := hsafety)
-      (hfn := hfn)
-      (hcompileFn := hcompileFn)
-      (hbind := hbind)
   exact Dispatch.interpretContract_correct_of_compiled_functions_except_mapping_writes
-    (model := model)
-    (selectors := selectors)
-    (hSupported := hSupported)
-    (irFns := ir.functions)
-    (tx := tx)
-    (initialWorld := initialWorld)
-    (hcompiled := hcompiled)
-    (hparamsSupported := hparamsSupported)
-    (hfunction := hfunction)
+    (model := model) (selectors := selectors) (hSupported := hSupported)
+    (irFns := ir.functions) (tx := tx) (initialWorld := initialWorld)
+    (hcompiled := compile_ok_yields_compiled_functions_except_mapping_writes
+      model selectors hSupported ir hcompile)
+    (hparamsSupported :=
+      supported_params_of_supportedSpec_except_mapping_writes model selectors hSupported)
+    (hfunction := fun fn sel irFn bindings hfn hcompileFn hbind =>
+      compileFunctionSpec_correct_generic_except_mapping_writes
+        model selectors hSupported fn sel irFn tx initialWorld htxNormalized bindings
+        hcalldataSizeFits hnoConflict hsafety hfn hcompileFn hbind)
 
 theorem compile_preserves_semantics_except_mapping_writes_stmtSafety
     (model : CompilationModel)
@@ -2297,58 +1852,17 @@ theorem compile_preserves_semantics_except_mapping_writes_stmtSafety
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceContractSemanticsExceptMappingWrites model selectors hSupported tx initialWorld)
       (interpretIR ir tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  have hcompiled :
-      List.Forall₂
-        (fun entry irFn =>
-          compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
-        (SourceSemantics.selectorFunctionPairs model selectors)
-        ir.functions :=
-    compile_ok_yields_compiled_functions_except_mapping_writes
-      (model := model)
-      (selectors := selectors)
-      (hSupported := hSupported)
-      (ir := ir)
-      (hcompile := hcompile)
-  have hparamsSupported :
-      ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
-    supported_params_of_supportedSpec_except_mapping_writes model selectors hSupported
-  have hfunction :
-      ∀ fn sel irFn bindings,
-        fn ∈ selectorDispatchedFunctions model →
-        compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn →
-        SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
-        FunctionBody.sourceResultMatchesIRResult
-          (supportedSourceFunctionSemanticsExceptMappingWrites model selectors hSupported fn tx initialWorld)
-          (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-    intro fn sel irFn bindings hfn hcompileFn hbind
-    exact compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety
-      (model := model)
-      (selectors := selectors)
-      (hSupported := hSupported)
-      (fn := fn)
-      (sel := sel)
-      (irFn := irFn)
-      (tx := tx)
-      (initialWorld := initialWorld)
-      (bindings := bindings)
-      (htxNormalized := htxNormalized)
-      (hcalldataSizeFits := hcalldataSizeFits)
-      (hnoConflict := hnoConflict)
-      (hsafety := hsafety fn hfn)
-      (hfn := hfn)
-      (hcompileFn := hcompileFn)
-      (hbind := hbind)
   exact Dispatch.interpretContract_correct_of_compiled_functions_except_mapping_writes
-    (model := model)
-    (selectors := selectors)
-    (hSupported := hSupported)
-    (irFns := ir.functions)
-    (tx := tx)
-    (initialWorld := initialWorld)
-    (hcompiled := hcompiled)
-    (hparamsSupported := hparamsSupported)
-    (hfunction := hfunction)
+    (model := model) (selectors := selectors) (hSupported := hSupported)
+    (irFns := ir.functions) (tx := tx) (initialWorld := initialWorld)
+    (hcompiled := compile_ok_yields_compiled_functions_except_mapping_writes
+      model selectors hSupported ir hcompile)
+    (hparamsSupported :=
+      supported_params_of_supportedSpec_except_mapping_writes model selectors hSupported)
+    (hfunction := fun fn sel irFn bindings hfn hcompileFn hbind =>
+      compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety
+        model selectors hSupported fn sel irFn tx initialWorld htxNormalized bindings
+        hcalldataSizeFits hnoConflict (hsafety fn hfn) hfn hcompileFn hbind)
 
 /-- Helper-aware compiled-side wrapper for the alternate singleton
 mapping-write whole-contract theorem. This keeps the widened Tier 2 theorem
@@ -2452,68 +1966,19 @@ theorem compile_preserves_semantics_with_helper_proofs
     FunctionBody.sourceResultMatchesIRResult
       (supportedSourceContractSemantics model selectors hSupported tx initialWorld)
       (interpretIR ir tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-  have hvalidateInputs : validateCompileInputs model selectors = Except.ok () := by
-    unfold CompilationModel.compile at hcompile
-    simp only [bind, Except.bind] at hcompile
-    rcases hvalidate : validateCompileInputs model selectors with _ | validated
-    · simp [hvalidate] at hcompile
-    · simpa using hvalidate
-  have hcompiled :
-      List.Forall₂
-        (fun entry irFn =>
-          compileFunctionSpec model.fields model.events model.errors [] entry.2 entry.1 = Except.ok irFn)
-        (SourceSemantics.selectorFunctionPairs model selectors)
-        ir.functions :=
-    compile_ok_yields_compiled_functions
-      (model := model)
-      (selectors := selectors)
-      (hSupported := hSupported)
-      (ir := ir)
-      (hcompile := hcompile)
-  have hparamsSupported :
-      ∀ fn ∈ selectorDispatchedFunctions model,
-        ∀ param ∈ fn.params, SupportedExternalScalarParamType param.ty :=
-    supported_params_of_supportedSpec model selectors hSupported
-  have hfunction :
-      ∀ fn sel irFn bindings,
-        fn ∈ selectorDispatchedFunctions model →
-        compileFunctionSpec model.fields model.events model.errors [] sel fn = Except.ok irFn →
-        SourceSemantics.bindSupportedParams fn.params tx.args = some bindings →
-        FunctionBody.sourceResultMatchesIRResult
-          (SourceSemantics.interpretFunction model fn tx initialWorld)
-          (execIRFunction irFn tx.args (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
-    intro fn sel irFn bindings hfn hcompileFn hbind
-    simpa [supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
-      (hSupported := hSupported) hfn tx initialWorld] using
-      (compileFunctionSpec_correct_generic_with_helper_proofs
-        (model := model)
-        (selectors := selectors)
-        (hSupported := hSupported)
-        (hHelperProofs := hHelperProofs)
-        (hvalidateInputs := hvalidateInputs)
-        (fn := fn)
-        (sel := sel)
-        (irFn := irFn)
-        (tx := tx)
-        (initialWorld := initialWorld)
-        (htxNormalized := htxNormalized)
-        (bindings := bindings)
-        (hcalldataSizeFits := hcalldataSizeFits)
-        (hfn := hfn)
-        (hcompileFn := hcompileFn)
-        (hbind := hbind))
-  have hcontract :=
-    compile_preserves_semantics_of_compiled_functions
-      (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
-      (model := model)
-      (selectors := selectors)
-      (ir := ir)
-      (tx := tx)
-      (initialWorld := initialWorld)
-      (_hcompile := hcompile)
-      (hcompiled := hcompiled)
-      (hparamsSupported := hparamsSupported)
-      (hfunction := hfunction)
+  have hvalidateInputs := validateCompileInputs_ok_of_compile model selectors ir hcompile
+  have hcontract := compile_preserves_semantics_of_compiled_functions
+    (habi := fun _ hfn => (hSupported.supportedFunctionOfSelectorDispatched hfn).standardAbi)
+    (model := model) (selectors := selectors) (ir := ir) (tx := tx)
+    (initialWorld := initialWorld) (_hcompile := hcompile)
+    (hcompiled := compile_ok_yields_compiled_functions model selectors hSupported ir hcompile)
+    (hparamsSupported := supported_params_of_supportedSpec model selectors hSupported)
+    (hfunction := fun fn sel irFn bindings hfn hcompileFn hbind => by
+      simpa [supportedSourceFunctionSemantics_eq_interpretFunction_of_selectorDispatched
+        (hSupported := hSupported) hfn tx initialWorld] using
+        compileFunctionSpec_correct_generic_with_helper_proofs model selectors hSupported
+          hHelperProofs hvalidateInputs fn sel irFn tx initialWorld htxNormalized bindings
+          hcalldataSizeFits hfn hcompileFn hbind)
   simpa [supportedSourceContractSemantics_eq_sourceContractSemantics
     (hSupported := hSupported) tx initialWorld, sourceContractSemantics] using hcontract
 
@@ -2766,39 +2231,26 @@ theorem compileFunctionSpec_correct_with_helper_rich_support_of_body_goal
     (selectors : List Nat)
     (hSupported : SupportedSpecWithHelpers model selectors)
     (hvalidateInputs : validateCompileInputs model selectors = Except.ok ())
-    (runtimeContract : IRContract)
-    (fn : FunctionSpec)
-    (sel : Nat)
-    (returns : List ParamType)
-    (bodyStmts : List YulStmt)
-    (irFn : IRFunction)
-    (tx : IRTransaction)
-    (initialWorld : Verity.ContractState)
-    (htxNormalized : Function.TxContextNormalized tx)
-    (bindings : List (String × Nat))
-    (internalFunctions : List FunctionSpec)
+    (runtimeContract : IRContract) (fn : FunctionSpec) (sel : Nat) (returns : List ParamType)
+    (bodyStmts : List YulStmt) (irFn : IRFunction) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) (htxNormalized : Function.TxContextNormalized tx)
+    (bindings : List (String × Nat)) (internalFunctions : List FunctionSpec)
     (irFuelSlack extraFuel : Nat)
     (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx)
     (hfn : fn ∈ selectorDispatchedFunctions model)
     (hvalidate : validateFunctionSpec fn = Except.ok ())
     (hreturns : functionReturns fn = Except.ok returns)
-    (hbodyCompile :
-      compileStmtList model.fields model.events model.errors .calldata [] false
+    (hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
         (fn.params.map (·.name)) [] fn.body internalFunctions = Except.ok bodyStmts)
-    (hcompileFn :
-      compileFunctionSpec model.fields model.events model.errors [] sel fn
+    (hcompileFn : compileFunctionSpec model.fields model.events model.errors [] sel fn
         (internalFunctions := internalFunctions) = Except.ok irFn)
     (hbind : SourceSemantics.bindSupportedParams fn.params tx.args = some bindings)
-    (hcompiledBodyFuel :
-      (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
+    (hcompiledBodyFuel : (genParamLoads fn.params ++ bodyStmts).length + extraFuel =
         sizeOf (Function.compiledFunctionIR sel fn returns bodyStmts).body + irFuelSlack)
-    (hbodyCorrect :
-      SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal
-        runtimeContract model fn bodyStmts hSupported.helperFuel tx initialWorld
-        (ParamLoading.applyBindingsToIRState
-          (Function.prebindRawArgs
-            (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params)
-          bindings)
+    (hbodyCorrect : SupportedFunctionBodyWithHelpersAndHelperIRPreservationGoal runtimeContract
+        model fn bodyStmts hSupported.helperFuel tx initialWorld
+        (ParamLoading.applyBindingsToIRState (Function.prebindRawArgs
+          (FunctionBody.initialIRStateForTx model tx initialWorld) fn.params) bindings)
         bindings extraFuel)
     (hparamDisjoint :
       YulStmtListCallsDisjointFromInternalTable runtimeContract (genParamLoads fn.params)) :

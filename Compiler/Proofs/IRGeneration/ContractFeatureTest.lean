@@ -526,6 +526,49 @@ private theorem constructorOnly_noConflict :
     firstFieldWriteSlotConflict constructorOnlySpec.fields = none := by
   native_decide
 
+private theorem constructorOnly_compileBody_head :
+    ∃ headIR,
+      CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+        (constructorBodyScope constructorOnlyCtor.params) []
+        (Stmt.setStorageAddr "owner" (.param "initialOwner")) = Except.ok headIR := by
+  refine ⟨
+    match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+        (constructorBodyScope constructorOnlyCtor.params) []
+        (Stmt.setStorageAddr "owner" (.param "initialOwner")) with
+    | .ok headIR => headIR
+    | .error _ => [], ?_⟩
+  simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
+    CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+    CompilationModel.compileSetStorage,
+    CompilationModel.compileExprWithInternals, CompilationModel.isMapping,
+    constructorOnly_owner_resolved_lit, Bind.bind, Except.bind, Pure.pure,
+    Except.pure]
+
+private theorem constructorOnly_compileBody_tail :
+    ∃ tailIR,
+      CompilationModel.compileStmtList constructorOnlySpec.fields [] [] .memory [] false
+        (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+          (constructorBodyScope constructorOnlyCtor.params)) []
+        [Stmt.stop] = Except.ok tailIR := by
+  have hstop :
+      ∃ stopIR,
+        CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+          (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+            (constructorBodyScope constructorOnlyCtor.params)) [] Stmt.stop =
+            Except.ok stopIR := by
+    refine ⟨
+      match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
+          (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
+            (constructorBodyScope constructorOnlyCtor.params)) [] Stmt.stop with
+      | .ok stopIR => stopIR
+      | .error _ => [], ?_⟩
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      Pure.pure, Except.pure]
+  rcases hstop with ⟨stopIR, hstop⟩
+  exact ⟨stopIR ++ [],
+    FunctionBody.compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _
+      hstop (FunctionBody.compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _)⟩
+
 private theorem constructorOnly_compileBody_empty_surfaces_withFork :
     ∃ bodyStmts,
       compileStmtListWithFork
@@ -540,48 +583,8 @@ private theorem constructorOnly_compileBody_empty_surfaces_withFork :
           Verity.Core.Intrinsics.HardFork.cancun
           constructorOnlyCtor.body =
         Except.ok bodyStmts := by
-  have hhead :
-      ∃ headIR,
-        CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
-          (constructorBodyScope constructorOnlyCtor.params) [] (Stmt.setStorageAddr "owner" (.param "initialOwner")) =
-            Except.ok headIR := by
-    refine ⟨
-      match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
-          (constructorBodyScope constructorOnlyCtor.params) [] (Stmt.setStorageAddr "owner" (.param "initialOwner")) with
-      | .ok headIR => headIR
-      | .error _ => [], ?_⟩
-    simp [constructorOnlySpec, constructorOnlyCtor, constructorOnlyOwnerField,
-      CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-      CompilationModel.compileSetStorage,
-      CompilationModel.compileExprWithInternals, CompilationModel.isMapping,
-      constructorOnly_owner_resolved_lit, Bind.bind, Except.bind, Pure.pure,
-      Except.pure]
-  have htail :
-      ∃ tailIR,
-        CompilationModel.compileStmtList constructorOnlySpec.fields [] [] .memory [] false
-          (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
-            (constructorBodyScope constructorOnlyCtor.params)) []
-          [Stmt.stop] = Except.ok tailIR := by
-    have hstop :
-        ∃ stopIR,
-          CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
-            (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
-              (constructorBodyScope constructorOnlyCtor.params)) [] Stmt.stop =
-              Except.ok stopIR := by
-      refine ⟨
-        match CompilationModel.compileStmt constructorOnlySpec.fields [] [] .memory [] false
-            (collectStmtBindNames (Stmt.setStorageAddr "owner" (.param "initialOwner")) ++
-              (constructorBodyScope constructorOnlyCtor.params)) [] Stmt.stop with
-        | .ok stopIR => stopIR
-        | .error _ => [], ?_⟩
-      simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-        Pure.pure, Except.pure]
-    rcases hstop with ⟨stopIR, hstop⟩
-    exact ⟨stopIR ++ [],
-      FunctionBody.compileStmtList_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _
-        hstop (FunctionBody.compileStmtList_nil_eq_ok _ _ _ _ _ _ _ _)⟩
-  rcases hhead with ⟨headIR, hhead⟩
-  rcases htail with ⟨tailIR, htail⟩
+  rcases constructorOnly_compileBody_head with ⟨headIR, hhead⟩
+  rcases constructorOnly_compileBody_tail with ⟨tailIR, htail⟩
   exact ⟨headIR ++ tailIR,
     FunctionBody.compileStmtListWithFork_cons_eq_ok _ _ _ _ _ _ _ _ _ _ _ _ _ hhead htail⟩
 

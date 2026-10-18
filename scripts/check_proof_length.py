@@ -49,16 +49,10 @@ ALLOWLIST: set[str] = {
     "execIRStmt_stable",
     "execIRStmts_stable",
     "execIRStmts_mstore_ptr_expr_block",
-    # guarded-family root: one coherent composition of the shape pin, the
-    # ParamLoading prefix, and the guarded-unit laws; fragmenting it would
-    # duplicate the fuel bookkeeping across artificial sub-lemmas.
-    "exec_compiledGuardedFunctionIR_of_body_fallthrough",
-    "exec_compiledGuardedFunctionIR_of_body_halting",
     # decidable-checker soundness: exhaustive constructor sweep of the
     # executable mirror; splitting per constructor would break the mutual
     # recursion with the Cases/Dflt/List companions.
     "spliceSimCheck_sound",
-    "compileValidatedCore_ok_yields_guarded_functions",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
     # against the corresponding exhaustive expression definitions.
@@ -95,16 +89,9 @@ ALLOWLIST: set[str] = {
     "exprUsesArrayElement_eq_false_of_coreClosed",
     "exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed",
     # --- Core expression/statement compilation ---
-    # Helper-body shape seam: the proof follows the compiler's own
-    # validate/returns/body split and then applies the mutually recursive
-    # return-free shape-irrelevance lemma. Splitting would duplicate that
-    # compileInternalFunction destructuring without reducing the proof burden.
-    "compileInternalFunction_body_eq_external_of_returnFree",
-    # Fork-aware list append inversion and constructor smoke witnesses are
-    # mechanical normalization proofs; splitting them duplicates the same
-    # head/tail compile-success plumbing.
+    # Fork-aware list append inversion is a mechanical normalization proof;
+    # splitting it duplicates the same head/tail compile-success plumbing.
     "compileStmtList_append_ok_inv",
-    "constructorOnly_compileBody_empty_surfaces_withFork",
     # Nat-indexed forEach empty-body proof witnesses. Positive non-empty
     # literal loops intentionally remain outside the supported fragment. The
     # longer witnesses below are recurrence/state-relation proofs where
@@ -140,51 +127,6 @@ ALLOWLIST: set[str] = {
     # user body. This deliberately stays private until the execution bridge is
     # closed.
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
-    # #2205 contract-facing adapter: the body is one application; its length is
-    # dominated by the mirrored helper-rich function premises and named types.
-    "compileFunctionSpec_correct_with_helper_rich_support_of_body_goal",
-    # #2080 phase 21 contract-level consumer: exposes the direct helper-aware
-    # function theorem through the contract proof API while keeping the
-    # generated param-load disjointness premise explicit.
-    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal",
-    # #2080 selector-dispatch consumer seam: same signature-dominated wrapper as
-    # its `_of_body_goal` sibling, but discharges the generated param-load
-    # disjointness premise from the runtime contract's internal-table naming
-    # invariant instead of taking it as an opaque hypothesis. Body is a single
-    # term application; the >50 lines are entirely the mirrored premise list.
-    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_internalNamesPrefixed",
-    # #2080 phase 27 reserved-name dispatch seam: same signature-dominated wrapper
-    # as its `_of_internalNamesPrefixed` sibling, but discharges the generated
-    # param-load disjointness premise from the runtime contract's *reserved-name*
-    # invariant (`InternalTableNamesReserved`) — the true generalization that
-    # populated tables containing non-`internal_` compiler helpers satisfy. Body is
-    # a single term application; the >50 lines are entirely the mirrored premise list.
-    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_reserved",
-    # #2080 whole-contract dispatch seam: same signature-dominated wrapper as the
-    # `_of_internalNamesPrefixed` sibling, but derives the internal-table naming
-    # invariant from the structural compilation fact (every internal-table stmt is
-    # a `compileInternalFunction` output). Body is a single term application; the
-    # >50 lines are entirely the mirrored premise list.
-    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compiledInternalTable",
-    # #2080 whole-contract dispatch seam consumer: same signature-dominated wrapper
-    # as the `_of_compiledInternalTable` sibling, but discharges its `hcompiledTable`
-    # premise from the real compilation pipeline output
-    # (`compileValidatedCore model selectors = Except.ok runtimeContract`) instead of
-    # taking it as a hypothesis. Body is a single term application; the >50 lines are
-    # entirely the mirrored premise list.
-    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_body_goal_of_compileValidatedCore",
-    # #2080 helper-segment reserved-name seam: these mechanically enumerate the
-    # exact conditional helper segment emitted by `compileValidatedCore` and
-    # package it with the existing compiled-internal-table connector. The length
-    # is dominated by the concrete helper list shape, not proof search.
-    "DecodedInternalHelperNamesReserved.compileValidatedCore_helpers",
-    "InternalTableNamesReserved_of_compileValidatedCore_helpers_append_compiledInternalTable",
-    # #2080 compileValidatedCore table-shape connector: extracts the concrete
-    # helper segment, template-helper equation, compiled-internal mapM equation,
-    # fallback/receive entrypoints, and constructor from the pipeline's monadic
-    # output. The length is dominated by case-splitting the do-block shape so the
-    # downstream dispatch seam can consume a premise-free reserved-table theorem.
-    "InternalTableNamesReserved_of_compileValidatedCore",
     # First concrete letVar statement-head adapter (#2080 phase 10): threads a
     # single compositional-expression existential through source execution, IR
     # fuel alignment, and four scope/runtime invariant re-establishment steps
@@ -258,7 +200,6 @@ ALLOWLIST: set[str] = {
     "compatScratch_startsWith_reserved",
     "scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes",
     # --- Function-level compilation proofs ---
-    "compileFunctionSpec_correct_generic",
     "bindSupportedParams_lookupBinding",
     # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
     # generic keystones above; the line count is the inherited hypothesis
@@ -275,14 +216,6 @@ ALLOWLIST: set[str] = {
     # statement grammar (mirrors execIRStmt_stable); per-constructor splits
     # would break the mutual recursion with the list companion.
     "execIRStmt_getVar_of_checked",
-    # master compileValidatedCore inversion: pins every field of the output
-    # record in one pass (mapM + constructor + record shape); all per-projection
-    # shape lemmas are one-line derivations of it, so splitting it would just
-    # reintroduce the per-projection duplication it removed.
-    "compileValidatedCore_ok_inv",
-    "compile_preserves_semantics",
-    "compile_preserves_semantics_except_mapping_writes",
-    "compile_preserves_semantics_except_mapping_writes_stmtSafety",
     "resultsMatch_of_execResultsAligned",
     # --- SimpleStorage native EVMYulLean dispatcher closed forms ---
     # These are concrete generated-code reductions for the store(uint256)
@@ -308,10 +241,6 @@ ALLOWLIST: set[str] = {
     # RBMap erase-self lookup fact in one generated store-body endpoint.
     "primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_projectResult_slot0_zero_of_erase",
     # --- Helper-aware theorem stack (Issue #1630 / PR #1633 / PR #1639) ---
-    "compileFunctionSpec_correct_generic_with_helper_proofs",
-    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir",
-    "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint",
-    "compile_preserves_semantics_with_helper_proofs",
     "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
     # --- Return statement compilation (memory sync adds steps) ---
     "exec_compileStmt_return_core_extraFuel",
@@ -776,16 +705,6 @@ ALLOWLIST: set[str] = {
     "contractDispatcherExecResult_initFreeMemoryPointer_buildSwitch_noFallback_noReceive_peel",
     "lowerRuntimeContractNative_emitYul_mapping_noInternals_noFallback_noReceive_reserved",
     # --- #1630 helper-composition theorem surface (commit `45b338ed`) ---
-    # Minimal single-delegation body (`have hcorrect := … ; simpa …`); the
-    # 41-line signature+proof is pushed to a reported 51-line span by the
-    # trailing blank line plus the 9-line `#1630` doc-comment preamble of the
-    # *next* theorem (`compileFunctionSpec_correct_generic_with_helper_proofs`),
-    # which the comment-preserving scanner attributes to this proof's span.
-    # Same doc-comment displacement pattern as the `_bridged` list closures
-    # above; the body just delegates to
-    # `Function.supported_function_correct_except_mapping_writes_stmtSafety`,
-    # so there is no proof logic to decompose.
-    "compileFunctionSpec_correct_generic_except_mapping_writes_stmtSafety",
     # #2085 `bytes` external parameters. The loader lemmas are straight-line
     # symbolic executions of the generated Yul: every statement threads the same
     # `IRState` through the same variable table and fuel counter, so cutting

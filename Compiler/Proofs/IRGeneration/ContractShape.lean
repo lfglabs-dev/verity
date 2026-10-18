@@ -264,48 +264,28 @@ theorem compileValidatedCore_ok_inv
           model.events model.errors model.adtTypes x.2 x.1) = Except.ok irFns ∧
       compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
         model.events model.errors model.adtTypes model.constructor = Except.ok deployStmts ∧
-      ir = { name := model.name
-             deploy := deployStmts
+      ir = { name := model.name, deploy := deployStmts
              constructorPayable := (model.constructor.map (·.isPayable)).getD false
-             functions := irFns
-             fallbackEntrypoint := none
-             receiveEntrypoint := none
+             functions := irFns, fallbackEntrypoint := none, receiveEntrypoint := none
              usesMapping := usesMapping (applySlotAliasRanges model.fields model.slotAliasRanges)
              internalFunctions := coreHelperInternalFunctions model } := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hfallbackAbsent
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hreceiveAbsent
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_all_nonInternal model.functions hnoInternal
-  have hnoTemplateEmpty : (templateIntrinsicItems model).isEmpty = true := by
-    simp [hnoTemplate]
   unfold compileValidatedCore at hcore
-  rw [hnoInternalFns, hfallback, hreceive] at hcore
-  simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure,
-    List.mapM_nil] at hcore
-  simp only [guardedFunctionsMapM_eq
-    (applySlotAliasRanges model.fields model.slotAliasRanges)
-    model.events model.errors model.adtTypes [] _ hlockfree] at hcore
-  rcases hmap :
-      ((model.functions.filter
-          (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-        (fun x => compileFunctionSpec (applySlotAliasRanges model.fields model.slotAliasRanges)
-          model.events model.errors model.adtTypes x.2 x.1) with _ | irFns
-  · simp [hmap] at hcore
-  · rcases hctor :
-        compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
-          model.events model.errors model.adtTypes model.constructor with _ | deployStmts
-    · simp [hmap, hctor, hnoTemplateEmpty] at hcore
-    · refine ⟨irFns, deployStmts, hmap, rfl, ?_⟩
-      simp [hmap, hctor, hnoTemplateEmpty] at hcore
-      rw [← hcore]
-      simp [coreHelperInternalFunctions]
+  rw [filterInternalFunctions_eq_nil_of_all_nonInternal model.functions hnoInternal,
+    pickUniqueFunctionByName_eq_ok_none_of_absent "fallback" _ hfallbackAbsent,
+    pickUniqueFunctionByName_eq_ok_none_of_absent "receive" _ hreceiveAbsent] at hcore
+  simp only [bind, Except.bind, Option.mapM_none, pure, Except.pure, List.mapM_nil,
+    guardedFunctionsMapM_eq (applySlotAliasRanges model.fields model.slotAliasRanges)
+      model.events model.errors model.adtTypes [] _ hlockfree] at hcore
+  split at hcore
+  · simp at hcore
+  rename_i irFns hmap
+  rw [if_pos (by simp [hnoTemplate])] at hcore
+  split at hcore
+  · simp at hcore
+  rename_i deployStmts hctor
+  refine ⟨irFns, deployStmts, hmap, hctor, ?_⟩
+  rw [← Except.ok.inj hcore]
+  simp [coreHelperInternalFunctions]
 
 private theorem compileValidatedCore_ok_yields_compiled_functions
     (model : CompilationModel)

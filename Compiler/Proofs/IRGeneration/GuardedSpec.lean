@@ -74,8 +74,7 @@ theorem SupportedSpecGuarded.noInternalFunctions
 guarded pipeline. -/
 theorem compileValidatedCore_ok_yields_guarded_functions
     (model : CompilationModel) (selectors : List Nat)
-    (hSupported : SupportedSpecGuarded model selectors)
-    (ir : IRContract)
+    (hSupported : SupportedSpecGuarded model selectors) (ir : IRContract)
     (hcore : compileValidatedCore model selectors = Except.ok ir) :
     List.Forall₂
       (fun (entry : FunctionSpec × Nat) irFn =>
@@ -83,52 +82,24 @@ theorem compileValidatedCore_ok_yields_guarded_functions
           [] entry.2 entry.1 = Except.ok irFn)
       (SourceSemantics.selectorFunctionPairs model selectors)
       ir.functions := by
-  have hfallback :
-      pickUniqueFunctionByName "fallback" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "fallback" model.functions hSupported.surface.noFallback
-  have hreceive :
-      pickUniqueFunctionByName "receive" model.functions = Except.ok none :=
-    pickUniqueFunctionByName_eq_ok_none_of_absent
-      "receive" model.functions hSupported.surface.noReceive
-  have hnoInternalFns :
-      model.functions.filter (·.isInternal) = [] :=
-    filterInternalFunctions_eq_nil_of_all_nonInternal model.functions
-      hSupported.noInternalFunctions
   unfold compileValidatedCore at hcore
-  rw [hSupported.invariants.normalizedFields,
-    hSupported.surface.noAdtTypes, hSupported.surface.noEvents,
-    hSupported.surface.noErrors,
-    hnoInternalFns, hfallback, hreceive,
+  rw [hSupported.invariants.normalizedFields, hSupported.surface.noAdtTypes,
+    hSupported.surface.noEvents, hSupported.surface.noErrors,
+    filterInternalFunctions_eq_nil_of_all_nonInternal _ hSupported.noInternalFunctions,
+    pickUniqueFunctionByName_eq_ok_none_of_absent "fallback" _ hSupported.surface.noFallback,
+    pickUniqueFunctionByName_eq_ok_none_of_absent "receive" _ hSupported.surface.noReceive,
     hSupported.surface.noTemplateIntrinsics] at hcore
   simp only [bind, Except.bind, pure, Except.pure] at hcore
-  rcases hmap :
-      ((model.functions.filter
-          (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors).mapM
-        (fun x => compileGuardedFunctionSpec model.fields [] [] [] [] x.2 x.1) with _ | irFns
-  · simp [hmap] at hcore
-  · simp [hmap] at hcore
-    rcases hctor :
-        compileConstructor model.fields [] [] [] model.constructor with _ | deployStmts
-    · simp [hctor] at hcore
-      cases hcore
-    · simp [hctor] at hcore
-      have hfunctions : ir.functions = irFns := by
-        injection hcore with hir
-        cases hir
-        rfl
-      have hcompiled :
-          List.Forall₂
-            (fun (entry : FunctionSpec × Nat) irFn =>
-              compileGuardedFunctionSpec model.fields model.events model.errors []
-                [] entry.2 entry.1 = Except.ok irFn)
-            ((model.functions.filter
-                (fun fn => !fn.isInternal && !isInteropEntrypointName fn.name)).zip selectors)
-            irFns := by
-        simpa [hSupported.surface.noEvents, hSupported.surface.noErrors] using
-          (guarded_functions_forall₂_of_mapM_ok model.fields [] [] [] _ _ hmap)
-      simpa [SourceSemantics.selectorFunctionPairs, selectorDispatchedFunctions,
-        hfunctions] using hcompiled
+  split at hcore
+  · cases hcore
+  rename_i irFns hmap
+  have hfunctions : ir.functions = irFns := by
+    rcases hctor : compileConstructor model.fields [] [] [] model.constructor with _ | _ <;>
+      simp [hctor, pure, Except.pure] at hcore
+    rw [← hcore]
+  simpa [SourceSemantics.selectorFunctionPairs, selectorDispatchedFunctions, hfunctions,
+    hSupported.surface.noEvents, hSupported.surface.noErrors] using
+    (guarded_functions_forall₂_of_mapM_ok model.fields [] [] [] _ _ hmap)
 
 /-- Compile-level wrapper. -/
 theorem compile_ok_yields_guarded_functions
