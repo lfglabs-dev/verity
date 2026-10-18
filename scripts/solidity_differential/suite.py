@@ -123,6 +123,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('interface-static-call-rejections', ['-m',
         'solidity_differential.check_interface_static_call_rejections',
         '--output', str(output / 'interface-static-call-rejections')]))
+    checks.append(('create2-struct-emit', ['-m', 'solidity_differential.check_create2_struct_emit',
+        '--transactions', str(max(32, min(transactions, 48))), '--seed', str(seed),
+        '--output', str(output / 'create2-struct-emit')]))
+    checks.append(('create2-struct-emit-rejections', ['-m',
+        'solidity_differential.check_create2_struct_emit_rejections',
+        '--output', str(output / 'create2-struct-emit-rejections')]))
     return run_checks(output, checks, transactions, seed, jobs)
 
 

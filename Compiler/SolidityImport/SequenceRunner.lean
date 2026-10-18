@@ -48,17 +48,40 @@ private def encodeEvent (account : Nat) (definitions : List EventDef)
     (event : Verity.Event) : Except String Json := do
   let [definition] := definitions.filter (·.name == event.name)
     | throw s!"observed event must resolve uniquely: {event.name}"
-  unless event.indexedArgs.isEmpty do throw "unexpected pre-partitioned Denote event"
+  let topic0 := hexBytes (KeccakEngine.keccak256_str (eventSignature definition)).data.toList
+  unless event.indexedArgs.isEmpty do
+    -- Closed log transport: the complete logged topics and ABI payload words,
+    -- reported as executed so a wrong selector or topic is an observation.
+    unless event.indexedArgs.length ≤ 4 do throw "logged event has more than four topics"
+    let topics := event.indexedArgs.map fun topic => hexWord topic.val
+    return Json.mkObj [("address", toJson (hexAddress account)), ("topics", toJson topics),
+      ("data", toJson (hexBytes (event.args.flatMap fun word => wordBytes word.val)))]
   unless definition.params.length == event.args.length do throw "event argument count differs"
   let pairs ← (definition.params.zip event.args).mapM fun (parameter, value) => do
     pure (parameter, ← eventWord parameter.ty value.val)
   let indexed := pairs.filter (fun p => p.1.kind == .indexed)
   unless indexed.length ≤ 3 do throw "event has more than three indexed parameters"
-  let topic0 := hexBytes (KeccakEngine.keccak256_str (eventSignature definition)).data.toList
   let topics := topic0 :: indexed.map (fun p => hexWord p.2)
   let data := (pairs.filter (fun p => p.1.kind == .unindexed)).flatMap (fun p => wordBytes p.2)
   return Json.mkObj [("address", toJson (hexAddress account)),
     ("topics", toJson topics), ("data", toJson (hexBytes data))]
+
+/-- Requested deployment observations in the `deployment.py` schema: the
+caller's nonce and balance, then exact code, nonce and balance of every planned
+account. Planned addresses come from EVM trace discovery, never from the model. -/
+private def observeDeployment (account : Nat) (world : Verity.ContractState)
+    (transaction : Json) : Except String (Option Json) := do
+  let .ok requested := transaction.getObjVal? "observeAccounts" | return none
+  let planned ← (← requested.getArr?).toList.mapM word
+  unless planned.all (· < 2^160) && !planned.contains account do
+    throw "invalid planned deployment account"
+  let state := fun address => world.accountWorld (Address.ofNat address)
+  let quantities := fun address =>
+    [("address", toJson (hexAddress address)), ("nonce", toJson (state address).nonce.val),
+     ("balance", toJson (state address).balance.val)]
+  return some (Json.mkObj [("creator", Json.mkObj (quantities account)),
+    ("accounts", toJson (planned.map fun address => Json.mkObj (quantities address ++
+      [("code", toJson (hexBytes ((state address).code.map fun byte => UInt8.ofNat byte.val)))])))])
 
 private def pair (j : Json) : Except String (Nat × Nat) := do
   match (← j.getArr?).toList with
@@ -95,6 +118,13 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
   let mut world := storage.foldl
     (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
     { foreignWorld with thisAddress := Address.ofNat account }
+  -- A deployed EVM contract starts at nonce 1 (EIP-161); the caller states it.
+  if let .ok nonce := input.getObjVal? "accountNonce" then
+    let nonce ← word nonce
+    let some bounded := (if h : nonce < 2^64 then some (⟨nonce, h⟩ : Fin (2^64)) else none)
+      | throw "account nonce exceeds 64 bits"
+    let current := world.accountWorld (Address.ofNat account)
+    world := world.writeAccount (Address.ofNat account) { current with nonce := bounded }
   let externalFns := model.functions.filter fun fn =>
     !fn.isInternal && !isInteropEntrypointName fn.name
   let dispatch := externalFns.map fun fn =>
@@ -169,7 +199,8 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
     unless slots.all (fun (owner, slot) => owner != account || world.readSlot slot ==
         (world.accountWorld (Address.ofNat account)).storageAt slot) do
       throw "model flat/account storage observations are incoherent"
-    rows := rows.push (Json.mkObj [
+    let deployment ← observeDeployment account world transaction
+    rows := rows.push (Json.mkObj <| [
       ("id", toJson ident), ("status", toJson (if result.frame.success then "ok" else "revert")),
       ("data", toJson (hexBytes result.frame.data)),
       ("touched", toJson (touched.map fun (owner, slot) => [hexAddress owner, hexWord slot])),
@@ -177,7 +208,7 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
         let key := if owner == account then Verity.StorageKey.slot slot
           else Verity.StorageKey.contractSlot owner slot
         [hexAddress owner, hexWord slot, hexWord (world.storageWords key).val])),
-      ("events", toJson emitted)])
+      ("events", toJson emitted)] ++ (deployment.map (("deployment", ·))).toList)
   return Json.arr rows
 
 /-- The generated model driver supplies the actual model and hash oracle. -/

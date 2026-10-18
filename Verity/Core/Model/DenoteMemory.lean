@@ -51,9 +51,6 @@ inductive Result where
   | word (value : Word) (memory : Memory)
   | outOfBounds
 
-def listByte (bytes : List Byte) (offset : Nat) : Byte :=
-  bytes.getD offset zeroByte
-
 /-- Denote one non-terminating memory operation. -/
 def denoteMemoryOp : MemoryOp → Memory → Result
   | .mstore offset value, memory => .ok (memory.writeWord offset value)
@@ -105,9 +102,6 @@ inductive Termination where
   | returned (data : List Byte)
   | reverted (data : List Byte)
   deriving DecidableEq, Repr
-
-def Memory.slice (memory : Memory) (offset size : Nat) : List Byte :=
-  (List.range size).map (fun index => memory.readByte (offset + index))
 
 def denoteReturn (memory : Memory) (offset size : Nat) : Termination :=
   .returned (memory.slice offset size)

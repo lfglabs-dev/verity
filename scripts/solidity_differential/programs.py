@@ -317,6 +317,48 @@ def stateful_interface_static_call_source(original, variant):
     raise ValueError('unknown interface staticcall program variant')
 
 
+def stateful_create2_struct_emit_source(original, variant):
+    """Equivalent CREATE2 code-storage and struct-event programs over one sequence.
+
+    Observable names stay fixed: root functions, events, the custom error, and
+    the struct types named by the model driver's signatures.
+    """
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('CodeStore', 'PointerStore'), ('PREFIX', 'HEADER'), ('store', 'persist'),
+                         ('created', 'seen'), ('deployed', 'created'), ('code', 'initcode'),
+                         ('total', 'tally'), ('pointer', 'target'), ('spec', 'config'),
+                         ('leg', 'part'), ('salt', 'seed'), ('index', 'position'), ('id', 'key'),
+                         ('tag', 'label'), ('owner', 'holder'), ('legs', 'parts'),
+                         ('token', 'asset'), ('weight', 'amount'), ('deadline', 'expiry')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ("bytes memory code = abi.encodePacked(PREFIX, abi.encode(spec));",
+             """bytes memory payload = abi.encode(spec);
+        bytes memory code = bytes.concat(PREFIX, payload);"""),
+            ("deployed := create2(0, add(code, 0x20), mload(code), salt)",
+             "deployed := create2(0, add(0x20, code), mload(code), salt)"),
+            ("require(deployed != address(0), DeploymentFailed());",
+             "if (deployed == address(0)) revert DeploymentFailed();"),
+            ("id = keccak256(abi.encode(spec));", """bytes32 digest = keccak256(abi.encode(spec));
+        id = digest;"""),
+            ("total += 1;", "total = total + 1;"),
+            ("emit LegStored(pointer, leg, index);", """uint256 position = index;
+        emit LegStored(pointer, leg, position);"""),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError('nonunique CREATE2/struct-event variant anchor')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown CREATE2/struct-event program variant')
+
+
 def stateful_storage_source(original, variant):
     """Equivalent packed scalar writes/deletes, imported independently per variant."""
     if variant == 'baseline':

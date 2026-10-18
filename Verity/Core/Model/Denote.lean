@@ -6,6 +6,7 @@ import Verity.Core.Model.DynamicAbi
 import Verity.Core.Model.Types
 import Verity.Core.Model.PhysicalMemory
 import Verity.Core.Model.ByteExternalCall
+import Verity.Core.Model.Create2Opcode
 
 
 /-!
@@ -1301,6 +1302,64 @@ def executeByteStaticCall (oracle : DenoteOracle) (fields : List Field)
   }
   return (.continue next, observed.touched)
 
+/-- CREATE2 byte hash through the model Keccak oracle, as for error selectors. -/
+def oracleByteHash (oracle : DenoteOracle) : DenoteCreate2.ByteHash := fun bytes =>
+  let raw := bytes.map fun byte => UInt8.ofNat byte.val
+  Verity.Core.Uint256.ofNat (oracle.keccakMemorySlice (signatureMemory raw) 0 raw.length)
+
+/-- The closed `create2(value, offset, size, salt)` transport. Initcode is read
+from the frame's physical memory and executed by `Create2Opcode.execute` with
+the instrument-supplied parent gas. Parent out-of-gas and static/size aborts
+halt the frame with empty data; a failed creation binds zero. Unchecked
+initcode or missing gas is an instrumentation error, never a revert. -/
+def executeByteCreate2 (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (args : List Expr) : Except String StmtOutcome := do
+  unless mod == Compiler.ECM.SolidityCreate2.module resultVar do
+    throw "closed create2 metadata differs"
+  let some gas := state.byteCallGas | throw "create2 gas environment missing"
+  let some [value, offset, size, salt] := evalExprList oracle fields state args
+    | throw "create2 argument evaluation unsupported"
+  let world := state.world
+  let result ← Create2Opcode.execute (oracleByteHash oracle) world world.byteMemory
+    { creator := world.thisAddress, value := .ofNat value, gas }
+    (.ofNat salt) (.ofNat offset) (.ofNat size)
+  match result.control with
+  | .outOfGas | .creation (.abort _) => return .revertWithData []
+  | .creation control =>
+      let created := match control with
+        | .success address => address.val
+        | _ => 0
+      return .continue { state with
+        world := result.world.installPhysicalMemory result.memory
+        bindings := bindValue state.bindings resultVar created
+        rawReturndata := some [] }
+
+/-- The closed event-log transport: topics, then an ABI payload in physical
+memory. The log is recorded with its complete topic list (including the event
+selector) as `indexedArgs` and its payload words as `args`; payloads that are
+not whole words are an instrumentation error. -/
+def executeByteLog (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (eventName : String) (topicCount : Nat) (args : List Expr) :
+    Except String StmtOutcome := do
+  unless mod == Compiler.ECM.SolidityLog.module eventName topicCount do
+    throw "closed event log metadata differs"
+  let some values := evalExprList oracle fields state args
+    | throw "event log argument evaluation unsupported"
+  let [offset, size] := values.drop topicCount | throw "event log argument count differs"
+  unless size % 32 == 0 do throw "event log payload is not word aligned"
+  let memory := state.world.byteMemory
+  let words := (List.range (size / 32)).map fun index =>
+    DenoteMemory.wordValue (memory.readWord (offset + 32 * index))
+  let expanded := if size = 0 then memory else memory.expand (offset + size)
+  let world := state.world.installPhysicalMemory expanded
+  let event : Verity.Event :=
+    { name := eventName
+      args := words
+      indexedArgs := (values.take topicCount).map Verity.Core.Uint256.ofNat }
+  return .continue { state with world := { world with events := world.events ++ [event] } }
+
 /-! ## Statement denotation (mirrors event-less `SourceSemantics.execStmt`) -/
 
 def valuesAsEventArgs (values : List Nat) : List Verity.Core.Uint256 :=
@@ -1723,6 +1782,14 @@ mutual
         | some (.staticUint256 resultVar selector numStaticArgs) =>
             match executeByteStaticCall oracle fields state mod resultVar selector numStaticArgs args with
             | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.create2 resultVar) =>
+            match executeByteCreate2 oracle fields state mod resultVar args with
+            | .ok outcome => outcome
+            | .error _ => .revert
+        | some (.log eventName topicCount) =>
+            match executeByteLog oracle fields state mod eventName topicCount args with
+            | .ok outcome => outcome
             | .error _ => .revert
         | none =>
             match evalExprList oracle fields state args with

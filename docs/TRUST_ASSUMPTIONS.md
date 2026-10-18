@@ -1788,6 +1788,55 @@ Trust boundary changes:
   compiled model with solc and Denote is differential evidence
   (`InterfaceStaticCallSequence`, three equivalent variants), not a proof.
 
+### Imported SSTORE2-style `create2` and struct event parameters
+
+`solidity_import` now admits Yul `create2(0, add(buf, 0x20), mload(buf), salt)`
+as the whole value of a Yul assignment or `let`, where `buf` is a never-reassigned
+`bytes memory` local initialised by `abi.encodePacked` / `bytes.concat` whose
+leading hex literal starts a checked `DenoteCreate2.templateCost` initcode
+template, and `emit` of events with non-indexed struct parameters passed as
+memory struct variables next to indexed value-type parameters. Every other
+`create2` value/offset/size/buffer/prefix shape, `create`, indexed structs and
+other event shapes fail closed with a located diagnostic. The constructs lower
+to two new closed byte transports, `SolidityCreate2.module` and
+`SolidityLog.module`, whose Denote arms are pinned by `execStmt_ecm_create2_arm`
+and `execStmt_ecm_log_arm` and admitted by `closedTransportCovered`.
+
+Trust boundary changes:
+- Denote's CREATE2 is `Create2Opcode.execute` (#2504) over the frame's physical
+  byte memory (#2508): initcode bytes are read from memory, never supplied, and
+  only the checked templates execute. Other initcode, a missing gas allowance or
+  unsupported opcodes are payload-free instrumentation `.revert`s, never
+  Solidity reverts or fabricated deployments. Keccak comes from the model oracle.
+- Gas is not tracked across the frame. The parent gas at the opcode is the
+  instrument's explicit `ByteCallEnvironment.gas`; outcomes that depend on the
+  gas consumed before the opcode (parent or child out-of-gas, deposit-gas
+  failure) are outside the validated domain. Memory size, and so expansion
+  cost, follows Denote's physical memory, which `mload` does not expand.
+- The importer's template check inspects the initializer literal only; later
+  Yul `mstore8` writes into the buffer are not tracked. Denote rechecks the
+  actual initcode bytes at execution; the compiled model executes whatever
+  initcode is in its memory.
+- Verity's CEI checker counts every ECM as an interaction barrier, and a
+  `create2` ECM (call-summarised) opens a cross-function reentrancy window.
+  Imported functions whose only barriers are closed transports carry
+  `allowPostInteractionWrites` with the unchecked obligation
+  `solidity_closed_transport_cei`; functions whose only windows are closed
+  `create2`s carry `reentrancyTrusted` with `solidity_create2_initcode_reentrancy`.
+  Both rest on the templates copying and returning their payload without a
+  call; this is checked by the importer and Denote, not proved for compiled
+  code. Such functions do not qualify for `CEIProofBackedExecution`.
+- Logs carry the declaration's `eventSelector` as topic 0, cleaned indexed
+  topics and the `abi.encode` payload of the non-indexed arguments; Denote
+  records them as `Verity.Event` values whose `indexedArgs` hold every topic,
+  which only the closed log transport produces. Non-word payloads are
+  instrumentation errors.
+- Both transports keep compilation `proofStatus := .assumed`; agreement of the
+  compiled model with solc and Denote is differential evidence
+  (`Create2BytecodeAndStructEmitSequence`, three equivalent variants, accounts
+  discovered from EVM CREATE2 traces), not a proof. `DenoteAgreement` excludes
+  every closed byte transport, so no source-semantics agreement is claimed.
+
 ### ABI memory proof integration
 
 The ABI reserve, clearing and byte-insertion proofs use the canonical physical

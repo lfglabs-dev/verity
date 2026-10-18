@@ -119,6 +119,10 @@ structure CompilationContext where
 Tagged modules do not execute an arbitrary compilation closure. -/
 inductive ByteTransport where
   | staticUint256 (resultVar : String) (selector numStaticArgs : Nat)
+  /-- `resultVar := create2(value, offset, size, salt)` over physical memory. -/
+  | create2 (resultVar : String)
+  /-- `log{topicCount}(offset, size, topics...)` of an ABI-encoded event payload. -/
+  | log (eventName : String) (topicCount : Nat)
   deriving BEq, Repr
 
 /-- An External Call Module packages a reusable external call pattern.
@@ -274,6 +278,62 @@ def uint256Module (resultVar : String) (selector numStaticArgs : Nat) :
 
 end SolidityStaticCall
 
+namespace SolidityCreate2
+
+/-- `create2` with the value, initcode offset, initcode size and salt in
+argument order. Callers pass atoms, so Yul's right-to-left evaluation of the
+builtin arguments is unobservable. -/
+def compile (resultVar : String) (args : List YulExpr) : Except String (List YulStmt) :=
+  match args with
+  | [value, offset, size, salt] =>
+      pure [.let_ resultVar (.call "create2" [value, offset, size, salt])]
+  | _ => throw "Solidity create2 expects value, offset, size and salt"
+
+def module (resultVar : String) : ExternalCallModule where
+  name := "solidityCreate2"
+  numArgs := 4
+  resultVars := [resultVar]
+  writesState := true
+  readsState := true
+  compile := fun _ args => compile resultVar args
+  byteTransport := some (.create2 resultVar)
+  axioms := []
+  -- Compilation transport is differentially tested; Denote executes only the
+  -- checked initcode templates of `DenoteCreate2`.
+  proofStatus := .assumed
+  summaryName := "solidity_create2_checked_initcode"
+  summaryMutability := .call
+
+end SolidityCreate2
+
+namespace SolidityLog
+
+/-- `log{n}` of the memory payload `[offset, offset + size)`. The arguments are
+the `n` topics followed by the payload offset and size. -/
+def compile (topicCount : Nat) (args : List YulExpr) : Except String (List YulStmt) := do
+  unless topicCount ≤ 4 do throw "Solidity event logs carry at most four topics"
+  unless args.length == topicCount + 2 do throw "Solidity event log argument count differs"
+  let topics := args.take topicCount
+  match args.drop topicCount with
+  | [offset, size] => pure [.exprStmt (.call s!"log{topicCount}" ([offset, size] ++ topics))]
+  | _ => throw "Solidity event log payload is missing"
+
+def module (eventName : String) (topicCount : Nat) : ExternalCallModule where
+  name := "solidityLog"
+  numArgs := topicCount + 2
+  resultVars := []
+  writesState := true
+  readsState := false
+  compile := fun _ args => compile topicCount args
+  byteTransport := some (.log eventName topicCount)
+  axioms := []
+  proofStatus := .assumed
+  summaryName := "solidity_event_log"
+  -- A log hands control to no account.
+  summaryMutability := .staticcall
+
+end SolidityLog
+
 namespace ExternalCallModule
 
 /-- Compile closed byte transports from their data descriptor. Their metadata
@@ -288,6 +348,14 @@ def compileCanonical (module : ExternalCallModule) (context : CompilationContext
       unless module == expected do
         throw "closed Solidity staticcall transport metadata differs"
       SolidityStaticCall.compileUint256 resultVar selector numStaticArgs args
+  | some (.create2 resultVar) =>
+      unless module == SolidityCreate2.module resultVar do
+        throw "closed Solidity create2 transport metadata differs"
+      SolidityCreate2.compile resultVar args
+  | some (.log eventName topicCount) =>
+      unless module == SolidityLog.module eventName topicCount do
+        throw "closed Solidity event log transport metadata differs"
+      SolidityLog.compile topicCount args
 
 end ExternalCallModule
 

@@ -19,6 +19,10 @@ structure Memory where
   bytes : Nat → Byte
   size : Nat
 
+/-- Zero-extended read of a finite byte list. -/
+def listByte (bytes : List Byte) (offset : Nat) : Byte :=
+  bytes.getD offset zeroByte
+
 def Memory.empty : Memory :=
   { bytes := fun _ => zeroByte, size := 0 }
 
@@ -38,6 +42,10 @@ def Memory.expand (memory : Memory) (endOffset : Nat) : Memory :=
 def Memory.writeByte (memory : Memory) (offset : Nat) (value : Byte) : Memory :=
   let expanded := memory.expand (offset + 1)
   { expanded with bytes := fun address => if address = offset then value else memory.readByte address }
+
+/-- The `size` bytes starting at `offset`, zero-extended. -/
+def Memory.slice (memory : Memory) (offset size : Nat) : List Byte :=
+  (List.range size).map (fun index => memory.readByte (offset + index))
 
 def Memory.readWord (memory : Memory) (offset : Nat) : Word :=
   fun index => memory.readByte (offset + index)

@@ -91,6 +91,12 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
         | throw "transient store observation could not evaluate the slot"
       return addressReads ++ valueReads ++ [.transient (wordNormalize slot)]
   | .ecm mod args => do
+      match mod.byteTransport with
+      | some (.create2 _) | some (.log _ _) =>
+          -- CREATE2 and LOG touch no persistent slot of any account here: the
+          -- created account's storage is empty and only its code is committed.
+          return (← args.mapM (expressionAccesses oracle fields state)).flatten
+      | _ => pure ()
       let some (.staticUint256 resultVar selector numStaticArgs) := mod.byteTransport
         | throw "unsupported legacy ECM storage observation"
       let preparation ← prepareByteStaticCall oracle fields state resultVar selector numStaticArgs args

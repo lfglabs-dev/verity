@@ -118,6 +118,20 @@ def staticUint256Covered (mod : Compiler.ECM.ExternalCallModule) (args : List Ex
   | some (.staticUint256 resultVar selector numStaticArgs) =>
       mod == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs &&
         decide (selector < 2 ^ 32) && args.length == numStaticArgs + 1 && exprListCovered args
+  | _ => false
+
+/-- The closed byte transports admitted by the importer: the typed-interface
+`staticcall`, `create2` over physical memory, and ABI event logs. Each has a
+dedicated Denote arm whose metadata must equal its canonical module. -/
+def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
+  match mod.byteTransport with
+  | some (.staticUint256 ..) => staticUint256Covered mod args
+  | some (.create2 resultVar) =>
+      mod == Compiler.ECM.SolidityCreate2.module resultVar && args.length == 4 &&
+        exprListCovered args
+  | some (.log eventName topicCount) =>
+      mod == Compiler.ECM.SolidityLog.module eventName topicCount &&
+        decide (topicCount ≤ 4) && args.length == topicCount + 2 && exprListCovered args
   | none => false
 
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
@@ -129,7 +143,7 @@ mutual
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertEmpty | .revertReturndata => true
-    | .ecm mod args => staticUint256Covered mod args
+    | .ecm mod args => closedTransportCovered mod args
     | .emit _ args => exprListCovered args
     | .stop => true
     | .returnBytes _ => true
@@ -290,6 +304,27 @@ theorem execStmt_ecm_staticUint256_arm (oracle : DenoteOracle) (fields : List Fi
           (Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs)
           resultVar selector numStaticArgs args with
        | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed `create2` arm is exactly the physical-memory CREATE2 step; an
+instrumentation error is a payload-free `.revert`. -/
+theorem execStmt_ecm_create2_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (args : List Expr) :
+    execStmt oracle fields state (.ecm (Compiler.ECM.SolidityCreate2.module resultVar) args) =
+      (match executeByteCreate2 oracle fields state
+          (Compiler.ECM.SolidityCreate2.module resultVar) resultVar args with
+       | .ok outcome => outcome
+       | .error _ => .revert) := rfl
+
+/-- The closed event-log arm records the physical-memory payload; an
+instrumentation error is a payload-free `.revert`. -/
+theorem execStmt_ecm_log_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (eventName : String) (topicCount : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityLog.module eventName topicCount) args) =
+      (match executeByteLog oracle fields state
+          (Compiler.ECM.SolidityLog.module eventName topicCount) eventName topicCount args with
+       | .ok outcome => outcome
        | .error _ => .revert) := rfl
 
 theorem execStmt_revertEmpty_arm (oracle : DenoteOracle) (fields : List Field)

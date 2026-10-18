@@ -1,4 +1,4 @@
-import Verity.Core.Model.DenoteMemory
+import Verity.Core
 
 /-!
 # Bounded initcode execution

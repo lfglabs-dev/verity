@@ -7,6 +7,7 @@ import re
 from .engine import HarnessError, command, write_json
 from .identity import ImplementationIdentity
 from .stateful import _bytes, validate_observation
+from .deployment import validate_accounts
 
 
 def _uint(value):
@@ -32,7 +33,7 @@ def _calldata(tx):
 
 class SequenceAdapter:
     def __init__(self, directory, driver, account, initial_storage=(), identity=None, byte_call_environment=None,
-                 lean_command=('lake', 'env', 'lean', '--run')):
+                 lean_command=('lake', 'env', 'lean', '--run'), account_nonce=None, timeout=180):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
         if not isinstance(lean_command, (list, tuple)) or not lean_command or any(
@@ -45,6 +46,10 @@ class SequenceAdapter:
         if byte_call_environment is not None and not isinstance(byte_call_environment, dict):
             raise HarnessError('byte-call environment must be an explicit configuration object')
         self.byte_call_environment = json.loads(json.dumps(byte_call_environment))
+        if account_nonce is not None and (type(account_nonce) is not int or not 0 <= account_nonce < 1 << 64):
+            raise HarnessError('model account nonce must be a 64-bit integer')
+        self.account_nonce = account_nonce
+        self.timeout = timeout
         for owner, slot, value in initial_storage:
             owner = _bytes(owner, 20)
             row = [str(int(_bytes(slot, 32), 16)), str(int(_bytes(value, 32), 16))]
@@ -84,20 +89,33 @@ class SequenceAdapter:
                 'timestamp': _uint(tx['timestamp']), 'blockNumber': _uint(tx['blockNumber']),
                 'observe': [[str(int(_bytes(owner, 20), 16)), str(int(_bytes(slot, 32), 16))]
                             for owner, slot in slots]})
+            if 'observeAccounts' in tx:
+                # Deployment plans are discovered from EVM traces, never by the model.
+                if not isinstance(tx['observeAccounts'], list):
+                    raise HarnessError('planned deployment accounts require an address array')
+                converted[-1]['observeAccounts'] = [str(int(_bytes(a, 20), 16)) for a in tx['observeAccounts']]
         payload = {'account': str(int(self.account, 16)),
                    'storage': self.initial_storage, 'transactions': converted}
+        if self.account_nonce is not None:
+            payload['accountNonce'] = str(self.account_nonce)
         if self.byte_call_environment is not None:
             payload['externalStorage'] = self.external_storage
             payload['byteCallEnvironment'] = self.byte_call_environment
         write_json(directory / 'input.json', payload)
         argv = [*self.lean_command, self.driver, directory / 'input.json', directory / 'output.json']
-        command(argv, log=directory / 'lean.log')
+        command(argv, log=directory / 'lean.log', timeout=self.timeout)
         self.identity.verify()
         rows = json.loads((directory / 'output.json').read_text())
         if not isinstance(rows, list) or len(rows) != len(transactions):
             raise HarnessError('model omitted transaction observations')
         for tx, row in zip(transactions, rows):
-            validate_observation(row)
+            if 'observeAccounts' in tx:
+                if not isinstance(row, dict) or 'deployment' not in row:
+                    raise HarnessError('model omitted planned deployment observation')
+                validate_accounts(row['deployment'])
+                validate_observation({k: v for k, v in row.items() if k != 'deployment'})
+            else:
+                validate_observation(row)
             if tx['id'] != row['id']:
                 raise HarnessError('model transaction identity differs')
         write_json(directory / 'replay.json', {'driver': str(self.driver), 'driverSha256': self.digest,

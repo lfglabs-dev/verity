@@ -428,6 +428,9 @@ private structure Env where
   /-- AST id of the one typed-interface staticcall the current statement may
       lower: its whole initializer, right-hand side or expression statement. -/
   admittedInterfaceCall : Option Nat := none
+  /-- `bytes memory` locals whose initializer begins with a checked CREATE2
+      initcode template literal (`DenoteCreate2.templateCost`). -/
+  initcodeTemplates : Array Nat := #[]
   currentFile : String
 
 private def Env.init : Env where
@@ -2641,6 +2644,15 @@ private def yulByteBufferByName? (node : Json) : M (Option EncodedBytes) := do
   let some declId := env.yulMemoryStructs.find? name | return none
   return env.byteBuffers.find? declId <|> env.stringBuffers.find? declId
 
+/-- A Yul identifier naming an unshadowed `bytes memory` local, with its declaration. -/
+private def yulBytesLocal? (node : Json) : M (Option (Nat × EncodedBytes)) := do
+  if (← mKind node) != "YulIdentifier" then return none
+  let name ← mStr (← mField node "name")
+  let env ← get
+  if env.yulNames.contains name then return none
+  let some declId := env.yulMemoryStructs.find? name | return none
+  return (env.byteBuffers.find? declId).map (declId, ·)
+
 private def yulPositiveWordOffsetLiteral? (node : Json) : M (Option Nat) := do
   if (← mKind node) != "YulLiteral" then return none
   unless optStr node "kind" == some "number" && optStr node "type" == some "" do
@@ -2753,6 +2765,8 @@ private partial def lowerYul (j : Json) : M Val := do
           if let some v ← yulByteBufferLoad? args[0]! lowerYul then
             return v
         failAt j "unsupported Yul builtin mload"
+      if fname == "create2" then
+        failAt j "Yul create2 must be the whole value of a Yul assignment or variable declaration"
       let expectedArity? : Option Nat := match fname with
         | "caller" | "address" | "timestamp" | "number" | "chainid"
         | "selfbalance" | "origin" => some 0
@@ -2863,6 +2877,102 @@ private def checkYulReturnTarget (j asg varNode : Json) (vname retName : String)
   unless (← get).helperReturnId == some targetId do
     failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
 
+/-- Bytes of a hex string literal, or of a constant initialised with one. -/
+private def hexLiteralBytes? (node : Json) : M (Option (List Nat)) := do
+  let literal? ← match ← mKind node with
+    | "Literal" => pure (some node)
+    | "Identifier" | "MemberAccess" =>
+        let id ← refInt node
+        if id < 0 then pure none else
+        match (← get).stateVars.find? id.toNat with
+        | some decl =>
+            if (field? decl "constant").bind (·.getBool?.toOption) == some true then
+              pure (field? decl "value")
+            else pure none
+        | none => pure none
+    | _ => pure none
+  let some literal := literal? | return none
+  unless optStr literal "nodeType" == some "Literal" && optStr literal "kind" == some "hexString" do
+    return none
+  let some hex := optStr literal "hexValue" | return none
+  let digits := hex.toList.filterMap Compiler.Hex.hexCharToNat?
+  unless digits.length == hex.length && hex.length % 2 == 0 do return none
+  return some ((List.range (hex.length / 2)).map fun i => digits[2 * i]! * 16 + digits[2 * i + 1]!)
+
+/-- `abi.encodePacked(p, ...)` / `bytes.concat(p, ...)` whose leading literal `p`
+is a checked CREATE2 initcode template (inspected bytes, not names). -/
+private def startsWithInitcodeTemplate (init : Json) : M Bool := do
+  unless optStr init "nodeType" == some "FunctionCall" &&
+      optStr init "kind" == some "functionCall" do
+    return false
+  let some callee := field? init "expression" | return false
+  unless optStr callee "nodeType" == some "MemberAccess" do return false
+  let member := optStr callee "memberName"
+  unless member == some "encodePacked" || member == some "concat" do return false
+  let some (.arr args) := field? init "arguments" | return false
+  let some first := args[0]? | return false
+  let some bytes ← hexLiteralBytes? first | return false
+  let code := bytes.map fun b => (⟨b % 256, Nat.mod_lt _ (by decide)⟩ : Fin 256)
+  return (DenoteCreate2.templateCost code).isSome
+
+/-- The numeric value of an untyped Yul number literal. -/
+private def yulNumber? (node : Json) : M (Option Nat) := do
+  if (← mKind node) != "YulLiteral" then return none
+  unless optStr node "kind" == some "number" && optStr node "type" == some "" do return none
+  let raw ← mStr (← mField node "value")
+  return Compiler.Hex.parseHexNat? raw <|> raw.toNat?
+
+/-- `add(buffer, 0x20)` (either operand order) over an unshadowed `bytes memory` local. -/
+private def yulBytesDataOffset? (node : Json) : M (Option (Nat × EncodedBytes)) := do
+  unless (← mKind node) == "YulFunctionCall" do return none
+  unless (← mStr (← mField (← mField node "functionName") "name")) == "add" do return none
+  let args ← mArr (← mField node "arguments")
+  unless args.size == 2 do return none
+  if (← yulNumber? args[1]!) == some 32 then return ← yulBytesLocal? args[0]!
+  if (← yulNumber? args[0]!) == some 32 then return ← yulBytesLocal? args[1]!
+  return none
+
+/-- `mload(buffer)`: the length word of the `bytes memory` local `declId`. -/
+private def yulBytesLength? (node : Json) (declId : Nat) : M Bool := do
+  unless (← mKind node) == "YulFunctionCall" do return false
+  unless (← mStr (← mField (← mField node "functionName") "name")) == "mload" do return false
+  let args ← mArr (← mField node "arguments")
+  unless args.size == 1 do return false
+  return ((← yulBytesLocal? args[0]!).map (·.1)) == some declId
+
+/-- `create2(0, add(buffer, 0x20), mload(buffer), salt)` over a `bytes memory` local
+whose initializer starts with a checked initcode template. The closed transport
+reads the initcode from physical memory at the buffer's data pointer; any other
+value, offset, size or buffer shape is rejected at its own node. -/
+private def lowerYulCreate2? (node : Json) (lowerYulFn : Json → M Val) : M (Option Val) := do
+  unless (← mKind node) == "YulFunctionCall" do return none
+  unless (← mStr (← mField (← mField node "functionName") "name")) == "create2" do return none
+  let args ← mArr (← mField node "arguments")
+  unless args.size == 4 do failAt node "create2 expects value, offset, size and salt"
+  unless (← yulNumber? args[0]!) == some 0 do
+    failAt args[0]! "create2 with a nonzero or computed value is unsupported"
+  let some (declId, buffer) ← yulBytesDataOffset? args[1]!
+    | failAt args[1]! "create2 initcode offset must be add(buffer, 0x20) of a bytes memory local"
+  unless ← yulBytesLength? args[2]! declId do
+    failAt args[2]! "create2 initcode size must be mload of the same bytes memory local"
+  unless (← get).initcodeTemplates.contains declId do
+    failAt args[1]! "create2 initcode must start with a checked deployment-prefix literal"
+  -- Yul evaluates builtin arguments right to left; only the salt can be non-atomic.
+  let salt ← atom (← lowerYulFn args[3]!)
+  let size ← atom { pre := #[], expr := buffer.size }
+  let pointer ← atom { pre := buffer.pre, expr := buffer.pointer }
+  let result ← fresh
+  let create := Stmt.ecm (Compiler.ECM.SolidityCreate2.module result)
+    [.literal 0, pointer.expr, size.expr, salt.expr]
+  -- The result is an address or zero; the mask states that bound to narrow targets.
+  return some { pre := salt.pre ++ size.pre ++ pointer.pre |>.push create,
+                expr := .bitAnd (.localVar result) (.literal (2 ^ 160 - 1)) }
+
+/-- A Yul assignment or declaration value; `create2` is admitted only here. -/
+private def lowerYulValue (node : Json) : M Val := do
+  if let some value ← lowerYulCreate2? node lowerYul then return value
+  lowerYul node
+
 private def lowerAssembly (j : Json) (retName : String) : M Val := do
   let assignedInAsm := bodyAssignedIds j
   if !assignedInAsm.isEmpty then
@@ -2879,7 +2989,7 @@ private def lowerAssembly (j : Json) (retName : String) : M Val := do
   unless retName != "" && vname == retName do
     failAt asg s!"Yul assigns {vname}, not the return name {retName}"
   checkYulReturnTarget j asg vars[0]! vname retName
-  lowerYul (← mField asg "value")
+  lowerYulValue (← mField asg "value")
 
 private def isFullWordYulScalar : ParamType → Bool
   | .uint256 | .int256 | .bytes32 => true
@@ -3282,7 +3392,7 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         if yulLocals.contains vname then
           failAt varNode s!"duplicate Yul variable declaration {vname}"
         let v ← match (field? stmt "value").filter (!·.isNull) with
-          | some valNode => lowerYul valNode
+          | some valNode => lowerYulValue valNode
           | none => pure { pre := #[], expr := .literal 0 }
         let binding ← freshFor vname
         let expr := Expr.localVar binding
@@ -3295,10 +3405,10 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
         let varNode := vars[0]!
         let vname ← mStr (← mField varNode "name")
         if let some yulBinding := yulLocals.find? vname then
-          let v ← lowerYul (← mField stmt "value")
+          let v ← lowerYulValue (← mField stmt "value")
           out := out ++ v.pre |>.push (.assignVar yulBinding v.expr)
         else
-          let v ← lowerYul (← mField stmt "value")
+          let v ← lowerYulValue (← mField stmt "value")
           let assignStmt ← lowerYulDirectAssignmentTarget j stmt varNode refs retName v
           out := out ++ v.pre |>.push assignStmt
     | "YulExpressionStatement" =>
@@ -3588,7 +3698,7 @@ private def isClosedStaticCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   match mod.byteTransport with
   | some (.staticUint256 resultVar selector numStaticArgs) =>
       mod == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs
-  | none => false
+  | _ => false
 
 /-- Replace each closed interface staticcall by its zero-initialised result
 binding, so the CEI checker sees every other interaction barrier unchanged. -/
@@ -3603,6 +3713,48 @@ private partial def eraseClosedStaticCalls : Stmt → Stmt
       .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
         (tag, names, body.map eraseClosedStaticCalls))
   | statement => statement
+
+/-- The closed `create2` transport emitted by the importer. -/
+private def isClosedCreate2 (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some (.create2 resultVar) => mod == Compiler.ECM.SolidityCreate2.module resultVar
+  | _ => false
+
+/-- The closed event-log transport emitted by the importer. -/
+private def isClosedLog (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some (.log eventName topicCount) => mod == Compiler.ECM.SolidityLog.module eventName topicCount
+  | _ => false
+
+/-- Replace every closed transport by a call-free statement: a staticcall or
+`create2` by its zero-initialised result binding, a log by an empty branch. -/
+private partial def eraseClosedTransports : Stmt → Stmt
+  | .ecm mod args =>
+      if isClosedStaticCall mod || isClosedCreate2 mod then
+        .letVar (mod.resultVars.headD "") (.literal 0)
+      else if isClosedLog mod then .ite (.literal 0) [] []
+      else .ecm mod args
+  | .ite cond yes no => .ite cond (yes.map eraseClosedTransports) (no.map eraseClosedTransports)
+  | .forEach name count body => .forEach name count (body.map eraseClosedTransports)
+  | .forEachSetBit name bitmap body =>
+      .forEachSetBit name bitmap (body.map eraseClosedTransports)
+  | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedTransports)
+  | .matchAdt adt scrutinee branches =>
+      .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
+        (tag, names, body.map eraseClosedTransports))
+  | statement => statement
+
+/-- A body whose only CEI barriers are closed transports. A log hands control to
+no account; Denote admits `create2` only for checked initcode templates, which
+copy and return their payload without executing any call. -/
+private def onlyClosedTransportCEIBarriers (body : List Stmt) : Bool :=
+  (Compiler.CompilationModel.stmtListCEIViolation body false).isSome &&
+    (Compiler.CompilationModel.stmtListCEIViolation (body.map eraseClosedTransports) false).isNone
+
+/-- A body whose only cross-function reentrancy windows are closed `create2`s. -/
+private def onlyCreate2ReentrancyWindows (body : List Stmt) : Bool :=
+  body.any Compiler.CompilationModel.stmtOpensReentrancyWindow &&
+    !(body.map eraseClosedTransports).any Compiler.CompilationModel.stmtOpensReentrancyWindow
 
 /-- A body whose only CEI interaction barriers are closed interface staticcalls.
 STATICCALL executes the callee, and anything it calls, in a static context that
@@ -6763,6 +6915,10 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
     return ← encodeSelectorAndWords selBuffer pre words
   unless optStr callee "memberName" == some "encode" do
     failAt callee "unsupported ABI encoding builtin"
+  lowerAbiEncodeArgs args
+
+/-- `abi.encode(args...)` into a fresh aligned memory buffer. -/
+private partial def lowerAbiEncodeArgs (args : Array Json) : M EncodedBytes := do
   if args.size == 1 then
     if (← mType args[0]!).startsWith "struct " && !(← mType args[0]!).contains "[" then
       let isMemRoot ← if (← mKind args[0]!) != "FunctionCall" && (← mKind args[0]!) != "Conditional" && (← mKind args[0]!) != "TupleExpression" then
@@ -12469,6 +12625,8 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
   let parameters ← mArr (← mField (← mField declaration "parameters") "parameters")
   let arguments ← mArr (← mField call "arguments")
   unless parameters.size == arguments.size do failAt call "event argument count differs"
+  if ← parameters.anyM (fun parameter => return (← mType parameter).startsWith "struct ") then
+    return ← lowerStructEmit callee declaration name parameters arguments id.toNat
   let mut params : List EventParam := []
   let mut values : List Expr := []
   let mut pre : Array Stmt := #[]
@@ -12524,6 +12682,75 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
   else
     modify fun e => { e with usedEvents := e.usedEvents ++ [(id.toNat, { name, params })] }
   pure (pre.push (.emit name values))
+
+/-- Register `definition` for the event declaration `id`, once per name. -/
+private partial def recordUsedEvent (callee : Json) (id : Nat) (definition : EventDef) :
+    M Unit := do
+  if let some previous := (← get).usedEvents.find? (fun pair => pair.2.name == definition.name) then
+    unless previous.1 == id do failAt callee "event name resolves to multiple declarations"
+  else
+    modify fun e => { e with usedEvents := e.usedEvents ++ [(id, definition)] }
+
+/-- `emit E(...)` with a non-indexed struct parameter. The non-indexed arguments
+are ABI-encoded exactly as `abi.encode(...)` into memory and logged by the closed
+log transport with solc's event selector as topic 0. Indexed parameters must be
+total value-type expressions; they become cleaned topic words. Struct arguments
+must be memory struct variables, so no evaluation order is chosen. -/
+private partial def lowerStructEmit (callee declaration : Json) (name : String)
+    (parameters arguments : Array Json) (id : Nat) : M (Array Stmt) := do
+  let some selector := optStr declaration "eventSelector"
+    | failAt declaration "struct event declaration has no eventSelector"
+  let digits := selector.toList.filterMap Compiler.Hex.hexCharToNat?
+  unless selector.length == 64 && digits.length == 64 do
+    failAt declaration "struct event declaration has an invalid eventSelector"
+  let mut params : List EventParam := []
+  let mut topics : Array Expr := #[.literal (digits.foldl (fun word d => word * 16 + d) 0)]
+  let mut pre : Array Stmt := #[]
+  let mut data : Array Json := #[]
+  for index in [:parameters.size] do
+    let parameter := parameters[index]!
+    let argument := arguments[index]!
+    let ty ← mType parameter
+    let parameterName ← mStr (← mField parameter "name")
+    if ← mBool (← mField parameter "indexed") then
+      if ty.startsWith "struct " then
+        failAt parameter "indexed struct event parameters are unsupported"
+      let some modelType := paramType ty
+        | failAt parameter s!"unsupported event parameter type {ty}"
+      unless (Denote.errorScalarType modelType).isSome && !ty.startsWith "enum " do
+        failAt parameter s!"unsupported indexed struct-event parameter type {ty}"
+      let value ← convert ty (← mType argument) (← lowerExpr argument) argument
+      unless value.pre.all (fun | .letVar _ _ => true | _ => false) do
+        failAt argument "event arguments currently require total scalar expressions"
+      let topic ← atom { value with expr := cleanHelperResultExpr ty value }
+      pre := pre ++ topic.pre
+      topics := topics.push topic.expr
+      params := params ++ [{ name := parameterName, ty := modelType, kind := .indexed }]
+    else
+      let modelType ← if ty.startsWith "struct " then
+          unless (← mKind argument) == "Identifier" do
+            failAt argument "struct event arguments must be memory struct variables"
+          match ← lowerRef argument with
+          | .mem rootId _ =>
+              let some mem := (← get).mems.find? rootId | failAt argument "unknown memory struct"
+              match mem.schema, mem.staticTypes with
+              | some schema, _ => pure (AbiSchema.paramType schema)
+              | none, some types => pure (.tuple types)
+              | none, none => failAt argument "struct event argument has no complete ABI schema"
+          | _ => failAt argument "struct event arguments must be memory struct variables"
+        else match paramType ty with
+          | some modelType => pure modelType
+          | none => failAt parameter s!"unsupported event parameter type {ty}"
+      data := data.push argument
+      params := params ++ [{ name := parameterName, ty := modelType, kind := .unindexed }]
+  unless topics.size ≤ 4 do failAt declaration "event has more than three indexed parameters"
+  let payload ← lowerAbiEncodeArgs data
+  let pointer ← atom { pre := payload.pre, expr := payload.pointer }
+  let size ← atom { pre := #[], expr := payload.size }
+  recordUsedEvent callee id { name, params }
+  let log := Stmt.ecm (Compiler.ECM.SolidityLog.module name topics.size)
+    (topics.toList ++ [pointer.expr, size.expr])
+  return (pre ++ pointer.pre ++ size.pre).push log
 
 private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String × List Expr) := do
   unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
@@ -12924,6 +13151,8 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
     let effects := buffer.pre ++ #[.letVar pointer buffer.pointer, .letVar size buffer.size]
     let retained : EncodedBytes :=
       { pre := #[], pointer := .localVar pointer, size := .localVar size }
+    if (← startsWithInitcodeTemplate init) && !(← get).bodyAssigned.contains id then
+      modify fun e => { e with initcodeTemplates := e.initcodeTemplates.push id }
     modify fun e =>
       { e with byteBuffers := e.byteBuffers.insert id retained,
                nonLiteralByteLocals := if isNonLiteralInit && !e.nonLiteralByteLocals.contains id then e.nonLiteralByteLocals.push id else e.nonLiteralByteLocals,
@@ -14922,7 +15151,9 @@ private def importSlice
       { name := functionName, params := modelParams.toList, returnType := none,
         returns := returns.toList, isView, body := body.toList,
         abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
-        allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList,
+        allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList ||
+          onlyClosedTransportCEIBarriers body.toList,
+        reentrancyTrusted := onlyCreate2ReentrancyWindows body.toList,
         localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
           name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
           obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved."
@@ -14930,6 +15161,24 @@ private def importSlice
           (if onlyStaticCallCEIBarriers body.toList then [{
             name := "solidity_static_call_cei"
             obligation := "State writes follow only closed typed-interface STATICCALLs, which cannot change any state, so the CEI opt-out admits no reentrant write window. Removing those calls leaves a CEI-clean body; this is checked by the importer, not proved."
+            proofStatus := .unchecked }] else []) ++
+          (if !onlyStaticCallCEIBarriers body.toList &&
+              onlyClosedTransportCEIBarriers body.toList then [{
+            name := "solidity_closed_transport_cei"
+            obligation := "State writes follow only closed STATICCALL, CREATE2 and LOG " ++
+              "transports. A LOG hands control to no account, and Denote executes CREATE2 " ++
+              "only for checked initcode templates that copy and return their payload " ++
+              "without a call, so the CEI opt-out admits no reentrant write window. " ++
+              "Removing those transports leaves a CEI-clean body; this is checked by the " ++
+              "importer, not proved."
+            proofStatus := .unchecked }] else []) ++
+          (if onlyCreate2ReentrancyWindows body.toList then [{
+            name := "solidity_create2_initcode_reentrancy"
+            obligation := "The only external interactions are closed CREATE2 transports " ++
+              "whose buffers start with a checked initcode template. That initcode copies " ++
+              "and returns its payload and calls no account, so no entrypoint can be " ++
+              "re-entered. Initcode bytes are checked by Denote at execution, not proved " ++
+              "for the compiled model."
             proofStatus := .unchecked }] else []) }
     for proj in env.projections do
       let ignored :=

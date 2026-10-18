@@ -84,13 +84,28 @@ private def quotePanic : Verity.Core.PanicCode → m Term
 partial def quoteStmt : Stmt → m Term
   | .revertEmpty => `(Compiler.CompilationModel.Stmt.revertEmpty)
   | .ecm module args => do
-      let some (.staticUint256 resultVar selector numStaticArgs) := module.byteTransport
-        | throwError "internal: the importer cannot quote an opaque ECM"
-      unless module == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs do
-        throwError "internal: closed ECM metadata differs from its descriptor"
-      `(Compiler.CompilationModel.Stmt.ecm
-        (Compiler.ECM.SolidityStaticCall.uint256Module $(quote resultVar) $(quote selector) $(quote numStaticArgs))
-        $(← list (← args.mapM quoteExpr)))
+      let quotedArgs ← list (← args.mapM quoteExpr)
+      match module.byteTransport with
+      | some (.staticUint256 resultVar selector numStaticArgs) =>
+          let expected :=
+            Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs
+          unless module == expected do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityStaticCall.uint256Module $(quote resultVar) $(quote selector)
+              $(quote numStaticArgs))
+            $quotedArgs)
+      | some (.create2 resultVar) =>
+          unless module == Compiler.ECM.SolidityCreate2.module resultVar do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityCreate2.module $(quote resultVar)) $quotedArgs)
+      | some (.log eventName topicCount) =>
+          unless module == Compiler.ECM.SolidityLog.module eventName topicCount do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityLog.module $(quote eventName) $(quote topicCount)) $quotedArgs)
+      | none => throwError "internal: the importer cannot quote an opaque ECM"
   | .mstore offset value => do
       `(Compiler.CompilationModel.Stmt.mstore $(← quoteExpr offset) $(← quoteExpr value))
   | .tstore offset value => do
@@ -194,6 +209,7 @@ def quoteFunction (f : FunctionSpec) : m Term := do
   `(({ name := $(quote f.name), params := $(← list params), abiDecoding := $abiDecoding, returnType := none,
        returns := $(← list (← f.returns.mapM quoteParamType)), isView := $(quote f.isView),
        allowPostInteractionWrites := $(quote f.allowPostInteractionWrites),
+       reentrancyTrusted := $(quote f.reentrancyTrusted),
        body := $(← list (← f.body.mapM quoteStmt)), localObligations := $(← list obligations) } : Compiler.CompilationModel.FunctionSpec))
 
 def quoteModel (model : CompilationModel) : m Term := do
