@@ -94,29 +94,10 @@ ALLOWLIST: set[str] = {
     # short-calldata revert and argument-present storage-update branches in one
     # proof so the direct native case split stays explicit.
     "simpleStorageNativeStoreHitMatchBridge_proved",
-    # Native harness block-append lemmas are structural inductions over a Yul
-    # block prefix with fuel normalization at each cons. The success, suffix
-    # error, and prefix-error variants are intentionally parallel because they
-    # encode distinct executor outcomes used by the native lowering harness.
-    "exec_block_append_error",
-    "exec_block_append_prefix_error",
-    # Native switch-case prefix-hit error mirrors the successful prefix-hit
-    # proof but threads an error result from the selected body through the
-    # generated case-chain fuel accounting.
-    "exec_nativeSwitchCaseIfs_prefix_hit_error_fuel",
     # Projected native dispatcher result wrapper has a short proof body, but
     # the scanner includes the following public runtime-harness doc block.
     "nativeDispatcherExecMatchesIRPositive_of_project_eq_match",
     # --- Misc ---
-    # Native generated-switch block append/error lemmas mirror the existing
-    # ok-append proof and keep the fuel arithmetic visible in one place for
-    # the halt-before-default dispatcher cases.
-    "exec_block_append_error",
-    "exec_block_append_prefix_error",
-    # Native generated-switch selected-hit error chain is the error analogue of
-    # the preserved selected-hit chain; the long span is the prefix induction
-    # needed to prove later cases/default are unreachable after a halt.
-    "exec_nativeSwitchCaseIfs_prefix_hit_error_fuel",
     # PR #1915 init-prefixed dispatcher bridge. These proofs are generated-code
     # shape peel/reduction endpoints for `initFreeMemoryPointer; buildSwitch`.
     # They keep the concrete init `mstore(0x40, 128)` state transition, selector
@@ -132,14 +113,6 @@ ALLOWLIST: set[str] = {
     "simpleStorageNativeRuntimeDispatcherStmts_exists_init_block",
     "simpleStorageNativeContract_dispatcherExec_storeHit_error_via_reduction",
     "simpleStorageNativeContract_dispatcherExec_retrieveHit_error_via_reduction",
-    "exec_switchCaseBody_payable_prefix_postInitFreeMemory_eq",
-    "exec_switchCaseBody_payable_calldata_revert_postInitFreeMemory_fuel",
-    "exec_switchCaseBody_nonpayable_prefix_postInitFreeMemory_eq",
-    "exec_switchCaseBody_nonpayable_calldata_revert_postInitFreeMemory_fuel",
-    "exec_switchCaseBody_nonpayable_callvalue_revert_postInitFreeMemory_fuel",
-    "exec_lowerNativeSwitchBlock_selector_find_hit_error_store_fuel",
-    "exec_lowerNativeSwitchBlock_selector_find_hit_error_postInitFreeMemory_store_fuel",
-    "exec_lowerNativeSwitchBlock_selector_find_hit_finalMatched_postInitFreeMemory_store_fuel",
     "exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasSelectorState_projectResult_eq",
     "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_error_projectResult_eq",
     "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_ok_projectResult_eq_finalMatched",
@@ -164,25 +137,8 @@ ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"^contractDispatcherExecResult_block_lowerNativeSwitchBlock_",
         r"^exec_(?:block_)?lowerNativeSwitchBlock_.*"
         r"(?:generated_prefix|finalMatched_store_fuel)$",
-        r"^exec_switchCaseBody_nonpayable_prefix_eq$",
-        r"^exec_if_lt_calldatasize_skip_markedPrefix_ge_fuel$",
-        r"^NativePrimCallPreservesWord_"
-        r"(?:log[0-4]|binary_same_state|ternary_same_state|"
-        r"of_allowed_lookupRuntimePrimOp|[st]store)_values$",
-        r"^NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp$",
-        r"^Native(?:Stmt|Expr)PreservesWord_.*"
-        r"(?:mappingContract|nativePreservableStraightStmt|"
-        r"lowerStmtGroupNativeWithSwitchIds_expr_|"
-        r"lowerStmtsNativeWithSwitchIds_of_nativePreservableStraightStmts)",
-        r"^Native(?:MappingFreePreservableStraightStmt|PreservableStraightStmt)"
-        r"\.of_bridgedStraightStmt$",
-        r"^NativeStmtPreservesWord_(?:lowerStmtGroupNativeWithSwitchIds|"
-        r"of_mem_lowerStmtsNativeWithSwitchIds)_of_mappingFreePreservableStraightStmt",
         r"^NativeBlockPreservesWord(?:_revived)?_switchCaseBody_"
         r"(?:payable|nonpayable)_of_user_body$",
-        r"^native_(?:mappingSlot_call_preserves_lookup|"
-        r"mappingSlot_call_preserves_lookup_state|"
-        r"call_preserves_lookup_of_revivable_body)$",
         r"^nativeGeneratedSelectorHitBodyPreservesMatched_.*$",
         r"^nativeGeneratedSelectorHit_success_of_user_body_exec_bridge_atFuel_revived.*$",
         r"^nativeResultsMatchOn_execIRFunction_.*_markedPrefix$",
@@ -190,8 +146,6 @@ ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"^projectResult_literalReturnHit_eq$",
         r"^exec_block_(?:store0_calldataload4_stop|simpleStorageLoweredStoreCaseBodyTail2)"
         r"_markedPrefix_halt$",
-        r"^exec_switchCaseBody_nonpayable_calldata_revert_fuel$",
-        r"^exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel$",
         r"^lowerRuntimeContractNative_of_compile_ok_supported_exists$",
         r"^lowerStmtsNative(?:WithSwitchIds)?_buildSwitch_noFallback_noReceive_ok_block$",
         r"^sizeOf_(?:buildSwitch_noFallback_noReceive_ge_source_cases_length"

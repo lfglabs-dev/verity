@@ -992,6 +992,18 @@ theorem exec_block_cons_tail_error
       .error err := by
   simp [EvmYul.Yul.exec, hHead, hTail]
 
+/-- Fuel reshaping for a cons block: `fuel + (stmt :: rest).length + k` is a successor. -/
+private theorem exec_block_append_cons_fuel_eq (fuel k : Nat) (stmt : EvmYul.Yul.Ast.Stmt)
+    (rest : List EvmYul.Yul.Ast.Stmt) :
+    fuel + (stmt :: rest).length + k = Nat.succ (fuel + rest.length + k) := by
+  simp only [List.length_cons]; omega
+
+/-- A native empty block that finishes normally leaves the state unchanged. -/
+private theorem exec_block_append_nil_ok_inv {n : Nat}
+    {codeOverride : Option EvmYul.Yul.Ast.YulContract} {state middle : EvmYul.Yul.State}
+    (h : EvmYul.Yul.exec n (.Block []) codeOverride state = .ok middle) : middle = state := by
+  cases n <;> simp [EvmYul.Yul.exec] at h; exact h.symm
+
 /-- Execute an appended native block when the left block consumes exactly its
     statement-count fuel prefix and the right block runs at the remaining fuel.
 
@@ -1004,46 +1016,13 @@ theorem exec_block_append_ok
     (hRight : EvmYul.Yul.exec (fuel + k) (.Block right) codeOverride middle = .ok final) :
     EvmYul.Yul.exec (fuel + left.length + k) (.Block (left ++ right)) codeOverride state = .ok final := by
   induction left generalizing fuel state with
-  | nil =>
-      generalize hFuel : fuel + k = remaining at hLeft hRight ⊢
-      cases remaining with
-      | zero =>
-          have hLeft0 : EvmYul.Yul.exec 0 (.Block []) codeOverride state = .ok middle := by
-            simpa [hFuel] using hLeft
-          simp [EvmYul.Yul.exec] at hLeft0
-      | succ remaining' =>
-          have hLeftS : EvmYul.Yul.exec (Nat.succ remaining') (.Block [])
-              codeOverride state = .ok middle := by
-            simpa [hFuel] using hLeft
-          simp [EvmYul.Yul.exec] at hLeftS
-          cases hLeftS
-          simpa [hFuel] using hRight
+  | nil => cases exec_block_append_nil_ok_inv hLeft; simpa using hRight
   | cons stmt rest ih =>
-      have hFuel : fuel + (stmt :: rest).length + k =
-          fuel + rest.length + k + 1 := by
-        simp only [List.length_cons]; omega
-      have hLeft' : EvmYul.Yul.exec (Nat.succ (fuel + rest.length + k))
-          (.Block (stmt :: rest)) codeOverride state = .ok middle := by
-        simpa [hFuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hLeft
-      simp only [EvmYul.Yul.exec] at hLeft'
-      generalize hHead : EvmYul.Yul.exec (fuel + rest.length + k) stmt codeOverride state =
-        head at hLeft'
-      cases head with
-      | error err => simp at hLeft'
-      | ok next =>
-          simp at hLeft'
-          have hTail : EvmYul.Yul.exec (fuel + rest.length + k) (.Block rest)
-              codeOverride next = .ok middle := hLeft'
-          have hRest : EvmYul.Yul.exec (fuel + rest.length + k)
-              (.Block (rest ++ right)) codeOverride next = .ok final :=
-            ih fuel next hTail hRight
-          have hBlock := exec_block_cons_ok (fuel + rest.length + k)
-            stmt (rest ++ right) codeOverride state next final hHead hRest
-          have hGoalFuel : fuel + rest.length + k + 1 =
-              fuel + (stmt :: rest).length + k := by
-            simp only [List.length_cons]; omega
-          simpa [hGoalFuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
-            using hBlock
+      rw [exec_block_append_cons_fuel_eq] at hLeft ⊢
+      simp only [List.cons_append, EvmYul.Yul.exec] at hLeft ⊢
+      cases hHead : EvmYul.Yul.exec (fuel + rest.length + k) stmt codeOverride state with
+      | error e => simp [hHead] at hLeft
+      | ok next => simp only [hHead] at hLeft ⊢; exact ih fuel next hLeft hRight
 
 /-- Execute an appended native block when the left block finishes normally and
     the right block halts or errors at the remaining fuel. -/
@@ -1061,53 +1040,13 @@ theorem exec_block_append_error
     EvmYul.Yul.exec (fuel + left.length + k) (.Block (left ++ right))
       codeOverride state = .error err := by
   induction left generalizing fuel state with
-  | nil =>
-      generalize hFuel : fuel + k = remaining at hLeft hRight ⊢
-      cases remaining with
-      | zero =>
-          have hLeft0 :
-              EvmYul.Yul.exec 0 (.Block []) codeOverride state = .ok middle := by
-            simpa [hFuel] using hLeft
-          simp [EvmYul.Yul.exec] at hLeft0
-      | succ remaining' =>
-          have hLeftS :
-              EvmYul.Yul.exec (Nat.succ remaining') (.Block [])
-                codeOverride state = .ok middle := by
-            simpa [hFuel] using hLeft
-          simp [EvmYul.Yul.exec] at hLeftS
-          cases hLeftS
-          simpa [hFuel] using hRight
+  | nil => cases exec_block_append_nil_ok_inv hLeft; simpa using hRight
   | cons stmt rest ih =>
-      have hFuel :
-          fuel + (stmt :: rest).length + k = fuel + rest.length + k + 1 := by
-        simp only [List.length_cons]; omega
-      have hLeft' :
-          EvmYul.Yul.exec (Nat.succ (fuel + rest.length + k))
-            (.Block (stmt :: rest)) codeOverride state = .ok middle := by
-        simpa [hFuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hLeft
-      simp only [EvmYul.Yul.exec] at hLeft'
-      generalize hHead :
-        EvmYul.Yul.exec (fuel + rest.length + k) stmt codeOverride state = head
-        at hLeft'
-      cases head with
-      | error err' =>
-          simp at hLeft'
-      | ok next =>
-          simp at hLeft'
-          have hTail :
-              EvmYul.Yul.exec (fuel + rest.length + k) (.Block rest)
-                codeOverride next = .ok middle := hLeft'
-          have hRest :
-              EvmYul.Yul.exec (fuel + rest.length + k) (.Block (rest ++ right))
-                codeOverride next = .error err :=
-            ih fuel next hTail hRight
-          have hGoalFuel :
-              fuel + rest.length + k + 1 = fuel + (stmt :: rest).length + k := by
-            simp only [List.length_cons]; omega
-          simpa [hGoalFuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
-            using
-              (exec_block_cons_tail_error (fuel + rest.length + k)
-                stmt (rest ++ right) codeOverride state next err hHead hRest)
+      rw [exec_block_append_cons_fuel_eq] at hLeft ⊢
+      simp only [List.cons_append, EvmYul.Yul.exec] at hLeft ⊢
+      cases hHead : EvmYul.Yul.exec (fuel + rest.length + k) stmt codeOverride state with
+      | error e => simp [hHead] at hLeft
+      | ok next => simp only [hHead] at hLeft ⊢; exact ih fuel next hLeft hRight
 
 /-- If an appended block's left prefix halts or errors, the full appended block
     halts or errors before reaching the right suffix. -/
@@ -1123,55 +1062,13 @@ theorem exec_block_append_prefix_error
       codeOverride state = .error err := by
   induction left generalizing fuel state with
   | nil =>
-      generalize hFuel : fuel + k = remaining at hLeft ⊢
-      cases remaining with
-      | zero =>
-          simpa [hFuel, EvmYul.Yul.exec] using hLeft
-      | succ remaining' =>
-          have hLeftS :
-              EvmYul.Yul.exec (Nat.succ remaining') (.Block [])
-                codeOverride state = .error err := by
-            simpa [hFuel] using hLeft
-          simp [EvmYul.Yul.exec] at hLeftS
+      cases hn : fuel + k <;> simp [hn, EvmYul.Yul.exec] at hLeft ⊢; exact hLeft
   | cons stmt rest ih =>
-      have hFuel :
-          fuel + (stmt :: rest).length + k = fuel + rest.length + k + 1 := by
-        simp only [List.length_cons]; omega
-      have hLeft' :
-          EvmYul.Yul.exec (Nat.succ (fuel + rest.length + k))
-            (.Block (stmt :: rest)) codeOverride state = .error err := by
-        simpa [hFuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hLeft
-      simp only [EvmYul.Yul.exec] at hLeft'
-      generalize hHead :
-        EvmYul.Yul.exec (fuel + rest.length + k) stmt codeOverride state = head
-        at hLeft'
-      cases head with
-      | error err' =>
-          simp at hLeft'
-          subst err'
-          have hGoalFuel :
-              fuel + rest.length + k + 1 = fuel + (stmt :: rest).length + k := by
-            simp only [List.length_cons]; omega
-          simpa [hGoalFuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
-            using
-              (exec_block_cons_error (fuel + rest.length + k)
-                stmt (rest ++ right) codeOverride state err hHead)
-      | ok next =>
-          simp at hLeft'
-          have hTail :
-              EvmYul.Yul.exec (fuel + rest.length + k) (.Block rest)
-                codeOverride next = .error err := hLeft'
-          have hRest :
-              EvmYul.Yul.exec (fuel + rest.length + k) (.Block (rest ++ right))
-                codeOverride next = .error err :=
-            ih fuel next hTail
-          have hGoalFuel :
-              fuel + rest.length + k + 1 = fuel + (stmt :: rest).length + k := by
-            simp only [List.length_cons]; omega
-          simpa [hGoalFuel, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm]
-            using
-              (exec_block_cons_tail_error (fuel + rest.length + k)
-                stmt (rest ++ right) codeOverride state next err hHead hRest)
+      rw [exec_block_append_cons_fuel_eq] at hLeft ⊢
+      simp only [List.cons_append, EvmYul.Yul.exec] at hLeft ⊢
+      cases hHead : EvmYul.Yul.exec (fuel + rest.length + k) stmt codeOverride state with
+      | error e => simpa [hHead] using hLeft
+      | ok next => simp only [hHead] at hLeft ⊢; exact ih fuel next hLeft
 
 theorem exec_block_nil_ok
     (fuel' : Nat)
@@ -1926,6 +1823,14 @@ theorem exec_if_lowerExprNative_lt_calldatasize_skip_ge_fuel
       uint256_lt_ofNat_eq_zero_of_ge _ _ hGe hSize hKSize]
   rfl
 
+/-- A native singleton `revert(0, 0)` block reverts at fuel `fuel + 8`. -/
+private theorem exec_block_singleton_revert_zero_zero_fuel_eight (fuel : Nat)
+    (codeOverride : Option EvmYul.Yul.Ast.YulContract) (state : EvmYul.Yul.State) :
+    EvmYul.Yul.exec (fuel + 8) (.Block [nativeRevertZeroZeroStmt]) codeOverride state =
+      .error EvmYul.Yul.Exception.Revert :=
+  exec_block_cons_error (fuel + 7) nativeRevertZeroZeroStmt [] codeOverride state _
+    (exec_revert_zero_zero_error (fuel + 1) state codeOverride)
+
 /-- Native `if` execution takes the lowered `if lt(calldatasize(), k) { … }`
     revert guard whenever the current calldata is shorter than `k` bytes. -/
 theorem exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel
@@ -1945,38 +1850,11 @@ theorem exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel
           [nativeRevertZeroZeroStmt])
         codeOverride (.Ok shared store) =
       .error EvmYul.Yul.Exception.Revert := by
-  have hEval :
-      EvmYul.Yul.eval (fuel + 8)
-          (Backends.lowerExprNative
-            (Yul.YulExpr.call "lt"
-              [Yul.YulExpr.call "calldatasize" [],
-               Yul.YulExpr.lit k]))
-          codeOverride (.Ok shared store) =
-        .ok (.Ok shared store, EvmYul.UInt256.ofNat 1) := by
-    rw [eval_lowerExprNative_lt_calldatasize_ok_fuel,
-      uint256_lt_ofNat_eq_one_of_lt _ _ hLt hSize hKSize]
-  have hBody :
-      EvmYul.Yul.exec (fuel + 8) (.Block [nativeRevertZeroZeroStmt])
-          codeOverride (.Ok shared store) =
-        .error EvmYul.Yul.Exception.Revert := by
-    have hFuel : fuel + 8 = Nat.succ (fuel + 7) := by omega
-    rw [hFuel]
-    exact exec_block_cons_error (fuel + 7) nativeRevertZeroZeroStmt []
-      codeOverride (.Ok shared store) EvmYul.Yul.Exception.Revert
-      (by
-        simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-          (exec_revert_zero_zero_error (fuel + 1) (.Ok shared store)
-            codeOverride))
-  have hFuel : fuel + 9 = Nat.succ (fuel + 8) := by omega
-  rw [hFuel]
-  exact exec_if_eval_nonzero_error (fuel + 8)
-    (Backends.lowerExprNative
-      (Yul.YulExpr.call "lt"
-        [Yul.YulExpr.call "calldatasize" [], Yul.YulExpr.lit k]))
-    [nativeRevertZeroZeroStmt] codeOverride (.Ok shared store)
-    (.Ok shared store) (EvmYul.UInt256.ofNat 1)
-    EvmYul.Yul.Exception.Revert hEval
-    (by decide) hBody
+  refine exec_if_eval_nonzero_error (fuel + 8) _ [nativeRevertZeroZeroStmt] codeOverride
+    (.Ok shared store) (.Ok shared store) (EvmYul.UInt256.ofNat 1) _ ?_ (by decide)
+    (exec_block_singleton_revert_zero_zero_fuel_eight fuel codeOverride _)
+  rw [eval_lowerExprNative_lt_calldatasize_ok_fuel,
+    uint256_lt_ofNat_eq_one_of_lt _ _ hLt hSize hKSize]
 
 /-- Fuel-parametric form of `exec_if_lowerExprNative_iszero_ident_one_skip`. -/
 theorem exec_if_lowerExprNative_iszero_ident_one_skip_fuel
@@ -3717,6 +3595,36 @@ theorem NativePrimCallPreservesWord_ternary_same_state
       cases hExec
       exact hLookup
 
+/-- A native primitive call whose successful positive-fuel runs leave the state unchanged
+    preserves every variable word, at any fuel. -/
+private theorem NativePrimCallPreservesWord_of_succ_ok_state_eq
+    {op : EvmYul.Operation .Yul} {values : List EvmYul.Literal}
+    (name : EvmYul.Identifier) (expected : EvmYul.Literal)
+    (hEq : ∀ fuel state final rets,
+      EvmYul.Yul.primCall (fuel + 1) state op values = .ok (final, rets) → final = state) :
+    ∀ fuel state final rets,
+      state[name]! = expected →
+        EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
+        final[name]! = expected := by
+  intro fuel state final rets hLookup hExec
+  cases fuel with
+  | zero => simp [EvmYul.Yul.primCall] at hExec
+  | succ fuel' => rw [hEq fuel' state final rets hExec]; exact hLookup
+
+/-- A native primitive call that rejects its arguments at every positive fuel vacuously
+    preserves every variable word. -/
+private theorem NativePrimCallPreservesWord_of_succ_invalid
+    {op : EvmYul.Operation .Yul} {values : List EvmYul.Literal}
+    (name : EvmYul.Identifier) (expected : EvmYul.Literal)
+    (hInv : ∀ fuel state, EvmYul.Yul.primCall (fuel + 1) state op values =
+      Except.error EvmYul.Yul.Exception.InvalidArguments) :
+    ∀ fuel state final rets,
+      state[name]! = expected →
+        EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
+        final[name]! = expected :=
+  NativePrimCallPreservesWord_of_succ_ok_state_eq name expected
+    (fun fuel state _ _ h => by rw [hInv fuel state] at h; cases h)
+
 theorem NativePrimCallPreservesWord_binary_same_state_values
     (op : EvmYul.Operation .Yul)
     (name : EvmYul.Identifier)
@@ -3746,34 +3654,13 @@ theorem NativePrimCallPreservesWord_binary_same_state_values
         EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero =>
-          simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          rw [hNil fuel' state] at hExec
-          simp at hExec
-  | cons left rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero =>
-              simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              rw [hSingleton fuel' state left] at hExec
-              simp at hExec
-      | cons right rest =>
-          cases rest with
-          | nil =>
-              exact hPrecise left right fuel state final rets hLookup hExec
-          | cons extra tail =>
-              cases fuel with
-              | zero =>
-                  simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  rw [hOverarity fuel' state left right extra tail] at hExec
-                  simp at hExec
+  rcases values with _ | ⟨l, _ | ⟨r, _ | ⟨e, t⟩⟩⟩
+  · exact NativePrimCallPreservesWord_of_succ_invalid name expected hNil _ _ _ _ hLookup hExec
+  · exact NativePrimCallPreservesWord_of_succ_invalid name expected (hSingleton · · l)
+      _ _ _ _ hLookup hExec
+  · exact hPrecise l r fuel state final rets hLookup hExec
+  · exact NativePrimCallPreservesWord_of_succ_invalid name expected (hOverarity · · l r e t)
+      _ _ _ _ hLookup hExec
 
 theorem NativePrimCallPreservesWord_ternary_same_state_values
     (op : EvmYul.Operation .Yul)
@@ -3808,45 +3695,15 @@ theorem NativePrimCallPreservesWord_ternary_same_state_values
         EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero =>
-          simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          rw [hNil fuel' state] at hExec
-          simp at hExec
-  | cons first rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero =>
-              simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              rw [hSingleton fuel' state first] at hExec
-              simp at hExec
-      | cons second rest =>
-          cases rest with
-          | nil =>
-              cases fuel with
-              | zero =>
-                  simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  rw [hPair fuel' state first second] at hExec
-                  simp at hExec
-          | cons third rest =>
-              cases rest with
-              | nil =>
-                  exact hPrecise first second third fuel state final rets
-                    hLookup hExec
-              | cons extra tail =>
-                  cases fuel with
-                  | zero =>
-                      simp [EvmYul.Yul.primCall] at hExec
-                  | succ fuel' =>
-                      rw [hOverarity fuel' state first second third extra tail]
-                        at hExec
-                      simp at hExec
+  rcases values with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨e, t⟩⟩⟩⟩
+  · exact NativePrimCallPreservesWord_of_succ_invalid name expected hNil _ _ _ _ hLookup hExec
+  · exact NativePrimCallPreservesWord_of_succ_invalid name expected (hSingleton · · a)
+      _ _ _ _ hLookup hExec
+  · exact NativePrimCallPreservesWord_of_succ_invalid name expected (hPair · · a b)
+      _ _ _ _ hLookup hExec
+  · exact hPrecise a b c fuel state final rets hLookup hExec
+  · exact NativePrimCallPreservesWord_of_succ_invalid name expected (hOverarity · · a b c e t)
+      _ _ _ _ hLookup hExec
 
 theorem NativePrimCallPreservesWord_iszero
     (name : EvmYul.Identifier)
@@ -4911,6 +4768,38 @@ theorem NativePrimCallPreservesWord_tstore
             Except.ok (final, rets) at hExec
         cases hExec
 
+/-- In static mode (`perm = false`) every state-mutating native primitive call
+    fails with `StaticModeViolation`, whatever its arguments. -/
+private theorem primCall_succ_static_violation_of_perm_false
+    {op : EvmYul.Operation .Yul} {values : List EvmYul.Literal}
+    (hOp : op ∈ [.CREATE, .CREATE2, .SSTORE, .SELFDESTRUCT, .LOG0, .LOG1, .LOG2, .LOG3,
+      .LOG4, .TSTORE]) (fuel : Nat) (state : EvmYul.Yul.State)
+    (hPerm : state.executionEnv.perm = false) :
+    EvmYul.Yul.primCall (fuel + 1) state op values =
+      .error EvmYul.Yul.Exception.StaticModeViolation := by
+  unfold EvmYul.Yul.primCall
+  simp [hPerm, hOp]
+  rfl
+
+/-- A state-mutating native primitive call whose successful positive-fuel runs with
+    `perm = true` leave the state unchanged preserves every variable word. -/
+private theorem NativePrimCallPreservesWord_of_succ_perm_state_eq
+    {op : EvmYul.Operation .Yul} {values : List EvmYul.Literal}
+    (name : EvmYul.Identifier) (expected : EvmYul.Literal)
+    (hOp : op ∈ [.CREATE, .CREATE2, .SSTORE, .SELFDESTRUCT, .LOG0, .LOG1, .LOG2, .LOG3,
+      .LOG4, .TSTORE])
+    (hEq : ∀ fuel state final rets, state.executionEnv.perm = true →
+      EvmYul.Yul.primCall (fuel + 1) state op values = .ok (final, rets) → final = state) :
+    ∀ fuel state final rets,
+      state[name]! = expected →
+        EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
+        final[name]! = expected := by
+  refine NativePrimCallPreservesWord_of_succ_ok_state_eq name expected ?_
+  intro fuel state final rets h
+  cases hPerm : state.executionEnv.perm
+  · rw [primCall_succ_static_violation_of_perm_false hOp fuel state hPerm] at h; cases h
+  · exact hEq fuel state final rets hPerm h
+
 theorem NativePrimCallPreservesWord_tstore_values
     (name : EvmYul.Identifier)
     (expected : EvmYul.Literal) :
@@ -4920,67 +4809,15 @@ theorem NativePrimCallPreservesWord_tstore_values
           .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero => simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          by_cases hPerm : state.executionEnv.perm = true
-          · simp [EvmYul.Yul.primCall, hPerm, step_tstore_nil_invalid] at hExec
-          · have hPermFalse : state.executionEnv.perm = false := by
-              cases hp : state.executionEnv.perm
-              · rfl
-              · exact False.elim (hPerm hp)
-            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-            change
-              (Except.error EvmYul.Yul.Exception.StaticModeViolation :
-                  Except EvmYul.Yul.Exception
-                    (EvmYul.Yul.State × List EvmYul.Literal)) =
-                Except.ok (final, rets) at hExec
-            cases hExec
-  | cons slot rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero => simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              by_cases hPerm : state.executionEnv.perm = true
-              · simp [EvmYul.Yul.primCall, hPerm,
-                  step_tstore_singleton_invalid] at hExec
-              · have hPermFalse : state.executionEnv.perm = false := by
-                  cases hp : state.executionEnv.perm
-                  · rfl
-                  · exact False.elim (hPerm hp)
-                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                change
-                  (Except.error EvmYul.Yul.Exception.StaticModeViolation :
-                      Except EvmYul.Yul.Exception
-                        (EvmYul.Yul.State × List EvmYul.Literal)) =
-                    Except.ok (final, rets) at hExec
-                cases hExec
-      | cons value rest =>
-          cases rest with
-          | nil =>
-              exact NativePrimCallPreservesWord_tstore name expected slot value
-                fuel state final rets hLookup hExec
-          | cons extra tail =>
-              cases fuel with
-              | zero => simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  by_cases hPerm : state.executionEnv.perm = true
-                  · simp [EvmYul.Yul.primCall, hPerm,
-                      step_tstore_overarity_invalid] at hExec
-                  · have hPermFalse : state.executionEnv.perm = false := by
-                      cases hp : state.executionEnv.perm
-                      · rfl
-                      · exact False.elim (hPerm hp)
-                    simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                    change
-                      (Except.error EvmYul.Yul.Exception.StaticModeViolation :
-                          Except EvmYul.Yul.Exception
-                            (EvmYul.Yul.State × List EvmYul.Literal)) =
-                        Except.ok (final, rets) at hExec
-                    cases hExec
+  rcases values with _ | ⟨a, _ | ⟨b, _ | ⟨e, t⟩⟩⟩
+  case cons.cons.nil =>
+    exact NativePrimCallPreservesWord_tstore name expected a b fuel state final rets hLookup hExec
+  all_goals
+    refine NativePrimCallPreservesWord_of_succ_perm_state_eq (op := .TSTORE) name expected
+      (by simp) ?_ fuel state final rets hLookup hExec
+    intro fuel state final rets hPerm h
+    simp [EvmYul.Yul.primCall, hPerm, step_tstore_nil_invalid, step_tstore_singleton_invalid,
+      step_tstore_overarity_invalid] at h
 
 theorem NativePrimCallPreservesWord_sstore
     (name : EvmYul.Identifier)
@@ -5017,67 +4854,15 @@ theorem NativePrimCallPreservesWord_sstore_values
           .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero => simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          by_cases hPerm : state.executionEnv.perm = true
-          · simp [EvmYul.Yul.primCall, hPerm, step_sstore_nil_invalid] at hExec
-          · have hPermFalse : state.executionEnv.perm = false := by
-              cases hp : state.executionEnv.perm
-              · rfl
-              · exact False.elim (hPerm hp)
-            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-            change
-              (Except.error EvmYul.Yul.Exception.StaticModeViolation :
-                  Except EvmYul.Yul.Exception
-                    (EvmYul.Yul.State × List EvmYul.Literal)) =
-                Except.ok (final, rets) at hExec
-            cases hExec
-  | cons slot rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero => simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              by_cases hPerm : state.executionEnv.perm = true
-              · simp [EvmYul.Yul.primCall, hPerm,
-                  step_sstore_singleton_invalid] at hExec
-              · have hPermFalse : state.executionEnv.perm = false := by
-                  cases hp : state.executionEnv.perm
-                  · rfl
-                  · exact False.elim (hPerm hp)
-                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                change
-                  (Except.error EvmYul.Yul.Exception.StaticModeViolation :
-                      Except EvmYul.Yul.Exception
-                        (EvmYul.Yul.State × List EvmYul.Literal)) =
-                    Except.ok (final, rets) at hExec
-                cases hExec
-      | cons value rest =>
-          cases rest with
-          | nil =>
-              exact NativePrimCallPreservesWord_sstore name expected slot value
-                fuel state final rets hLookup hExec
-          | cons extra tail =>
-              cases fuel with
-              | zero => simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  by_cases hPerm : state.executionEnv.perm = true
-                  · simp [EvmYul.Yul.primCall, hPerm,
-                      step_sstore_overarity_invalid] at hExec
-                  · have hPermFalse : state.executionEnv.perm = false := by
-                      cases hp : state.executionEnv.perm
-                      · rfl
-                      · exact False.elim (hPerm hp)
-                    simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                    change
-                      (Except.error EvmYul.Yul.Exception.StaticModeViolation :
-                          Except EvmYul.Yul.Exception
-                            (EvmYul.Yul.State × List EvmYul.Literal)) =
-                        Except.ok (final, rets) at hExec
-                    cases hExec
+  rcases values with _ | ⟨a, _ | ⟨b, _ | ⟨e, t⟩⟩⟩
+  case cons.cons.nil =>
+    exact NativePrimCallPreservesWord_sstore name expected a b fuel state final rets hLookup hExec
+  all_goals
+    refine NativePrimCallPreservesWord_of_succ_perm_state_eq (op := .SSTORE) name expected
+      (by simp) ?_ fuel state final rets hLookup hExec
+    intro fuel state final rets hPerm h
+    simp [EvmYul.Yul.primCall, hPerm, step_sstore_nil_invalid, step_sstore_singleton_invalid,
+      step_sstore_overarity_invalid] at h
 
 theorem NativePrimCallPreservesWord_stop
     (name : EvmYul.Identifier)
@@ -5566,56 +5351,16 @@ theorem NativePrimCallPreservesWord_log0_values
           .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero => simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          by_cases hPerm : state.executionEnv.perm = true
-          · simp [EvmYul.Yul.primCall, hPerm] at hExec
-            exact NativePrimCallPreservesWord_noop_result
-              name expected hLookup hExec
-          · have hPermFalse : state.executionEnv.perm = false := by
-              cases hp : state.executionEnv.perm
-              · rfl
-              · exact False.elim (hPerm hp)
-            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-            cases hExec
-  | cons offset rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero => simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              by_cases hPerm : state.executionEnv.perm = true
-              · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                exact NativePrimCallPreservesWord_noop_result
-                  name expected hLookup hExec
-              · have hPermFalse : state.executionEnv.perm = false := by
-                  cases hp : state.executionEnv.perm
-                  · rfl
-                  · exact False.elim (hPerm hp)
-                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                cases hExec
-      | cons size rest =>
-          cases rest with
-          | nil =>
-              exact NativePrimCallPreservesWord_log0 name expected offset size
-                fuel state final rets hLookup hExec
-          | cons extra tail =>
-              cases fuel with
-              | zero => simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  by_cases hPerm : state.executionEnv.perm = true
-                  · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                    exact NativePrimCallPreservesWord_noop_result
-                      name expected hLookup hExec
-                  · have hPermFalse : state.executionEnv.perm = false := by
-                      cases hp : state.executionEnv.perm
-                      · rfl
-                      · exact False.elim (hPerm hp)
-                    simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                    cases hExec
+  rcases values with _ | ⟨a, _ | ⟨b, _ | ⟨e, t⟩⟩⟩
+  case cons.cons.nil =>
+    exact NativePrimCallPreservesWord_log0 name expected a b fuel state final rets
+      hLookup hExec
+  all_goals
+    refine NativePrimCallPreservesWord_of_succ_perm_state_eq (op := .LOG0) name expected
+      (by simp) ?_ fuel state final rets hLookup hExec
+    intro fuel state final rets hPerm h
+    simp [EvmYul.Yul.primCall, hPerm] at h
+    exact h.1.symm
 
 theorem NativePrimCallPreservesWord_log1_values
     (name : EvmYul.Identifier)
@@ -5626,72 +5371,16 @@ theorem NativePrimCallPreservesWord_log1_values
           .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero => simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          by_cases hPerm : state.executionEnv.perm = true
-          · simp [EvmYul.Yul.primCall, hPerm] at hExec
-            exact NativePrimCallPreservesWord_noop_result
-              name expected hLookup hExec
-          · have hPermFalse : state.executionEnv.perm = false := by
-              cases hp : state.executionEnv.perm
-              · rfl
-              · exact False.elim (hPerm hp)
-            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-            cases hExec
-  | cons offset rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero => simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              by_cases hPerm : state.executionEnv.perm = true
-              · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                exact NativePrimCallPreservesWord_noop_result
-                  name expected hLookup hExec
-              · have hPermFalse : state.executionEnv.perm = false := by
-                  cases hp : state.executionEnv.perm
-                  · rfl
-                  · exact False.elim (hPerm hp)
-                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                cases hExec
-      | cons size rest =>
-          cases rest with
-          | nil =>
-              cases fuel with
-              | zero => simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  by_cases hPerm : state.executionEnv.perm = true
-                  · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                    exact NativePrimCallPreservesWord_noop_result
-                      name expected hLookup hExec
-                  · have hPermFalse : state.executionEnv.perm = false := by
-                      cases hp : state.executionEnv.perm
-                      · rfl
-                      · exact False.elim (hPerm hp)
-                    simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                    cases hExec
-          | cons topic0 rest =>
-              cases rest with
-              | nil =>
-                  exact NativePrimCallPreservesWord_log1 name expected offset size
-                    topic0 fuel state final rets hLookup hExec
-              | cons extra tail =>
-                  cases fuel with
-                  | zero => simp [EvmYul.Yul.primCall] at hExec
-                  | succ fuel' =>
-                      by_cases hPerm : state.executionEnv.perm = true
-                      · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                        exact NativePrimCallPreservesWord_noop_result
-                          name expected hLookup hExec
-                      · have hPermFalse : state.executionEnv.perm = false := by
-                          cases hp : state.executionEnv.perm
-                          · rfl
-                          · exact False.elim (hPerm hp)
-                        simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                        cases hExec
+  rcases values with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨e, t⟩⟩⟩⟩
+  case cons.cons.cons.nil =>
+    exact NativePrimCallPreservesWord_log1 name expected a b c fuel state final rets
+      hLookup hExec
+  all_goals
+    refine NativePrimCallPreservesWord_of_succ_perm_state_eq (op := .LOG1) name expected
+      (by simp) ?_ fuel state final rets hLookup hExec
+    intro fuel state final rets hPerm h
+    simp [EvmYul.Yul.primCall, hPerm] at h
+    exact h.1.symm
 
 theorem NativePrimCallPreservesWord_log2_values
     (name : EvmYul.Identifier)
@@ -5702,90 +5391,16 @@ theorem NativePrimCallPreservesWord_log2_values
           .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero => simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          by_cases hPerm : state.executionEnv.perm = true
-          · simp [EvmYul.Yul.primCall, hPerm] at hExec
-            exact NativePrimCallPreservesWord_noop_result
-              name expected hLookup hExec
-          · have hPermFalse : state.executionEnv.perm = false := by
-              cases hp : state.executionEnv.perm
-              · rfl
-              · exact False.elim (hPerm hp)
-            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-            cases hExec
-  | cons offset rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero => simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              by_cases hPerm : state.executionEnv.perm = true
-              · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                exact NativePrimCallPreservesWord_noop_result
-                  name expected hLookup hExec
-              · have hPermFalse : state.executionEnv.perm = false := by
-                  cases hp : state.executionEnv.perm
-                  · rfl
-                  · exact False.elim (hPerm hp)
-                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                cases hExec
-      | cons size rest =>
-          cases rest with
-          | nil =>
-              cases fuel with
-              | zero => simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  by_cases hPerm : state.executionEnv.perm = true
-                  · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                    exact NativePrimCallPreservesWord_noop_result
-                      name expected hLookup hExec
-                  · have hPermFalse : state.executionEnv.perm = false := by
-                      cases hp : state.executionEnv.perm
-                      · rfl
-                      · exact False.elim (hPerm hp)
-                    simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                    cases hExec
-          | cons topic0 rest =>
-              cases rest with
-              | nil =>
-                  cases fuel with
-                  | zero => simp [EvmYul.Yul.primCall] at hExec
-                  | succ fuel' =>
-                      by_cases hPerm : state.executionEnv.perm = true
-                      · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                        exact NativePrimCallPreservesWord_noop_result
-                          name expected hLookup hExec
-                      · have hPermFalse : state.executionEnv.perm = false := by
-                          cases hp : state.executionEnv.perm
-                          · rfl
-                          · exact False.elim (hPerm hp)
-                        simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                        cases hExec
-              | cons topic1 rest =>
-                  cases rest with
-                  | nil =>
-                      exact NativePrimCallPreservesWord_log2 name expected
-                        offset size topic0 topic1 fuel state final rets hLookup
-                        hExec
-                  | cons extra tail =>
-                      cases fuel with
-                      | zero => simp [EvmYul.Yul.primCall] at hExec
-                      | succ fuel' =>
-                          by_cases hPerm : state.executionEnv.perm = true
-                          · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                            exact NativePrimCallPreservesWord_noop_result
-                              name expected hLookup hExec
-                          · have hPermFalse :
-                                state.executionEnv.perm = false := by
-                              cases hp : state.executionEnv.perm
-                              · rfl
-                              · exact False.elim (hPerm hp)
-                            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                            cases hExec
+  rcases values with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨d, _ | ⟨e, t⟩⟩⟩⟩⟩
+  case cons.cons.cons.cons.nil =>
+    exact NativePrimCallPreservesWord_log2 name expected a b c d fuel state final rets
+      hLookup hExec
+  all_goals
+    refine NativePrimCallPreservesWord_of_succ_perm_state_eq (op := .LOG2) name expected
+      (by simp) ?_ fuel state final rets hLookup hExec
+    intro fuel state final rets hPerm h
+    simp [EvmYul.Yul.primCall, hPerm] at h
+    exact h.1.symm
 
 theorem NativePrimCallPreservesWord_log3_values
     (name : EvmYul.Identifier)
@@ -5796,108 +5411,16 @@ theorem NativePrimCallPreservesWord_log3_values
           .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero => simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          by_cases hPerm : state.executionEnv.perm = true
-          · simp [EvmYul.Yul.primCall, hPerm] at hExec
-            exact NativePrimCallPreservesWord_noop_result
-              name expected hLookup hExec
-          · have hPermFalse : state.executionEnv.perm = false := by
-              cases hp : state.executionEnv.perm
-              · rfl
-              · exact False.elim (hPerm hp)
-            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-            cases hExec
-  | cons offset rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero => simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              by_cases hPerm : state.executionEnv.perm = true
-              · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                exact NativePrimCallPreservesWord_noop_result
-                  name expected hLookup hExec
-              · have hPermFalse : state.executionEnv.perm = false := by
-                  cases hp : state.executionEnv.perm
-                  · rfl
-                  · exact False.elim (hPerm hp)
-                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                cases hExec
-      | cons size rest =>
-          cases rest with
-          | nil =>
-              cases fuel with
-              | zero => simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  by_cases hPerm : state.executionEnv.perm = true
-                  · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                    exact NativePrimCallPreservesWord_noop_result
-                      name expected hLookup hExec
-                  · have hPermFalse : state.executionEnv.perm = false := by
-                      cases hp : state.executionEnv.perm
-                      · rfl
-                      · exact False.elim (hPerm hp)
-                    simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                    cases hExec
-          | cons topic0 rest =>
-              cases rest with
-              | nil =>
-                  cases fuel with
-                  | zero => simp [EvmYul.Yul.primCall] at hExec
-                  | succ fuel' =>
-                      by_cases hPerm : state.executionEnv.perm = true
-                      · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                        exact NativePrimCallPreservesWord_noop_result
-                          name expected hLookup hExec
-                      · have hPermFalse : state.executionEnv.perm = false := by
-                          cases hp : state.executionEnv.perm
-                          · rfl
-                          · exact False.elim (hPerm hp)
-                        simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                        cases hExec
-              | cons topic1 rest =>
-                  cases rest with
-                  | nil =>
-                      cases fuel with
-                      | zero => simp [EvmYul.Yul.primCall] at hExec
-                      | succ fuel' =>
-                          by_cases hPerm : state.executionEnv.perm = true
-                          · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                            exact NativePrimCallPreservesWord_noop_result
-                              name expected hLookup hExec
-                          · have hPermFalse :
-                                state.executionEnv.perm = false := by
-                              cases hp : state.executionEnv.perm
-                              · rfl
-                              · exact False.elim (hPerm hp)
-                            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                            cases hExec
-                  | cons topic2 rest =>
-                      cases rest with
-                      | nil =>
-                          exact NativePrimCallPreservesWord_log3 name expected
-                            offset size topic0 topic1 topic2 fuel state final
-                            rets hLookup hExec
-                      | cons extra tail =>
-                          cases fuel with
-                          | zero => simp [EvmYul.Yul.primCall] at hExec
-                          | succ fuel' =>
-                              by_cases hPerm :
-                                  state.executionEnv.perm = true
-                              · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                                exact NativePrimCallPreservesWord_noop_result
-                                  name expected hLookup hExec
-                              · have hPermFalse :
-                                    state.executionEnv.perm = false := by
-                                  cases hp : state.executionEnv.perm
-                                  · rfl
-                                  · exact False.elim (hPerm hp)
-                                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                                cases hExec
+  rcases values with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨d, _ | ⟨f, _ | ⟨e, t⟩⟩⟩⟩⟩⟩
+  case cons.cons.cons.cons.cons.nil =>
+    exact NativePrimCallPreservesWord_log3 name expected a b c d f fuel state final rets
+      hLookup hExec
+  all_goals
+    refine NativePrimCallPreservesWord_of_succ_perm_state_eq (op := .LOG3) name expected
+      (by simp) ?_ fuel state final rets hLookup hExec
+    intro fuel state final rets hPerm h
+    simp [EvmYul.Yul.primCall, hPerm] at h
+    exact h.1.symm
 
 theorem NativePrimCallPreservesWord_log4_values
     (name : EvmYul.Identifier)
@@ -5908,128 +5431,16 @@ theorem NativePrimCallPreservesWord_log4_values
           .ok (final, rets) →
         final[name]! = expected := by
   intro fuel state values final rets hLookup hExec
-  cases values with
-  | nil =>
-      cases fuel with
-      | zero => simp [EvmYul.Yul.primCall] at hExec
-      | succ fuel' =>
-          by_cases hPerm : state.executionEnv.perm = true
-          · simp [EvmYul.Yul.primCall, hPerm] at hExec
-            exact NativePrimCallPreservesWord_noop_result
-              name expected hLookup hExec
-          · have hPermFalse : state.executionEnv.perm = false := by
-              cases hp : state.executionEnv.perm
-              · rfl
-              · exact False.elim (hPerm hp)
-            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-            cases hExec
-  | cons offset rest =>
-      cases rest with
-      | nil =>
-          cases fuel with
-          | zero => simp [EvmYul.Yul.primCall] at hExec
-          | succ fuel' =>
-              by_cases hPerm : state.executionEnv.perm = true
-              · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                exact NativePrimCallPreservesWord_noop_result
-                  name expected hLookup hExec
-              · have hPermFalse : state.executionEnv.perm = false := by
-                  cases hp : state.executionEnv.perm
-                  · rfl
-                  · exact False.elim (hPerm hp)
-                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                cases hExec
-      | cons size rest =>
-          cases rest with
-          | nil =>
-              cases fuel with
-              | zero => simp [EvmYul.Yul.primCall] at hExec
-              | succ fuel' =>
-                  by_cases hPerm : state.executionEnv.perm = true
-                  · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                    exact NativePrimCallPreservesWord_noop_result
-                      name expected hLookup hExec
-                  · have hPermFalse : state.executionEnv.perm = false := by
-                      cases hp : state.executionEnv.perm
-                      · rfl
-                      · exact False.elim (hPerm hp)
-                    simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                    cases hExec
-          | cons topic0 rest =>
-              cases rest with
-              | nil =>
-                  cases fuel with
-                  | zero => simp [EvmYul.Yul.primCall] at hExec
-                  | succ fuel' =>
-                      by_cases hPerm : state.executionEnv.perm = true
-                      · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                        exact NativePrimCallPreservesWord_noop_result
-                          name expected hLookup hExec
-                      · have hPermFalse : state.executionEnv.perm = false := by
-                          cases hp : state.executionEnv.perm
-                          · rfl
-                          · exact False.elim (hPerm hp)
-                        simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                        cases hExec
-              | cons topic1 rest =>
-                  cases rest with
-                  | nil =>
-                      cases fuel with
-                      | zero => simp [EvmYul.Yul.primCall] at hExec
-                      | succ fuel' =>
-                          by_cases hPerm :
-                              state.executionEnv.perm = true
-                          · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                            exact NativePrimCallPreservesWord_noop_result
-                              name expected hLookup hExec
-                          · have hPermFalse :
-                                state.executionEnv.perm = false := by
-                              cases hp : state.executionEnv.perm
-                              · rfl
-                              · exact False.elim (hPerm hp)
-                            simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                            cases hExec
-                  | cons topic2 rest =>
-                      cases rest with
-                      | nil =>
-                          cases fuel with
-                          | zero => simp [EvmYul.Yul.primCall] at hExec
-                          | succ fuel' =>
-                              by_cases hPerm :
-                                  state.executionEnv.perm = true
-                              · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                                exact NativePrimCallPreservesWord_noop_result
-                                  name expected hLookup hExec
-                              · have hPermFalse :
-                                    state.executionEnv.perm = false := by
-                                  cases hp : state.executionEnv.perm
-                                  · rfl
-                                  · exact False.elim (hPerm hp)
-                                simp [EvmYul.Yul.primCall, hPermFalse] at hExec
-                                cases hExec
-                      | cons topic3 rest =>
-                          cases rest with
-                          | nil =>
-                              exact NativePrimCallPreservesWord_log4 name
-                                expected offset size topic0 topic1 topic2 topic3
-                                fuel state final rets hLookup hExec
-                          | cons extra tail =>
-                              cases fuel with
-                              | zero => simp [EvmYul.Yul.primCall] at hExec
-                              | succ fuel' =>
-                                  by_cases hPerm :
-                                      state.executionEnv.perm = true
-                                  · simp [EvmYul.Yul.primCall, hPerm] at hExec
-                                    exact NativePrimCallPreservesWord_noop_result
-                                      name expected hLookup hExec
-                                  · have hPermFalse :
-                                        state.executionEnv.perm = false := by
-                                      cases hp : state.executionEnv.perm
-                                      · rfl
-                                      · exact False.elim (hPerm hp)
-                                    simp [EvmYul.Yul.primCall, hPermFalse]
-                                      at hExec
-                                    cases hExec
+  rcases values with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨d, _ | ⟨f, _ | ⟨g, _ | ⟨e, t⟩⟩⟩⟩⟩⟩⟩
+  case cons.cons.cons.cons.cons.cons.nil =>
+    exact NativePrimCallPreservesWord_log4 name expected a b c d f g fuel state final rets
+      hLookup hExec
+  all_goals
+    refine NativePrimCallPreservesWord_of_succ_perm_state_eq (op := .LOG4) name expected
+      (by simp) ?_ fuel state final rets hLookup hExec
+    intro fuel state final rets hPerm h
+    simp [EvmYul.Yul.primCall, hPerm] at h
+    exact h.1.symm
 
 theorem lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
     (func : EvmYul.Identifier)
@@ -6073,17 +5484,20 @@ theorem lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
       Backends.lookupRuntimePrimOp_extcodesize]
   all_goals first | contradiction | decide
 
-theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
-    (name func : EvmYul.Identifier)
-    (expected : EvmYul.Literal)
-    (op : EvmYul.Operation .Yul)
-    (hAllowed :
-      Compiler.Proofs.YulGeneration.Backends.allowedExprCallName func)
+/-- The native runtime primitive operations reachable from allowed expression call names. -/
+private def nativeAllowedRuntimePrimOps : List (EvmYul.Operation .Yul) :=
+  [.ADD, .SUB, .MUL, .DIV, .SDIV, .MOD, .SMOD, .ADDMOD, .MULMOD, .EXP, .SIGNEXTEND, .LT, .GT,
+    .SLT, .SGT, .EQ, .ISZERO, .AND, .OR, .XOR, .NOT, .BYTE, .SHL, .SHR, .SAR, .KECCAK256, .ADDRESS,
+    .CALLER, .ORIGIN, .CALLVALUE, .CALLDATALOAD, .CALLDATASIZE, .RETURNDATASIZE, .TIMESTAMP,
+    .NUMBER, .CHAINID, .BLOBBASEFEE, .MLOAD, .SLOAD, .TLOAD, .EXTCODESIZE]
+
+/-- Every runtime primitive looked up for an allowed call name is one of
+    `nativeAllowedRuntimePrimOps`. -/
+private theorem lookupRuntimePrimOp_mem_nativeAllowedRuntimePrimOps
+    (func : EvmYul.Identifier) (op : EvmYul.Operation .Yul)
+    (hAllowed : Compiler.Proofs.YulGeneration.Backends.allowedExprCallName func)
     (hOp : Backends.lookupRuntimePrimOp func = some op) :
-    ∀ fuel state values final rets,
-      state[name]! = expected →
-        EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
-        final[name]! = expected := by
+    op ∈ nativeAllowedRuntimePrimOps := by
   simp only [Compiler.Proofs.YulGeneration.Backends.allowedExprCallName,
     Compiler.Proofs.YulGeneration.Backends.bridgedBuiltins,
     List.mem_cons, List.not_mem_nil, or_false, or_assoc] at hAllowed
@@ -6119,48 +5533,57 @@ theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
       Backends.lookupRuntimePrimOp_keccak256,
       Backends.lookupRuntimePrimOp_extcodesize, Option.some.injEq] at hOp
   all_goals cases hOp
-  all_goals first
-    | exact NativePrimCallPreservesWord_add_values name expected
-    | exact NativePrimCallPreservesWord_sub_values name expected
-    | exact NativePrimCallPreservesWord_mul_values name expected
-    | exact NativePrimCallPreservesWord_div_values name expected
-    | exact NativePrimCallPreservesWord_sdiv_values name expected
-    | exact NativePrimCallPreservesWord_mod_values name expected
-    | exact NativePrimCallPreservesWord_smod_values name expected
-    | exact NativePrimCallPreservesWord_addmod_values name expected
-    | exact NativePrimCallPreservesWord_mulmod_values name expected
-    | exact NativePrimCallPreservesWord_exp_values name expected
-    | exact NativePrimCallPreservesWord_signextend_values name expected
-    | exact NativePrimCallPreservesWord_lt_values name expected
-    | exact NativePrimCallPreservesWord_gt_values name expected
-    | exact NativePrimCallPreservesWord_slt_values name expected
-    | exact NativePrimCallPreservesWord_sgt_values name expected
-    | exact NativePrimCallPreservesWord_eq_values name expected
-    | exact NativePrimCallPreservesWord_iszero_values name expected
-    | exact NativePrimCallPreservesWord_and_values name expected
-    | exact NativePrimCallPreservesWord_or_values name expected
-    | exact NativePrimCallPreservesWord_xor_values name expected
-    | exact NativePrimCallPreservesWord_not_values name expected
-    | exact NativePrimCallPreservesWord_byte_values name expected
-    | exact NativePrimCallPreservesWord_shl_values name expected
-    | exact NativePrimCallPreservesWord_shr_values name expected
-    | exact NativePrimCallPreservesWord_sar_values name expected
-    | exact NativePrimCallPreservesWord_keccak256_values name expected
-    | exact NativePrimCallPreservesWord_address_values name expected
-    | exact NativePrimCallPreservesWord_caller_values name expected
-    | exact NativePrimCallPreservesWord_origin_values name expected
-    | exact NativePrimCallPreservesWord_callvalue_values name expected
-    | exact NativePrimCallPreservesWord_calldataload_values name expected
-    | exact NativePrimCallPreservesWord_calldatasize_values name expected
-    | exact NativePrimCallPreservesWord_returndatasize_values name expected
-    | exact NativePrimCallPreservesWord_timestamp_values name expected
-    | exact NativePrimCallPreservesWord_number_values name expected
-    | exact NativePrimCallPreservesWord_chainid_values name expected
-    | exact NativePrimCallPreservesWord_blobbasefee_values name expected
-    | exact NativePrimCallPreservesWord_mload_values name expected
-    | exact NativePrimCallPreservesWord_sload_values name expected
-    | exact NativePrimCallPreservesWord_tload_values name expected
-    | exact NativePrimCallPreservesWord_extcodesize_values name expected
+  all_goals simp [nativeAllowedRuntimePrimOps]
+
+/-- Every operation of `nativeAllowedRuntimePrimOps` preserves every variable word. -/
+private theorem NativePrimCallPreservesWord_values_of_mem_nativeAllowedRuntimePrimOps
+    (name : EvmYul.Identifier) (expected : EvmYul.Literal) :
+    ∀ op ∈ nativeAllowedRuntimePrimOps, ∀ fuel state values final rets,
+      state[name]! = expected →
+        EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
+        final[name]! = expected := by
+  simp only [nativeAllowedRuntimePrimOps, List.forall_mem_cons]
+  refine ⟨NativePrimCallPreservesWord_add_values _ _, NativePrimCallPreservesWord_sub_values _ _,
+    NativePrimCallPreservesWord_mul_values _ _, NativePrimCallPreservesWord_div_values _ _,
+    NativePrimCallPreservesWord_sdiv_values _ _, NativePrimCallPreservesWord_mod_values _ _,
+    NativePrimCallPreservesWord_smod_values _ _, NativePrimCallPreservesWord_addmod_values _ _,
+    NativePrimCallPreservesWord_mulmod_values _ _, NativePrimCallPreservesWord_exp_values _ _,
+    NativePrimCallPreservesWord_signextend_values _ _, NativePrimCallPreservesWord_lt_values _ _,
+    NativePrimCallPreservesWord_gt_values _ _, NativePrimCallPreservesWord_slt_values _ _,
+    NativePrimCallPreservesWord_sgt_values _ _, NativePrimCallPreservesWord_eq_values _ _,
+    NativePrimCallPreservesWord_iszero_values _ _, NativePrimCallPreservesWord_and_values _ _,
+    NativePrimCallPreservesWord_or_values _ _, NativePrimCallPreservesWord_xor_values _ _,
+    NativePrimCallPreservesWord_not_values _ _, NativePrimCallPreservesWord_byte_values _ _,
+    NativePrimCallPreservesWord_shl_values _ _, NativePrimCallPreservesWord_shr_values _ _,
+    NativePrimCallPreservesWord_sar_values _ _, NativePrimCallPreservesWord_keccak256_values _ _,
+    NativePrimCallPreservesWord_address_values _ _, NativePrimCallPreservesWord_caller_values _ _,
+    NativePrimCallPreservesWord_origin_values _ _,
+    NativePrimCallPreservesWord_callvalue_values _ _,
+    NativePrimCallPreservesWord_calldataload_values _ _,
+    NativePrimCallPreservesWord_calldatasize_values _ _,
+    NativePrimCallPreservesWord_returndatasize_values _ _,
+    NativePrimCallPreservesWord_timestamp_values _ _,
+    NativePrimCallPreservesWord_number_values _ _, NativePrimCallPreservesWord_chainid_values _ _,
+    NativePrimCallPreservesWord_blobbasefee_values _ _,
+    NativePrimCallPreservesWord_mload_values _ _, NativePrimCallPreservesWord_sload_values _ _,
+    NativePrimCallPreservesWord_tload_values _ _,
+    NativePrimCallPreservesWord_extcodesize_values _ _, ?_⟩
+  intro _ h
+  cases h
+
+theorem NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
+    (name func : EvmYul.Identifier)
+    (expected : EvmYul.Literal)
+    (op : EvmYul.Operation .Yul)
+    (hAllowed :
+      Compiler.Proofs.YulGeneration.Backends.allowedExprCallName func)
+    (hOp : Backends.lookupRuntimePrimOp func = some op) :
+    ∀ fuel state values final rets,
+      state[name]! = expected →
+        EvmYul.Yul.primCall fuel state op values = .ok (final, rets) →
+        final[name]! = expected := by
+  exact NativePrimCallPreservesWord_values_of_mem_nativeAllowedRuntimePrimOps name expected op
+    (lookupRuntimePrimOp_mem_nativeAllowedRuntimePrimOps func op hAllowed hOp)
 
 theorem NativeExprPreservesWord_var
     (name : EvmYul.Identifier)

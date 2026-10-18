@@ -7524,6 +7524,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_cons_ok_eq
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_cons_error
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_cons_tail_error
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_block_append_cons_fuel_eq  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_block_append_nil_ok_inv  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_append_ok
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_append_error
   Compiler.Proofs.YulGeneration.Backends.Native.exec_block_append_prefix_error
@@ -7557,6 +7559,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.Native.uint256_lt_ofNat_eq_zero_of_ge  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.uint256_lt_ofNat_eq_one_of_lt  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lowerExprNative_lt_calldatasize_skip_ge_fuel
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_block_singleton_revert_zero_zero_fuel_eight  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lowerExprNative_lt_calldatasize_take_lt_revert_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lowerExprNative_iszero_ident_one_skip_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchInitialOkState_insert_lookup_self
@@ -7641,6 +7644,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_unary_same_state_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_binary_same_state
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_ternary_same_state
+  -- Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_of_succ_ok_state_eq  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_of_succ_invalid  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_binary_same_state_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_ternary_same_state_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_iszero
@@ -7708,6 +7713,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.Native.step_extcodesize_error  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_extcodesize_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_tstore
+  -- Compiler.Proofs.YulGeneration.Backends.Native.primCall_succ_static_violation_of_perm_false  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_of_succ_perm_state_eq  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_tstore_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_sstore
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_sstore_values
@@ -7739,6 +7746,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_log3_values
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_log4_values
   Compiler.Proofs.YulGeneration.Backends.Native.lookupRuntimePrimOp_ne_none_of_allowed_of_ne_mappingSlot
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lookupRuntimePrimOp_mem_nativeAllowedRuntimePrimOps  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_values_of_mem_nativeAllowedRuntimePrimOps  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativePrimCallPreservesWord_of_allowed_lookupRuntimePrimOp
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_var
   Compiler.Proofs.YulGeneration.Backends.Native.NativeExprPreservesWord_lit
@@ -7762,6 +7771,7 @@ end Verity.AxiomAudit
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Preservation.lean
   Compiler.Proofs.YulGeneration.Backends.Native.state_getElem_overwrite?_left
   Compiler.Proofs.YulGeneration.Backends.Native.state_getElem_restoreCallFrame_of_ok
+  -- Compiler.Proofs.YulGeneration.Backends.Native.native_call_ok_inv  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.native_call_preserves_lookup_of_revivable_body
   Compiler.Proofs.YulGeneration.Backends.Native.nativeMappingSlotFunctionDefinition_exec_revivable_of_ok_state
   Compiler.Proofs.YulGeneration.Backends.Native.state_foldr_insert_ok_exists
@@ -7852,6 +7862,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_letMany_lowerExprNative_of_mappingFreeBridgedExpr
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerAssignNative_of_mappingFreeBridgedExpr
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerAssignNative_mappingSlot_of_nativeEvalArgs
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_let_call_of_bridgedExpr_mappingContract  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_letMany_of_bridgedExpr_mappingContract  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_let_lowerExprNative_of_bridgedExpr_mappingContract
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_letMany_lowerExprNative_of_bridgedExpr_mappingContract
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerAssignNative_of_bridgedExpr_mappingContract
@@ -7880,6 +7892,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_exprStmtCall_lowerExprNative_call_runtimePrimOp_of_nativeEvalArgs_primCall_preserves
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_exprStmtCall_lowerExprNative_call_userFunction_of_nativeEvalArgs_call_preserves
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_exprStmtCall_lowerExprNative_mappingSlot_of_nativeEvalArgs
+  -- Compiler.Proofs.YulGeneration.Backends.Native.lowerStmtGroupNativeWithSwitchIds_expr_mem_eq_exprStmtCall  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_call_of_bridgedExpr_mappingContract
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_exprStmtCall_mstore_of_evalArgs_preserves
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_exprStmtCall_mstore_of_nativeEvalArgs_and_evalArgs_shape_preserves
@@ -7972,6 +7985,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log2_of_nativeEvalArgs
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log3_of_nativeEvalArgs
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_log4_of_nativeEvalArgs
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeEvalArgsPreservesWord_mappingContract_of_bridged_pair  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeEvalArgsPreservesWord_mappingContract_of_bridged_triple  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_mstore
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_mstore_of_nativeEvalArgs
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_mstore8
@@ -7989,14 +8004,27 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_calldatacopy_of_nativeEvalArgs
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_expr_returndatacopy_of_nativeEvalArgs
   Compiler.Proofs.YulGeneration.Backends.Native.NativeMappingFreeBridgedExpr.of_bridgedExpr
+  -- Compiler.Proofs.YulGeneration.Backends.Native.mappingFreeBridgedExpr_add_of_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.mappingFreePreservableStraightStmt_log_of_bridged  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativeMappingFreePreservableStraightStmt.of_bridgedStraightStmt
   Compiler.Proofs.YulGeneration.Backends.Native.NativeMappingFreePreservableStraightStmts.of_bridgedStraightStmts
   -- Compiler.Proofs.YulGeneration.Backends.Native.bridgedExpr_mappingSlot_of_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.bridgedExpr_add_of_bridged  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativePreservableStraightStmt_log_of_bridged  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativePreservableStraightStmt.of_bridgedStraightStmt
   Compiler.Proofs.YulGeneration.Backends.Native.NativePreservableStraightStmts.of_bridgedStraightStmts
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_exprStmtCall_lowerExprNative_effect_of_nativeEvalArgs  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_exprStmtCall_lowerExprNative_log_of_nativeEvalArgs  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_exprStmtCall_lowerExprNative_builtin_of_nativeEvalArgs  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_of_mem_lowerStmtGroupNativeWithSwitchIds_exprStmt  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.mappingFreePreservableStraightStmt_exprStmt_args  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_exprStmtCall_of_mappingFreePreservable  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_of_mappingFreePreservableStraightStmt
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exists_lowerStmtGroupNativeWithSwitchIds_of_mem_lowerStmtsNativeWithSwitchIds  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_of_mem_lowerStmtsNativeWithSwitchIds_of_mappingFreePreservableStraightStmts
   Compiler.Proofs.YulGeneration.Backends.Native.NativeBlockPreservesWord_lowerStmtsNativeWithSwitchIds_of_mappingFreePreservableStraightStmts
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativePreservableStraightStmt_exprStmt_args  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_lowerStmtGroup_exprStmt_of_nativePreservable  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_lowerStmtGroupNativeWithSwitchIds_of_nativePreservableStraightStmt
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_of_mem_lowerStmtsNativeWithSwitchIds_of_nativePreservableStraightStmts
   Compiler.Proofs.YulGeneration.Backends.Native.NativeStmtPreservesWord_of_mem_lowerStmtsNativeWithSwitchIds_of_bridgedStraightStmts
@@ -8026,6 +8054,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchCaseIfs_head_hit_error_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchCaseIfs_cons_miss_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchCaseIfs_prefix_hit_fuel
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchCaseIfs_cons_miss_error_fuel  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchCaseIfs_prefix_hit_error_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchCaseIfs_find_hit_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchCaseIfs_find_hit_error_fuel
@@ -8071,10 +8100,20 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_weiValue
   Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_calldata_size
   Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_matched
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_if_callvalue_skip_okState_fuel  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_if_callvalue_revert_okState_fuel  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lt_calldatasize_skip_okState_fuel  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lt_calldatasize_revert_okState_fuel  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_callvalue_skip_markedPrefix_zero_mod_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_callvalue_take_markedPrefix_nonzero_revert_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lt_calldatasize_skip_markedPrefix_ge_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_if_lt_calldatasize_take_markedPrefix_lt_revert_fuel
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_payable_prefix_okState_eq  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_payable_calldata_revert_okState_fuel  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_nonpayable_callvalue_revert_okState_fuel  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_nonpayable_callvalue_skip_okState_eq  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_nonpayable_prefix_okState_eq  -- private
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_nonpayable_calldata_revert_okState_fuel  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_payable_prefix_eq
   Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_payable_prefix_postInitFreeMemory_eq
   Compiler.Proofs.YulGeneration.Backends.Native.exec_switchCaseBody_payable_calldata_revert_fuel
@@ -8094,9 +8133,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryPrefixStoreState_discr_eq
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_storePrefix_tail_ok_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_hit_preserved_store_fuel
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchTail_find_hit_finalMatched_prefix_fuel  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_hit_finalMatched_store_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_hit_fresh_store_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_none_with_revert_default_store_fuel
+  -- Compiler.Proofs.YulGeneration.Backends.Native.exec_nativeSwitchTail_find_hit_error_prefix_fuel  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_hit_error_store_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_hit_error_postInitFreeMemory_store_fuel
   Compiler.Proofs.YulGeneration.Backends.Native.exec_lowerNativeSwitchBlock_selector_find_hit_finalMatched_postInitFreeMemory_store_fuel
@@ -9097,4 +9138,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8373 theorems/lemmas (5564 public, 2809 private, 0 sorry'd)
+-- Total: 8414 theorems/lemmas (5564 public, 2850 private, 0 sorry'd)
