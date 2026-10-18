@@ -481,6 +481,25 @@ inductive StmtListGenericWithHelpersAndHelperIRWithInternals
       StmtListGenericWithHelpersAndHelperIRWithInternals
         runtimeContract spec fields scope (stmt :: rest) irFuelSlack
 
+/-- Cons step shared by the helper-IR list reconstructions: the head compiles in any scope and
+the tail, compiled under the head's next scope, is retargeted to the extended caller scope. -/
+private theorem compileStmtList_cons_ok_any_scope_with_internals
+    {spec : CompilationModel} {fields : List Field} {scope inScopeNames : List String}
+    {stmt : Stmt} {rest : List Stmt} {compiledIR : List YulStmt}
+    (hhead : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false
+      scope [] stmt spec.functions = Except.ok compiledIR)
+    (htail : ∃ tailIR, CompilationModel.compileStmtList fields spec.events spec.errors
+      .calldata [] false (stmtNextScope scope stmt) [] rest spec.functions = Except.ok tailIR) :
+    ∃ bodyIR, CompilationModel.compileStmtList fields spec.events spec.errors .calldata [] false
+      inScopeNames [] (stmt :: rest) spec.functions = Except.ok bodyIR := by
+  rcases FunctionBody.compileStmt_ok_any_scope_with_surface_with_internals
+      (scope2 := inScopeNames) ⟨_, hhead⟩ with ⟨headIR, hhead⟩
+  rcases FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
+      (scope2 := collectStmtBindNames stmt ++ inScopeNames) htail with ⟨tailIR, htail⟩
+  exact ⟨headIR ++ tailIR, compileStmtList_cons_eq_ok_with_internals
+    fields spec.events spec.errors .calldata [] false inScopeNames [] stmt rest
+    spec.functions headIR tailIR hhead htail⟩
+
 /-- Exact-scope compile reconstruction for the spec-functions-aware helper IR
 list seam. -/
 theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
@@ -502,15 +521,8 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
       exact ⟨[], by
         simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
           Pure.pure, Except.pure]⟩
-  | @cons irFuelSlack scope stmt compiledIR rest hstep _hrest ih =>
-      rcases ih with ⟨tailIR, htail⟩
-      rcases FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
-          (scope2 := collectStmtBindNames stmt ++ scope) ⟨tailIR, htail⟩ with
-        ⟨tailIR, htail⟩
-      exact ⟨compiledIR ++ tailIR,
-        compileStmtList_cons_eq_ok_with_internals
-          fields spec.events spec.errors .calldata [] false scope [] stmt rest
-          spec.functions compiledIR tailIR hstep.compileOk htail⟩
+  | cons hstep _hrest ih =>
+      exact compileStmtList_cons_ok_any_scope_with_internals hstep.compileOk ih
 
 /-- Scope-lifted compile reconstruction for the spec-functions-aware helper IR
 list seam.
@@ -541,21 +553,8 @@ theorem compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
         simp [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork,
           Pure.pure, Except.pure]⟩
   | cons hstep _hrest ih =>
-      rcases FunctionBody.compileStmt_ok_any_scope_with_surface_with_internals
-          (scope2 := inScopeNames)
-          (internalFunctions := spec.functions)
-          ⟨_, hstep.compileOk⟩ with
-        ⟨headIR, hhead⟩
-      rcases ih (inScopeNames := stmtNextScope _ _)
-          FunctionBody.scopeNamesIncluded_refl
-        with ⟨tailIR, htail⟩
-      rcases FunctionBody.compileStmtList_ok_any_scope_with_surface_with_internals
-          (scope2 := collectStmtBindNames _ ++ inScopeNames) ⟨tailIR, htail⟩ with
-        ⟨tailIR, htail⟩
-      exact ⟨headIR ++ tailIR,
-        compileStmtList_cons_eq_ok_with_internals
-          fields spec.events spec.errors .calldata [] false inScopeNames [] _ _
-          spec.functions headIR tailIR hhead htail⟩
+      exact compileStmtList_cons_ok_any_scope_with_internals hstep.compileOk
+        (ih FunctionBody.scopeNamesIncluded_refl)
 
 /-- Compiled-side compatibility witness for lifting existing helper-free generic
 statement proofs into the exact helper-aware compiled induction seam. This

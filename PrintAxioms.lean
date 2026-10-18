@@ -4371,6 +4371,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericCore_early
   Compiler.Proofs.IRGeneration.compileStmtList_cons_eq_ok_with_internals
+  -- Compiler.Proofs.IRGeneration.compileStmtList_cons_ok_any_scope_with_internals  -- private
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals_exact
   Compiler.Proofs.IRGeneration.compileStmtList_ok_of_stmtListGenericWithHelpersAndHelperIRWithInternals
 
@@ -4391,17 +4392,60 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.constructorArgsInScope_cons  -- private
   -- Compiler.Proofs.IRGeneration.constructorArgsInScope_foldl_stmtNextScope  -- private
   -- Compiler.Proofs.IRGeneration.constructorArgsInScope_none  -- private
-  -- Compiler.Proofs.IRGeneration.validateScopedExprIdentifiers_pair_ok_left  -- private
-  -- Compiler.Proofs.IRGeneration.validateScopedExprIdentifiers_pair_ok_right  -- private
+  -- Compiler.Proofs.IRGeneration.except_bind_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_of_exprBoundNames_eq  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_of_append  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_of_append3  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_of_pair_ok  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_of_triple_ok  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_param  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_localVar  -- private
+  -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_constructorArg  -- private
   -- Compiler.Proofs.IRGeneration.exprBoundNamesInScope_of_validateScopedExprIdentifiers_core  -- private
+  -- Compiler.Proofs.IRGeneration.except_bind_pure_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.except_bind_ok_exists_inv  -- private
+  -- Compiler.Proofs.IRGeneration.except_bind_bind_pure_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.except_bind_bind_bind_pure_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.validateScopedStmtIdentifiers_letVar_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.validateScopedStmtIdentifiers_assignVar_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.validateScopedStmtIdentifiers_setImmutable_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.validateScopedStmtIdentifiers_ite_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.validateScopedStmtIdentifiers_forEach_ok_inv  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_nil  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_cons  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtStep_of_expr  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtStep_of_expr2  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtStep_of_expr3  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtStep_of_pure  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_letVar  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_assignVar  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_require  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_return  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_setStorage  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_setStorageAddr  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_setStorageWord  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_setImmutable  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_mstore  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_tstore  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_calldatacopy  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_returndataCopy  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_stop  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_revertEmpty  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_revertReturndata  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_ite  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_forEachLiteralZero  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_forEachLiteralEmpty  -- private
+  -- Compiler.Proofs.IRGeneration.scopedStmtListInvariant_of_core  -- private
   -- Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers  -- private
-  Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateFunctionIdentifierReferences_prefix
   -- Compiler.Proofs.IRGeneration.scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers  -- private
+  Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_of_validateFunctionIdentifierReferences_prefix
   Compiler.Proofs.IRGeneration.exprBoundNamesInScope_setStorage_of_validateFunctionIdentifierReferences
   -- Compiler.Proofs.IRGeneration.collectExprNames_builtinExp_split  -- private
   Compiler.Proofs.IRGeneration.collectExprNames_mem_exprBoundNames_of_core
   -- Compiler.Proofs.IRGeneration.mem_foldl_stmtNextScope_of_mem_scope  -- private
   Compiler.Proofs.IRGeneration.stmtListBindNames_subset_foldl_stmtNextScope
+  -- Compiler.Proofs.IRGeneration.mem_scopeNames_cons_of_mem_stmtNextScope  -- private
+  -- Compiler.Proofs.IRGeneration.mem_scopeNames_of_mem_foldl_stmtNextScope  -- private
   Compiler.Proofs.IRGeneration.stmtListScopeDiscipline_scope_names
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean
@@ -8460,4 +8504,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7736 theorems/lemmas (5560 public, 2176 private, 0 sorry'd)
+-- Total: 7780 theorems/lemmas (5560 public, 2220 private, 0 sorry'd)
