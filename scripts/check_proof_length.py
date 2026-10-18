@@ -301,7 +301,6 @@ ALLOWLIST: set[str] = {
     # member bindings. Splitting would duplicate the same option-case spine.
     "decodePackedUserOperationAt",
     "compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves",
-    "stmtListGenericCore_singleton_setStructMember2Single_of_slotSafety",
     # --- Transient/memory write singleton bridges ---
     "compiledStmtStep_tstore_single_preserves",
     "compiledStmtStep_mstore_single_preserves",
@@ -326,14 +325,8 @@ ALLOWLIST: set[str] = {
     "stmtResultMatchesIRExec_compiled_terminal_ite_else",
     "exec_compileStmtList_core_extraFuel",
     "exec_compileStmtList_terminal_core_sizeOf_extraFuel",
-    "exec_compileStmtList_generic_sizeOf_extraFuel_step",
     # --- Generic induction and scope proofs ---
-    "stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded",
-    "stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesIncluded",
     "stmtListGenericCore_of_supportedStmtList_of_surface",
-    "stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites",
-    "stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_stmtSafety",
-    "stmtListGenericCore_singleton_requireLiteralGuardFamilyClause",
     "stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsupportedContractSurface",
     "stmtListScopeCore_of_unsupportedContractSurface_eq_false",
     "exprBoundNamesInScope_of_validateScopedExprIdentifiers_core",
@@ -399,7 +392,6 @@ ALLOWLIST: set[str] = {
     "supported_function_body_correct_from_exact_state_core",
     "supported_function_body_correct_from_exact_state_core_extraFuel",
     "supported_function_body_correct_from_exact_state_terminal_core_extraFuel",
-    "supported_function_body_correct_from_exact_state_generic",
     # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
     # generic keystones above; the line count is the inherited hypothesis
     # block, not proof complexity (proof bodies are <10 lines each).
@@ -455,21 +447,6 @@ ALLOWLIST: set[str] = {
     # RBMap erase-self lookup fact in one generated store-body endpoint.
     "primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_projectResult_slot0_zero_of_erase",
     # --- Helper-aware theorem stack (Issue #1630 / PR #1633 / PR #1639) ---
-    "supported_function_body_correct_from_exact_state_generic_with_helpers",
-    "supported_function_body_correct_from_exact_state_generic_with_helpers_goal",
-    "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint",
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_raw",
-    # Issue #2080: exact helper-IR body seams remain mechanical wrappers around
-    # the generic list execution theorem while the helper-world API is split.
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir",
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_with_internals",
-    "supported_function_body_correct_from_exact_state_generic_split_helper_steps_and_helper_ir_with_internals",
-    "supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir",
-    "supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir",
-    "supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir",
-    "supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir_callsDisjoint",
-    "supported_function_body_correct_from_exact_state_generic_split_internal_helper_surface_steps_and_helper_ir",
-    "supported_function_body_with_helpers_ir_goal_of_helper_ir_goal_callsDisjoint",
     "supported_function_correct_with_helper_proofs",
     "supported_function_correct_with_helper_proofs_goal",
     "supported_function_correct_with_helper_proofs_body_goal",
@@ -484,23 +461,7 @@ ALLOWLIST: set[str] = {
     "interpretContract_correct_of_compiled_functions_with_helper_proofs",
     "interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_goal",
     "compile_preserves_semantics_with_helper_proofs",
-    "exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step",
-    "exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_step",
-    # Issue #2080: spec-functions-aware sibling of the helper-IR list
-    # execution theorem; proof mirrors the existing helper-IR induction.
-    "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step",
-    "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel",
     "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
-    # Split-header body theorems (name on the line after `theorem`): these were
-    # invisible to the scanner until it learned to read split headers, so their
-    # spans were silently attributed to the preceding declaration. They thread
-    # compile-shape, param-prefix, and helper-IR fuel facts through the generic
-    # list theorem and are queued for a follow-up decomposition track.
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw",
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_with_internals_raw",
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_raw_with_scalar_events",
-    "generic_with_helpers_and_helper_ir_of_split_internal_helper_surface_callsDisjoint",
-    "supported_function_body_correct_from_exact_state_generic_with_direct_internal_helper_assign_steps_and_helper_ir_callsDisjoint",
     # --- IR interpreter dispatch (mload pre-dispatch adds extra branches) ---
     "evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint",
     "evalIRExprWithInternals_eq_evalIRExpr_of_no_internal",

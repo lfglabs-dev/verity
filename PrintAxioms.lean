@@ -4248,10 +4248,17 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.collectStmtListBindNames_subset_collectStmtListNames  -- private
   -- Compiler.Proofs.IRGeneration.collectMatchBranchBindNames_subset_collectMatchBranchNames  -- private
   -- Compiler.Proofs.IRGeneration.scopeNamesIncluded_scope_stmtNextScope  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_letVar_cons_of_scopeNamesIncluded  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_assignVar_cons_of_scopeNamesIncluded  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_require_cons_of_scopeNamesIncluded  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_return_cons_of_scopeNamesIncluded  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_mstore_cons_of_scopeNamesIncluded  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_tstore_cons_of_scopeNamesIncluded  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesIncluded  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_stmtListCompileCore
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_stmtListTerminalCore
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_require_of_compileCore  -- private
   -- Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_requireLiteralGuardFamilyClause  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_append
   -- Compiler.Proofs.IRGeneration.stmtNextScope_requireLiteralGuardFamilyClause  -- private
@@ -4260,8 +4267,21 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_body_of_singleton_forEach_zero  -- private
   -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_body_of_singleton_forEach_zero_exceptMappingWrites  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_of_surface
-  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
+  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_singleton_of_exceptMappingWrites  -- private
+  -- Compiler.Proofs.IRGeneration.stmtMappingWriteSlotSafe_of_stmtListCompileCore  -- private
+  -- Compiler.Proofs.IRGeneration.stmtMappingWriteSlotSafe_of_stmtListTerminalCore  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setMappingUint_of_stmtSafety  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setMappingChain_of_stmtSafety  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setMapping_of_stmtSafety  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setMappingWord_of_stmtSafety  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setMappingPackedWord_of_stmtSafety  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setStructMember_of_stmtSafety  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setMapping2_of_stmtSafety  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setMapping2Word_of_stmtSafety  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListGenericCore_setStructMember2_of_stmtSafety  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_stmtSafety
+  -- Compiler.Proofs.IRGeneration.stmtMappingWriteSlotSafe_of_supportedStmtList  -- private
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites
   Compiler.Proofs.IRGeneration.stmtListHelperFreeStepInterface_of_supportedStmtList_of_surface
   Compiler.Proofs.IRGeneration.stmtListHelperFreeStepInterface_of_supportedStmtList_of_surface_exceptMappingWrites
   Compiler.Proofs.IRGeneration.stmtListHelperFreeStepInterface_of_supportedStmtList_of_surface_exceptMappingWrites_stmtSafety
@@ -4284,6 +4304,17 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.execIRStmts_append_of_not_continue  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_append_of_continue  -- private
   -- Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_append_of_not_continue  -- private
+  -- Compiler.Proofs.IRGeneration.headSlack_le_append  -- private
+  -- Compiler.Proofs.IRGeneration.headSlack_add_le_append  -- private
+  -- Compiler.Proofs.IRGeneration.headFuel_eq_append  -- private
+  -- Compiler.Proofs.IRGeneration.tailFuel_eq_append  -- private
+  -- Compiler.Proofs.IRGeneration.execStmtList_cons_eq_of_continue  -- private
+  -- Compiler.Proofs.IRGeneration.execStmtList_cons_eq_of_halt  -- private
+  -- Compiler.Proofs.IRGeneration.execStmtListWithHelpers_cons_eq_of_continue  -- private
+  -- Compiler.Proofs.IRGeneration.execStmtListWithHelpers_cons_eq_of_halt  -- private
+  -- Compiler.Proofs.IRGeneration.of_exists_eq_ok_of_eq_ok  -- private
+  -- Compiler.Proofs.IRGeneration.stmtStepMatchesIRExec_append_of_head  -- private
+  -- Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_append_of_head  -- private
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_sizeOf_extraFuel_step
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step
   Compiler.Proofs.IRGeneration.exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_step
@@ -4365,6 +4396,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_forEach_literal_empty
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Main.lean
+  -- Compiler.Proofs.IRGeneration.runtimeStateMatchesIR_with_bindings  -- private
+  -- Compiler.Proofs.IRGeneration.sizeOf_add_slack_eq_length_add  -- private
+  -- Compiler.Proofs.IRGeneration.exists_execIRStmts_match_of_sizeOf_slack  -- private
+  -- Compiler.Proofs.IRGeneration.exists_execIRStmtsWithInternals_match_of_sizeOf_slack  -- private
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic
   -- Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_helper_steps_raw  -- private
   Compiler.Proofs.IRGeneration.supported_function_body_with_helpers_and_helper_ir_goal_of_legacy_ir_goal_callsDisjoint
@@ -8524,4 +8559,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7800 theorems/lemmas (5562 public, 2238 private, 0 sorry'd)
+-- Total: 7835 theorems/lemmas (5562 public, 2273 private, 0 sorry'd)
