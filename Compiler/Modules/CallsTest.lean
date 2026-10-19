@@ -164,6 +164,23 @@ unsafe def runTests : IO Unit := do
       contains report "\"boundaryClass\":\"abiBoundary\"" &&
       contains report "\"notModeledProxyUpgradeability\":[]" &&
       ! (contains report "\"delegatecall\""))
+  let thmAssumptions :=
+    theoremAssumptionsFromUsedConstants
+      ["Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded",
+       "Verity.ContractState.EVMHyp",
+       "Verity.EVMHyp.msgSender_ne_zero"]
+      "SelfDelegateMulticallBytesSmoke"
+  let assumptionReport :=
+    emitAssumptionReportJson
+      [selfDelegateMulticallBytesSmokeSpec.withTheoremAssumptions "multicall" thmAssumptions]
+  expectTrue "assumption report surfaces CallbackBounded and EVMHyp theorem assumptions (#2564)"
+    (contains assumptionReport "\"name\":\"CallbackBounded\"" &&
+      contains assumptionReport "\"assumption\":\"CallbackBounded\"" &&
+      contains assumptionReport "\"boundaryClass\":\"callback\"" &&
+      contains assumptionReport "\"name\":\"EVMHyp\"" &&
+      contains assumptionReport "\"name\":\"msgSender_ne_zero\"" &&
+      contains assumptionReport "\"assumption\":\"EVM facts assumed\"" &&
+      contains assumptionReport "\"boundaryClass\":\"compilerIntrinsic\"")
 
 #eval! runTests
 

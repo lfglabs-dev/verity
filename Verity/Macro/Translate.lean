@@ -6374,7 +6374,9 @@ def validateGeneratedDefNamesPublic
     (immutableDecls : Array ImmutableDecl)
     (modifiers : Array ModifierDecl)
     (functions : Array FunctionDecl) : CommandElabM Unit := do
-  let reservedGeneratedNames : Array String := #["spec", "storageNamespace", "entrypointRegistry"]
+  let reservedGeneratedNames : Array String :=
+    #["spec", "storageNamespace", "entrypointRegistry",
+      "entrypointRegistry_cases", "entrypointRegistry_preserves"]
   let mut generatedHelperNames : Array String := reservedGeneratedNames
   if hasStructMapping fields then
     generatedHelperNames := generatedHelperNames.push "structMember"
@@ -6460,6 +6462,7 @@ def validateGeneratedDefNamesPublic
       #[ s!"{generatedFnName}_modelBody"
        , s!"{generatedFnName}_entrypoint"
        , s!"{generatedFnName}_registry"
+       , s!"{generatedFnName}_registry_eq"
        , s!"{generatedFnName}_model"
        , s!"{generatedFnName}_bridge"
        , s!"{generatedFnName}_semantic_preservation"

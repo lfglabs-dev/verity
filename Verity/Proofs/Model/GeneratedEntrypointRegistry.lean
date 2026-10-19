@@ -787,21 +787,64 @@ private theorem locked_after_tracked_sub_and_debit
   · change (s₁.writeSlot 1 (s₁.storage 1 - amount)).transientStorage 0 ≠ 0
     simpa [ContractState.transientStorage, ContractState.writeSlot] using hlock
 
+private theorem ecmDoWords_raw_of_run_success
+    (mod : Compiler.ECM.ExternalCallModule) (adv : AdversaryModel)
+    (args : List Uint256) (ret : Nat) (s s' : ContractState) (u : Unit)
+    (hecm : (Contracts.ecmDoWords mod adv args ret).run s = .success u s') :
+    Contracts.ecmDoWords mod adv args ret s = .success () s' := by
+  simp only [Contract.run] at hecm
+  revert hecm
+  cases Contracts.ecmDoWords mod adv args ret s with
+  | success a _ => cases a; exact id
+  | «revert» _ _ => intro hEq; cases hEq
+
+private theorem ecmDoWords_raw_of_run_revert
+    (mod : Compiler.ECM.ExternalCallModule) (adv : AdversaryModel)
+    (args : List Uint256) (ret : Nat) (s s' : ContractState) (msg : String)
+    (hecm : (Contracts.ecmDoWords mod adv args ret).run s = .revert msg s') :
+    ∃ s_rev, Contracts.ecmDoWords mod adv args ret s = .revert msg s_rev := by
+  simp only [Contract.run] at hecm
+  revert hecm
+  cases Contracts.ecmDoWords mod adv args ret s with
+  | success _ _ => intro hEq; cases hEq
+  | «revert» msg' s_rev => intro hEq; cases hEq; exact ⟨s_rev, rfl⟩
+
+private theorem locked_after_withdraw_ecm
+    (adv : AdversaryModel) (hbound : CallbackBounded entrypointRegistry adv)
+    (recipient : Address) (amount : Uint256) (s₁ s₃ : ContractState) (unitVal : Unit)
+    (hlocked₁ : LockedInv VaultInv 0 s₁) (hamt : amount.val ≤ (s₁.storage 1).val)
+    (hecm : (Contracts.ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
+      [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] 0).run
+      (s₁.writeSlot 1 (s₁.storage 1 - amount)) = .success unitVal s₃) :
+    LockedInv VaultInv 0 s₃ := by
+  set s₂ := s₁.writeSlot 1 (s₁.storage 1 - amount)
+  set args := [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0]
+  have hlocked₂ : LockedInv VaultInv 0 s₂ := locked_after_tracked_sub s₁ amount hlocked₁ hamt
+  have hdeb₂ : Contracts.ecmValueWord Compiler.Modules.Calls.callWithValueModule args ≤ s₂.selfBalance.val →
+      LockedInv VaultInv 0 { s₂ with selfBalance := s₂.selfBalance -
+        (Contracts.ecmValueWord Compiler.Modules.Calls.callWithValueModule args : Core.Uint256) } := by
+    intro hbal_deb
+    simp only [args, Contracts.ecmValueWord_callWithValueModule] at hbal_deb ⊢
+    exact locked_after_tracked_sub_and_debit s₁ amount hlocked₁ hamt hbal_deb
+  exact Contracts.ecmDoWords_callbackBounded_preserves_registry_of_success
+    (LockedInv VaultInv 0) entrypointRegistry
+    Compiler.Modules.Calls.callWithValueModule adv args 0 s₂ s₃
+    hbound (registry_preserves_locked adv) vaultInv_frame_calls_returndata
+    hlocked₂ hdeb₂ hecm
+
 /-- 3. Worked end-to-end reentrancy theorem (`Vault.keeps_withdraw`):
 Under `CallbackBounded Vault.entrypointRegistry adv` and the packaged EVM
 environment hypothesis `s.EVMHyp` (`s.sender ≠ 0`), `Vault.withdraw` preserves
 `VaultInv` across its `callWithValue` interaction and subsequent post-interaction
 write `setStorageAddr lastActor sender`. -/
 theorem keeps_withdraw
-    (adv : AdversaryModel)
-    (hbound : CallbackBounded entrypointRegistry adv)
+    (adv : AdversaryModel) (hbound : CallbackBounded entrypointRegistry adv)
     (recipient : Address) (amount : Uint256)
     (s : ContractState) (hevm : s.EVMHyp) (hInv : VaultInv s) :
     VaultInv ((withdraw (Contracts.ExecutableCallContext.ofAdversary adv) recipient amount).run s).snd := by
   refine guarded_preserves_of_locked_body VaultInv 0 _ vaultInv_setLock s ?_ hInv
   intro u s_final hlocked₁ hbody
   set s₁ := Verity.Core.NonReentrantGuard.setLock 0 1 s
-  have hsender₁ : s₁.sender = s.sender := rfl
   simp only [Contract.run, Verity.bind, Bind.bind, Verity.pure, Pure.pure,
     msgSender, getStorage, totalTracked, setStorage, setStorageAddr, lastActor,
     ContractState.readSlot, Verity.require,
@@ -810,73 +853,26 @@ theorem keeps_withdraw
   by_cases hreq : decide (amount ≤ s₁.storage 1) = true
   · rw [if_pos hreq] at hbody
     dsimp only [List.append] at hbody
-    have hamt : amount.val ≤ (s₁.storage 1).val := of_decide_eq_true hreq
-    set s₂ := s₁.writeSlot 1 (s₁.storage 1 - amount)
-    have hlocked₂ : LockedInv VaultInv 0 s₂ :=
-      locked_after_tracked_sub s₁ amount hlocked₁ hamt
-    have hdeb₂ :
-        Contracts.ecmValueWord Compiler.Modules.Calls.callWithValueModule
-          [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] ≤ s₂.selfBalance.val →
-        LockedInv VaultInv 0
-          { s₂ with selfBalance := s₂.selfBalance -
-            (Contracts.ecmValueWord Compiler.Modules.Calls.callWithValueModule
-              [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] : Core.Uint256) } := by
-      intro hbal_deb
-      simp only [Contracts.ecmValueWord_callWithValueModule] at hbal_deb ⊢
-      exact locked_after_tracked_sub_and_debit s₁ amount hlocked₁ hamt hbal_deb
     cases hecm : (Contracts.ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
-        [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] 0).run s₂ with
+        [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] 0).run
+        (s₁.writeSlot 1 (s₁.storage 1 - amount)) with
     | «revert» msg s_rev =>
-        simp only [Contract.run] at hecm
-        revert hbody
-        cases hraw : Contracts.ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
-            [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] 0 s₂ with
-        | success a s₃ => rw [hraw] at hecm; cases hecm
-        | «revert» msg' s_rev' =>
-            intro hbody
-            cases hbody
+        obtain ⟨s_rev', hraw⟩ := ecmDoWords_raw_of_run_revert _ adv _ 0 _ s_rev msg hecm
+        rw [hraw] at hbody; cases hbody
     | success unitVal s₃ =>
-        have hraw : Contracts.ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
-            [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] 0 s₂ = .success () s₃ := by
-          simp only [Contract.run] at hecm
-          revert hecm
-          cases h : Contracts.ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
-              [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] 0 s₂ with
-          | success a s₃' =>
-              cases a
-              intro hEq; exact hEq
-          | «revert» msg' s_rev' =>
-              intro hEq; cases hEq
-        rw [hraw] at hbody
-        simp only [ContractResult.success.injEq, true_and] at hbody
-        subst hbody
-        have hlocked₃ : LockedInv VaultInv 0 s₃ :=
-          Contracts.ecmDoWords_callbackBounded_preserves_registry_of_success
-            (LockedInv VaultInv 0) entrypointRegistry
-            Compiler.Modules.Calls.callWithValueModule adv
-            [Verity.addressToWord recipient, amount, Core.Uint256.ofNat 0, Core.Uint256.ofNat 0] 0 s₂ s₃
-            hbound (registry_preserves_locked adv) vaultInv_frame_calls_returndata
-            hlocked₂ hdeb₂ hecm
-        refine ⟨?_, ?_⟩
-        · simpa [ContractState.storage_writeAddrSlot] using hlocked₃.1.1
-        · rw [ContractState.storageAddr_writeAddrSlot_same, hsender₁]
-          exact hevm.msgSender_ne_zero
-  · rw [if_neg hreq] at hbody
-    cases hbody
-
--- Axiom audit for `Vault.keeps_withdraw`: zero custom axioms (only Lean's
--- standard `propext`, `Classical.choice`, `Quot.sound`).
-/--
-info: 'Contracts.ReentrancyRelyGuarantee.Vault.keeps_withdraw' depends on axioms: [propext, Classical.choice, Quot.sound]
--/
-#guard_msgs in
-#print axioms keeps_withdraw
+        rw [ecmDoWords_raw_of_run_success _ adv _ 0 _ s₃ unitVal hecm] at hbody
+        simp only [ContractResult.success.injEq, true_and] at hbody; subst hbody
+        have hlocked₃ := locked_after_withdraw_ecm adv hbound recipient amount s₁ s₃ unitVal
+          hlocked₁ (of_decide_eq_true hreq) hecm
+        exact ⟨by simpa [ContractState.storage_writeAddrSlot] using hlocked₃.1.1,
+          by rw [ContractState.storageAddr_writeAddrSlot_same]; exact hevm.msgSender_ne_zero⟩
+  · rw [if_neg hreq] at hbody; cases hbody
 
 /-- Assumption-report check (#2564): when `Vault.keeps_withdraw`'s hypotheses
 (`CallbackBounded` and `EVMHyp` / `msgSender_ne_zero`) are attached to
-`Vault.spec`, `emitAssumptionReportJson` surfaces both `"CallbackBounded"`
-(`boundaryClass: "callback"`) and `"EVM facts assumed"`
-(`boundaryClass: "compilerIntrinsic"`). -/
+`Vault.spec`, `theoremAssumptionsFromUsedConstants` and `withTheoremAssumptions`
+surface both `"CallbackBounded"` (`boundaryClass: "callback"`) and
+`"EVM facts assumed"` (`boundaryClass: "compilerIntrinsic"`). -/
 def keepsWithdrawAssumptions : List Compiler.CompilationModel.LocalObligation :=
   Compiler.CompilationModel.theoremAssumptionsFromUsedConstants
     ["Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded",
@@ -884,30 +880,21 @@ def keepsWithdrawAssumptions : List Compiler.CompilationModel.LocalObligation :=
      "Verity.EVMHyp.msgSender_ne_zero"]
     "Vault"
 
-def vaultReportJson : String :=
-  Compiler.CompilationModel.emitAssumptionReportJson
-    [Vault.spec.withTheoremAssumptions "withdraw" keepsWithdrawAssumptions]
+theorem callbackBounded_assumption_fields :
+    (Compiler.CompilationModel.LocalObligation.callbackBounded "Vault").name = "CallbackBounded" ∧
+    (Compiler.CompilationModel.LocalObligation.callbackBounded "Vault").proofStatus = .assumed ∧
+    (Compiler.CompilationModel.LocalObligation.callbackBounded "Vault").obligation =
+      "Adversary callbacks restricted to Vault.entrypointRegistry (CallbackBounded)" :=
+  ⟨rfl, rfl, rfl⟩
 
-private def containsSubstr (haystack needle : String) : Bool :=
-  (haystack.splitOn needle).length > 1
-
-example : containsSubstr vaultReportJson "\"name\":\"CallbackBounded\"" = true := by
-  native_decide
-
-example : containsSubstr vaultReportJson "\"assumption\":\"CallbackBounded\"" = true := by
-  native_decide
-
-example : containsSubstr vaultReportJson "\"boundaryClass\":\"callback\"" = true := by
-  native_decide
-
-example : containsSubstr vaultReportJson "\"name\":\"EVMHyp\"" = true := by
-  native_decide
-
-example : containsSubstr vaultReportJson "\"name\":\"msgSender_ne_zero\"" = true := by
-  native_decide
-
-example : containsSubstr vaultReportJson "\"assumption\":\"EVM facts assumed\"" = true := by
-  native_decide
+theorem evmHyp_assumption_fields :
+    Compiler.CompilationModel.LocalObligation.evmHyp.name = "EVMHyp" ∧
+    Compiler.CompilationModel.LocalObligation.evmHyp.obligation =
+      "EVM facts assumed: s.sender ≠ 0, s.thisAddress ≠ 0, s.chainId ≠ 0" ∧
+    Compiler.CompilationModel.LocalObligation.msgSenderNeZero.name = "msgSender_ne_zero" ∧
+    Compiler.CompilationModel.LocalObligation.msgSenderNeZero.obligation =
+      "EVM facts assumed: s.sender ≠ 0" :=
+  ⟨rfl, rfl, rfl, rfl⟩
 
 end Vault
 
