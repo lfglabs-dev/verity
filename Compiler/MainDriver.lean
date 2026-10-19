@@ -41,6 +41,7 @@ private structure CLIArgs where
   patchReportPath : Option String := none
   mappingSlotScratchBase : Nat := 0
   mappingSlotScratchBaseExplicit : Bool := false
+  maxStackLocals : Nat := Compiler.Yul.TempReuse.defaultMaxStackLocals
   denyUncheckedDependencies : Bool := false
   denyAssumedDependencies : Bool := false
   denyAxiomatizedPrimitives : Bool := false
@@ -142,6 +143,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         IO.println "  --deny-layout-incompatibility Fail if the candidate layout moves or mutates baseline storage fields"
         IO.println "  --deny-unsafe                 Fail if any contract contains `unsafe \"reason\" do` blocks"
         IO.println "  --mapping-slot-scratch-base <n>  Scratch memory base for mappingSlot helper (default: 0)"
+        IO.println "  --max-stack-locals <n>  Max stack locals per block before reusing/spilling temporaries (default: 12)"
         IO.println "  --verbose          Enable verbose output"
         IO.println "  -v                 Short form of --verbose"
         IO.println "  --help             Show this help message"
@@ -282,6 +284,12 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         | none => throw (IO.userError s!"Invalid value for --mapping-slot-scratch-base: {raw}")
     | ["--mapping-slot-scratch-base"] =>
         throw (IO.userError "Missing value for --mapping-slot-scratch-base")
+    | "--max-stack-locals" :: raw :: rest =>
+        match raw.toNat? with
+        | some n => go rest { cfg with maxStackLocals := n }
+        | none => throw (IO.userError s!"Invalid value for --max-stack-locals: {raw}")
+    | ["--max-stack-locals"] =>
+        throw (IO.userError "Missing value for --max-stack-locals")
     | "--verbose" :: rest | "-v" :: rest =>
         go rest { cfg with verbose := true }
     | unknown :: _ =>
@@ -357,6 +365,7 @@ unsafe def run (args : List String) : IO Unit := do
       | some path => IO.println s!"Layout compatibility report: {path}"
       | none => pure ()
       IO.println s!"Mapping slot scratch base: {cfg.mappingSlotScratchBase}"
+      IO.println s!"Max stack locals: {cfg.maxStackLocals}"
       IO.println ""
     let packRequiredProofRefs := requiredProofRefsFor cfg
     let packRewriteBundleId := defaultRewriteBundleIdFor cfg
@@ -378,7 +387,7 @@ unsafe def run (args : List String) : IO Unit := do
       cfg.assumptionReportPath cfg.abiOutDir cfg.denyUncheckedDependencies cfg.denyAssumedDependencies
       cfg.denyAxiomatizedPrimitives cfg.denyLocalObligations cfg.denyLinearMemoryMechanics cfg.denyEventEmission
       cfg.denyLowLevelMechanics cfg.denyRuntimeIntrospection cfg.denyProxyUpgradeability cfg.layoutReportPath
-      cfg.layoutCompatibilityReportPath cfg.denyLayoutIncompatibility cfg.denyUnsafe
+      cfg.layoutCompatibilityReportPath cfg.denyLayoutIncompatibility cfg.denyUnsafe cfg.maxStackLocals
   catch e =>
     if e.toString == "help" then
       return ()

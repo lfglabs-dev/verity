@@ -2248,6 +2248,97 @@ unsafe def runTests : IO Unit := do
     throw (IO.userError "✗ compileSpecsWithOptions writes patch report file")
   IO.println "✓ compileSpecsWithOptions writes patch report file"
 
+  -- Issue #2562 regression: 8-tier `quoteTier` function with 48 `let` bindings
+  -- reuses dead short-lived temporaries and spills cross-tier accumulators when
+  -- `countLetBindings > maxStackLocals` (default 12), and preserves all 48 `let`
+  -- bindings unchanged when `maxStackLocals >= 48`.
+  let quoteTierTier0Stmts : List Stmt := [
+    Stmt.letVar "h0" (Expr.mappingUint "tierHead" (Expr.literal 0)),
+    Stmt.letVar "s0" (Expr.mapping2 "tierQuoteSeq" (Expr.literal 0) (Expr.localVar "h0")),
+    Stmt.letVar "cand0"
+      (Expr.add
+        (Expr.div (Expr.mul (Expr.param "amount") (Expr.literal 100))
+          (Expr.add (Expr.localVar "s0") (Expr.literal 1)))
+        (Expr.param "feeBps")),
+    Stmt.letVar "bestTier0"
+      (Expr.ite (Expr.gt (Expr.localVar "h0") (Expr.literal 0))
+        (Expr.literal 0) (Expr.literal 255)),
+    Stmt.letVar "bestSeq0"
+      (Expr.ite (Expr.gt (Expr.localVar "h0") (Expr.literal 0))
+        (Expr.localVar "s0") (Expr.literal 0)),
+    Stmt.letVar "lowest0"
+      (Expr.ite (Expr.gt (Expr.localVar "h0") (Expr.literal 0))
+        (Expr.localVar "cand0") (Expr.literal 1000000000))
+  ]
+  let quoteTierRestStmts : List Stmt :=
+    (List.range 7).flatMap fun idx =>
+      let i := idx + 1
+      let prev := idx
+      let cond :=
+        Expr.logicalAnd
+          (Expr.gt (Expr.localVar s!"h{i}") (Expr.literal 0))
+          (Expr.lt (Expr.localVar s!"cand{i}") (Expr.localVar s!"lowest{prev}"))
+      [
+        Stmt.letVar s!"h{i}" (Expr.mappingUint "tierHead" (Expr.literal i)),
+        Stmt.letVar s!"s{i}" (Expr.mapping2 "tierQuoteSeq" (Expr.literal i) (Expr.localVar s!"h{i}")),
+        Stmt.letVar s!"cand{i}"
+          (Expr.add
+            (Expr.div (Expr.mul (Expr.param "amount") (Expr.literal (100 + i * 10)))
+              (Expr.add (Expr.localVar s!"s{i}") (Expr.literal 1)))
+            (Expr.param "feeBps")),
+        Stmt.letVar s!"bestTier{i}"
+          (Expr.ite cond (Expr.literal i) (Expr.localVar s!"bestTier{prev}")),
+        Stmt.letVar s!"bestSeq{i}"
+          (Expr.ite cond (Expr.localVar s!"s{i}") (Expr.localVar s!"bestSeq{prev}")),
+        Stmt.letVar s!"lowest{i}"
+          (Expr.ite cond (Expr.localVar s!"cand{i}") (Expr.localVar s!"lowest{prev}"))
+      ]
+  let quoteTierStackPressureSpec : CompilationModel := {
+    name := "QuoteTierStackPressure"
+    fields := [
+      { name := "tierHead", ty := FieldType.mappingTyped (.simple .uint256) },
+      { name := "tierQuoteSeq", ty := FieldType.mappingTyped (.nested .uint256 .uint256) }
+    ]
+    «constructor» := none
+    functions := [
+      { name := "quoteTier"
+        params := [
+          { name := "amount", ty := ParamType.uint256 },
+          { name := "feeBps", ty := ParamType.uint256 }
+        ]
+        returnType := some FieldType.uint256
+        body :=
+          quoteTierTier0Stmts ++ quoteTierRestStmts ++ [
+            Stmt.return
+              (Expr.add
+                (Expr.mul (Expr.localVar "bestTier7") (Expr.literal 1000000))
+                (Expr.localVar "bestSeq7"))
+          ]
+      }
+    ]
+  }
+  let quoteTierDefaultOutDir := s!"/tmp/compile-driver-quotetier-default-{nonce}"
+  compileSpecsWithOptions [quoteTierStackPressureSpec] quoteTierDefaultOutDir false [] {} none none none none
+  let quoteTierDefaultPath := s!"{quoteTierDefaultOutDir}/QuoteTierStackPressure.yul"
+  expectFileContains
+    "8-tier quoteTier reuses short-lived temporaries and spills cross-tier accumulators by default (#2562)"
+    quoteTierDefaultPath
+    ["h0 :=", "s0 :=", "cand0 :=", "mstore(4096,", "mload(4096)"]
+  let quoteTierDefaultText ← IO.FS.readFile quoteTierDefaultPath
+  if contains quoteTierDefaultText "let bestTier7 :=" || contains quoteTierDefaultText "let h7 :=" then
+    throw (IO.userError s!"✗ expected 8-tier quoteTier temporaries to be reused/spilled, got:\n{quoteTierDefaultText}")
+  IO.println "✓ 8-tier quoteTier eliminates excess let bindings under default maxStackLocals (#2562)"
+
+  let quoteTierHighThresholdOutDir := s!"/tmp/compile-driver-quotetier-high-threshold-{nonce}"
+  compileSpecsWithOptions
+    [quoteTierStackPressureSpec] quoteTierHighThresholdOutDir false [] {} none none none none
+    false false false false false false false false false none none false false 100
+  let quoteTierHighThresholdPath := s!"{quoteTierHighThresholdOutDir}/QuoteTierStackPressure.yul"
+  expectFileContains
+    "8-tier quoteTier preserves original let bindings when maxStackLocals >= let count (#2562)"
+    quoteTierHighThresholdPath
+    ["let bestTier7 :=", "let bestSeq7 :=", "let lowest7 :=", "let h7 :="]
+
 #eval! runTests
 
 end Compiler.CompileDriverTest

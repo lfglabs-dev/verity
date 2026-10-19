@@ -79,6 +79,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip the Lean builtin-boundary guard and run only generated-Yul checks.",
     )
+    parser.add_argument(
+        "--skip-optimize-check",
+        action="store_true",
+        help="Skip verifying that generated Yul also compiles under `solc --strict-assembly --optimize`.",
+    )
     return parser.parse_args(argv)
 
 
@@ -102,9 +107,13 @@ def collect_yul_files(yul_dirs: list[Path]) -> tuple[list[Path], list[str]]:
     return files, failures
 
 
-def run_solc(path: Path) -> tuple[int, str, str]:
+def run_solc(path: Path, *, optimize: bool = False) -> tuple[int, str, str]:
+    cmd = ["solc", "--strict-assembly"]
+    if optimize:
+        cmd.append("--optimize")
+    cmd.extend(["--bin", str(path)])
     result = subprocess.run(
-        ["solc", "--strict-assembly", "--bin", str(path)],
+        cmd,
         capture_output=True,
         text=True,
         check=False,
@@ -229,6 +238,18 @@ def run_compilation_checks(args: argparse.Namespace) -> tuple[list[str], int, in
             failures.append(f"{path}: could not parse bytecode from solc output")
             continue
         bytecode_by_file[path] = bytecode
+        if not args.skip_optimize_check:
+            opt_code, opt_stdout, opt_stderr = run_solc(path, optimize=True)
+            if opt_code != 0:
+                failures.append(
+                    f"{path}: solc --optimize failed\n{opt_stderr.strip()}"
+                )
+                continue
+            if extract_bytecode(opt_stdout) is None:
+                failures.append(
+                    f"{path}: could not parse bytecode from solc --optimize output"
+                )
+                continue
 
     compare_count = 0
     if args.compare_dirs is not None:

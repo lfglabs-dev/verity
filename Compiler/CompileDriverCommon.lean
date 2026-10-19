@@ -10,6 +10,7 @@ import Compiler.CompilationModel.LayoutCompatibilityReport
 import Compiler.CompilationModel.LayoutReport
 import Compiler.CompilationModel.TrustSurface
 import Compiler.CodegenCommon
+import Compiler.Yul.TempReuse
 
 namespace Compiler.CompileDriverCommon
 
@@ -465,14 +466,16 @@ private def writeContract
     (contract : IRContract)
     (libraryPaths : List String)
     (verbose : Bool)
-    (options : YulEmitOptions) : IO Yul.PatchPassReport := do
+    (options : YulEmitOptions)
+    (maxStackLocals : Nat := Compiler.Yul.TempReuse.defaultMaxStackLocals) : IO Yul.PatchPassReport := do
   let (baseYulObj, patchReport) := backend.emitYulWithOptionsReport contract options
   let linkModeComments :=
     spec.externals.map fun ext =>
       YulStmt.comment s!"verity linked external {ext.name} linkMode={ext.linkMode.toJsonString}"
   let yulObj :=
-    { baseYulObj with
-      runtimeCode := linkModeComments ++ baseYulObj.runtimeCode }
+    Compiler.Yul.TempReuse.reuseAndSpillTempsObject maxStackLocals
+      { baseYulObj with
+        runtimeCode := linkModeComments ++ baseYulObj.runtimeCode }
 
   let libraries ← libraryPaths.mapM fun path => do
     if verbose then
@@ -522,7 +525,8 @@ def compileSpecsWithOptions
     (layoutReportPath : Option String := none)
     (layoutCompatibilityReportPath : Option String := none)
     (denyLayoutIncompatibility : Bool := false)
-    (denyUnsafe : Bool := false) : IO Unit := do
+    (denyUnsafe : Bool := false)
+    (maxStackLocals : Nat := Compiler.Yul.TempReuse.defaultMaxStackLocals) : IO Unit := do
   IO.FS.createDirAll outDir
   match abiOutDir with
   | some dir => IO.FS.createDirAll dir
@@ -543,7 +547,7 @@ def compileSpecsWithOptions
     match compile spec selectors options.targetFork with
     | .ok contract =>
         let contractLibs := if spec.externals.isEmpty then [] else libraryPaths
-        let patchReport ← writeContract backend spec outDir contract contractLibs verbose options
+        let patchReport ← writeContract backend spec outDir contract contractLibs verbose options maxStackLocals
         match abiOutDir with
         | some dir =>
             Compiler.ABI.writeContractABIFile dir spec
@@ -842,7 +846,8 @@ unsafe def compileModulesWithOptions
     (layoutReportPath : Option String := none)
     (layoutCompatibilityReportPath : Option String := none)
     (denyLayoutIncompatibility : Bool := false)
-    (denyUnsafe : Bool := false) : IO Unit := do
+    (denyUnsafe : Bool := false)
+    (maxStackLocals : Nat := Compiler.Yul.TempReuse.defaultMaxStackLocals) : IO Unit := do
   let specs ←
     match ← Compiler.ModuleInput.loadSpecsFromRawModules modules with
     | .ok specs => pure specs
@@ -851,6 +856,6 @@ unsafe def compileModulesWithOptions
     backend specs outDir verbose libraryPaths options patchReportPath trustReportPath assumptionReportPath abiOutDir
     denyUncheckedDependencies denyAssumedDependencies denyAxiomatizedPrimitives denyLocalObligations denyLinearMemoryMechanics
     denyEventEmission denyLowLevelMechanics denyRuntimeIntrospection denyProxyUpgradeability layoutReportPath
-    layoutCompatibilityReportPath denyLayoutIncompatibility denyUnsafe
+    layoutCompatibilityReportPath denyLayoutIncompatibility denyUnsafe maxStackLocals
 
 end Compiler.CompileDriverCommon

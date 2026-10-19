@@ -35,3 +35,29 @@ Raw memory reverts should use `UnsafeYulFragment.rawRevert`. Typed primitives su
 `mstore`, `calldatacopy`, and similar common operations should remain
 first-class only when Verity commits to their semantics and they are useful in
 proofs or audits.
+
+## Yul Temporary Slot Reuse and Scratch-Memory Spilling (`--max-stack-locals`)
+
+To keep large unrolled functions (such as 8-tier `quoteTier` functions with 48+
+`let` bindings) within the EVM's 16-slot `DUP`/`SWAP` reach under both
+`solc --strict-assembly` and `solc --strict-assembly --optimize`, the compiler
+applies `Compiler.Yul.TempReuse.reuseAndSpillTempsObject` (`Compiler/Yul/TempReuse.lean`):
+
+- **Fast-path identity (`countLetBindings stmts ≤ maxStackLocals`, default `12`)**:
+  Blocks with at most `maxStackLocals` `let` bindings are returned definitionally
+  unchanged (`reuseBlockTemps_eq_self_of_le` in
+  `Compiler/Proofs/YulGeneration/TempReuseSoundness.lean`), preserving existing
+  artifacts and Layer 2/3 proofs verbatim.
+- **Short-lived dead-slot reuse (`letSpanInStmts v rest ≤ 2`)**:
+  Intra-tier temporaries whose last use is within 2 subsequent `let` bindings
+  reuse dead stack variables via `YulStmt.assign` (`t := rhs`) instead of
+  allocating new `let` slots (`reuseDeadLetStep_eval_eq`).
+- **Cross-tier scratch-memory spilling (`letSpanInStmts v rest > 2`)**:
+  Longer-lived accumulators (whose SSA splitting and expression inlining under
+  `solc --strict-assembly --optimize` would otherwise trigger
+  `StackTooDeepError`) spill to reusable 32-byte scratch memory slots starting
+  at `0x1000` (`4096`) via `mstore(slot, rhs)` / `mload(slot)`
+  (`spillLetStep_eval_eq`), whenever the block does not touch linear memory at
+  or above `0x1000`.
+- **CLI control**: Pass `--max-stack-locals <n>` (default: `12`) to adjust the
+  per-block `let`-binding threshold before temporary reuse and spilling kick in.
