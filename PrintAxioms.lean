@@ -1279,7 +1279,12 @@ end Verity.AxiomAudit
   Contracts.ReentrancyRelyGuarantee.Vault.registry_preserves_locked
   -- Contracts.ReentrancyRelyGuarantee.Vault.locked_after_tracked_sub  -- private
   -- Contracts.ReentrancyRelyGuarantee.Vault.locked_after_tracked_sub_and_debit  -- private
+  -- Contracts.ReentrancyRelyGuarantee.Vault.ecmDoWords_raw_of_run_success  -- private
+  -- Contracts.ReentrancyRelyGuarantee.Vault.ecmDoWords_raw_of_run_revert  -- private
+  -- Contracts.ReentrancyRelyGuarantee.Vault.locked_after_withdraw_ecm  -- private
   Contracts.ReentrancyRelyGuarantee.Vault.keeps_withdraw
+  Contracts.ReentrancyRelyGuarantee.Vault.callbackBounded_assumption_fields
+  Contracts.ReentrancyRelyGuarantee.Vault.evmHyp_assumption_fields
 
   -- Verity/Proofs/Stdlib/Automation.lean
   Verity.Proofs.Stdlib.Automation.isSuccess_success
@@ -9535,4 +9540,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8796 theorems/lemmas (5765 public, 3031 private, 0 sorry'd)
+-- Total: 8801 theorems/lemmas (5767 public, 3034 private, 0 sorry'd)
