@@ -2,6 +2,8 @@ import Compiler.CompilationModel.Types
 import Compiler.CompilationModel.EcmAxiomCollection
 import Compiler.Json
 import Compiler.ProofStatus
+import Lean.Environment
+import Lean.Util.FoldConsts
 
 namespace Compiler.CompilationModel
 
@@ -1076,6 +1078,152 @@ private structure UsageSiteSummary where
   unsafeYulContracts : List UnsafeYulContract
   unsafeBlocks : List String
 
+/-- Canonical `LocalObligation` recording that a theorem assumes `CallbackBounded`
+for the contract's `entrypointRegistry` (#2564). -/
+def LocalObligation.callbackBounded (contractName : String := "") : LocalObligation :=
+  { name := "CallbackBounded"
+    proofStatus := .assumed
+    obligation :=
+      if contractName.isEmpty then
+        "Adversary callbacks restricted to entrypointRegistry (CallbackBounded)"
+      else
+        s!"Adversary callbacks restricted to {contractName}.entrypointRegistry (CallbackBounded)" }
+
+/-- Canonical `LocalObligation` recording that a theorem assumes the packaged
+`Verity.EVMHyp` environment hypotheses (#2564). -/
+def LocalObligation.evmHyp : LocalObligation :=
+  { name := "EVMHyp"
+    proofStatus := .assumed
+    obligation := "EVM facts assumed: s.sender ≠ 0, s.thisAddress ≠ 0, s.chainId ≠ 0" }
+
+/-- Canonical `LocalObligation` recording that a theorem assumes `s.sender ≠ 0`
+(`msgSender_ne_zero`, #2564). -/
+def LocalObligation.msgSenderNeZero : LocalObligation :=
+  { name := "msgSender_ne_zero"
+    proofStatus := .assumed
+    obligation := "EVM facts assumed: s.sender ≠ 0" }
+
+/-- Canonical `LocalObligation` recording that a theorem assumes
+`s.thisAddress ≠ 0` (`thisAddress_ne_zero`, #2564). -/
+def LocalObligation.thisAddressNeZero : LocalObligation :=
+  { name := "thisAddress_ne_zero"
+    proofStatus := .assumed
+    obligation := "EVM facts assumed: s.thisAddress ≠ 0" }
+
+/-- Canonical `LocalObligation` recording that a theorem assumes `s.chainId ≠ 0`
+(`chainId_ne_zero`, #2564). -/
+def LocalObligation.chainIdNeZero : LocalObligation :=
+  { name := "chainId_ne_zero"
+    proofStatus := .assumed
+    obligation := "EVM facts assumed: s.chainId ≠ 0" }
+
+private def constNameMatchesSuffix (constName suffix : String) : Bool :=
+  constName == suffix || constName.endsWith s!".{suffix}"
+
+/-- Extract `CallbackBounded` and `EVMHyp` / `msgSender_ne_zero` theorem
+assumptions from the list of constant names referenced by a theorem (#2564). -/
+def theoremAssumptionsFromUsedConstants
+    (constNames : List String) (contractName : String := "") : List LocalObligation :=
+  let cb :=
+    if constNames.any (fun c => constNameMatchesSuffix c "CallbackBounded") then
+      [LocalObligation.callbackBounded contractName]
+    else []
+  let evm :=
+    if constNames.any (fun c => constNameMatchesSuffix c "EVMHyp") then
+      [LocalObligation.evmHyp]
+    else []
+  let msgSender :=
+    if constNames.any (fun c => constNameMatchesSuffix c "msgSender_ne_zero") then
+      [LocalObligation.msgSenderNeZero]
+    else []
+  let thisAddr :=
+    if constNames.any (fun c => constNameMatchesSuffix c "thisAddress_ne_zero") then
+      [LocalObligation.thisAddressNeZero]
+    else []
+  let chainId :=
+    if constNames.any (fun c => constNameMatchesSuffix c "chainId_ne_zero") then
+      [LocalObligation.chainIdNeZero]
+    else []
+  dedupLocalObligations (cb ++ evm ++ msgSender ++ thisAddr ++ chainId)
+
+/-- Extract `CallbackBounded` and `EVMHyp` / `msgSender_ne_zero` theorem
+assumptions directly from a Lean `Expr` (such as a theorem's type, #2564). -/
+def theoremAssumptionsFromExpr
+    (e : Lean.Expr) (contractName : String := "") : List LocalObligation :=
+  theoremAssumptionsFromUsedConstants
+    (e.getUsedConstants.toList.map toString) contractName
+
+/-- Inspect a theorem in `env` and return the `CallbackBounded` / `EVMHyp`
+assumptions referenced in its type or proof term (#2564). -/
+def collectTheoremAssumptions
+    (env : Lean.Environment) (thmName : Lean.Name) (contractName : String := "") :
+    List LocalObligation :=
+  match env.find? thmName with
+  | none => []
+  | some info =>
+      let typeConsts := info.type.getUsedConstants.toList.map toString
+      let valConsts :=
+        match info.value? with
+        | some v => v.getUsedConstants.toList.map toString
+        | none => []
+      theoremAssumptionsFromUsedConstants (typeConsts ++ valConsts) contractName
+
+/-- Attach theorem-level obligations (such as `CallbackBounded` or `EVMHyp`) to
+a `FunctionSpec` so the trust and assumption reports surface them (#2564). -/
+def FunctionSpec.withTheoremAssumptions
+    (fn : FunctionSpec) (obligations : List LocalObligation) : FunctionSpec :=
+  { fn with localObligations := dedupLocalObligations (fn.localObligations ++ obligations) }
+
+/-- Attach theorem-level obligations (such as `CallbackBounded` or `EVMHyp`) to
+function `fnName` (or to all external functions when `fnName` is empty) in
+`spec` (#2564). -/
+def CompilationModel.withTheoremAssumptions
+    (spec : CompilationModel) (fnName : String) (obligations : List LocalObligation) :
+    CompilationModel :=
+  { spec with
+    functions := spec.functions.map fun fn =>
+      if (fnName.isEmpty && !fn.isInternal) || fn.name == fnName then
+        fn.withTheoremAssumptions obligations
+      else
+        fn }
+
+/-- Attach theorem-level obligations extracted from the constant names used by a
+theorem to function `fnName` in `spec` (#2564). -/
+def CompilationModel.withTheoremConstantAssumptions
+    (spec : CompilationModel) (fnName : String) (constNames : List String) :
+    CompilationModel :=
+  spec.withTheoremAssumptions fnName
+    (theoremAssumptionsFromUsedConstants constNames spec.name)
+
+private def isCallbackBoundedObligationName (name : String) : Bool :=
+  name == "CallbackBounded" ||
+    name.startsWith "CallbackBounded." ||
+    name.startsWith "callback_bounded"
+
+private def isEvmHypObligationName (name : String) : Bool :=
+  name == "EVMHyp" ||
+    name.startsWith "EVMHyp." ||
+    name.startsWith "evm_hyp" ||
+    name == "msgSender_ne_zero" ||
+    name == "thisAddress_ne_zero" ||
+    name == "chainId_ne_zero"
+
+private def boundaryClassFromLocalObligation (obligation : LocalObligation) : String :=
+  if isCallbackBoundedObligationName obligation.name then
+    "callback"
+  else if isEvmHypObligationName obligation.name then
+    "compilerIntrinsic"
+  else
+    "gate"
+
+private def assumptionFromLocalObligation (obligation : LocalObligation) : String :=
+  if isCallbackBoundedObligationName obligation.name then
+    "CallbackBounded"
+  else if isEvmHypObligationName obligation.name then
+    "EVM facts assumed"
+  else
+    ""
+
 private def ecmAxiomsFromModules (modules : List ECM.ExternalCallModule) : List (String × String) :=
   modules.flatMap (fun mod => mod.axioms.map (fun assumption => (mod.name, assumption)))
 
@@ -1084,7 +1232,7 @@ private def boundaryClassesForSite (site : UsageSiteSummary) : List String :=
     (site.primitives.map (fun _ => "compilerIntrinsic")) ++
     (site.externals.map boundaryClassFromExternal) ++
     (site.modules.map boundaryClassFromModule) ++
-    (site.localObligations.map (fun _ => "gate")) ++
+    (site.localObligations.map boundaryClassFromLocalObligation) ++
     (site.eventEmission.map (fun _ => "event")) ++
     (site.proxyUpgradeability.map (fun _ => "externalCall")) ++
     (site.runtimeIntrospection.map (fun _ => "compilerIntrinsic")) ++
@@ -1243,12 +1391,13 @@ private def assumptionReportEntriesForSite (site : UsageSiteSummary) : List Assu
   let localObligationEntries :=
     site.localObligations.map (fun obligation =>
       { category := "localObligation"
-        boundaryClass := "gate"
+        boundaryClass := boundaryClassFromLocalObligation obligation
         siteKind := site.kind
         siteName := site.name
         name := obligation.name
         status := obligation.proofStatus
-        detail := obligation.obligation })
+        detail := obligation.obligation
+        assumption := assumptionFromLocalObligation obligation })
   primitiveEntries ++ externalEntries ++ moduleEntries ++ axiomEntries ++ summaryEntries ++
     localObligationEntries
 

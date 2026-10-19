@@ -991,7 +991,116 @@ global invariant `I : ContractState → Prop`.
      is the recommended pattern for trade-window safety, but `I` itself is
      author-chosen and not verified against any external specification.
 - **Reference**: [Verity/Core/Reentrancy.lean](../Verity/Core/Reentrancy.lean),
-  [Contracts/ReentrancyRelyGuarantee/Contract.lean](../Contracts/ReentrancyRelyGuarantee/Contract.lean).
+  [Contracts/ReentrancyRelyGuarantee/Contract.lean](../Contracts/ReentrancyRelyGuarantee/Contract.lean),
+  [Verity/Core/Model/CallbackBridge.lean](../Verity/Core/Model/CallbackBridge.lean),
+  [Verity/Proofs/Model/GeneratedEntrypointRegistry.lean](../Verity/Proofs/Model/GeneratedEntrypointRegistry.lean).
+
+#### `CallbackBridge` Ergonomics, `EVMHyp`, and Worked `Vault.withdraw` Pattern (#2564)
+
+`Verity.Core.Model.CallbackBridge` and the `verity_contract` macro provide four
+building blocks so reentrancy proofs against a contract's generated
+`entrypointRegistry` require no manual unfolding of callback context plumbing
+and no custom `axiom` declarations:
+
+1. **Macro-generated registry lemmas (`Verity/Macro/Bridge.lean` + `Elaborate.lean`)**:
+   - `@[simp] theorem <fn>_registry_eq`: equates `<fn>_registry ectx args...`
+     with the public executable `<fn> [ectx] args...` by `rfl` whenever the
+     registry and public bodies coincide.
+   - `theorem entrypointRegistry_cases`: rewrites `entrypointRegistry adv g`
+     into the clean disjunction `fn₁_entrypoint adv g ∨ ... ∨ fnₖ_entrypoint adv g`
+     (stripping the trailing `∨ False`).
+   - `theorem entrypointRegistry_preserves`: composes per-entrypoint
+     `RegistryPreserves Inv <fn>_entrypoint adv` obligations directly into
+     `RegistryPreserves Inv entrypointRegistry adv`.
+2. **`CallbackBridge` compositors and `@[simp]` frame lemmas (`Verity/Core/Model/CallbackBridge.lean`)**:
+   - `@[simp]` frame lemmas for `withCallbackContext` and
+     `restoreCallbackContext` on every storage channel (`storageWords`,
+     `storage`, `storageAddr`, `storageMap`, `storageMapUint`, `storageMap2`,
+     `storageArray`, `transientStorage`), `selfBalance` (including
+     `withCallbackContext_selfBalance_of_msgValue_zero`), and transaction
+     context fields.
+   - `callbackContractTransition_preserves` / `registry_of_preserves`: lift a
+     body preservation proof `∀ s, Inv s → Inv ((c.run s).snd)` across
+     `callbackContractTransition ctx c` without unfolding `restoreCallbackContext`.
+   - `LockedInv Inv lockSlot`, `UnlockedInv Inv lockSlot`,
+     `guarded_callback_preserves_locked`, `preserves_under_lock`,
+     `guarded_preserves_of_locked_body`, and
+     `Contracts.ecmDoWords_callbackBounded_preserves_registry_of_success`:
+     any `nonreentrant(lock)` entrypoint automatically preserves
+     `LockedInv Inv lockSlot` across `callbackContractTransition` because the
+     transient lock is nonzero (`s.transientStorage lockSlot ≠ 0`) and `guarded`
+     reverts before touching storage or `selfBalance`.
+3. **Packaged EVM environment hypotheses (`Verity.EVMHyp`)**:
+   - `Verity.EVMHyp s` (aliased as `s.EVMHyp`) bundles standard EVM call-context
+     facts (`msgSender_ne_zero : s.sender ≠ 0`,
+     `thisAddress_ne_zero : s.thisAddress ≠ 0`, and
+     `chainId_ne_zero : s.chainId ≠ 0`) together with `s.msgSender_ne_zero` and
+     storage-write preservation lemmas (`EVMHyp.writeSlot`,
+     `EVMHyp.writeAddrSlot`, `EVMHyp.writeTransient`, `EVMHyp.setLock`).
+   - Theorems take `(hevm : s.EVMHyp)` as an explicit hypothesis rather than
+     introducing a custom `axiom`, keeping `#print axioms` restricted to
+     `[propext, Classical.choice, Quot.sound]`.
+4. **Assumption-report surfacing (`Compiler/CompilationModel/TrustSurface.lean`)**:
+   - `LocalObligation.callbackBounded`, `LocalObligation.evmHyp`, and
+     `LocalObligation.msgSenderNeZero` (plus `theoremAssumptionsFromUsedConstants` /
+     `collectTheoremAssumptions` / `CompilationModel.withTheoremAssumptions`)
+     surface `CallbackBounded` with `boundaryClass := "callback"` and
+     `assumption := "CallbackBounded"`, and `EVMHyp` / `msgSender_ne_zero` with
+     `boundaryClass := "compilerIntrinsic"` and
+     `assumption := "EVM facts assumed"` in `emitAssumptionReportJson` and
+     `emitTrustReportJson`.
+
+**Worked example (`Contracts.ReentrancyRelyGuarantee.Vault.keeps_withdraw` in
+`Verity/Proofs/Model/GeneratedEntrypointRegistry.lean`)**:
+
+```lean
+verity_contract Vault where
+  storage
+    lock : Uint256 := slot 0
+    totalTracked : Uint256 := slot 1
+    lastActor : Address := slot 2
+
+  function payable nonreentrant(lock) deposit () : Unit := do
+    let sender ← msgSender
+    require (sender != zeroAddress) "zero sender"
+    let amount ← msgValue
+    let current ← getStorage totalTracked
+    let bal ← selfBalance
+    require (current + amount <= bal) "accounting overflow"
+    setStorage totalTracked (current + amount)
+    setStorageAddr lastActor sender
+    return ()
+
+  function nonreentrant(lock) withdraw
+      (recipient : Address, amount : Uint256) : Unit := do
+    let sender ← msgSender
+    let current ← getStorage totalTracked
+    require (amount <= current) "insufficient tracked"
+    setStorage totalTracked (current - amount)
+    ecmDo Compiler.Modules.Calls.callWithValueModule [addressToWord recipient, amount, 0, 0]
+    setStorageAddr lastActor sender
+    return ()
+
+  function view peekTracked () : Uint256 := do
+    let current ← getStorage totalTracked
+    return current
+```
+
+The end-to-end proof in `Verity/Proofs/Model/GeneratedEntrypointRegistry.lean`
+proceeds in three short steps:
+1. Discharge each entrypoint in `Vault.entrypointRegistry` on
+   `LockedInv VaultInv 0`: `deposit_entrypoint` and `withdraw_entrypoint` close
+   in two lines via `rw [<fn>_registry_eq]; exact guarded_callback_preserves_locked ...`,
+   and the unguarded `view` entrypoint `peekTracked_entrypoint` closes via
+   `callbackContractTransition_preserves`.
+2. Combine them with the generated `Vault.entrypointRegistry_preserves` theorem
+   to obtain `registry_preserves_locked : RegistryPreserves (LockedInv VaultInv 0) Vault.entrypointRegistry adv`.
+3. In `Vault.keeps_withdraw`, apply `guarded_preserves_of_locked_body`, cross the
+   `callWithValue` interaction via
+   `Contracts.ecmDoWords_callbackBounded_preserves_registry_of_success`, and
+   discharge the post-interaction write `setStorageAddr lastActor sender` using
+   `hevm.msgSender_ne_zero`. `#guard_msgs in #print axioms keeps_withdraw`
+   confirms zero custom axioms.
 
 ### Cross-Function Reentrancy Gate (fail-closed)
 Every function whose body opens a reentrancy window (`externalCallBind`,

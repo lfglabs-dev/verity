@@ -179,7 +179,14 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
 
+    for fn in translationFunctions do
+      if !fn.isInternal || functions.any (fun hostFn => hostFn.ident.getId == fn.ident.getId) then
+        if let some registryEqCmd ← mkRegistryEqCommand? fn then
+          elabCommand registryEqCmd
+
     elabCommand (← mkEntrypointRegistryCommandPublic translationFunctions)
+    for cmd in (← mkEntrypointRegistryHelperCommands translationFunctions) do
+      elabCommand cmd
 
     -- Constructors may call internal helpers, so emit them only after the
     -- executable helper definitions are available in the namespace.

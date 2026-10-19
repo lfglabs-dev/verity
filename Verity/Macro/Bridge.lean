@@ -393,4 +393,127 @@ def mkEffectsTheoremCommand (fnDecl : FunctionDecl) : CommandElabM Cmd := do
   `(command|
     @[simp] theorem $effectsName :
         $propTerm := $proofTerm)
+
+/-- Synchronously check in `TermElabM` whether `prop` can be proved by
+    `by intros; rfl`, rolling back all state and messages afterwards. -/
+private def canProveByRfl (prop : Term) : CommandElabM Bool := do
+  let saved ← get
+  let hadErrors := saved.messages.hasErrors
+  try
+    liftTermElabM do
+      let expectedType ← Lean.Elab.Term.elabType prop
+      let proof ← Lean.Elab.Term.elabTermEnsuringType (← `(by intros; rfl)) expectedType
+      Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
+      let _ ← instantiateMVars proof
+    let ok := !((← get).messages.hasErrors && !hadErrors)
+    set saved
+    pure ok
+  catch _ =>
+    set saved
+    pure false
+
+/-- Auto-generated `@[simp]` lemma equating `<fn>_registry` with `<fn>` (#2564).
+    Tries the ordinary signature first and falls back to the
+    `ExecutableCallContext`-taking signature when the public function threads
+    `ectx`. Returns `none` for rare functions where `<fn>_registry`
+    intentionally differs from `<fn>` (e.g. live calldata or view-only
+    adversary routing). -/
+def mkRegistryEqCommand? (fnDecl : FunctionDecl) : CommandElabM (Option Cmd) := do
+  let registryName ← mkSuffixedIdent fnDecl.ident "_registry"
+  let registryEqName ← mkSuffixedIdent fnDecl.ident "_registry_eq"
+  let ectxIdent := mkIdent (Name.mkSimple "ectx")
+  let mut lhs : Term ← `($registryName $ectxIdent)
+  let mut rhsNoEctx : Term := mkIdent fnDecl.ident.getId
+  let mut rhsWithEctx : Term ← `($(mkIdent fnDecl.ident.getId) $ectxIdent)
+  for param in fnDecl.params do
+    let paramIdent : Term := mkIdent param.ident.getId
+    lhs ← `($lhs $paramIdent)
+    rhsNoEctx ← `($rhsNoEctx $paramIdent)
+    rhsWithEctx ← `($rhsWithEctx $paramIdent)
+  let mut propNoEctx : Term ← `($lhs = $rhsNoEctx)
+  let mut propWithEctx : Term ← `($lhs = $rhsWithEctx)
+  for param in fnDecl.params.reverse do
+    let pid := mkIdent param.ident.getId
+    let pty ← contractValueTypeTerm param.ty
+    propNoEctx ← `(∀ ($pid : $pty), $propNoEctx)
+    propWithEctx ← `(∀ ($pid : $pty), $propWithEctx)
+  propNoEctx ← `(∀ ($ectxIdent : Contracts.ExecutableCallContext), $propNoEctx)
+  propWithEctx ← `(∀ ($ectxIdent : Contracts.ExecutableCallContext), $propWithEctx)
+  if (← canProveByRfl propNoEctx) then
+    some <$> `(command|
+      @[simp] theorem $registryEqName : $propNoEctx := by
+        intros
+        rfl)
+  else if (← canProveByRfl propWithEctx) then
+    some <$> `(command|
+      @[simp] theorem $registryEqName : $propWithEctx := by
+        intros
+        rfl)
+  else
+    pure none
+
+/-- Auto-generated helper theorems for the contract's `entrypointRegistry` (#2564):
+    - `entrypointRegistry_cases`: rewrites `entrypointRegistry adv g` into the
+      clean disjunction of external `<fn>_entrypoint adv g` predicates (without
+      the trailing `∨ False`).
+    - `entrypointRegistry_preserves`: composes per-entrypoint
+      `RegistryPreserves Inv <fn>_entrypoint adv` proofs into
+      `RegistryPreserves Inv entrypointRegistry adv`. -/
+def mkEntrypointRegistryHelperCommands (functions : Array FunctionDecl) : CommandElabM (Array Cmd) := do
+  let externalFns := functions.filter (!·.isInternal)
+  let registryId := mkIdent (Name.mkSimple "entrypointRegistry")
+  let casesId := mkIdent (Name.mkSimple "entrypointRegistry_cases")
+  let preservesId := mkIdent (Name.mkSimple "entrypointRegistry_preserves")
+  let advId := mkIdent (Name.mkSimple "adv")
+  let gId := mkIdent (Name.mkSimple "g")
+  let invId := mkIdent (Name.mkSimple "Inv")
+  match externalFns.toList.reverse with
+  | [] =>
+    let casesCmd ← `(command|
+      @[simp] theorem $casesId
+          ($advId : Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
+          ($gId : Verity.ContractState → Verity.ContractState) :
+          $registryId $advId $gId ↔ False := Iff.rfl)
+    let preservesCmd ← `(command|
+      theorem $preservesId
+          ($invId : Verity.ContractState → Prop)
+          ($advId : Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel) :
+          Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves $invId $registryId $advId :=
+        Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves.of_false $invId $advId)
+    pure #[casesCmd, preservesCmd]
+  | lastFn :: prevFnsRev =>
+    let lastPred ← mkSuffixedIdent lastFn.ident "_entrypoint"
+    let mut disj : Term ← `($lastPred $advId $gId)
+    for fn in prevFnsRev do
+      let pred ← mkSuffixedIdent fn.ident "_entrypoint"
+      disj ← `($pred $advId $gId ∨ $disj)
+    let casesCmd ← `(command|
+      theorem $casesId
+          ($advId : Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
+          ($gId : Verity.ContractState → Verity.ContractState) :
+          $registryId $advId $gId ↔ $disj := by
+        simp only [$registryId:ident, or_false])
+    let mut preservesProp : Term ←
+      `(Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves $invId $registryId $advId)
+    let mut preservesProof : Term ←
+      `(Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves.of_false $invId $advId)
+    for fn in externalFns.reverse do
+      let pred ← mkSuffixedIdent fn.ident "_entrypoint"
+      let hId ← mkSuffixedIdent fn.ident "_preserves"
+      preservesProof ←
+        `(Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves.of_or $hId $preservesProof)
+      preservesProp ←
+        `(∀ ($hId : Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves $invId $pred $advId),
+            $preservesProp)
+    preservesProp ←
+      `(∀ ($invId : Verity.ContractState → Prop)
+          ($advId : Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel),
+          $preservesProp)
+    let mut introIds : Array Ident := #[invId, advId]
+    for fn in externalFns do
+      introIds := introIds.push (← mkSuffixedIdent fn.ident "_preserves")
+    let preservesCmd ← `(command|
+      theorem $preservesId : $preservesProp := fun $[$introIds:ident]* => $preservesProof)
+    pure #[casesCmd, preservesCmd]
+
 end Verity.Macro

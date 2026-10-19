@@ -2711,6 +2711,78 @@ theorem ecmDoWords_callbackBounded_preserves (spec : Verity.Core.Reentrancy.Reen
       (ecmTargetWord mod args) (ecmValueWord mod args) (Nat.lt_of_not_ge hbal)]
     exact hInv
 
+private theorem debitEcmSelfBalance_some_inv_pred (Inv : ContractState → Prop)
+    (s : ContractState) (target value : Nat) (hInv : Inv s)
+    (hbal : value ≤ s.selfBalance.val)
+    (hDebited : value ≤ s.selfBalance.val →
+      Inv { s with selfBalance := s.selfBalance - (value : Core.Uint256) }) :
+    ∃ paid,
+      Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s target value = some paid ∧
+      Inv paid := by
+  by_cases hself : Verity.Core.Address.ofNat target = s.thisAddress
+  · exact ⟨s, Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_some_self s target value hbal hself, hInv⟩
+  · exact ⟨_, Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_some_of_ne s target value hbal hself, hDebited hbal⟩
+
+/-- Generated-registry counterpart of `ecmDoWords_callbackBounded_preserves` (#2564):
+under `CallbackBounded entrypoints adv` and `RegistryPreserves Inv entrypoints adv`,
+`ecmDoWords` preserves `Inv` whenever `Inv` is insensitive to `calls`/`returndata`
+updates, holds on `s`, and holds on the pre-call debited world. -/
+theorem ecmDoWords_callbackBounded_preserves_registry
+    (Inv : ContractState → Prop)
+    (entrypoints : Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry)
+    (mod : Compiler.ECM.ExternalCallModule) (adv : AdversaryModel) (args : List Uint256)
+    (siteId : Nat) (s : ContractState)
+    (hbound : Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded entrypoints adv)
+    (hregistry : Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves Inv entrypoints adv)
+    (hframe : ∀ w c r, Inv w → Inv { w with calls := c, returndata := r })
+    (hInv : Inv s)
+    (hDebited : ecmValueWord mod args ≤ s.selfBalance.val →
+      Inv { s with selfBalance := s.selfBalance - (ecmValueWord mod args : Core.Uint256) }) :
+    Inv ((ecmDoWords mod adv args siteId).run s).snd := by
+  rw [ecmDoWords, ecmCallTypedWords_apply]; dsimp only
+  by_cases hbal : ecmValueWord mod args ≤ s.selfBalance.val
+  · obtain ⟨paid, hdeb, hpaid_inv⟩ := debitEcmSelfBalance_some_inv_pred Inv s
+      (ecmTargetWord mod args) (ecmValueWord mod args) hInv hbal hDebited
+    rw [hdeb]; dsimp only; simp only [Contract.run, commonExternalCall_apply]
+    set kind := if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+      Compiler.CompilationModel.DenoteExternalCalls.CallKind.staticcall
+    else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call
+    set site := linkedCallSite mod.summaryName args mod.resultVars.length kind
+      (ecmTargetWord mod args) (ecmValueWord mod args) [] siteId
+    cases hres : adv.result site paid with
+    | failure _ | «revert» _ => exact hInv
+    | success data =>
+        by_cases hlen : data.length = mod.resultVars.length
+        · simp only [if_pos hlen, ContractResult.snd]
+          exact hframe
+            (Compiler.CompilationModel.DenoteExternalCalls.denoteCall adv site
+              { world := paid, gasRemaining := site.gas }).state.world _ _
+            (hbound.denoteCall_preserves_registry Inv entrypoints hregistry site
+              { world := paid, gasRemaining := site.gas } hpaid_inv)
+        · simp only [if_neg hlen]; exact hInv
+  · rw [Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_none_of_lt s
+      (ecmTargetWord mod args) (ecmValueWord mod args) (Nat.lt_of_not_ge hbal)]
+    exact hInv
+
+/-- Success-result form of `ecmDoWords_callbackBounded_preserves_registry` (#2564),
+shaped directly for `LockedInv` body proofs inside `guarded_preserves_of_locked_body`. -/
+theorem ecmDoWords_callbackBounded_preserves_registry_of_success
+    (Inv : ContractState → Prop)
+    (entrypoints : Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry)
+    (mod : Compiler.ECM.ExternalCallModule) (adv : AdversaryModel) (args : List Uint256)
+    (siteId : Nat) (s s' : ContractState)
+    (hbound : Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded entrypoints adv)
+    (hregistry : Compiler.CompilationModel.DenoteExternalCalls.RegistryPreserves Inv entrypoints adv)
+    (hframe : ∀ w c r, Inv w → Inv { w with calls := c, returndata := r })
+    (hInv : Inv s)
+    (hDebited : ecmValueWord mod args ≤ s.selfBalance.val →
+      Inv { s with selfBalance := s.selfBalance - (ecmValueWord mod args : Core.Uint256) })
+    (hrun : (ecmDoWords mod adv args siteId).run s = ContractResult.success () s') :
+    Inv s' := by
+  have hpres := ecmDoWords_callbackBounded_preserves_registry Inv entrypoints mod adv args
+    siteId s hbound hregistry hframe hInv hDebited
+  simpa [hrun, ContractResult.snd] using hpres
+
 /-! #### Pull-payment Vault solvency across `ecmDo (Calls.callWithValueModule)` (#2561)
 
 Slot `0` tracks total `owed` ETH. `vaultWithdraw` follows Checks-Effects-Interactions:

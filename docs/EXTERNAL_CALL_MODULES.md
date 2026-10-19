@@ -494,6 +494,12 @@ machine-readable `boundaryClass`. Current classes include `compilerIntrinsic`,
 
 For a machine-readable version, run `verity-compiler --trust-report <path>`. The JSON covers ECM assumptions, linked externals, axiomatized primitives, low-level mechanics, proof-gap categories, boundary classes, and a `hasUncheckedDependencies` flag for CI gating. Use `--assumption-report <path>` when audit tooling needs a flat inventory of every localized obligation. See [VERIFICATION_STATUS.md](./VERIFICATION_STATUS.md#solidity-interop-support-matrix-issue-586) for the full trust-report schema.
 
+When contract proofs discharge external calls under reentrancy rely-guarantee (`CallbackBounded`) or use packaged EVM environment invariants (`Verity.EVMHyp` / `s.EVMHyp`, such as `s.sender ≠ 0`), `collectTheoremAssumptions` / `withTheoremAssumptions` surfaces those theorem-level assumptions in the assumption report as:
+- `name: "CallbackBounded"`, `assumption: "CallbackBounded"`, `boundaryClass: "callback"` (`status: "assumed"`)
+- `name: "EVMHyp"` / `"msgSender_ne_zero"`, `assumption: "EVM facts assumed"`, `boundaryClass: "compilerIntrinsic"` (`status: "assumed"`)
+
+See `docs/TRUST_ASSUMPTIONS.md` ("CallbackBridge Ergonomics, EVMHyp, and Worked `Vault.withdraw` Pattern (#2564)") and `Verity/Proofs/Model/GeneratedEntrypointRegistry.lean` (`Vault.keeps_withdraw`) for a complete worked example.
+
 To discharge an obligation, replace the relevant linked external / ECM / local
 obligation status with a proved surface and keep its axiom name stable so audit
 manifests can track the proof. To intentionally assume a boundary, keep the
