@@ -618,7 +618,18 @@ jobs:
         run: python3 scripts/setup_solc_import.py
 
       # The differential controls execute EVM bytecode via forge/anvil.
+      - name: Check preinstalled Foundry for Solidity differential controls
+        id: preinstalled-foundry-mutations
+        run: |
+          if [ -x "$HOME/.foundry/bin/forge" ] && [ -x "$HOME/.foundry/bin/anvil" ]; then
+            echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Foundry for Solidity differential controls
+        if: steps.preinstalled-foundry-mutations.outputs.installed != 'true'
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.5.0
@@ -1330,7 +1341,18 @@ jobs:
         if: steps.local-restore-compiler-workspace.outcome != 'success'
         run: tar -xf lean-workspace-compiler-build.tar
 
+      - name: Check preinstalled Foundry for Solidity slice comparisons
+        id: preinstalled-foundry-slices
+        run: |
+          if [ -x "$HOME/.foundry/bin/forge" ] && [ -x "$HOME/.foundry/bin/anvil" ]; then
+            echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
+            echo "installed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Foundry for Solidity slice comparisons
+        if: steps.preinstalled-foundry-slices.outputs.installed != 'true'
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.5.0

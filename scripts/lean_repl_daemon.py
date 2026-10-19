@@ -684,8 +684,16 @@ def cmd_load_header(args: argparse.Namespace) -> int:
 
 
 def cmd_check(args: argparse.Namespace) -> int:
+    import shutil
+
     socket_path = Path(args.socket)
     file_path = Path(args.file)
+    if args.socket == DEFAULT_SOCKET and not socket_path.exists() and args.decl and shutil.which("turbo-lean"):
+        res = subprocess.run(
+            ["turbo-lean", "check", str(file_path), "--decl", args.decl],
+            cwd=str(ROOT),
+        )
+        return res.returncode
     start_line, end_line = resolve_check_range(args)
     snippet = extract_file_slice(file_path, start_line, end_line)
     env_id = args.env

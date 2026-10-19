@@ -129,15 +129,26 @@ runs:
       shell: bash
       run: chmod +x .lake/build/bin/difftest-interpreter
 
+    - name: Check preinstalled Foundry binaries
+      id: preinstalled-foundry
+      shell: bash
+      run: |
+        if [ -x "$HOME/.foundry/bin/forge" ] && [ -x "$HOME/.foundry/bin/anvil" ]; then
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "installed=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Cache Foundry binaries
       id: cache-foundry
+      if: steps.preinstalled-foundry.outputs.installed != 'true'
       uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: ~/.foundry/bin
         key: foundry-v1.5.0-linux-amd64
 
     - name: Install Foundry
-      if: steps.cache-foundry.outputs.cache-hit != 'true'
+      if: steps.preinstalled-foundry.outputs.installed != 'true' && steps.cache-foundry.outputs.cache-hit != 'true'
       id: install_foundry_primary
       continue-on-error: true
       uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
@@ -145,7 +156,7 @@ runs:
         version: v1.5.0
 
     - name: Install Foundry fallback (retry on transient download errors)
-      if: steps.cache-foundry.outputs.cache-hit != 'true' && steps.install_foundry_primary.outcome != 'success'
+      if: steps.preinstalled-foundry.outputs.installed != 'true' && steps.cache-foundry.outputs.cache-hit != 'true' && steps.install_foundry_primary.outcome != 'success'
       shell: bash
       run: |
         set -euo pipefail

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity ^0.8.33;
 
 interface IRawStaticOracle {
     function price() external view returns (uint256);

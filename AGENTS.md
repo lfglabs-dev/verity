@@ -20,7 +20,8 @@ Both `AGENTS.md` and `CLAUDE.md` are authoritative for all coding agents (`claud
 4. **Required Pre-Merge Gates (Run on the Exact PR Head)**:
    ```bash
    export LEAN_NUM_THREADS=$(nproc)
-   lake build
+   turbo-lean pr-verify --base origin/main --project-dir . --receipt .lake/turbo-receipt.json
+   turbo-lean verify-receipt .lake/turbo-receipt.json
    make check
    python3 scripts/solidity_import_mutations.py
    # Plus smoke + loss + programs differential campaigns & PrintAxioms check:
@@ -30,84 +31,64 @@ Both `AGENTS.md` and `CLAUDE.md` are authoritative for all coding agents (`claud
 
 ---
 
-## 2. Fast & Persistent Lean REPL Workflow (Mandatory for All Lean Edits)
+## 2. Fast & Persistent `turbo-lean` Zygote REPL Workflow (Mandatory for All Lean Edits)
 
-Because each agent shell tool call runs in a fresh subshell, running `lake build <TargetFile>` in an edit loop or piping one-shot `echo ... | lake env repl` wastes 2–10 minutes per edit re-loading `.olean` imports and re-elaborating multi-thousand-line files.
+Because each agent shell tool call runs in a fresh subshell, running `lake build <TargetFile>` or `lake env repl` in an edit loop wastes 2–10 minutes per edit re-loading `.olean` imports and bloats RAM (8–16 GiB RSS per worktree).
 
-**Every Lean agent MUST use `scripts/lean_repl_daemon.py` to keep a single persistent `repl` process alive over a Unix socket:**
+**Every Lean agent MUST exclusively use `turbo-lean` and its persistent in-memory Zygote REPL daemon (`TurboLean.ZygoteWorker`), NEVER raw `lake build`, `lake env lean`, or `lake env repl` in edit loops:**
 
-### Step 1 — Build imported dependency `.olean`s once
-Before editing `Path/To/Target.lean`, build its *imported* dependencies once (not `Target.lean` in a loop):
+### Step 1 — Check a single theorem or definition via the `turbo-lean` Zygote REPL (~18–45 ms)
+`turbo-lean check` automatically starts/reuses the persistent `TurboLean.ZygoteWorker` REPL daemon on the host (`Shared_Clean` `.olean` memory across workers, `0 ms` re-import overhead), slices the file into its unchanged prefix skeleton (`PrefixEnvHash`) + target declaration shard (`StmtHash`, `ProofHash`), and checks only the target declaration with two-level CAS + `Singleflight` deduplication:
+```bash
+# Check a single theorem or lemma after editing Path/To/Target.lean:
+turbo-lean check Path/To/Target.lean --decl <theorem_name> --project-dir .
+
+# Enforce zero statement drift during proof-decomposition tracks (S20–S23):
+turbo-lean check Path/To/Target.lean --decl <theorem_name> --disallow-statement-changes --project-dir .
+
+# Check all uncached theorem shards in a file in parallel:
+turbo-lean check Path/To/Target.lean --parallel-shards --project-dir .
+```
+
+### Step 2 — Fast CPU/GPU counterexample search before proving (`turbo-lean fast-check`)
+Before spending time proving a new arithmetic/word/storage lemma, falsify or sanity-check it in milliseconds (`--transpile-lean` transpiles Lean 4 `Prop` theorems directly to CUDA / C++):
+```bash
+turbo-lean fast-check --transpile-lean Path/To/Target.lean --decl <theorem_name>
+```
+
+### Step 3 — Incremental PR verification (`turbo-lean pr-verify`, ~25–100 ms)
+To verify all modified proofs across the worktree against `origin/main` and emit a cryptographic BLAKE3 receipt:
+```bash
+turbo-lean pr-verify --base origin/main --project-dir . --receipt .lake/turbo-receipt.json
+turbo-lean verify-receipt .lake/turbo-receipt.json
+```
+
+### Step 4 — Rebuild `.olean` interfaces ONLY when module signatures/imports change
+When you add or change a public `def`, `structure`, `inductive`, or theorem statement imported by downstream modules, run `turbo-lean build` (which wraps Lake with CAS caching and seeds theorem shards):
 ```bash
 export LEAN_NUM_THREADS=$(nproc)
-lake build <ImportedModule1> <ImportedModule2>
+turbo-lean build --seed-shards --project-dir .
 ```
-
-### Step 2 — Start the persistent REPL daemon once per workspace
-`scripts/lean_repl_daemon.py start` automatically clones/builds `leanprover-community/repl` at the tag matching `lean-toolchain` (`v4.31.0`) under `/tmp/lean-repl` if not yet present, and starts a persistent `lake env repl` server bound to a **per-worktree** socket (`/tmp/verity-lean-repl-<hash of repo root>.sock`, override with `VERITY_LEAN_REPL_SOCKET` or `--socket`). Sibling worktrees on the same host therefore never share a REPL whose `lake env` resolves another branch's `.olean`s; `start` refuses to attach to a daemon serving a different worktree.
-```bash
-python3 scripts/lean_repl_daemon.py start
-```
-
-### Step 3 — ALWAYS load the unchanged prefix up to the first edited declaration into `header_env` (`env: 0`)
-**Always pass `--until-line <first_edited_decl - 1>`** (or `--before-decl <name>`, which computes it, including the declaration's docstring, attributes, and `set_option … in` prefix). Loading only the import header forces every later `check` to re-elaborate the file from its header (line ~14) to the edited declaration—minutes on large files—instead of just the 20–50 lines you changed (<2s). `load-header` prints a hint on stderr when neither flag is given.
-```bash
-# Find the first declaration you will edit and the --until-line that precedes it:
-python3 scripts/lean_repl_daemon.py locate \
-  --file Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean --decl exec_stmt_mstore_eq
-# -> {"decl": ..., "start_line": 4190, "end_line": 4245, "until_line": 4189}
-python3 scripts/lean_repl_daemon.py load-header \
-  --file Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean \
-  --until-line 4189            # or: --before-decl exec_stmt_mstore_eq
-```
-Re-run `load-header` only when you edit lines *above* the loaded prefix (e.g. a new helper lemma); place new helpers just before the declaration that uses them and reload with the new `--until-line`.
-
-### Step 4 — Typecheck edits in ~1 second against the warm environment
-After editing `Target.lean` on disk with your file-editing tool, check just the edited declaration (`--decl <name>`) or its line range (`--start-line..--end-line`) against the cached `header_env`—no JSON escaping or full-file rebuild required. `check` warns when the range is open-ended or longer than 150 lines:
-```bash
-python3 scripts/lean_repl_daemon.py check \
-  --file Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean --decl exec_stmt_mstore_eq
-python3 scripts/lean_repl_daemon.py check \
-  --file Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean \
-  --start-line 4190 --end-line 4245
-```
-Every request carries a deadline (`--timeout`, default 300s) that the daemon enforces: a runaway elaboration (e.g. a looping `simp`) gets the REPL killed and restarted instead of wedging every later request, and the reply says to re-run `load-header`. Bound exploratory tactics with `set_option maxHeartbeats 50000 in` so they fail fast instead.
-
-The REPL never frees environments: each multi-thousand-line prefix you load stays resident (several GiB for `GenericInduction/Storage.lean`). Run `python3 scripts/lean_repl_daemon.py restart` before loading another large file's prefix; `load-header` warns once the REPL exceeds 8 GiB, and `status` reports `repl_rss_mb`. A bloated REPL starves the host: new `lean`/`lake` processes then stall in kernel memory compaction.
-
-Or send ad-hoc commands / interactive tactics directly:
-```bash
-python3 scripts/lean_repl_daemon.py send --env 0 --cmd "theorem my_helper (x : Nat) : x + 0 = x := by simp"
-python3 scripts/lean_repl_daemon.py send --proof-state 0 --tactic "simp"
-```
-
-### Step 5 — Run `lake build` ONLY before `git commit` / merge, synchronously in the foreground
-Only after your edited definitions and proofs typecheck cleanly via `lean_repl_daemon.py check`, run:
-```bash
-LEAN_NUM_THREADS=$(nproc) lake build <TouchedModule> 2>&1 | tee lake-build.log | tail -40
-```
-once before committing, and run the full merge gates once before merging. **Run the build synchronously in the foreground** and give the agent shell tool a long timeout (e.g. the Bash tool `timeout` parameter, up to 600000 ms) so the call returns exactly when the build finishes, with its exit status and tail. Do **not** launch it with `&`/`nohup` and then poll the log with `sleep 60`/`sleep 240` loops: each poll burns a tool round-trip, reports stale state, and hides the exit code. If a full build can exceed the foreground limit, use the harness's background-task mode (which notifies on completion) instead of a polling loop.
+Note: `scripts/lean_repl_daemon.py check --file F --decl D` is retained only as a compatibility shim that delegates to `turbo-lean check F --decl D --project-dir .`. Always invoke `turbo-lean` directly.
 
 ---
 
 ## 3. Agent Speed & Efficiency: What To Do vs. What To Avoid
 
 ### DO (Fast & Reliable)
-- **Always set `LEAN_NUM_THREADS=$(nproc)`** on every `lake` or `lean` command.
-- **Reuse local `.lake` build caches on worker nodes**: In a fresh workspace clone, run `scripts/ci_local_persistence.sh restore-lean` or copy an existing `/var/lib/sandboxed-node/work/*/verity/.lake` cache before building imported `.olean` dependencies.
-- **Keep one persistent REPL daemon** (`python3 scripts/lean_repl_daemon.py start`) and iterate on individual lemmas in `<1–3s` using `load-header --until-line <first_edited_decl - 1>` (or `--before-decl`) + `check --decl <name>`.
+- **Always use `turbo-lean check <File.lean> --decl <name> --project-dir .`** for every interactive theorem/proof edit (`~18–45 ms` via the persistent Zygote REPL daemon, `~4 ms` on warm CAS hit).
+- **Always use `turbo-lean pr-verify --base origin/main --project-dir .`** to validate PR diffs before committing/pushing.
+- **Reuse local `.lake` build caches on worker nodes**: In a fresh workspace clone, run `scripts/ci_local_persistence.sh restore-lean` or copy/hardlink an existing `/var/lib/sandboxed-node/*/verity/.lake` cache before running `turbo-lean`.
 - **Search existing lemmas first** (`git grep`) before proving arithmetic, bitvector, memory, or storage frame properties from scratch.
 - **Test single fixtures/mutants during development** (e.g., `python3 scripts/solidity_import_mutations.py --task <name>`) and use `--jobs auto` (or `--shard I/N --jobs auto`) for full campaigns.
 - **Check zero Lean warning regressions before pushing**: Prefix intentionally unused proof hypotheses with `_` (e.g. `_aligned`) and verify `python3 scripts/check_lean_warning_regression.py --log lake-build.log`.
 - **Keep PRs small and single-purpose**: one Solidity construct family, one proof refactoring slice, or one CI/harness instrument per PR. Stage files explicitly (`git add <paths>`), never `git add -A`.
 
 ### AVOID (Slow & Error-Prone Anti-Patterns Observed in Subagents)
-- **NEVER run `lake build <Module>` in a background loop with `sleep 60` / `sleep 240` polling build logs** to debug tactic errors. Debug with `lean_repl_daemon.py check`; run the final `lake build` once, synchronously in the foreground with a long tool timeout.
-- **NEVER accumulate many large prefixes in one REPL** (e.g. looping `load-header --until-line` over several 5k-line files): `restart` the daemon between files.
-- **NEVER `check` a file from its import header to EOF** (`load-header` without `--until-line`, then `check --start-line 14`): it re-elaborates thousands of lines per edit. Load the prefix up to the edited declaration and check only that declaration.
+- **NEVER run raw `lake build`, `lake env lean`, or `lake env repl` in an edit loop**. Every agent is monitored for rogue `lean`/`lake`/`repl` processes not spawned by `turbo-lean`.
+- **NEVER poll background builds with `sleep 60` / `sleep 240` loops**. Debug tactics exclusively with `turbo-lean check <File.lean> --decl <name> --project-dir .`.
 - **NEVER run serial unsharded 293-mutant loops or two concurrent full mutation campaigns on the same host** (each mutant rebuilds `Import.lean` using ~2.7 GiB RAM; running two full suites concurrently starves CPU/RAM and hits 600s timeouts).
-- **NEVER invoke `repl` as a one-shot pipe** (`echo '{"cmd": ...}' | lake env repl`) per edit; when the command exits, the loaded environment is destroyed and every call pays the full import cost.
-- **NEVER rely on `cd` persisting across separate `Bash` tool calls** (each tool call resets `cwd` to the workspace root; always pass `-C <dir>` or chain `cd <dir> && ...` in the same command).
+- **NEVER rely on `cd` persisting across separate `Bash` tool calls** (each tool call resets `cwd` to the workspace root; always pass `--project-dir` / `-C <dir>` or chain `cd <dir> && ...` in the same command).
 - **NEVER leave scratch notes or status files** (`PROGRESS.md`, `NOTES.md`, `TODO.md`, `.bak` files) in the git worktree, and never stage borrowed helper scripts (`git add -A`) into unrelated feature PRs.
 - **NEVER write monolithic tactic scripts (>30 lines)** or unconstrained `simp` calls over huge definitions; they cause `maxHeartbeats` timeouts and brittle proofs.
 - **NEVER drop work silently during rebases/merges**: inspect both sides of every conflict, keep every improvement, and fold duplicate PRs explicitly before closing.
@@ -146,7 +127,7 @@ When writing or refactoring compiler passes, specifications (`Denote`), and proo
    - `Compiler/Proofs/StateLenses.lean` provides `StorageWordsFrame` (with `refl`/`trans`) plus `@[simp]` projection lenses (`memory_writeUintSlots`, `events_writeAddressFieldSlots`, …) and storage-channel lenses (`transientStorage_writeUintSlots`, `storage_writeTransientTargets`, …) for the source-semantics storage writers; extend it (prove the writer's `StorageWordsFrame` once, derive the lenses) instead of unfolding a writer to read an untouched field.
    - `Compiler/Proofs/Frames.lean` provides `execStmt_*_continue_inv` inversions and `ownedEq_*_of_disjoint` resource lenses; use them instead of `rw [show execStmt … = (match …) from rfl]` + `cases` in statement proofs.
 3. **Modular File Decomposition (Avoid Monoliths)**:
-   - Split oversized files (`Import.lean`, `Stmt.lean`, `SourceSemantics.lean`, etc.) by construct family or semantic layer with minimal `import` dependencies. Smaller modules reduce `.olean` load times in `repl`, enable parallel `lake build`, and isolate proof maintenance.
+   - Split oversized files (`Import.lean`, `Stmt.lean`, `SourceSemantics.lean`, etc.) by construct family or semantic layer with minimal `import` dependencies. Smaller modules reduce `.olean` load times in `turbo-lean`, enable parallel shard verification, and isolate proof maintenance.
 4. **Heartbeat Hygiene (Zero `maxHeartbeats` Escalation)**:
    - Never paper over slow elaboration by raising `set_option maxHeartbeats`. If a lemma exceeds default heartbeats:
      1. Replace unconstrained `simp` with `simp only [...]` or `rw [...]`.
@@ -159,13 +140,14 @@ When writing or refactoring compiler passes, specifications (`Denote`), and proo
 
 ```bash
 export LEAN_NUM_THREADS=$(nproc)
-python3 scripts/lean_repl_daemon.py start  # Start persistent Lean REPL daemon
-python3 scripts/lean_repl_daemon.py load-header --file F.lean --before-decl NAME  # Warm prefix
-python3 scripts/lean_repl_daemon.py check --file F.lean --decl NAME               # ~1s recheck
-lake build                                 # Verify all Lean proofs (pre-PR / pre-merge)
-make check                                 # Run local CI-equivalent validation (no Lean build)
-make test-python                           # Run Python unit tests
-make test-foundry                          # Run Foundry differential tests
+turbo-lean check F.lean --decl NAME --project-dir .                 # ~18-45ms Zygote REPL check
+turbo-lean check F.lean --parallel-shards --project-dir .           # Parallel file shard sweep
+turbo-lean fast-check --transpile-lean F.lean --decl NAME           # GPU/CPU counterexample check
+turbo-lean pr-verify --base origin/main --project-dir .             # ~25-100ms incremental PR verify
+turbo-lean build --seed-shards --project-dir .                      # Full CAS build when interfaces change
+make check                                                          # Run local CI-equivalent validation
+make test-python                                                    # Run Python unit tests
+make test-foundry                                                   # Run Foundry differential tests
 ```
 
 - Project overview and review order: [README.md](README.md)

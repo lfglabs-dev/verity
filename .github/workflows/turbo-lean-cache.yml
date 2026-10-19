@@ -1,0 +1,113 @@
+name: Turbo-Lean CAS Cache & Shard Verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/actions/setup-lean/**'
+      - 'Verity/**'
+      - 'Verity.lean'
+      - 'Compiler/**'
+      - 'Compiler.lean'
+      - 'Contracts/**'
+      - 'Contracts.lean'
+      - 'lakefile.lean'
+      - 'lake-manifest.json'
+      - 'lean-toolchain'
+      - '.github/workflows/turbo-lean-cache.yml'
+  pull_request:
+    paths:
+      - '.github/actions/setup-lean/**'
+      - 'Verity/**'
+      - 'Verity.lean'
+      - 'Compiler/**'
+      - 'Compiler.lean'
+      - 'Contracts/**'
+      - 'Contracts.lean'
+      - 'lakefile.lean'
+      - 'lake-manifest.json'
+      - 'lean-toolchain'
+      - '.github/workflows/turbo-lean-cache.yml'
+  workflow_dispatch:
+    inputs:
+      check_file:
+        description: 'Optional .lean file for fast theorem-shard check (e.g. Verity/Core.lean)'
+        required: false
+        default: 'Verity/Core.lean'
+        type: string
+      check_decl:
+        description: 'Optional declaration for single-shard check (e.g. Uint256.add_comm)'
+        required: false
+        default: 'Uint256.add_comm'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: turbo-lean-cache-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
+  VERIFY_MAIN_CACHE_BUCKET: ref-main
+
+jobs:
+  turbo-lean-verify:
+    name: Turbo-Lean Two-Level CAS & Theorem Shard Check
+    runs-on: [self-hosted, linux, x64, verity, build, build-heavy]
+    timeout-minutes: 60
+    env:
+      LEAN_NUM_THREADS: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Materialize reused checkout
+        shell: bash
+        run: |
+          git sparse-checkout disable
+          git reset --hard HEAD
+
+      - name: Setup Lean
+        uses: ./.github/actions/setup-lean
+        with:
+          cache-key-prefix: turbo-lean
+          use-sticky-disks: true
+          sticky-disk-key-prefix: turbo-lean
+          lake-packages-sticky-key: turbo-lean-lake-packages-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
+          lake-packages-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('turbo-lean-lake-packages-{0}-{1}-{2}-{3}-{4}-{5}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, runner.arch, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
+          use-build-sticky-disk: true
+          build-sticky-disk-key: turbo-lean-build-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}
+          build-main-fallback-sticky-key: ${{ github.event_name == 'pull_request' && format('turbo-lean-build-{0}-{1}-{2}-{3}-{4}-{5}', env.VERIFY_MAIN_CACHE_BUCKET, runner.os, runner.arch, hashFiles('lean-toolchain'), hashFiles('lakefile.lean'), hashFiles('lake-manifest.json')) || '' }}
+          disable-lake-cache-restore: "true"
+
+      - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
+        uses: Th0rgal/turbo-lean@33f83860391e8200f1856b7d07b6f5808f3b223d # v0.1.0
+        with:
+          project-dir: "."
+          command: "check"
+          check-file: ${{ inputs.check_file || 'Verity/Core.lean' }}
+          check-decl: ${{ inputs.check_decl || 'Uint256.add_comm' }}
+          cache-key-prefix: verity-turbo-lean-cas-${{ env.VERIFY_CACHE_BUCKET }}
+          max-reclaimable-bytes: "10737418240"
+
+      - name: Run turbo-lean seed-shards, Stdlib Directory Check, pr-verify & verify-receipt
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ -n "${PR_BASE_SHA:-}" ]; then
+            BASE_REF="$PR_BASE_SHA"
+          elif [ -n "${PUSH_BEFORE_SHA:-}" ] && [ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            BASE_REF="$PUSH_BEFORE_SHA"
+          else
+            BASE_REF="HEAD~1"
+          fi
+          turbo-lean --json seed-shards --project-dir .
+          turbo-lean --json check Verity/Proofs/Stdlib --project-dir .
+          turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --receipt /tmp/verity-ci-receipt.json
+          turbo-lean --json verify-receipt /tmp/verity-ci-receipt.json
