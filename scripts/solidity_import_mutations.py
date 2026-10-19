@@ -26,6 +26,8 @@ from solidity_differential.check_external_code_and_low_level_call_mutations impo
     MUTANTS as LOW_LEVEL_CALL_MUTANTS)
 from solidity_differential.check_extcodecopy_struct_decode_mutations import (
     MUTANTS as EXTCODECOPY_STRUCT_DECODE_MUTANTS)
+from solidity_differential.check_dynamic_address_event_mutations import (
+    MUTANTS as DYNAMIC_ADDRESS_EVENT_MUTANTS)
 
 ROOT = Path(__file__).resolve().parents[1]
 SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
@@ -798,6 +800,22 @@ def extcodecopy_struct_decode_mutant(mutant: str) -> None:
     print(f"pass {mutant}", flush=True)
 
 
+def dynamic_address_event_rejections() -> None:
+    module_campaign_output("check_dynamic_address_event_rejections",
+                           "dynamic-address-event-rejections", MUTANT_TIMEOUT)
+    print("pass dynamic-array event located rejections", flush=True)
+
+
+def dynamic_address_event_mutant(mutant: str) -> None:
+    result = module_campaign("check_dynamic_address_event_mutations", mutant,
+                             2 * MUTANT_TIMEOUT, "--only", mutant)
+    if (result["exit"] != 0 or result["selected"] != [mutant]
+            or [r["mutant"] for r in result["results"]] != [mutant]
+            or not all(r["detected"] and r["baselinePassed"] for r in result["results"])):
+        raise SystemExit(f"dynamic-array event mutant {mutant} was not detected")
+    print(f"pass {mutant}", flush=True)
+
+
 def tasks(update_golden: bool) -> list:
     """Independent work items, most expensive first (each runs in its own snapshot).
 
@@ -821,7 +839,8 @@ def tasks(update_golden: bool) -> list:
              ("interface-static-call-rejections", 1, interface_static_call_rejections),
              ("create2-struct-emit-rejections", 1, create2_struct_emit_rejections),
              ("external-code-low-level-call-rejections", 1, low_level_call_rejections),
-             ("extcodecopy-struct-decode-rejections", 1, extcodecopy_struct_decode_rejections)]
+             ("extcodecopy-struct-decode-rejections", 1, extcodecopy_struct_decode_rejections),
+             ("dynamic-address-event-rejections", 1, dynamic_address_event_rejections)]
     items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
@@ -830,6 +849,8 @@ def tasks(update_golden: bool) -> list:
     items += [(m, 2, (lambda m=m: low_level_call_mutant(m))) for m in LOW_LEVEL_CALL_MUTANTS]
     items += [(m, 2, (lambda m=m: extcodecopy_struct_decode_mutant(m)))
               for m in EXTCODECOPY_STRUCT_DECODE_MUTANTS]
+    items += [(m, 2, (lambda m=m: dynamic_address_event_mutant(m)))
+              for m in DYNAMIC_ADDRESS_EVENT_MUTANTS]
     return items
 
 

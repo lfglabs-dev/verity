@@ -142,6 +142,12 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('extcodecopy-struct-decode-rejections', ['-m',
         'solidity_differential.check_extcodecopy_struct_decode_rejections',
         '--output', str(output / 'extcodecopy-struct-decode-rejections')]))
+    checks.append(('dynamic-address-event', ['-m', 'solidity_differential.check_dynamic_address_event',
+        '--transactions', str(max(32, min(transactions, 48))), '--seed', str(seed),
+        '--output', str(output / 'dynamic-address-event')]))
+    checks.append(('dynamic-address-event-rejections', ['-m',
+        'solidity_differential.check_dynamic_address_event_rejections',
+        '--output', str(output / 'dynamic-address-event-rejections')]))
     return run_checks(output, checks, transactions, seed, jobs)
 
 

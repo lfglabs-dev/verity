@@ -8,6 +8,7 @@ import Compiler.SolidityImport.Report
 import Compiler.SolidityImport.AbiRootLowering
 import Compiler.SolidityImport.AbiMemoryDecode
 import Compiler.SolidityImport.AbiEncoding
+import Compiler.SolidityImport.DynamicEventAbi
 
 /-!
 Solidity importer. Pinned `solc --standard-json` supplies the AST, declaration
@@ -13324,7 +13325,9 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
   let parameters ← mArr (← mField (← mField declaration "parameters") "parameters")
   let arguments ← mArr (← mField call "arguments")
   unless parameters.size == arguments.size do failAt call "event argument count differs"
-  if ← parameters.anyM (fun parameter => return (← mType parameter).startsWith "struct ") then
+  if ← parameters.anyM (fun parameter => do
+      let ty ← mType parameter
+      return ty.startsWith "struct " || ty.endsWith "[]") then
     return ← lowerStructEmit callee declaration name parameters arguments id.toNat
   let mut params : List EventParam := []
   let mut values : List Expr := []
@@ -13390,11 +13393,13 @@ private partial def recordUsedEvent (callee : Json) (id : Nat) (definition : Eve
   else
     modify fun e => { e with usedEvents := e.usedEvents ++ [(id, definition)] }
 
-/-- `emit E(...)` with a non-indexed struct parameter. The non-indexed arguments
-are ABI-encoded exactly as `abi.encode(...)` into memory and logged by the closed
-log transport with solc's event selector as topic 0. Indexed parameters must be
-total value-type expressions; they become cleaned topic words. Struct arguments
-must be memory struct variables, so no evaluation order is chosen. -/
+/-- `emit E(...)` with a non-indexed struct or dynamic scalar-array parameter.
+The non-indexed arguments are ABI-encoded exactly as `abi.encode(...)` (struct
+events) or as solc's event encoder for calldata arrays (`DynamicEventAbi`) into
+memory and logged by the closed log transport with solc's event selector as
+topic 0. Indexed parameters must be total value-type expressions; they become
+cleaned topic words. Struct arguments must be memory struct variables, so no
+evaluation order is chosen. -/
 private partial def lowerStructEmit (callee declaration : Json) (name : String)
     (parameters arguments : Array Json) (id : Nat) : M (Array Stmt) := do
   let some selector := optStr declaration "eventSelector"
@@ -13406,6 +13411,7 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
   let mut topics : Array Expr := #[.literal (digits.foldl (fun word d => word * 16 + d) 0)]
   let mut pre : Array Stmt := #[]
   let mut data : Array Json := #[]
+  let mut dataTypes : Array String := #[]
   for index in [:parameters.size] do
     let parameter := parameters[index]!
     let argument := arguments[index]!
@@ -13437,19 +13443,69 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
               | none, some types => pure (.tuple types)
               | none, none => failAt argument "struct event argument has no complete ABI schema"
           | _ => failAt argument "struct event arguments must be memory struct variables"
+        else if let some (_, elementType, _) := scalarArrayElement? ty then
+          pure (.array elementType)
         else match paramType ty with
           | some modelType => pure modelType
           | none => failAt parameter s!"unsupported event parameter type {ty}"
       data := data.push argument
+      dataTypes := dataTypes.push ty
       params := params ++ [{ name := parameterName, ty := modelType, kind := .unindexed }]
   unless topics.size ≤ 4 do failAt declaration "event has more than three indexed parameters"
-  let payload ← lowerAbiEncodeArgs data
+  let payload ← if dataTypes.any (·.endsWith "[]") then
+      lowerDynamicArrayEventPayload dataTypes data
+    else lowerAbiEncodeArgs data
   let pointer ← atom { pre := payload.pre, expr := payload.pointer }
   let size ← atom { pre := #[], expr := payload.size }
   recordUsedEvent callee id { name, params }
   let log := Stmt.ecm (Compiler.ECM.SolidityLog.module name topics.size)
     (topics.toList ++ [pointer.expr, size.expr])
   return (pre ++ pointer.pre ++ size.pre).push log
+
+/-- Non-indexed payload of an event with dynamic scalar-array parameters
+(`DynamicEventAbi.encode`). Array arguments must be entry-decoded `T[] calldata`
+parameters; scalar companions must be total expressions, cleaned to their
+declared type. Struct companions are not admitted on this path. -/
+private partial def lowerDynamicArrayEventPayload (types : Array String) (arguments : Array Json) :
+    M EncodedBytes := do
+  let mut pre : Array Stmt := #[]
+  let mut encoded : List DynamicEventAbi.Argument := []
+  let mut names : List DynamicEventAbi.ArrayNames := []
+  for index in [:arguments.size] do
+    let ty := types[index]!
+    let argument := arguments[index]!
+    if ty.startsWith "struct " then
+      failAt argument "struct and dynamic array event arguments together are unsupported"
+    if ty.endsWith "[]" then
+      let some (elementType, _, kind) := scalarArrayElement? ty
+        | failAt argument s!"unsupported dynamic event array type {ty}"
+      if elementType == "bytes4" then
+        failAt argument s!"unsupported dynamic event array type {ty}"
+      unless (← mKind argument) == "Identifier" do
+        failAt argument "dynamic event array arguments must be calldata array parameters"
+      let .scalarArray id refPre ← lowerRef argument
+        | failAt argument "dynamic event array arguments must be calldata array parameters"
+      let some array := (← get).scalarArrays.find? id
+        | failAt argument "dynamic event array arguments must be calldata array parameters"
+      unless !array.inMemory && refPre.isEmpty && array.elementType == elementType do
+        failAt argument "dynamic event array arguments must be calldata array parameters"
+      encoded := encoded ++ [.calldataArray (.localVar array.dataBinding)
+        (.localVar array.lengthBinding) kind]
+      names := names ++ [{ tail := ← fresh, index := ← fresh, element := ← fresh }]
+    else
+      let some _ := paramType ty | failAt argument s!"unsupported event parameter type {ty}"
+      let value ← convert ty (← mType argument) (← lowerExpr argument) argument
+      unless value.pre.all (fun | .letVar _ _ => true | _ => false) do
+        failAt argument "event arguments currently require total scalar expressions"
+      let word ← atom { value with expr := cleanHelperResultExpr ty value }
+      pre := pre ++ word.pre
+      encoded := encoded ++ [.word word.expr]
+  let pointer ← fresh
+  let size ← fresh
+  let some body := DynamicEventAbi.encode pointer size names encoded
+    | failAt (arguments[0]!) "dynamic event payload names differ from its arrays"
+  modify fun env => { env with encodingMemory := true }
+  return { pre := pre ++ body.toArray, pointer := .localVar pointer, size := .localVar size }
 
 private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String × List Expr) := do
   unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
