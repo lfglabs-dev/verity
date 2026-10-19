@@ -342,6 +342,26 @@ class CompilerMatrixTests(unittest.TestCase):
                          ['importer probe', 'importer probe of function 0', 'importer probe of function 0'])
         hinted = self.blocked(pragma_log('C.sol', 1), accepting=(V10,))
         self.assertTrue(hinted[0]['blocker']['reason'].endswith('accepting the source: ' + V10))
+        with_receive = [
+            {'kind': 'receive', 'name': '', 'types': [], 'declaring_contract': 'C',
+             'file': 'C.sol', 'line': 2, 'column': 5},
+            {'kind': 'function', 'name': 'f', 'types': [], 'declaring_contract': 'C',
+             'file': 'C.sol', 'line': 3, 'column': 5},
+        ]
+        matrix = [{'version': '0.8.34', 'release': V34, 'status': 'version_rejected',
+                   'version_errors': [{'file': 'C.sol', 'line': 1, 'column': 1,
+                                       'pragma': 'pragma solidity =0.5.16;'}], 'other_errors': 0}]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'C.sol').write_text('pragma solidity =0.5.16;\n')
+            with patch('solidity_import_coverage.run',
+                       return_value=CompletedProcess([], 1, pragma_log('C.sol', 1), '')) as run:
+                probed_rows = measure(with_receive, {'entry': 'C.sol', 'contract': 'C'},
+                                      root, root, root, 10, importer_compiler({}), matrix)
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual([r['status'] for r in probed_rows], ['rejected', 'rejected'])
+            self.assertEqual([r['evidence'] for r in probed_rows],
+                             ['importer probe of function 1', 'importer probe'])
 
     def test_version_blocked_disagreement_is_unknown(self):
         for log, code in [('COVERAGE_IMPORT_OK\n', 0),                     # importer accepted

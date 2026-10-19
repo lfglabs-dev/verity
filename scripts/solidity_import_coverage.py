@@ -429,10 +429,15 @@ def version_blocked(functions, target, source_root, out, workspace, timeout, sel
     import closure, so its first location may be an imported file the matrix's
     entry-only rejection never read. Any disagreement leaves every function unknown.
     """
-    attempt = out / '0'
+    witness_index = next((i for i, fn in enumerate(functions)
+                          if fn.get('kind') == 'function' and fn.get('name')), None)
+    probed = 0 if witness_index is None else witness_index
+    attempt = out / str(probed)
     attempt.mkdir(exist_ok=True)
+    witness_fn = (functions[witness_index] if witness_index is not None else {
+        **functions[0], 'kind': 'function', 'name': '__version_witness__', 'types': []})
     try:
-        witness = probe(functions[0], target, source_root, attempt, workspace, timeout)
+        witness = probe(witness_fn, target, source_root, attempt, workspace, timeout)
     except MeasurementError as exc:
         witness = {'status': 'error', 'error': str(exc)}
     blocker = witness.get('blocker', {})
@@ -452,7 +457,7 @@ def version_blocked(functions, target, source_root, out, workspace, timeout, sel
               + (', '.join(accepting) if accepting else 'none'))
     result = {'status': 'rejected', 'blocker': {**blocker, 'reason': reason}}
     return [{**fn, **result,
-             'evidence': 'importer probe' if i == 0 else 'importer probe of function 0'}
+             'evidence': 'importer probe' if i == probed else f'importer probe of function {probed}'}
             for i, fn in enumerate(functions)]
 
 
