@@ -43,30 +43,12 @@ HARD_LIMIT = 50
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
 ALLOWLIST: set[str] = {
-    # Native selected-body handoff: splits generated switch-case freshness into
-    # the actual lowered user-body freshness used by the remaining native
-    # selected-body execution bridge.
-    "nativeGeneratedSelectedUserBodyMatchedFresh_of_switchFresh",
-    # Native selected-body handoff: packages compile-derived closure facts with
-    # switch-freshness-derived matched-flag freshness for the actual lowered
-    # user body. This deliberately stays private until the execution bridge is
-    # closed.
-    "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
-    # Projected native dispatcher result wrapper has a short proof body, but
-    # the scanner includes the following public runtime-harness doc block.
-    "nativeDispatcherExecMatchesIRPositive_of_project_eq_match",
     # --- Misc ---
     # PR #1915 init-prefixed dispatcher bridge. These proofs are generated-code
     # shape peel/reduction endpoints for `initFreeMemoryPointer; buildSwitch`.
     # They keep the concrete init `mstore(0x40, 128)` state transition and
     # selector switch lowering explicit; splitting further would mainly create
     # one-use wrappers around the same generated dispatcher case analysis.
-    "sizeOf_emitYul_runtimeCode_mapping_ge_lowered_cases_length_plus25",
-    "lowerStmtsNative_initFreeMemoryPointer_buildSwitch_noFallback_noReceive_ok_prefixed_block",
-    "nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_atFuel",
-    "nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive",
-    "nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds_atFuel",
-    "nativeDispatcherExecMatchesIRPositive_of_initFreeMemoryPointer_buildSwitch_selector_miss_noFallback_noReceive_withSwitchIds",
     "exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasSelectorState_projectResult_eq",
     "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_error_projectResult_eq",
     "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_ok_projectResult_eq_finalMatched",
@@ -82,27 +64,10 @@ ALLOWLIST: set[str] = {
 ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
     re.compile(pattern)
     for pattern in (
-        r"^compile_preserves_native_evmYulLean_",
-        r"^nativeDispatcherExecMatchesIRPositive_of_buildSwitch_",
-        r"^nativeGenerated(?:SelectorHit|CallDispatcherResult|CallDispatcherMatchesIR)_",
-        r"^nativeGeneratedSelectorHit(?:SuccessUserBody)?LoweredArtifacts.*$",
-        r"^NativeGenerated(?:SelectorHit|SelectedUserBody).*",
         r"^contractDispatcherExecResult_buildSwitch_noFallback_noReceive_",
         r"^contractDispatcherExecResult_block_lowerNativeSwitchBlock_",
         r"^exec_(?:block_)?lowerNativeSwitchBlock_.*"
         r"(?:generated_prefix|finalMatched_store_fuel)$",
-        r"^NativeBlockPreservesWord(?:_revived)?_switchCaseBody_"
-        r"(?:payable|nonpayable)_of_user_body$",
-        r"^nativeGeneratedSelectorHitBodyPreservesMatched_.*$",
-        r"^nativeGeneratedSelectorHit_success_of_user_body_exec_bridge_atFuel_revived.*$",
-        r"^nativeResultsMatchOn_execIRFunction_.*_markedPrefix$",
-        r"^lowerRuntimeContractNative_of_compile_ok_supported_exists$",
-        r"^lowerStmtsNative(?:WithSwitchIds)?_buildSwitch_noFallback_noReceive_ok_block$",
-        r"^sizeOf_(?:buildSwitch_noFallback_noReceive_ge_source_cases_length"
-        r"(?:_plus24)?|emitYul_runtimeCode_mapping_ge_lowered_cases_length"
-        r"(?:_plus24)?)$",
-        r"^supportedStmtList_safe_of_state_"
-        r"(?:effect_closed|except_mapping_writes_stmt_safety)$",
     )
 )
 
