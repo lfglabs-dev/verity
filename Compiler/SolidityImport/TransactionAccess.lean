@@ -106,6 +106,24 @@ def statementAccesses (oracle : DenoteOracle) (fields : List Field)
           let (_, touched) ← executeByteOptionalBoolCall oracle fields state mod resultVar selector
             numWordArgs args
           return reads.flatten ++ touched
+      | some (.staticBool resultVar selector numStaticArgs) =>
+          let preparation ← prepareByteStaticCall oracle fields state resultVar selector numStaticArgs args
+          let reads ← preparation.reads.mapM fun (input, expr) =>
+            expressionAccesses oracle fields input expr
+          let (_, touched) ← executeByteStaticBoolCall oracle fields state mod resultVar selector numStaticArgs args
+          return reads.flatten ++ touched
+      | some (.staticBytesUint256 resultVar selector) =>
+          let preparation ← prepareByteStaticBytesCall oracle fields state resultVar selector args
+          let reads ← preparation.reads.mapM fun (input, expr) =>
+            expressionAccesses oracle fields input expr
+          let (_, touched) ← executeByteStaticBytesUint256Call oracle fields state mod resultVar selector args
+          return reads.flatten ++ touched
+      | some (.staticBytesBool resultVar selector) =>
+          let preparation ← prepareByteStaticBytesCall oracle fields state resultVar selector args
+          let reads ← preparation.reads.mapM fun (input, expr) =>
+            expressionAccesses oracle fields input expr
+          let (_, touched) ← executeByteStaticBytesBoolCall oracle fields state mod resultVar selector args
+          return reads.flatten ++ touched
       | _ => pure ()
       let some (.staticUint256 resultVar selector numStaticArgs) := mod.byteTransport
         | throw "unsupported legacy ECM storage observation"

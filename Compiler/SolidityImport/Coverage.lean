@@ -120,6 +120,27 @@ def staticUint256Covered (mod : Compiler.ECM.ExternalCallModule) (args : List Ex
         decide (selector < 2 ^ 32) && args.length == numStaticArgs + 1 && exprListCovered args
   | _ => false
 
+def staticBoolCovered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
+  match mod.byteTransport with
+  | some (.staticBool resultVar selector numStaticArgs) =>
+      mod == Compiler.ECM.SolidityStaticCall.boolModule resultVar selector numStaticArgs &&
+        decide (selector < 2 ^ 32) && args.length == numStaticArgs + 1 && exprListCovered args
+  | _ => false
+
+def staticBytesUint256Covered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
+  match mod.byteTransport with
+  | some (.staticBytesUint256 resultVar selector) =>
+      mod == Compiler.ECM.SolidityStaticCall.bytesUint256Module resultVar selector &&
+        decide (selector < 2 ^ 32) && args.length == 3 && exprListCovered args
+  | _ => false
+
+def staticBytesBoolCovered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
+  match mod.byteTransport with
+  | some (.staticBytesBool resultVar selector) =>
+      mod == Compiler.ECM.SolidityStaticCall.bytesBoolModule resultVar selector &&
+        decide (selector < 2 ^ 32) && args.length == 3 && exprListCovered args
+  | _ => false
+
 /-- The closed byte transports admitted by the importer: the typed-interface
 `staticcall`, `create2` over physical memory, ABI event logs, the optional-bool
 low-level `call`, `<address>.code.length`, `<address>.code` and the memory
@@ -128,6 +149,9 @@ canonical module. -/
 def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
   match mod.byteTransport with
   | some (.staticUint256 ..) => staticUint256Covered mod args
+  | some (.staticBool ..) => staticBoolCovered mod args
+  | some (.staticBytesUint256 ..) => staticBytesUint256Covered mod args
+  | some (.staticBytesBool ..) => staticBytesBoolCovered mod args
   | some (.create2 resultVar) =>
       mod == Compiler.ECM.SolidityCreate2.module resultVar && args.length == 4 &&
         exprListCovered args
@@ -316,6 +340,36 @@ theorem execStmt_ecm_staticUint256_arm (oracle : DenoteOracle) (fields : List Fi
       (match executeByteStaticCall oracle fields state
           (Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs)
           resultVar selector numStaticArgs args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+theorem execStmt_ecm_staticBool_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector numStaticArgs : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityStaticCall.boolModule resultVar selector numStaticArgs) args) =
+      (match executeByteStaticBoolCall oracle fields state
+          (Compiler.ECM.SolidityStaticCall.boolModule resultVar selector numStaticArgs)
+          resultVar selector numStaticArgs args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+theorem execStmt_ecm_staticBytesUint256_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityStaticCall.bytesUint256Module resultVar selector) args) =
+      (match executeByteStaticBytesUint256Call oracle fields state
+          (Compiler.ECM.SolidityStaticCall.bytesUint256Module resultVar selector)
+          resultVar selector args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+theorem execStmt_ecm_staticBytesBool_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityStaticCall.bytesBoolModule resultVar selector) args) =
+      (match executeByteStaticBytesBoolCall oracle fields state
+          (Compiler.ECM.SolidityStaticCall.bytesBoolModule resultVar selector)
+          resultVar selector args with
        | .ok (outcome, _) => outcome
        | .error _ => .revert) := rfl
 

@@ -3743,6 +3743,12 @@ private def isClosedStaticCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
   match mod.byteTransport with
   | some (.staticUint256 resultVar selector numStaticArgs) =>
       mod == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs
+  | some (.staticBool resultVar selector numStaticArgs) =>
+      mod == Compiler.ECM.SolidityStaticCall.boolModule resultVar selector numStaticArgs
+  | some (.staticBytesUint256 resultVar selector) =>
+      mod == Compiler.ECM.SolidityStaticCall.bytesUint256Module resultVar selector
+  | some (.staticBytesBool resultVar selector) =>
+      mod == Compiler.ECM.SolidityStaticCall.bytesBoolModule resultVar selector
   | _ => false
 
 /-- Replace each closed interface staticcall by its zero-initialised result
@@ -5786,29 +5792,13 @@ private partial def lowerEncodedRoot (arg : Json) : M EncodedBytes := do
     | failAt arg "ABI encoding requires a root struct reference"
   lowerEncodedMem id effects arg
 
-/-- Encode the root tuple of the struct reference `id` after its `effects`. -/
-private partial def lowerEncodedMem (id : Nat) (effects : Array Stmt) (arg : Json) :
-    M EncodedBytes := do
+/-- Encode the head words and dynamic tails of the struct reference `id` into
+`tuple` (where `32 * schema.length` head bytes have already been reserved). -/
+private partial def lowerEncodedMemBody (id : Nat) (tuple : Expr) (arg : Json) :
+    M (Array Stmt) := do
   let some mem := (← get).mems.find? id | failAt arg "unknown encoding root"
-  let pointer ← fresh
-  let finish ← fresh
-  modify fun env => { env with encodingMemory := true }
-  if let some types := mem.staticTypes then
-    let mut pre := effects
-    let mut values := []
-    for (name, _) in mem.members do
-      let value ← atom (← readAbiMember id #[] name arg)
-      pre := pre ++ value.pre
-      values := values ++ [value.expr]
-    unless values.length == types.length do failAt arg "static encoding schema mismatch"
-    pre := pre ++ (AbiEncoding.staticWords pointer finish values).toArray
-    return { pre, pointer := .localVar pointer, size := .literal (32 * values.length) }
   let some schema := mem.schema | failAt arg "missing full ABI encoding schema"
-  let base := Expr.localVar pointer
-  let tuple := Expr.add base (.literal 32)
-  let mut pre := effects ++ (AbiEncoding.reserve pointer finish
-    (.literal (32 * (schema.length + 1)))).toArray
-  pre := pre.push (.mstore base (.literal 32))
+  let mut pre : Array Stmt := #[]
   for (member, memberIndex) in schema.zipIdx do
     let destination := Expr.add tuple (.literal (32 * memberIndex))
     match member with
@@ -5816,8 +5806,86 @@ private partial def lowerEncodedMem (id : Nat) (effects : Array Stmt) (arg : Jso
         let value ← atom (← readAbiMember id #[] field.name arg)
         pre := pre ++ value.pre
         pre := pre.push (.mstore destination value.expr)
-    | .bytesField _ | .nestedStruct _ _ _ _ _ =>
-        failAt arg "ABI encoding of nested dynamic structs or bytes fields is outside this slice"
+    | .bytesField _ =>
+        let length ← fresh
+        let data ← fresh
+        if mem.calldataLocation then
+          let header ← fresh
+          pre := pre ++ (AbiLowering.calldataBytesFieldHead
+            (.localVar (mem.abiStem ++ "_calldata")) memberIndex header length data).toArray
+        else
+          let bytesPtr ← fresh
+          pre := pre ++ #[
+            .letVar bytesPtr (.mload (.add (.localVar (mem.abiStem ++ "_memory"))
+              (.literal (32 * memberIndex)))),
+            .letVar length (.mload (.localVar bytesPtr)),
+            .letVar data (.add (.localVar bytesPtr) (.literal 32))]
+        let tailPtr ← fresh
+        let tailLenEnd ← fresh
+        pre := pre ++ (AbiEncoding.reserve tailPtr tailLenEnd (.literal 32)).toArray
+        pre := pre ++ #[
+          .mstore destination (.sub (.localVar tailPtr) tuple),
+          .mstore (.localVar tailPtr) (.localVar length)]
+        let payloadPtr ← fresh
+        let payloadEnd ← fresh
+        let clearIdx ← fresh
+        pre := pre ++ (AbiEncoding.packedBuffer payloadPtr payloadEnd clearIdx (.localVar length)).toArray
+        let copyIdx ← fresh
+        let byteName ← fresh
+        let addrName ← fresh
+        if mem.calldataLocation then
+          let idx := Expr.localVar copyIdx
+          let shift := Expr.mul (.literal 8) (.sub (.literal 31) (AbiEncoding.byteLane idx))
+          let sourceWord := Expr.calldataload (.add (.localVar data) (AbiEncoding.byteWordOffset idx))
+          let addr := Expr.localVar addrName
+          pre := pre.push (.forEach copyIdx (.localVar length) [
+            .letVar byteName (.bitAnd (.shr shift sourceWord) (.literal 255)),
+            .letVar addrName (.add (.localVar payloadPtr) (AbiEncoding.byteWordOffset idx)),
+            .mstore addr (.add (.mload addr) (.shl shift (.localVar byteName)))])
+        else
+          pre := pre.push (AbiEncoding.copyBytes (.localVar data) (.localVar payloadPtr)
+            (.literal 0) (.localVar length) copyIdx byteName addrName)
+    | .nestedStruct mname subSid subSname subMembers subSchema =>
+        let subId := 1000000000 + (← get).next
+        modify fun e => { e with next := e.next + 1 }
+        if mem.calldataLocation then
+          let subStem ← freshAbiStem subSchema false
+          let checks := AbiLowering.nestedStructCalldataHead
+            (.localVar (mem.abiStem ++ "_calldata")) memberIndex subSchema.length (subStem ++ "_calldata")
+          let subMem : MemParam :=
+            { structId := subSid
+              param := s!"{mem.param}_{mname}"
+              structName := subSname
+              members := subMembers.toArray
+              staticTypes := none
+              calldataLocation := true
+              headBinding := ""
+              schema := some subSchema
+              abiStem := subStem }
+          modify fun e => { e with mems := e.mems.insert subId subMem }
+          pre := pre ++ checks.toArray
+        else
+          let subStem ← freshAbiStem subSchema true
+          let loadPtr := Stmt.letVar (subStem ++ "_memory")
+            (.mload (.add (.localVar (mem.abiStem ++ "_memory")) (.literal (32 * memberIndex))))
+          let subMem : MemParam :=
+            { structId := subSid
+              param := s!"{mem.param}_{mname}"
+              structName := subSname
+              members := subMembers.toArray
+              staticTypes := none
+              calldataLocation := false
+              headBinding := ""
+              schema := some subSchema
+              abiStem := subStem }
+          modify fun e => { e with mems := e.mems.insert subId subMem }
+          pre := pre.push loadPtr
+        let subTuple ← fresh
+        let subTupleEnd ← fresh
+        pre := pre ++ (AbiEncoding.reserve subTuple subTupleEnd
+          (.literal (32 * subSchema.length))).toArray
+        pre := pre.push (.mstore destination (.sub (.localVar subTuple) tuple))
+        pre := pre ++ (← lowerEncodedMemBody subId (.localVar subTuple) arg)
     | .scalarArray _ | .structArray _ _ =>
         let kinds : List SolidityAbi.ScalarKind := match member with
           | .scalarArray field => [field.kind]
@@ -5862,6 +5930,32 @@ private partial def lowerEncodedMem (id : Nat) (effects : Array Stmt) (arg : Jso
             (.mul (.localVar index) (.literal (32 * kinds.length)))
           body := body ++ [.mstore (.add (.add (.localVar tail) (.literal 32)) offset) value]
         pre := pre.push (.forEach index (.localVar length) body)
+  return pre
+
+/-- Encode the root tuple of the struct reference `id` after its `effects`. -/
+private partial def lowerEncodedMem (id : Nat) (effects : Array Stmt) (arg : Json) :
+    M EncodedBytes := do
+  let some mem := (← get).mems.find? id | failAt arg "unknown encoding root"
+  let pointer ← fresh
+  let finish ← fresh
+  modify fun env => { env with encodingMemory := true }
+  if let some types := mem.staticTypes then
+    let mut pre := effects
+    let mut values := []
+    for (name, _) in mem.members do
+      let value ← atom (← readAbiMember id #[] name arg)
+      pre := pre ++ value.pre
+      values := values ++ [value.expr]
+    unless values.length == types.length do failAt arg "static encoding schema mismatch"
+    pre := pre ++ (AbiEncoding.staticWords pointer finish values).toArray
+    return { pre, pointer := .localVar pointer, size := .literal (32 * values.length) }
+  let some schema := mem.schema | failAt arg "missing full ABI encoding schema"
+  let base := Expr.localVar pointer
+  let tuple := Expr.add base (.literal 32)
+  let mut pre := effects ++ (AbiEncoding.reserve pointer finish
+    (.literal (32 * (schema.length + 1)))).toArray
+  pre := pre.push (.mstore base (.literal 32))
+  pre := pre ++ (← lowerEncodedMemBody id tuple arg)
   let size ← fresh
   pre := pre.push (.letVar size (.sub (.mload (.literal 64)) base))
   return { pre, pointer := base, size := .localVar size }
@@ -7250,8 +7344,9 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
   lowerAbiEncodeArgs args
 
 /-- `abi.encode(args...)` into a fresh aligned memory buffer. -/
-private partial def lowerAbiEncodeArgs (args : Array Json) : M EncodedBytes := do
-  if args.size == 1 then
+private partial def lowerAbiEncodeArgs (args : Array Json)
+    (params? : Option (Array Json) := none) : M EncodedBytes := do
+  if args.size == 1 && params?.isNone then
     if (← mType args[0]!).startsWith "struct " && !(← mType args[0]!).contains "[" then
       let isMemRoot ← if (← mKind args[0]!) != "FunctionCall" && (← mKind args[0]!) != "Conditional" && (← mKind args[0]!) != "TupleExpression" then
         match ← lowerRef args[0]! with
@@ -7267,14 +7362,30 @@ private partial def lowerAbiEncodeArgs (args : Array Json) : M EncodedBytes := d
     ty == "string" || ty == "string memory" || ty == "string calldata" ||
     ty == "string storage ref" || ty == "string storage pointer" ||
     ty.startsWith "literal_string "
-  let hasDynamicBytesOrString ← args.anyM fun arg => do
-    pure (isDynamicBytesOrString (← mType arg))
-  if hasDynamicBytesOrString then
+  let dynamicStructMem? (arg : Json) : M (Option (Nat × Array Stmt × List AbiSchema.Member)) := do
+    let ty ← mType arg
+    unless ty.startsWith "struct " && !ty.contains "[" do return none
+    unless (← mKind arg) != "FunctionCall" && (← mKind arg) != "Conditional" &&
+        (← mKind arg) != "TupleExpression" do
+      return none
+    match ← lowerRef arg with
+    | .mem id effects =>
+        match (← get).mems.find? id with
+        | some mem => return mem.schema.map fun schema => (id, effects, schema)
+        | none => return none
+    | _ => return none
+  let hasDynamic ← args.anyM fun arg => do
+    return isDynamicBytesOrString (← mType arg) || (← dynamicStructMem? arg).isSome
+  if hasDynamic then
     let mut pre : Array Stmt := #[]
     let mut headWords : Array (Option Expr) := #[]
-    let mut dynTails : Array (Nat × Expr × Expr) := #[]
-    for arg in args do
+    let mut dynTails : Array (Nat × Sum (Nat × List AbiSchema.Member × Json) (Expr × Expr)) := #[]
+    for argIdx in [:args.size] do
+      let arg := args[argIdx]!
       let ty ← mType arg
+      let targetTy ← match params? with
+        | some ps => mType ps[argIdx]!
+        | none => pure ty
       if isDynamicBytesOrString ty then
         if args.size > 1 && (assignmentIn arg || statefulCallIn arg (← get) || jsonHasCustomRevert (← get) [] arg) then
           failAt arg "effectful ABI encoding argument is unsupported"
@@ -7284,17 +7395,23 @@ private partial def lowerAbiEncodeArgs (args : Array Json) : M EncodedBytes := d
         pre := pre ++ buf.pre ++ ptrVal.pre ++ sizeVal.pre
         let headIdx := headWords.size
         headWords := headWords.push none
-        dynTails := dynTails.push (headIdx, ptrVal.expr, sizeVal.expr)
+        dynTails := dynTails.push (headIdx, .inr (ptrVal.expr, sizeVal.expr))
+      else if let some (id, effects, schema) ← dynamicStructMem? arg then
+        checkEncodingStructRef arg
+        pre := pre ++ effects
+        let headIdx := headWords.size
+        headWords := headWords.push none
+        dynTails := dynTails.push (headIdx, .inl (id, schema, arg))
       else if ty.startsWith "struct " && !ty.contains "[" then
         let (sPre, sWords) ← lowerEncodedStaticStructWords arg
         pre := pre ++ sPre
         for w in sWords do
           headWords := headWords.push (some w)
       else
-        unless (paramType ty).isSome do
-          failAt arg s!"unsupported ABI encoding argument type {ty}"
+        unless (paramType targetTy).isSome do
+          failAt arg s!"unsupported ABI encoding argument type {targetTy}"
         checkEncodingScalar arg
-        let raw ← lowerExpr arg
+        let raw ← convert targetTy ty (← lowerExpr arg) arg
         let value ← if raw.pre.isEmpty then pure raw else atom raw
         pre := pre ++ value.pre
         headWords := headWords.push (some value.expr)
@@ -7306,40 +7423,52 @@ private partial def lowerAbiEncodeArgs (args : Array Json) : M EncodedBytes := d
     for idx in [:headWords.size] do
       if let some w := headWords[idx]! then
         pre := pre.push (.mstore (.add base (.literal (32 * idx))) w)
-    for (headIdx, bufPtr, bufSize) in dynTails do
-      let tailPtr ← fresh
-      let tailLenEnd ← fresh
-      pre := pre ++ (AbiEncoding.reserve tailPtr tailLenEnd (.literal 32)).toArray
-      pre := pre ++ #[
-        .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),
-        .mstore (.localVar tailPtr) bufSize
-      ]
-      let payloadPtr ← fresh
-      let payloadEnd ← fresh
-      let clearIdx ← fresh
-      pre := pre ++ (AbiEncoding.packedBuffer payloadPtr payloadEnd clearIdx bufSize).toArray
-      let copyIdx ← fresh
-      let byteName ← fresh
-      let addrName ← fresh
-      pre := pre.push (AbiEncoding.copyBytes bufPtr (.localVar payloadPtr) (.literal 0) bufSize copyIdx byteName addrName)
+    for (headIdx, tailItem) in dynTails do
+      match tailItem with
+      | .inl (id, schema, argNode) =>
+          let tailTuple ← fresh
+          let tailTupleEnd ← fresh
+          pre := pre ++ (AbiEncoding.reserve tailTuple tailTupleEnd (.literal (32 * schema.length))).toArray
+          pre := pre.push (.mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailTuple) base))
+          pre := pre ++ (← lowerEncodedMemBody id (.localVar tailTuple) argNode)
+      | .inr (bufPtr, bufSize) =>
+          let tailPtr ← fresh
+          let tailLenEnd ← fresh
+          pre := pre ++ (AbiEncoding.reserve tailPtr tailLenEnd (.literal 32)).toArray
+          pre := pre ++ #[
+            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailPtr) base),
+            .mstore (.localVar tailPtr) bufSize
+          ]
+          let payloadPtr ← fresh
+          let payloadEnd ← fresh
+          let clearIdx ← fresh
+          pre := pre ++ (AbiEncoding.packedBuffer payloadPtr payloadEnd clearIdx bufSize).toArray
+          let copyIdx ← fresh
+          let byteName ← fresh
+          let addrName ← fresh
+          pre := pre.push (AbiEncoding.copyBytes bufPtr (.localVar payloadPtr) (.literal 0) bufSize copyIdx byteName addrName)
     let totalSize ← fresh
     pre := pre.push (.letVar totalSize (.sub (.mload (.literal 64)) base))
     return { pre, pointer := base, size := .localVar totalSize }
   let mut pre := #[]
   let mut words := []
-  for arg in args do
+  for argIdx in [:args.size] do
+    let arg := args[argIdx]!
     let ty ← mType arg
+    let targetTy ← match params? with
+      | some ps => mType ps[argIdx]!
+      | none => pure ty
     if ty.startsWith "struct " && !ty.contains "[" then
       let (sPre, sWords) ← lowerEncodedStaticStructWords arg
       pre := pre ++ sPre
       words := words ++ sWords
     else
-      unless (paramType ty).isSome do
-        failAt arg s!"unsupported ABI encoding argument type {ty}"
+      unless (paramType targetTy).isSome do
+        failAt arg s!"unsupported ABI encoding argument type {targetTy}"
       -- Avoid assigning an evaluation order to multiple effectful arguments.
       -- Scalar paths and casts have no source-level writes or custom reverts.
       checkEncodingScalar arg
-      let raw ← lowerExpr arg
+      let raw ← convert targetTy ty (← lowerExpr arg) arg
       let value ← if raw.pre.isEmpty then pure raw else atom raw
       pre := pre ++ value.pre
       words := words ++ [value.expr]
@@ -7762,15 +7891,17 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   let vals ← lowerCallArgs j receiver?
   pure (fnId, vals)
 
-/-- `I(a).f()` for a parameterless `view` interface function returning one
-`uint256`. solc 0.8.34 (via-IR) emits `staticcall(gas(), a, p, 4, p, 32)` at the
-free pointer, forwards a failed call's complete return data as the revert
-payload, reverts with no data on fewer than 32 return bytes, decodes the first
-word and ignores extra bytes. With return data expected, the code-existence
-check is omitted, so an account without code takes the short-return revert. The
-closed `SolidityStaticCall.uint256Module` transport has exactly this meaning in
-Denote and in compiled Yul. Placement is restricted to whole statement values so
-the call's position among other effects and reverts is the source order. -/
+/-- `I(a).f(args...)` for a `view` interface function returning a single
+`uint256`, `bytes32` or `bool` over scalar, struct or dynamic `bytes`/`string`
+arguments. solc 0.8.34 (via-IR) ABI-encodes the selector and arguments at the
+free pointer, emits `staticcall(gas(), a, p, len, p, 32)`, forwards a failed
+call's complete return data as the revert payload, reverts with no data on fewer
+than 32 return bytes, decodes the first word (rejecting values `> 1` for `bool`)
+and ignores extra bytes. With return data expected, the code-existence check is
+omitted, so an account without code takes the short-return revert. The closed
+`SolidityStaticCall` transports have this exact meaning in Denote and in
+compiled Yul. Placement is restricted to admitted statement positions so the
+call's position among other effects and reverts is the source order. -/
 private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   let callee ← mField j "expression"
   let id ← refInt callee
@@ -7781,14 +7912,12 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     failAt callee "typed interface calls to non-view functions are outside this slice"
   let params ← mArr (← mField (← mField decl "parameters") "parameters")
   let args ← mArr (← mField j "arguments")
-  unless params.isEmpty && args.isEmpty do
+  unless params.size == args.size do
     failAt j "typed interface staticcall arguments are outside this slice"
   let rets ← mArr (← mField (← mField decl "returnParameters") "parameters")
   let returnTypes ← rets.mapM mType
-  unless returnTypes == #["uint256"] do
-    failAt callee "typed interface staticcall must return exactly one uint256"
-  unless (← mType callee) == "function () view external returns (uint256)" do
-    failAt callee s!"unexpected typed interface call type {← mType callee}"
+  unless returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"] do
+    failAt callee "typed interface staticcall must return a single uint256, bytes32 or bool"
   let some hex := optStr decl "functionSelector"
     | failAt callee "interface function has no functionSelector"
   unless hex.length == 8 do
@@ -7809,6 +7938,79 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   modify fun e => { e with admittedInterfaceCall := none }
   let target ← atom (← lowerExpr convArgs[0]!)
   let result ← fresh
+  if !args.isEmpty || returnTypes[0]! == "bool" then
+    let isDynBytesOrString (ty : String) : Bool :=
+      ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
+      ty == "bytes storage ref" || ty == "bytes storage pointer" ||
+      ty == "string" || ty == "string memory" || ty == "string calldata" ||
+      ty == "string storage ref" || ty == "string storage pointer" ||
+      ty.startsWith "literal_string "
+    let mut hasDynamicArg := false
+    for (param, arg) in params.zip args do
+      if statefulCallIn arg (← get) || assignmentIn arg then
+        failAt j "typed interface staticcall arguments are outside this slice"
+      let pty ← mType param
+      let argTy ← mType arg
+      if pty == "bytes" || pty == "string" then
+        unless isDynBytesOrString argTy do
+          failAt j "typed interface staticcall arguments are outside this slice"
+        hasDynamicArg := true
+      else if pty.startsWith "struct " && !pty.contains "[" then
+        unless argTy.startsWith "struct " && !argTy.contains "[" do
+          failAt j "typed interface staticcall arguments are outside this slice"
+        let (pSid, pDecl) ← resolveStructDeclFromType param
+        let (argSid, _) ← resolveStructDeclFromType arg
+        unless pSid == argSid do
+          failAt j "typed interface staticcall arguments are outside this slice"
+        let pMembers ← mArr (← mField pDecl "members")
+        if pMembers.isEmpty then
+          failAt j "typed interface staticcall arguments are outside this slice"
+        let isStaticStruct ← pMembers.allM fun mNode => do
+          let mTy ← mType mNode
+          pure (!mTy.startsWith "enum " && (paramType mTy).isSome)
+        if !isStaticStruct then
+          let structs := (← get).structs
+          match AbiSchema.root (fun id => structs.find? id) pDecl with
+          | .ok schema =>
+              unless schema.any AbiSchema.isDynamicMember do
+                failAt j "typed interface staticcall arguments are outside this slice"
+              hasDynamicArg := true
+          | .error _ =>
+              failAt j "typed interface staticcall arguments are outside this slice"
+      else
+        unless (paramType pty).isSome && !pty.startsWith "enum " do
+          failAt j "typed interface staticcall arguments are outside this slice"
+    if hasDynamicArg then
+      let payload ← lowerAbiEncodeArgs args (some params)
+      let payloadPtr ← atom { pre := payload.pre, expr := payload.pointer }
+      let payloadSize ← atom { pre := #[], expr := payload.size }
+      let mod := if returnTypes[0]! == "bool" then
+        Compiler.ECM.SolidityStaticCall.bytesBoolModule result selector
+      else
+        Compiler.ECM.SolidityStaticCall.bytesUint256Module result selector
+      let callPre := (target.pre ++ payloadPtr.pre ++ payloadSize.pre).push
+        (.ecm mod [target.expr, payloadPtr.expr, payloadSize.expr])
+      return { pre := callPre, expr := .localVar result }
+    let mut pre := target.pre
+    let mut words : Array Expr := #[]
+    for (param, arg) in params.zip args do
+      let pty ← mType param
+      let argTy ← mType arg
+      if pty.startsWith "struct " && !pty.contains "[" then
+        let (sPre, sWords) ← lowerEncodedStaticStructWords arg
+        pre := pre ++ sPre
+        words := words ++ sWords.toArray
+      else
+        checkEncodingScalar arg
+        let word ← atom (← convert pty argTy (← lowerExpr arg) arg)
+        pre := pre ++ word.pre
+        words := words.push word.expr
+    let mod := if returnTypes[0]! == "bool" then
+      Compiler.ECM.SolidityStaticCall.boolModule result selector words.size
+    else
+      Compiler.ECM.SolidityStaticCall.uint256Module result selector words.size
+    let callPre := pre.push (.ecm mod (target.expr :: words.toList))
+    return { pre := callPre, expr := .localVar result }
   pure { pre := target.pre.push
            (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result selector 0) [target.expr]),
          expr := .localVar result }
@@ -12983,8 +13185,66 @@ private partial def extractStringLiteralOrConstant (message : Json) (forRevert :
     failAt message s!"{label} message bytes are not represented exactly by UTF-8"
   return value
 
+private partial def hasInterfaceExternalCall (j : Json) : M Bool := do
+  if ← isInterfaceExternalCall j then return true
+  match j with
+  | .obj kvs => kvs.toList.anyM fun (_, v) => hasInterfaceExternalCall v
+  | .arr xs => xs.anyM hasInterfaceExternalCall
+  | _ => return false
+
+private partial def isPureEqualityPeer (j : Json) : M Bool := do
+  let j := unparenJson j
+  if statefulCallIn j (← get) || assignmentIn j || (← hasInterfaceExternalCall j) then
+    return false
+  match ← mKind j with
+  | "Literal" => return true
+  | "Identifier" =>
+      let id ← refInt j
+      if id < 0 then return false
+      let env ← get
+      if env.values.contains id.toNat || env.numericConstants.contains id.toNat then
+        return true
+      if let some decl := env.stateVars.find? id.toNat then
+        return (field? decl "constant").bind (·.getBool?.toOption) == some true
+      return false
+  | "FunctionCall" =>
+      if optStr j "kind" == some "typeConversion" then
+        let args ← mArr (← mField j "arguments")
+        if args.size == 1 then
+          return ← isPureEqualityPeer args[0]!
+      return false
+  | _ => return false
+
+private partial def admittedRequireInterfaceCall? (cond : Json) : M (Option Json) := do
+  let cond := unparenJson cond
+  match ← mKind cond with
+  | "FunctionCall" =>
+      if ← isInterfaceExternalCall cond then return some cond else return none
+  | "BinaryOperation" =>
+      let op ← mStr (← mField cond "operator")
+      let left ← mField cond "leftExpression"
+      let right ← mField cond "rightExpression"
+      if op == "||" || op == "&&" then
+        if statefulCallIn left (← get) || assignmentIn left || (← hasInterfaceExternalCall left) then
+          return none
+        admittedRequireInterfaceCall? right
+      else if op == "==" || op == "!=" then
+        let left := unparenJson left
+        let right := unparenJson right
+        if (← isInterfaceExternalCall left) && (← isPureEqualityPeer right) then
+          return some left
+        else if (← isInterfaceExternalCall right) && (← isPureEqualityPeer left) then
+          return some right
+        else
+          return none
+      else
+        return none
+  | _ => return none
+
 private partial def lowerRequire (statement : Json) : M (Array Stmt) :=
-  lowerRequireWith statement lowerExpr
+  lowerRequireWith statement fun cond => do
+    let admitted ← admittedRequireInterfaceCall? cond
+    withAdmittedInterfaceCall admitted (lowerExpr cond)
 
 /-- A builtin `require` whose condition is lowered by `lowerCondition`. -/
 private partial def lowerRequireWith (statement : Json) (lowerCondition : Json → M Val) :

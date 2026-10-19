@@ -47,8 +47,8 @@ MUTANTS = {
         'unless convTypes == #["address"] do',
         'unless convTypes.size == 1 do', 'admission', 'payable-receiver'),
     'import-interface-static-return-guard': (IMPORT,
-        'unless returnTypes == #["uint256"] do',
-        'unless returnTypes.size == 1 do', 'admission', 'bool-return'),
+        'unless returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"] do',
+        'unless returnTypes.size == 1 do', 'admission', 'narrow-return'),
 }
 
 

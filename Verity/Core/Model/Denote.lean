@@ -1392,6 +1392,142 @@ def classifyOptionalBoolCall (success : Bool) (data : List UInt8) : OptionalBool
   else if 1 < leadingWord data then .malformed
   else .decoded (leadingWord data)
 
+inductive StaticBoolCallResult where
+  | forward (data : List UInt8)
+  | malformed
+  | decoded (word : Nat)
+  deriving DecidableEq, Repr
+
+def classifyStaticBoolCall (success : Bool) (data : List UInt8) : StaticBoolCallResult :=
+  if !success then .forward data
+  else if data.length < 32 then .malformed
+  else if 1 < leadingWord data then .malformed
+  else .decoded (leadingWord data)
+
+inductive StaticWordCallResult where
+  | forward (data : List UInt8)
+  | malformed
+  | decoded (word : Nat)
+  deriving DecidableEq, Repr
+
+def classifyStaticWordCall (success : Bool) (data : List UInt8) : StaticWordCallResult :=
+  if !success then .forward data
+  else if data.length < 32 then .malformed
+  else .decoded (leadingWord data)
+
+/-- Prepare the scratch writes made by a selector-plus-memory-payload staticcall
+transport (`[target, offset, size]`). The selector is written at the free
+pointer, `[offset, offset + size)` is copied to `pointer + 4`, the free pointer
+is advanced past the rounded-up calldata, and `target` is evaluated. -/
+def prepareByteStaticBytesCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector : Nat) (args : List Expr) :
+    Except String ByteStaticPreparation := do
+  unless selector < 2^32 do throw "byte call selector exceeds four bytes"
+  let [targetExpr, offsetExpr, sizeExpr] := args
+    | throw "byte call argument count differs"
+  let some gas := state.byteCallGas | throw "byte call gas environment missing"
+  let pointer := (state.world.memory 64).val
+  let initialized := { state with bindings := bindValue state.bindings resultVar 0 }
+  let some payloadOffset := evalExpr oracle fields initialized offsetExpr
+    | throw "byte call offset evaluation unsupported"
+  let some payloadSize := evalExpr oracle fields initialized sizeExpr
+    | throw "byte call size evaluation unsupported"
+  let selectorWorld := initialized.world.writePhysicalMemoryValue
+    pointer (Verity.Core.Uint256.ofNat (selector * 2^224))
+  let copiedWorld := selectorWorld.copyPhysicalMemory
+    (fun idx => initialized.world.physicalByte (payloadOffset + idx))
+    (pointer + 4) 0 payloadSize
+  let dataSize := 4 + payloadSize
+  let bumped := copiedWorld.writePhysicalMemoryValue 64
+    (Verity.Core.Uint256.ofNat (pointer + ((dataSize + 31) / 32) * 32))
+  let prepared := { initialized with world := bumped }
+  let some target := evalExpr oracle fields prepared targetExpr
+    | throw "byte call target evaluation unsupported"
+  let request : ByteExternalCall.Request :=
+    { kind := .staticcall, caller := prepared.world.thisAddress.val,
+      target := target % 2^160, value := 0, gas,
+      calldata := (List.range dataSize).map fun index =>
+        UInt8.ofNat (prepared.world.physicalByte (pointer + index)).val }
+  return {
+    request, frame := prepared, pointer,
+    reads := [(initialized, offsetExpr), (initialized, sizeExpr), (prepared, targetExpr)]
+  }
+
+/-- Canonical closed byte staticcall dispatch for `bool` returns (`staticBool`). -/
+def executeByteStaticBoolCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (selector numStaticArgs : Nat) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.SolidityStaticCall.boolModule resultVar selector numStaticArgs do
+    throw "closed byte static bool call metadata differs"
+  let some adversary := state.byteCallAdversary | throw "byte staticcall adversary missing"
+  let preparation ← prepareByteStaticCall oracle fields state resultVar selector numStaticArgs args
+  let prepared := preparation.frame
+  let observed ←
+    ByteExternalCall.executeChecked adversary preparation.request prepared.world
+  match classifyStaticBoolCall observed.success observed.returndata with
+  | .forward data => return (.revertWithData data, observed.touched)
+  | .malformed => return (.revertWithData [], observed.touched)
+  | .decoded word =>
+      let world := observed.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+        preparation.pointer 0 32
+      return (.continue { prepared with
+        world
+        bindings := bindValue prepared.bindings resultVar word
+        rawReturndata := Option.some observed.returndata
+        byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
+/-- Canonical closed byte staticcall dispatch for memory-encoded calldata and
+32-byte word (`uint256`/`bytes32`) returns (`staticBytesUint256`). -/
+def executeByteStaticBytesUint256Call (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (selector : Nat) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.SolidityStaticCall.bytesUint256Module resultVar selector do
+    throw "closed byte static bytes uint256 call metadata differs"
+  let some adversary := state.byteCallAdversary | throw "byte staticcall adversary missing"
+  let preparation ← prepareByteStaticBytesCall oracle fields state resultVar selector args
+  let prepared := preparation.frame
+  let observed ←
+    ByteExternalCall.executeChecked adversary preparation.request prepared.world
+  match classifyStaticWordCall observed.success observed.returndata with
+  | .forward data => return (.revertWithData data, observed.touched)
+  | .malformed => return (.revertWithData [], observed.touched)
+  | .decoded _ =>
+      let world := observed.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+        preparation.pointer 0 32
+      let value := (world.memory preparation.pointer).val
+      return (.continue { prepared with
+        world
+        bindings := bindValue prepared.bindings resultVar value
+        rawReturndata := Option.some observed.returndata
+        byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
+/-- Canonical closed byte staticcall dispatch for memory-encoded calldata and
+`bool` returns (`staticBytesBool`). -/
+def executeByteStaticBytesBoolCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (selector : Nat) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.SolidityStaticCall.bytesBoolModule resultVar selector do
+    throw "closed byte static bytes bool call metadata differs"
+  let some adversary := state.byteCallAdversary | throw "byte staticcall adversary missing"
+  let preparation ← prepareByteStaticBytesCall oracle fields state resultVar selector args
+  let prepared := preparation.frame
+  let observed ←
+    ByteExternalCall.executeChecked adversary preparation.request prepared.world
+  match classifyStaticBoolCall observed.success observed.returndata with
+  | .forward data => return (.revertWithData data, observed.touched)
+  | .malformed => return (.revertWithData [], observed.touched)
+  | .decoded word =>
+      let world := observed.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+        preparation.pointer 0 32
+      return (.continue { prepared with
+        world
+        bindings := bindValue prepared.bindings resultVar word
+        rawReturndata := Option.some observed.returndata
+        byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
 /-- The closed low-level `CALL` transport with optional-bool returndata checking.
 Calldata is prepared as for the staticcall transport, but the request is a
 value-free `CALL` whose committed world is kept, and the free pointer is advanced
@@ -1899,6 +2035,18 @@ mutual
         match mod.byteTransport with
         | some (.staticUint256 resultVar selector numStaticArgs) =>
             match executeByteStaticCall oracle fields state mod resultVar selector numStaticArgs args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.staticBool resultVar selector numStaticArgs) =>
+            match executeByteStaticBoolCall oracle fields state mod resultVar selector numStaticArgs args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.staticBytesUint256 resultVar selector) =>
+            match executeByteStaticBytesUint256Call oracle fields state mod resultVar selector args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.staticBytesBool resultVar selector) =>
+            match executeByteStaticBytesBoolCall oracle fields state mod resultVar selector args with
             | .ok (outcome, _) => outcome
             | .error _ => .revert
         | some (.create2 resultVar) =>

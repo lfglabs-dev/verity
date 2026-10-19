@@ -1098,7 +1098,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          "pragma solidity 0.8.34;\ncontract C {\n  struct S { bytes data; uint256 x; }\n  function checked(S calldata s) external pure returns (bytes32) {\n    return keccak256(abi.encode(s));\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
-         'Identifier: [solidity-import:unsupported] ABI encoding of nested dynamic structs or bytes fields is outside this slice'),
+         None),
         ('abi-schema-static-nested-struct-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  struct Inner { uint256 a; }\n  struct Outer { Inner inner; bytes data; }\n  function checked(Outer calldata o) external pure returns (uint256) {\n    return o.data.length;\n  }\n}\n",
          None,

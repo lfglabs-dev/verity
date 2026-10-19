@@ -18,6 +18,14 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "InterfaceSt
   function stored()
 def model : CompilationModel := imported.model
 def oracle : Denote.DenoteOracle := ⟨fun _ _ => 0, fun _ _ _ => 0⟩
+
+solidity_import importedGates from "Contracts/SolidityImportSmoke/." entry "InterfaceStaticCallSequence.sol"
+  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
+  contract InterfaceStaticCallGateFixture
+    function checkRiskGate(address,uint256,uint256,uint256,uint256)
+    function checkComplianceOrAdmin(uint256,uint256,address)
+    function approveEnvelope(EnvelopeRecord,bytes)
+def gateModel : CompilationModel := importedGates.model
 end SolidityImportSmoke.InterfaceStaticCallSequenceModel
 
 def main (args : List String) : IO UInt32 := do

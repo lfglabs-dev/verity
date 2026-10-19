@@ -95,6 +95,31 @@ partial def quoteStmt : Stmt → m Term
             (Compiler.ECM.SolidityStaticCall.uint256Module $(quote resultVar) $(quote selector)
               $(quote numStaticArgs))
             $quotedArgs)
+      | some (.staticBool resultVar selector numStaticArgs) =>
+          let expected :=
+            Compiler.ECM.SolidityStaticCall.boolModule resultVar selector numStaticArgs
+          unless module == expected do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityStaticCall.boolModule $(quote resultVar) $(quote selector)
+              $(quote numStaticArgs))
+            $quotedArgs)
+      | some (.staticBytesUint256 resultVar selector) =>
+          let expected :=
+            Compiler.ECM.SolidityStaticCall.bytesUint256Module resultVar selector
+          unless module == expected do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityStaticCall.bytesUint256Module $(quote resultVar) $(quote selector))
+            $quotedArgs)
+      | some (.staticBytesBool resultVar selector) =>
+          let expected :=
+            Compiler.ECM.SolidityStaticCall.bytesBoolModule resultVar selector
+          unless module == expected do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityStaticCall.bytesBoolModule $(quote resultVar) $(quote selector))
+            $quotedArgs)
       | some (.create2 resultVar) =>
           unless module == Compiler.ECM.SolidityCreate2.module resultVar do
             throwError "internal: closed ECM metadata differs from its descriptor"
