@@ -345,49 +345,81 @@ def boolModule (resultVar : String) (selector numStaticArgs : Nat) :
   summarySelector := some selector
   summaryMutability := .staticcall
 
+/-- Copy `[srcPtr, srcPtr + srcSize)` into `[ptr + 4, ptr + 4 + srcSize)` in an
+overlap-safe direction (forward when `ptr + 4 < srcPtr`, backward otherwise) and
+then write the 4-byte selector at `[ptr, ptr + 4)` without disturbing the copied
+payload bytes at `[ptr + 4, ptr + 32)`. -/
+def copySelectorAndPayload (selector : Nat) (ptr srcPtr srcSize : YulExpr)
+    (indexName : String) : List YulStmt :=
+  let index := YulExpr.ident indexName
+  let dest := YulExpr.call "add" [ptr, .lit 4]
+  let alignedSize := YulExpr.call "and" [.call "add" [srcSize, .lit 31], .call "not" [.lit 31]]
+  let prevIndex := YulExpr.call "sub" [index, .lit 32]
+  [ .if_ (.call "lt" [dest, srcPtr]) [
+      .for_ [.let_ indexName (.lit 0)] (.call "lt" [index, srcSize])
+        [.assign indexName (.call "add" [index, .lit 32])]
+        [.exprStmt (.call "mstore" [
+          .call "add" [dest, index],
+          .call "mload" [.call "add" [srcPtr, index]]])]],
+    .if_ (.call "iszero" [.call "lt" [dest, srcPtr]]) [
+      .for_ [.let_ indexName alignedSize] (.call "gt" [index, .lit 0])
+        [.assign indexName prevIndex]
+        [.exprStmt (.call "mstore" [
+          .call "add" [dest, prevIndex],
+          .call "mload" [.call "add" [srcPtr, prevIndex]]])]],
+    .exprStmt (.call "mstore" [
+      ptr,
+      .call "or" [
+        .call "shl" [.lit 224, .hex selector],
+        .call "shr" [.lit 32, .call "mload" [dest]]]]) ]
+
 def compileBytesUint256 (resultVar : String) (selector : Nat)
     (args : List YulExpr) : Except String (List YulStmt) := do
   unless selector < 2^32 do throw "Solidity staticcall selector exceeds four bytes"
   let [target, payloadPtr, payloadSize] := args
     | throw "Solidity bytes staticcall expects target, offset and size"
   let occupied := resultVar :: args.flatMap argumentNames
-  let ptrName := scratchName "__solidity_static_ptr" occupied
-  let dataSizeName := scratchName "__solidity_static_data_size" (ptrName :: occupied)
-  let allocName := scratchName "__solidity_static_alloc" (dataSizeName :: ptrName :: occupied)
+  let targetName := scratchName "__solidity_static_target" occupied
+  let srcPtrName := scratchName "__solidity_static_src_ptr" (targetName :: occupied)
+  let srcSizeName := scratchName "__solidity_static_src_size" (srcPtrName :: targetName :: occupied)
+  let baseOccupied := srcSizeName :: srcPtrName :: targetName :: occupied
+  let ptrName := scratchName "__solidity_static_ptr" baseOccupied
+  let dataSizeName := scratchName "__solidity_static_data_size" (ptrName :: baseOccupied)
+  let allocName := scratchName "__solidity_static_alloc" (dataSizeName :: ptrName :: baseOccupied)
   let indexName := scratchName "__solidity_static_idx"
-    (allocName :: dataSizeName :: ptrName :: occupied)
+    (allocName :: dataSizeName :: ptrName :: baseOccupied)
   let successName := scratchName "__solidity_static_success"
-    (indexName :: allocName :: dataSizeName :: ptrName :: occupied)
+    (indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
   let sizeName := scratchName "__solidity_static_size"
-    (successName :: indexName :: allocName :: dataSizeName :: ptrName :: occupied)
+    (successName :: indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let targetVal := YulExpr.ident targetName
+  let srcPtr := YulExpr.ident srcPtrName
+  let srcSize := YulExpr.ident srcSizeName
   let ptr := YulExpr.ident ptrName
   let dataSize := YulExpr.ident dataSizeName
   let alloc := YulExpr.ident allocName
-  let index := YulExpr.ident indexName
   let success := YulExpr.ident successName
   let size := YulExpr.ident sizeName
   return [
     .let_ resultVar (.lit 0),
-    .block [
-      .let_ ptrName (.call "mload" [.lit 64]),
-      .let_ dataSizeName (.call "add" [payloadSize, .lit 4]),
-      .let_ allocName (.call "and" [.call "add" [dataSize, .lit 31], .call "not" [.lit 31]]),
-      .exprStmt (.call "mstore" [ptr, .call "shl" [.lit 224, .hex selector]]),
-      .for_ [.let_ indexName (.lit 0)] (.call "lt" [index, payloadSize])
-        [.assign indexName (.call "add" [index, .lit 32])]
-        [.exprStmt (.call "mstore" [
-          .call "add" [.call "add" [ptr, .lit 4], index],
-          .call "mload" [.call "add" [payloadPtr, index]]])],
-      .exprStmt (.call "mstore" [.lit 64, .call "add" [ptr, alloc]]),
-      .let_ successName (.call "staticcall" [
-        .call "gas" [], target, ptr, dataSize, ptr, .lit 32]),
-      .let_ sizeName (.call "returndatasize" []),
-      .if_ (.call "iszero" [success]) [
-        .exprStmt (.call "returndatacopy" [.lit 0, .lit 0, size]),
-        .exprStmt (.call "revert" [.lit 0, size])],
-      .if_ (.call "lt" [size, .lit 32]) [
-        .exprStmt (.call "revert" [.lit 0, .lit 0])],
-      .assign resultVar (.call "mload" [ptr])]]
+    .block (
+      [ .let_ targetName target,
+        .let_ srcPtrName payloadPtr,
+        .let_ srcSizeName payloadSize,
+        .let_ ptrName (.call "mload" [.lit 64]),
+        .let_ dataSizeName (.call "add" [srcSize, .lit 4]),
+        .let_ allocName (.call "and" [.call "add" [dataSize, .lit 31], .call "not" [.lit 31]]) ] ++
+      copySelectorAndPayload selector ptr srcPtr srcSize indexName ++
+      [ .exprStmt (.call "mstore" [.lit 64, .call "add" [ptr, alloc]]),
+        .let_ successName (.call "staticcall" [
+          .call "gas" [], targetVal, ptr, dataSize, ptr, .lit 32]),
+        .let_ sizeName (.call "returndatasize" []),
+        .if_ (.call "iszero" [success]) [
+          .exprStmt (.call "returndatacopy" [.lit 0, .lit 0, size]),
+          .exprStmt (.call "revert" [.lit 0, size])],
+        .if_ (.call "lt" [size, .lit 32]) [
+          .exprStmt (.call "revert" [.lit 0, .lit 0])],
+        .assign resultVar (.call "mload" [ptr])])]
 
 def bytesUint256Module (resultVar : String) (selector : Nat) :
     ExternalCallModule where
@@ -410,49 +442,53 @@ def compileBytesBool (resultVar : String) (selector : Nat)
   let [target, payloadPtr, payloadSize] := args
     | throw "Solidity bytes staticcall expects target, offset and size"
   let occupied := resultVar :: args.flatMap argumentNames
-  let ptrName := scratchName "__solidity_static_ptr" occupied
-  let dataSizeName := scratchName "__solidity_static_data_size" (ptrName :: occupied)
-  let allocName := scratchName "__solidity_static_alloc" (dataSizeName :: ptrName :: occupied)
+  let targetName := scratchName "__solidity_static_target" occupied
+  let srcPtrName := scratchName "__solidity_static_src_ptr" (targetName :: occupied)
+  let srcSizeName := scratchName "__solidity_static_src_size" (srcPtrName :: targetName :: occupied)
+  let baseOccupied := srcSizeName :: srcPtrName :: targetName :: occupied
+  let ptrName := scratchName "__solidity_static_ptr" baseOccupied
+  let dataSizeName := scratchName "__solidity_static_data_size" (ptrName :: baseOccupied)
+  let allocName := scratchName "__solidity_static_alloc" (dataSizeName :: ptrName :: baseOccupied)
   let indexName := scratchName "__solidity_static_idx"
-    (allocName :: dataSizeName :: ptrName :: occupied)
+    (allocName :: dataSizeName :: ptrName :: baseOccupied)
   let successName := scratchName "__solidity_static_success"
-    (indexName :: allocName :: dataSizeName :: ptrName :: occupied)
+    (indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
   let sizeName := scratchName "__solidity_static_size"
-    (successName :: indexName :: allocName :: dataSizeName :: ptrName :: occupied)
+    (successName :: indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
   let wordName := scratchName "__solidity_static_word"
-    (sizeName :: successName :: indexName :: allocName :: dataSizeName :: ptrName :: occupied)
+    (sizeName :: successName :: indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let targetVal := YulExpr.ident targetName
+  let srcPtr := YulExpr.ident srcPtrName
+  let srcSize := YulExpr.ident srcSizeName
   let ptr := YulExpr.ident ptrName
   let dataSize := YulExpr.ident dataSizeName
   let alloc := YulExpr.ident allocName
-  let index := YulExpr.ident indexName
   let success := YulExpr.ident successName
   let size := YulExpr.ident sizeName
   let word := YulExpr.ident wordName
   return [
     .let_ resultVar (.lit 0),
-    .block [
-      .let_ ptrName (.call "mload" [.lit 64]),
-      .let_ dataSizeName (.call "add" [payloadSize, .lit 4]),
-      .let_ allocName (.call "and" [.call "add" [dataSize, .lit 31], .call "not" [.lit 31]]),
-      .exprStmt (.call "mstore" [ptr, .call "shl" [.lit 224, .hex selector]]),
-      .for_ [.let_ indexName (.lit 0)] (.call "lt" [index, payloadSize])
-        [.assign indexName (.call "add" [index, .lit 32])]
-        [.exprStmt (.call "mstore" [
-          .call "add" [.call "add" [ptr, .lit 4], index],
-          .call "mload" [.call "add" [payloadPtr, index]]])],
-      .exprStmt (.call "mstore" [.lit 64, .call "add" [ptr, alloc]]),
-      .let_ successName (.call "staticcall" [
-        .call "gas" [], target, ptr, dataSize, ptr, .lit 32]),
-      .let_ sizeName (.call "returndatasize" []),
-      .if_ (.call "iszero" [success]) [
-        .exprStmt (.call "returndatacopy" [.lit 0, .lit 0, size]),
-        .exprStmt (.call "revert" [.lit 0, size])],
-      .if_ (.call "lt" [size, .lit 32]) [
-        .exprStmt (.call "revert" [.lit 0, .lit 0])],
-      .let_ wordName (.call "mload" [ptr]),
-      .if_ (.call "gt" [word, .lit 1]) [
-        .exprStmt (.call "revert" [.lit 0, .lit 0])],
-      .assign resultVar word]]
+    .block (
+      [ .let_ targetName target,
+        .let_ srcPtrName payloadPtr,
+        .let_ srcSizeName payloadSize,
+        .let_ ptrName (.call "mload" [.lit 64]),
+        .let_ dataSizeName (.call "add" [srcSize, .lit 4]),
+        .let_ allocName (.call "and" [.call "add" [dataSize, .lit 31], .call "not" [.lit 31]]) ] ++
+      copySelectorAndPayload selector ptr srcPtr srcSize indexName ++
+      [ .exprStmt (.call "mstore" [.lit 64, .call "add" [ptr, alloc]]),
+        .let_ successName (.call "staticcall" [
+          .call "gas" [], targetVal, ptr, dataSize, ptr, .lit 32]),
+        .let_ sizeName (.call "returndatasize" []),
+        .if_ (.call "iszero" [success]) [
+          .exprStmt (.call "returndatacopy" [.lit 0, .lit 0, size]),
+          .exprStmt (.call "revert" [.lit 0, size])],
+        .if_ (.call "lt" [size, .lit 32]) [
+          .exprStmt (.call "revert" [.lit 0, .lit 0])],
+        .let_ wordName (.call "mload" [ptr]),
+        .if_ (.call "gt" [word, .lit 1]) [
+          .exprStmt (.call "revert" [.lit 0, .lit 0])],
+        .assign resultVar word])]
 
 def bytesBoolModule (resultVar : String) (selector : Nat) :
     ExternalCallModule where
