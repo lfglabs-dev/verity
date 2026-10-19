@@ -42,34 +42,9 @@ HARD_LIMIT = 50
 # Existing proofs that exceed HARD_LIMIT. Each entry was reviewed and accepted
 # before the check was introduced. New proofs must not be added here without a
 # justification comment in the PR explaining why decomposition is not feasible.
-ALLOWLIST: set[str] = {
-    # --- Misc ---
-    # PR #1915 init-prefixed dispatcher bridge. These proofs are generated-code
-    # shape peel/reduction endpoints for `initFreeMemoryPointer; buildSwitch`.
-    # They keep the concrete init `mstore(0x40, 128)` state transition and
-    # selector switch lowering explicit; splitting further would mainly create
-    # one-use wrappers around the same generated dispatcher case analysis.
-    "exec_block_lowerNativeSwitchBlock_revert_default_postInitFreeMemory_hasSelectorState_projectResult_eq",
-    "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_error_projectResult_eq",
-    "exec_block_lowerNativeSwitchBlock_selector_find_hit_postInitFreeMemory_hasSelectorState_ok_projectResult_eq_finalMatched",
-    "contractDispatcherExecResult_initFreeMemoryPointer_buildSwitch_noFallback_noReceive_peel",
-}
+ALLOWLIST: set[str] = set()
 
-# PR #1822 native EVMYulLean generic-dispatcher closure. These regexes cover
-# generated-runtime/native-dispatcher simulation families whose proof spans are
-# long because they compose selector dispatch, switch lowering, fuel
-# normalization, environment validation, and projected storage/result equality.
-# Factoring each endpoint further would mostly create single-use wrappers over
-# the same generated dispatcher case split.
-ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(pattern)
-    for pattern in (
-        r"^contractDispatcherExecResult_buildSwitch_noFallback_noReceive_",
-        r"^contractDispatcherExecResult_block_lowerNativeSwitchBlock_",
-        r"^exec_(?:block_)?lowerNativeSwitchBlock_.*"
-        r"(?:generated_prefix|finalMatched_store_fuel)$",
-    )
-)
+ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = ()
 
 # Directories containing proof files to scan.
 PROOF_DIRS = [

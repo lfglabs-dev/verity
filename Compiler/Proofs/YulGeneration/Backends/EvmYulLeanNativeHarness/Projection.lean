@@ -5892,24 +5892,6 @@ theorem contractDispatcherExecResult_buildSwitch_noFallback_noReceive_selector_f
     (offset := 4) hInner hLowerCases hCase hSelector hNoWrap hSelectorRange hFunctionSelectorsRange (fun _ =>
       exec_switchCaseBody_payable_args_short_revert_of_shape hNoWrap hguards hArgsShort hBodyShape)
 
-/-- Bound switch case tags from `lowerSwitchCasesNativeWithSwitchIds` over `buildSwitchSourceCases`. -/
-private theorem lowerSwitchCasesNativeWithSwitchIds_buildSwitchSourceCases_tags_range
-    {reservedNames : List String} {startN midN : Nat} {funcs : List IRFunction}
-    {cases' : List (Nat × List EvmYul.Yul.Ast.Stmt)}
-    (hLowerCases : Backends.lowerSwitchCasesNativeWithSwitchIds reservedNames startN
-      (buildSwitchSourceCases funcs) = .ok (cases', midN))
-    (hFunctionSelectorsRange : ∀ fn, fn ∈ funcs → fn.selector < EvmYul.UInt256.size) :
-    ∀ tag body, (tag, body) ∈ cases' → tag < EvmYul.UInt256.size := by
-  have hTagsEq : cases'.map (·.1) = (buildSwitchSourceCases funcs).map (·.1) :=
-    Backends.lowerSwitchCasesNativeWithSwitchIds_tags_eq reservedNames startN midN
-      (buildSwitchSourceCases funcs) cases' hLowerCases
-  intro tag body hmem
-  have hTagMem : tag ∈ cases'.map (·.1) := List.mem_map_of_mem (f := Prod.fst) hmem
-  rw [hTagsEq] at hTagMem
-  simp [buildSwitchSourceCases] at hTagMem
-  rcases hTagMem with ⟨fn, hFn, rfl⟩
-  exact hFunctionSelectorsRange fn hFn
-
 /-- Package switch-case lowering, tag range, and dispatcher prologue peel for a selector hit. -/
 private theorem buildSwitch_noFallback_noReceive_lowered_find_some_withSwitchIds_peel
     (reservedNames : List String) (n0 : Nat) (funcs : List IRFunction)
