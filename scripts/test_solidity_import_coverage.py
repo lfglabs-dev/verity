@@ -10,7 +10,13 @@ from subprocess import CompletedProcess
 import unittest
 from pathlib import Path
 
+import re
+
 from solidity_import_coverage import classify, position, spelling, summarize, checkout, MeasurementError, inventory, dependencies, probe, refresh_report, main, milestone_summary, excluded_functions, markdown, MANIFEST
+from solidity_import_coverage import IMPORTER_SOLC, IMPORTER_DEFAULT_SOLC, importer_compiler, pragma_at, matrix_entry, compiler_matrix, measure
+
+REPO = Path(__file__).resolve().parents[1]
+V34, V10 = '0.8.34+commit.80d5c536', '0.8.10+commit.fc410830'
 
 
 class CoverageTests(unittest.TestCase):
@@ -22,8 +28,8 @@ class CoverageTests(unittest.TestCase):
             'construct': 'ForStatement', 'reason': 'loops not supported'}})
 
     def test_compiler_version_is_rejected_but_crashes_are_unknown(self):
-        result = classify(1, 'solc: ParserError: Source file requires different compiler version\n'
-                          ' --> contracts/Old.sol:2:1:\n')
+        result = classify(1, 'solc: ParserError: Source file requires different compiler version '
+                          f'(current compiler is {V34}.Linux.g++)\n --> contracts/Old.sol:2:1:\n')
         self.assertEqual(result['status'], 'rejected')
         self.assertEqual(result['blocker']['construct'], 'PragmaDirective')
         self.assertEqual(classify(1, 'solc failed: signal 11')['status'], 'error')
@@ -215,6 +221,173 @@ class CoverageTests(unittest.TestCase):
             self.assertNotIn(f"== '{project['id']}'", source)
         midnight = [p for p in manifest['projects'] if p['id'] == 'midnight']
         self.assertEqual([p.get('exclude_functions') for p in midnight], [['multicall']])
+
+
+
+def version_error(file, start, release=V34):
+    return {'severity': 'error', 'sourceLocation': {'file': file, 'start': start, 'end': start + 1},
+            'message': 'Source file requires different compiler version (current compiler is '
+                       + release + '.Linux.g++)',
+            'formattedMessage': 'ParserError: Source file requires different compiler version'}
+
+
+def pragma_log(file, line, release=V34):
+    return ('Probe.lean:2:0: error: solc: ParserError: Source file requires different compiler '
+            f'version (current compiler is {release}.Linux.g++)\n --> {file}:{line}:1:\n')
+
+
+class CompilerMatrixTests(unittest.TestCase):
+    def test_pinned_releases_match_importer_and_manifest(self):
+        imported = (REPO / 'Compiler/SolidityImport/Import.lean').read_text()
+        block = imported[imported.index('private def solcReleases'):imported.index('private def resolveSolcRelease')]
+        releases = re.findall(r'longVersion := "([^"]+)"', block)
+        self.assertEqual(sorted(releases), sorted(IMPORTER_SOLC.values()))
+        manifest = json.loads(MANIFEST.read_text())
+        for version, release in IMPORTER_SOLC.items():
+            self.assertTrue(release.startswith(version + '+commit.'))
+            hosts = manifest['compilers'][version]
+            entry = block[block.index(f'longVersion := "{release}"'):]
+            entry = entry[:entry.index('supportsViaIR')]
+            self.assertEqual(sorted(re.findall(r'"([0-9a-f]{64})"', entry)),
+                             sorted(h['sha256'] for h in hosts.values()))
+            for host in hosts.values():
+                self.assertIn('v' + release, host['path'])
+        profile = (REPO / 'Compiler/SolidityImport/Profile.lean').read_text()
+        self.assertIn(f'solc : String := "{IMPORTER_DEFAULT_SOLC}"', profile)
+
+    def test_selection_is_profile_or_importer_default_never_inferred(self):
+        self.assertEqual(importer_compiler({'entry': 'C.sol', 'contract': 'C'}),
+                         {'version': '0.8.34', 'release': V34, 'selected_by': 'importer default'})
+        profiled = {'profile': {'solc': V10, 'evmVersion': 'london'}}
+        self.assertEqual(importer_compiler(profiled),
+                         {'version': '0.8.10', 'release': V10, 'selected_by': 'target profile'})
+        # Near misses: unpinned release, short version, wrong commit, legacy pin.
+        for near in ('0.8.11+commit.d7f03943', '0.8.34', '0.8.34+commit.80d5c537',
+                     '0.5.16+commit.9c3226ce'):
+            with self.assertRaisesRegex(MeasurementError, 'importer pins only'):
+                importer_compiler({'profile': {'solc': near}})
+
+    def test_matrix_entry_locates_version_pragma_exactly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            text = '// é\npragma solidity =0.5.16;\ncontract C {}\n'
+            (root / 'C.sol').write_text(text)
+            start = len('// é\n'.encode())
+            row = matrix_entry('0.8.34', V34, {'errors': [version_error('C.sol', start)]}, root)
+            self.assertEqual(row, {'version': '0.8.34', 'release': V34, 'status': 'version_rejected',
+                                   'other_errors': 0, 'version_errors': [{
+                                       'file': 'C.sol', 'line': 2, 'column': 1,
+                                       'pragma': 'pragma solidity =0.5.16;'}]})
+            self.assertEqual(matrix_entry('0.8.10', V10, {'errors': [
+                {'severity': 'warning', 'message': 'w', 'formattedMessage': 'w'}]}, root)['status'],
+                'accepted')
+            other = matrix_entry('0.8.10', V10, {'errors': [
+                {'severity': 'error', 'message': 'Undeclared identifier.',
+                 'formattedMessage': 'DeclarationError: Undeclared identifier.'}]}, root)
+            self.assertEqual(other['status'], 'rejected')
+            self.assertNotIn('version_errors', other)
+            unlocated = version_error('C.sol', 0)
+            del unlocated['sourceLocation']
+            with self.assertRaisesRegex(MeasurementError, 'without a source location'):
+                matrix_entry('0.8.34', V34, {'errors': [unlocated]}, root)
+
+    def test_pragma_location_near_misses_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'C.sol').write_text('pragma abicoder v2;\npragma solidity ^0.8.0;\ncontract C {}\n')
+            self.assertEqual(pragma_at(root, 'C.sol', 2, 1), 'pragma solidity ^0.8.0;')
+            for line, column in ((1, 1), (3, 1), (2, 2), (9, 1), (0, 1)):
+                with self.assertRaisesRegex(MeasurementError, 'no version pragma'):
+                    pragma_at(root, 'C.sol', line, column)
+            with self.assertRaisesRegex(MeasurementError, 'escapes'):
+                pragma_at(root, '../C.sol', 1, 1)
+
+    def test_missing_matrix_compiler_is_a_measurement_error(self):
+        manifest = json.loads(MANIFEST.read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with self.assertRaisesRegex(MeasurementError, 'missing inventory compiler'):
+                compiler_matrix({'entry': 'C.sol', 'contract': 'C'}, root, manifest, root, False, root)
+
+    def blocked(self, log, code=1, accepting=()):
+        fns = [{'kind': 'function', 'name': n, 'types': [], 'declaring_contract': 'C',
+                'file': 'C.sol', 'line': 3, 'column': 5} for n in ('f', 'g', 'h')]
+        matrix = [{'version': '0.8.34', 'release': V34, 'status': 'version_rejected',
+                   'version_errors': [{'file': 'C.sol', 'line': 1, 'column': 1,
+                                       'pragma': 'pragma solidity =0.5.16;'}], 'other_errors': 0},
+                  {'version': '0.8.10', 'release': V10,
+                   'status': 'accepted' if V10 in accepting else 'version_rejected',
+                   'version_errors': []}]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'C.sol').write_text('pragma solidity =0.5.16;\nimport "./B.sol";\n')
+            (root / 'B.sol').write_text('// SPDX\npragma solidity =0.5.16;\n')
+            with patch('solidity_import_coverage.run',
+                       return_value=CompletedProcess([], code, log, '')) as run:
+                rows = measure(fns, {'entry': 'C.sol', 'contract': 'C'}, root, root, root, 10,
+                               importer_compiler({}), matrix)
+            self.assertEqual(run.call_count, 1)
+        return rows
+
+    def test_version_blocked_source_uses_one_importer_witness(self):
+        # The importer submits the import closure; its first error may be an imported file.
+        rows = self.blocked(pragma_log('B.sol', 2))
+        self.assertEqual([r['status'] for r in rows], ['rejected'] * 3)
+        self.assertEqual({(r['blocker']['file'], r['blocker']['line'], r['blocker']['column'])
+                          for r in rows}, {('B.sol', 2, 1)})
+        self.assertEqual(rows[0]['blocker']['reason'],
+                         f'source pragma `pragma solidity =0.5.16;` rejected by importer solc {V34} '
+                         '(importer default); pinned importer releases accepting the source: none')
+        self.assertEqual([r['evidence'] for r in rows],
+                         ['importer probe', 'importer probe of function 0', 'importer probe of function 0'])
+        hinted = self.blocked(pragma_log('C.sol', 1), accepting=(V10,))
+        self.assertTrue(hinted[0]['blocker']['reason'].endswith('accepting the source: ' + V10))
+
+    def test_version_blocked_disagreement_is_unknown(self):
+        for log, code in [('COVERAGE_IMPORT_OK\n', 0),                     # importer accepted
+                          (pragma_log('C.sol', 1, V10), 1),                # stale compiler banner
+                          (pragma_log('C.sol', 2), 1),                     # not a pragma location
+                          ('C.sol:1:1: ForStatement: [solidity-import:unsupported] x\n', 1),
+                          ('solc failed: signal 11', 1)]:
+            rows = self.blocked(log, code)
+            self.assertEqual([r['status'] for r in rows], ['error'] * 3, log)
+            self.assertFalse(summarize(rows)['complete'])
+            self.assertEqual(summarize(rows)['first_blocker_histogram'], [])
+
+    def test_unreproduced_pragma_rejection_is_unknown(self):
+        fn = {'kind': 'function', 'name': 'f', 'types': [], 'declaring_contract': 'C',
+              'file': 'C.sol', 'line': 3, 'column': 5}
+        matrix = [{'version': '0.8.34', 'release': V34, 'status': 'accepted'}]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with patch('solidity_import_coverage.run',
+                       return_value=CompletedProcess([], 1, pragma_log('C.sol', 1), '')):
+                rows = measure([fn, fn], {'entry': 'C.sol', 'contract': 'C'}, root, root, root, 10,
+                               importer_compiler({}), matrix)
+        self.assertEqual([r['status'] for r in rows], ['error', 'error'])
+        self.assertIn('does not reproduce', rows[0]['error'])
+
+    def test_report_records_selection_and_incomplete_matrix(self):
+        rows = [{'signature': 'f()', 'status': 'rejected', 'blocker': {
+            'file': 'C.sol', 'line': 1, 'column': 1, 'construct': 'PragmaDirective', 'reason': 'r'}}]
+        measured = {'project': 'p', 'entry': 'C.sol', 'contract': 'C', 'functions': rows,
+                    'summary': summarize(rows), 'compiler': {
+                        'inventory': '0.5.16', 'importer': importer_compiler({}),
+                        'matrix': [{'release': V34, 'status': 'version_rejected'},
+                                   {'release': V10, 'status': 'accepted'}]}}
+        failed = {'project': 'p', 'entry': 'D.sol', 'contract': 'D', 'functions': [],
+                  'error': 'missing inventory compiler', 'summary': summarize([])}
+        report = {'scope': 's', 'importer_solc_releases': list(IMPORTER_SOLC.values()),
+                  'expected_contracts': [{k: c[k] for k in ('project', 'entry', 'contract')}
+                                         for c in (measured, failed)],
+                  'contracts': [measured, failed]}
+        refresh_report(report)
+        self.assertFalse(report['complete'])
+        self.assertIsNone(report['summary']['percent_importable'])
+        text = markdown(report)
+        self.assertIn(f'| p:C | 0.5.16 | {V34} (importer default) | {V10} |', text)
+        self.assertIn('| p:D | unavailable | unavailable | unavailable |', text)
+        self.assertIn(f'Importer-pinned solc releases: {V34}, {V10}.', text)
 
 
 if __name__ == '__main__':

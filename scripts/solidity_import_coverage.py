@@ -4,6 +4,11 @@
 The inventory uses each project's pinned Solidity compiler. Import attempts use
 Verity's own solidity_import command, never an independent acceptance heuristic.
 Infrastructure errors remain unknown and cannot count as rejections or successes.
+
+Each target is also compiled by every importer-pinned solc release (the compiler
+matrix). A version pragma the selected release rejects is reported with its
+exact location and the pinned releases that would accept the source; the source
+is never compiled with an unselected release or rewritten.
 """
 from __future__ import annotations
 
@@ -23,6 +28,11 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / 'scripts/solidity_import_corpus/manifest.json'
+# The importer's pinned releases (`solcReleases` in Compiler/SolidityImport/Import.lean)
+# and its default (`Profile.solc`). The coverage tests keep these synchronized.
+IMPORTER_SOLC = {'0.8.34': '0.8.34+commit.80d5c536', '0.8.10': '0.8.10+commit.fc410830'}
+IMPORTER_DEFAULT_SOLC = '0.8.34+commit.80d5c536'
+VERSION_MISMATCH = 'Source file requires different compiler version'
 
 
 class MeasurementError(RuntimeError):
@@ -187,12 +197,11 @@ def spelling(node, source):
     return source.encode()[start:start + size].decode()
 
 
-def inventory(project, target, source_root, solc, out):
+def ast_request(version, target, source_root, solc):
+    """AST-only standard-json command and request for `target` under solc `version`."""
     entry = target['entry']
-    source = (source_root / entry).read_text()
-    version = tuple(map(int, project['inventory_solc'].split('.')))
-    if version >= (0, 8, 0):
-        sources = {entry: {'content': source}}
+    if tuple(map(int, version.split('.'))) >= (0, 8, 0):
+        sources = {entry: {'content': (source_root / entry).read_text()}}
         command = [solc, '--base-path', source_root, '--standard-json']
     else:
         # Legacy solc has no base-path option. Supply the self-contained core
@@ -206,6 +215,78 @@ def inventory(project, target, source_root, solc, out):
                   if line.strip() and not line.lstrip().startswith('#')] if remapping_file.exists() else []
     request = {'language': 'Solidity', 'sources': sources,
                'settings': {'remappings': remappings, 'outputSelection': {'*': {'': ['ast']}}}}
+    return command, request
+
+
+def importer_compiler(target):
+    """The exact importer release a probe requests: the target profile's, else the importer default."""
+    profile = target.get('profile')
+    release = IMPORTER_DEFAULT_SOLC if profile is None else profile['solc']
+    versions = [v for v, pinned in IMPORTER_SOLC.items() if pinned == release]
+    if len(versions) != 1:
+        raise MeasurementError(f'target selects solc {release}; the importer pins only '
+                               + ', '.join(IMPORTER_SOLC.values()))
+    return {'version': versions[0], 'release': release,
+            'selected_by': 'importer default' if profile is None else 'target profile'}
+
+
+def pragma_at(source_root, filename, line, column):
+    """The complete version pragma solc located at `filename:line:column`."""
+    path = (source_root / filename).resolve()
+    if not path.is_relative_to(source_root.resolve()):
+        raise MeasurementError('compiler matrix source escapes pinned project')
+    lines = path.read_bytes().split(b'\n')
+    if not 1 <= line <= len(lines) or column < 1:
+        raise MeasurementError(f'no version pragma at {filename}:{line}:{column}')
+    tail = lines[line - 1][column - 1:]
+    end = tail.find(b';')
+    if not re.match(rb'pragma\s+solidity\s', tail) or end < 0:
+        raise MeasurementError(f'no version pragma at {filename}:{line}:{column}')
+    return tail[:end + 1].decode()
+
+
+def matrix_entry(version, release, result, source_root):
+    """Classify one pinned release's AST-only compilation of the target."""
+    errors = [e for e in result.get('errors', []) if e['severity'] == 'error']
+    mismatches = []
+    for error in errors:
+        if VERSION_MISMATCH not in error['message']:
+            continue
+        loc = error.get('sourceLocation')
+        if not loc or loc.get('start', -1) < 0:
+            raise MeasurementError(f'solc {release} version error without a source location')
+        text = (source_root / loc['file']).read_text()
+        at = position(text, f'{loc["start"]}:0:0')
+        mismatches.append({'file': loc['file'], **at,
+                           'pragma': pragma_at(source_root, loc['file'], at['line'], at['column'])})
+    entry = {'version': version, 'release': release}
+    if mismatches:
+        return {**entry, 'status': 'version_rejected', 'version_errors': mismatches,
+                'other_errors': len(errors) - len(mismatches)}
+    if errors:
+        return {**entry, 'status': 'rejected', 'error': errors[0]['formattedMessage'][-2000:]}
+    return {**entry, 'status': 'accepted'}
+
+
+def compiler_matrix(target, source_root, manifest, cache, fetch, out):
+    """Compile the target with every importer-pinned release; never select one."""
+    rows = []
+    for version, release in IMPORTER_SOLC.items():
+        solc = compiler(version, manifest, cache, fetch)
+        command, request = ast_request(version, target, source_root, solc)
+        result = json.loads(checked(command, stdin=json.dumps(request)))
+        write_json(out / f'matrix-{version}.json', result)
+        rows.append(matrix_entry(version, release, result, source_root))
+    return rows
+
+
+def accepting_releases(matrix):
+    return [row['release'] for row in matrix if row['status'] == 'accepted']
+
+
+def inventory(project, target, source_root, solc, out):
+    entry = target['entry']
+    command, request = ast_request(project['inventory_solc'], target, source_root, solc)
     write_json(out / 'inventory-input.json', request)
     result = json.loads(checked(command, stdin=json.dumps(request)))
     write_json(out / 'inventory-output.json', result)
@@ -256,7 +337,7 @@ DIAGNOSTIC = re.compile(r'(?P<file>[^\s:]+\.sol):(?P<line>\d+):(?P<column>\d+): 
                         r'(?P<construct>[^:\n]+): \[solidity-import:unsupported\] (?P<reason>[^\n]+)')
 
 
-def classify(code, output):
+def classify(code, output, release=IMPORTER_DEFAULT_SOLC):
     match = DIAGNOSTIC.search(output)
     if code == 0:
         if 'COVERAGE_IMPORT_OK' not in output:
@@ -268,13 +349,14 @@ def classify(code, output):
         return {'status': 'rejected', 'blocker': result}
     # A pragma rejected by the importer's pinned solc is a source blocker,
     # unlike compiler crashes or absent tools. Keep the real solc location.
-    if 'Source file requires different compiler version' in output:
+    if VERSION_MISMATCH in output:
         loc = re.search(r'--> ([^\n]+\.sol):(\d+):(\d+):', output)
-        if loc:
+        # The rejecting compiler must be the requested release, not a stale binary.
+        if loc and f'(current compiler is {release}.' in output:
             return {'status': 'rejected', 'blocker': {
                 'file': loc[1], 'line': int(loc[2]), 'column': int(loc[3]),
                 'construct': 'PragmaDirective',
-                'reason': 'source version incompatible with importer solc 0.8.34'}}
+                'reason': f'source version incompatible with importer solc {release}'}}
     # Compiler, kernel, missing-source, timeout, syntax and tool failures are
     # not unsupported-construct evidence. Keep the complete log as an artifact.
     return {'status': 'error', 'error': f'process exit {code}: ' + output[-2000:]}
@@ -292,6 +374,7 @@ def probe(function, target, source_root, out, workspace, timeout):
             'file': function['file'], 'line': function['line'], 'column': function['column'],
             'construct': function['kind'], 'reason': 'solidity_import selects named functions only'}}
     driver = out / 'Probe.lean'
+    release = importer_compiler(target)['release']
     profile = target.get('profile')
     if profile is None:
         using_clause = '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }'
@@ -319,7 +402,7 @@ def probe(function, target, source_root, out, workspace, timeout):
     result = run(['lake', 'env', 'lean', driver], cwd=workspace, timeout=timeout)
     output = result.stdout + result.stderr
     (out / 'import.log').write_text(output)
-    classified = classify(result.returncode, output)
+    classified = classify(result.returncode, output, release)
     root_closure = re.search(r'^closure: ([^\n]+)', output, re.MULTILINE)
     wrong_root = (result.returncode == 0 and 'COVERAGE_WRONG_ROOT' in output)
     wrong_failure = (classified['status'] == 'rejected' and root_closure is not None
@@ -335,6 +418,64 @@ def probe(function, target, source_root, out, workspace, timeout):
             'file': function['file'], 'line': function['line'], 'column': function['column'],
             'construct': 'Inheritance', 'reason': 'importer cannot select inherited implementation'}}
     return classified
+
+
+def version_blocked(functions, target, source_root, out, workspace, timeout, selected, matrix):
+    """Report functions whose source the selected importer release rejects by version pragma.
+
+    solc rejects the source before the importer selects a root, so one real
+    importer probe witnesses every function. It must be a version rejection by
+    the selected release at a version pragma. The importer submits the whole
+    import closure, so its first location may be an imported file the matrix's
+    entry-only rejection never read. Any disagreement leaves every function unknown.
+    """
+    attempt = out / '0'
+    attempt.mkdir(exist_ok=True)
+    try:
+        witness = probe(functions[0], target, source_root, attempt, workspace, timeout)
+    except MeasurementError as exc:
+        witness = {'status': 'error', 'error': str(exc)}
+    blocker = witness.get('blocker', {})
+    pragma = None
+    if witness['status'] == 'rejected' and blocker.get('construct') == 'PragmaDirective':
+        try:
+            pragma = pragma_at(source_root, blocker['file'], blocker['line'], blocker['column'])
+        except (MeasurementError, OSError):
+            pragma = None
+    if pragma is None:
+        error = {'status': 'error', 'error': 'importer probe disagrees with the compiler matrix: '
+                 + json.dumps(witness)[:2000]}
+        return [{**fn, **error} for fn in functions]
+    accepting = accepting_releases(matrix)
+    reason = (f'source pragma `{pragma}` rejected by importer solc {selected["release"]} '
+              f'({selected["selected_by"]}); pinned importer releases accepting the source: '
+              + (', '.join(accepting) if accepting else 'none'))
+    result = {'status': 'rejected', 'blocker': {**blocker, 'reason': reason}}
+    return [{**fn, **result,
+             'evidence': 'importer probe' if i == 0 else 'importer probe of function 0'}
+            for i, fn in enumerate(functions)]
+
+
+def measure(functions, target, source_root, out, workspace, timeout, selected, matrix):
+    """Probe every function, unless the selected release rejects the source's version pragma."""
+    gate = next(row for row in matrix if row['release'] == selected['release'])
+    if gate['status'] == 'version_rejected':
+        return version_blocked(functions, target, source_root, out, workspace, timeout,
+                               selected, matrix)
+    rows = []
+    for i, fn in enumerate(functions):
+        attempt = out / str(i)
+        attempt.mkdir(exist_ok=True)
+        try:
+            result = probe(fn, target, source_root, attempt, workspace, timeout)
+        except MeasurementError as exc:
+            result = {'status': 'error', 'error': str(exc)}
+        if (result['status'] == 'rejected'
+                and result['blocker']['reason'].startswith('source version incompatible')):
+            result = {'status': 'error', 'error': 'importer reported a version pragma '
+                      'rejection the compiler matrix does not reproduce'}
+        rows.append({**fn, **result})
+    return rows
 
 
 def summarize(rows):
@@ -393,6 +534,19 @@ def markdown(report):
         s = contract['summary']
         pct = 'unavailable' if s['percent_importable'] is None else f'{s["percent_importable"]:.2f}'
         lines.append(f'| {contract["project"]}:{contract["contract"]} | {s["importable"]}/{s["functions"]} | {pct} | {s["errors"]} |')
+    lines += ['', '## Compiler selection', '',
+              'Importer-pinned solc releases: ' + ', '.join(report.get('importer_solc_releases', IMPORTER_SOLC.values())) + '.', '',
+              '| Contract | Inventory solc | Importer solc (selected by) | Pinned importer releases accepting source |',
+              '| --- | --- | --- | --- |']
+    for contract in report['contracts']:
+        c = contract.get('compiler')
+        if c is None:
+            lines.append(f'| {contract["project"]}:{contract["contract"]} | unavailable | unavailable | unavailable |')
+            continue
+        importer = c['importer']
+        accepting = ', '.join(accepting_releases(c['matrix'])) or 'none'
+        lines.append(f'| {contract["project"]}:{contract["contract"]} | {c["inventory"]} | '
+                     f'{importer["release"]} ({importer["selected_by"]}) | {accepting} |')
     lines += ['', '## First blocking constructs, weighted by rejected functions', '',
               'These weights count functions whose *first* rejection is the construct. They are an upper bound on immediate unlocks: further blockers may remain after its implementation.', '']
     for row in report['summary']['first_blocker_histogram']:
@@ -442,6 +596,7 @@ def main():
               'selection': [p['id'] for p in projects], 'contracts': [],
               'verity_head': checked(['git', 'rev-parse', 'HEAD'], cwd=workspace).strip(),
               'measurement_script_sha256': sha(Path(__file__)),
+              'importer_solc_releases': list(IMPORTER_SOLC.values()),
               'expected_contracts': [{'project': p['id'], **t} for p in projects for t in p['contracts']]}
     refresh_report(report)
     write_json(output / 'coverage.json', report)
@@ -466,22 +621,21 @@ def main():
                 source_root = checkout(project, cache, args.fetch)
                 dependencies(project, source_root, cache, args.fetch)
                 solc = compiler(project['inventory_solc'], manifest, cache, args.fetch)
-                if project['inventory_solc'] in ('0.8.10', '0.8.34'):
-                    staged = workspace / '.lake' / 'solidity-import' / ('solc-' + project['inventory_solc'])
-                    if not staged.exists() or sha(staged) != sha(solc):
-                        staged.parent.mkdir(parents=True, exist_ok=True)
-                        staged.write_bytes(solc.read_bytes())
-                        staged.chmod(0o755)
+                selected = importer_compiler(target)
+                matrix = compiler_matrix(target, source_root, manifest, cache, args.fetch, dest)
+                item['compiler'] = {'inventory': project['inventory_solc'],
+                                    'importer': selected, 'matrix': matrix}
+                # Stage exactly the release the importer will request.
+                importer_solc = compiler(selected['version'], manifest, cache, args.fetch)
+                staged = workspace / '.lake' / 'solidity-import' / ('solc-' + selected['version'])
+                if not staged.exists() or sha(staged) != sha(importer_solc):
+                    staged.parent.mkdir(parents=True, exist_ok=True)
+                    staged.write_bytes(importer_solc.read_bytes())
+                    staged.chmod(0o755)
                 item['source_sha256'] = sha(source_root / target['entry'])
                 functions = inventory(project, target, source_root, solc, dest)
-                for i, fn in enumerate(functions):
-                    attempt = dest / str(i)
-                    attempt.mkdir(exist_ok=True)
-                    try:
-                        result = probe(fn, target, source_root, attempt, workspace, args.timeout)
-                    except MeasurementError as exc:
-                        result = {'status': 'error', 'error': str(exc)}
-                    item['functions'].append({**fn, **result})
+                item['functions'] = measure(functions, target, source_root, dest, workspace,
+                                            args.timeout, selected, matrix)
             except (MeasurementError, OSError, ValueError, KeyError) as exc:
                 item['error'] = str(exc)
             if implementation_hashes(workspace) != report['implementation_sha256']:
