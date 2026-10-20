@@ -26,7 +26,7 @@ def main():
     ]
     cases += [
         ('external-library', 'memory', 'memory', 's', 'L.h(s)',
-         'external reference helper calls are unsupported'),
+         'external library calls are outside this slice'),
         ('yul-shadow', 'memory', 'memory', 's', 'item }',
          'unbound Yul identifier item'),
     ]

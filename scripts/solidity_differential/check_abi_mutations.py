@@ -24,7 +24,7 @@ MUTANTS = {'import-abi-source-offset': ('(.literal (4 + (modelParams.toList.take
                               '\n            | .address => some (2^161)'),
  'import-abi-bool-bound': ('\n            | .bool => some 2', '\n            | .bool => some 3'),
  'import-abi-inclusive': ('\n            (.lt (.calldataload', '\n            (.le (.calldataload'),
- 'import-abi-revert': ('(.literal bound))\n            [] [.revertReturndata])',
+ 'import-abi-revert': ('(.literal bound))\n            [] [.revertEmpty])',
                        '(.literal bound))\n            [] [.panic .arithmeticOverflow])')}
 
 

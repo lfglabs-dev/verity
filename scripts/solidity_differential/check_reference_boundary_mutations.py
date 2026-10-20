@@ -21,8 +21,8 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     rules = [
         ('external-library',
-         '  -- descriptor may only be shared with helpers in the same call frame.\n  if optStr fn "visibility" == some "external" then\n',
-         '  -- descriptor may only be shared with helpers in the same call frame.\n  if false then\n'),
+         '  let callee ← mField j "expression"\n  if isLibraryDelegateCall callee then\n',
+         '  let callee ← mField j "expression"\n  if false then\n'),
         ('yul-shadow',
          'e.yulMemoryStructs.insert pname pid else e.yulMemoryStructs }\n        else\n          failAt p "reference argument location conversion is unsupported"\n        if pname != "" then\n          yul := yul.erase pname',
          'e.yulMemoryStructs.insert pname pid else e.yulMemoryStructs }\n        else\n          failAt p "reference argument location conversion is unsupported"\n        if pname != "" then\n          pure ()'),

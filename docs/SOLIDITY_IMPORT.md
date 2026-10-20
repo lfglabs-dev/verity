@@ -142,6 +142,11 @@ semantics are supported. Other `msg`, `block`, and `tx` context members are
 rejected when reached. Loops, mapping-to-struct writes, compound assignments, external calls
 (other than the typed-interface staticcall, checked-template `create2`, optional-bool
 low-level `.call` and `<address>.code` rows above),
+external library calls (a `public` or `external` library function called from
+outside its library, directly or through `using for`: solc emits a
+`DELEGATECALL` to the library linked at deployment, whose code the source does
+not determine; internal library functions, and public ones called by name
+inside their own library, are inlined),
 modifiers, recursion, named call arguments, signed
 operations, and any other construct reached from a root are rejected with
 `file:line:column`, the construct, the reason, and the call path from the root
@@ -183,6 +188,9 @@ function f
 ## Trust boundary
 
 solc's AST and storage layout, and the lowering in `Import.lean`, are trusted.
+Inlined helper bodies are the code solc compiles into the contract. Code that
+runs behind a `DELEGATECALL` to a linked library is chosen at deployment and is
+never inlined (`check_library_call_rejections`).
 The model is built as ordinary values and quoted (`Quote.lean`); after
 elaboration the definitions are evaluated back and must equal those values.
 The digest is SHA-256 over framed JSON of the complete solc input, the selected
