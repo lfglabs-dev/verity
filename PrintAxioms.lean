@@ -185,6 +185,7 @@ import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.MetaSpecs
 import Compiler.Proofs.PackedBitfieldMetaSpec
 import Compiler.Proofs.SlotCoalescingShim
+import Compiler.Proofs.SolidityImport.EmitVerityBridge
 import Compiler.Proofs.SolidityImport.Solcore.Primitives
 import Compiler.Proofs.SolidityImport.Solcore.Runtime
 import Compiler.Proofs.SolidityImport.Solcore.WordAlignment
@@ -6553,6 +6554,22 @@ end Verity.AxiomAudit
   Compiler.Proofs.SlotCoalescingShim.slot0_coalescing_saves_600_gas
   Compiler.Proofs.SlotCoalescingShim.checkSlotCoalescingWitnessSuite_eq_true
 
+  -- Compiler/Proofs/SolidityImport/EmitVerityBridge.lean
+  Compiler.Proofs.SolidityImport.stmtModifiedSlots_setStorage
+  Compiler.Proofs.SolidityImport.slotDisjointFromStmt_setStorage_eq
+  Compiler.Proofs.SolidityImport.writeUintFieldSlots_untouched_frame
+  Compiler.Proofs.SolidityImport.eval_preserves_inferred_untouched_slot
+  Compiler.Proofs.SolidityImport.inferredFootprint_preservesFields_disjoint
+  Compiler.Proofs.SolidityImport.inferredFootprint_preservesSlots_disjoint
+  Compiler.Proofs.SolidityImport.inferredFootprint_sound
+  Compiler.Proofs.SolidityImport.wad_wordNormalize_to_uint256
+  Compiler.Proofs.SolidityImport.evalExpr_rewriteExprShimStep
+  Compiler.Proofs.SolidityImport.execStmt_rewriteStmtShimStep
+  Compiler.Proofs.SolidityImport.execStmtList_rewriteStmtListWithShims
+  Compiler.Proofs.SolidityImport.emitVerity_roundtrip_preserves_denote
+  Compiler.Proofs.SolidityImport.canonicalVault_footprint_certified
+  Compiler.Proofs.SolidityImport.canonicalVault_emitVerityContract_certified
+
   -- Compiler/Proofs/SolidityImport/Solcore/Primitives.lean
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_eq_uint256_modulus
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_pos
@@ -9629,4 +9646,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8824 theorems/lemmas (6344 public, 2480 private, 0 sorry'd)
+-- Total: 8838 theorems/lemmas (6358 public, 2480 private, 0 sorry'd)
