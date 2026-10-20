@@ -2777,24 +2777,6 @@ theorem exprHelperCallNames_nodup (fn : FunctionSpec) :
     (exprHelperCallNames fn).Nodup := by
   simpa [exprHelperCallNames] using List.eraseDups_nodup (stmtListExprHelperCallNames fn.body)
 
-private theorem matchAdtBranchesExprSubsetInternal_aux
-    (listSubset : ∀ (stmts : List Stmt) {calleeName : String},
-      calleeName ∈ stmtListExprHelperCallNames stmts →
-      calleeName ∈ stmtListInternalHelperCallNames stmts)
-    (branches : List (String × List String × List Stmt))
-    {calleeName : String}
-    (hmem : calleeName ∈ matchAdtBranchesExprHelperCallNames branches) :
-    calleeName ∈ matchAdtBranchesInternalHelperCallNames branches := by
-  induction branches with
-  | nil => simp [matchAdtBranchesExprHelperCallNames] at hmem
-  | cons hd tl ih =>
-    obtain ⟨vn, vl, body⟩ := hd
-    simp only [matchAdtBranchesExprHelperCallNames,
-      matchAdtBranchesInternalHelperCallNames, List.mem_append] at hmem ⊢
-    rcases hmem with hbody | hrest
-    · exact Or.inl (listSubset body hbody)
-    · exact Or.inr (ih hrest)
-
 mutual
 private theorem stmtExprHelperCallNames_subset_stmtInternalHelperCallNames_aux
     (stmt : Stmt)
@@ -4108,14 +4090,6 @@ theorem SupportedStmtList.helperSurfaceClosed
       stmtListTerminalCore_helperSurfaceClosed hthen,
       stmtListTerminalCore_helperSurfaceClosed helse, Bool.or_false]
 
-private theorem exprListInternalHelperCallNames_literals
-    (xs : List Nat) :
-    exprListInternalHelperCallNames (xs.map Expr.literal) = [] := by
-  induction xs with
-  | nil => simp [exprListInternalHelperCallNames]
-  | cons x xs ih =>
-      simp [List.map, exprListInternalHelperCallNames, exprInternalHelperCallNames, ih]
-
 private theorem supportedLeafStmt_internalHelperCallNames_nil
     {stmt : Stmt} (h : SupportedLeafStmt stmt) :
     stmtInternalHelperCallNames stmt = [] := by
@@ -4599,14 +4573,6 @@ private theorem stmtOrListTouchesUnsupportedCallSurface_eq_featureOr :
   | .inl stmt => stmtTouchesUnsupportedCallSurface_eq_featureOr_aux stmt
   | .inr stmts => stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux stmts
 
-private theorem stmtTouchesUnsupportedCallSurface_eq_featureOr
-    (stmt : Stmt) :
-    stmtTouchesUnsupportedCallSurface stmt =
-      (stmtTouchesUnsupportedHelperSurface stmt ||
-        stmtTouchesUnsupportedForeignSurface stmt ||
-        stmtTouchesUnsupportedLowLevelSurface stmt) := by
-  simpa using stmtOrListTouchesUnsupportedCallSurface_eq_featureOr (.inl stmt)
-
 theorem stmtListTouchesUnsupportedCallSurface_eq_featureOr
     (stmts : List Stmt) :
     stmtListTouchesUnsupportedCallSurface stmts =
@@ -4639,85 +4605,6 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
         exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcore hstate hcalls
       simp_all [exprTouchesUnsupportedContractSurface,
         exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed]
-
-
-private theorem exprListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
-    (exprs : List Expr)
-    (hcore : exprs.any exprTouchesUnsupportedCoreSurface = false)
-    (hstate : exprs.any exprTouchesUnsupportedStateSurface = false)
-    (hcalls : exprs.any exprTouchesUnsupportedCallSurface = false) :
-    exprs.any exprTouchesUnsupportedContractSurface = false := by
-  induction exprs with
-  | nil =>
-      simp
-  | cons expr rest ih =>
-      simp only [List.any_cons, Bool.or_eq_false_iff] at hcore hstate hcalls ⊢
-      exact ⟨exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed expr
-          hcore.1 hstate.1 hcalls.1,
-        ih hcore.2 hstate.2 hcalls.2⟩
-
-private def tier5CoreDoesNotCloseCallSurface : Unit := ()
-
-/- Tier-5 helper-backed expressions are no longer rejected by the core scanner,
-so core closure alone no longer implies call/helper-surface closure. -/
-/-
-private theorem exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed
-    (expr : Expr)
-    (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
-    exprTouchesUnsupportedCallSurface expr = false := by
-  cases expr with
-  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress
-  | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
-  | calldatasize | storage _ | storageAddr _ =>
-      simp [exprTouchesUnsupportedCallSurface]
-  | add a b | sub a b | mul a b | div a b | mod a b
-  | eq a b | ge a b | gt a b | lt a b | le a b
-  | logicalAnd a b | logicalOr a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprTouchesUnsupportedCallSurface,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed a hcore.1,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed b hcore.2]
-  | logicalNot a | bitNot a | tload a | calldataload a | mload a | extcodesize a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp [exprTouchesUnsupportedCallSurface,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed a hcore]
-  | shl a b | shr a b | slt a b | sgt a b | sdiv a b | smod a b | sar a b
-  | byte a b | signextend a b | bitAnd a b | bitOr a b | bitXor a b | min a b | max a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprTouchesUnsupportedCallSurface,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed a hcore.1,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed b hcore.2]
-  | ceilDiv a b | wMulDown a b | wDivUp a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprTouchesUnsupportedCallSurface,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed a hcore.1,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed b hcore.2]
-  | ite cond thenVal elseVal =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprTouchesUnsupportedCallSurface,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed cond hcore.1.1,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed thenVal hcore.1.2,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed elseVal hcore.2]
-  | forkIfAtLeast _ thenExpr elseExpr =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | txOrigin =>
-      simp [exprTouchesUnsupportedCallSurface]
-  | mulDivDown a b c | mulDivUp a b c =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprTouchesUnsupportedCallSurface,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed a hcore.1.1,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed b hcore.1.2,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed c hcore.2]
-  | keccak256 offset size =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprTouchesUnsupportedCallSurface,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed offset hcore.1,
-        exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed size hcore.2]
-  | _ => cases hcore
-termination_by sizeOf expr
-decreasing_by all_goals (subst_vars; simp_wf; try omega)
-
--/
 
 private theorem stmtListFeatureClosed_cons_inv
     (stmt : Stmt)
@@ -5224,183 +5111,6 @@ theorem SupportedBodyCallInterface.surfaceClosed_exceptMappingWrites
     stmtListTouchesUnsupportedCallSurface fn.body = false := by
   rw [stmtListTouchesUnsupportedCallSurface_eq_featureOr]
   simp [hBody.helperSurfaceClosed, hBody.calls.foreign, hBody.calls.lowLevel]
-
-private def tier5CoreDoesNotExcludeHelperBackedExprs : Unit := ()
-
-/- These legacy lemmas characterized the old core gate by proving that it
-excluded calldata arrays and dynamic-bytes equality.  Tier 5 deliberately
-admits those constructors at the core-surface scanner; the whole-contract
-surface remains the stronger gate until their generated-helper bridge is used
-by the generic theorem. -/
-/-
-private theorem exprUsesArrayElement_eq_false_of_coreClosed
-    {expr : Expr}
-    (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
-    exprUsesArrayElement expr = false := by
-  cases expr with
-  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
-  | chainid | msgValue | blockTimestamp | blockNumber
-  | blobbasefee | calldatasize =>
-      simp [exprUsesArrayElement]
-  | add a b | sub a b | mul a b | div a b | mod a b
-  | eq a b | ge a b | gt a b | lt a b | le a b
-  | logicalAnd a b | logicalOr a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesArrayElement,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.1,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
-  | logicalNot a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp [exprUsesArrayElement, exprUsesArrayElement_eq_false_of_coreClosed hcore]
-  | shl a b | shr a b
-  | bitAnd a b | bitOr a b | bitXor a b
-  | min a b | max a b | ceilDiv a b
-  | wMulDown a b | wDivUp a b
-  | slt a b | sgt a b | sdiv a b | smod a b | sar a b | byte a b | signextend a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesArrayElement,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.1,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
-  | mulDivDown a b c | mulDivUp a b c =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesArrayElement,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.1.1,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.1.2,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
-  | bitNot a | tload a | calldataload a | mload a | extcodesize a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp [exprUsesArrayElement, exprUsesArrayElement_eq_false_of_coreClosed hcore]
-  | ite cond thenVal elseVal =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesArrayElement,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.1.1,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.1.2,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
-  | forkIfAtLeast _ thenExpr elseExpr =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | storage _ | storageAddr _ => simp [exprUsesArrayElement]
-  | keccak256 offset size =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesArrayElement,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.1,
-        exprUsesArrayElement_eq_false_of_coreClosed hcore.2]
-  | _ => simp [exprTouchesUnsupportedCoreSurface] at hcore
-termination_by sizeOf expr
-decreasing_by all_goals (subst_vars; simp_wf; try omega)
-
-private theorem exprUsesStorageArrayElement_eq_false_of_coreClosed
-    {expr : Expr}
-    (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
-    exprUsesStorageArrayElement expr = false := by
-  cases expr with
-  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
-  | chainid | msgValue | blockTimestamp | blockNumber
-  | blobbasefee | calldatasize =>
-      simp [exprUsesStorageArrayElement]
-  | add a b | sub a b | mul a b | div a b | mod a b
-  | eq a b | ge a b | gt a b | lt a b | le a b
-  | logicalAnd a b | logicalOr a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesStorageArrayElement,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
-  | logicalNot a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp [exprUsesStorageArrayElement, exprUsesStorageArrayElement_eq_false_of_coreClosed hcore]
-  | shl a b | shr a b
-  | bitAnd a b | bitOr a b | bitXor a b
-  | min a b | max a b | ceilDiv a b
-  | wMulDown a b | wDivUp a b
-  | slt a b | sgt a b | sdiv a b | smod a b | sar a b | byte a b | signextend a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesStorageArrayElement,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
-  | mulDivDown a b c | mulDivUp a b c =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesStorageArrayElement,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1.1,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1.2,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
-  | bitNot a | tload a | calldataload a | mload a | extcodesize a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp [exprUsesStorageArrayElement, exprUsesStorageArrayElement_eq_false_of_coreClosed hcore]
-  | ite cond thenVal elseVal =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesStorageArrayElement,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1.1,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1.2,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
-  | forkIfAtLeast _ thenExpr elseExpr =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | storage _ | storageAddr _ => simp [exprUsesStorageArrayElement]
-  | arrayElement _ _ =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | keccak256 offset size =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesStorageArrayElement,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.1,
-        exprUsesStorageArrayElement_eq_false_of_coreClosed hcore.2]
-  | _ => simp [exprTouchesUnsupportedCoreSurface] at hcore
-termination_by sizeOf expr
-decreasing_by all_goals (subst_vars; simp_wf; try omega)
-
-private theorem exprUsesDynamicBytesEq_eq_false_of_coreClosed
-    {expr : Expr}
-    (hcore : exprTouchesUnsupportedCoreSurface expr = false) :
-    exprUsesDynamicBytesEq expr = false := by
-  cases expr with
-  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
-  | chainid | msgValue | blockTimestamp | blockNumber
-  | blobbasefee | calldatasize =>
-      simp [exprUsesDynamicBytesEq]
-  | add a b | sub a b | mul a b | div a b | mod a b
-  | eq a b | ge a b | gt a b | lt a b | le a b
-  | logicalAnd a b | logicalOr a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
-  | logicalNot a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp [exprUsesDynamicBytesEq, exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore]
-  | shl a b | shr a b
-  | bitAnd a b | bitOr a b | bitXor a b
-  | min a b | max a b | ceilDiv a b
-  | wMulDown a b | wDivUp a b
-  | slt a b | sgt a b | sdiv a b | smod a b | sar a b | byte a b | signextend a b =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
-  | mulDivDown a b c | mulDivUp a b c =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1.1,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1.2,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
-  | bitNot a | tload a | calldataload a | mload a | extcodesize a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp [exprUsesDynamicBytesEq, exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore]
-  | ite cond thenVal elseVal =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1.1,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1.2,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
-  | forkIfAtLeast _ thenExpr elseExpr =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | storage _ | storageAddr _ => simp [exprUsesDynamicBytesEq]
-  | keccak256 offset size =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp [exprUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.1,
-        exprUsesDynamicBytesEq_eq_false_of_coreClosed hcore.2]
-  | _ => simp [exprTouchesUnsupportedCoreSurface] at hcore
-termination_by sizeOf expr
-decreasing_by all_goals (subst_vars; simp_wf; try omega)
-
--/
 
 -- Helper: ExprCompileCore expressions never use arrayElement
 private theorem exprCompileCore_usesArrayElement_false

@@ -134,41 +134,6 @@ private def ensureTypedIRScalarStorageFieldSupported (fieldName : String) (field
       { name := name, ty := ty, slot := slot, packedBits := none, aliasSlots := aliasSlots } =
         Except.ok () := rfl
 
-private theorem ensureTypedIRScalarStorageFieldSupported_uint256
-    (fieldName name context : String) (slot : Option Nat) (aliasSlots : List Nat) :
-    ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .uint256, slot := slot, packedBits := none, aliasSlots := aliasSlots }
-      context = Except.ok () := rfl
-
-private theorem ensureTypedIRScalarStorageFieldSupported_address
-    (fieldName name context : String) (slot : Option Nat) (aliasSlots : List Nat) :
-    ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .address, slot := slot, packedBits := none, aliasSlots := aliasSlots }
-      context = Except.ok () := rfl
-
-private theorem ensureTypedIRScalarStorageFieldSupported_mappingTyped
-    (fieldName name context : String) (mt : MappingType) (slot : Option Nat)
-    (aliasSlots : List Nat) :
-    ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .mappingTyped mt, slot := slot, packedBits := none, aliasSlots := aliasSlots }
-      context = Except.ok () := rfl
-
-private theorem ensureTypedIRScalarStorageFieldSupported_mappingStruct
-    (fieldName name context : String) (keyType : MappingKeyType) (members : List StructMember)
-    (slot : Option Nat) (aliasSlots : List Nat) :
-    ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .mappingStruct keyType members, slot := slot, packedBits := none,
-        aliasSlots := aliasSlots }
-      context = Except.ok () := rfl
-
-private theorem ensureTypedIRScalarStorageFieldSupported_mappingStruct2
-    (fieldName name context : String) (outerKey innerKey : MappingKeyType) (members : List StructMember)
-    (slot : Option Nat) (aliasSlots : List Nat) :
-    ensureTypedIRScalarStorageFieldSupported fieldName
-      { name := name, ty := .mappingStruct2 outerKey innerKey members, slot := slot, packedBits := none,
-        aliasSlots := aliasSlots }
-      context = Except.ok () := rfl
-
 private def compileStorageRead (fields : List Field) (fieldName : String)
     (requireAddressField : Bool := false) : Except String SomeTExpr := do
   match findFieldWithResolvedSlot fields fieldName with
@@ -574,10 +539,6 @@ end
       | some slot => return ⟨Ty.uint256, TExpr.getMapping2 slot key1Expr key2Expr⟩
       | none => throw s!"Typed IR compile error: unknown mapping field '{field}'"
       : CompileM SomeTExpr) := rfl
-
-private theorem compileExpr_literal_run (fields : List Field) (n : Nat) (st : CompileState) :
-    StateT.run (compileExpr fields (Expr.literal n)) st =
-      Except.ok (⟨Ty.uint256, TExpr.uintLit n⟩, st) := rfl
 
 private def registerParam (param : Param) : CompileM Unit := do
   let ty ← liftExcept <| paramTypeToTy param.ty
@@ -1864,12 +1825,6 @@ theorem compileStmts_let_storage_addr_return_local_run
   simp [compileStmts, compileStmt, compileStorageRead, emitSSABind, freshVar,
     bindVar, pushLocal, lookupVar, fieldTypeToTy, hfind, emit]
   rfl
-
-/-- Helper: lookupVar finds a variable at the head of the vars list. -/
-private theorem lookupVar_head (name : String) (v : TVar) (rest : List (String × TVar))
-    (st : CompileState) (h : st.vars = (name, v) :: rest) :
-    (lookupVar name).run st = Except.ok (v, st) := by
-  simp [lookupVar, h]; rfl
 
 /-- Two-statement compilation shape for mapping(param) read + return from 1-param state. -/
 theorem compileStmts_let_mapping_param_return_local_run

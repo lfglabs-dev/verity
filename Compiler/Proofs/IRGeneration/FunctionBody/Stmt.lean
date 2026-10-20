@@ -2069,13 +2069,6 @@ theorem compiled_terminal_ite_body_size_ge_blockFuel
   simp
   omega
 
-private theorem execIRStmts_cons_of_execIRStmt_continue
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
-    (hstmt : execIRStmt (rest.length + 1) state stmt = .continue next) :
-    execIRStmts (rest.length + 2) state (stmt :: rest) =
-      execIRStmts (rest.length + 1) next rest := by
-  simp [execIRStmts, hstmt]
-
 private theorem execIRStmts_cons_of_execIRStmt_continue_extraFuel
     (extraFuel : Nat)
     (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
@@ -2102,21 +2095,6 @@ private theorem execIRStmts_cons_of_execIRStmt_continue_anyFuel
           simp [execIRStmt] at hstmt
   | succ fuel =>
       simp [execIRStmts, hstmt]
-
-private theorem execIRStmts_cons_of_execIRStmt_continue_stepFuel
-    (fuel : Nat)
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
-    (hstmt : execIRStmt (fuel + 1) state stmt = .continue next) :
-    execIRStmts (fuel + 2) state (stmt :: rest) =
-      execIRStmts (fuel + 1) next rest := by
-  simpa [Nat.add_assoc] using
-    (execIRStmts_cons_of_execIRStmt_continue_anyFuel
-      (fuel := fuel + 1)
-      (state := state)
-      (next := next)
-      (stmt := stmt)
-      (rest := rest)
-      hstmt)
 
 private theorem execIRStmts_cons_of_execIRStmt_continue_wholeFuel
     (extraFuel : Nat)
@@ -2174,13 +2152,6 @@ private theorem execIRStmts_singleton_append_of_execIRStmt_continue_tailExtraFue
   rw [hfuelEq] at htail
   exact htail
 
-private theorem execIRStmts_cons_of_execIRStmt_return
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt) (value : Nat)
-    (hstmt : execIRStmt (rest.length + 1) state stmt = .return value next) :
-    execIRStmts (rest.length + 2) state (stmt :: rest) =
-      .return value next := by
-  simp [execIRStmts, hstmt]
-
 private theorem execIRStmts_cons_of_execIRStmt_return_extraFuel
     (extraFuel : Nat)
     (state next : IRState) (stmt : YulStmt) (rest : List YulStmt) (value : Nat)
@@ -2201,61 +2172,6 @@ private theorem execIRStmts_cons_of_execIRStmt_return_anyFuel
   | succ fuel =>
       simp [execIRStmts, hstmt]
 
-private theorem execIRStmts_cons_of_execIRStmt_return_stepFuel
-    (fuel : Nat)
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt) (value : Nat)
-    (hstmt : execIRStmt (fuel + 1) state stmt = .return value next) :
-    execIRStmts (fuel + 2) state (stmt :: rest) =
-      .return value next := by
-  simpa [Nat.add_assoc] using
-    (execIRStmts_cons_of_execIRStmt_return_anyFuel
-      (fuel := fuel + 1)
-      (state := state)
-      (next := next)
-      (stmt := stmt)
-      (rest := rest)
-      (value := value)
-      hstmt)
-
-private theorem execIRStmts_cons_of_execIRStmt_return_wholeFuel
-    (extraFuel : Nat)
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt) (value : Nat)
-    (hstmt : execIRStmt (sizeOf (stmt :: rest) + extraFuel) state stmt = .return value next) :
-    execIRStmts (sizeOf (stmt :: rest) + extraFuel + 1) state (stmt :: rest) =
-      .return value next := by
-  simpa [Nat.add_assoc, Nat.add_left_comm, Nat.add_comm] using
-    (execIRStmts_cons_of_execIRStmt_return_anyFuel
-      (fuel := sizeOf (stmt :: rest) + extraFuel)
-      (state := state)
-      (next := next)
-      (stmt := stmt)
-      (rest := rest)
-      (value := value)
-      hstmt)
-
-private theorem execIRStmts_singleton_append_of_execIRStmt_return_wholeFuel
-    (extraFuel : Nat)
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt) (value : Nat)
-    (hstmt : execIRStmt (sizeOf ([stmt] ++ rest) + extraFuel) state stmt = .return value next) :
-    execIRStmts (sizeOf ([stmt] ++ rest) + extraFuel + 1) state ([stmt] ++ rest) =
-      .return value next := by
-  simpa using
-    (execIRStmts_cons_of_execIRStmt_return_wholeFuel
-      (extraFuel := extraFuel)
-      (state := state)
-      (next := next)
-      (stmt := stmt)
-      (rest := rest)
-      (value := value)
-      hstmt)
-
-private theorem execIRStmts_cons_of_execIRStmt_stop
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
-    (hstmt : execIRStmt (rest.length + 1) state stmt = .stop next) :
-    execIRStmts (rest.length + 2) state (stmt :: rest) =
-      .stop next := by
-  simp [execIRStmts, hstmt]
-
 private theorem execIRStmts_cons_of_execIRStmt_stop_extraFuel
     (extraFuel : Nat)
     (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
@@ -2275,21 +2191,6 @@ private theorem execIRStmts_cons_of_execIRStmt_stop_anyFuel
       cases stmt <;> simp [execIRStmt] at hstmt
   | succ fuel =>
       simp [execIRStmts, hstmt]
-
-private theorem execIRStmts_cons_of_execIRStmt_stop_stepFuel
-    (fuel : Nat)
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
-    (hstmt : execIRStmt (fuel + 1) state stmt = .stop next) :
-    execIRStmts (fuel + 2) state (stmt :: rest) =
-      .stop next := by
-  simpa [Nat.add_assoc] using
-    (execIRStmts_cons_of_execIRStmt_stop_anyFuel
-      (fuel := fuel + 1)
-      (state := state)
-      (next := next)
-      (stmt := stmt)
-      (rest := rest)
-      hstmt)
 
 private theorem execIRStmts_cons_of_execIRStmt_stop_wholeFuel
     (extraFuel : Nat)
@@ -2321,13 +2222,6 @@ private theorem execIRStmts_singleton_append_of_execIRStmt_stop_wholeFuel
       (rest := rest)
       hstmt)
 
-private theorem execIRStmts_cons_of_execIRStmt_revert
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
-    (hstmt : execIRStmt (rest.length + 1) state stmt = .revert next) :
-    execIRStmts (rest.length + 2) state (stmt :: rest) =
-      .revert next := by
-  simp [execIRStmts, hstmt]
-
 private theorem execIRStmts_cons_of_execIRStmt_revert_extraFuel
     (extraFuel : Nat)
     (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
@@ -2347,21 +2241,6 @@ private theorem execIRStmts_cons_of_execIRStmt_revert_anyFuel
       cases stmt <;> simp [execIRStmt, execIRStmts] at hstmt ⊢ <;> simpa using hstmt
   | succ fuel =>
       simp [execIRStmts, hstmt]
-
-private theorem execIRStmts_cons_of_execIRStmt_revert_stepFuel
-    (fuel : Nat)
-    (state next : IRState) (stmt : YulStmt) (rest : List YulStmt)
-    (hstmt : execIRStmt (fuel + 1) state stmt = .revert next) :
-    execIRStmts (fuel + 2) state (stmt :: rest) =
-      .revert next := by
-  simpa [Nat.add_assoc] using
-    (execIRStmts_cons_of_execIRStmt_revert_anyFuel
-      (fuel := fuel + 1)
-      (state := state)
-      (next := next)
-      (stmt := stmt)
-      (rest := rest)
-      hstmt)
 
 private theorem execIRStmts_cons_of_execIRStmt_revert_wholeFuel
     (extraFuel : Nat)
@@ -2393,13 +2272,6 @@ private theorem execIRStmts_singleton_append_of_execIRStmt_revert_wholeFuel
       (rest := rest)
       hstmt)
 
-private theorem execIRStmts_two_of_execIRStmt_continue
-    (state mid : IRState) (stmt1 stmt2 : YulStmt) (rest : List YulStmt)
-    (hstmt1 : execIRStmt (rest.length + 2) state stmt1 = .continue mid) :
-    execIRStmts (rest.length + 3) state (stmt1 :: stmt2 :: rest) =
-      execIRStmts (rest.length + 2) mid (stmt2 :: rest) := by
-  simp [execIRStmts, hstmt1]
-
 private theorem execIRStmts_two_of_execIRStmt_continue_extraFuel
     (extraFuel : Nat)
     (state mid : IRState) (stmt1 stmt2 : YulStmt) (rest : List YulStmt)
@@ -2407,15 +2279,6 @@ private theorem execIRStmts_two_of_execIRStmt_continue_extraFuel
     execIRStmts (rest.length + extraFuel + 3) state (stmt1 :: stmt2 :: rest) =
       execIRStmts (rest.length + extraFuel + 2) mid (stmt2 :: rest) := by
   simp [execIRStmts, hstmt1]
-
-private theorem execIRStmts_two_of_continue_then_return
-    (state mid next : IRState) (stmt1 stmt2 : YulStmt) (rest : List YulStmt) (value : Nat)
-    (hstmt1 : execIRStmt (rest.length + 2) state stmt1 = .continue mid)
-    (hstmt2 : execIRStmt (rest.length + 1) mid stmt2 = .return value next) :
-    execIRStmts (rest.length + 3) state (stmt1 :: stmt2 :: rest) =
-      .return value next := by
-  rw [execIRStmts_two_of_execIRStmt_continue state mid stmt1 stmt2 rest hstmt1]
-  exact execIRStmts_cons_of_execIRStmt_return mid next stmt2 rest value hstmt2
 
 private theorem execIRStmts_two_of_continue_then_return_extraFuel
     (extraFuel : Nat)
@@ -2441,26 +2304,6 @@ private theorem execIRStmts_two_of_continue_then_return_anyFuel
   | succ fuel =>
       simpa using
         (execIRStmts_cons_of_execIRStmt_return_anyFuel fuel mid next stmt2 rest value hstmt2)
-
-private theorem execIRStmts_two_of_continue_then_return_stepFuel
-    (fuel : Nat)
-    (state mid next : IRState) (stmt1 stmt2 : YulStmt) (rest : List YulStmt) (value : Nat)
-    (hstmt1 : execIRStmt (fuel + 2) state stmt1 = .continue mid)
-    (hstmt2 : execIRStmt (fuel + 1) mid stmt2 = .return value next) :
-    execIRStmts (fuel + 3) state (stmt1 :: stmt2 :: rest) =
-      .return value next := by
-  simpa [Nat.add_assoc] using
-    (execIRStmts_two_of_continue_then_return_anyFuel
-      (fuel := fuel + 2)
-      (state := state)
-      (mid := mid)
-      (next := next)
-      (stmt1 := stmt1)
-      (stmt2 := stmt2)
-      (rest := rest)
-      (value := value)
-      hstmt1
-      (by simpa [Nat.add_assoc] using hstmt2))
 
 private theorem execIRStmts_two_of_continue_then_return_wholeFuel
     (extraFuel : Nat)
@@ -2507,23 +2350,6 @@ private theorem execIRStmts_two_append_of_continue_then_return_wholeFuel
       (value := value)
       hstmt1
       hstmt2)
-
-private theorem execIRStmt_block_of_execIRStmts_continue
-    (fuel : Nat) (state next : IRState) (body : List YulStmt)
-    (hbody : execIRStmts fuel state body = .continue next) :
-    execIRStmt (Nat.succ fuel) state (YulStmt.block body) = .continue next := by
-  simpa [execIRStmt] using hbody
-
-private theorem execIRStmt_block_of_execIRStmts_continue_nonzeroFuel
-    (fuel : Nat) (state next : IRState) (body : List YulStmt)
-    (hfuel : fuel ≠ 0)
-    (hbody : execIRStmts (fuel - 1) state body = .continue next) :
-    execIRStmt fuel state (YulStmt.block body) = .continue next := by
-  cases fuel with
-  | zero =>
-      exact False.elim (hfuel rfl)
-  | succ fuel =>
-      simpa using execIRStmt_block_of_execIRStmts_continue fuel state next body hbody
 
 private theorem execIRStmt_block_of_execIRStmts_return
     (fuel : Nat) (state next : IRState) (body : List YulStmt) (value : Nat)
@@ -2760,16 +2586,6 @@ private theorem execIRStmt_stop_nonzeroFuel
       exact False.elim (hfuel rfl)
   | succ fuel =>
       simpa using execIRStmt_stop_succ fuel state
-
-private theorem evalIRExpr_iszero_of_eval
-    (state : IRState)
-    (expr : YulExpr)
-    (value : Nat)
-    (heval : evalIRExpr state expr = some value)
-    (hvalueLt : value < Compiler.Constants.evmModulus) :
-    evalIRExpr state (YulExpr.call "iszero" [expr]) =
-      some (if value = 0 then 1 else 0) := by
-  simpa [boolWord_eq_if] using evalIRExpr_iszero_of_lt heval hvalueLt
 
 private inductive RevertPrefixStmt : YulStmt → Prop where
   | mstore_lit {offset value : Nat} :
@@ -3292,44 +3108,6 @@ theorem exec_compileStmtList_core
       stmtResultMatchesIRExecExact sourceResult irExec := by
   exact exec_compileStmtList_core_extraFuel 0 hcore hscope hexact hbounded hruntime
 
-private theorem compiled_terminal_ite_body_block_extraFuel_eq
-    (extraFuel : Nat)
-    (tempName : String)
-    (condIR : YulExpr)
-    (thenIR elseIR tailIR : List YulStmt) :
-    sizeOf
-        ([YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_
-                (YulExpr.call "iszero" [YulExpr.ident tempName])
-                elseIR
-            ]] ++ tailIR) + extraFuel - 1 =
-      sizeOf
-        [ YulStmt.let_ tempName condIR
-        , YulStmt.if_ (YulExpr.ident tempName) thenIR
-        , YulStmt.if_
-            (YulExpr.call "iszero" [YulExpr.ident tempName])
-            elseIR ] +
-        (sizeOf
-          ([YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_
-                  (YulExpr.call "iszero" [YulExpr.ident tempName])
-                  elseIR
-              ]] ++ tailIR) -
-          (sizeOf
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_
-                (YulExpr.call "iszero" [YulExpr.ident tempName])
-                elseIR ] + 2) +
-          extraFuel) + 1 := by
-  have hblock :=
-    compiled_terminal_ite_body_size_ge_blockFuel tempName condIR thenIR elseIR tailIR
-  omega
-
 private theorem compiled_terminal_ite_body_thenBranch_extraFuel_eq
     (extraFuel : Nat)
     (tempName : String)
@@ -3413,34 +3191,6 @@ private theorem compiled_terminal_ite_body_thenBranch_execFuel_eq
   simpa using
     (compiled_terminal_ite_body_thenBranch_extraFuel_eq
       extraFuel tempName condIR thenIR elseIR tailIR).symm
-
-private theorem compiled_terminal_ite_body_thenBranch_tailExecFuel_eq
-    (extraFuel : Nat)
-    (tempName : String)
-    (condIR : YulExpr)
-    (thenIR elseIR tailIR : List YulStmt) :
-    sizeOf thenIR +
-        (sizeOf
-          ([YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_
-                  (YulExpr.call "iszero" [YulExpr.ident tempName])
-                  elseIR
-              ]] ++ tailIR) -
-          (sizeOf thenIR + 5) +
-          extraFuel) =
-      sizeOf
-        ([YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_
-                (YulExpr.call "iszero" [YulExpr.ident tempName])
-                elseIR
-            ]] ++ tailIR) + extraFuel - 5 := by
-  have hbranch :=
-    (compiled_terminal_ite_body_size_ge_branchExecFuel tempName condIR thenIR elseIR tailIR).1
-  omega
 
 private theorem compiled_terminal_ite_body_elseBranch_execFuel_eq
     (extraFuel : Nat)
@@ -3565,44 +3315,6 @@ private theorem compiled_terminal_ite_body_blockStmtFuel_ne_zero
   have hblock :=
     compiled_terminal_ite_body_size_ge_blockFuel tempName condIR thenIR elseIR tailIR
   omega
-
-private theorem compiled_terminal_ite_body_block_execFuel_eq
-    (extraFuel : Nat)
-    (tempName : String)
-    (condIR : YulExpr)
-    (thenIR elseIR tailIR : List YulStmt) :
-    sizeOf
-        [ YulStmt.let_ tempName condIR
-        , YulStmt.if_ (YulExpr.ident tempName) thenIR
-        , YulStmt.if_
-            (YulExpr.call "iszero" [YulExpr.ident tempName])
-            elseIR ] +
-      (sizeOf
-          ([YulStmt.block
-              [ YulStmt.let_ tempName condIR
-              , YulStmt.if_ (YulExpr.ident tempName) thenIR
-              , YulStmt.if_
-                  (YulExpr.call "iszero" [YulExpr.ident tempName])
-                  elseIR
-              ]] ++ tailIR) -
-        (sizeOf
-          [ YulStmt.let_ tempName condIR
-          , YulStmt.if_ (YulExpr.ident tempName) thenIR
-          , YulStmt.if_
-              (YulExpr.call "iszero" [YulExpr.ident tempName])
-              elseIR ] + 2) +
-        extraFuel) + 1 =
-      sizeOf
-        ([YulStmt.block
-            [ YulStmt.let_ tempName condIR
-            , YulStmt.if_ (YulExpr.ident tempName) thenIR
-            , YulStmt.if_
-                (YulExpr.call "iszero" [YulExpr.ident tempName])
-                elseIR
-            ]] ++ tailIR) + extraFuel - 1 := by
-  simpa using
-    (compiled_terminal_ite_body_block_extraFuel_eq
-      extraFuel tempName condIR thenIR elseIR tailIR).symm
 
 private theorem execIRStmt_compiled_terminal_ite_let
     (extraFuel : Nat)
