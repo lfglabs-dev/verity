@@ -181,6 +181,7 @@ import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.MetaSpecs
+import Compiler.Proofs.PackedBitfieldMetaSpec
 import Compiler.Proofs.SolidityImport.Solcore.Primitives
 import Compiler.Proofs.SolidityImport.Solcore.Runtime
 import Compiler.Proofs.SolidityImport.Solcore.WordAlignment
@@ -6705,6 +6706,38 @@ end Verity.AxiomAudit
   Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.obs_eq
   Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.denote_frame_sound
 
+  -- Compiler/Proofs/PackedBitfieldMetaSpec.lean
+  Compiler.Proofs.PackedBitfieldMetaSpec.SubWordScalar.bitWidth_pos_and_le_256
+  Compiler.Proofs.PackedBitfieldMetaSpec.BitfieldSlice.disjointBool_eq_true_iff
+  Compiler.Proofs.PackedBitfieldMetaSpec.BitfieldSlice.Disjoint.symm
+  Compiler.Proofs.PackedBitfieldMetaSpec.extractBits_lt_two_pow
+  Compiler.Proofs.PackedBitfieldMetaSpec.div_two_pow_updateBits
+  Compiler.Proofs.PackedBitfieldMetaSpec.mod_two_pow_updateBits
+  Compiler.Proofs.PackedBitfieldMetaSpec.div_two_pow_add_updateBits
+  Compiler.Proofs.PackedBitfieldMetaSpec.extractBits_updateBits_same
+  Compiler.Proofs.PackedBitfieldMetaSpec.updateBits_eq
+  Compiler.Proofs.PackedBitfieldMetaSpec.updateBits_updateBits_same_fuse
+  Compiler.Proofs.PackedBitfieldMetaSpec.div_two_pow_updateBits_of_le
+  Compiler.Proofs.PackedBitfieldMetaSpec.extractBits_add_mul_two_pow_add
+  Compiler.Proofs.PackedBitfieldMetaSpec.extractBits_mod_two_pow
+  Compiler.Proofs.PackedBitfieldMetaSpec.extractBits_updateBits_disjoint
+  Compiler.Proofs.PackedBitfieldMetaSpec.packedBitfield_satisfies_metaSpec
+  Compiler.Proofs.PackedBitfieldMetaSpec.PackedWordLens.get_set_same
+  Compiler.Proofs.PackedBitfieldMetaSpec.PackedWordLens.get_set_same_of_lt
+  Compiler.Proofs.PackedBitfieldMetaSpec.PackedWordLens.set_set_fuse
+  Compiler.Proofs.PackedBitfieldMetaSpec.PackedWordLens.get_set_disjoint
+  Compiler.Proofs.PackedBitfieldMetaSpec.fixedArraySlot_injective
+  Compiler.Proofs.PackedBitfieldMetaSpec.fixedArraySubSlot_nonCollision
+  Compiler.Proofs.PackedBitfieldMetaSpec.inheritedSlotOffset_injective
+  Compiler.Proofs.PackedBitfieldMetaSpec.inheritedSlotOffset_parent_child_disjoint
+  Compiler.Proofs.PackedBitfieldMetaSpec.relativeSlotOffset_satisfies_metaSpec
+  Compiler.Proofs.PackedBitfieldMetaSpec.samplePackedSlices_all_wellFormed
+  Compiler.Proofs.PackedBitfieldMetaSpec.address_and_uint96_pack_disjoint
+  Compiler.Proofs.PackedBitfieldMetaSpec.overlapping_slices_not_disjoint
+  Compiler.Proofs.PackedBitfieldMetaSpec.overflowing_slice_not_wellFormed
+  Compiler.Proofs.PackedBitfieldMetaSpec.packed_lens_execution_witness
+  Compiler.Proofs.PackedBitfieldMetaSpec.relative_slot_offset_witness
+
   -- Compiler/Proofs/SolidityImport/Solcore/Primitives.lean
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_eq_uint256_modulus
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_pos
@@ -9771,4 +9804,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8981 theorems/lemmas (6222 public, 2759 private, 0 sorry'd)
+-- Total: 9011 theorems/lemmas (6252 public, 2759 private, 0 sorry'd)

@@ -50,7 +50,7 @@ def storageTypeFromSyntax
     | _ => throwErrorAt stx "invalid struct member declaration"
 
   let rec storageStructMemberElementWords (memberName : String) : ValueType → CommandElabM Nat
-    | .uint256 | .int256 | .uint16 | .address | .bool | .bytes32 => pure 1
+    | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ | .address | .bool | .bytes32 => pure 1
     | .newtype _ baseType => storageStructMemberElementWords memberName baseType
     | .enum _ _ => pure 1
     | .fixedArray elemTy size => do
@@ -74,7 +74,7 @@ def storageTypeFromSyntax
         let nested ← (List.range size).mapM fun idx =>
           expandStructMemberDecl s!"{memberPrefix}[{idx}]" (baseOffset + idx * elemWords) elemTy none
         pure nested.flatten
-    | .uint256 | .int256 | .uint16 | .address | .bool | .bytes32 =>
+    | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _ | .address | .bool | .bytes32 =>
         pure [{ name := memberPrefix, ty := memberTy, wordOffset := baseOffset, packed := packed }]
     | other =>
         throwErrorAt ty
@@ -175,7 +175,7 @@ def modelStructMemberTerm (member : StructMemberDecl) : CommandElabM Term := do
         `(some { offset := $(natTerm offset), width := $(natTerm width) })
   let memberTypeTerm ←
     match member.ty with
-    | .uint256 | .int256 | .uint8 | .enum _ _ =>
+    | .uint256 | .int256 | .uint8 | .uintN _ | .intN _ | .bytesN _ | .enum _ _ =>
         `(Compiler.CompilationModel.StructMemberType.uint256)
     | .uint16 =>
         `(Compiler.CompilationModel.StructMemberType.uint16)
@@ -197,14 +197,14 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
   match ty with
   | .scalar .uint256 => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar .int256 => `(Compiler.CompilationModel.FieldType.int256)
-  | .scalar .uint8 => throwError "storage fields cannot be Uint8; use Uint256 encoding"
+  | .scalar .uint8 => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar .uint16 => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar (.uintN _) => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar (.intN _) => throwError "storage fields cannot use narrow integers yet; packed storage is tracked separately in #2060"
   | .scalar (.bytesN _) => throwError "storage fields cannot use fixed bytes yet; packed storage is tracked separately in #2060"
   | .scalar .address => `(Compiler.CompilationModel.FieldType.address)
-  | .scalar .bytes32 => throwError "storage fields cannot be Bytes32; use Uint256 encoding"
-  | .scalar .bool => throwError "storage fields cannot be Bool; use Uint256 (0/1) encoding"
+  | .scalar .bytes32 => `(Compiler.CompilationModel.FieldType.uint256)
+  | .scalar .bool => `(Compiler.CompilationModel.FieldType.uint256)
   | .scalar .string => throwError "storage fields cannot be String; use Uint256 encoding"
   | .scalar .bytes => throwError "storage fields cannot be Bytes; use Uint256 encoding"
   | .scalar (.array _) => throwError "storage fields cannot be Array; use mapping encodings"
@@ -266,5 +266,103 @@ def modelFieldTypeTerm (ty : StorageType) : CommandElabM Term :=
       let innerKeyTerm ← modelMappingKeyTypeTerm innerKey
       let memberTerms := (← members.mapM modelStructMemberTerm).toArray
       `(Compiler.CompilationModel.FieldType.mappingStruct2 $outerKeyTerm $innerKeyTerm [ $[$memberTerms],* ])
+
+/-- Map a macro `ValueType` to its `CompilationModel.ScalarStorageType` descriptor (`#2417`). -/
+partial def scalarStorageModelType? : ValueType → Option Compiler.CompilationModel.ScalarStorageType
+  | .bool => some .bool
+  | .uint8 => some .uint8
+  | .uint16 => some .uint16
+  | .uintN 32 => some .uint32
+  | .uintN 64 => some .uint64
+  | .uintN 96 => some .uint96
+  | .uintN 128 => some .uint128
+  | .uintN bits => some (.uintN bits)
+  | .uint256 => some .uint256
+  | .int256 => some .int256
+  | .address => some .address
+  | .bytes32 => some .bytes32
+  | .enum _ _ => some .uint8
+  | .newtype _ baseType => scalarStorageModelType? baseType
+  | _ => none
+
+/-- Storage bit width of a scalar `ValueType` in Solidity's 256-bit word layout (`#2417`). -/
+def scalarStorageBitWidth? (ty : ValueType) : Option Nat :=
+  (scalarStorageModelType? ty).map Compiler.CompilationModel.ScalarStorageType.bitWidth
+
+/-- Construct a `PackedSlotField` descriptor from a `StorageFieldDecl` when the field
+    carries `packedBits` or is a narrow sub-word scalar (`#2417`, `#1993`). -/
+def packedSlotFieldFromDecl? (decl : StorageFieldDecl) :
+    Option Compiler.CompilationModel.PackedSlotField :=
+  match decl.ty, decl.packedBits with
+  | .scalar vt, some (offset, width) =>
+      let scalarTy := (scalarStorageModelType? vt).getD (.uintN width)
+      some
+        (Compiler.CompilationModel.PackedSlotField.mk
+          decl.name
+          decl.slotNum
+          { offset := offset, width := width }
+          scalarTy
+          decl.isTransient)
+  | .scalar vt, none =>
+      match scalarStorageModelType? vt with
+      | some scalarTy =>
+          if scalarTy.isSubWord then
+            some
+              (Compiler.CompilationModel.PackedSlotField.mk
+                decl.name
+                decl.slotNum
+                { offset := 0, width := scalarTy.bitWidth }
+                scalarTy
+                decl.isTransient)
+          else
+            none
+      | none => none
+  | _, _ => none
+
+/-- Compute the per-element storage word stride of a `FixedArray` element type (`#2417`). -/
+partial def fixedArrayElementWordStride? : ValueType → Option Nat
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bool | .bytes32 | .enum _ _ =>
+      some 1
+  | .newtype _ baseType =>
+      fixedArrayElementWordStride? baseType
+  | .adt _ maxFields =>
+      some (1 + maxFields)
+  | .fixedArray elemTy size =>
+      (fixedArrayElementWordStride? elemTy).map (· * size)
+  | .struct _ fields =>
+      fields.foldlM
+        (fun acc (_, fty) => do
+          let w ← fixedArrayElementWordStride? fty
+          pure (acc + w))
+        0
+  | _ => none
+
+/-- Construct a `FixedArrayLayoutDescriptor` for a `ValueType.fixedArray` storage declaration
+    with multi-slot stride and optional trailing `__gap` slots (`#2417`, `#2420`). -/
+def fixedArrayLayoutDescriptor?
+    (baseSlot : Nat) (ty : ValueType) (gapSlots : Nat := 0) :
+    Option Compiler.CompilationModel.FixedArrayLayoutDescriptor :=
+  match ty with
+  | .fixedArray elemTy size => do
+      let stride ← fixedArrayElementWordStride? elemTy
+      pure
+        { baseSlot := baseSlot
+          size := size
+          elemStride := stride
+          gapSlots := gapSlots }
+  | _ => none
+
+/-- Shift a `StorageFieldDecl` by a relative `parentSlotOffset` and optional ERC-7201
+    `namespaceRoot?` modulo `evmModulus` (`#2420`). -/
+def applyStorageFieldRelativeOffset
+    (parentSlotOffset : Nat)
+    (namespaceRoot? : Option Nat := none)
+    (decl : StorageFieldDecl) : StorageFieldDecl :=
+  let rel : Compiler.CompilationModel.RelativeSlotOffset :=
+    { namespaceRoot? := namespaceRoot?
+      parentSlotOffset := parentSlotOffset
+      localSlot := decl.slotNum }
+  { decl with slotNum := rel.resolvedSlot }
 
 end Verity.Macro
