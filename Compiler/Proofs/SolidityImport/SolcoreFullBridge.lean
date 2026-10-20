@@ -645,4 +645,394 @@ theorem solcore_to_verity_quadrangular_revert_preservation
     triangular_revert_equivalence hTri isRevert n hDS hSI,
     trust_boundary_partition_complete cw.spec allowedMask⟩
 
+/-! ## 6. Phase 4 Track D2: Computed Transient Storage (`#1995`), Immutables (`#1992`), Stateful External Calls (`#1963`/`#2094`), Multicall/Delegatecall Batch (`#1997`), and Disjoint-Footprint Commutativity (`#1990`) -/
+
+/-- Alignment between a `Solcore` immutable word environment `immEnv` and `dState.immutable`. -/
+def ImmutableEnvAligned (immEnv : String → Word) (dState : DenoteState) : Prop :=
+  ∀ immId : String, (immEnv immId).val = (dState.immutable immId).val
+
+/-- Outcome of a stateful external call (`#1963`, `#2094`): either succeeds with a
+storage slot update and return word, or reverts with error data. -/
+inductive ExternalCallOutcome where
+  | success (slot : Word) (newVal : Word) (retWord : Word)
+  | reverted (errData : Word)
+  deriving DecidableEq, Repr
+
+/-- Preserved `msg.sender` and `msg.value` context across `delegatecall` batches (`#1997`). -/
+structure DelegateContext where
+  msgSender : Word
+  msgValue : Word
+  deriving DecidableEq, Repr
+
+/-- Single frame in a `delegatecallBatch` (`#1997`). -/
+inductive DelegateFrameSpec where
+  | writeSlot (slot : Word) (val : Word)
+  | revertFrame (errWord : Word)
+  deriving DecidableEq, Repr
+
+/-- Advanced `Solcore` operations closing `#1995`, `#1992`, `#1963`, `#2094`, and `#1997`. -/
+inductive SolcoreAdvancedOp where
+  | tstoreComputed (slotExpr valExpr : SolcorePureExpr)
+  | tloadComputed (dst : String) (slotExpr : SolcorePureExpr)
+  | readImmutable (dst : String) (immId : String)
+  | statefulExternalCall (dst : String) (outcome : ExternalCallOutcome)
+  | delegatecallBatch (ctx : DelegateContext) (frames : List DelegateFrameSpec)
+  deriving Repr
+
+/-- Execute a `delegatecall` batch on `SolcoreExecState`: preserves `ctx` (`msg.sender`,
+`msg.value`) and rolls back to `entryState` if any frame reverts. -/
+def execDelegateBatchSolcore
+    (entryState : SolcoreExecState) :
+    List DelegateFrameSpec → SolcoreExecState → SolcoreCheckedOutcome
+  | [], curr => .continued curr
+  | .writeSlot slot val :: rest, curr =>
+      execDelegateBatchSolcore entryState rest (curr.sstore slot val)
+  | .revertFrame errWord :: _, _ =>
+      .reverted entryState errWord
+
+/-- Execute a `delegatecall` batch on `DenoteState` when all frames succeed. -/
+def execDelegateBatchDenote :
+    List DelegateFrameSpec → DenoteState → DenoteState
+  | [], dState => dState
+  | .writeSlot slot val :: rest, dState =>
+      execDelegateBatchDenote rest
+        { dState with world := Denote.writeUintSlots dState.world [slot.val] val.val }
+  | .revertFrame _ :: _, dState => dState
+
+/-- Predicate checking whether all frames in a `delegatecall` batch succeed. -/
+def delegateBatchAllSucceed : List DelegateFrameSpec → Bool
+  | [] => true
+  | .writeSlot _ _ :: rest => delegateBatchAllSucceed rest
+  | .revertFrame _ :: _ => false
+
+namespace SolcoreAdvancedOp
+
+/-- Execute a `SolcoreAdvancedOp` on `SolcoreExecState` under immutable environment `immEnv`. -/
+def execSolcore
+    (immEnv : String → Word) (op : SolcoreAdvancedOp) (sState : SolcoreExecState) :
+    SolcoreCheckedOutcome :=
+  match op with
+  | .tstoreComputed slotExpr valExpr =>
+      .continued (sState.tstore (slotExpr.evalWord sState) (valExpr.evalWord sState))
+  | .tloadComputed dst slotExpr =>
+      .continued (sState.setLocal dst (sState.tload (slotExpr.evalWord sState)))
+  | .readImmutable dst immId =>
+      .continued (sState.setLocal dst (immEnv immId))
+  | .statefulExternalCall dst (.success slot newVal retWord) =>
+      .continued ((sState.sstore slot newVal).setLocal dst retWord)
+  | .statefulExternalCall _ (.reverted errData) =>
+      .reverted sState errData
+  | .delegatecallBatch _ frames =>
+      execDelegateBatchSolcore sState frames sState
+
+/-- Target `DenoteState` reached when `op` continues without reverting. -/
+def execDenote
+    (immEnv : String → Word) (op : SolcoreAdvancedOp)
+    (sState : SolcoreExecState) (dState : DenoteState) : DenoteState :=
+  match op with
+  | .tstoreComputed slotExpr valExpr =>
+      { dState with
+          world := dState.world.writeTransient
+            (Denote.wordNormalize (slotExpr.evalWord sState).val)
+            (valExpr.evalWord sState).toUint256 }
+  | .tloadComputed dst slotExpr =>
+      { dState with
+          bindings := Denote.bindValue dState.bindings dst
+            (sState.tload (slotExpr.evalWord sState)).val }
+  | .readImmutable dst immId =>
+      { dState with
+          bindings := Denote.bindValue dState.bindings dst (immEnv immId).val }
+  | .statefulExternalCall dst (.success slot newVal retWord) =>
+      { dState with
+          world := Denote.writeUintSlots dState.world [slot.val] newVal.val
+          bindings := Denote.bindValue dState.bindings dst retWord.val }
+  | .statefulExternalCall _ (.reverted _) => dState
+  | .delegatecallBatch _ frames =>
+      execDelegateBatchDenote frames dState
+
+end SolcoreAdvancedOp
+
+private theorem revert_rollback_refines_denote_with_transient
+    {TrapReason : Type}
+    {sState : SolcoreExecState} {dState : DenoteState}
+    {initialWorld : Verity.ContractState}
+    (hRef : StateRefines sState dState initialWorld)
+    (oracle : DenoteOracle) (spec : CompilationModel)
+    (revertWord : Word)
+    (hEncodeInit : ∀ slot : Word,
+      Denote.encodeStorage oracle spec initialWorld slot.val =
+        (initialWorld.readSlot slot.val).val) :
+    ∃ snap : SolcoreFrameSnapshot,
+      sState.resolveFrame (FrameOutcome.reverted (TrapReason := TrapReason) revertWord) =
+        some snap ∧
+      SnapshotRefinesResult sState.contractAddress snap
+        (Denote.revertedResult oracle spec initialWorld) ∧
+      (∀ slot : Word,
+        (snap.transientStorage slot).val = (initialWorld.readTransient slot.val).val) := by
+  obtain ⟨snap, hRes, hSnap⟩ :=
+    revert_rollback_refines_denote (TrapReason := TrapReason)
+      hRef oracle spec revertWord hEncodeInit
+  injection hRes with hEq; subst hEq
+  exact ⟨sState.checkpoint, rfl, hSnap, hRef.checkpoint_transient_eq⟩
+
+/-- `execDelegateBatchSolcore` preserves `StateRefines` on `.continued` and rolls back
+to `entryState` on `.reverted`. -/
+theorem execDelegateBatch_preserves_stateRefines {TrapReason : Type}
+    (frames : List DelegateFrameSpec) {entryState currState : SolcoreExecState}
+    {entryDenote currDenote : DenoteState} {initialWorld : Verity.ContractState}
+    (hEntryRef : StateRefines entryState entryDenote initialWorld)
+    (hCurrRef : StateRefines currState currDenote initialWorld)
+    (oracle : DenoteOracle) (spec : CompilationModel)
+    (hEncodeInit : ∀ slot : Word, Denote.encodeStorage oracle spec initialWorld slot.val =
+      (initialWorld.readSlot slot.val).val) :
+    match execDelegateBatchSolcore entryState frames currState with
+    | .continued sFinal => StateRefines sFinal (execDelegateBatchDenote frames currDenote) initialWorld
+    | .reverted sFinal revWord =>
+        ∃ snap : SolcoreFrameSnapshot,
+          sFinal.resolveFrame (FrameOutcome.reverted (TrapReason := TrapReason) revWord) = some snap ∧
+          SnapshotRefinesResult entryState.contractAddress snap (Denote.revertedResult oracle spec initialWorld) ∧
+          (∀ slot : Word, (snap.transientStorage slot).val = (initialWorld.readTransient slot.val).val) := by
+  induction frames generalizing currState currDenote with
+  | nil => exact hCurrRef
+  | cons frame rest ih =>
+      cases frame with
+      | writeSlot slot val => exact ih (sstore_preserves_stateRefines hCurrRef slot val)
+      | revertFrame errWord =>
+          exact revert_rollback_refines_denote_with_transient hEntryRef oracle spec errWord hEncodeInit
+
+/-- **Layer I Meta-Spec (`SolcoreAdvancedOpPreservesSemantics`)**:
+Unified refinement & rollback specification for `SolcoreAdvancedOp`. -/
+def SolcoreAdvancedOpPreservesSemantics
+    {TrapReason : Type}
+    (immEnv : String → Word) (op : SolcoreAdvancedOp)
+    (sState : SolcoreExecState) (dState : DenoteState)
+    (initialWorld : Verity.ContractState)
+    (oracle : DenoteOracle) (spec : CompilationModel) : Prop :=
+  match op.execSolcore immEnv sState with
+  | .continued sFinal =>
+      StateRefines sFinal (op.execDenote immEnv sState dState) initialWorld
+  | .reverted sFinal revWord =>
+      ∃ snap : SolcoreFrameSnapshot,
+        sFinal.resolveFrame (FrameOutcome.reverted (TrapReason := TrapReason) revWord) =
+          some snap ∧
+        SnapshotRefinesResult sState.contractAddress snap
+          (Denote.revertedResult oracle spec initialWorld) ∧
+        (∀ slot : Word,
+          (snap.transientStorage slot).val = (initialWorld.readTransient slot.val).val)
+
+/-- **Layer I Universal Theorem (`execSolcoreAdvancedOp_preserves_semantics`)**:
+Every `op : SolcoreAdvancedOp` preserves `StateRefines` when continuing and rolls back
+persistent storage, EIP-1153 transient storage, and event logs to `initialWorld` on revert. -/
+theorem execSolcoreAdvancedOp_preserves_semantics {TrapReason : Type}
+    (immEnv : String → Word) (op : SolcoreAdvancedOp)
+    {sState : SolcoreExecState} {dState : DenoteState} {initialWorld : Verity.ContractState}
+    (hRef : StateRefines sState dState initialWorld) (oracle : DenoteOracle) (spec : CompilationModel)
+    (hEncodeInit : ∀ slot : Word, Denote.encodeStorage oracle spec initialWorld slot.val =
+      (initialWorld.readSlot slot.val).val) :
+    SolcoreAdvancedOpPreservesSemantics (TrapReason := TrapReason)
+      immEnv op sState dState initialWorld oracle spec := by
+  cases op with
+  | tstoreComputed s v => exact tstore_preserves_stateRefines hRef (s.evalWord sState) (v.evalWord sState)
+  | tloadComputed d s => exact setLocal_preserves_stateRefines hRef d (sState.tload (s.evalWord sState))
+  | readImmutable d i => exact setLocal_preserves_stateRefines hRef d (immEnv i)
+  | statefulExternalCall dst outcome =>
+      cases outcome with
+      | success slot newVal retWord =>
+          exact setLocal_preserves_stateRefines (sstore_preserves_stateRefines hRef slot newVal) dst retWord
+      | reverted errData =>
+          exact revert_rollback_refines_denote_with_transient hRef oracle spec errData hEncodeInit
+  | delegatecallBatch _ frames =>
+      exact execDelegateBatch_preserves_stateRefines frames hRef hRef oracle spec hEncodeInit
+
+/-! ### Layer II: Per-Feature Corollaries (`#1995`, `#1992`, `#1963`, `#2094`, `#1997`) -/
+
+/-- **Corollary 1 (`#1995` Computed Transient Storage Write & Load)**:
+`tstoreComputed` and `tloadComputed` evaluate `slotExpr.toVerity` in `Denote` and preserve `StateRefines`. -/
+theorem tstoreComputed_and_tloadComputed_preserve_stateRefines
+    {sState : SolcoreExecState} {dState : DenoteState}
+    {initialWorld : Verity.ContractState}
+    (hRef : StateRefines sState dState initialWorld)
+    (oracle : DenoteOracle) (fields : List Field)
+    (dst : String) (slotExpr valExpr : SolcorePureExpr) :
+    Denote.evalExpr oracle fields dState (.tload slotExpr.toVerity) =
+      some (sState.tload (slotExpr.evalWord sState)).val ∧
+    StateRefines
+      (sState.tstore (slotExpr.evalWord sState) (valExpr.evalWord sState))
+      ((SolcoreAdvancedOp.tstoreComputed slotExpr valExpr).execDenote
+        (fun _ => Word.zero) sState dState)
+      initialWorld ∧
+    StateRefines
+      (sState.setLocal dst (sState.tload (slotExpr.evalWord sState)))
+      ((SolcoreAdvancedOp.tloadComputed dst slotExpr).execDenote
+        (fun _ => Word.zero) sState dState)
+      initialWorld :=
+  ⟨tload_refines_evalExpr hRef (evalExpr_toVerity_eq_evalWord hRef oracle fields slotExpr),
+   tstore_preserves_stateRefines hRef (slotExpr.evalWord sState) (valExpr.evalWord sState),
+   setLocal_preserves_stateRefines hRef dst (sState.tload (slotExpr.evalWord sState))⟩
+
+/-- **Corollary 2 (`#1992` Bytecode Immutable Read Preservation)**:
+Reading `Expr.immutable immId` under `ImmutableEnvAligned immEnv dState` evaluates to
+`some (immEnv immId).val` in `Denote` and preserves `StateRefines`. -/
+theorem readImmutable_preserves_stateRefines
+    {sState : SolcoreExecState} {dState : DenoteState}
+    {initialWorld : Verity.ContractState}
+    (hRef : StateRefines sState dState initialWorld)
+    (immEnv : String → Word)
+    (hImm : ImmutableEnvAligned immEnv dState)
+    (oracle : DenoteOracle) (fields : List Field)
+    (dst immId : String) :
+    Denote.evalExpr oracle fields dState (.immutable immId) = some (immEnv immId).val ∧
+    StateRefines
+      (sState.setLocal dst (immEnv immId))
+      ((SolcoreAdvancedOp.readImmutable dst immId).execDenote immEnv sState dState)
+      initialWorld := by
+  refine ⟨?_, setLocal_preserves_stateRefines hRef dst (immEnv immId)⟩
+  change some (dState.immutable immId).val = some (immEnv immId).val
+  rw [hImm immId]
+
+/-- **Corollary 3 (`#1963` / `#2094` Stateful External Call Rollback)**:
+On `.reverted errData`, `statefulExternalCall` rolls back persistent storage,
+transient storage, and event logs to `initialWorld`. -/
+theorem statefulExternalCall_reverted_rolls_back_all_domains
+    {TrapReason : Type}
+    {sState : SolcoreExecState} {dState : DenoteState}
+    {initialWorld : Verity.ContractState}
+    (hRef : StateRefines sState dState initialWorld)
+    (oracle : DenoteOracle) (spec : CompilationModel)
+    (dst : String) (errData : Word)
+    (hEncodeInit : ∀ slot : Word,
+      Denote.encodeStorage oracle spec initialWorld slot.val =
+        (initialWorld.readSlot slot.val).val) :
+    SolcoreAdvancedOpPreservesSemantics (TrapReason := TrapReason)
+      (fun _ => Word.zero) (.statefulExternalCall dst (.reverted errData))
+      sState dState initialWorld oracle spec :=
+  execSolcoreAdvancedOp_preserves_semantics
+    (fun _ => Word.zero) (.statefulExternalCall dst (.reverted errData))
+    hRef oracle spec hEncodeInit
+
+/-! ## 7. Footprint Commutativity Meta-Specification (`#1990`) -/
+
+/-- Address footprint across persistent storage, EIP-1153 transient storage, and memory. -/
+structure StateFootprint where
+  storageSlot : Option Word := none
+  transientSlot : Option Word := none
+  memoryOffset : Option Word := none
+  deriving DecidableEq, Repr
+
+namespace StateFootprint
+
+/-- Decidable option-address disjointness: `none` is disjoint from everything,
+and `some a` is disjoint from `some b` iff `a ≠ b`. -/
+def optDisjoint (a b : Option Word) : Bool :=
+  match a, b with
+  | some x, some y => x != y
+  | _, _ => true
+
+/-- Two footprints are disjoint iff their storage, transient, and memory slots are pairwise disjoint. -/
+def disjoint (f₁ f₂ : StateFootprint) : Bool :=
+  optDisjoint f₁.storageSlot f₂.storageSlot &&
+    optDisjoint f₁.transientSlot f₂.transientSlot &&
+    optDisjoint f₁.memoryOffset f₂.memoryOffset
+
+end StateFootprint
+
+/-- **Layer I Footprint Commutativity Meta-Specification (`DisjointFootprintMetaSpec`, `#1990`)**:
+Certifies that two state transformers `step₁, step₂ : State → State` with disjoint footprints
+commute extensionally on observable state projections `obs : State → Obs`. -/
+structure DisjointFootprintMetaSpec
+    {State Obs : Type}
+    (obs : State → Obs)
+    (f₁ f₂ : StateFootprint)
+    (step₁ step₂ : State → State) : Prop where
+  /-- The footprints `f₁` and `f₂` are disjoint. -/
+  footprints_disjoint : f₁.disjoint f₂ = true
+  /-- Applying `step₁` then `step₂` yields the same observation as `step₂` then `step₁`. -/
+  commutes_obs : ∀ s : State, obs (step₂ (step₁ s)) = obs (step₁ (step₂ s))
+
+/-- **Layer II Corollary 1 (`sstore_disjoint_commutes`)**:
+Two `sstore` updates at distinct slots `slot₁ ≠ slot₂` commute at every read slot `q`. -/
+theorem sstore_disjoint_commutes
+    (sState : SolcoreExecState) {slot₁ slot₂ : Word} (val₁ val₂ : Word)
+    (hNe : slot₁ ≠ slot₂) (q : Word) :
+    ((sState.sstore slot₁ val₁).sstore slot₂ val₂).sload q =
+      ((sState.sstore slot₂ val₂).sstore slot₁ val₁).sload q := by
+  by_cases hq2 : q = slot₂
+  · subst hq2
+    rw [SolcoreExecState.sload_sstore_same, SolcoreExecState.sload_sstore_other _ _ (Ne.symm hNe),
+      SolcoreExecState.sload_sstore_same]
+  · by_cases hq1 : q = slot₁
+    · subst hq1
+      rw [SolcoreExecState.sload_sstore_other _ _ hNe, SolcoreExecState.sload_sstore_same,
+        SolcoreExecState.sload_sstore_same]
+    · rw [SolcoreExecState.sload_sstore_other _ _ hq2, SolcoreExecState.sload_sstore_other _ _ hq1,
+        SolcoreExecState.sload_sstore_other _ _ hq1, SolcoreExecState.sload_sstore_other _ _ hq2]
+
+/-- **Layer II Corollary 2 (`tstore_disjoint_commutes`)**:
+Two `tstore` updates at distinct transient slots `slot₁ ≠ slot₂` commute at every read slot `q`. -/
+theorem tstore_disjoint_commutes
+    (sState : SolcoreExecState) {slot₁ slot₂ : Word} (val₁ val₂ : Word)
+    (hNe : slot₁ ≠ slot₂) (q : Word) :
+    ((sState.tstore slot₁ val₁).tstore slot₂ val₂).tload q =
+      ((sState.tstore slot₂ val₂).tstore slot₁ val₁).tload q := by
+  by_cases hq2 : q = slot₂
+  · subst hq2
+    rw [SolcoreExecState.tload_tstore_same, SolcoreExecState.tload_tstore_other _ _ (Ne.symm hNe),
+      SolcoreExecState.tload_tstore_same]
+  · by_cases hq1 : q = slot₁
+    · subst hq1
+      rw [SolcoreExecState.tload_tstore_other _ _ hNe, SolcoreExecState.tload_tstore_same,
+        SolcoreExecState.tload_tstore_same]
+    · rw [SolcoreExecState.tload_tstore_other _ _ hq2, SolcoreExecState.tload_tstore_other _ _ hq1,
+        SolcoreExecState.tload_tstore_other _ _ hq1, SolcoreExecState.tload_tstore_other _ _ hq2]
+
+/-- **Layer II Corollary 3 (`mstore_disjoint_commutes`)**:
+Two `mstore` updates at distinct word offsets `off₁ ≠ off₂` commute at every read offset `q`. -/
+theorem mstore_disjoint_commutes
+    (sState : SolcoreExecState) {off₁ off₂ : Word} (val₁ val₂ : Word)
+    (hNe : off₁ ≠ off₂) (q : Word) :
+    ((sState.mstore off₁ val₁).mstore off₂ val₂).mload q =
+      ((sState.mstore off₂ val₂).mstore off₁ val₁).mload q := by
+  simp only [SolcoreExecState.mload, SolcoreExecState.mstore]
+  by_cases hq2 : q = off₂
+  · subst hq2; simp [Ne.symm hNe]
+  · by_cases hq1 : q = off₁
+    · subst hq1; simp [hNe]
+    · simp [hq1, hq2]
+
+/-! ### Layer III: Kernel-Checked `by decide` Executable Witness Suite -/
+
+/-- Disjoint persistent storage slots (`slot 1` vs `slot 2`) satisfy `StateFootprint.disjoint`. -/
+theorem witness_disjoint_storage_footprints :
+    StateFootprint.disjoint
+      { storageSlot := some (Word.ofNatModulo 1) }
+      { storageSlot := some (Word.ofNatModulo 2) } = true := by decide
+
+/-- Overlapping persistent storage slots (`slot 5` vs `slot 5`) are rejected by `StateFootprint.disjoint`. -/
+theorem witness_overlapping_storage_footprints :
+    StateFootprint.disjoint
+      { storageSlot := some (Word.ofNatModulo 5) }
+      { storageSlot := some (Word.ofNatModulo 5) } = false := by decide
+
+/-- Cross-domain `sstore(slot 1)` and `tstore(slot 1)` have disjoint footprints. -/
+theorem witness_cross_domain_sstore_tstore_disjoint :
+    StateFootprint.disjoint
+      { storageSlot := some (Word.ofNatModulo 1) }
+      { transientSlot := some (Word.ofNatModulo 1) } = true := by decide
+
+/-- `delegateBatchAllSucceed` accepts a multi-frame write batch. -/
+theorem witness_delegateBatch_all_succeed :
+    delegateBatchAllSucceed
+      [.writeSlot (Word.ofNatModulo 0) (Word.ofNatModulo 10),
+       .writeSlot (Word.ofNatModulo 1) (Word.ofNatModulo 20)] = true := by decide
+
+/-- `delegateBatchAllSucceed` detects a reverting frame in a batch. -/
+theorem witness_delegateBatch_detects_revert :
+    delegateBatchAllSucceed
+      [.writeSlot (Word.ofNatModulo 0) (Word.ofNatModulo 10),
+       .revertFrame (Word.ofNatModulo 0x11)] = false := by decide
+
+/-- `ClockedStepBudget.consumeStep?` decrements a positive step budget. -/
+theorem witness_clockedStepBudget_consume :
+    (ClockedStepBudget.mk 3).consumeStep? = some ⟨2⟩ := by decide
+
 end Compiler.Proofs.SolidityImport.SolcoreFullBridge
