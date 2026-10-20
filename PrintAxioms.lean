@@ -217,6 +217,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBridgePredicates
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBuiltinSemantics
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanCallClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeCalldata
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.DispatchMetaSpecs
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Foundation
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Preservation
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Projection
@@ -8129,6 +8130,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_selectorExpr_native_uint256
   Compiler.Proofs.YulGeneration.Backends.Native.lowerExprNative_selectorExpr
 
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/DispatchMetaSpecs.lean
+  Compiler.Proofs.YulGeneration.Backends.Native.PreservingPrimOp.ofName_name
+  Compiler.Proofs.YulGeneration.Backends.Native.PreservingPrimOp.ofName_stop
+  Compiler.Proofs.YulGeneration.Backends.Native.PrimOpVarStorePreservationMetaSpec.run_preserves
+  Compiler.Proofs.YulGeneration.Backends.Native.SwitchDispatchProjectionMetaSpec.project_match
+  Compiler.Proofs.YulGeneration.Backends.Native.SwitchDispatchProjectionMetaSpec.project_fallback
+
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Foundation.lean
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_selectorExpr_ok
   Compiler.Proofs.YulGeneration.Backends.Native.eval_lowerExprNative_selectorExpr_initialState_ok
@@ -8662,6 +8670,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.Native.nativePreservableStraightStmt_log_of_bridged  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.NativePreservableStraightStmt.of_bridgedStraightStmt
   Compiler.Proofs.YulGeneration.Backends.Native.NativePreservableStraightStmts.of_bridgedStraightStmts
+  -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_exprStmtCall_lowerExprNative_effect_of_nativeEvalArgs  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_exprStmtCall_lowerExprNative_log_of_nativeEvalArgs  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.nativeStmtPreservesWord_exprStmtCall_lowerExprNative_builtin_of_nativeEvalArgs  -- private
@@ -8797,14 +8806,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.initialState_unbridgedEnvironmentDefaults
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness/Projection.lean
+  Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult_buildSwitch_project_match
+  Compiler.Proofs.YulGeneration.Backends.Native.contractDispatcherExecResult_buildSwitch_project_fallback
   -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_get?_insert_self  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_getD_of_get?  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_getD_of_get?_none  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.treeMap_getElem?_none_of_get?  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.Native.account_updateStorage_get?_self_of_nonzero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.account_updateStorage_storage_of_nonzero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.account_updateStorage_storage_of_zero  -- private
-  -- Compiler.Proofs.YulGeneration.Backends.Native.account_updateStorage_get?_self_of_zero  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_setMachineState  -- private
   -- Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_withMachineState  -- private
   Compiler.Proofs.YulGeneration.Backends.Native.projectStorageFromState_accountStorageSlot
@@ -9849,4 +9858,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 9050 theorems/lemmas (6289 public, 2761 private, 0 sorry'd)
+-- Total: 9056 theorems/lemmas (6296 public, 2760 private, 0 sorry'd)

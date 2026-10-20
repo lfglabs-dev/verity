@@ -1,4 +1,5 @@
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Preservation
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.DispatchMetaSpecs
 
 import Lean
 
@@ -15,6 +16,28 @@ open Lean Elab Tactic Meta
 open Compiler.Proofs.IRGeneration
 
   (IRResult IRState IRStorageSlot IRStorageWord IRTransaction)
+
+/-- Layer-II runtime-dispatch hit projection from Meta-Spec 9. -/
+theorem contractDispatcherExecResult_buildSwitch_project_match
+    {Selector Body State Result : Type}
+    (spec : SwitchDispatchProjectionMetaSpec Selector Body State Result)
+    (cases : List (Selector × Body)) (fallback : Body) (selector tag : Selector)
+    (state : State) (body : Body)
+    (hFind : cases.find? (fun entry => spec.beq entry.1 selector) = some (tag, body)) :
+    spec.contractDispatcherExecResult_buildSwitch cases fallback selector state =
+      spec.handlerExec body state :=
+  spec.project_match cases fallback selector state tag body hFind
+
+/-- Layer-II runtime-dispatch fallback projection from Meta-Spec 9. -/
+theorem contractDispatcherExecResult_buildSwitch_project_fallback
+    {Selector Body State Result : Type}
+    (spec : SwitchDispatchProjectionMetaSpec Selector Body State Result)
+    (cases : List (Selector × Body)) (fallback : Body) (selector : Selector)
+    (state : State)
+    (hFind : cases.find? (fun entry => spec.beq entry.1 selector) = none) :
+    spec.contractDispatcherExecResult_buildSwitch cases fallback selector state =
+      spec.fallbackExec fallback state :=
+  spec.project_fallback cases fallback selector state hFind
 
 /-- Project the account storage for the current contract back to Verity's
     `IRStorageSlot → IRStorageWord` storage view. -/
@@ -52,22 +75,6 @@ private theorem treeMap_getElem?_none_of_get?
   rw [← Std.TreeMap.get?_eq_getElem?]
   exact h
 
-/-- A nonzero `SSTORE` inserts its value at the written key.  The remaining
-branches in `State.sstore` compute gas and refunds only. -/
-private theorem account_updateStorage_get?_self_of_nonzero
-    {τ : EvmYul.OperationType} (account : EvmYul.Account τ)
-    (slot value : EvmYul.UInt256)
-    (hValueNonzero : (value == (⟨0⟩ : EvmYul.UInt256)) = false) :
-    (account.updateStorage slot value).storage.get? slot = some value := by
-  unfold EvmYul.Account.updateStorage
-  change (value == EvmYul.UInt256.ofNat 0) = false at hValueNonzero
-  split
-  · next hZero =>
-    change (value == EvmYul.UInt256.ofNat 0) = true at hZero
-    rw [hValueNonzero] at hZero
-    contradiction
-  · simp []
-
 private theorem account_updateStorage_storage_of_nonzero
     {τ : EvmYul.OperationType} (account : EvmYul.Account τ)
     (slot value : EvmYul.UInt256)
@@ -91,22 +98,6 @@ private theorem account_updateStorage_storage_of_zero
   change (value == EvmYul.UInt256.ofNat 0) = true at hValueZero
   split
   · rfl
-  · next hNonzero =>
-    simp only [Bool.not_eq_true] at hNonzero
-    change (value == EvmYul.UInt256.ofNat 0) = false at hNonzero
-    rw [hValueZero] at hNonzero
-    contradiction
-
-/-- A zero `SSTORE` erases its written key. -/
-private theorem account_updateStorage_get?_self_of_zero
-    {τ : EvmYul.OperationType} (account : EvmYul.Account τ)
-    (slot value : EvmYul.UInt256)
-    (hValueZero : (value == (⟨0⟩ : EvmYul.UInt256)) = true) :
-    (account.updateStorage slot value).storage.get? slot = none := by
-  unfold EvmYul.Account.updateStorage
-  change (value == EvmYul.UInt256.ofNat 0) = true at hValueZero
-  split
-  · simp [Std.TreeMap.get?_eq_getElem?]
   · next hNonzero =>
     simp only [Bool.not_eq_true] at hNonzero
     change (value == EvmYul.UInt256.ofNat 0) = false at hNonzero

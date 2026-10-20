@@ -1,4 +1,4 @@
-import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.Foundation
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.DispatchMetaSpecs
 
 import Lean
 
@@ -6271,8 +6271,34 @@ theorem NativePreservableStraightStmts.of_bridgedStraightStmts
     NativePreservableStraightStmt.of_bridgedStraightStmt
       (hStmts stmt hMem) (hSide stmt hMem)
 
-/-- Lowered state-writing builtin calls (stores, `return`/`revert`, data copies and
-`stop`) preserve a marker word once their native argument evaluation does. -/
+/-- Meta-Spec 9 bridge: every opcode in `PreservingPrimOp` preserves a marker
+word after preservation by its argument evaluator. -/
+private theorem nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+    {name : EvmYul.Identifier} {expected : EvmYul.Literal}
+    {args : List YulExpr} {codeOverride : Option EvmYul.Yul.Ast.YulContract}
+    (op : PreservingPrimOp) (hStop : op = .stop → args = [])
+    (hArgs : NativeEvalArgsPreservesWord name expected
+      ((args.map Backends.lowerExprNative).reverse) codeOverride) :
+    NativeStmtPreservesWord name expected
+      (.ExprStmtCall (Backends.lowerExprNative (.call op.name args))) codeOverride := by
+  cases op
+  exacts [
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log0_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log1_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log2_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log3_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log4_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_mstore_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_mstore8_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_sstore_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_tstore_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_return_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_revert_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_calldatacopy_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_returndatacopy_of_nativeEvalArgs_preserves _ _ _ _ hArgs,
+    hStop rfl ▸ NativeStmtPreservesWord_exprStmtCall_lowerExprNative_stop _ _ _]
+
+/-- Layer-II effect-family corollary of Meta-Spec 9. -/
 private theorem nativeStmtPreservesWord_exprStmtCall_lowerExprNative_effect_of_nativeEvalArgs
     {name : EvmYul.Identifier} {expected : EvmYul.Literal} {func : String}
     {args : List YulExpr} {codeOverride : Option EvmYul.Yul.Ast.YulContract}
@@ -6285,29 +6311,27 @@ private theorem nativeStmtPreservesWord_exprStmtCall_lowerExprNative_effect_of_n
       (.ExprStmtCall (Backends.lowerExprNative (.call func args))) codeOverride := by
   simp only [List.mem_cons, List.not_mem_nil, or_false] at hFunc
   rcases hFunc with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  exact
-    NativeStmtPreservesWord_exprStmtCall_lowerExprNative_returndatacopy_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_sstore_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_tstore_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_mstore_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_mstore8_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_return_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_revert_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact
-      NativeStmtPreservesWord_exprStmtCall_lowerExprNative_calldatacopy_of_nativeEvalArgs_preserves
-        _ _ _ _ hArgs
-  · cases hStop rfl
-    exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_stop _ _ _
+  all_goals first
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .returndatacopy (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .sstore (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .tstore (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .mstore (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .mstore8 (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .returnOp (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .revert (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .calldatacopy (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .stop (by simpa using hStop rfl) hArgs
 
-/-- Lowered `log0`-`log4` calls preserve a marker word once their native argument
-evaluation does. -/
+/-- Layer-II log-family corollary of Meta-Spec 9. -/
 private theorem nativeStmtPreservesWord_exprStmtCall_lowerExprNative_log_of_nativeEvalArgs
     {name : EvmYul.Identifier} {expected : EvmYul.Literal} {func : String}
     {args : List YulExpr} {codeOverride : Option EvmYul.Yul.Ast.YulContract}
@@ -6318,16 +6342,17 @@ private theorem nativeStmtPreservesWord_exprStmtCall_lowerExprNative_log_of_nati
       (.ExprStmtCall (Backends.lowerExprNative (.call func args))) codeOverride := by
   simp only [List.mem_cons, List.not_mem_nil, or_false] at hFunc
   rcases hFunc with rfl | rfl | rfl | rfl | rfl
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log0_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log1_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log2_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log3_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
-  · exact NativeStmtPreservesWord_exprStmtCall_lowerExprNative_log4_of_nativeEvalArgs_preserves
-      _ _ _ _ hArgs
+  all_goals first
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .log0 (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .log1 (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .log2 (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .log3 (by simp) hArgs
+    | exact nativeStmtPreservesWord_exprStmtCall_lowerExprNative_of_preservingPrimOp
+        .log4 (by simp) hArgs
 
 /-- Lowered builtin effect or log calls preserve a marker word once their native
 argument evaluation does. -/
