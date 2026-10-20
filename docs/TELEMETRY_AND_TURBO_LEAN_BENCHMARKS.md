@@ -1,6 +1,6 @@
-# Multi-Agent `turbo-lean` Telemetry & Benchmarks (`Season 5` + `lean-native v0.3.0`)
+# Multi-Agent `turbo-lean` Telemetry & Benchmarks (`Season 9` `e7b256a` + `lean-native v0.5.0`)
 
-This document records the empirical system telemetry and developer-velocity benchmarks captured during the Verity multi-agent verification campaigns (Tracks S22, S23, Family C, and Family E) and summarizes the architecture and prospective roadmap gains enabled by **`turbo-lean` Season 5 (`0be49df`)** paired with **`lean-native v0.3.0` (`375a5ae`)**.
+This document records the empirical system telemetry and developer-velocity benchmarks captured during the Verity multi-agent verification campaigns (Tracks S22, S23, Family C, Family E, and the full 19-PR Wave 0–3 Roadmap `NR0`–`NR6` + `N0`–`N12`) and summarizes the architecture and empirical roadmap gains enabled by **`turbo-lean` Season 5 (`0be49df`) $\to$ Season 9 (`e7b256a`)** paired with **`lean-native v0.3.0` (`375a5ae`) $\to$ `v0.5.0`**.
 
 ---
 
@@ -76,3 +76,25 @@ Using the empirical speedup factors measured above (`4.16x` CoW memory compressi
 | **2. Uniswap v4 (`solidity_import`)** | `PoolManager`, `Pool`, `Hooks`, `Transient` (`type T is U` + global operators, EIP-1153 `tload`/`tstore` assembly, pure bit-packing/math assembly, nested struct sub-mappings, multi-return hooks) | `~60 – 90 h` | `~20 – 30 h` | **`~5 – 8 h`** |
 | **3. 100% Core Fragment (`CompilationModel → IR → EVMYulLean`)** | Unify `SupportedStmtList` structurally and close boundaries F1 (non-terminal `ite` & general `forEach`), F2 (`internal` helpers `#1638`), F3 (dynamic `emit`/`revertError` `#2082`), F4 (external calls `ECM`), F5 (constructors/`immutable`), F6 (Yul $\to$ EVM bytecode bridge) | `~180 – 250 h` (3–4 weeks) | `~50 – 75 h` (~1.5 weeks) | **`~10 – 16 h` (2–3 multi-agent sessions)** |
 | **4. Formal `SolidityImport` Proof via `solcore-lean`** | Connect `argotorg/solcore-lean` (`Solcore.SourceSemantics` / `Solcore.Core` / `ContractRuntime`) to `Verity.Core.Model.Denote` via per-contract Translation Validation bisimulation theorems and generic `Solcore.Core → CompilationModel` preservation | `~250 – 400 h` (infeasible in `8 GB` RAM with Mathlib + Solcore + Verity) | `~80 – 120 h` | **`~16 – 24 h` (enabled by CoW sharing of Solcore + Verity `.olean` heaps)** |
+
+---
+
+## 6. Season 9 (`e7b256a`) + `lean-native v0.5.0` Upgrade & Full 19-PR Campaign Outcomes
+
+In **PR `#2580`**, both the `babylon` fleet toolchain (`/var/lib/sandboxed-node/caches/elan/bin/`) and the GitHub Actions CI workflow ([`.github/workflows/turbo-lean-cache.yml`](../.github/workflows/turbo-lean-cache.yml)) were upgraded to **`turbo-lean` Season 9 (`e7b256af07f42d09f55bf221a335cc84123dbabe`)** paired with **`lean-native-core v0.5.0`**:
+
+1. **Unified 3-Stage Funnel (`turbo-lean --json agent-step <File.lean> [--decl <name>]`)**:
+   - **Stage 0 (`< 1 ms`)**: Hygiene gate (`sorry` / `axiom` / `native_decide` / `unsafe`) + BLAKE3 `TheoremProofCAS` dependency-cone lookup.
+   - **Stage 1 (`0.1 ms – 4 ms`)**: `audit-spec` vacuous-precondition / postcondition-tightness static analysis + `lean-native-core v0.5.0` SIMD/PTX counterexample search (`--scope all|uint8|uint16|uint32|full`).
+   - **Stage 2 (`18 ms – 800 ms`)**: Warm `ZygoteWorker` kernel verification with structured `mismatch_diagnostics` (`file`, `line`, `column`, `expected_type`, `actual_type`, `diff_hint`) and complexity telemetry (`heartbeats_used`, `proof_term_nodes`, `rss_delta_mb`, `peak_rss_mb`).
+2. **Warm `#eval` Runner (`turbo-lean --json eval <File.lean>`)**:
+   - Evaluates `#eval` files against a warm project `ZygoteWorker` in **`~10.9 ms`** (`7.2 MB` RSS delta vs. `~465 MB` cold `lean`) with `Law 11b` line-number padding and `Law 6` transitive `.olean` hashing.
+3. **CAS Worktree Deduplication (`turbo-lean --json worktree-dedup`)**:
+   - Deduplicated **`9,193` files** across 11 concurrent multi-agent git worktrees via CAS hardlinks, freeing **`3.36 GB`** of `.lake/packages`, `.barrel`, and `.git` pack bloat on `babylon`.
+4. **8 Segregated Pre-Elaboration Accelerators (`turbo-lean --json accelerators`)**:
+   - `lean-native-fastreject`, `simd-omega-fastcheck`, `simd-bv-decide-fastcheck`, `simd-simp-distiller`, `simd-discr-tree-pruner`, `simd-tactic-chain-optimizer` (`Law 11a`), `simd-ac-ring-normalizer` (`Law 12a`), and `cut-fission` (with prologue-aware `have` splitting).
+5. **19-PR Campaign Summary (`NR0`–`NR6` + `N0`–`N12`)**:
+   - **Wave 0 (`NR0`–`NR6`)**: Merged **`#2555`**, **`#2558`**, **`#2566`** (`NR3` raw Yul `sload`/`sstore` & narrow events), **`#2567`** (`NR1` `basefee` & `gasprice`), **`#2568`** (`NR2` `payable` & `ecmCall*` `selfBalance` debit), **`#2569`** (`NR4` Yul `reuseAndSpillTemps`), **`#2570`** (`NR6` `--trust-report` `staticOptOuts` & `proofBoundary`), **`#2572`** (`NR5` `CallbackBridge` registry lemmas & `msg.sender != 0`).
+   - **Wave 1–3 (`N0`–`N12`)**: Merged **`#2553`** (`N0` Family E), **`#2556`** (`N1` `AGENTS.md`), **`#2565`** (`N9` `SolcoreBridge`), **`#2571`** (`N5` F3 dynamic ABI), **`#2574`** (`N2` F1 `SupportedStmtList` `ite`/`forEach`), **`#2575`** (`N6` F2/F4 internal helpers & ECM), **`#2576`** (`N7` F5 `constructor`/`fallback`/`receive`), **`#2577`** (`N4` Uniswap v4 corpus & UDVTs), **`#2578`** (`N3` Pareto Credit Vaults `58/58` `100%`), **`#2579`** (`N8` unified `CoreFragment.lean`), and **`#2580`** (`N10`/`N11`/`N12` `TranslationValidation.lean` + `SolcoreGeneric.lean` + Season 9 CI upgrade).
+   - **Total Verified Shards**: **`11,039` theorem shards** across **`717` Lean files** (`9,634` scanned proofs, **`0`** over 50 lines, **`0` `sorry`**, **`0` `native_decide`**).
+

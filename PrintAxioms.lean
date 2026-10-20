@@ -6938,6 +6938,10 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/SolidityImport/SolcoreGeneric.lean
   Compiler.Proofs.SolidityImport.SolcoreGeneric.compileSolcorePureExpr_refines_verity
+  -- Compiler.Proofs.SolidityImport.SolcoreGeneric.exprRefines_of_evalExpr_eq  -- private
+  Compiler.Proofs.SolidityImport.SolcoreGeneric.evalExpr_toVerity_eq_evalWord
+  -- Compiler.Proofs.SolidityImport.SolcoreGeneric.evalExprList_wordLiterals  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreGeneric.execStmtList_append_of_continue  -- private
   Compiler.Proofs.SolidityImport.SolcoreGeneric.compileSolcoreStmt_preserves_stateRefines
   Compiler.Proofs.SolidityImport.SolcoreGeneric.execSolcore_contractAddress
   Compiler.Proofs.SolidityImport.SolcoreGeneric.compileSolcoreStmt_returned_refines_denote
@@ -9664,4 +9668,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8916 theorems/lemmas (5830 public, 3086 private, 0 sorry'd)
+-- Total: 8920 theorems/lemmas (5831 public, 3089 private, 0 sorry'd)
