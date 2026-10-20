@@ -365,4 +365,103 @@ def applyStorageFieldRelativeOffset
       localSlot := decl.slotNum }
   { decl with slotNum := rel.resolvedSlot }
 
+/-! ## Compile-Time Storage Slot & ERC-7201 Collision Detection -/
+
+/-- A contiguous bit-range `[offset, offset + width)` within a 256-bit storage `slot`.
+    A full-word storage slot is represented with `offset := 0` and `width := 256`. -/
+structure PackedRange where
+  «slot» : Nat
+  offset : Nat := 0
+  width : Nat := 256
+  deriving DecidableEq, Repr, BEq
+
+/-- Construct a `PackedRange` inside an ERC-7201 namespace rooted at `namespaceRoot`. -/
+def erc7201SlotRange
+    (namespaceRoot localSlot : Nat)
+    (offset : Nat := 0)
+    (width : Nat := 256) : PackedRange :=
+  { «slot» := (namespaceRoot + localSlot) % Compiler.Constants.evmModulus
+    offset := offset
+    width := width }
+
+/-- Check whether two `PackedRange` descriptors overlap in the same 256-bit storage slot. -/
+def packedRangesOverlap (a b : PackedRange) : Bool :=
+  decide (a.slot = b.slot ∧ a.offset < b.offset + b.width ∧ b.offset < a.offset + a.width)
+
+/-- Find the first entry in `rest` whose `PackedRange` overlaps `rangeA`. -/
+def findOverlappingEntry (nameA : String) (rangeA : PackedRange) :
+    List (String × PackedRange) → Option (String × String × Nat)
+  | [] => none
+  | (nameB, rangeB) :: tail =>
+      if packedRangesOverlap rangeA rangeB then
+        some (nameA, nameB, rangeA.slot)
+      else
+        findOverlappingEntry nameA rangeA tail
+
+theorem findOverlappingEntry_eq_none_iff (nameA : String) (rangeA : PackedRange)
+    (rest : List (String × PackedRange)) :
+    findOverlappingEntry nameA rangeA rest = none ↔
+      ∀ entry ∈ rest, packedRangesOverlap rangeA entry.2 = false := by
+  induction rest with
+  | nil => simp [findOverlappingEntry]
+  | cons hd tl ih =>
+    rcases hd with ⟨nameB, rangeB⟩
+    simp only [findOverlappingEntry, List.mem_cons, forall_eq_or_imp]
+    split <;> rename_i h
+    · simp [h]
+    · simp [h, ih]
+
+/-- Return the first colliding pair `(fieldA, fieldB, slot)` in `ranges`, or `none`
+    when all storage ranges are pairwise disjoint. -/
+def firstStorageLayoutConflict : List (String × PackedRange) → Option (String × String × Nat)
+  | [] => none
+  | (nameA, rangeA) :: rest =>
+      match findOverlappingEntry nameA rangeA rest with
+      | some conflict => some conflict
+      | none => firstStorageLayoutConflict rest
+
+/-- Soundness and completeness of `firstStorageLayoutConflict`: it returns `none`
+    if and only if all entries in `ranges` are pairwise non-overlapping. -/
+theorem firstStorageLayoutConflict_eq_none_iff (ranges : List (String × PackedRange)) :
+    firstStorageLayoutConflict ranges = none ↔
+      ranges.Pairwise (fun a b => packedRangesOverlap a.2 b.2 = false) := by
+  induction ranges with
+  | nil => simp [firstStorageLayoutConflict]
+  | cons hd tl ih =>
+    rcases hd with ⟨nameA, rangeA⟩
+    simp only [firstStorageLayoutConflict]
+    rw [List.pairwise_cons, ← findOverlappingEntry_eq_none_iff nameA rangeA tl, ← ih]
+    cases findOverlappingEntry nameA rangeA tl <;> simp
+
+/-- Extract the occupied `PackedRange` of a `StorageFieldDecl`. -/
+def packedRangeOfStorageField (decl : StorageFieldDecl) : PackedRange :=
+  match decl.packedBits with
+  | some (offset, width) => { «slot» := decl.slotNum, offset := offset, width := width }
+  | none => { «slot» := decl.slotNum, offset := 0, width := 256 }
+
+/-- Collect `(name, PackedRange)` descriptors for persistent or transient fields. -/
+def storageFieldPackedRanges
+    (fields : Array StorageFieldDecl)
+    (isTransient : Bool := false) : List (String × PackedRange) :=
+  fields.toList.filterMap fun decl =>
+    if decl.isTransient == isTransient then
+      some (decl.name, packedRangeOfStorageField decl)
+    else
+      none
+
+/-- Elaboration guard for `verity_contract` rejecting overlapping storage slot/bitfield layouts. -/
+def ensureCollisionFreeStorageLayout
+    (ranges : List (String × PackedRange))
+    (ref? : Option Syntax := none) : CommandElabM Unit := do
+  if let some (fieldA, fieldB, slotNum) := firstStorageLayoutConflict ranges then
+    let msg := s!"storage layout collision at slot {slotNum} between '{fieldA}' and '{fieldB}'"
+    match ref? with
+    | some ref => throwErrorAt ref msg
+    | none => throwError msg
+
+/-- Validate both persistent and transient storage field declarations for slot/bitfield collisions. -/
+def ensureCollisionFreeStorageFields (fields : Array StorageFieldDecl) : CommandElabM Unit := do
+  ensureCollisionFreeStorageLayout (storageFieldPackedRanges fields false)
+  ensureCollisionFreeStorageLayout (storageFieldPackedRanges fields true)
+
 end Verity.Macro
