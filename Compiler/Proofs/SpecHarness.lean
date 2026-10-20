@@ -4,6 +4,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Verity Authors
 -/
 import Compiler.Proofs.MetaSpecs
+import Compiler.Proofs.BuiltinHelperMetaSpecs
+import Compiler.Proofs.PackedBitfieldMetaSpec
+import Compiler.Proofs.MacroSSAMetaSpec
+import Compiler.Proofs.VerifiedECMShims
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanRevertAndMemoryGuard
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeHarness.DispatchMetaSpecs
 
 namespace Compiler.Proofs.SpecHarness
 

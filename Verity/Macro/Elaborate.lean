@@ -3,6 +3,7 @@ import Verity.Macro.Syntax
 import Verity.Macro.Executable
 import Verity.Macro.Translate
 import Verity.Macro.Bridge
+import Verity.Macro.EffectAnalysis
 import Verity.Core.Intrinsics
 import Verity.Core.Uint256
 
@@ -64,6 +65,41 @@ private def parseIntrinsicProofStatus (status : Ident) : CommandElabM String := 
   | _ =>
       throwErrorAt status
         "unsupported proof status for verity_intrinsic obligation; expected proved, assumed, or unchecked"
+
+/-- Compute the inter-procedural `MacroEffectSummary` table across all functions
+and internal helpers of an elaborated `CompilationModel` (`#2435`). -/
+def elabSpecEffectSummaries
+    (spec : Compiler.CompilationModel.CompilationModel) :
+    List (String × MacroEffectSummary) :=
+  computeHelperEffectSummaries spec.functions
+
+/-- Query whether an internal helper in `spec` transitively performs a mutable
+external interaction (`#2435`). -/
+def elabHelperHasExternalInteraction
+    (spec : Compiler.CompilationModel.CompilationModel)
+    (helperName : String) : Bool :=
+  helperHasExternalInteraction spec.functions helperName
+
+/-- Query whether `fn` is inter-procedurally CEI-compliant under `spec` (`#2435`). -/
+def elabFunctionIsInterprocedurallyCEICompliant
+    (spec : Compiler.CompilationModel.CompilationModel)
+    (fn : Compiler.CompilationModel.FunctionSpec) : Bool :=
+  functionIsInterprocedurallyCEICompliant spec.functions fn
+
+/-- When a contract declares or inherits internal helper functions, wrap the
+generated `spec` / `host_spec` definition with `resolveInternalHelperCEI` so
+pure, view, and storage-only helpers (`hasExternalInteraction = false`) do not
+trigger false-positive single-function CEI barriers (`#2435`). -/
+def wrapSpecCommandWithHelperCEI
+    (hasInternalHelpers : Bool) (specCmd : Cmd) : CommandElabM Cmd := do
+  if !hasInternalHelpers then
+    pure specCmd
+  else
+    match specCmd with
+    | `(command| def $specIdent:ident : Compiler.CompilationModel.CompilationModel := $rhs:term) =>
+        `(command| def $specIdent:ident : Compiler.CompilationModel.CompilationModel :=
+            Verity.Macro.resolveInternalHelperCEI $rhs)
+    | _ => pure specCmd
 
 private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   let parsed ← parseContractSyntax stx
@@ -244,9 +280,12 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       | none => pure ()
     let constructorImmutableDecls :=
       includedMixinImmutablesForHostPublic ctor mixinParsed ++ immutableDecls
-    elabCommand (← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls modelCtor modifiers functions adtDecls storageNamespace specName translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls)
+    let hasInternalHelpers := translationFunctions.any (·.isInternal)
+    let rawSpecCmd ← mkSpecCommandPublic (toString contractName.getId) fields roleDecls errorDecls eventDecls constDecls immutableDecls externalDecls modelCtor modifiers functions adtDecls storageNamespace specName translationFields translationErrorDecls translationConstDecls translationImmutableDecls translationExternalDecls translationFunctions constructorImmutableDecls
+    elabCommand (← wrapSpecCommandWithHelperCEI hasInternalHelpers rawSpecCmd)
     if !resolvedIncludes.isEmpty then
-      elabCommand (← mkMergedSpecCommandPublic (toString contractName.getId) resolvedIncludes)
+      let rawMergedSpecCmd ← mkMergedSpecCommandPublic (toString contractName.getId) resolvedIncludes
+      elabCommand (← wrapSpecCommandWithHelperCEI hasInternalHelpers rawMergedSpecCmd)
 
     let findIdxSimpCmds ← mkFindIdxFieldSimpCommandsPublic contractName fields
     for cmd in findIdxSimpCmds do

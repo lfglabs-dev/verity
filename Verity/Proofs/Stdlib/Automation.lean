@@ -25,6 +25,7 @@
 
 import Verity.Core
 import Verity.Specs.Common
+import Verity.Macro.EffectAnalysis
 import Verity.Stdlib.Math
 import Verity.EVM.Uint256
 import Verity.Proofs.Stdlib.UnfoldSet
@@ -133,6 +134,19 @@ syntax (name := verity_spec_with)
 syntax (name := verity_arith)
   "verity_arith" : tactic
 
+/-- Discharge `viewPreservesState` / storage-frame obligations for `view` computations
+containing `require`, `let` bindings, and branches (`#2422`, `#1994`, `#1895`). -/
+syntax (name := verity_view_frame)
+  "verity_view_frame" : tactic
+
+/-- Unfold a `view` function and discharge its `viewPreservesState` obligation. -/
+syntax (name := verity_view_frame_fn)
+  "verity_view_frame " simpLemma : tactic
+
+/-- Unfold a `view` function with extra helpers and discharge its `viewPreservesState` obligation. -/
+syntax (name := verity_view_frame_with)
+  "verity_view_frame " simpLemma " with " simpLemma,+ : tactic
+
 macro_rules
   | `(tactic| verity_unfold $fn:simpLemma) =>
       `(tactic| simp only [verity_unfold_simps, $fn])
@@ -238,6 +252,47 @@ macro "verity_arith" : tactic =>
           safeSub_some_iff_ge, safeSub_none_iff_lt,
           safeMul_some_iff_le, safeMul_none_iff_gt]
       | omega)
+
+macro_rules
+  | `(tactic| verity_view_frame) =>
+      `(tactic|
+        (try intros
+         simp only [verity_unfold_simps]
+         try exact Verity.Specs.viewPreservesState_rfl _
+         all_goals (try split) <;> (try split) <;>
+           try exact Verity.Specs.viewPreservesState_rfl _
+         try simp [Verity.Specs.viewPreservesState, Verity.Specs.sameAllStorage,
+           Verity.Specs.sameContext, Verity.Specs.sameEvents,
+           Verity.Specs.sameKnownAddresses, Verity.Specs.sameStorage,
+           Verity.Specs.sameStorageAddr, Verity.Specs.sameStorageMap,
+           Verity.Specs.sameStorageMapUint, Verity.Specs.sameStorageMap2,
+           Verity.Specs.sameStorageArray]))
+  | `(tactic| verity_view_frame $fn:simpLemma) =>
+      `(tactic|
+        (try intros
+         simp only [verity_unfold_simps, $fn]
+         try exact Verity.Specs.viewPreservesState_rfl _
+         all_goals (try split) <;> (try split) <;>
+           try exact Verity.Specs.viewPreservesState_rfl _
+         try simp [Verity.Specs.viewPreservesState, Verity.Specs.sameAllStorage,
+           Verity.Specs.sameContext, Verity.Specs.sameEvents,
+           Verity.Specs.sameKnownAddresses, Verity.Specs.sameStorage,
+           Verity.Specs.sameStorageAddr, Verity.Specs.sameStorageMap,
+           Verity.Specs.sameStorageMapUint, Verity.Specs.sameStorageMap2,
+           Verity.Specs.sameStorageArray]))
+  | `(tactic| verity_view_frame $fn:simpLemma with $extra,*) =>
+      `(tactic|
+        (try intros
+         simp only [verity_unfold_simps, $fn, $extra,*]
+         try exact Verity.Specs.viewPreservesState_rfl _
+         all_goals (try split) <;> (try split) <;>
+           try exact Verity.Specs.viewPreservesState_rfl _
+         try simp [Verity.Specs.viewPreservesState, Verity.Specs.sameAllStorage,
+           Verity.Specs.sameContext, Verity.Specs.sameEvents,
+           Verity.Specs.sameKnownAddresses, Verity.Specs.sameStorage,
+           Verity.Specs.sameStorageAddr, Verity.Specs.sameStorageMap,
+           Verity.Specs.sameStorageMapUint, Verity.Specs.sameStorageMap2,
+           Verity.Specs.sameStorageArray]))
 
 /-!
 ## Index Normalization Helpers
@@ -1235,6 +1290,142 @@ theorem owner_guard_success_implies_storageAddr_eq_sender
       ((Verity.require (state.sender == state.storageAddr slot.slot) msg).run state).isSuccess = true := by
     simpa [msgSender, getStorageAddr, Verity.bind, Contract.run, ContractState.readAddrSlot] using h
   exact (require_beq_isSuccess_true_iff_eq state.sender (state.storageAddr slot.slot) msg state).1 h_req |>.symm
+
+/-!
+## View-Frame Algebraic Preservation & Automation (#2422, #1994, #1895)
+
+Compositional `.snd`-state preservation and `viewPreservesState` lemmas that
+discharge storage/context preservation across `require`, `let` bindings, and
+conditional branches without manual case-splitting on revert paths.
+-/
+
+@[simp]
+theorem pure_run_snd {α : Type} (a : α) (s : ContractState) :
+    ((Verity.pure a).run s).snd = s :=
+  rfl
+
+@[simp]
+theorem require_run_snd (cond : Bool) (msg : String) (s : ContractState) :
+    ((Verity.require cond msg).run s).snd = s := by
+  cases cond <;> rfl
+
+@[simp]
+theorem getStorage_run_snd (slot : StorageSlot Uint256) (s : ContractState) :
+    ((getStorage slot).run s).snd = s :=
+  rfl
+
+@[simp]
+theorem getStorageAddr_run_snd (slot : StorageSlot Address) (s : ContractState) :
+    ((getStorageAddr slot).run s).snd = s :=
+  rfl
+
+@[simp]
+theorem getMapping_run_snd (slot : StorageSlot (Address → Uint256)) (key : Address)
+    (s : ContractState) :
+    ((getMapping slot key).run s).snd = s :=
+  rfl
+
+@[simp]
+theorem getMappingUint_run_snd (slot : StorageSlot (Uint256 → Uint256)) (key : Uint256)
+    (s : ContractState) :
+    ((getMappingUint slot key).run s).snd = s :=
+  rfl
+
+@[simp]
+theorem getMapping2_run_snd (slot : StorageSlot (Address → Address → Uint256))
+    (k1 k2 : Address) (s : ContractState) :
+    ((getMapping2 slot k1 k2).run s).snd = s :=
+  rfl
+
+@[simp]
+theorem msgSender_run_snd (s : ContractState) :
+    (msgSender.run s).snd = s :=
+  rfl
+
+/-- Algebraic monadic state preservation: if `m` preserves `s` on both success
+and revert paths (`(m.run s).snd = s`), and every continuation `k a` preserves
+`s`, then `Verity.bind m k` preserves `s` (`#2422`). -/
+theorem bind_run_snd_of_preserve {α β : Type}
+    (m : Contract α) (k : α → Contract β) (s : ContractState)
+    (hm : (m.run s).snd = s)
+    (hk : ∀ a, ((k a).run s).snd = s) :
+    ((Verity.bind m k).run s).snd = s := by
+  cases h : m s with
+  | success a s' =>
+      have hs' : s' = s := by simpa [Contract.run, h, ContractResult.snd] using hm
+      subst hs'
+      simpa [Verity.bind, Contract.run, h] using hk a
+  | revert msg s' =>
+      have hs' : s' = s := by simpa [Contract.run, h, ContractResult.snd] using hm
+      subst hs'
+      simp [Verity.bind, Contract.run, h, ContractResult.snd]
+
+@[simp]
+theorem bind_require_run_snd {α : Type}
+    (cond : Bool) (msg : String) (k : Unit → Contract α) (s : ContractState) :
+    ((Verity.bind (Verity.require cond msg) k).run s).snd =
+      if cond then ((k ()).run s).snd else s := by
+  cases cond <;> rfl
+
+theorem ite_run_snd_of_preserve {α : Type}
+    (c : Prop) [Decidable c] (t e : Contract α) (s : ContractState)
+    (ht : (t.run s).snd = s) (he : (e.run s).snd = s) :
+    ((if c then t else e).run s).snd = s := by
+  split <;> assumption
+
+/-- Lift `(m.run s).snd = s` directly to `Verity.Specs.viewPreservesState s (m.run s).snd` (`#2422`). -/
+theorem viewPreservesState_of_run_snd_eq {α : Type}
+    (m : Contract α) (s : ContractState)
+    (h : (m.run s).snd = s) :
+    Verity.Specs.viewPreservesState s (m.run s).snd := by
+  rw [h]
+  exact Verity.Specs.viewPreservesState_rfl s
+
+/-- Compositional `viewPreservesState` across `Verity.bind` when both stages
+preserve the pre-state `s` (`#2422`). -/
+theorem viewPreservesState_bind_of_preserve {α β : Type}
+    (m : Contract α) (k : α → Contract β) (s : ContractState)
+    (hm : (m.run s).snd = s)
+    (hk : ∀ a, ((k a).run s).snd = s) :
+    Verity.Specs.viewPreservesState s ((Verity.bind m k).run s).snd :=
+  viewPreservesState_of_run_snd_eq (Verity.bind m k) s
+    (bind_run_snd_of_preserve m k s hm hk)
+
+@[simp]
+theorem viewPreservesState_require (cond : Bool) (msg : String) (s : ContractState) :
+    Verity.Specs.viewPreservesState s ((Verity.require cond msg).run s).snd :=
+  viewPreservesState_of_run_snd_eq (Verity.require cond msg) s (require_run_snd cond msg s)
+
+/-- `require` followed by any view-preserving continuation `k` preserves state on both
+the success and revert branches without manual `by_cases` (`#2422`, `#1994`, `#1895`). -/
+theorem viewPreservesState_bind_require {α : Type}
+    (cond : Bool) (msg : String) (k : Unit → Contract α) (s : ContractState)
+    (hk : Verity.Specs.viewPreservesState s ((k ()).run s).snd) :
+    Verity.Specs.viewPreservesState s
+      ((Verity.bind (Verity.require cond msg) k).run s).snd := by
+  cases cond
+  · exact Verity.Specs.viewPreservesState_rfl s
+  · exact hk
+
+theorem sameStorage_of_viewPreservesState {s s' : ContractState}
+    (h : Verity.Specs.viewPreservesState s s') :
+    Verity.Specs.sameStorage s s' :=
+  h.1.1
+
+theorem sameStorageAddr_of_viewPreservesState {s s' : ContractState}
+    (h : Verity.Specs.viewPreservesState s s') :
+    Verity.Specs.sameStorageAddr s s' :=
+  h.1.2.1
+
+theorem sameStorageMap_of_viewPreservesState {s s' : ContractState}
+    (h : Verity.Specs.viewPreservesState s s') :
+    Verity.Specs.sameStorageMap s s' :=
+  h.1.2.2.1
+
+theorem sameContext_of_viewPreservesState {s s' : ContractState}
+    (h : Verity.Specs.viewPreservesState s s') :
+    Verity.Specs.sameContext s s' :=
+  h.2.1
 
 -- All lemmas in this file are fully proven with zero sorry, zero axioms.
 

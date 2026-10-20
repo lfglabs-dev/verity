@@ -1,8 +1,69 @@
 import Verity.Specs.Common
+import Verity.Macro.EffectAnalysis
 
 namespace Verity.Macro
 
 set_option hygiene false
+
+/-- Canonical two-state specification for `view` functions (`#2422`, `#1994`, `#1895`):
+asserts `Verity.Specs.viewPreservesState s s'` together with an optional
+postcondition `extra s s'`. -/
+def viewFrameSpec
+    (extra : Verity.ContractState → Verity.ContractState → Prop := fun _ _ => True)
+    (s s' : Verity.ContractState) : Prop :=
+  Verity.Specs.viewPreservesState s s' ∧ extra s s'
+
+@[simp]
+theorem viewFrameSpec_rfl (s : Verity.ContractState) :
+    viewFrameSpec (fun _ _ => True) s s :=
+  ⟨Verity.Specs.viewPreservesState_rfl s, trivial⟩
+
+/-- Specialization of `view_frame_of_writesStorage_false` to `Verity.ContractState`
+when a `Contract α` computation preserves state (`(m.run s).snd = s`). -/
+theorem view_frame_preserves_state_of_run_snd_eq
+    {α : Type} (m : Verity.Contract α) (s : Verity.ContractState)
+    (heq : (m.run s).snd = s) :
+    Verity.Specs.viewPreservesState s (m.run s).snd := by
+  rw [heq]
+  exact Verity.Specs.viewPreservesState_rfl s
+
+/-- Discharge `viewFrameSpec` whenever a `Contract α` computation preserves state
+(`(m.run s).snd = s`), regardless of whether `m` succeeds or reverts (`#2422`). -/
+theorem viewFrameSpec_of_run_snd_eq
+    {α : Type} (m : Verity.Contract α) (s : Verity.ContractState)
+    (extra : Verity.ContractState → Verity.ContractState → Prop)
+    (heq : (m.run s).snd = s)
+    (hextra : extra s s) :
+    viewFrameSpec extra s (m.run s).snd := by
+  rw [heq]
+  exact ⟨Verity.Specs.viewPreservesState_rfl s, hextra⟩
+
+/-- Static `MacroEffectSummary` check certifying that `fn` has no persistent or
+transient writes and no mutable external interactions (`#2422`). -/
+def hasViewEffectFrame
+    (functions : List Compiler.CompilationModel.FunctionSpec)
+    (fn : Compiler.CompilationModel.FunctionSpec) : Bool :=
+  let eff := functionEffectSummary functions fn
+  !eff.writesStorage && !eff.writesTransient && !eff.hasExternalInteraction
+
+syntax (name := genSpecViewCmd)
+  "#gen_spec_view " ident : command
+
+syntax (name := genSpecViewCmdExtra)
+  "#gen_spec_view " ident " (" term ")" : command
+
+syntax (name := genSpecViewCmdFor)
+  "#gen_spec_view " ident " for " "(" ident " : " term ")" : command
+
+syntax (name := genSpecViewCmdForExtra)
+  "#gen_spec_view " ident " for " "(" ident " : " term ")" " (" term ")" : command
+
+syntax (name := genSpecViewCmdFor2)
+  "#gen_spec_view " ident " for2 " "(" ident " : " term ")" " (" ident " : " term ")" : command
+
+syntax (name := genSpecViewCmdFor2Extra)
+  "#gen_spec_view " ident " for2 " "(" ident " : " term ")" " (" ident " : " term ")"
+    " (" term ")" : command
 
 syntax (name := genSpecCmd)
   "#gen_spec " ident " (" term ", " term ", " term ")" : command
@@ -467,5 +528,24 @@ macro_rules
           s.storageMap $balanceSlot $fromAddr ≥ $amount ∧
           Verity.Specs.storageMapTransferFromSpec
             $balanceSlot $allowanceSlot $fromAddr $toAddr $spender $amount $frame s s')
+  | `(#gen_spec_view $name:ident) =>
+      `(def $name (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.viewPreservesState s s')
+  | `(#gen_spec_view $name:ident ($extra:term)) =>
+      `(def $name (s s' : Verity.ContractState) : Prop :=
+          Verity.Macro.viewFrameSpec $extra s s')
+  | `(#gen_spec_view $name:ident for ($arg:ident : $argTy:term)) =>
+      `(def $name ($arg : $argTy) (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.viewPreservesState s s')
+  | `(#gen_spec_view $name:ident for ($arg:ident : $argTy:term) ($extra:term)) =>
+      `(def $name ($arg : $argTy) (s s' : Verity.ContractState) : Prop :=
+          Verity.Macro.viewFrameSpec $extra s s')
+  | `(#gen_spec_view $name:ident for2 ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) (s s' : Verity.ContractState) : Prop :=
+          Verity.Specs.viewPreservesState s s')
+  | `(#gen_spec_view $name:ident for2 ($arg1:ident : $argTy1:term) ($arg2:ident : $argTy2:term)
+      ($extra:term)) =>
+      `(def $name ($arg1 : $argTy1) ($arg2 : $argTy2) (s s' : Verity.ContractState) : Prop :=
+          Verity.Macro.viewFrameSpec $extra s s')
 
 end Verity.Macro

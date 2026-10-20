@@ -1458,6 +1458,25 @@ end Verity.AxiomAudit
   Verity.Proofs.Stdlib.Automation.require_beq_isSuccess_true_iff_eq
   Verity.Proofs.Stdlib.Automation.require_beq_isSuccess_false_iff_ne
   Verity.Proofs.Stdlib.Automation.owner_guard_success_implies_storageAddr_eq_sender
+  Verity.Proofs.Stdlib.Automation.pure_run_snd
+  Verity.Proofs.Stdlib.Automation.require_run_snd
+  Verity.Proofs.Stdlib.Automation.getStorage_run_snd
+  Verity.Proofs.Stdlib.Automation.getStorageAddr_run_snd
+  Verity.Proofs.Stdlib.Automation.getMapping_run_snd
+  Verity.Proofs.Stdlib.Automation.getMappingUint_run_snd
+  Verity.Proofs.Stdlib.Automation.getMapping2_run_snd
+  Verity.Proofs.Stdlib.Automation.msgSender_run_snd
+  Verity.Proofs.Stdlib.Automation.bind_run_snd_of_preserve
+  Verity.Proofs.Stdlib.Automation.bind_require_run_snd
+  Verity.Proofs.Stdlib.Automation.ite_run_snd_of_preserve
+  Verity.Proofs.Stdlib.Automation.viewPreservesState_of_run_snd_eq
+  Verity.Proofs.Stdlib.Automation.viewPreservesState_bind_of_preserve
+  Verity.Proofs.Stdlib.Automation.viewPreservesState_require
+  Verity.Proofs.Stdlib.Automation.viewPreservesState_bind_require
+  Verity.Proofs.Stdlib.Automation.sameStorage_of_viewPreservesState
+  Verity.Proofs.Stdlib.Automation.sameStorageAddr_of_viewPreservesState
+  Verity.Proofs.Stdlib.Automation.sameStorageMap_of_viewPreservesState
+  Verity.Proofs.Stdlib.Automation.sameContext_of_viewPreservesState
 
   -- Verity/Proofs/Stdlib/Int256.lean
   -- Verity.Proofs.Stdlib.Int256.modulus_def  -- private
@@ -9578,4 +9597,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8776 theorems/lemmas (6296 public, 2480 private, 0 sorry'd)
+-- Total: 8795 theorems/lemmas (6315 public, 2480 private, 0 sorry'd)
