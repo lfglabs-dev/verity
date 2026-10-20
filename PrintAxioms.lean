@@ -224,6 +224,7 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeSignedArithLemmas
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeState
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPanic
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanPureBuiltinLemmas
+import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanRevertAndMemoryGuard
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSignedArithSpec
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanSourceExprClosure
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanStateBridge
@@ -6311,6 +6312,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.exprIsMulDiv512_eq_false_of_no_mulDiv512Mask
   Compiler.Proofs.IRGeneration.stmtIsForEachSetBit_eq_false_of_no_forEachSetBitMask
   Compiler.Proofs.IRGeneration.stmtIsInlineYul_eq_false_of_no_inlineYulMask
+  Compiler.Proofs.IRGeneration.compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec
+  Compiler.Proofs.IRGeneration.compilerProofCoveredWithLayer3RevertGuard_of_maskSubset
+  Compiler.Proofs.IRGeneration.compilerProofCoveredWithLayer3RevertGuard_panic
+  Compiler.Proofs.IRGeneration.compilerProofCoveredWithLayer3RevertGuard_unsafeYul_memoryguard
+  Compiler.Proofs.IRGeneration.compilerProofCoveredWithLayer3RevertGuard_revertError
+  Compiler.Proofs.IRGeneration.witness_layer3_revertError_covered
+  Compiler.Proofs.IRGeneration.witness_layer3_panic_covered
+  Compiler.Proofs.IRGeneration.witness_layer3_memoryguard_covered
+  Compiler.Proofs.IRGeneration.witness_layer3_inactive_rejects_customError
 
   -- Compiler/Proofs/IRGeneration/SupportedSpec.lean
   Compiler.Proofs.IRGeneration.SupportedExternalParamType_of_scalar
@@ -6905,6 +6915,21 @@ end Verity.AxiomAudit
   Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_preserves_semantics
   Compiler.Proofs.SolidityImport.SolcoreFullBridge.solcore_to_verity_quadrangular_preservation
   Compiler.Proofs.SolidityImport.SolcoreFullBridge.solcore_to_verity_quadrangular_revert_preservation
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.revert_rollback_refines_denote_with_transient  -- private
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.execDelegateBatch_preserves_stateRefines
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.execSolcoreAdvancedOp_preserves_semantics
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.tstoreComputed_and_tloadComputed_preserve_stateRefines
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.readImmutable_preserves_stateRefines
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.statefulExternalCall_reverted_rolls_back_all_domains
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.sstore_disjoint_commutes
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.tstore_disjoint_commutes
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.mstore_disjoint_commutes
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.witness_disjoint_storage_footprints
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.witness_overlapping_storage_footprints
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.witness_cross_domain_sstore_tstore_disjoint
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.witness_delegateBatch_all_succeed
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.witness_delegateBatch_detects_revert
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.witness_clockedStepBudget_consume
 
   -- Compiler/Proofs/SolidityImport/SolcoreGeneric.lean
   Compiler.Proofs.SolidityImport.SolcoreGeneric.compileSolcorePureExpr_refines_verity
@@ -9559,6 +9584,33 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_byte_normalized  -- private
   Compiler.Proofs.YulGeneration.Backends.evalPureBuiltinViaEvmYulLean_byte_native
 
+  -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanRevertAndMemoryGuard.lean
+  Compiler.Proofs.YulGeneration.Backends.RevertPayloadSlice.extractSlice_length_le
+  Compiler.Proofs.YulGeneration.Backends.RevertPayloadSlice.extractSlice_length_eq_of_bounds
+  Compiler.Proofs.YulGeneration.Backends.customErrorRevertSlice_expectedSize
+  Compiler.Proofs.YulGeneration.Backends.customErrorRevertSlice_isWellFormed
+  Compiler.Proofs.YulGeneration.Backends.evalMemoryGuard_id
+  Compiler.Proofs.YulGeneration.Backends.MemoryGuardSemantics.freePtr_ge_init
+  Compiler.Proofs.YulGeneration.Backends.MemoryGuardSemantics.disjoint_from_scratch
+  Compiler.Proofs.YulGeneration.Backends.lookupRuntimePrimOp_memoryguard
+  Compiler.Proofs.YulGeneration.Backends.lowerExprNative_revert_slice
+  Compiler.Proofs.YulGeneration.Backends.lowerExprNative_memoryguard
+  Compiler.Proofs.YulGeneration.Backends.evmyul_revert_and_memoryguard_universal_preservation
+  Compiler.Proofs.YulGeneration.Backends.evmyul_revert_slice_extraction_universal
+  Compiler.Proofs.YulGeneration.Backends.customError_revert_payload_preserved
+  Compiler.Proofs.YulGeneration.Backends.panic_0x11_revert_payload_preserved
+  Compiler.Proofs.YulGeneration.Backends.memoryguard_0x80_frame_preserved
+  Compiler.Proofs.YulGeneration.Backends.canonicalRevertGuardMetaSpec
+  Compiler.Proofs.YulGeneration.Backends.witness_panic_0x11_slice_wellFormed
+  Compiler.Proofs.YulGeneration.Backends.witness_panic_0x12_slice_size
+  Compiler.Proofs.YulGeneration.Backends.witness_eip6093_erc20InsufficientBalance_wellFormed
+  Compiler.Proofs.YulGeneration.Backends.witness_eip6093_erc20InsufficientBalance_size
+  Compiler.Proofs.YulGeneration.Backends.witness_ownableUnauthorizedAccount_wellFormed
+  Compiler.Proofs.YulGeneration.Backends.witness_extractSlice_exact_bounds
+  Compiler.Proofs.YulGeneration.Backends.witness_memoryguard_0x80_valid
+  Compiler.Proofs.YulGeneration.Backends.witness_memoryguard_0x40_invalid
+  Compiler.Proofs.YulGeneration.Backends.witness_memoryguard_preserves_scratch_0x80
+
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanSignedArithSpec.lean
   Compiler.Proofs.YulGeneration.Backends.SignedArithSpec.specSignBit_lt_specModulus
   Compiler.Proofs.YulGeneration.Backends.SignedArithSpec.specModulus_pos
@@ -9719,4 +9771,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8932 theorems/lemmas (6174 public, 2758 private, 0 sorry'd)
+-- Total: 8981 theorems/lemmas (6222 public, 2759 private, 0 sorry'd)

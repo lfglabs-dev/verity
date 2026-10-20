@@ -483,4 +483,110 @@ theorem stmtIsInlineYul_eq_false_of_no_inlineYulMask
       simp [stmtSurfaceMask, hasMask_or] at h
   | _ => rfl
 
+/-! ## Layer 3 `EVMYulLean` Revert Payload & `memoryguard` Coverage Extension (`#2359`) -/
+
+/-- Surface mask bits discharged when `EvmYulLeanRevertAndMemoryGuard` (`#2359`) is active:
+covers custom-error / `Panic` revert payloads (`bitCoreGap`) and Yul `memoryguard` (`bitInlineYul`). -/
+def layer3RevertGuardMask : SurfaceMask :=
+  bitCoreGap ||| bitInlineYul
+
+/-- Extended proof-coverage predicate: when `layer3RevertGuardActive = true`,
+capabilities in `layer3RevertGuardMask` (`bitCoreGap ||| bitInlineYul`) are admitted
+alongside `allowed` without altering baseline `maskSubset m allowed` when inactive. -/
+def compilerProofCoveredWithLayer3RevertGuard
+    (layer3RevertGuardActive : Bool) (allowed m : SurfaceMask) : Bool :=
+  if layer3RevertGuardActive then
+    maskSubset m (allowed ||| layer3RevertGuardMask)
+  else
+    maskSubset m allowed
+
+/-- **Layer I Meta-Spec (`Layer3RevertGuardCoverageMetaSpec`, `#2359`)**:
+Certifies conservative extension of `maskSubset` under `compilerProofCoveredWithLayer3RevertGuard`. -/
+structure Layer3RevertGuardCoverageMetaSpec (allowed : SurfaceMask) : Prop where
+  /-- When inactive (`false`), coverage is identical to `maskSubset m allowed`. -/
+  inactive_eq_base :
+    ∀ m, compilerProofCoveredWithLayer3RevertGuard false allowed m = maskSubset m allowed
+  /-- Any mask `m` covered by `allowed` remains covered when Layer 3 revert/memoryguard is active. -/
+  active_covers_base :
+    ∀ m, maskSubset m allowed = true →
+      compilerProofCoveredWithLayer3RevertGuard true allowed m = true
+  /-- Any mask `m` within `allowed ||| layer3RevertGuardMask` is covered when active. -/
+  active_covers_layer3_revert_and_memoryguard :
+    ∀ m, maskSubset m (allowed ||| layer3RevertGuardMask) = true →
+      compilerProofCoveredWithLayer3RevertGuard true allowed m = true
+
+/-- **Layer I Universal Theorem (`compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec`)**:
+For every baseline capability mask `allowed`, `compilerProofCoveredWithLayer3RevertGuard`
+satisfies `Layer3RevertGuardCoverageMetaSpec allowed`. -/
+theorem compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec
+    (allowed : SurfaceMask) :
+    Layer3RevertGuardCoverageMetaSpec allowed where
+  inactive_eq_base _ := rfl
+  active_covers_base m hm := by
+    simp only [compilerProofCoveredWithLayer3RevertGuard, maskSubset] at hm ⊢
+    bv_decide
+  active_covers_layer3_revert_and_memoryguard _ hm := hm
+
+/-- **Layer II Corollary 1 (`compilerProofCoveredWithLayer3RevertGuard_of_maskSubset`)**:
+Monotonicity of `compilerProofCoveredWithLayer3RevertGuard` over baseline `maskSubset`. -/
+theorem compilerProofCoveredWithLayer3RevertGuard_of_maskSubset
+    {allowed m : SurfaceMask} (hm : maskSubset m allowed = true) :
+    compilerProofCoveredWithLayer3RevertGuard true allowed m = true :=
+  (compilerProofCoveredWithLayer3RevertGuard_satisfies_metaSpec allowed).active_covers_base m hm
+
+/-- **Layer II Corollary 2 (`compilerProofCoveredWithLayer3RevertGuard_panic`)**:
+`Stmt.panic` statements are covered under `compilerProofCoveredWithLayer3RevertGuard true allowed`. -/
+theorem compilerProofCoveredWithLayer3RevertGuard_panic
+    (allowed : SurfaceMask) (code : Verity.Core.PanicCode) :
+    compilerProofCoveredWithLayer3RevertGuard true allowed
+      (stmtSurfaceMask (.panic code)) = true := by
+  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask,
+    layer3RevertGuardMask, maskSubset, bitCoreGap, bitInlineYul]
+  bv_decide
+
+/-- **Layer II Corollary 3 (`compilerProofCoveredWithLayer3RevertGuard_unsafeYul_memoryguard`)**:
+`Stmt.unsafeYul` (`memoryguard(0x80)`) is covered under `compilerProofCoveredWithLayer3RevertGuard true allowed`. -/
+theorem compilerProofCoveredWithLayer3RevertGuard_unsafeYul_memoryguard
+    (allowed : SurfaceMask) (fragment : UnsafeYulFragment) :
+    compilerProofCoveredWithLayer3RevertGuard true allowed
+      (stmtSurfaceMask (.unsafeYul fragment)) = true := by
+  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask,
+    layer3RevertGuardMask, maskSubset, bitCoreGap, bitInlineYul]
+  bv_decide
+
+/-- **Layer II Corollary 4 (`compilerProofCoveredWithLayer3RevertGuard_revertError`)**:
+Custom-error `Stmt.revertError errName args` is covered whenever `args` stay within `allowed`. -/
+theorem compilerProofCoveredWithLayer3RevertGuard_revertError
+    (allowed : SurfaceMask) (errName : String) (args : List Expr)
+    (hArgs : maskSubset (exprListSurfaceMask args) allowed = true) :
+    compilerProofCoveredWithLayer3RevertGuard true allowed
+      (stmtSurfaceMask (.revertError errName args)) = true := by
+  simp only [compilerProofCoveredWithLayer3RevertGuard, stmtSurfaceMask,
+    layer3RevertGuardMask, maskSubset, bitCoreGap, bitInlineYul] at hArgs ⊢
+  bv_decide
+
+/-- **Layer III Witness 1**: EIP-6093 `ERC20InsufficientBalance` custom error is covered when active. -/
+theorem witness_layer3_revertError_covered :
+    compilerProofCoveredWithLayer3RevertGuard true 0
+      (stmtSurfaceMask (.revertError "ERC20InsufficientBalance" [.literal 1, .literal 2])) = true := by
+  decide
+
+/-- **Layer III Witness 2**: `Panic(0x11)` (`PanicCode.arithmeticOverflow`) is covered when active. -/
+theorem witness_layer3_panic_covered :
+    compilerProofCoveredWithLayer3RevertGuard true 0
+      (stmtSurfaceMask (.panic .arithmeticOverflow)) = true := by
+  decide
+
+/-- **Layer III Witness 3**: Yul `memoryguard(0x80)` block is covered when active. -/
+theorem witness_layer3_memoryguard_covered :
+    compilerProofCoveredWithLayer3RevertGuard true 0
+      (stmtSurfaceMask (.unsafeBlock "memoryguard(0x80)" [])) = true := by
+  decide
+
+/-- **Layer III Witness 4**: Custom-error revert is rejected at mask `0` when Layer 3 guard is inactive. -/
+theorem witness_layer3_inactive_rejects_customError :
+    compilerProofCoveredWithLayer3RevertGuard false 0
+      (stmtSurfaceMask (.revertError "CustomErr" [])) = false := by
+  decide
+
 end Compiler.Proofs.IRGeneration
