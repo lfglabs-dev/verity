@@ -180,6 +180,7 @@ import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.IRGeneration.TypedRevertStep
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
+import Compiler.Proofs.MacroSSAMetaSpec
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.MetaSpecs
 import Compiler.Proofs.PackedBitfieldMetaSpec
@@ -6652,6 +6653,31 @@ end Verity.AxiomAudit
   Compiler.Proofs.LoopSimulation.foldl_range_getD_eq_foldl
   Compiler.Proofs.LoopSimulation.forEach_sum_over_array
 
+  -- Compiler/Proofs/MacroSSAMetaSpec.lean
+  Compiler.Proofs.MacroSSAMetaSpec.ImpLocalEnv.get_set_same
+  Compiler.Proofs.MacroSSAMetaSpec.ImpLocalEnv.get_set_ne
+  Compiler.Proofs.MacroSSAMetaSpec.SSALocalEnv.get_set_same
+  Compiler.Proofs.MacroSSAMetaSpec.SSALocalEnv.get_set_ne
+  Compiler.Proofs.MacroSSAMetaSpec.SSAEnvCoherent.empty
+  Compiler.Proofs.MacroSSAMetaSpec.SSAEnvCoherent.set_user
+  Compiler.Proofs.MacroSSAMetaSpec.SSAEnvCoherent.set_discard
+  Compiler.Proofs.MacroSSAMetaSpec.desugarExpr_sound
+  Compiler.Proofs.MacroSSAMetaSpec.desugarEffect_sound
+  Compiler.Proofs.MacroSSAMetaSpec.desugarImpToSSA_oneArmedIf_step
+  Compiler.Proofs.MacroSSAMetaSpec.desugarImpToSSA_ite_step
+  Compiler.Proofs.MacroSSAMetaSpec.desugarImpToSSA_seq_step
+  Compiler.Proofs.MacroSSAMetaSpec.SSADesugarMetaSpec
+  Compiler.Proofs.MacroSSAMetaSpec.desugarOneArmedIf_sound
+  Compiler.Proofs.MacroSSAMetaSpec.desugarBoolNot_sound
+  Compiler.Proofs.MacroSSAMetaSpec.desugarDiscardBind_sound
+  Compiler.Proofs.MacroSSAMetaSpec.freshDiscardName_not_mem
+  Compiler.Proofs.MacroSSAMetaSpec.desugarZeroArgHelper_sound
+  Compiler.Proofs.MacroSSAMetaSpec.witness_interleaved_let_mut_and_monadic_binds
+  Compiler.Proofs.MacroSSAMetaSpec.witness_one_armed_if_accumulator
+  Compiler.Proofs.MacroSSAMetaSpec.witness_hygienic_discard_binds
+  Compiler.Proofs.MacroSSAMetaSpec.witness_bool_not_and_signed_ternary
+  Compiler.Proofs.MacroSSAMetaSpec.witness_zero_arg_helper_normalization
+
   -- Compiler/Proofs/MappingSlot.lean
   Compiler.Proofs.evmYul_uint256_ofNat_mod
   Compiler.Proofs.abiEncodeMappingSlot_mod
@@ -9823,4 +9849,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 9027 theorems/lemmas (6266 public, 2761 private, 0 sorry'd)
+-- Total: 9050 theorems/lemmas (6289 public, 2761 private, 0 sorry'd)

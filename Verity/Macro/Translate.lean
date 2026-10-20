@@ -7,6 +7,7 @@ import Compiler.Selectors
 import Compiler.CompilationModel.InternalNaming
 import Compiler.Keccak.Sponge
 import Verity.Macro.Translate.Parsing
+import Verity.Macro.Translate.SSADesugar
 import Verity.Macro.Translate.Expr
 import Verity.Macro.Executable
 import Verity.Macro.ExternalCalls
@@ -180,28 +181,22 @@ private partial def validateDoElemExprTypes
       pure none
   match tupleCase? with
   | some typedLocals => pure typedLocals
-  | none => match elem with
-      | `(doElem| let _ := ($rhs:term : $_ty:term)) =>
-          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
-            errorDecls eventDecls functions params locals (← `(doElem| let _ := $rhs:term))
-      | `(doElem| let _ := $rhs:term) =>
-          let discardName := freshSyntheticLocalName "discard" params locals #[]
-          let discardIdent := mkIdent (Name.mkSimple discardName)
-          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
-            errorDecls eventDecls functions params locals (← `(doElem| let $discardIdent:ident := $rhs:term))
-      | `(doElem| let _ ← $rhs:term) =>
-          let discardName := freshSyntheticLocalName "__discard" params locals #[]
-          let discardIdent := mkIdent (Name.mkSimple discardName)
-          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
-            errorDecls eventDecls functions params locals (← `(doElem| let $discardIdent:ident ← $rhs:term))
+  | none =>
+      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "__discard" params (typedLocalNames locals) #[] elem then
+        validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
+          errorDecls eventDecls functions params locals desugared
+      else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
+        validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
+          errorDecls eventDecls functions params locals desugared
+      else if let some desugared ← SSADesugar.desugarOneArmedIfDoElem? elem then
+        validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
+          errorDecls eventDecls functions params locals desugared
+      else match elem with
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let ty ← inferPureExprType fields constDecls immutableDecls externalDecls params locals rhs
           requireSupportedLocalBindingType name s!"local binding '{toString name.getId}'" ty
           let interfaceName? ← interfaceNameOfTerm? params locals rhs
           pure <| locals.push (mkTypedLocal (toString name.getId) ty interfaceName?)
-      | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
-          validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
-            errorDecls eventDecls functions params locals (← `(doElem| let mut $name:ident := $rhs:term))
       | `(doElem| let mut $name:ident ← $rhs:term) =>
           validateDoElemExprTypes ownerName returnTy fields constDecls immutableDecls externalDecls
             errorDecls eventDecls functions params locals (← `(doElem| let $name:ident ← $rhs:term))
@@ -1402,20 +1397,14 @@ private partial def translateDoElem
       pure none
   match tupleCase? with
   | some result => pure result
-  | none => match elem with
-      | `(doElem| let _ := ($rhs:term : $_ty:term)) =>
-          translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals
-            (← `(doElem| let _ := $rhs:term))
-      | `(doElem| let _ := $rhs:term) =>
-          let discardName := freshSyntheticLocalName "discard" params locals mutableLocals
-          let discardIdent := mkIdent (Name.mkSimple discardName)
-          translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals
-            (← `(doElem| let $discardIdent:ident := $rhs:term))
-      | `(doElem| let _ ← $rhs:term) =>
-          let discardName := freshSyntheticLocalName "__discard" params locals mutableLocals
-          let discardIdent := mkIdent (Name.mkSimple discardName)
-          translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals
-            (← `(doElem| let $discardIdent:ident ← $rhs:term))
+  | none =>
+      if let some desugared ← SSADesugar.desugarDiscardDoElem? "discard" "__discard" params localNames mutableLocals elem then
+        translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared
+      else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
+        translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared
+      else if let some desugared ← SSADesugar.desugarOneArmedIfDoElem? elem then
+        translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals desugared
+      else match elem with
       | `(doElem| let mut $name:ident := $rhs:term) =>
           let varName := toString name.getId
           if localNames.contains varName then
@@ -1430,9 +1419,6 @@ private partial def translateDoElem
             (#[(← `(Compiler.CompilationModel.Stmt.letVar $(strTerm varName) $rhsExpr))],
               locals.push (mkTypedLocal varName ty interfaceName?),
               mutableLocals.push varName)
-      | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
-          translateDoElem fields constDecls immutableDecls externalDecls errorDecls functions returnTy params locals mutableLocals
-            (← `(doElem| let mut $name:ident := $rhs:term))
       | `(doElem| let mut $name:ident ← $rhs:term) =>
           let varName := toString name.getId
           if localNames.contains varName then
@@ -2028,7 +2014,7 @@ def mkSuffixedIdent (base : Ident) (suffix : String) : CommandElabM Ident :=
   pure <| mkIdent <| appendSuffix base.getId
 
 private def mkContractFnType (params : Array ParamDecl) (retTy : ValueType) : CommandElabM Term := do
-  let mut ty ← `(Verity.Contract $(← contractValueTypeTerm retTy))
+  let mut ty ← `(_root_.Verity.Contract $(← contractValueTypeTerm retTy))
   for param in params.reverse do
     ty ← `(($(← contractValueTypeTerm param.ty)) → $ty)
   pure ty
@@ -2037,7 +2023,7 @@ private def adversaryModelTypeTerm : CommandElabM Term :=
   `(Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
 
 private def executableCallContextTypeTerm : CommandElabM Term :=
-  `(Contracts.ExecutableCallContext)
+  `(_root_.Contracts.ExecutableCallContext)
 
 private def mkContractFnTypeWithAdversary
     (params : Array ParamDecl) (retTy : ValueType) : CommandElabM Term := do
@@ -2203,17 +2189,31 @@ private partial def rewriteForEachExecutableDoElem
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (elem : TSyntax `doElem) : CommandElabM (Array (TSyntax `doElem) × Array TypedLocal) := do
-  match elem with
-  | `(doElem| let _ := $rhs:term) =>
-      let discardName := freshSyntheticLocalName "__discard" params locals #[]
-      let discardIdent := mkIdent (Name.mkSimple discardName)
-      rewriteForEachExecutableDoElem fields externalDecls params locals
-        (← `(doElem| let $discardIdent:ident := $rhs:term))
-  | `(doElem| let _ ← $rhs:term) =>
-      let discardName := freshSyntheticLocalName "__discard" params locals #[]
-      let discardIdent := mkIdent (Name.mkSimple discardName)
-      rewriteForEachExecutableDoElem fields externalDecls params locals
-        (← `(doElem| let $discardIdent:ident ← $rhs:term))
+  if let some desugared ← SSADesugar.desugarDiscardDoElem? "__discard" "__discard" params (typedLocalNames locals) #[] elem then
+    rewriteForEachExecutableDoElem fields externalDecls params locals desugared
+  else if let some desugared ← SSADesugar.desugarTypedDoElem? elem then
+    rewriteForEachExecutableDoElem fields externalDecls params locals desugared
+  else if let some desugared ← SSADesugar.desugarOneArmedIfDoElem? elem then
+    rewriteForEachExecutableDoElem fields externalDecls params locals desugared
+  else match elem with
+  | `(doElem| let mut $name:ident := $rhs:term) =>
+      let varName := toString name.getId
+      let interfaceName? ← interfaceNameOfTerm? params locals rhs
+      let locals :=
+        match interfaceName? with
+        | some iface => locals.push (mkTypedLocal varName .address (some iface))
+        | none => locals
+      pure (#[elem], locals)
+  | `(doElem| let mut $name:ident ← $rhs:term) =>
+      let (elems, locals) ←
+        rewriteForEachExecutableDoElem fields externalDecls params locals
+          (← `(doElem| let $name:ident ← $rhs:term))
+      pure (← elems.mapM SSADesugar.rewriteBindElemToMut, locals)
+  | `(doElem| $name:ident ← $rhs:term) =>
+      let (elems, locals) ←
+        rewriteForEachExecutableDoElem fields externalDecls params locals
+          (← `(doElem| let $name:ident ← $rhs:term))
+      pure (← elems.mapM SSADesugar.rewriteBindElemToReassign, locals)
   | `(doElem| let $name:ident := $rhs:term) =>
       let varName := toString name.getId
       let interfaceName? ← interfaceNameOfTerm? params locals rhs
@@ -2570,6 +2570,8 @@ private partial def syntaxCallsAnyHelper
   | `(term| $name:ident $args:term*) =>
       if helperNames.contains name.getId.toString then pure true
       else args.anyM (syntaxCallsAnyHelper helperNames ∘ (fun term => term.raw))
+  | `(term| $name:ident) =>
+      pure (helperNames.contains name.getId.toString)
   | _ => stx.getArgs.anyM (syntaxCallsAnyHelper helperNames)
 
 private def linkedExternalSiteId (externalDecls : Array ExternalDecl) (name : String) : Nat :=
@@ -2757,6 +2759,7 @@ private def threadHelperApp?
     (adv : Term)
     (originalArgsForOverload : Option (Array Term) := none)
     (keepPublicGuard : Bool := false) : CommandElabM (Option Term) := do
+  let args := SSADesugar.normalizeZeroArgHelperArgs helpers (toString name.getId) args
   let matchesHelper := fun (fn : FunctionDecl) =>
     (fn.name == toString name.getId || fn.ident.getId == name.getId ||
       (toString name.getId).endsWith ("." ++ fn.name)) &&
@@ -2769,7 +2772,9 @@ private def threadHelperApp?
     if exactCandidates.size <= 1 then
       pure (exactCandidates[0]? <|> helpers.find? matchesHelper)
     else
-      let resolveArgs := originalArgsForOverload.getD args
+      let resolveArgs :=
+        SSADesugar.normalizeZeroArgHelperArgs helpers (toString name.getId)
+          (originalArgsForOverload.getD args)
       let app ← helperCall name resolveArgs
       try
         pure ((← resolveLocalFunctionApp? fields constDecls immutableDecls externalDecls
@@ -2817,6 +2822,8 @@ private def threadHelperApp?
         some <$> helperCallWithAdv target args adv
       else if helper.nonReentrantLock.isSome && helper.reentrancyTrusted then
         some <$> helperCall target args
+      else if helper.params.isEmpty then
+        some <$> helperCall target #[]
       else
         pure none
   | none => pure none
@@ -3530,8 +3537,13 @@ private partial def threadAdversaryThroughExecutableSyntax
     | none => match elem with
       | `(doElem| let $name:ident : Uint256 := $_rhs:term) =>
           pure (scope.push (mkTypedLocal (toString name.getId) .uint256))
+      | `(doElem| let $name:ident : $_ty:term := $rhs:term) => infer name rhs
+      | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) => infer name rhs
       | `(doElem| let $name:ident := $rhs:term) => infer name rhs
       | `(doElem| let mut $name:ident := $rhs:term) => infer name rhs
+      | `(doElem| let $name:ident : $_ty:term ← $rhs:term)
+      | `(doElem| let mut $name:ident : $_ty:term ← $rhs:term)
+      | `(doElem| let mut $name:ident ← $rhs:term)
       | `(doElem| let $name:ident ← $rhs:term) =>
           try
             let ty ← inferBindSourceType fields constDecls immutableDecls externalDecls
@@ -3721,7 +3733,7 @@ private partial def threadAdversaryThroughExecutableSyntax
         let raw ← threadAdversaryThroughExecutableSyntax fields constDecls immutableDecls
           externalDecls helpers adversarialHelpers registryOnlyHelpers params scope adv elem.raw
           (linkedContracts := linkedContracts) (registryMode := registryMode)
-        rewritten := rewritten.push ⟨raw⟩
+        rewritten := rewritten ++ SSADesugar.flattenHoistedDoElem ⟨raw⟩
         scope ← extendLocals scope elem
       `(doSeq| $[$rewritten:doElem]*)
   | `(doElem| let $pat:term ← tryExternalCall $name:term [ $[$args:term],* ]) =>
@@ -3838,22 +3850,27 @@ private partial def threadAdversaryThroughExecutableSyntax
               rhs ← `(term| $rhs $arg)
             hoistLive false rhs fun rewritten => `(doElem| let $name ← $rewritten:term)
   | `(doElem| let $name:ident ← $rhs:term) =>
-      hoistBound rhs
-        (fun rewritten => `(doElem| let $name ← $rewritten:term))
-        (fun rewritten => `(doElem| let $name := $rewritten:term))
+      let helperApp? ← match SSADesugar.helperAppSyntaxParts? rhs with
+        | some (fn, args) =>
+            threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
+        | none => pure none
+      match helperApp? with
+      | some app =>
+          hoistLive false app fun rewritten => `(doElem| let $name ← $rewritten:term)
+      | none =>
+          hoistBound rhs
+            (fun rewritten => `(doElem| let $name ← $rewritten:term))
+            (fun rewritten => `(doElem| let $name := $rewritten:term))
   | `(doElem| let $pat:term ← $rhs:term) =>
       -- A destructuring bind of an internal helper that takes the call context
       -- (`let (a, b) ← helper x y`) threads the context like the single-name
       -- form above; everything else keeps the generic hoisting path.
-      let helperApp? ← match rhs with
-        | `(term| $fn:ident $args:term*) =>
-            threadHelperApp? fields constDecls immutableDecls externalDecls
-              helpers adversarialHelpers registryOnlyHelpers params locals fn
-              (args.map fun arg => (⟨arg.raw⟩ : Term)) adv
-        | `(term| $fn:ident($[$args:term],*)) =>
+      let helperApp? ← match SSADesugar.helperAppSyntaxParts? rhs with
+        | some (fn, args) =>
             threadHelperApp? fields constDecls immutableDecls externalDecls
               helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
-        | _ => pure none
+        | none => pure none
       match helperApp? with
       | some app =>
           hoistLive false app fun rewritten => `(doElem| let $pat:term ← $rewritten:term)
@@ -3867,10 +3884,20 @@ private partial def threadAdversaryThroughExecutableSyntax
   | `(doElem| let mut $name:ident : $_ty:term := $rhs:term) =>
       hoistLive true rhs fun rewritten =>
         `(doElem| let mut $name := $rewritten:term)
+  | `(doElem| let mut $name:ident : $_ty:term ← $rhs:term)
   | `(doElem| let mut $name:ident ← $rhs:term) =>
-      hoistBound rhs
-        (fun rewritten => `(doElem| let mut $name ← $rewritten:term))
-        (fun rewritten => `(doElem| let mut $name := $rewritten:term))
+      let helperApp? ← match SSADesugar.helperAppSyntaxParts? rhs with
+        | some (fn, args) =>
+            threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
+        | none => pure none
+      match helperApp? with
+      | some app =>
+          hoistLive false app fun rewritten => `(doElem| let mut $name ← $rewritten:term)
+      | none =>
+          hoistBound rhs
+            (fun rewritten => `(doElem| let mut $name ← $rewritten:term))
+            (fun rewritten => `(doElem| let mut $name := $rewritten:term))
   | `(doElem| let $name:ident := $rhs:term) =>
       hoistLive true rhs fun rewritten =>
         `(doElem| let $name := $rewritten:term)
@@ -3881,9 +3908,18 @@ private partial def threadAdversaryThroughExecutableSyntax
       hoistLive true rhs fun rewritten =>
         `(doElem| $name:ident := $rewritten:term)
   | `(doElem| $name:ident ← $rhs:term) =>
-      hoistBound rhs
-        (fun rewritten => `(doElem| $name:ident ← $rewritten:term))
-        (fun rewritten => `(doElem| $name:ident := $rewritten:term))
+      let helperApp? ← match SSADesugar.helperAppSyntaxParts? rhs with
+        | some (fn, args) =>
+            threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
+        | none => pure none
+      match helperApp? with
+      | some app =>
+          hoistLive false app fun rewritten => `(doElem| $name:ident ← $rewritten:term)
+      | none =>
+          hoistBound rhs
+            (fun rewritten => `(doElem| $name:ident ← $rewritten:term))
+            (fun rewritten => `(doElem| $name:ident := $rewritten:term))
   | `(doElem| if $cond:term then $thenBranch:doSeq else $elseBranch:doSeq) =>
       let rewrittenThen := ⟨← go thenBranch.raw⟩
       let rewrittenElse := ⟨← go elseBranch.raw⟩
@@ -3983,7 +4019,16 @@ private partial def threadAdversaryThroughExecutableSyntax
                 hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
             | _ => recurseChildren
   | `(doElem| $stmt:term) =>
-      hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
+      let helperApp? ← match SSADesugar.helperAppSyntaxParts? stmt with
+        | some (fn, args) =>
+            threadHelperApp? fields constDecls immutableDecls externalDecls
+              helpers adversarialHelpers registryOnlyHelpers params locals fn args adv
+        | none => pure none
+      match helperApp? with
+      | some app =>
+          hoistLive false app fun rewritten => `(doElem| $rewritten:term)
+      | none =>
+          hoistLive false stmt fun rewritten => `(doElem| $rewritten:term)
   | `(term| $name:ident $args:term*) =>
       let original := args.map fun arg => (⟨arg.raw⟩ : Term)
       match ← threadHelperApp? fields constDecls immutableDecls externalDecls
@@ -4065,7 +4110,7 @@ private def storageSlotInnerTypeTerm (ty : StorageType) : CommandElabM Term := d
 private def mkStorageDefCommand (field : StorageFieldDecl) : CommandElabM Cmd := do
   let storageTy ← storageSlotInnerTypeTerm field.ty
   let fid := field.ident
-  `(command| def $fid : Verity.StorageSlot $storageTy := ⟨$(natTerm field.slotNum)⟩)
+  `(command| def $fid : _root_.Verity.StorageSlot $storageTy := ⟨$(natTerm field.slotNum)⟩)
 
 private def storageAccessorTypeName (parts : List String) : Ident :=
   mkIdent (Name.mkSimple (String.intercalate "_" parts ++ "_StorageSlots"))
@@ -4088,7 +4133,7 @@ private partial def storageAccessorTypeCommands
         fieldIds := fieldIds.push (mkIdent (Name.mkSimple (storageAccessorTreeName child)))
         match child with
         | .leaf _ ty _ =>
-            fieldTypes := fieldTypes.push (← `(Verity.StorageSlot $(← storageSlotInnerTypeTerm ty)))
+            fieldTypes := fieldTypes.push (← `(_root_.Verity.StorageSlot $(← storageSlotInnerTypeTerm ty)))
         | .node name _ =>
             fieldTypes := fieldTypes.push (storageAccessorTypeName (path ++ [name]))
       cmds := cmds.push (← `(command| structure $typeId where
@@ -4097,7 +4142,7 @@ private partial def storageAccessorTypeCommands
 
 private partial def storageAccessorValueTerm : StorageAccessorTree → CommandElabM Term
   | .leaf _ ty slotNum => do
-      `((⟨$(natTerm slotNum)⟩ : Verity.StorageSlot $(← storageSlotInnerTypeTerm ty)))
+      `((⟨$(natTerm slotNum)⟩ : _root_.Verity.StorageSlot $(← storageSlotInnerTypeTerm ty)))
   | .node _ children => do
       let fieldIds := children.map (fun child => mkIdent (Name.mkSimple (storageAccessorTreeName child)))
       let values ← children.mapM storageAccessorValueTerm
@@ -6707,7 +6752,7 @@ def prefixMixinModifierExecutableBody
       `(term| do $[$preludes:doElem]* $body:term)
 
 def mkModifierDefCommandPublic (modDecl : ModifierDecl) : CommandElabM Cmd := do
-  `(command| def $(modDecl.ident) : Verity.Contract Unit := $(modDecl.body))
+  `(command| def $(modDecl.ident) : _root_.Verity.Contract Unit := $(modDecl.body))
 
 private def constructorOpensReentrancyWindow
     (fields : Array StorageFieldDecl) (errorDecls : Array ErrorDecl)
@@ -7075,7 +7120,7 @@ def mkFunctionCommandsPublic
         let lockName := toString lockIdent.getId
         let some lockField := fields.find? (fun field => field.name == lockName)
           | throwErrorAt lockIdent s!"unknown nonreentrant lock field '{lockName}'"
-        `(Verity.Core.NonReentrantGuard.guarded $(natTerm lockField.slotNum) $publicExecutableBody)
+        `(_root_.Verity.Core.NonReentrantGuard.guarded $(natTerm lockField.slotNum) $publicExecutableBody)
     | none => pure publicExecutableBody
   let fnValue ← if opensReentrancyWindow then
       mkContractFnValueWithAdversary advIdent fn.params publicExecutableBody
@@ -7094,7 +7139,7 @@ def mkFunctionCommandsPublic
         let lockName := toString lockIdent.getId
         let some lockField := fields.find? (fun field => field.name == lockName)
           | throwErrorAt lockIdent s!"unknown nonreentrant lock field '{lockName}'"
-        `(Verity.Core.NonReentrantGuard.guarded
+        `(_root_.Verity.Core.NonReentrantGuard.guarded
           $(natTerm lockField.slotNum) $registryExecutableBody)
     | none => pure registryExecutableBody
   let registryValue ←
@@ -7140,7 +7185,7 @@ def mkFunctionCommandsPublic
   let resolve : Ident := ⟨resolveIdent.raw⟩
   let mut applied : Term := registryId
   applied ← `($applied ({ adversary := $registryAdv:ident, resolve := $resolve:ident } :
-    Contracts.ExecutableCallContext))
+    _root_.Contracts.ExecutableCallContext))
   let mut registryParams : Array (Ident × Term) := #[]
   for param in fn.params do
     let paramTy ← contractValueTypeTerm param.ty
@@ -7150,7 +7195,7 @@ def mkFunctionCommandsPublic
     registryParams := registryParams.push (registryParam, paramTy)
     applied ← `($applied $registryParam:ident)
   let mut registryBody : Term ←
-    `(($transition:ident : Verity.ContractState → Verity.ContractState) =
+    `(($transition:ident : _root_.Verity.ContractState → _root_.Verity.ContractState) =
       Compiler.CompilationModel.DenoteExternalCalls.callbackContractTransition
         $context:ident $applied)
   if !fn.isPayable then
@@ -7208,7 +7253,7 @@ def mkFunctionCommandsPublic
     def $entrypointPredicateName
         ($registryAdv:ident :
           Compiler.CompilationModel.DenoteExternalCalls.AdversaryModel)
-        ($transition:ident : Verity.ContractState → Verity.ContractState) : Prop :=
+        ($transition:ident : _root_.Verity.ContractState → _root_.Verity.ContractState) : Prop :=
       $registryBody)
   let bodyCmd : Cmd ← `(command| def $modelBodyName : List Compiler.CompilationModel.Stmt := [ $[$stmtTerms],* ])
   let modelNameTerm :=

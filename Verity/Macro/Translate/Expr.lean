@@ -6,6 +6,7 @@ import Compiler.Selectors
 import Compiler.CompilationModel.InternalNaming
 import Compiler.Keccak.Sponge
 import Verity.Macro.Translate.Parsing
+import Verity.Macro.Translate.SSADesugar
 import Verity.Macro.Executable
 import Verity.Macro.ExternalCalls
 import Verity.Macro.Functions
@@ -2268,13 +2269,15 @@ partial def inferPureExprType
       for arg in [a, b, c] do
         requireWordLikeType arg "mulDiv512" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals arg visitingConstants)
       pure .uint256
-  | `(term| ite $cond $thenVal $elseVal) => do
+  | `(term| ite $cond $thenVal $elseVal)
+  | `(term| if $cond:term then $thenVal:term else $elseVal:term) => do
       if syntaxContainsCallExternal cond || syntaxContainsCallExternal thenVal || syntaxContainsCallExternal elseVal then
         throwErrorAt stx
           "conditional operands cannot contain callExternal because expression lowering duplicates the condition and evaluates both branches; use statement-level control flow"
       requireBoolType cond "ite condition" (← inferPureExprType fields constDecls immutableDecls externalDecls params locals cond visitingConstants)
       let thenTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals thenVal visitingConstants
       let elseTy ← inferPureExprType fields constDecls immutableDecls externalDecls params locals elseVal visitingConstants
+      let (thenTy, elseTy) := preferNarrowNumericLiteralPeer thenVal elseVal thenTy elseTy
       requireSameOrWordLikeTypes stx "ite" thenTy elseTy
       pure thenTy
   | `(term| externalCall $name:term $args:term) =>
@@ -2900,8 +2903,9 @@ partial def resolveLocalFunctionApp?
     (params : Array ParamDecl)
     (locals : Array TypedLocal)
     (stx : Term) : CommandElabM (Option (FunctionDecl × Array Term)) := do
-  let some (fnName, argTerms) := localFunctionAppSyntax? stx
+  let some (fnName, rawArgTerms) := localFunctionAppSyntax? stx
     | pure none
+  let argTerms := SSADesugar.normalizeZeroArgHelperArgs functions fnName rawArgTerms
   let candidates := functions.filter (fun fn => fn.name == fnName && fn.params.size == argTerms.size)
   if candidates.isEmpty then
     pure none
@@ -3042,6 +3046,7 @@ partial def validateConstantBody
   | `(term| logicalAnd $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
   | `(term| logicalOr $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
   | `(term| logicalNot $a) => validateConstantBody constDecls a visiting
+  | `(term| ! $a) => validateConstantBody constDecls a visiting
   | `(term| and $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
   | `(term| or $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
   | `(term| xor $a $b) => validateConstantBody constDecls a visiting *> validateConstantBody constDecls b visiting
@@ -3660,6 +3665,7 @@ partial def translatePureExprWithTypes
   | `(term| logicalAnd $a $b) => `(Compiler.CompilationModel.Expr.logicalAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| logicalOr $a $b) => `(Compiler.CompilationModel.Expr.logicalOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| logicalNot $a) => `(Compiler.CompilationModel.Expr.logicalNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?))
+  | `(term| ! $a) => `(Compiler.CompilationModel.Expr.logicalNot $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?))
   | `(term| and $a $b) => `(Compiler.CompilationModel.Expr.bitAnd $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| or $a $b) => `(Compiler.CompilationModel.Expr.bitOr $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
   | `(term| xor $a $b) => `(Compiler.CompilationModel.Expr.bitXor $(← translatePureExprWithTypes fields constDecls immutableDecls params locals a visitingConstants linkedExternalLowerer?) $(← translatePureExprWithTypes fields constDecls immutableDecls params locals b visitingConstants linkedExternalLowerer?))
