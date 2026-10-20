@@ -85,7 +85,7 @@ jobs:
           disable-lake-cache-restore: "true"
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@33f83860391e8200f1856b7d07b6f5808f3b223d # v0.1.0
+        uses: Th0rgal/turbo-lean@e7b256af07f42d09f55bf221a335cc84123dbabe # v0.1.0 (Season 9 / Wave 5)
         with:
           project-dir: "."
           command: "check"
@@ -94,7 +94,7 @@ jobs:
           cache-key-prefix: verity-turbo-lean-cas-${{ env.VERIFY_CACHE_BUCKET }}
           max-reclaimable-bytes: "10737418240"
 
-      - name: Run turbo-lean seed-shards, Stdlib Directory Check, pr-verify & verify-receipt
+      - name: Run turbo-lean accelerators, audit-spec, seed-shards, Stdlib Directory Check, pr-verify & verify-receipt
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -107,6 +107,8 @@ jobs:
           else
             BASE_REF="HEAD~1"
           fi
+          turbo-lean --json accelerators --project-dir .
+          turbo-lean --json audit-spec Verity/Core.lean --decl Uint256.add_comm
           turbo-lean --json seed-shards --project-dir .
           turbo-lean --json check Verity/Proofs/Stdlib --project-dir .
           turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --receipt /tmp/verity-ci-receipt.json

@@ -102,13 +102,14 @@ def evalExpr :=
             old_root = check_yul.ROOT
             old_run_solc = check_yul.run_solc
             check_yul.ROOT = root
-            check_yul.run_solc = lambda _path: (0, "Binary representation:\n00\n", "")
+            check_yul.run_solc = lambda _path, optimize=False: (0, "Binary representation:\n00\n", "")
             try:
                 args = argparse.Namespace(
                     dirs=["a"],
                     compare_dirs=None,
                     same_file_pairs=[["a", "b"]],
                     allow_compare_diff_file=None,
+                    skip_optimize_check=False,
                 )
                 failures, checked_files, compare_count = check_yul.run_compilation_checks(args)
             finally:
@@ -132,13 +133,14 @@ def evalExpr :=
             old_run_solc = check_yul.run_solc
             check_yul.ROOT = root
             check_yul.DEFAULT_YUL_DIR = root / "artifacts" / "yul"
-            check_yul.run_solc = lambda _path: (0, "Binary representation:\n00\n", "")
+            check_yul.run_solc = lambda _path, optimize=False: (0, "Binary representation:\n00\n", "")
             try:
                 args = argparse.Namespace(
                     dirs=None,
                     compare_dirs=None,
                     same_file_pairs=None,
                     allow_compare_diff_file=None,
+                    skip_optimize_check=False,
                 )
                 failures, checked_files, compare_count = check_yul.run_compilation_checks(args)
             finally:

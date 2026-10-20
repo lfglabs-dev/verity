@@ -238,7 +238,7 @@ def run_compilation_checks(args: argparse.Namespace) -> tuple[list[str], int, in
             failures.append(f"{path}: could not parse bytecode from solc output")
             continue
         bytecode_by_file[path] = bytecode
-        if not args.skip_optimize_check:
+        if not getattr(args, "skip_optimize_check", False):
             opt_code, opt_stdout, opt_stderr = run_solc(path, optimize=True)
             if opt_code != 0:
                 failures.append(
