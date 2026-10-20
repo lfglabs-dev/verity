@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Verity Authors
 -/
 import Compiler.CompilationModel.Types
+import Verity.Core
 
 namespace Verity.Macro
 
@@ -769,5 +770,201 @@ theorem view_require_let_writesStorage_false :
       , Stmt.return (Expr.localVar "cur") ]
     eff.writesStorage = false ∧ eff.mayRevert = true := by
   decide
+
+/-! ## Compact Algebraic `FootprintBitmask` & Universal Auto-Frame by `decide` -/
+
+/-- Compact bitmask representation of a set of storage slot indices. -/
+abbrev FootprintBitmask := Nat
+
+/-- Encode a list of storage slot indices into a single `FootprintBitmask` (`Nat`). -/
+def slotsToBitmask (slots : List Nat) : Nat :=
+  slots.foldl (fun acc s => acc ||| (1 <<< s)) 0
+
+/-- Check whether two footprint bitmasks are disjoint (`(maskA &&& maskB) == 0`). -/
+def bitmaskDisjoint (maskA maskB : Nat) : Bool :=
+  (maskA &&& maskB) == 0
+
+/-- Check whether a single storage `slot` is disjoint from `writesMask`. -/
+def slotBitDisjoint (writesMask : Nat) (slot : Nat) : Bool :=
+  (writesMask &&& (1 <<< slot)) == 0
+
+/-- Check whether a single storage `slot` bit is set inside `mask`. -/
+def slotInBitmask (mask : Nat) (slot : Nat) : Bool :=
+  (mask &&& (1 <<< slot)) == (1 <<< slot)
+
+/-- Semantic footprint bound: whenever `op.run s = .success val s'`, every storage
+`slot` whose bit is disjoint from `writesMask` is preserved (`s'.storage slot = s.storage slot`). -/
+def StatementFootprintBound {α : Type} (writesMask : Nat) (op : Verity.Contract α) : Prop :=
+  ∀ s val s', op.run s = .success val s' →
+    ∀ slot, slotBitDisjoint writesMask slot = true → s'.storage slot = s.storage slot
+
+/-- Pure computations satisfy `StatementFootprintBound` for any `writesMask`. -/
+theorem StatementFootprintBound_pure {α : Type} (writesMask : Nat) (a : α) :
+    StatementFootprintBound writesMask (Verity.pure a) := by
+  intro s val s' hrun slot _
+  cases hrun
+  rfl
+
+/-- Sequential `Verity.bind` composition preserves `StatementFootprintBound`. -/
+theorem StatementFootprintBound_bind {α β : Type}
+    {writesMask : Nat} {op₁ : Verity.Contract α} {op₂ : α → Verity.Contract β}
+    (h₁ : StatementFootprintBound writesMask op₁)
+    (h₂ : ∀ a, StatementFootprintBound writesMask (op₂ a)) :
+    StatementFootprintBound writesMask (Verity.bind op₁ op₂) := by
+  intro s val s' hrun slot hdisj
+  have hbind := Verity.Contract.eq_of_run_success hrun
+  unfold Verity.bind at hbind
+  cases hop₁ : op₁ s with
+  | revert msg s₁ =>
+    simp [hop₁] at hbind
+  | success a s₁ =>
+    simp only [hop₁] at hbind
+    have hrun₁ : op₁.run s = .success a s₁ := by simp [Verity.Contract.run, hop₁]
+    have hrun₂ : (op₂ a).run s₁ = .success val s' := by simp [Verity.Contract.run, hbind]
+    exact (h₂ a s₁ val s' hrun₂ slot hdisj).trans (h₁ s a s₁ hrun₁ slot hdisj)
+
+/-- Monotonicity of `StatementFootprintBound` when `mask₂` covers `mask₁`. -/
+theorem StatementFootprintBound_monotone {α : Type}
+    {mask₁ mask₂ : Nat} {op : Verity.Contract α}
+    (hsub : ∀ slot, slotBitDisjoint mask₂ slot = true → slotBitDisjoint mask₁ slot = true)
+    (hbound : StatementFootprintBound mask₁ op) :
+    StatementFootprintBound mask₂ op := by
+  intro s val s' hrun slot hdisj
+  exact hbound s val s' hrun slot (hsub slot hdisj)
+
+/-- Storage reads preserve all slots under any `writesMask`. -/
+theorem StatementFootprintBound_getStorage
+    (writesMask : Nat) (slotDecl : Verity.StorageSlot Verity.Uint256) :
+    StatementFootprintBound writesMask (Verity.getStorage slotDecl) := by
+  intro s val s' hrun slot _
+  cases hrun
+  rfl
+
+/-- Address storage reads preserve all word slots under any `writesMask`. -/
+theorem StatementFootprintBound_getStorageAddr
+    (writesMask : Nat) (slotDecl : Verity.StorageSlot Verity.Address) :
+    StatementFootprintBound writesMask (Verity.getStorageAddr slotDecl) := by
+  intro s val s' hrun slot _
+  cases hrun
+  rfl
+
+/-- Address storage writes preserve all word slots under any `writesMask`. -/
+theorem StatementFootprintBound_setStorageAddr
+    (writesMask : Nat) (slotDecl : Verity.StorageSlot Verity.Address) (val : Verity.Address) :
+    StatementFootprintBound writesMask (Verity.setStorageAddr slotDecl val) := by
+  intro s _ s' hrun slot _
+  cases hrun
+  simp [Verity.ContractState.storage_writeAddrSlot]
+
+/-- Mapping reads preserve all word slots under any `writesMask`. -/
+theorem StatementFootprintBound_getMapping
+    (writesMask : Nat) (slotDecl : Verity.StorageSlot (Verity.Address → Verity.Uint256))
+    (key : Verity.Address) :
+    StatementFootprintBound writesMask (Verity.getMapping slotDecl key) := by
+  intro s val s' hrun slot _
+  cases hrun
+  rfl
+
+/-- Mapping writes preserve all word slots under any `writesMask`. -/
+theorem StatementFootprintBound_setMapping
+    (writesMask : Nat) (slotDecl : Verity.StorageSlot (Verity.Address → Verity.Uint256))
+    (key : Verity.Address) (val : Verity.Uint256) :
+    StatementFootprintBound writesMask (Verity.setMapping slotDecl key val) := by
+  intro s _ s' hrun slot _
+  cases hrun
+  simp [Verity.ContractState.storage, Verity.ContractState.writeMap]
+
+/-- `Verity.require` guards preserve all word slots under any `writesMask`. -/
+theorem StatementFootprintBound_require
+    (writesMask : Nat) (cond : Bool) (msg : String) :
+    StatementFootprintBound writesMask (Verity.require cond msg) := by
+  intro s val s' hrun slot _
+  have hreq := Verity.Contract.eq_of_run_success hrun
+  unfold Verity.require at hreq
+  split at hreq <;> simp_all
+
+/-- Writing to `slotDecl` satisfies `StatementFootprintBound writesMask` whenever
+`slotBitDisjoint writesMask slotDecl.slot = false` (discharged by `by decide`). -/
+theorem StatementFootprintBound_setStorage
+    (writesMask : Nat) (slotDecl : Verity.StorageSlot Verity.Uint256) (val : Verity.Uint256)
+    (hmem : slotBitDisjoint writesMask slotDecl.slot = false := by decide) :
+    StatementFootprintBound writesMask (Verity.setStorage slotDecl val) := by
+  intro s _ s' hrun slot hdisj
+  cases hrun
+  have hne : slot ≠ slotDecl.slot := by
+    intro heq
+    rw [heq] at hdisj
+    exact Bool.noConfusion (hmem.symm.trans hdisj)
+  exact Verity.ContractState.storage_writeSlot_other s hne val
+
+/-- Algebraic bitmask disjointness bridge: if `bitmaskDisjoint writesMask preservesMask = true`
+and `slot` belongs to `preservesMask`, then `slotBitDisjoint writesMask slot = true`. -/
+theorem slotBitDisjoint_of_bitmaskDisjoint
+    {writesMask preservesMask slot : Nat}
+    (hdisj : bitmaskDisjoint writesMask preservesMask = true)
+    (hin : slotInBitmask preservesMask slot = true) :
+    slotBitDisjoint writesMask slot = true := by
+  unfold bitmaskDisjoint at hdisj
+  unfold slotInBitmask at hin
+  unfold slotBitDisjoint
+  have h0 : writesMask &&& preservesMask = 0 := beq_iff_eq.mp hdisj
+  have h1 : preservesMask &&& (1 <<< slot) = 1 <<< slot := beq_iff_eq.mp hin
+  rw [beq_iff_eq, ← h1, ← Nat.and_assoc, h0, Nat.zero_and]
+
+/-- **Universal Auto-Frame for Untouched Slot (`eval_preserves_untouched_slot_of_bitmask_disjoint`)**:
+Whenever `StatementFootprintBound writesMask op` holds and `slotBitDisjoint writesMask slot = true`
+(discharged automatically by `by decide`), `s'.storage slot = s.storage slot`. -/
+theorem eval_preserves_untouched_slot_of_bitmask_disjoint
+    {α : Type} {writesMask : Nat} {op : Verity.Contract α}
+    {s : Verity.ContractState} {val : α} {s' : Verity.ContractState}
+    (hbound : StatementFootprintBound writesMask op)
+    (hrun : op.run s = .success val s')
+    (slot : Nat)
+    (hdisj : slotBitDisjoint writesMask slot = true := by decide) :
+    s'.storage slot = s.storage slot :=
+  hbound s val s' hrun slot hdisj
+
+/-- Unconditional `.snd` projection variant of `eval_preserves_untouched_slot_of_bitmask_disjoint`
+(covering both `.success` and `.revert` outcomes). -/
+theorem eval_preserves_untouched_slot_snd_of_bitmask_disjoint
+    {α : Type} {writesMask : Nat} {op : Verity.Contract α}
+    (hbound : StatementFootprintBound writesMask op)
+    (s : Verity.ContractState) (slot : Nat)
+    (hdisj : slotBitDisjoint writesMask slot = true := by decide) :
+    ((op.run s).snd).storage slot = s.storage slot := by
+  unfold Verity.Contract.run
+  cases hop : op s with
+  | revert msg _ => rfl
+  | success val s' =>
+    have hrun : op.run s = .success val s' := by simp [Verity.Contract.run, hop]
+    exact hbound s val s' hrun slot hdisj
+
+/-- **Universal Auto-Frame for Preserved Bitmask (`eval_preserves_preserved_mask_of_bitmask_disjoint`)**:
+Whenever `StatementFootprintBound writesMask op` holds and
+`bitmaskDisjoint writesMask preservesMask = true` (discharged by `by decide`),
+every `slot` in `preservesMask` is invariant (`s'.storage slot = s.storage slot`). -/
+theorem eval_preserves_preserved_mask_of_bitmask_disjoint
+    {α : Type} {writesMask preservesMask : Nat} {op : Verity.Contract α}
+    {s : Verity.ContractState} {val : α} {s' : Verity.ContractState}
+    (hbound : StatementFootprintBound writesMask op)
+    (hrun : op.run s = .success val s')
+    (hdisj : bitmaskDisjoint writesMask preservesMask = true := by decide) :
+    ∀ slot, slotInBitmask preservesMask slot = true →
+      s'.storage slot = s.storage slot := by
+  intro slot hin
+  exact hbound s val s' hrun slot (slotBitDisjoint_of_bitmaskDisjoint hdisj hin)
+
+/-- Unconditional `.snd` projection variant of `eval_preserves_preserved_mask_of_bitmask_disjoint`
+(covering both `.success` and `.revert` outcomes). -/
+theorem eval_preserves_preserved_mask_snd_of_bitmask_disjoint
+    {α : Type} {writesMask preservesMask : Nat} {op : Verity.Contract α}
+    (hbound : StatementFootprintBound writesMask op)
+    (s : Verity.ContractState)
+    (hdisj : bitmaskDisjoint writesMask preservesMask = true := by decide)
+    (slot : Nat)
+    (hin : slotInBitmask preservesMask slot = true := by decide) :
+    ((op.run s).snd).storage slot = s.storage slot :=
+  eval_preserves_untouched_slot_snd_of_bitmask_disjoint
+    hbound s slot (slotBitDisjoint_of_bitmaskDisjoint hdisj hin)
 
 end Verity.Macro

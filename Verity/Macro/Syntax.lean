@@ -30,6 +30,8 @@ declare_syntax_cat verityConstructor
 declare_syntax_cat verityMutability
 declare_syntax_cat verityInitGuard
 declare_syntax_cat verityModifies
+declare_syntax_cat verityPreserves
+declare_syntax_cat veritySpecClause
 declare_syntax_cat verityRequiresRole
 declare_syntax_cat verityNewtype
 declare_syntax_cat verityEnumDecl
@@ -114,6 +116,10 @@ syntax "reentrancy_trusted" : verityMutability
 syntax "virtual" : verityDispatch
 syntax "override" : verityDispatch
 syntax "modifies(" sepBy1(ident, ",") ")" : verityModifies
+syntax "preserves(" sepBy1(ident, ",") ")" : verityPreserves
+syntax "requires_clause(" term ")" : veritySpecClause
+syntax "ensures_clause(" term ")" : veritySpecClause
+syntax "ensures(" term ")" : veritySpecClause
 syntax "requires(" ident ")" : verityRequiresRole
 syntax ident " : " term:max : verityNewtype
 syntax "enum " ident " {" sepBy1(ident, ",") "}" : verityEnumDecl
@@ -210,6 +216,7 @@ syntax "modifier " ident " := " term : verityModifier
 syntax "with " sepBy1(ident, ",") : verityModifierUse
 syntax ident " := " ident : verityRoleDecl
 syntax "function " verityMutability* (pureMutabilityMarker)? verityMutability* verityDispatch* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
+syntax (priority := low) "function " verityMutability* (pureMutabilityMarker)? verityMutability* verityDispatch* ident " (" sepBy(verityParam, ",") ")" (ppSpace verityInitGuard)? (ppSpace verityModifierUse)? (ppSpace verityRequiresRole)? (ppSpace verityModifies)? (ppSpace verityPreserves)? (ppSpace veritySpecClause)* (ppSpace verityLocalObligations)? " : " term " := " term : verityFunction
 
 -- verity_intrinsic syntax (minimal one-argument shape for consumer-owned intrinsics)
 -- `pure` is parsed as an identifier here to avoid reserving it as a global
