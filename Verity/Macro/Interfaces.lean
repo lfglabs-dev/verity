@@ -158,4 +158,303 @@ def interfaceExternals (ifaces : Array InterfaceDecl) : Array ExternalDecl :=
       }))
     #[]
 
+/-! ### Multi-Return Interface Signatures (`#2418`, `#2424`) -/
+
+/-- Normalize an interface function's return types so a single `Tuple [T₁, ..., Tₙ]`
+    return annotation and a multi-return `(T₁, ..., Tₙ)` clause share the same
+    canonical leaf return array (`#2418`, `#2424`). -/
+def normalizeInterfaceReturnTypes (returnTys : Array ValueType) : Array ValueType :=
+  match returnTys.toList with
+  | [.tuple elemTys] => elemTys.toArray
+  | _ => returnTys
+
+/-- Canonical EDSL `ValueType` returned by an `InterfaceFunctionDecl`:
+    `.unit` for void methods, `ty` for single-return methods, and `.tuple` for
+    multi-return methods (`#2418`, `#2424`). -/
+def interfaceReturnValueType (fn : InterfaceFunctionDecl) : ValueType :=
+  let norm := normalizeInterfaceReturnTypes fn.returnTys
+  match norm.toList with
+  | [] => .unit
+  | [ty] => ty
+  | tys => .tuple tys
+
+/-- Canonical ABI return-tuple signature string `(t1,t2,...)` for an interface method. -/
+def interfaceFunctionReturnSignature (fn : InterfaceFunctionDecl) : String :=
+  let norm := normalizeInterfaceReturnTypes fn.returnTys
+  "(" ++ String.intercalate "," (norm.toList.map valueTypeToSolidityString) ++ ")"
+
+/-- Full human/audit signature `f(p1,p2)->(r1,r2)` including multi-return types (`#2418`, `#2424`). -/
+def interfaceFunctionFullSignature (fn : InterfaceFunctionDecl) : String :=
+  interfaceFunctionSignature fn.name (fn.params.map (·.ty)) ++
+    "->" ++ interfaceFunctionReturnSignature fn
+
+/-- Static 32-byte ABI word count of a `ValueType` when statically sized (`none` for dynamic types). -/
+partial def valueTypeStaticWords? : ValueType → Option Nat
+  | .uint256 | .int256 | .uint8 | .uint16 | .uintN _ | .intN _ | .bytesN _
+  | .address | .bytes32 | .bool | .enum _ _ =>
+      some 1
+  | .unit =>
+      some 0
+  | .newtype _ baseType =>
+      valueTypeStaticWords? baseType
+  | .fixedArray elemTy size =>
+      (valueTypeStaticWords? elemTy).map (· * size)
+  | .tuple elemTys =>
+      elemTys.foldlM
+        (fun acc elemTy => do
+          let w ← valueTypeStaticWords? elemTy
+          pure (acc + w))
+        0
+  | .struct _ fields =>
+      fields.foldlM
+        (fun acc (_, fty) => do
+          let w ← valueTypeStaticWords? fty
+          pure (acc + w))
+        0
+  | _ => none
+
+/-- Total static 32-byte ABI return word count for a single- or multi-return interface function. -/
+def interfaceFunctionStaticReturnWords? (fn : InterfaceFunctionDecl) : Option Nat :=
+  let norm := normalizeInterfaceReturnTypes fn.returnTys
+  norm.toList.foldlM
+    (fun acc rty => do
+      let w ← valueTypeStaticWords? rty
+      pure (acc + w))
+    0
+
+/-! ### Interface-Typed Storage Field Descriptors (`#2418`, `#2424`) -/
+
+/-- Descriptor for an interface-typed contract storage field (`token : IERC20 := slot k`).
+    At the EVM storage level, interface references occupy an `Address` slot (160 bits)
+    while retaining `interfaceName` for typed external/hop dispatch (`#2418`, `#2424`). -/
+structure InterfaceStorageFieldDesc where
+  ident : Ident
+  name : String
+  interfaceName : String
+  slotNum : Nat
+  isTransient : Bool := false
+  packedBits : Option (Nat × Nat) := none
+
+namespace InterfaceStorageFieldDesc
+
+/-- Lower an interface-typed storage field descriptor to its underlying `Address`-typed
+    `StorageFieldDecl`. -/
+def toStorageFieldDecl (d : InterfaceStorageFieldDesc) : StorageFieldDecl :=
+  { ident := d.ident
+    name := d.name
+    ty := .scalar .address
+    slotNum := d.slotNum
+    isTransient := d.isTransient
+    packedBits := d.packedBits }
+
+end InterfaceStorageFieldDesc
+
+/-- Check whether `ty` names a declared interface in `ifaces`, returning its interface name. -/
+def resolveInterfaceStorageType? (ifaces : Array InterfaceDecl) (ty : Term) : Option String :=
+  match stripParens ty with
+  | `(term| $id:ident) =>
+      let candidate := toString id.getId
+      ifaces.find? (fun iface => iface.name == candidate) |>.map (·.name)
+  | _ => none
+
+/-- Construct an `InterfaceStorageFieldDesc` if `ty` resolves to a declared interface. -/
+def interfaceStorageFieldFromSyntax?
+    (ifaces : Array InterfaceDecl)
+    (ident : Ident)
+    (ty : Term)
+    (slotNum : Nat)
+    (isTransient : Bool := false)
+    (packedBits : Option (Nat × Nat) := none) : Option InterfaceStorageFieldDesc := do
+  let ifaceName ← resolveInterfaceStorageType? ifaces ty
+  pure
+    { ident := ident
+      name := toString ident.getId
+      interfaceName := ifaceName
+      slotNum := slotNum
+      isTransient := isTransient
+      packedBits := packedBits }
+
+/-! ### `public` State-Variable Getter Descriptors for `hopCallView` (`#2439`) -/
+
+/-- Convert a `MappingKeyType` to its corresponding `ValueType` parameter in a synthesized getter. -/
+def mappingKeyTypeToValueType : MappingKeyType → ValueType
+  | .address => .address
+  | .uint256 => .uint256
+  | .bytes32 => .bytes32
+
+/-- Convert a `StorageArrayElemType` to its corresponding `ValueType` return in a synthesized getter. -/
+def storageArrayElemTypeToValueType : Compiler.CompilationModel.StorageArrayElemType → ValueType
+  | .uint256 => .uint256
+  | .address => .address
+  | .bool => .bool
+  | .uint8 => .uint8
+  | .bytes32 => .bytes32
+
+/-- Classification of Solidity auto-generated `public` state-variable getters (`#2439`). -/
+inductive PublicGetterKind where
+  | scalar (valueTy : ValueType)
+  | mappingChain (keyTys : List MappingKeyType) (valueTy : ValueType)
+  | dynamicArray (elemTy : ValueType)
+  | mappingStruct (keyTy : MappingKeyType) (memberTys : List ValueType)
+  | mappingStruct2 (outerKey innerKey : MappingKeyType) (memberTys : List ValueType)
+  deriving BEq
+
+/-- Descriptor for a `public` state-variable getter usable as a valid `hopCallView`
+    and interface-binding target (`#2439`). -/
+structure PublicGetterDesc where
+  fieldIdent : Ident
+  fieldName : String
+  slotNum : Nat
+  kind : PublicGetterKind
+  paramTys : Array ValueType
+  returnTys : Array ValueType
+
+/-- Derive the `PublicGetterDesc` for a persistent `StorageFieldDecl` (`#2439`).
+    Transient storage fields do not expose public ABI getters in Solidity. -/
+def publicGetterDescForField? (field : StorageFieldDecl) : Option PublicGetterDesc :=
+  if field.isTransient then
+    none
+  else
+    match field.ty with
+    | .scalar vt =>
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .scalar vt
+            paramTys := #[]
+            returnTys := #[vt] }
+    | .dynamicArray elemTy =>
+        let vt := storageArrayElemTypeToValueType elemTy
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .dynamicArray vt
+            paramTys := #[.uint256]
+            returnTys := #[vt] }
+    | .mappingAddressToUint256 =>
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingChain [.address] .uint256
+            paramTys := #[.address]
+            returnTys := #[.uint256] }
+    | .mappingAddressToEnum name count =>
+        let vt := ValueType.enum name count
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingChain [.address] vt
+            paramTys := #[.address]
+            returnTys := #[vt] }
+    | .mappingUintToUint256 =>
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingChain [.uint256] .uint256
+            paramTys := #[.uint256]
+            returnTys := #[.uint256] }
+    | .mappingUintToEnum name count =>
+        let vt := ValueType.enum name count
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingChain [.uint256] vt
+            paramTys := #[.uint256]
+            returnTys := #[vt] }
+    | .mapping2AddressToAddressToUint256 =>
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingChain [.address, .address] .uint256
+            paramTys := #[.address, .address]
+            returnTys := #[.uint256] }
+    | .mapping2AddressToAddressToEnum name count =>
+        let vt := ValueType.enum name count
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingChain [.address, .address] vt
+            paramTys := #[.address, .address]
+            returnTys := #[vt] }
+    | .mappingChain keyTys =>
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingChain keyTys .uint256
+            paramTys := keyTys.toArray.map mappingKeyTypeToValueType
+            returnTys := #[.uint256] }
+    | .mappingChainEnum keyTys name count =>
+        let vt := ValueType.enum name count
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingChain keyTys vt
+            paramTys := keyTys.toArray.map mappingKeyTypeToValueType
+            returnTys := #[vt] }
+    | .mappingStruct keyTy members =>
+        let memberTys := members.map (·.ty)
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingStruct keyTy memberTys
+            paramTys := #[mappingKeyTypeToValueType keyTy]
+            returnTys := memberTys.toArray }
+    | .mappingStruct2 outerKey innerKey members =>
+        let memberTys := members.map (·.ty)
+        some
+          { fieldIdent := field.ident
+            fieldName := field.name
+            slotNum := field.slotNum
+            kind := .mappingStruct2 outerKey innerKey memberTys
+            paramTys := #[mappingKeyTypeToValueType outerKey, mappingKeyTypeToValueType innerKey]
+            returnTys := memberTys.toArray }
+
+namespace PublicGetterDesc
+
+/-- Synthesize the corresponding `view` `InterfaceFunctionDecl` for a `PublicGetterDesc` (`#2439`). -/
+def toInterfaceFunctionDecl (d : PublicGetterDesc) : InterfaceFunctionDecl :=
+  { ident := d.fieldIdent
+    name := d.fieldName
+    params := d.paramTys.mapIdx fun idx ty =>
+      { ident := mkIdent (Name.mkSimple s!"arg{idx}")
+        name := s!"arg{idx}"
+        ty := ty }
+    returnTys := d.returnTys
+    isView := true }
+
+/-- Synthesize the corresponding `ExternalDecl` for a `PublicGetterDesc` on `interfaceName` (`#2439`). -/
+def toExternalDecl (interfaceName : String) (d : PublicGetterDesc) : ExternalDecl :=
+  { ident := d.fieldIdent
+    name := interfaceExternalName interfaceName d.fieldName
+    params := d.paramTys
+    returnTys := d.returnTys
+    linkMode := Compiler.CompilationModel.ForeignLinkMode.external
+    interfaceName? := some interfaceName
+    isView := true }
+
+end PublicGetterDesc
+
+/-- Resolve a `hopCallView` target against a callee's `StorageFieldDecl` table when
+    `methodName` refers to a `public` state-variable getter (`#2439`). -/
+def resolveHopCallViewGetter?
+    (calleeFields : Array StorageFieldDecl)
+    (methodName : String)
+    (argCount? : Option Nat := none) : Option PublicGetterDesc := do
+  let field ← calleeFields.find? (fun f => f.name == methodName)
+  let desc ← publicGetterDescForField? field
+  if let some n := argCount? then
+    guard (desc.paramTys.size == n)
+  pure desc
+
 end Verity.Macro

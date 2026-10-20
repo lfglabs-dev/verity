@@ -75,7 +75,23 @@ structure PackedBits where
   offset : Nat
   /-- Bit width of this packed subfield. -/
   width : Nat
-  deriving Repr, BEq
+  deriving Repr, BEq, DecidableEq
+
+namespace PackedBits
+
+/-- Exclusive upper bit offset `offset + width`. -/
+def endBit (pb : PackedBits) : Nat :=
+  pb.offset + pb.width
+
+/-- Whether the packed bitfield has positive width and fits inside a 256-bit storage word. -/
+def fitsInWord (pb : PackedBits) : Bool :=
+  decide (0 < pb.width ∧ pb.offset + pb.width ≤ 256)
+
+/-- Whether two packed bitfields within the same storage word are non-overlapping. -/
+def disjoint (a b : PackedBits) : Bool :=
+  decide (a.offset + a.width ≤ b.offset ∨ b.offset + b.width ≤ a.offset)
+
+end PackedBits
 
 inductive StructMemberType
   | uint256
@@ -191,6 +207,195 @@ structure SlotAliasRange where
   /-- Alias slot corresponding to sourceStart (sourceStart + i maps to targetStart + i). -/
   targetStart : Nat
   deriving Repr, BEq
+
+/-- Surface scalar storage types supported by Verity storage layout and bitfield packing
+    (`#2417`, `#1993`). Lowered to `FieldType` via `ScalarStorageType.toFieldType` so
+    all existing `FieldType` passes remain 100% compatible. -/
+inductive ScalarStorageType where
+  | bool
+  | uint8
+  | uint16
+  | uint32
+  | uint64
+  | uint96
+  | uint128
+  | uintN (bits : Nat)
+  | uint256
+  | int256
+  | address
+  | bytes32
+  deriving Repr, BEq, DecidableEq
+
+namespace ScalarStorageType
+
+/-- Storage bit width of a scalar storage type in Solidity's 256-bit word layout. -/
+def bitWidth : ScalarStorageType → Nat
+  | .bool => 8
+  | .uint8 => 8
+  | .uint16 => 16
+  | .uint32 => 32
+  | .uint64 => 64
+  | .uint96 => 96
+  | .uint128 => 128
+  | .uintN bits => bits
+  | .address => 160
+  | .uint256 | .int256 | .bytes32 => 256
+
+/-- True when the scalar occupies strictly fewer than 256 bits and can share a packed word. -/
+def isSubWord (ty : ScalarStorageType) : Bool :=
+  decide (ty.bitWidth < 256)
+
+/-- Canonical `FieldType` projection preserving full compatibility with existing IR passes. -/
+def toFieldType : ScalarStorageType → FieldType
+  | .address => FieldType.address
+  | .int256 => FieldType.int256
+  | _ => FieldType.uint256
+
+end ScalarStorageType
+
+/-- Descriptor for a packed scalar subfield inside a 256-bit storage slot (`#2417`, `#1993`). -/
+structure PackedSlotField where
+  /-- Field name in the contract model. -/
+  name : String
+  /-- Resolved 256-bit storage slot index. -/
+  slot : Nat
+  /-- Bit offset and width within `slot`. -/
+  bits : PackedBits
+  /-- Surface scalar type of the packed subfield. -/
+  scalarType : ScalarStorageType := .uint256
+  /-- Whether the packed word resides in EIP-1153 transient storage. -/
+  isTransient : Bool := false
+  deriving Repr, BEq, DecidableEq
+
+namespace PackedSlotField
+
+/-- True when two `PackedSlotField` descriptors refer to the exact same storage space,
+    slot, and bit slice, enabling `SLOAD`/`SSTORE` write fusion (`#1993`). -/
+def sameSlotAndSlice (a b : PackedSlotField) : Bool :=
+  a.isTransient == b.isTransient && a.slot == b.slot && a.bits == b.bits
+
+/-- True when two `PackedSlotField` descriptors are either in different storage spaces/slots
+    or occupy disjoint bit slices within the same slot (`#2417`). -/
+def disjointInStorage (a b : PackedSlotField) : Bool :=
+  a.isTransient != b.isTransient || a.slot != b.slot || PackedBits.disjoint a.bits b.bits
+
+end PackedSlotField
+
+/-- Multi-slot storage layout descriptor for `FixedArray` fields with configurable
+    per-element slot stride and trailing upgradeable `__gap` slots (`#2417`, `#2420`). -/
+structure FixedArrayLayoutDescriptor where
+  /-- Base storage slot of element 0. -/
+  baseSlot : Nat
+  /-- Number of elements in the fixed array. -/
+  size : Nat
+  /-- Storage slots per element (`≥ 1` for word/multi-slot elements). -/
+  elemStride : Nat := 1
+  /-- Optional trailing reserved gap slots following the array elements. -/
+  gapSlots : Nat := 0
+  deriving Repr, BEq, DecidableEq
+
+namespace FixedArrayLayoutDescriptor
+
+/-- Resolved base slot of element `idx` (`baseSlot + idx * elemStride`). -/
+def elementSlot (d : FixedArrayLayoutDescriptor) (idx : Nat) : Nat :=
+  d.baseSlot + idx * d.elemStride
+
+/-- Resolved slot of sub-word `subSlot` within element `idx`. -/
+def subElementSlot (d : FixedArrayLayoutDescriptor) (idx subSlot : Nat) : Nat :=
+  d.baseSlot + idx * d.elemStride + subSlot
+
+/-- Total number of active element slots (`size * elemStride`). -/
+def payloadSlots (d : FixedArrayLayoutDescriptor) : Nat :=
+  d.size * d.elemStride
+
+/-- Total slot span including trailing `gapSlots` (`size * elemStride + gapSlots`). -/
+def totalSpan (d : FixedArrayLayoutDescriptor) : Nat :=
+  d.size * d.elemStride + d.gapSlots
+
+/-- Next available storage slot immediately after this fixed array and its gap. -/
+def nextAvailableSlot (d : FixedArrayLayoutDescriptor) : Nat :=
+  d.baseSlot + d.totalSpan
+
+end FixedArrayLayoutDescriptor
+
+/-- Relative / ERC-7201 storage slot offset descriptor for single/multi-parent
+    inheritance and namespaced storage layouts (`#2420`). -/
+structure RelativeSlotOffset where
+  /-- Optional ERC-7201 namespace root slot (`keccak256(...)`). -/
+  namespaceRoot? : Option Nat := none
+  /-- Cumulative slot offset contributed by ancestor contracts. -/
+  parentSlotOffset : Nat := 0
+  /-- Contract-local slot index. -/
+  localSlot : Nat := 0
+  deriving Repr, BEq, DecidableEq
+
+namespace RelativeSlotOffset
+
+/-- Unbounded sum of namespace root, parent slot offset, and local slot. -/
+def unboundedSlot (r : RelativeSlotOffset) : Nat :=
+  r.namespaceRoot?.getD 0 + r.parentSlotOffset + r.localSlot
+
+/-- Effective 256-bit EVM storage slot modulo `evmModulus` (`2^256`). -/
+def resolvedSlot (r : RelativeSlotOffset) : Nat :=
+  r.unboundedSlot % Compiler.Constants.evmModulus
+
+end RelativeSlotOffset
+
+/-- Lower a `PackedSlotField` descriptor into a compilation-model `Field` (`#2417`, `#1993`). -/
+def PackedSlotField.toField (pf : PackedSlotField) (aliasSlots : List Nat := []) : Field :=
+  { name := pf.name
+    ty := pf.scalarType.toFieldType
+    isTransient := pf.isTransient
+    slot := some pf.slot
+    packedBits := some pf.bits
+    aliasSlots := aliasSlots }
+
+/-- Extract a `PackedSlotField` descriptor from a `Field` when `packedBits` is present. -/
+def PackedSlotField.fromField? (f : Field) (defaultSlot : Nat := 0) : Option PackedSlotField :=
+  match f.packedBits with
+  | none => none
+  | some pb =>
+      let scalarTy : ScalarStorageType :=
+        match f.ty with
+        | .address => .address
+        | .int256 => .int256
+        | _ =>
+            match pb.width with
+            | 8 => .uint8
+            | 16 => .uint16
+            | 32 => .uint32
+            | 64 => .uint64
+            | 96 => .uint96
+            | 128 => .uint128
+            | 160 => .address
+            | 256 => .uint256
+            | w => .uintN w
+      some
+        { name := f.name
+          slot := f.slot.getD defaultSlot
+          bits := pb
+          scalarType := scalarTy
+          isTransient := f.isTransient }
+
+/-- Produce the optional `ReservedSlotRange` covering trailing `__gap` slots of a
+    `FixedArrayLayoutDescriptor` (`#2417`, `#2420`). -/
+def FixedArrayLayoutDescriptor.toReservedSlotRange?
+    (d : FixedArrayLayoutDescriptor) : Option ReservedSlotRange :=
+  if d.gapSlots == 0 then
+    none
+  else
+    let gapStart := d.baseSlot + d.payloadSlots
+    some { start := gapStart, end_ := gapStart + d.gapSlots - 1 }
+
+/-- Shift a `Field`'s explicit slot and alias slots by a relative `slotOffset` (`#2420`). -/
+def shiftFieldSlot (slotOffset : Nat) (f : Field) : Field :=
+  { f with
+    slot := f.slot.map fun s => (s + slotOffset) % Compiler.Constants.evmModulus
+    aliasSlots := f.aliasSlots.map fun s => (s + slotOffset) % Compiler.Constants.evmModulus }
+
+/-- Shift a list of `Field` declarations by a relative `slotOffset` (`#2420`). -/
+def shiftFieldsByOffset (slotOffset : Nat) (fields : List Field) : List Field :=
+  fields.map (shiftFieldSlot slotOffset)
 
 /-!
 ### Parameter Types (#180)
