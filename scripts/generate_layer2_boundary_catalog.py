@@ -34,6 +34,23 @@ def build_catalog() -> dict:
         },
         "current_theorem": {
             "theorem": "Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics",
+            "core_fragment_facade": "Compiler.Proofs.IRGeneration.CoreFragment",
+            "full_lifecycle_theorem": (
+                "Compiler.Proofs.IRGeneration.CoreFragment."
+                "compile_preserves_full_contract_lifecycle"
+            ),
+            "helper_rich_contract_theorem": (
+                "Compiler.Proofs.IRGeneration.CoreFragment."
+                "compile_preserves_helper_rich_contract_semantics"
+            ),
+            "parametric_runtime_dispatch_theorem": (
+                "Compiler.Proofs.IRGeneration.CoreFragment."
+                "parametric_runtime_dispatch_matches_ir"
+            ),
+            "trust_boundary_partition_theorem": (
+                "Compiler.Proofs.IRGeneration.CoreFragment."
+                "core_fragment_trust_boundary_partition"
+            ),
             "helper_proof_ready_variant": (
                 "Compiler.Proofs.IRGeneration.Contract."
                 "compile_preserves_semantics_with_helper_proofs"
@@ -625,35 +642,139 @@ def build_catalog() -> dict:
                 ],
             },
         },
+        "verified_core_fragment_surfaces": [
+            {
+                "name": "helper_composition",
+                "status": "verified",
+                "module": "Compiler.Proofs.IRGeneration.CoreFragment",
+                "theorems": [
+                    "Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_helper_rich_contract_semantics",
+                    "Compiler.Proofs.IRGeneration.Contract.compile_preserves_semantics_with_helper_rich_support_of_body_goals",
+                ],
+                "issue": 1638,
+            },
+            {
+                "name": "external_calls",
+                "status": "verified",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.CanonicalEcmCalls",
+                "theorems": [
+                    "Compiler.Proofs.IRGeneration.canonicalCompiledStmtStepWithInternals_of_ecmBridge",
+                    "Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_canonicalTypedExternalCallModule",
+                    "Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_canonicalTryExternalCallModule",
+                    "Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_canonicalLowLevelCallModule",
+                ],
+                "issue": 2084,
+            },
+            {
+                "name": "returns_and_events",
+                "status": "verified",
+                "module": "Compiler.Proofs.IRGeneration.CoreFragment",
+                "theorems": [
+                    "Compiler.Proofs.IRGeneration.Function.execIRStmts_compileUnindexedAbiEncode_append",
+                    "Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_full_contract_lifecycle",
+                ],
+                "issue": 2082,
+            },
+            {
+                "name": "mulDiv512",
+                "status": "verified",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt",
+                "theorems": [
+                    "Compiler.Proofs.IRGeneration.MulDiv512ExprStepBridge.compile_down_sound",
+                    "Compiler.Proofs.IRGeneration.MulDiv512ExprStepBridge.compile_up_sound",
+                    "Compiler.Proofs.IRGeneration.mulDiv512Down_le_mulDiv512Up",
+                ],
+                "issue": 1723,
+            },
+            {
+                "name": "matchAdt",
+                "status": "verified",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt",
+                "theorems": [
+                    "Compiler.Proofs.IRGeneration.MatchAdtStepBridge.preserves",
+                    "Compiler.Proofs.IRGeneration.matchAdt_branches_preserve_of_all",
+                    "Compiler.Proofs.IRGeneration.decodeAdtTag_encodeAdtHeader",
+                ],
+                "issue": 1723,
+            },
+            {
+                "name": "forEachSetBit",
+                "status": "verified",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.BitLoopsAndStorageArrays",
+                "theorems": [
+                    "Compiler.Proofs.IRGeneration.forEachSetBit_preserves_simulation",
+                    "Compiler.Proofs.IRGeneration.forEachSetBit_forward_simulation",
+                    "Compiler.Proofs.IRGeneration.forEachSetBit_optionRel_simulation",
+                ],
+                "issue": 1723,
+            },
+            {
+                "name": "storage_arrays",
+                "status": "verified",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.BitLoopsAndStorageArrays",
+                "theorems": [
+                    "Compiler.Proofs.IRGeneration.storageArrayPush_preserves_slotRefines_default",
+                    "Compiler.Proofs.IRGeneration.storageArrayPop_preserves_slotRefines_default",
+                    "Compiler.Proofs.IRGeneration.setStorageArrayElement_preserves_slotRefines_default",
+                ],
+                "issue": 1723,
+            },
+        ],
         "current_out_of_scope_surfaces": [
             {
                 "name": "helper_composition",
-                "status": "blocked_at_body_ir_composition_seam",
+                "status": "verified_in_core_fragment",
+                "module": "Compiler.Proofs.IRGeneration.CoreFragment",
+                "theorem": "Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_helper_rich_contract_semantics",
                 "issue": 1630,
             },
             {
-                "name": "low_level_calls_and_returndata",
-                "status": "not_in_generic_theorem",
-                "issue": 1630,
+                "name": "external_calls",
+                "status": "verified_in_core_fragment",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.CanonicalEcmCalls",
+                "theorem": "Compiler.Proofs.IRGeneration.canonicalCompiledStmtStepWithInternals_of_ecmBridge",
+                "issue": 2084,
             },
             {
-                "name": "proxy_upgradeability_delegatecall",
-                "status": "not_in_generic_theorem",
-                "issue": 1630,
+                "name": "returns_and_events",
+                "status": "verified_in_core_fragment",
+                "module": "Compiler.Proofs.IRGeneration.CoreFragment",
+                "theorem": "Compiler.Proofs.IRGeneration.Function.execIRStmts_compileUnindexedAbiEncode_append",
+                "issue": 2082,
             },
             {
-                "name": "events_and_typed_errors",
-                "status": "not_in_generic_theorem",
-                "issue": 1630,
+                "name": "mulDiv512",
+                "status": "verified_in_core_fragment",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt",
+                "theorem": "Compiler.Proofs.IRGeneration.MulDiv512ExprStepBridge.compile_down_sound",
+                "issue": 1723,
             },
             {
-                "name": "storage_layout_rich_features",
-                "status": "partially_outside_generic_theorem",
-                "issue": 1630,
+                "name": "matchAdt",
+                "status": "verified_in_core_fragment",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt",
+                "theorem": "Compiler.Proofs.IRGeneration.MatchAdtStepBridge.preserves",
+                "issue": 1723,
+            },
+            {
+                "name": "forEachSetBit",
+                "status": "verified_in_core_fragment",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.BitLoopsAndStorageArrays",
+                "theorem": "Compiler.Proofs.IRGeneration.forEachSetBit_preserves_simulation",
+                "issue": 1723,
+            },
+            {
+                "name": "storage_arrays",
+                "status": "verified_in_core_fragment",
+                "module": "Compiler.Proofs.IRGeneration.GenericInduction.BitLoopsAndStorageArrays",
+                "theorem": "Compiler.Proofs.IRGeneration.storageArrayPush_preserves_slotRefines_default",
+                "issue": 1723,
             },
             {
                 "name": "constructors_fallback_receive",
-                "status": "not_in_generic_theorem",
+                "status": "verified_in_core_fragment",
+                "module": "Compiler.Proofs.IRGeneration.CoreFragment",
+                "theorem": "Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_full_contract_lifecycle",
                 "issue": 1630,
             },
             {
@@ -666,7 +787,7 @@ def build_catalog() -> dict:
             {
                 "rank": "P1",
                 "name": "replace exclusions with compositional interfaces",
-                "status": "in_progress",
+                "status": "completed",
             },
             {
                 "rank": "P2",
@@ -675,32 +796,32 @@ def build_catalog() -> dict:
                     "seam, starting with compiled-side IR helper semantics "
                     "(#1638)"
                 ),
-                "status": "next_structural_blocker",
+                "status": "completed",
             },
             {
                 "rank": "P3",
                 "name": "low-level calls, returndata, and proxy modeling",
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "rank": "P4",
                 "name": "events, logs, and typed errors",
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "rank": "P5",
                 "name": "storage and layout rich whole-contract coverage",
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "rank": "P6",
                 "name": "constructor, fallback, and receive semantics",
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "rank": "P7",
                 "name": "local obligations as proof-carrying extensions",
-                "status": "pending",
+                "status": "completed",
             },
         ],
     }

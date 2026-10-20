@@ -85,7 +85,7 @@ jobs:
           disable-lake-cache-restore: "true"
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@bfeb08e08bf300afeecdf813592ea2fa7768365e # v0.1.0 (Season 11)
+        uses: Th0rgal/turbo-lean@1de15f58312b5de8375b22a0a364bae32b00ab77 # v0.1.0 (Season 11)
         with:
           project-dir: "."
           command: "check"

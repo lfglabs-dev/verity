@@ -147,7 +147,25 @@ class GenerateLayer2BoundaryCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             catalog["current_out_of_scope_surfaces"][0]["status"],
-            "blocked_at_body_ir_composition_seam",
+            "verified_in_core_fragment",
+        )
+        self.assertEqual(
+            [s["name"] for s in catalog["verified_core_fragment_surfaces"]],
+            [
+                "helper_composition",
+                "external_calls",
+                "returns_and_events",
+                "mulDiv512",
+                "matchAdt",
+                "forEachSetBit",
+                "storage_arrays",
+            ],
+        )
+        self.assertTrue(
+            all(
+                s["status"] == "verified"
+                for s in catalog["verified_core_fragment_surfaces"]
+            )
         )
         self.assertEqual(
             [
