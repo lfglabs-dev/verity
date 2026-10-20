@@ -184,6 +184,7 @@ import Compiler.Proofs.MacroSSAMetaSpec
 import Compiler.Proofs.MappingSlot
 import Compiler.Proofs.MetaSpecs
 import Compiler.Proofs.PackedBitfieldMetaSpec
+import Compiler.Proofs.SlotCoalescingShim
 import Compiler.Proofs.SolidityImport.Solcore.Primitives
 import Compiler.Proofs.SolidityImport.Solcore.Runtime
 import Compiler.Proofs.SolidityImport.Solcore.WordAlignment
@@ -6536,6 +6537,22 @@ end Verity.AxiomAudit
   Compiler.Proofs.PackedBitfieldMetaSpec.packed_lens_execution_witness
   Compiler.Proofs.PackedBitfieldMetaSpec.relative_slot_offset_witness
 
+  -- Compiler/Proofs/SlotCoalescingShim.lean
+  Compiler.Proofs.SlotCoalescingShim.applyPackedWritesInRegister_append
+  Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_eq_uncoalesced
+  Compiler.Proofs.SlotCoalescingShim.pairwiseDisjointLenses_of_bool_eq_true
+  Compiler.Proofs.SlotCoalescingShim.get_applyPackedWritesInRegister_of_allDisjoint
+  Compiler.Proofs.SlotCoalescingShim.coalescedPackedWrites_mem_read_of_pairwiseDisjoint
+  Compiler.Proofs.SlotCoalescingShim.slot0_pairwiseDisjointLenses
+  Compiler.Proofs.SlotCoalescingShim.coalescedSlot0_final_read_each_field
+  Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_frame_sound
+  Compiler.Proofs.SlotCoalescingShim.slotCoalescing_gas_saved
+  Compiler.Proofs.SlotCoalescingShim.slotCoalescing_obs_eq
+  Compiler.Proofs.SlotCoalescingShim.slotCoalescing_denote_frame_sound
+  Compiler.Proofs.SlotCoalescingShim.execCoalescedPackedWrites_same_lens_fuse
+  Compiler.Proofs.SlotCoalescingShim.slot0_coalescing_saves_600_gas
+  Compiler.Proofs.SlotCoalescingShim.checkSlotCoalescingWitnessSuite_eq_true
+
   -- Compiler/Proofs/SolidityImport/Solcore/Primitives.lean
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_eq_uint256_modulus
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_pos
@@ -7234,6 +7251,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.TrustSurface.undischargedAssumptionReportEntriesLinear_empty_no_unsafeBlocks
 
   -- Compiler/Proofs/VerifiedECMShims.lean
+  Compiler.Proofs.VerifiedECMShims.mkProvedShimECMModule_proofStatus
   Compiler.Proofs.VerifiedECMShims.VerifiedECMModuleBundle.obs_eq
   Compiler.Proofs.VerifiedECMShims.VerifiedECMModuleBundle.frame_sound
   Compiler.Proofs.VerifiedECMShims.VerifiedECMModuleBundle.zero_assumed_entries
@@ -7250,6 +7268,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.VerifiedECMShims.shimOutlinedSolcHelper_frame_sound
   Compiler.Proofs.VerifiedECMShims.shimSolcShapedAbiArith_eq_denote
   Compiler.Proofs.VerifiedECMShims.shimSolcShapedAbiArith_frame_sound
+  Compiler.Proofs.VerifiedECMShims.Shim.Math512.evalMulDiv512_zero_denominator
+  Compiler.Proofs.VerifiedECMShims.Shim.Math512.evalBitMath_zero_reverts
+  Compiler.Proofs.VerifiedECMShims.Shim.ScratchHashing.freePtr_preserved
+  Compiler.Proofs.VerifiedECMShims.Shim.SafeTokenCalls.memory_above_0x80_preserved
+  Compiler.Proofs.VerifiedECMShims.Shim.TransientLocks.evalEip1153TransientLock_frame_sound
+  Compiler.Proofs.VerifiedECMShims.Shim.TransientLocks.persistentStorage_isolated
   Compiler.Proofs.VerifiedECMShims.eip712AndEcrecover_obs_eq
   Compiler.Proofs.VerifiedECMShims.eip712AndEcrecover_denote_frame_sound
   Compiler.Proofs.VerifiedECMShims.eip712AndEcrecover_preserves_fmp_and_high_memory
@@ -7261,11 +7285,19 @@ end Verity.AxiomAudit
   Compiler.Proofs.VerifiedECMShims.yulOutlinedHelper_denote_frame_sound
   Compiler.Proofs.VerifiedECMShims.solcShapedAbiArith_obs_eq
   Compiler.Proofs.VerifiedECMShims.solcShapedAbiArith_denote_frame_sound
+  Compiler.Proofs.VerifiedECMShims.math512_all_obs_eq
+  Compiler.Proofs.VerifiedECMShims.scratchHashing_all_obs_eq_and_freePtr_preserved
+  Compiler.Proofs.VerifiedECMShims.safeTokenCalls_all_obs_eq_and_memory_above_0x80_preserved
+  Compiler.Proofs.VerifiedECMShims.transientLocks_all_obs_eq_and_persistent_isolated
   Compiler.Proofs.VerifiedECMShims.all_verified_ecm_modules_zero_assumed_entries
   Compiler.Proofs.VerifiedECMShims.checkEip712AndEcrecoverWitness_eq_true
   Compiler.Proofs.VerifiedECMShims.checkCreate2AndSstore2CodeDataWitness_eq_true
   Compiler.Proofs.VerifiedECMShims.checkDynamicAndStructEventWitness_eq_true
   Compiler.Proofs.VerifiedECMShims.checkSolcOutlinedHelpersWitness_eq_true
+  Compiler.Proofs.VerifiedECMShims.checkMath512Witness_eq_true
+  Compiler.Proofs.VerifiedECMShims.checkScratchHashingWitness_eq_true
+  Compiler.Proofs.VerifiedECMShims.checkSafeTokenCallsWitness_eq_true
+  Compiler.Proofs.VerifiedECMShims.checkTransientLocksWitness_eq_true
   Compiler.Proofs.VerifiedECMShims.checkAllVerifiedECMShimsSuite_eq_true
 
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
@@ -9597,4 +9629,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8795 theorems/lemmas (6315 public, 2480 private, 0 sorry'd)
+-- Total: 8824 theorems/lemmas (6344 public, 2480 private, 0 sorry'd)
