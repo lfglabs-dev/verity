@@ -51,6 +51,7 @@ concurrency:
 env:
   VERIFY_CACHE_BUCKET: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('ref-{0}', github.ref_name) }}
   VERIFY_MAIN_CACHE_BUCKET: ref-main
+  TURBO_LEAN_COMMIT: a03def8519e72939224d0e17abfef84a9ad78105 # v0.1.0 (Season 13)
 
 jobs:
   turbo-lean-verify:
@@ -85,7 +86,7 @@ jobs:
           disable-lake-cache-restore: "true"
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@1de15f58312b5de8375b22a0a364bae32b00ab77 # v0.1.0 (Season 11)
+        uses: Th0rgal/turbo-lean@a03def8519e72939224d0e17abfef84a9ad78105 # v0.1.0 (Season 13)
         with:
           project-dir: "."
           command: "check"

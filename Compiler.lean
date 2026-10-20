@@ -57,4 +57,6 @@ import Compiler.Proofs.YulGeneration.PatchRulesProofs
 import Compiler.Proofs.YulGeneration.TempReuseSoundness
 import Compiler.Proofs.YulGeneration.ExecutionSummary
 import Compiler.Proofs.EndToEnd
+import Compiler.SolidityImport.EmitVerity
 import Compiler.Proofs.SolidityImport.SolcoreFullBridge
+import Compiler.Proofs.SolidityImport.EmitVerityBridge

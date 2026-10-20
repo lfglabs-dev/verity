@@ -21,6 +21,8 @@ delegate here, so external callers keep working.
 from __future__ import annotations
 
 import argparse
+import importlib
+import inspect
 import json
 import sys
 from dataclasses import dataclass
@@ -125,6 +127,132 @@ class LeanSurfaceCondition:
                 f"present: {present_rendered}; missing: {missing_rendered}"
             )
         return len(present) == len(self.tokens)
+
+
+@dataclass(frozen=True)
+class JsonArtifactDocTableCondition:
+    """Generic condition/entry validating a JSON artifact against Markdown table rows/snippets.
+
+    Extracts expected table rows or summary snippets from `artifact_rel` via
+    `row_extractor` (or `required_rows`) and verifies that every target Markdown
+    document contains all expected lines after whitespace normalization.
+    """
+
+    artifact_rel: str
+    targets: dict[str, str]
+    row_extractor: object = None
+    required_rows: dict[str, list[str]] | None = None
+    out_of_sync_message: str = "{path} is out of sync with {artifact}: missing `{snippet}`"
+    pass_message: str = "json artifact doc table sync passed"
+
+    def load_artifact(self, root: Path) -> dict:
+        artifact_path = _rel(root, self.artifact_rel)
+        if not artifact_path.exists():
+            raise DocSyncError(f"Missing: {self.artifact_rel}")
+        try:
+            payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise DocSyncError(f"{self.artifact_rel}: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise DocSyncError(f"{self.artifact_rel}: expected top-level JSON object")
+        return payload
+
+    def expected_rows_by_target(self, payload: dict) -> dict[str, list[str]]:
+        if callable(self.row_extractor):
+            extracted = self.row_extractor(payload)
+            if isinstance(extracted, dict):
+                return {label: list(rows) for label, rows in extracted.items()}
+            rows = list(extracted)
+            return {label: rows for label in self.targets}
+        if self.required_rows is not None:
+            return {label: list(rows) for label, rows in self.required_rows.items()}
+        return {label: [] for label in self.targets}
+
+    def evaluate(self, root: Path) -> bool:
+        payload = self.load_artifact(root)
+        try:
+            expected_by_target = self.expected_rows_by_target(payload)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DocSyncError(f"{self.artifact_rel}: {exc}") from exc
+
+        errors: list[str] = []
+        for label, rel_path in self.targets.items():
+            doc_path = _rel(root, rel_path)
+            if not doc_path.exists():
+                errors.append(f"Missing: {rel_path}")
+                continue
+            normalized_doc = normalize_ws(doc_path.read_text(encoding="utf-8"))
+            for row in expected_by_target.get(label, []):
+                if normalize_ws(row) not in normalized_doc:
+                    errors.append(
+                        self.out_of_sync_message.format(
+                            path=rel_path,
+                            artifact=self.artifact_rel,
+                            snippet=row,
+                        )
+                    )
+        if errors:
+            raise DocSyncError("\n".join(errors))
+        return True
+
+    def check(self, root: Path) -> int:
+        try:
+            self.evaluate(root)
+        except DocSyncError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        if self.pass_message:
+            print(self.pass_message)
+        return 0
+
+
+@dataclass(frozen=True)
+class ScriptDelegatedCondition:
+    """Generic condition/entry delegating complex doc-sync checks to a script module.
+
+    Unifies multi-file AST, set-equality, workflow, and JSON-table verifiers into
+    the declarative `docsync.py` registry while preserving byte-for-byte CLI output
+    and exit codes (#1987).
+    """
+
+    name: str
+    module_name: str
+    entrypoint: str = "main"
+    argv: tuple[str, ...] = ()
+    artifact_condition: JsonArtifactDocTableCondition | None = None
+
+    def check(self, root: Path = ROOT) -> int:
+        if self.artifact_condition is not None and root != ROOT:
+            return self.artifact_condition.check(root)
+        mod = importlib.import_module(self.module_name)
+        fn = getattr(mod, self.entrypoint)
+        sig = inspect.signature(fn)
+        saved_argv = sys.argv
+        try:
+            sys.argv = [saved_argv[0] if saved_argv else self.module_name, *self.argv]
+            if len(sig.parameters) > 0:
+                result = fn(list(self.argv))
+            else:
+                result = fn()
+        except SystemExit as exc:
+            if exc.code is None or exc.code == 0:
+                return 0
+            if isinstance(exc.code, int):
+                return exc.code
+            print(str(exc.code), file=sys.stderr)
+            return 1
+        except Exception as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        finally:
+            sys.argv = saved_argv
+        return int(result) if isinstance(result, int) else 0
+
+    def evaluate(self, root: Path = ROOT) -> bool:
+        rc = self.check(root)
+        if rc != 0:
+            raise DocSyncError(f"{self.name} failed with exit code {rc}")
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -764,6 +892,60 @@ LAYER2_BOUNDARY_CATALOG = Layer2BoundaryCatalogEntry(
 )
 
 
+INTERPRETER_FEATURE_SUMMARY_TABLE_CONDITION = JsonArtifactDocTableCondition(
+    artifact_rel="artifacts/interpreter_feature_matrix.json",
+    targets={
+        "EXTRACTION": "docs/EXTRACTION.md",
+        "ROADMAP": "docs/ROADMAP.md",
+        "VERIFICATION_STATUS": "docs/VERIFICATION_STATUS.md",
+    },
+)
+
+BUILTIN_BRIDGE_MATRIX_TABLE_CONDITION = JsonArtifactDocTableCondition(
+    artifact_rel="artifacts/yul_identity_gap_matrix.json",
+    targets={
+        "VERIFICATION_STATUS": "docs/VERIFICATION_STATUS.md",
+    },
+)
+
+INTERPRETER_FEATURE_SUMMARY = ScriptDelegatedCondition(
+    name="interpreter_feature_summary",
+    module_name="check_interpreter_feature_summary_sync",
+    artifact_condition=INTERPRETER_FEATURE_SUMMARY_TABLE_CONDITION,
+)
+
+BUILTIN_BRIDGE_MATRIX = ScriptDelegatedCondition(
+    name="builtin_bridge_matrix",
+    module_name="check_builtin_bridge_matrix_sync",
+    artifact_condition=BUILTIN_BRIDGE_MATRIX_TABLE_CONDITION,
+)
+
+BRIDGE_COVERAGE = ScriptDelegatedCondition(
+    name="bridge_coverage",
+    module_name="check_bridge_coverage_sync",
+)
+
+BUILTIN_LIST = ScriptDelegatedCondition(
+    name="builtin_list",
+    module_name="check_builtin_list_sync",
+)
+
+DOCS_WORKFLOW = ScriptDelegatedCondition(
+    name="docs_workflow",
+    module_name="check_docs_workflow_sync",
+)
+
+PROPERTY_MANIFEST = ScriptDelegatedCondition(
+    name="property_manifest",
+    module_name="check_property_manifest_sync",
+)
+
+VERIFY_SYNC = ScriptDelegatedCondition(
+    name="verify_sync",
+    module_name="check_verify_sync",
+)
+
+
 ENTRIES = {
     entry.name: entry
     for entry in (
@@ -774,8 +956,17 @@ ENTRIES = {
         LAYER2_BOUNDARY,
         LAYER2_BOUNDARY_CATALOG,
         INTERPRETER_FEATURE_BOUNDARY_CATALOG,
+        INTERPRETER_FEATURE_SUMMARY,
+        BUILTIN_BRIDGE_MATRIX,
+        BRIDGE_COVERAGE,
+        BUILTIN_LIST,
+        DOCS_WORKFLOW,
+        PROPERTY_MANIFEST,
+        VERIFY_SYNC,
     )
 }
+
+REGISTRY = ENTRIES
 
 
 # ---------------------------------------------------------------------------
