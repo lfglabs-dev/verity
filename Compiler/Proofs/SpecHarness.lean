@@ -255,6 +255,15 @@ theorem differentialGuardMetaSpec_of_checkGuardBoundary_eq_true
 
 /-! ## 3. Table-Driven Compiler Invariant Harness (`CompilerInvariantCase`) -/
 
+/-- Canonical internal-helper effect lookup table for the invariant harness:
+`_mint` reads and writes storage (`hasExternalInteraction = false`), while pure
+helpers such as `_checkBounds` default to `EffectSummary.pure`. -/
+def defaultHelperEffects (helperName : String) : EffectSummary :=
+  if helperName == "_mint" then
+    { readsStorage := true, writesStorage := true }
+  else
+    EffectSummary.pure
+
 /-- A single row in the declarative table-driven compiler invariant suite. -/
 structure CompilerInvariantCase where
   /-- Feature identifier for audit reporting. -/
@@ -271,6 +280,10 @@ structure CompilerInvariantCase where
   expectWithinAllowedProfile : Bool
   /-- Expected count of undischarged trust-surface entries. -/
   expectedUndischargedCount : Nat
+  /-- Expected result of `stmtListRequiresFreePointerInit stmts` (Meta-Spec 5). -/
+  expectRequiresFreePointer : Bool := false
+  /-- Expected `EffectSummary` under `defaultHelperEffects` (Meta-Spec 6). -/
+  expectedEffects : EffectSummary := EffectSummary.pure
   /-- Boundary witness pair certifying guard mutation sensitivity. -/
   guardWitness : GuardBoundaryCase
 
@@ -291,6 +304,12 @@ structure CompilerInvariantCaseHolds (c : CompilerInvariantCase) : Prop where
   undischarged_count_eq :
     structuralSiteUndischargedCount c.localObligations c.stmts =
       c.expectedUndischargedCount
+  /-- Free-pointer prologue requirement matches `expectRequiresFreePointer` (Meta-Spec 5). -/
+  free_pointer_req_eq :
+    stmtListRequiresFreePointerInit c.stmts = c.expectRequiresFreePointer
+  /-- Computed 6-flag `EffectSummary` matches `expectedEffects` (Meta-Spec 6). -/
+  effect_summary_eq :
+    stmtListEffectSummary defaultHelperEffects c.stmts = c.expectedEffects
   /-- The attached security guard satisfies `DifferentialGuardMetaSpec`. -/
   guard_meta_spec :
     Nonempty (DifferentialGuardMetaSpec Nat GuardVerdict
@@ -304,6 +323,8 @@ def checkCompilerInvariantCase (c : CompilerInvariantCase) : Bool :=
     (hasMask m (~~~c.allowedProfileMask) == !c.expectWithinAllowedProfile) &&
     (structuralSiteUndischargedCount c.localObligations c.stmts ==
       c.expectedUndischargedCount) &&
+    (stmtListRequiresFreePointerInit c.stmts == c.expectRequiresFreePointer) &&
+    (stmtListEffectSummary defaultHelperEffects c.stmts == c.expectedEffects) &&
     checkGuardBoundary c.guardWitness
 
 /-- Executable boolean checker for an entire `List CompilerInvariantCase` suite. -/
@@ -316,13 +337,13 @@ theorem compilerInvariantCaseHolds_of_check_eq_true
     {c : CompilerInvariantCase} (h : checkCompilerInvariantCase c = true) :
     CompilerInvariantCaseHolds c := by
   simp only [checkCompilerInvariantCase, Bool.and_eq_true, beq_iff_eq] at h
-  rcases h with ⟨⟨⟨⟨hmask, hsub⟩, hcompl⟩, htrust⟩, hguard⟩
-  exact ⟨hmask, hsub, hcompl, htrust,
+  rcases h with ⟨⟨⟨⟨⟨⟨hmask, hsub⟩, hcompl⟩, htrust⟩, hfmp⟩, heff⟩, hguard⟩
+  exact ⟨hmask, hsub, hcompl, htrust, hfmp, heff,
     differentialGuardMetaSpec_of_checkGuardBoundary_eq_true hguard⟩
 
 /-- **Suite Soundness Theorem (`all_cases_hold_of_checkCompilerInvariantSuite_eq_true`)**:
 If `checkCompilerInvariantSuite suite = true`, then every case `c ∈ suite`
-satisfies all five invariants of `CompilerInvariantCaseHolds c`. -/
+satisfies all seven invariants of `CompilerInvariantCaseHolds c`. -/
 theorem all_cases_hold_of_checkCompilerInvariantSuite_eq_true
     {suite : List CompilerInvariantCase}
     (h : checkCompilerInvariantSuite suite = true) :
@@ -345,6 +366,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead ||| bitConstructorRaw
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := false
+      expectedEffects := { readsStorage := true, writesStorage := true }
       guardWitness := { threshold := 0, txOk := 0, txBlocked := 1, isLowerBound := false } }
   , -- 2. Singleton mapping slot write
     { name := "mapping_slot_write"
@@ -353,6 +376,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead ||| bitMappingWrite
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := false
+      expectedEffects := { writesStorage := true }
       guardWitness := { threshold := 1, txOk := 1, txBlocked := 0, isLowerBound := true } }
   , -- 3. Contract event emission
     { name := "event_emission"
@@ -361,6 +386,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead ||| bitEventEmit
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := false
+      expectedEffects := { touchesMemory := true }
       guardWitness := { threshold := 0, txOk := 0, txBlocked := 1, isLowerBound := false } }
   , -- 4. Direct internal helper call with return assignment
     { name := "internal_helper_call"
@@ -369,6 +396,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead ||| bitInternalCall
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := false
+      expectedEffects := { readsStorage := true, writesStorage := true }
       guardWitness := { threshold := 2, txOk := 2, txBlocked := 0, isLowerBound := true } }
   , -- 5. Canonical External Call Module (`Stmt.ecm`)
     { name := "ecm_external_call"
@@ -378,6 +407,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead ||| bitExternalCall
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := true
+      expectedEffects := { readsStorage := true, touchesMemory := true, mayRevert := true }
       guardWitness := { threshold := 1, txOk := 1, txBlocked := 0, isLowerBound := true } }
   , -- 6. Full-precision 512-bit multiply-divide (`mulDiv512Down`)
     { name := "mulDiv512_full_precision"
@@ -387,6 +418,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitCoreGap ||| bitMulDiv512
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := false
+      expectedEffects := EffectSummary.pure
       guardWitness := { threshold := 1, txOk := 3, txBlocked := 0, isLowerBound := true } }
   , -- 7. Algebraic data type construction and pattern match (`matchAdt`)
     { name := "adt_construct_and_match"
@@ -398,6 +431,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitCoreGap ||| bitStateRead ||| bitAdtSurface
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := false
+      expectedEffects := { readsStorage := true }
       guardWitness := { threshold := 0, txOk := 0, txBlocked := 1, isLowerBound := false } }
   , -- 8. Bitmap set-bit iteration (`forEachSetBit`)
     { name := "forEachSetBit_loop"
@@ -407,6 +442,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitCoreGap ||| bitForEachSetBit
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := false
+      expectedEffects := EffectSummary.pure
       guardWitness := { threshold := 1, txOk := 1, txBlocked := 0, isLowerBound := true } }
   , -- 9. Payable / `msg.value` guard surface
     { name := "payable_msgValue"
@@ -416,6 +453,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead
       expectWithinAllowedProfile := true
       expectedUndischargedCount := 0
+      expectRequiresFreePointer := false
+      expectedEffects := { mayRevert := true }
       guardWitness := { threshold := 0, txOk := 0, txBlocked := 1, isLowerBound := false } }
   , -- 10. External callback bridge (`externalCallBind` + local obligation)
     { name := "callback_bridge"
@@ -428,6 +467,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead
       expectWithinAllowedProfile := false
       expectedUndischargedCount := 1
+      expectRequiresFreePointer := false
+      expectedEffects := { touchesMemory := true, hasExternalInteraction := true, mayRevert := true }
       guardWitness := { threshold := 0, txOk := 0, txBlocked := 1, isLowerBound := false } }
   , -- 11. Inline Yul / `unsafeBlock` escape hatch
     { name := "inline_yul_escape"
@@ -437,6 +478,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead
       expectWithinAllowedProfile := false
       expectedUndischargedCount := 2
+      expectRequiresFreePointer := true
+      expectedEffects := { touchesMemory := true }
       guardWitness := { threshold := 0, txOk := 0, txBlocked := 1, isLowerBound := false } }
   , -- 12. Low-level EVM `staticcall` mechanics
     { name := "low_level_call_mechanics"
@@ -447,6 +490,8 @@ def canonicalCompilerFeatureSuite : List CompilerInvariantCase :=
       allowedProfileMask := bitStateRead
       expectWithinAllowedProfile := false
       expectedUndischargedCount := 1
+      expectRequiresFreePointer := false
+      expectedEffects := EffectSummary.pure
       guardWitness := { threshold := 4, txOk := 4, txBlocked := 0, isLowerBound := true } }
   ]
 
@@ -464,5 +509,93 @@ theorem canonicalCompilerFeatureSuite_all_hold :
     ∀ c ∈ canonicalCompilerFeatureSuite, CompilerInvariantCaseHolds c :=
   all_cases_hold_of_checkCompilerInvariantSuite_eq_true
     checkCompilerInvariantSuite_canonical_eq_true
+
+/-! ## 5. Extended 16-Case Anti-Bug Effect & Prologue Suite (`canonicalEffectAndPrologueSuite`) -/
+
+/-- Extended 16-case compiler invariant suite uniting the 12 canonical features
+with 4 dedicated anti-bug regression cases covering `#2515`/`#2573` (`boolModule`
+and `returnValues` free-pointer prologue synthesis), `#2422` (reverting view
+functions with `writesStorage = false`), and `#2435` (internal helpers with
+`hasExternalInteraction = false`). -/
+def canonicalEffectAndPrologueSuite : List CompilerInvariantCase :=
+  canonicalCompilerFeatureSuite ++
+    [ -- 13. Staticcall bool ECM requires free-pointer prologue (#2515 / #2573)
+      { name := "ecm_staticcall_bool"
+        stmts := [Stmt.ecm (ECM.SolidityStaticCall.boolModule "ok" 0xa9059cbb 2)
+          [Expr.param "token", Expr.caller, Expr.literal 1]]
+        expectedSurfaceMask := bitExternalCall
+        allowedProfileMask := bitStateRead ||| bitExternalCall
+        expectWithinAllowedProfile := true
+        expectedUndischargedCount := 0
+        expectRequiresFreePointer := true
+        expectedEffects := { readsStorage := true, touchesMemory := true, mayRevert := true }
+        guardWitness := { threshold := 1, txOk := 1, txBlocked := 0, isLowerBound := true } }
+    , -- 14. Reverting view function preserves storage (`writesStorage = false`, #2422)
+      { name := "view_require_revert_no_storage_write"
+        stmts := [Stmt.require (Expr.gt (Expr.storage "count") (Expr.literal 0)) "empty",
+                  Stmt.return (Expr.storage "count")]
+        expectedSurfaceMask := bitStateRead
+        allowedProfileMask := bitStateRead
+        expectWithinAllowedProfile := true
+        expectedUndischargedCount := 0
+        expectRequiresFreePointer := false
+        expectedEffects := { readsStorage := true, writesStorage := false, mayRevert := true }
+        guardWitness := { threshold := 1, txOk := 1, txBlocked := 0, isLowerBound := true } }
+    , -- 15. Internal pure helper does not trigger CEI interaction (#2435)
+      { name := "internal_pure_helper_no_cei"
+        stmts := [Stmt.internalCall "_checkBounds" [Expr.param "x"]]
+        expectedSurfaceMask := bitInternalCall
+        allowedProfileMask := bitInternalCall
+        expectWithinAllowedProfile := true
+        expectedUndischargedCount := 0
+        expectRequiresFreePointer := false
+        expectedEffects := EffectSummary.pure
+        guardWitness := { threshold := 0, txOk := 0, txBlocked := 1, isLowerBound := false } }
+    , -- 16. Multi-word `returnValues` requires free-pointer prologue (#2515)
+      { name := "returnValues_free_pointer_prologue"
+        stmts := [Stmt.returnValues [Expr.literal 1, Expr.literal 2]]
+        expectedSurfaceMask := bitCoreGap
+        allowedProfileMask := bitCoreGap
+        expectWithinAllowedProfile := true
+        expectedUndischargedCount := 0
+        expectRequiresFreePointer := true
+        expectedEffects := { touchesMemory := true }
+        guardWitness := { threshold := 2, txOk := 2, txBlocked := 0, isLowerBound := true } }
+    ]
+
+/-- The extended anti-bug effect and prologue suite contains 16 cases. -/
+theorem canonicalEffectAndPrologueSuite_length :
+    canonicalEffectAndPrologueSuite.length = 16 := rfl
+
+/-- Kernel-checked (`by decide`, `0 native_decide`) verification of all 16 cases. -/
+theorem checkCompilerInvariantSuite_effectAndPrologue_eq_true :
+    checkCompilerInvariantSuite canonicalEffectAndPrologueSuite = true := by
+  decide
+
+/-- Every case in the 16-case `canonicalEffectAndPrologueSuite` satisfies `CompilerInvariantCaseHolds`. -/
+theorem canonicalEffectAndPrologueSuite_all_hold :
+    ∀ c ∈ canonicalEffectAndPrologueSuite, CompilerInvariantCaseHolds c :=
+  all_cases_hold_of_checkCompilerInvariantSuite_eq_true
+    checkCompilerInvariantSuite_effectAndPrologue_eq_true
+
+/-- Executable checker for the four concrete `VerifiedCompilerShim` instances (Meta-Spec 7). -/
+def checkVerifiedCompilerShimSuite : Bool :=
+  (mulDiv512VerifiedShim.shimImpl (6, 7, 2) 128 ==
+    mulDiv512VerifiedShim.denoteSpec (6, 7, 2) 128) &&
+  (scratchKeccakPairVerifiedShim.shimImpl (10, 20) 128 ==
+    scratchKeccakPairVerifiedShim.denoteSpec (10, 20) 128) &&
+  (transientLockVerifiedShim.shimImpl () (0, 999) ==
+    transientLockVerifiedShim.denoteSpec () (0, 999)) &&
+  (staticCallWordVerifiedShim.shimImpl (0xdead, 42) (128, 777) ==
+    staticCallWordVerifiedShim.denoteSpec (0xdead, 42) (128, 777)) &&
+  !mulDiv512VerifiedShim.effects.writesStorage &&
+  !scratchKeccakPairVerifiedShim.effects.writesStorage &&
+  !transientLockVerifiedShim.effects.writesStorage &&
+  !staticCallWordVerifiedShim.effects.writesStorage
+
+/-- Kernel-checked (`by decide`, `0 native_decide`) verification of the `VerifiedCompilerShim` suite. -/
+theorem checkVerifiedCompilerShimSuite_eq_true :
+    checkVerifiedCompilerShimSuite = true := by
+  decide
 
 end Compiler.Proofs.SpecHarness
