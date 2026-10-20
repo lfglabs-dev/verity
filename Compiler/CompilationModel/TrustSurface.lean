@@ -2190,4 +2190,109 @@ where
       ("undischarged", jsonArray ((undischargedAssumptionReportEntries spec).map assumptionReportEntryJson))
     ]
 
+/-! ## Verified ECM Shim Trust-Surface Accounting (Phase 4 Track D1) -/
+
+/-- Predicate checking whether an `ECM.ExternalCallModule` has `.proved` status. -/
+def isProvedEcmModule (mod : ECM.ExternalCallModule) : Bool :=
+  mod.proofStatus == .proved
+
+/-- Predicate checking whether an `ECM.ExternalCallModule` remains assumed or unchecked. -/
+def ecmModuleAddsAssumedDependency (mod : ECM.ExternalCallModule) : Bool :=
+  mod.proofStatus != .proved
+
+/-- Count of undischarged (`status != .proved`) assumption-report entries contributed by
+`mod` (`ecmModule` + `externalSummary` + `mod.axioms.length` `ecmAxiom` entries). -/
+def ecmModuleAssumedEntriesCount (mod : ECM.ExternalCallModule) : Nat :=
+  if mod.proofStatus == .proved then 0 else 2 + mod.axioms.length
+
+/-- Filter a list of `ECM.ExternalCallModule`s to those that remain assumed or unchecked. -/
+def filterAssumedOrUncheckedEcmModules
+    (modules : List ECM.ExternalCallModule) : List ECM.ExternalCallModule :=
+  modules.filter ecmModuleAddsAssumedDependency
+
+/-- Check whether every ECM module in `modules` has `.proved` status. -/
+def allEcmModulesProved (modules : List ECM.ExternalCallModule) : Bool :=
+  modules.all isProvedEcmModule
+
+/-- Promoting any ECM module via `withProvedStatus` satisfies `isProvedEcmModule`. -/
+@[simp] theorem isProvedEcmModule_withProvedStatus (mod : ECM.ExternalCallModule) :
+    isProvedEcmModule mod.withProvedStatus = true := rfl
+
+/-- Promoting any ECM module via `provedModule` satisfies `isProvedEcmModule`. -/
+@[simp] theorem isProvedEcmModule_provedModule (mod : ECM.ExternalCallModule) :
+    isProvedEcmModule (ECM.provedModule mod) = true := rfl
+
+/-- Any `.proved` ECM module adds zero assumed or unchecked dependency flags. -/
+@[simp] theorem ecmModuleAddsAssumedDependency_of_proved
+    {mod : ECM.ExternalCallModule} (h : mod.proofStatus = .proved) :
+    ecmModuleAddsAssumedDependency mod = false := by
+  unfold ecmModuleAddsAssumedDependency
+  rw [h]
+  rfl
+
+/-- Promoting an ECM module with `withProvedStatus` clears its assumed-dependency flag. -/
+@[simp] theorem ecmModuleAddsAssumedDependency_withProvedStatus
+    (mod : ECM.ExternalCallModule) :
+    ecmModuleAddsAssumedDependency mod.withProvedStatus = false := rfl
+
+/-- Any `.proved` ECM module contributes zero undischarged assumption-report entries. -/
+@[simp] theorem ecmModuleAssumedEntriesCount_of_proved
+    {mod : ECM.ExternalCallModule} (h : mod.proofStatus = .proved) :
+    ecmModuleAssumedEntriesCount mod = 0 := by
+  unfold ecmModuleAssumedEntriesCount
+  rw [h]
+  rfl
+
+/-- Promoting an ECM module with `withProvedStatus` yields zero undischarged trust entries. -/
+@[simp] theorem ecmModuleAssumedEntriesCount_withProvedStatus
+    (mod : ECM.ExternalCallModule) :
+    ecmModuleAssumedEntriesCount mod.withProvedStatus = 0 := rfl
+
+/-- Promoting an ECM module with `provedModule` yields zero undischarged trust entries. -/
+@[simp] theorem ecmModuleAssumedEntriesCount_provedModule
+    (mod : ECM.ExternalCallModule) :
+    ecmModuleAssumedEntriesCount (ECM.provedModule mod) = 0 := rfl
+
+/-- A `.proved` ECM module is dropped by `filterAssumedOrUncheckedEcmModules`. -/
+@[simp] theorem filterAssumedOrUncheckedEcmModules_cons_proved
+    {mod : ECM.ExternalCallModule} (rest : List ECM.ExternalCallModule)
+    (h : mod.proofStatus = .proved) :
+    filterAssumedOrUncheckedEcmModules (mod :: rest) =
+      filterAssumedOrUncheckedEcmModules rest := by
+  unfold filterAssumedOrUncheckedEcmModules
+  rw [List.filter_cons_of_neg]
+  simp [ecmModuleAddsAssumedDependency_of_proved h]
+
+/-- A singleton list containing a `.proved` ECM module filters to the empty list. -/
+@[simp] theorem filterAssumedOrUncheckedEcmModules_singleton_proved
+    {mod : ECM.ExternalCallModule} (h : mod.proofStatus = .proved) :
+    filterAssumedOrUncheckedEcmModules [mod] = [] := by
+  simpa [filterAssumedOrUncheckedEcmModules] using
+    filterAssumedOrUncheckedEcmModules_cons_proved [] h
+
+/-- A singleton list promoted with `withProvedStatus` filters to the empty list. -/
+@[simp] theorem filterAssumedOrUncheckedEcmModules_withProvedStatus
+    (mod : ECM.ExternalCallModule) :
+    filterAssumedOrUncheckedEcmModules [mod.withProvedStatus] = [] := rfl
+
+/-- `ECM.eip712EcrecoverModule` adds zero assumed trust-surface entries (`#2002`). -/
+@[simp] theorem eip712EcrecoverModule_adds_zero_assumed_entries (resultVar : String) :
+    ecmModuleAssumedEntriesCount (ECM.eip712EcrecoverModule resultVar) = 0 := rfl
+
+/-- `ECM.sstore2CodeDataModule` adds zero assumed trust-surface entries (`#2023`). -/
+@[simp] theorem sstore2CodeDataModule_adds_zero_assumed_entries (resultVar : String) :
+    ecmModuleAssumedEntriesCount (ECM.sstore2CodeDataModule resultVar) = 0 := rfl
+
+/-- `ECM.dynamicStructEventModule` adds zero assumed trust-surface entries (`#2000`). -/
+@[simp] theorem dynamicStructEventModule_adds_zero_assumed_entries
+    (eventName : String) (topicCount : Nat) :
+    ecmModuleAssumedEntriesCount (ECM.dynamicStructEventModule eventName topicCount) = 0 := rfl
+
+/-- `ECM.solcOutlinedHelperModule` adds zero assumed trust-surface entries
+(`#2058`, `#2059`, `#2071`, `#1982`). -/
+@[simp] theorem solcOutlinedHelperModule_adds_zero_assumed_entries
+    (helperName resultVar : String) (numArgs : Nat) :
+    ecmModuleAssumedEntriesCount
+      (ECM.solcOutlinedHelperModule helperName resultVar numArgs) = 0 := rfl
+
 end Compiler.CompilationModel

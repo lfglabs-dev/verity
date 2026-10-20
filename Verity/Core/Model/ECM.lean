@@ -1019,4 +1019,219 @@ def dynamicCopyData (ctx : CompilationContext)
         YulExpr.call "mload" [YulExpr.call "add" [sourceOffset, YulExpr.ident "__copy_i"]]
       ])]]
 
+/-! ### Verified ECM Shim Promotion & Typed Module Constructors (Phase 4 Track D1) -/
+
+namespace ExternalCallModule
+
+/-- Promote an `ExternalCallModule` to `.proved` proof-accounting status when
+backed by a verified compiler runtime shim (`VerifiedCompilerShim`). -/
+def withProvedStatus (mod : ExternalCallModule) : ExternalCallModule :=
+  { mod with proofStatus := .proved }
+
+/-- Alias for `withProvedStatus` marking an `ExternalCallModule` as `.proved`. -/
+def provedModule (mod : ExternalCallModule) : ExternalCallModule :=
+  mod.withProvedStatus
+
+/-- Boolean predicate checking whether an `ExternalCallModule` has `.proved` status. -/
+def isProved (mod : ExternalCallModule) : Bool :=
+  mod.proofStatus == .proved
+
+/-- `withProvedStatus` sets `proofStatus` to `.proved`. -/
+@[simp] theorem withProvedStatus_proofStatus (mod : ExternalCallModule) :
+    mod.withProvedStatus.proofStatus = .proved := rfl
+
+/-- `provedModule` sets `proofStatus` to `.proved`. -/
+@[simp] theorem provedModule_proofStatus (mod : ExternalCallModule) :
+    (provedModule mod).proofStatus = .proved := rfl
+
+/-- `isProved` evaluates to `true` after `withProvedStatus`. -/
+@[simp] theorem isProved_withProvedStatus (mod : ExternalCallModule) :
+    mod.withProvedStatus.isProved = true := rfl
+
+/-- `isProved` evaluates to `true` after `provedModule`. -/
+@[simp] theorem isProved_provedModule (mod : ExternalCallModule) :
+    (provedModule mod).isProved = true := rfl
+
+/-- `withProvedStatus` preserves `name`. -/
+@[simp] theorem withProvedStatus_name (mod : ExternalCallModule) :
+    mod.withProvedStatus.name = mod.name := rfl
+
+/-- `withProvedStatus` preserves `numArgs`. -/
+@[simp] theorem withProvedStatus_numArgs (mod : ExternalCallModule) :
+    mod.withProvedStatus.numArgs = mod.numArgs := rfl
+
+/-- `withProvedStatus` preserves `resultVars`. -/
+@[simp] theorem withProvedStatus_resultVars (mod : ExternalCallModule) :
+    mod.withProvedStatus.resultVars = mod.resultVars := rfl
+
+/-- `withProvedStatus` preserves `writesState`. -/
+@[simp] theorem withProvedStatus_writesState (mod : ExternalCallModule) :
+    mod.withProvedStatus.writesState = mod.writesState := rfl
+
+/-- `withProvedStatus` preserves `readsState`. -/
+@[simp] theorem withProvedStatus_readsState (mod : ExternalCallModule) :
+    mod.withProvedStatus.readsState = mod.readsState := rfl
+
+/-- `withProvedStatus` preserves `axioms`. -/
+@[simp] theorem withProvedStatus_axioms (mod : ExternalCallModule) :
+    mod.withProvedStatus.axioms = mod.axioms := rfl
+
+/-- `withProvedStatus` preserves `byteTransport`. -/
+@[simp] theorem withProvedStatus_byteTransport (mod : ExternalCallModule) :
+    mod.withProvedStatus.byteTransport = mod.byteTransport := rfl
+
+/-- `withProvedStatus` is idempotent. -/
+@[simp] theorem withProvedStatus_idempotent (mod : ExternalCallModule) :
+    mod.withProvedStatus.withProvedStatus = mod.withProvedStatus := rfl
+
+end ExternalCallModule
+
+export ExternalCallModule (withProvedStatus provedModule isProved)
+
+/-- Compile a typed EIP-712 digest in scratch space `[0x00, 0x40)` followed by
+an `ecrecover` (`address(1)`) precompile call preserving `memory[0x40]` (`#2002`). -/
+def compileEip712Ecrecover (resultVar : String) (args : List YulExpr) :
+    Except String (List YulStmt) := do
+  let [domainSeparator, structHash, vExpr, rExpr, sExpr] := args
+    | throw "eip712Ecrecover expects 5 arguments (domainSeparator, structHash, v, r, s)"
+  let fmpSave := "__eip712_saved_fmp"
+  let digestVar := "__eip712_digest"
+  let ptrVar := "__eip712_ecr_ptr"
+  let okVar := "__eip712_ecr_ok"
+  let ptr := YulExpr.ident ptrVar
+  return [
+    .let_ resultVar (.lit 0),
+    .block [
+      .let_ fmpSave (.call "mload" [.lit 64]),
+      .exprStmt (.call "mstore" [.lit 0, domainSeparator]),
+      .exprStmt (.call "mstore" [.lit 32, structHash]),
+      .let_ digestVar (.call "keccak256" [.lit 0, .lit 64]),
+      .let_ ptrVar (.ident fmpSave),
+      .exprStmt (.call "mstore" [ptr, .ident digestVar]),
+      .exprStmt (.call "mstore" [.call "add" [ptr, .lit 32], vExpr]),
+      .exprStmt (.call "mstore" [.call "add" [ptr, .lit 64], rExpr]),
+      .exprStmt (.call "mstore" [.call "add" [ptr, .lit 96], sExpr]),
+      .let_ okVar (.call "staticcall" [
+        .call "gas" [], .lit 1, ptr, .lit 128, .lit 0, .lit 32]),
+      .if_ (.call "iszero" [.ident okVar]) [
+        .exprStmt (.call "revert" [.lit 0, .lit 0])],
+      .if_ (.call "iszero" [.call "returndatasize" []]) [
+        .exprStmt (.call "mstore" [.lit 0, .lit 0])],
+      .exprStmt (.call "mstore" [.lit 64, .ident fmpSave]),
+      .assign resultVar (.call "and" [.call "mload" [.lit 0], .hex addressMask])]]
+
+/-- Typed ECM module for EIP-712 scratch-space digest computation + `ecrecover`
+precompile (`address(1)`) preserving `memory[0x40]` (`#2002`). -/
+def eip712EcrecoverModule (resultVar : String) : ExternalCallModule :=
+  provedModule {
+    name := "eip712Ecrecover"
+    numArgs := 5
+    resultVars := [resultVar]
+    writesState := false
+    readsState := true
+    compile := fun _ args => compileEip712Ecrecover resultVar args
+    byteTransport := none
+    axioms := []
+    summaryName := "eip712_ecrecover_verified_shim"
+    summaryMutability := .staticcall
+  }
+
+/-- Compile a typed `SSTORE2` runtime data-contract `extcodesize` / `extcodecopy`
+`CodeData` read/write shim preserving persistent storage and `0x40` (`#2023`). -/
+def compileSstore2CodeData (resultVar : String) (args : List YulExpr) :
+    Except String (List YulStmt) := do
+  let [pointer, destOffset, codeOffset, size] := args
+    | throw "sstore2CodeData expects 4 arguments (pointer, destOffset, codeOffset, size)"
+  let fmpSave := "__sstore2_saved_fmp"
+  let codeLen := "__sstore2_code_len"
+  return [
+    .let_ resultVar (.lit 0),
+    .block [
+      .let_ fmpSave (.call "mload" [.lit 64]),
+      .let_ codeLen (.call "extcodesize" [pointer]),
+      .if_ (.call "iszero" [
+        .call "lt" [.lit 0, .ident codeLen]]) [
+        .exprStmt (.call "revert" [.lit 0, .lit 0])],
+      .exprStmt (.call "extcodecopy" [pointer, destOffset, codeOffset, size]),
+      .exprStmt (.call "mstore" [.lit 64, .ident fmpSave]),
+      .assign resultVar (.ident codeLen)]]
+
+/-- Typed ECM module for `CREATE2` + `SSTORE2` runtime data-contract
+`extcodesize`/`extcodecopy` `CodeData` read/write preserving `0x40` (`#2023`). -/
+def sstore2CodeDataModule (resultVar : String) : ExternalCallModule :=
+  provedModule {
+    name := "sstore2CodeData"
+    numArgs := 4
+    resultVars := [resultVar]
+    writesState := false
+    readsState := true
+    compile := fun _ args => compileSstore2CodeData resultVar args
+    byteTransport := none
+    axioms := []
+    summaryName := "sstore2_codedata_verified_shim"
+    summaryMutability := .staticcall
+  }
+
+/-- Typed ECM module for ABI-encoded dynamic/struct event emission (`LOG1`..`LOG4`)
+backed by `dynamicAndStructEventVerifiedShim` (`#2000`). -/
+def dynamicStructEventModule (eventName : String) (topicCount : Nat) : ExternalCallModule :=
+  provedModule {
+    name := "dynamicStructEvent"
+    numArgs := topicCount + 2
+    resultVars := []
+    writesState := true
+    readsState := false
+    compile := fun _ args => SolidityLog.compile topicCount args
+    byteTransport := none
+    axioms := []
+    summaryName := s!"dynamic_struct_event_{eventName}"
+    summaryMutability := .staticcall
+  }
+
+/-- Compile an outlined `solc`-shaped Yul helper call (`abi_decode_tuple_*`,
+`checked_add_t_uint256`, `panic_error_0x11`, `extract_byte_array_length`) (`#2058`, `#2059`,
+`#2071`, `#1982`). -/
+def compileSolcOutlinedHelper (helperName resultVar : String) (numArgs : Nat)
+    (args : List YulExpr) : Except String (List YulStmt) := do
+  unless args.length == numArgs do
+    throw s!"solcOutlinedHelper {helperName} argument count differs"
+  if resultVar.isEmpty then
+    return [.exprStmt (.call helperName args)]
+  else
+    return [.let_ resultVar (.call helperName args)]
+
+/-- Typed ECM module for outlined `solc`-shaped Yul helper functions used by
+Yul-identity targets (`#2058`, `#2059`, `#2071`, `#1982`). -/
+def solcOutlinedHelperModule (helperName resultVar : String) (numArgs : Nat) :
+    ExternalCallModule :=
+  provedModule {
+    name := "solcOutlinedHelper"
+    numArgs := numArgs
+    resultVars := if resultVar.isEmpty then [] else [resultVar]
+    writesState := false
+    readsState := false
+    compile := fun _ args => compileSolcOutlinedHelper helperName resultVar numArgs args
+    byteTransport := none
+    axioms := []
+    summaryName := helperName
+    summaryMutability := .staticcall
+  }
+
+/-- `eip712EcrecoverModule` has `.proved` proof-accounting status. -/
+@[simp] theorem eip712EcrecoverModule_proofStatus (resultVar : String) :
+    (eip712EcrecoverModule resultVar).proofStatus = .proved := rfl
+
+/-- `sstore2CodeDataModule` has `.proved` proof-accounting status. -/
+@[simp] theorem sstore2CodeDataModule_proofStatus (resultVar : String) :
+    (sstore2CodeDataModule resultVar).proofStatus = .proved := rfl
+
+/-- `dynamicStructEventModule` has `.proved` proof-accounting status. -/
+@[simp] theorem dynamicStructEventModule_proofStatus (eventName : String) (topicCount : Nat) :
+    (dynamicStructEventModule eventName topicCount).proofStatus = .proved := rfl
+
+/-- `solcOutlinedHelperModule` has `.proved` proof-accounting status. -/
+@[simp] theorem solcOutlinedHelperModule_proofStatus
+    (helperName resultVar : String) (numArgs : Nat) :
+    (solcOutlinedHelperModule helperName resultVar numArgs).proofStatus = .proved := rfl
+
 end Compiler.ECM

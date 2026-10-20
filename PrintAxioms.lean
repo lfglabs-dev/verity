@@ -205,6 +205,7 @@ import Compiler.Proofs.Storage.StructArrayStorage
 import Compiler.Proofs.StorageBounds
 import Compiler.Proofs.StorageLens
 import Compiler.Proofs.TrustSurface.LinearEquivalence
+import Compiler.Proofs.VerifiedECMShims
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Generic
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Safe
@@ -7376,6 +7377,41 @@ end Verity.AxiomAudit
   Compiler.Proofs.TrustSurface.undischargedAssumptionReportEntriesLinear_empty_obligations_proved
   Compiler.Proofs.TrustSurface.undischargedAssumptionReportEntriesLinear_empty_no_unsafeBlocks
 
+  -- Compiler/Proofs/VerifiedECMShims.lean
+  Compiler.Proofs.VerifiedECMShims.VerifiedECMModuleBundle.obs_eq
+  Compiler.Proofs.VerifiedECMShims.VerifiedECMModuleBundle.frame_sound
+  Compiler.Proofs.VerifiedECMShims.VerifiedECMModuleBundle.zero_assumed_entries
+  Compiler.Proofs.VerifiedECMShims.evalEcrecoverPrecompile_and_addressMask
+  Compiler.Proofs.VerifiedECMShims.shimEip712AndEcrecover_eq_denote
+  Compiler.Proofs.VerifiedECMShims.shimEip712AndEcrecover_frame_sound
+  Compiler.Proofs.VerifiedECMShims.computeCreate2DeterministicAddress_and_addressMask
+  Compiler.Proofs.VerifiedECMShims.sstore2CodeDataSlice_full_roundtrip
+  Compiler.Proofs.VerifiedECMShims.shimCreate2AndSstore2CodeData_eq_denote
+  Compiler.Proofs.VerifiedECMShims.shimCreate2AndSstore2CodeData_frame_sound
+  Compiler.Proofs.VerifiedECMShims.shimDynamicAndStructEvent_eq_denote
+  Compiler.Proofs.VerifiedECMShims.shimDynamicAndStructEvent_frame_sound
+  Compiler.Proofs.VerifiedECMShims.shimOutlinedSolcHelper_eq_denote
+  Compiler.Proofs.VerifiedECMShims.shimOutlinedSolcHelper_frame_sound
+  Compiler.Proofs.VerifiedECMShims.shimSolcShapedAbiArith_eq_denote
+  Compiler.Proofs.VerifiedECMShims.shimSolcShapedAbiArith_frame_sound
+  Compiler.Proofs.VerifiedECMShims.eip712AndEcrecover_obs_eq
+  Compiler.Proofs.VerifiedECMShims.eip712AndEcrecover_denote_frame_sound
+  Compiler.Proofs.VerifiedECMShims.eip712AndEcrecover_preserves_fmp_and_high_memory
+  Compiler.Proofs.VerifiedECMShims.create2AndSstore2CodeData_obs_eq
+  Compiler.Proofs.VerifiedECMShims.create2AndSstore2CodeData_denote_frame_sound
+  Compiler.Proofs.VerifiedECMShims.dynamicAndStructEvent_obs_eq
+  Compiler.Proofs.VerifiedECMShims.dynamicAndStructEvent_denote_frame_sound
+  Compiler.Proofs.VerifiedECMShims.yulOutlinedHelper_obs_eq
+  Compiler.Proofs.VerifiedECMShims.yulOutlinedHelper_denote_frame_sound
+  Compiler.Proofs.VerifiedECMShims.solcShapedAbiArith_obs_eq
+  Compiler.Proofs.VerifiedECMShims.solcShapedAbiArith_denote_frame_sound
+  Compiler.Proofs.VerifiedECMShims.all_verified_ecm_modules_zero_assumed_entries
+  Compiler.Proofs.VerifiedECMShims.checkEip712AndEcrecoverWitness_eq_true
+  Compiler.Proofs.VerifiedECMShims.checkCreate2AndSstore2CodeDataWitness_eq_true
+  Compiler.Proofs.VerifiedECMShims.checkDynamicAndStructEventWitness_eq_true
+  Compiler.Proofs.VerifiedECMShims.checkSolcOutlinedHelpersWitness_eq_true
+  Compiler.Proofs.VerifiedECMShims.checkAllVerifiedECMShimsSuite_eq_true
+
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
@@ -9683,4 +9719,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8899 theorems/lemmas (6141 public, 2758 private, 0 sorry'd)
+-- Total: 8932 theorems/lemmas (6174 public, 2758 private, 0 sorry'd)
