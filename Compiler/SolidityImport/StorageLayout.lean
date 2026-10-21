@@ -100,8 +100,9 @@ def mappingKey (ty : String) : MetaM MappingKeyType :=
   | _ =>
       if ty.startsWith "t_contract(" then pure .address
       else if ty.startsWith "t_enum(" then pure .uint256
-      else if ty.startsWith "t_uint" then do
-        let some bits := (ty.drop 6).toNat? | throwError "unsupported mapping key {ty}"
+      else if ty.startsWith "t_uint" || ty.startsWith "t_int" then do
+        let numStr := if ty.startsWith "t_uint" then ty.drop 6 else ty.drop 5
+        let some bits := numStr.toNat? | throwError "unsupported mapping key {ty}"
         unless bits > 0 && bits ≤ 256 && bits % 8 == 0 do
           throwError "unsupported mapping key {ty}"
         pure .uint256
@@ -152,7 +153,7 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
       let keyType ←
         if kTy == "address" || kTy == "address payable" || kTy.startsWith "contract " then
           pure MappingKeyType.address
-        else if kTy == "uint256" || kTy == "uint" then
+        else if kTy == "uint256" || kTy == "uint" || (bitsOf kTy).isSome || (signedBitsOf kTy).isSome then
           pure MappingKeyType.uint256
         else if kTy == "bytes32" || kTy == "bytes4" then
           pure MappingKeyType.bytes32
@@ -243,7 +244,11 @@ partial def resolveRawStructInfo (structId : Nat) (at_ : Json) : M RawStructInfo
           match bitsOf mTy with
           | some w => pure (w, false)
           | none => failAt mNode s!"unsupported storage struct member {mName} : {mTy}"
-        else if mTy == "int256" || mTy == "int" || mTy == "bytes32" then
+        else if mTy.startsWith "int" then
+          match signedBitsOf mTy with
+          | some w => pure (w, false)
+          | none => failAt mNode s!"unsupported storage struct member {mName} : {mTy}"
+        else if mTy == "bytes32" then
           pure (256, false)
         else if mTy == "address" || mTy == "address payable" || mTy.startsWith "contract " then
           pure (160, false)
@@ -452,14 +457,18 @@ partial def decodeStructLayoutMembers (name prefixStr : String) (baseWord : Nat)
       | none => skipped := skipped.push qualLabel
     else if solcType == "t_bool" || solcType == "t_address" || solcType == "t_address_payable" ||
         solcType.startsWith "t_contract(" || solcType == "t_bytes32" || solcType == "t_int256" ||
-        solcType.startsWith "t_uint" then
+        solcType.startsWith "t_uint" || solcType.startsWith "t_int" then
       let bits ←
         if solcType == "t_bool" then pure 8
         else if solcType == "t_address" || solcType == "t_address_payable" || solcType.startsWith "t_contract(" then pure 160
         else if solcType == "t_bytes32" || solcType == "t_int256" then pure 256
-        else do
+        else if solcType.startsWith "t_uint" then do
           let some b := (solcType.drop 6).toNat? | throwError "bad uint {solcType}"
           unless b > 0 && b ≤ 256 && b % 8 == 0 do throwError "bad uint {solcType}"
+          pure b
+        else do
+          let some b := (solcType.drop 5).toNat? | throwError "bad int {solcType}"
+          unless b > 0 && b ≤ 256 && b % 8 == 0 do throwError "bad int {solcType}"
           pure b
       let bitOff := byteOff * 8
       unless bitOff + bits ≤ 256 do throwError "packed field {qualLabel} does not fit in a word"

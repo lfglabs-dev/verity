@@ -54,6 +54,7 @@ partial def quoteExpr : Expr → m Term
   | .txOrigin => `(Compiler.CompilationModel.Expr.txOrigin)
   | .baseFee => `(Compiler.CompilationModel.Expr.baseFee)
   | .gasPrice => `(Compiler.CompilationModel.Expr.gasPrice)
+  | .msgValue => `(Compiler.CompilationModel.Expr.msgValue)
   | .structMember f k x => do
       `(Compiler.CompilationModel.Expr.structMember $(quote f) $(← quoteExpr k) $(quote x))
   | .structMember2 f k1 k2 x => do

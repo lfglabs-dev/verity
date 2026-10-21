@@ -18,6 +18,7 @@ solidity_import imported from "Contracts/SolidityImportSmoke" entry "UniswapV4Ty
   function exttload(bytes32)
   function setPoolFee(PoolKey, uint24)
   function accountPoolBalanceDelta(PoolKey, int128, int128)
+  function recordPositionLiquidity(int24, int24, bytes32, uint256)
 def model : CompilationModel := imported.model
 -- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle

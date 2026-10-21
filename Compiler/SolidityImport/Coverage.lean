@@ -44,7 +44,7 @@ def exprCovered : Expr → Bool
   | .storage _ => true
   | .localVar _ => true
   | .blockTimestamp => true
-  | .blockNumber | .chainid | .caller | .contractAddress | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
+  | .blockNumber | .chainid | .caller | .contractAddress | .msgValue | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
   | .storageArrayElement _ index => exprCovered index
@@ -309,6 +309,10 @@ theorem evalExpr_signextend_arm (oracle : DenoteOracle) (fields : List Field)
       pure (Verity.Core.Uint256.signextend
         (Verity.Core.Uint256.ofNat byteIdx)
         (Verity.Core.Uint256.ofNat value)).val) := rfl
+
+theorem evalExpr_msgValue_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    evalExpr oracle fields state .msgValue = some state.world.msgValue.val := rfl
 
 theorem execStmt_mstore_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (offset value : Expr) :

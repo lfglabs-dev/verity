@@ -780,8 +780,10 @@ def rootParamType? (env : Env) (name : String) : Option ParamType := do
           if let some ty := env.scalarTy.find? id then return ty
     | _ => pure ()
   for (_, memory) in env.mems do
-    for (member, ty) in memory.members do
-      if s!"{memory.param}_{member}" == name then return ← paramType ty
+    for idx in [:memory.members.size] do
+      let (member, ty) := memory.members[idx]!
+      if s!"{memory.param}_{member}" == name || s!"{memory.param}_{idx}" == name then
+        return ← paramType ty
   none
 
 partial def publicVarGetterParamTypes (typeName : Json) : M (Array (String × Json) × Json) := do

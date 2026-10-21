@@ -104,6 +104,24 @@ library PoolIdSlice {
     }
 }
 
+library PositionSlice {
+    function calculatePositionKey(address owner, int24 tickLower, int24 tickUpper, bytes32 salt)
+        internal
+        pure
+        returns (bytes32 positionKey)
+    {
+        assembly ("memory-safe") {
+            let fmp := mload(0x40)
+            mstore(add(fmp, 0x26), salt)
+            mstore(add(fmp, 0x06), tickUpper)
+            mstore(add(fmp, 0x03), tickLower)
+            mstore(fmp, owner)
+            positionKey := keccak256(add(fmp, 0x0c), 0x3a)
+            mstore(add(fmp, 0x40), 0)
+        }
+    }
+}
+
 abstract contract OwnedSlice {
     address public owner;
 
@@ -123,6 +141,7 @@ contract SequenceFixture is OwnedSlice {
 
     uint256 private value;
     mapping(PoolId id => uint256 feeWord) public poolFees;
+    mapping(bytes32 posKey => uint256 liquidity) public positions;
 
     function change(uint256 delta) external returns (uint256) {
         owner = msg.sender;
@@ -174,5 +193,13 @@ contract SequenceFixture is OwnedSlice {
             tstore(slot, packed)
         }
         return (c.amount0(), c.amount1());
+    }
+
+    function recordPositionLiquidity(int24 tickLower, int24 tickUpper, bytes32 salt, uint256 liq)
+        external
+        returns (bytes32 posKey)
+    {
+        posKey = PositionSlice.calculatePositionKey(msg.sender, tickLower, tickUpper, salt);
+        positions[posKey] = liq;
     }
 }
