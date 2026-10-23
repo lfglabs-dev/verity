@@ -194,7 +194,7 @@ theorem mint_increases_balance (s : ContractState) (toAddr : Address) (amount : 
   let s' := ((mint toAddr amount).run s).snd
   s'.storageMap 1 toAddr = EVM.Uint256.add (s.storageMap 1 toAddr) amount := by
   have h := mint_meets_spec_when_owner s toAddr amount h_owner h_no_bal_overflow h_no_sup_overflow
-  simp [mint_spec] at h; exact h.1
+  simp [mint_spec] at h; simpa using h.1
 
 theorem mint_increases_supply (s : ContractState) (toAddr : Address) (amount : Uint256)
   (h_owner : s.sender = s.storageAddr 0)
@@ -203,7 +203,7 @@ theorem mint_increases_supply (s : ContractState) (toAddr : Address) (amount : U
   let s' := ((mint toAddr amount).run s).snd
   s'.storage 2 = EVM.Uint256.add (s.storage 2) amount := by
   have h := mint_meets_spec_when_owner s toAddr amount h_owner h_no_bal_overflow h_no_sup_overflow
-  simp [mint_spec] at h; exact h.2.1
+  simp [mint_spec] at h; simpa using h.2.1
 
 -- Mint reverts on balance overflow
 theorem mint_reverts_balance_overflow (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -348,7 +348,7 @@ theorem transfer_decreases_sender_balance (s : ContractState) (toAddr : Address)
   let s' := ((transfer toAddr amount).run s).snd
   s'.storageMap 1 s.sender = EVM.Uint256.sub (s.storageMap 1 s.sender) amount := by
   have h := transfer_meets_spec_when_sufficient s toAddr amount h_balance (fun _ => h_no_overflow)
-  simp [transfer_spec, h_ne, beq_iff_eq] at h; exact h.2.1
+  simp [transfer_spec, h_ne, beq_iff_eq] at h; simpa using h.2.1
 
 theorem transfer_increases_recipient_balance (s : ContractState) (toAddr : Address) (amount : Uint256)
   (h_balance : s.storageMap 1 s.sender ≥ amount)
@@ -357,14 +357,14 @@ theorem transfer_increases_recipient_balance (s : ContractState) (toAddr : Addre
   let s' := ((transfer toAddr amount).run s).snd
   s'.storageMap 1 toAddr = EVM.Uint256.add (s.storageMap 1 toAddr) amount := by
   have h := transfer_meets_spec_when_sufficient s toAddr amount h_balance (fun _ => h_no_overflow)
-  simp [transfer_spec, h_ne, beq_iff_eq] at h; exact h.2.2.1
+  simp [transfer_spec, h_ne, beq_iff_eq] at h; simpa using h.2.2.1
 
 theorem transfer_self_preserves_balance (s : ContractState) (amount : Uint256)
   (h_balance : s.storageMap 1 s.sender ≥ amount) :
   let s' := ((transfer s.sender amount).run s).snd
   s'.storageMap 1 s.sender = s.storageMap 1 s.sender := by
   have h := transfer_meets_spec_when_sufficient s s.sender amount h_balance (fun h => absurd rfl h)
-  simp [transfer_spec, beq_iff_eq] at h; exact h.2.1
+  simp [transfer_spec, beq_iff_eq] at h; simpa using h.2.1
 
 -- Transfer reverts on recipient balance overflow
 theorem transfer_reverts_recipient_overflow (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -447,8 +447,11 @@ theorem constructor_getTotalSupply_correct (s : ContractState) (initialOwner : A
   let s' := ((simpleTokenConstructor initialOwner).run s).snd
   let result := ((getTotalSupply).run s').fst
   constructor_getTotalSupply_spec initialOwner s result := by
-  have h_constr := constructor_sets_supply_zero s initialOwner
-  have h_get := getTotalSupply_returns_supply (((simpleTokenConstructor initialOwner).run s).snd)
+  have h_constr :
+      (Verity.Macro.evalState (simpleTokenConstructor initialOwner s) s).storage 2 = 0 := by
+    simpa using constructor_sets_supply_zero s initialOwner
+  have h_get := getTotalSupply_returns_supply
+    (Verity.Macro.evalState (simpleTokenConstructor initialOwner s) s)
   simp [constructor_getTotalSupply_spec]
   rw [h_get, h_constr]
 

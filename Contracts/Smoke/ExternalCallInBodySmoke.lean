@@ -564,7 +564,7 @@ example : ExternalCallInBodySmoke.lowLevel_model.body =
 example : (ExternalCallInBodySmoke.discardedReturnDataSize_modelBody).take 3 =
     [ Compiler.CompilationModel.Stmt.letVar "__discard" .returndataSize
     , Compiler.CompilationModel.Stmt.letVar "__discard_1" .returndataSize
-    , Compiler.CompilationModel.Stmt.letVar "parenthesized" .returndataSize ] := rfl
+    , Compiler.CompilationModel.Stmt.letVar "parenthesized" .returndataSize ] := by decide
 
 example : ExternalCallInBodySmoke.discardedReturnDataSize_model.body =
     ExternalCallInBodySmoke.discardedReturnDataSize_modelBody :=
@@ -874,7 +874,7 @@ private def unresolvedLinkContext : Contracts.ExecutableCallContext :=
     resolve := fun _ _ => none }
 
 example :
-    ((ExternalCallInBodySmoke.helperNameShadow 7).run defaultState).getValue? = some 7 := by
+    ((ExternalCallInBodySmoke.helperNameShadow Contracts.ExecutableCallContext.stub 7).run defaultState).getValue? = some 7 := by
   decide
 
 example :

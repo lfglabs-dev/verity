@@ -101,7 +101,7 @@ theorem store_retrieve_correct (s : ContractState) (value : Uint256) :
     retrieve_meets_spec ((store value).run s).snd
   simp [store_spec] at h_store
   simp [retrieve_spec] at h_retrieve
-  simp only [h_retrieve, h_store.1]
+  simp only [Verity.Macro.run_snd_eq_evalState, h_retrieve, h_store.1]
 
 -- Theorem: store preserves well-formedness
 theorem store_preserves_wellformedness (s : ContractState) (value : Uint256)
