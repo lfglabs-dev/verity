@@ -459,9 +459,10 @@ private theorem simpleStorageNativeDispatcherInnerStmts_eq_concrete_let_if_switc
         (Backends.freshNativeSwitchId reservedNames n0 + 1)
         simpleStorageBuildSwitchSourceCases = .ok (cases', midN) := by
   obtain ⟨body1, body2, n1, -, h, hBody2⟩ := simpleStorageNativeDispatcherInnerStmts_decomp
-  obtain ⟨cases', midN, rfl, hLowerCases⟩ :=
+  obtain ⟨cases', midN, hBody2Eq, hLowerCases⟩ :=
     Backends.Native.lowerStmtsNativeWithSwitchIds_singleton_switch_revert_default_eq_sourceLowered
       _ _ _ _ _ _ hBody2
+  rw [hBody2Eq] at h
   exact ⟨body1, _, n1, cases', midN, h, hLowerCases⟩
 
 /-- The `Classical.choose`-pinned let RHS of the SimpleStorage native dispatcher
