@@ -72,7 +72,8 @@ theorem store_preserves_context (s : ContractState) (value : Uint256) :
 theorem retrieve_preserves_context (s : ContractState) :
   let s' := ((retrieve).run s).snd
   context_preserved s s' := by
-  simp [retrieve_preserves_state s]
+  simp [Verity.Macro.run_snd_eq_evalState, context_preserved, Specs.sameContext,
+    retrieve_preserves_state]
 
 /-- retrieve preserves well-formedness. -/
 theorem retrieve_preserves_wellformedness (s : ContractState) (h : WellFormedState s) :

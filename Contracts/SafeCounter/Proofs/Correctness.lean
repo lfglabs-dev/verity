@@ -63,7 +63,7 @@ theorem decrement_preserves_storage_isolated (s : ContractState)
 theorem getCount_preserves_context (s : ContractState) :
   let s' := ((getCount).run s).snd
   context_preserved s s' := by
-  simpa [context_preserved, Specs.sameContext] using getCount_preserves_state s
+  simp [context_preserved, Specs.sameContext, getCount_preserves_state]
 
 /-- getCount preserves well-formedness. -/
 theorem getCount_preserves_wellformedness (s : ContractState) (h : WellFormedState s) :
