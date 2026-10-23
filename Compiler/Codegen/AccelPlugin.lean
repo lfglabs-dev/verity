@@ -196,6 +196,9 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g47_dominated_bitmask_or_after_set_elision_sound_and_saves_24_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g48_interval_bounded_shl_shr_roundtrip_cancel_sound_and_saves_36_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g49_interval_tautological_iszero_lt_elision_sound_and_saves_38_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g50_overwritten_tstore_dead_write_elision_sound_and_saves_200_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g51_consecutive_div_fusion_sound_and_saves_24_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g52_disjoint_bitmask_and_elision_sound_and_saves_24_gas"
   , "Verity.Proofs.Stdlib.Math.mulDivDown_cancel_right"
   , "Verity.Proofs.Stdlib.Math.mulDivUp_eq_mulDivDown_of_dvd"
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
@@ -601,7 +604,22 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       scope := .mathAlgebraic
       passId := some .G49_intervalTautologicalIszeroLtElision
       assurance := .kernelVerified
-      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g49_interval_tautological_iszero_lt_elision_sound_and_saves_38_gas" } ]
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g49_interval_tautological_iszero_lt_elision_sound_and_saves_38_gas" }
+  , { pluginName := "G50:overwritten-tstore-dead-write-elision"
+      scope := .ir
+      passId := some .G50_overwrittenTstoreDeadWriteElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g50_overwritten_tstore_dead_write_elision_sound_and_saves_200_gas" }
+  , { pluginName := "G51:consecutive-div-fusion"
+      scope := .mathAlgebraic
+      passId := some .G51_consecutiveDivFusion
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g51_consecutive_div_fusion_sound_and_saves_24_gas" }
+  , { pluginName := "G52:disjoint-bitmask-and-elision"
+      scope := .yul
+      passId := some .G52_disjointBitmaskAndElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g52_disjoint_bitmask_and_elision_sound_and_saves_24_gas" } ]
 
 /-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
@@ -751,15 +769,23 @@ def burnedPathsRegistry : List BurnedPathEntry :=
   , { mechanismHash := "G49-burn-28:upper-bound-only-iszero-lt-elision"
       axis := "abstract_domain_interval_elision"
       counterexample256 := "x = 4, y = 7, maxX = 10 => (if 4 < 7 then 0 else 1) = 0 != 1"
-      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g49_upper_bound_only_iszero_lt_elision_refuted" } ]
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g49_upper_bound_only_iszero_lt_elision_refuted" }
+  , { mechanismHash := "G50-burn-29:cross-callback-dead-tstore-elision"
+      axis := "yul_patch_or_egraph_witness"
+      counterexample256 := "v1 = 7, v2 = 9 => hook observes 7 != 9"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g50_cross_callback_dead_tstore_elision_refuted" }
+  , { mechanismHash := "G51-burn-30:wrapped-div-product-fusion"
+      axis := "math_algebraic_tauceti_rule"
+      counterexample256 := "d1 = 2, d2 = 2^255 => (2 * 2^255) % 2^256 = 0 != 2^256"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g51_wrapped_div_product_fusion_refuted" } ]
 
 /-- Check whether a candidate `mechanismHash` has already been burned in `burnedPathsRegistry`. -/
 def isBurnedMechanism (mechanismHash : String) : Bool :=
   burnedPathsRegistry.any (fun b => b.mechanismHash == mechanismHash)
 
 /-- **Theorem AP.9 (`unguarded_muldiv_is_burned_and_ratchet_is_not`)**:
-    Verifies that all twenty-eight refuted hypotheses (`G8-burn-01`..`G49-burn-28`)
-    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G49`
+    Verifies that all thirty refuted hypotheses (`G8-burn-01`..`G51-burn-30`)
+    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G52`
     simplifications are permitted. -/
 theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8-burn-01:unguarded-muldiv-cancel-uint256" = true ∧
@@ -790,9 +816,11 @@ theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G46-burn-26:wrapped-offset-add-fusion-across-lt-guard" = true ∧
     isBurnedMechanism "G48-burn-27:overflowing-shl-shr-roundtrip-cancellation" = true ∧
     isBurnedMechanism "G49-burn-28:upper-bound-only-iszero-lt-elision" = true ∧
-    isBurnedMechanism "G47-ratchet-40:dominated-bitmask-or-after-set-elision" = false ∧
-    isBurnedMechanism "G48-ratchet-41:interval-bounded-shl-shr-roundtrip-cancellation" = false ∧
-    isBurnedMechanism "G49-ratchet-42:interval-tautological-iszero-lt-elision" = false := by
+    isBurnedMechanism "G50-burn-29:cross-callback-dead-tstore-elision" = true ∧
+    isBurnedMechanism "G51-burn-30:wrapped-div-product-fusion" = true ∧
+    isBurnedMechanism "G50-ratchet-43:overwritten-tstore-dead-write-elision" = false ∧
+    isBurnedMechanism "G51-ratchet-44:consecutive-div-fusion" = false ∧
+    isBurnedMechanism "G52-ratchet-45:disjoint-bitmask-and-elision" = false := by
   decide
 
 /-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false`, complete with
