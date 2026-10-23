@@ -17,7 +17,7 @@ private structure CliConfig where
   unknownCallCost : Nat := 50000
   unknownForwardedGas : Nat := 50000
   fuel : Nat := 4096
-  patchEnabled : Bool := false
+  patchEnabled : Bool := true
   patchMaxIterations : Nat := 2
 
 private def parseNatFlag (flag : String) (raw : String) : IO Nat :=
@@ -37,7 +37,8 @@ private def printHelp : IO Unit := do
   IO.println "  --unknown-call-cost <n> Fallback cost for unknown builtins/calls (default: 50000)"
   IO.println "  --unknown-forwarded-gas <n> Fallback forwarded gas for CALL-like builtins (default: 50000)"
   IO.println "  --fuel <n>              Structural recursion fuel for analysis (default: 4096)"
-  IO.println "  --enable-patches        Enable deterministic Yul patch pass before gas analysis"
+  IO.println "  --enable-patches        Enable deterministic Yul patch pass before gas analysis (default: enabled)"
+  IO.println "  --disable-patches       Disable deterministic Yul patch pass before gas analysis"
   IO.println "  --patch-max-iterations <n>  Max patch-pass fixpoint iterations (default: 2)"
   IO.println "  --help                  Show this help message"
 
@@ -69,6 +70,8 @@ private def parseArgs (args : List String) : IO CliConfig := do
         go tail { cfg with fuel := (← parseNatFlag "--fuel" value) }
     | "--enable-patches" :: tail =>
         go tail { cfg with patchEnabled := true }
+    | "--disable-patches" :: tail =>
+        go tail { cfg with patchEnabled := false }
     | "--patch-max-iterations" :: value :: tail =>
         go tail {
           cfg with

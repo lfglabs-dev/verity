@@ -5,6 +5,8 @@ import Compiler.ECM
 import Compiler.IR
 import Compiler.ABI
 import Compiler.Codegen
+import Compiler.Codegen.AccelPlugin
+import Compiler.Codegen.Profile
 import Compiler.Linker
 import Compiler.Selector
 import Compiler.Selectors

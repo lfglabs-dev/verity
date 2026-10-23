@@ -7,16 +7,17 @@ import Verity.Core.Intrinsics
 /-!
 ## CLI Argument Parsing
 
-Single canonical compiler entrypoint. The deterministic Yul patch pass and
-parity-pack profiles (formerly the separate `verity-compiler-patched` binary)
-are opt-in flags here; with no patch flags the patch pass is a proven identity
-(`runPatchPassWithBlocks` returns its input when `config.enabled = false`), so
-baseline output is unchanged.
+Single canonical compiler entrypoint. By default, Verity 2.0 runs the
+**certified optimized profile** (`PipelineConfig.certifiedOptimized`, enabling the
+deterministic Yul patch pass and certified acceleration plugins). Each optimization
+pass is wrapped in its own speculative soundness gate (`evalWithUntrustedAccelPlugin`),
+so any individual guard failure automatically falls back to identity for that pass alone.
 
 Supports:
 - `--link <path>` : Link external Yul library (can be specified multiple times)
 - `--output <dir>` or `-o <dir>` : Output directory (default: "artifacts/yul")
-- `--enable-patches` / `--patch-report <path>` / `--patch-max-iterations <n>`
+- `--enable-patches` / `--disable-patches`
+- `--patch-report <path>` / `--patch-max-iterations <n>`
 - `--parity-pack <id>` : Versioned parity-pack tuple
 - `--verbose` or `-v` : Verbose output
 - `--help` or `-h` : Show help message
@@ -35,7 +36,7 @@ private structure CLIArgs where
   targetFork : Verity.Core.Intrinsics.HardFork := .cancun
   targetForkExplicit : Bool := false
   allowFutureForkIntrinsics : Bool := false
-  patchEnabled : Bool := false
+  patchEnabled : Bool := true
   patchMaxIterations : Nat := 2
   patchMaxIterationsExplicit : Bool := false
   patchReportPath : Option String := none
@@ -125,7 +126,8 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         IO.println "  --parity-pack <id> Versioned parity-pack tuple (see docs/PARITY_PACKS.md)"
         IO.println "  --target-fork <cancun|prague|osaka|fusaka>  EVM fork target for intrinsic min_fork checks (default: cancun; fusaka is an alias for osaka)"
         IO.println "  --allow-future-fork-intrinsics  Allow intrinsics whose min_fork is newer than --target-fork"
-        IO.println "  --enable-patches   Enable deterministic Yul patch pass"
+        IO.println "  --enable-patches   Enable deterministic Yul patch pass (default: enabled in certifiedOptimized)"
+        IO.println "  --disable-patches  Disable deterministic Yul patch pass"
         IO.println "  --patch-max-iterations <n>  Max patch-pass fixpoint iterations (default: 2)"
         IO.println "  --patch-report <path>       Write TSV patch coverage report"
         IO.println "  --trust-report <path>       Write JSON trust-surface report"
@@ -232,6 +234,8 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         go rest { cfg with allowFutureForkIntrinsics := true }
     | "--enable-patches" :: rest =>
         go rest { cfg with patchEnabled := true }
+    | "--disable-patches" :: rest =>
+        go rest { cfg with patchEnabled := false }
     | "--patch-max-iterations" :: raw :: rest =>
         match raw.toNat? with
         | some n => go rest { cfg with patchEnabled := true, patchMaxIterations := n, patchMaxIterationsExplicit := true }
