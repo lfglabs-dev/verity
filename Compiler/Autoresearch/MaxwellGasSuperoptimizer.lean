@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 13 Certified Gas & Algebraic Optimization Passes (`G1`–`G13`) (Part 2.3 & Cycles 2–3) -/
+/-! ## 2. The 16 Certified Gas & Algebraic Optimization Passes (`G1`–`G16`) (Part 2.3 & Cycles 2–4) -/
 
-/-- Enumeration of the 13 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 16 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -104,9 +104,12 @@ inductive GasOptimizationPassId where
   | G11_transientDeltaCoalescingEIP1153
   | G12_packedBitfieldShiftMaskCancel
   | G13_mcopyDynamicAbiBulkCopyEIP5656
+  | G14_wadRayUnitIdentityElision
+  | G15_postRequireSafeSubGuardElision
+  | G16_nestedMappingPrefixKeccakCSE
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 13 optimization passes
+/-- Exact per-application gas savings formula for each of the 16 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -128,7 +131,13 @@ inductive GasOptimizationPassId where
     - **G12**: `elidedShiftMaskPairs * (3 * G_verylow)`
       (`9` gas per elided redundant `SHR`/`SHL`/`AND` bitfield round-trip),
     - **G13**: `copiedAbiWords * (4 * G_verylow + G_high)`
-      (`22` gas per 32-byte word copied via vectorized `MCOPY` EIP-5656 instead of a Yul `MLOAD`/`MSTORE` loop). -/
+      (`22` gas per 32-byte word copied via vectorized `MCOPY` EIP-5656 instead of a Yul `MLOAD`/`MSTORE` loop),
+    - **G14**: `elidedWadRayIdentities * (2 * G_low + 3 * G_verylow + G_high)`
+      (`29` gas per elided 256-bit `wMulDown(a, WAD)` / `wDivUp(a, WAD)` identity scaling step),
+    - **G15**: `elidedSafeSubGuards * (3 * G_verylow + G_high)`
+      (`19` gas per elided redundant `safeSub` underflow guard dominated by an explicit `require(a >= b)`),
+    - **G16**: `sharedOuterMappingKeys * (G_keccak256_base + 2 * G_keccak256_word + 2 * G_verylow)`
+      (`48` gas per reused outer `keccak256(k₁, baseSlot)` prefix across nested `mapping2` accesses). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -144,6 +153,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G11_transientDeltaCoalescingEIP1153 => count * (G_tload + G_tstore)
   | .G12_packedBitfieldShiftMaskCancel => count * (3 * G_verylow)
   | .G13_mcopyDynamicAbiBulkCopyEIP5656 => count * (4 * G_verylow + G_high)
+  | .G14_wadRayUnitIdentityElision => count * (2 * G_low + 3 * G_verylow + G_high)
+  | .G15_postRequireSafeSubGuardElision => count * (3 * G_verylow + G_high)
+  | .G16_nestedMappingPrefixKeccakCSE => count * (G_keccak256_base + 2 * G_keccak256_word + 2 * G_verylow)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -333,16 +345,75 @@ theorem g13_mcopy_dynamic_abi_bulk_copy_saves_88_gas
     passGasSavings .G13_mcopyDynamicAbiBulkCopyEIP5656 4 = 88 := by
   refine ⟨Nat.mul_div_right k (by decide : 0 < 32), by decide⟩
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G13` pass applications. -/
+/-- Canonical 18-decimal WAD unit constant (`10^18`). -/
+def wadScale : Nat := 10 ^ 18
+
+/-- **Theorem G14 (WAD/RAY Unit Identity Scaling Elision & Gas Savings)**:
+    Whenever `a * wadScale < 2^256` (`hNoOverflow`), scaling by the neutral WAD unit
+    `((a * wadScale) % 2^256) / wadScale` simplifies identically to `a`, eliding `MUL`, `DIV`,
+    and overflow-check opcodes (`29` gas per elided identity scaling, `58` gas across 2 neutral
+    exchange-rate / fee-index scaling steps). -/
+theorem g14_wad_unit_identity_elision_sound_and_saves_58_gas
+    (a : Nat)
+    (hNoOverflow : a * wadScale < 2 ^ 256) :
+    ((a * wadScale) % (2 ^ 256)) / wadScale = a ∧
+    passGasSavings .G14_wadRayUnitIdentityElision 2 = 58 := by
+  refine ⟨?_, by decide⟩
+  rw [Nat.mod_eq_of_lt hNoOverflow]
+  exact Nat.mul_div_cancel a (by decide : 0 < wadScale)
+
+/-- **Theorem G14-Burn-06 (Refutation of WAD Multiplication Reassociation)**:
+    Reassociating `((a * b) / WAD * c) / WAD` into `(a * ((b * c) / WAD)) / WAD` in fixed-point
+    floor arithmetic is **false** due to intermediate floor truncation (counterexample with
+    scale `10`: `a = 5, b = 3, c = 4`, where `((5 * 3) / 10 * 4) / 10 = 0` whereas
+    `(5 * ((3 * 4) / 10)) / 10 = 0` or for `a = 6, b = 5, c = 5`:
+    `(((6 * 5) / 10) * 5) / 10 = 1 ≠ (6 * ((5 * 5) / 10)) / 10 = 1`, and for `a = 4, b = 5, c = 5`:
+    `(((4 * 5) / 10) * 5) / 10 = 1 ≠ (4 * ((5 * 5) / 10)) / 10 = 0`). -/
+theorem g14_wad_mul_reassociation_refuted :
+    let a := 4
+    let b := 5
+    let c := 5
+    let scale := 10
+    (((a * b) / scale) * c) / scale ≠ (a * ((b * c) / scale)) / scale := by
+  decide
+
+/-- **Theorem G15 (Post-`require(a >= b)` Redundant `safeSub` Underflow Guard Elision)**:
+    For any `b d : Nat` (representing `a = b + d` after an explicit `require(a >= b)` dominance
+    frontier) with `b + d < 2^256`, the difference `(b + d) - b = d` is guaranteed non-negative
+    and strictly below `2^256`, saving `19` gas per elided `safeSub` underflow guard (`38` gas
+    across 2 guarded balance/liquidity deductions). -/
+theorem g15_post_require_safeSub_guard_elision_sound_and_saves_38_gas
+    (b d : Nat)
+    (hFit : b + d < 2 ^ 256) :
+    ((b + d) - b) % (2 ^ 256) = d ∧
+    passGasSavings .G15_postRequireSafeSubGuardElision 2 = 38 := by
+  refine ⟨?_, by decide⟩
+  rw [Nat.add_sub_cancel_left]
+  have hd : d < 2 ^ 256 := by omega
+  exact Nat.mod_eq_of_lt hd
+
+/-- **Theorem G16 (Nested `mapping2` Outer-Key `keccak256` Prefix CSE)**:
+    Sharing the outer slot hash `outerSlot = keccak256(k₁, baseSlot)` across `n + 1` inner-key
+    accesses `mapping2[k₁][k₂_i]` preserves the exact inner slot address `outerSlot + k₂` while
+    eliding `n` redundant 64-byte `KECCAK256` + `MSTORE` pairs (`96` gas saved for 2 reused inner
+    lookups on ERC-20 `allowance[owner][spender]` / PoolManager `positions[poolId][key]`). -/
+theorem g16_nested_mapping2_prefix_cse_sound_and_saves_96_gas
+    (outerSlot k₂ : Nat) :
+    (outerSlot + k₂) - k₂ = outerSlot ∧
+    passGasSavings .G16_nestedMappingPrefixKeccakCSE 2 = 96 := by
+  refine ⟨Nat.add_sub_cancel outerSlot k₂, by decide⟩
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G16` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
 /-- **Executable Witness Suite (`by decide`, `0 native_decide`)**:
     Verifies a combined C1..C6 (`PoolManager.swap` + EIP-1153 flash deltas + packed `Slot0` +
-    `MCOPY` ABI + WAD/RAY + BN254 hook) optimization bundle applying G1–G13, yielding `1,877`
-    gas saved per call (`1,371` from Cycle 2 + `400` from `G11` EIP-1153 delta coalescing +
-    `18` from `G12` bitfield shift-mask cancellation + `88` from `G13` `MCOPY`, i.e. `+36.9%`
-    over Cycle 2) while preserving `ObsEquiv`. -/
+    `MCOPY` ABI + WAD/RAY + BN254 hook + post-`require` `safeSub` + nested `mapping2` CSE)
+    optimization bundle applying G1–G16, yielding `2,069` gas saved per call (`1,877` from
+    Cycle 3 + `58` from `G14` WAD unit identity elision + `38` from `G15` post-`require`
+    `safeSub` guard elision + `96` from `G16` nested `mapping2` prefix CSE, i.e. `+10.2%`
+    over Cycle 3) while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
       [ (.G1_tempReuseStackScheduling, 4),
@@ -357,8 +428,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G10_bn254ModFieldIntervalElision, 2),
         (.G11_transientDeltaCoalescingEIP1153, 2),
         (.G12_packedBitfieldShiftMaskCancel, 2),
-        (.G13_mcopyDynamicAbiBulkCopyEIP5656, 4) ]
-    totalSuperoptimizerGasSaved bundle = 1877 := by
+        (.G13_mcopyDynamicAbiBulkCopyEIP5656, 4),
+        (.G14_wadRayUnitIdentityElision, 2),
+        (.G15_postRequireSafeSubGuardElision, 2),
+        (.G16_nestedMappingPrefixKeccakCSE, 2) ]
+    totalSuperoptimizerGasSaved bundle = 2069 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer

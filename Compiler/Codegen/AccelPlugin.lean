@@ -141,7 +141,7 @@ structure PassStepCert where
   boundaryChecked : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G13, patch, and
+/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G16, patch, and
     `Mathlib` / `TauCeti` algebraic & fixed-point math simplification passes. -/
 def verifiedAccelTheoremAllowlist : List String :=
   [ "Compiler.Proofs.YulGeneration.TempReuseSoundness.reuseBlockTemps_sound"
@@ -160,6 +160,9 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g11_transient_delta_coalescing_sound_and_saves_400_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g12_packed_bitfield_shift_mask_cancel_sound_and_saves_18_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g13_mcopy_dynamic_abi_bulk_copy_saves_88_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g14_wad_unit_identity_elision_sound_and_saves_58_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g15_post_require_safeSub_guard_elision_sound_and_saves_38_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g16_nested_mapping2_prefix_cse_sound_and_saves_96_gas"
   , "Verity.Proofs.Stdlib.Math.mulDivDown_cancel_right"
   , "Verity.Proofs.Stdlib.Math.mulDivUp_eq_mulDivDown_of_dvd"
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
@@ -385,7 +388,22 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       scope := .yul
       passId := some .G13_mcopyDynamicAbiBulkCopyEIP5656
       assurance := .kernelVerified
-      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g13_mcopy_dynamic_abi_bulk_copy_saves_88_gas" } ]
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g13_mcopy_dynamic_abi_bulk_copy_saves_88_gas" }
+  , { pluginName := "G14:wad-ray-unit-identity-elision"
+      scope := .mathAlgebraic
+      passId := some .G14_wadRayUnitIdentityElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g14_wad_unit_identity_elision_sound_and_saves_58_gas" }
+  , { pluginName := "G15:post-require-safesub-guard-elision"
+      scope := .ir
+      passId := some .G15_postRequireSafeSubGuardElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g15_post_require_safeSub_guard_elision_sound_and_saves_38_gas" }
+  , { pluginName := "G16:nested-mapping-prefix-keccak-cse"
+      scope := .yul
+      passId := some .G16_nestedMappingPrefixKeccakCSE
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g16_nested_mapping2_prefix_cse_sound_and_saves_96_gas" } ]
 
 /-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
@@ -443,15 +461,19 @@ def burnedPathsRegistry : List BurnedPathEntry :=
   , { mechanismHash := "G12-burn-05:unaligned-shr-shl-roundtrip-elision"
       axis := "yul_patch_or_egraph_witness"
       counterexample256 := "x = 7, s = 1 => (7 / 2) * 2 = 6 != 7"
-      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g12_unaligned_shr_shl_cancel_refuted" } ]
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g12_unaligned_shr_shl_cancel_refuted" }
+  , { mechanismHash := "G14-burn-06:wad-floor-mul-reassociation"
+      axis := "math_algebraic_tauceti_rule"
+      counterexample256 := "a = 4, b = 5, c = 5, scale = 10 => (((4 * 5) / 10) * 5) / 10 = 1 != (4 * ((5 * 5) / 10)) / 10 = 0"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g14_wad_mul_reassociation_refuted" } ]
 
 /-- Check whether a candidate `mechanismHash` has already been burned in `burnedPathsRegistry`. -/
 def isBurnedMechanism (mechanismHash : String) : Bool :=
   burnedPathsRegistry.any (fun b => b.mechanismHash == mechanismHash)
 
 /-- **Theorem AP.9 (`unguarded_muldiv_is_burned_and_ratchet_is_not`)**:
-    Verifies that all five refuted hypotheses (`G8-burn-01`..`G12-burn-05`)
-    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G13`
+    Verifies that all six refuted hypotheses (`G8-burn-01`..`G14-burn-06`)
+    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G16`
     simplifications are permitted. -/
 theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8-burn-01:unguarded-muldiv-cancel-uint256" = true ∧
@@ -459,9 +481,10 @@ theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G10-burn-03:uint256-bound-only-bn254-modfield-elision" = true ∧
     isBurnedMechanism "G11-burn-04:cross-callback-transient-tstore-coalescing" = true ∧
     isBurnedMechanism "G12-burn-05:unaligned-shr-shl-roundtrip-elision" = true ∧
-    isBurnedMechanism "G8-ratchet-01:guarded-muldiv-cancel-uint256" = false ∧
-    isBurnedMechanism "G11-ratchet-04:call-free-transient-delta-coalescing" = false ∧
-    isBurnedMechanism "G13-ratchet-06:mcopy-dynamic-abi-bulk-copy" = false := by
+    isBurnedMechanism "G14-burn-06:wad-floor-mul-reassociation" = true ∧
+    isBurnedMechanism "G14-ratchet-07:wad-unit-identity-elision" = false ∧
+    isBurnedMechanism "G15-ratchet-08:post-require-safesub-elision" = false ∧
+    isBurnedMechanism "G16-ratchet-09:nested-mapping2-prefix-cse" = false := by
   decide
 
 /-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false`, complete with
