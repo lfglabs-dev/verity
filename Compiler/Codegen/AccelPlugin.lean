@@ -141,7 +141,7 @@ structure PassStepCert where
   boundaryChecked : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G8, patch, and
+/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G10, patch, and
     `Mathlib` / `TauCeti` algebraic & fixed-point math simplification passes. -/
 def verifiedAccelTheoremAllowlist : List String :=
   [ "Compiler.Proofs.YulGeneration.TempReuseSoundness.reuseBlockTemps_sound"
@@ -154,6 +154,9 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Selector.binary_search_selector_dispatch_sound"
   , "Compiler.Proofs.YulGeneration.PatchRulesProofs.foundation_patch_bundle_sound"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_mathlib_tauceti_mulDiv_cancel_sound_and_saves_176_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_mulDivUp_eq_mulDivDown_of_mod_eq_zero"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g9_horner_cubic_polynomial_sound_and_saves_48_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g10_bn254_modField_elision_sound_and_saves_42_gas"
   , "Verity.Proofs.Stdlib.Math.mulDivDown_cancel_right"
   , "Verity.Proofs.Stdlib.Math.mulDivUp_eq_mulDivDown_of_dvd"
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
@@ -354,7 +357,17 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       scope := .mathAlgebraic
       passId := some .G8_mathlibTauCetiAlgebraicSimplifier
       assurance := .kernelVerified
-      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_mathlib_tauceti_mulDiv_cancel_sound_and_saves_176_gas" } ]
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_mathlib_tauceti_mulDiv_cancel_sound_and_saves_176_gas" }
+  , { pluginName := "G9:horner-polynomial-wad-ray-factorization"
+      scope := .mathAlgebraic
+      passId := some .G9_hornerPolynomialWadRayFactorization
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g9_horner_cubic_polynomial_sound_and_saves_48_gas" }
+  , { pluginName := "G10:bn254-modfield-interval-elision"
+      scope := .mathAlgebraic
+      passId := some .G10_bn254ModFieldIntervalElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g10_bn254_modField_elision_sound_and_saves_42_gas" } ]
 
 /-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
@@ -396,18 +409,31 @@ def burnedPathsRegistry : List BurnedPathEntry :=
   [ { mechanismHash := "G8-burn-01:unguarded-muldiv-cancel-uint256"
       axis := "math_algebraic_tauceti_rule"
       counterexample256 := "a = 2^255, d = 2 => ((a * d) % 2^256) / d = 0 != a"
-      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_unguarded_mulDiv_cancel_refuted" } ]
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_unguarded_mulDiv_cancel_refuted" }
+  , { mechanismHash := "G8-burn-02:unguarded-muldivup-eq-down-without-dvd"
+      axis := "math_algebraic_tauceti_rule"
+      counterexample256 := "a = 1, b = 1, d = 2 => (1 + 1) / 2 = 1 != 1 / 2 = 0"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g8_unguarded_mulDivUp_eq_down_refuted" }
+  , { mechanismHash := "G10-burn-03:uint256-bound-only-bn254-modfield-elision"
+      axis := "abstract_domain_interval_elision"
+      counterexample256 := "x = SNARK_SCALAR_FIELD < 2^256 => x % SNARK_SCALAR_FIELD = 0 != x"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g10_unguarded_uint256_modField_elision_refuted" } ]
 
 /-- Check whether a candidate `mechanismHash` has already been burned in `burnedPathsRegistry`. -/
 def isBurnedMechanism (mechanismHash : String) : Bool :=
   burnedPathsRegistry.any (fun b => b.mechanismHash == mechanismHash)
 
 /-- **Theorem AP.9 (`unguarded_muldiv_is_burned_and_ratchet_is_not`)**:
-    Verifies that the refuted unguarded `mulDiv` cancellation is blocked by `isBurnedMechanism`,
-    whereas the guarded `G8` `Mathlib`/`TauCeti` cancellation is permitted. -/
+    Verifies that all three refuted hypotheses (`G8-burn-01`, `G8-burn-02`, `G10-burn-03`)
+    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G10` `Mathlib`/`TauCeti`
+    simplifications are permitted. -/
 theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8-burn-01:unguarded-muldiv-cancel-uint256" = true ∧
-    isBurnedMechanism "G8-ratchet-01:guarded-muldiv-cancel-uint256" = false := by
+    isBurnedMechanism "G8-burn-02:unguarded-muldivup-eq-down-without-dvd" = true ∧
+    isBurnedMechanism "G10-burn-03:uint256-bound-only-bn254-modfield-elision" = true ∧
+    isBurnedMechanism "G8-ratchet-01:guarded-muldiv-cancel-uint256" = false ∧
+    isBurnedMechanism "G9-ratchet-02:horner-cubic-wad-ray" = false ∧
+    isBurnedMechanism "G10-ratchet-03:bn254-modfield-lt-prime" = false := by
   decide
 
 /-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false`, complete with

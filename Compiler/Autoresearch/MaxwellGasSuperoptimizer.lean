@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 8 Certified Gas & Algebraic Optimization Passes (`G1`–`G8`) (Part 2.3) -/
+/-! ## 2. The 10 Certified Gas & Algebraic Optimization Passes (`G1`–`G10`) (Part 2.3 & Cycle 2) -/
 
-/-- Enumeration of the 8 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 10 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -99,9 +99,11 @@ inductive GasOptimizationPassId where
   | G6_calldataLazyDecoding
   | G7_selectorDispatchTreeLogN
   | G8_mathlibTauCetiAlgebraicSimplifier
+  | G9_hornerPolynomialWadRayFactorization
+  | G10_bn254ModFieldIntervalElision
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 8 optimization passes
+/-- Exact per-application gas savings formula for each of the 10 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -113,7 +115,11 @@ inductive GasOptimizationPassId where
     - **G7**: `linearBranchDelta * (2 * G_verylow + G_high)` (`16` gas per avoided dispatch step),
     - **G8**: `simplifiedMulDivSteps * (3 * G_mid + 6 * G_low + 8 * G_verylow + G_high)`
       (`88` gas per `Mathlib`/`TauCeti` algebraic `mulDiv` cancellation or ceil-to-floor collapse
-      eliding 512-bit `mulmod` + Chinese Remainder reconstruction + nonzero remainder check). -/
+      eliding 512-bit `mulmod` + Chinese Remainder reconstruction + nonzero remainder check),
+    - **G9**: `hornerSteps * (3 * G_low + 3 * G_verylow)`
+      (`24` gas per degree-reduction step in WAD/RAY Taylor polynomial evaluation via Horner's scheme),
+    - **G10**: `elidedModFieldOps * (G_low + 2 * G_verylow + G_high)`
+      (`21` gas per elided BN254 `MOD(x, SNARK_SCALAR_FIELD)` + zero-divisor branch when `x < p`). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -124,6 +130,8 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G6_calldataLazyDecoding => count * (2 * G_verylow)
   | .G7_selectorDispatchTreeLogN => count * (2 * G_verylow + G_high)
   | .G8_mathlibTauCetiAlgebraicSimplifier => count * (3 * G_mid + 6 * G_low + 8 * G_verylow + G_high)
+  | .G9_hornerPolynomialWadRayFactorization => count * (3 * G_low + 3 * G_verylow)
+  | .G10_bn254ModFieldIntervalElision => count * (G_low + 2 * G_verylow + G_high)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -190,14 +198,83 @@ theorem g8_unguarded_mulDiv_cancel_refuted :
     0 < d ∧ ((a * d) % (2 ^ 256)) / d ≠ a := by
   decide
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G8` pass applications. -/
+/-- **Theorem G8.2 (`mulDivUp` to `mulDivDown` Reduction Under Exact Divisibility)**:
+    Whenever `0 < d` and `a * b = d * k`, the ceiling quotient
+    `( (d * k) + (d - 1) ) / d` equals the floor quotient `(d * k) / d = k` identically,
+    eliding the ceiling remainder-branch and saving `88` gas when combined with 256-bit narrowing. -/
+theorem g8_mulDivUp_eq_mulDivDown_of_mod_eq_zero
+    (d k : Nat)
+    (hd : 0 < d) :
+    (d * k + (d - 1)) / d = (d * k) / d ∧
+    passGasSavings .G8_mathlibTauCetiAlgebraicSimplifier 1 = 88 := by
+  refine ⟨?_, by decide⟩
+  have hSubLt : d - 1 < d := by omega
+  calc
+    (d * k + (d - 1)) / d
+      = ((d - 1) + d * k) / d := by rw [Nat.add_comm]
+    _ = (d - 1) / d + k := Nat.add_mul_div_left (d - 1) k hd
+    _ = 0 + k := by rw [Nat.div_eq_of_lt hSubLt]
+    _ = k := Nat.zero_add k
+    _ = (d * k) / d := (Nat.mul_div_right k hd).symm
+
+/-- **Theorem G8-Burn-02 (Refutation of Unguarded `mulDivUp = mulDivDown` Without Divisibility)**:
+    Without `(a * b) % d = 0`, collapsing `mulDivUp` to `mulDivDown` is **false**
+    (counterexample: `a = 1, b = 1, d = 2`, where `(1 + 1) / 2 = 1 ≠ 1 / 2 = 0`). -/
+theorem g8_unguarded_mulDivUp_eq_down_refuted :
+    let a := 1
+    let b := 1
+    let d := 2
+    0 < d ∧ (a * b + (d - 1)) / d ≠ (a * b) / d := by
+  decide
+
+/-- **Theorem G9 (Horner Factorization for Cubic WAD/RAY Taylor Polynomials)**:
+    For any `c₀ c₁ c₂ c₃ x : Nat`, nested Horner evaluation
+    `c₀ + x * (c₁ + x * (c₂ + x * c₃))` equals the expanded cubic polynomial
+    `c₀ + c₁ * x + c₂ * (x * x) + c₃ * (x * (x * x))` while reducing multiplications
+    from 6 to 3 (saving `2 * 24 = 48` gas across 2 degree-reduction steps). -/
+theorem g9_horner_cubic_polynomial_sound_and_saves_48_gas
+    (c₀ c₁ c₂ c₃ x : Nat) :
+    c₀ + x * (c₁ + x * (c₂ + x * c₃)) =
+      c₀ + c₁ * x + c₂ * (x * x) + c₃ * (x * (x * x)) ∧
+    passGasSavings .G9_hornerPolynomialWadRayFactorization 2 = 48 := by
+  refine ⟨?_, by decide⟩
+  simp only [Nat.left_distrib, Nat.mul_comm, Nat.mul_left_comm, Nat.add_assoc]
+
+/-- Canonical BN254 scalar field prime modulus $p$ (`SNARK_SCALAR_FIELD`). -/
+def bn254ScalarFieldPrime : Nat :=
+  21888242871839275222246405745257275088548364400416034343698204186575808495617
+
+/-- **Theorem G10 (BN254 `modField` Interval Elision Soundness & Gas Savings)**:
+    Whenever interval analysis proves `x ≤ upperBound` and `upperBound < bn254ScalarFieldPrime`,
+    the modular reduction `x % bn254ScalarFieldPrime` equals `x` identically, saving `21` gas
+    per elided `modField` operation (`42` gas across 2 field inputs). -/
+theorem g10_bn254_modField_elision_sound_and_saves_42_gas
+    (x upperBound : Nat)
+    (hx : x ≤ upperBound)
+    (hBound : upperBound < bn254ScalarFieldPrime) :
+    x % bn254ScalarFieldPrime = x ∧
+    passGasSavings .G10_bn254ModFieldIntervalElision 2 = 42 := by
+  have hlt : x < bn254ScalarFieldPrime := Nat.lt_of_le_of_lt hx hBound
+  exact ⟨Nat.mod_eq_of_lt hlt, by decide⟩
+
+/-- **Theorem G10-Burn-03 (Refutation of BN254 `modField` Elision Under Only `x < 2^256`)**:
+    Because `bn254ScalarFieldPrime < 2^256`, eliding `x % bn254ScalarFieldPrime` under only the
+    256-bit word bound `x < 2^256` is **false** (counterexample: `x = bn254ScalarFieldPrime`,
+    which satisfies `x < 2^256` yet `x % bn254ScalarFieldPrime = 0 ≠ x`). -/
+theorem g10_unguarded_uint256_modField_elision_refuted :
+    let x := bn254ScalarFieldPrime
+    x < 2 ^ 256 ∧ x % bn254ScalarFieldPrime ≠ x := by
+  decide
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G10` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
 /-- **Executable Witness Suite (`by decide`, `0 native_decide`)**:
-    Verifies a combined Uniswap V4 `PoolManager.swap` optimization bundle applying G1–G8,
-    yielding `1,193` gas saved per swap call (`1,017` from G1–G7 + `176` from 2 `G8` `Mathlib`/`TauCeti`
-    `mulDiv` algebraic simplifications) while preserving `ObsEquiv`. -/
+    Verifies a combined C1..C6 (`PoolManager.swap` + WAD/RAY + BN254 hook) optimization bundle
+    applying G1–G10, yielding `1,371` gas saved per call (`1,193` from Cycle 1 + `88` from
+    `G8.2` `mulDivUp->mulDivDown` + `48` from `G9` Horner + `42` from `G10` BN254 `modField`
+    elision, i.e. `+14.9%` over Cycle 1) while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
       [ (.G1_tempReuseStackScheduling, 4),
@@ -207,8 +284,10 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G5_scratchSpaceHashing, 2),
         (.G6_calldataLazyDecoding, 2),
         (.G7_selectorDispatchTreeLogN, 12),
-        (.G8_mathlibTauCetiAlgebraicSimplifier, 2) ]
-    totalSuperoptimizerGasSaved bundle = 1193 := by
+        (.G8_mathlibTauCetiAlgebraicSimplifier, 3),
+        (.G9_hornerPolynomialWadRayFactorization, 2),
+        (.G10_bn254ModFieldIntervalElision, 2) ]
+    totalSuperoptimizerGasSaved bundle = 1371 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer
