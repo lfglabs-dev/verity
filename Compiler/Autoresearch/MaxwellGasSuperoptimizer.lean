@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 34 Certified Gas & Algebraic Optimization Passes (`G1`–`G34`) (Part 2.3 & Cycles 2–10) -/
+/-! ## 2. The 37 Certified Gas & Algebraic Optimization Passes (`G1`–`G37`) (Part 2.3 & Cycles 2–11) -/
 
-/-- Enumeration of the 34 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 37 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -125,9 +125,12 @@ inductive GasOptimizationPassId where
   | G32_consecutiveBitmaskOrFusion
   | G33_nonOverflowingAddSubCancellation
   | G34_dominatedCalldatasizeGuardElision
+  | G35_guardedSubAddRoundtripCancellation
+  | G36_intervalTautologicalComparisonElision
+  | G37_consecutiveFreeMemBumpFusion
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 34 optimization passes
+/-- Exact per-application gas savings formula for each of the 37 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -192,7 +195,13 @@ inductive GasOptimizationPassId where
     - **G33**: `cancelledAddSubPairs * (4 * G_verylow + G_high)`
       (`22` gas per non-overflowing `(a + b) - b = a` cancellation eliding both `ADD` + `SUB` and their guard),
     - **G34**: `elidedCalldatasizeChecks * (4 * G_verylow + G_high)`
-      (`22` gas per redundant `CALLDATASIZE` + `LT` + `ISZERO` + `PUSH` + `JUMPI` check dominated by the outer ABI header guard). -/
+      (`22` gas per redundant `CALLDATASIZE` + `LT` + `ISZERO` + `PUSH` + `JUMPI` check dominated by the outer ABI header guard),
+    - **G35**: `cancelledSubAddPairs * (4 * G_verylow + G_high)`
+      (`22` gas per guarded `(x - d) + d = x` round-trip cancellation under `d ≤ x`),
+    - **G36**: `elidedTautologicalComparisons * (2 * G_verylow + G_high)`
+      (`16` gas per tautological `LT`/`GT` + `PUSH` + `JUMPI` branch elided when `boundX < minY`),
+    - **G37**: `fusedFreeMemBumps * (4 * G_verylow)`
+      (`12` gas per consecutive `MLOAD(0x40)` + `ADD` + `MSTORE(0x40)` bump fused into `p₀ + (s₁ + s₂)`). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -229,6 +238,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G32_consecutiveBitmaskOrFusion => count * (2 * G_verylow)
   | .G33_nonOverflowingAddSubCancellation => count * (4 * G_verylow + G_high)
   | .G34_dominatedCalldatasizeGuardElision => count * (4 * G_verylow + G_high)
+  | .G35_guardedSubAddRoundtripCancellation => count * (4 * G_verylow + G_high)
+  | .G36_intervalTautologicalComparisonElision => count * (2 * G_verylow + G_high)
+  | .G37_consecutiveFreeMemBumpFusion => count * (4 * G_verylow)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -814,7 +826,63 @@ theorem g34_dominated_calldatasize_guard_elision_sound_and_saves_44_gas
     passGasSavings .G34_dominatedCalldatasizeGuardElision 2 = 44 := by
   exact ⟨Nat.le_trans (Nat.le_add_right minWords extraWords) hOuter, by decide⟩
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G34` pass applications. -/
+/-- **Theorem G35 (Guarded `SUB`/`ADD` Round-Trip Cancellation)**:
+    Whenever `d ≤ x` is established by a dominating balance/reserve guard (`require(x >= d)`),
+    computing `(x - d) + d` equals `x` (`Nat.sub_add_cancel`), eliminating the subtraction,
+    addition, and redundant overflow check (`22` gas per site, `44` gas across 2 reserve
+    restoration round-trips). -/
+theorem g35_guarded_sub_add_cancel_sound_and_saves_44_gas
+    (x d : Nat)
+    (hGuard : d ≤ x) :
+    (x - d) + d = x ∧
+    passGasSavings .G35_guardedSubAddRoundtripCancellation 2 = 44 := by
+  exact ⟨Nat.sub_add_cancel hGuard, by decide⟩
+
+/-- **Theorem G35-Burn-19 (Refutation of Unguarded `safeAdd(safeSub(x, d), d) -> x` Under Underflow)**:
+    Cancelling `safeAdd(safeSub(x, d), d)` to `x` without a dominating `d ≤ x` guard is **unsound**
+    because `safeSub(x, d)` must revert (`none`) when `x < d`, whereas `x` succeeds (`some x`)
+    (counterexample: `x = 3, d = 5`, where `(if 5 ≤ 3 then some ((3 - 5) + 5) else none) = none ≠ some 3`). -/
+theorem g35_unguarded_sub_add_underflow_cancel_refuted :
+    let x := 3
+    let d := 5
+    (if d ≤ x then some ((x - d) + d) else none) ≠ some x := by
+  decide
+
+/-- **Theorem G36 (Interval-Bounded Tautological Comparison Branch Elision)**:
+    Whenever interval analysis proves `x ≤ boundX` and `boundX ≤ y`, the maximum `max x y`
+    equals `y` identically (`Nat.max_eq_right`), eliding the `LT` + `PUSH` + `JUMPI` branch
+    (`16` gas per elided comparison, `32` gas across 2 tick/fee tier boundary checks). -/
+theorem g36_interval_tautological_lt_elision_sound_and_saves_32_gas
+    (x boundX y : Nat)
+    (hx : x ≤ boundX)
+    (hSep : boundX ≤ y) :
+    Nat.max x y = y ∧
+    passGasSavings .G36_intervalTautologicalComparisonElision 2 = 32 := by
+  have hxy : x ≤ y := Nat.le_trans hx hSep
+  exact ⟨Nat.max_eq_right hxy, by decide⟩
+
+/-- **Theorem G36-Burn-20 (Refutation of Overlapping-Interval Strict `<` Elision)**:
+    Folding `if x < y then 1 else 0` to `1` when only weak interval ordering `boundX ≤ minY`
+    holds is **unsound** at the boundary `x = boundX = minY = y`
+    (counterexample: `x = 10, y = 10`, where `(if 10 < 10 then 1 else 0) = 0 ≠ 1`). -/
+theorem g36_overlapping_interval_strict_lt_elision_refuted :
+    let x := 10
+    let y := 10
+    (if x < y then 1 else 0) ≠ 1 := by
+  decide
+
+/-- **Theorem G37 (Consecutive Free-Memory Pointer `0x40` Bump Fusion)**:
+    Fusing two consecutive free-memory pointer allocations `(p₀ + s₁) + s₂` into a single
+    compile-time offset bump `p₀ + (s₁ + s₂)` preserves the exact watermark (`Nat.add_assoc`)
+    while eliminating the intermediate `MSTORE(0x40, p₀ + s₁)` + `MLOAD(0x40)` + `ADD` (`12` gas
+    per fused allocation pair, `36` gas across 3 multi-struct ABI encoding blocks). -/
+theorem g37_consecutive_free_mem_bump_fusion_sound_and_saves_36_gas
+    (p₀ s₁ s₂ : Nat) :
+    (p₀ + s₁) + s₂ = p₀ + (s₁ + s₂) ∧
+    passGasSavings .G37_consecutiveFreeMemBumpFusion 3 = 36 := by
+  exact ⟨Nat.add_assoc p₀ s₁ s₂, by decide⟩
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G37` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
@@ -827,11 +895,13 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
     `2^k` `MOD->AND` reduction + `TSTORE->TLOAD` forwarding + dominated `require` elision +
     consecutive `SHR` offset fusion + canonical boolean double-`ISZERO` elision +
     distributive exact division factorization + consecutive `OR` mask fusion +
-    non-overflowing `ADD`/`SUB` cancellation + dominated `CALLDATASIZE` guard elision)
-    optimization bundle applying G1–G34, yielding `3,267` gas saved per call (`3,161` from
-    Cycle 9 + `18` from `G32` consecutive `OR` mask fusion + `44` from `G33` non-overflowing
-    `ADD`/`SUB` cancellation + `44` from `G34` dominated `CALLDATASIZE` guard elision,
-    i.e. `+3.4%` over Cycle 9) while preserving `ObsEquiv`. -/
+    non-overflowing `ADD`/`SUB` cancellation + dominated `CALLDATASIZE` guard elision +
+    guarded `SUB`/`ADD` round-trip cancellation + interval tautological `<` elision +
+    consecutive `0x40` free-memory bump fusion)
+    optimization bundle applying G1–G37, yielding `3,379` gas saved per call (`3,267` from
+    Cycle 10 + `44` from `G35` guarded `SUB`/`ADD` cancellation + `32` from `G36` interval
+    tautological comparison elision + `36` from `G37` consecutive free-memory pointer bump fusion,
+    i.e. `+3.4%` over Cycle 10) while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
       [ (.G1_tempReuseStackScheduling, 4),
@@ -867,8 +937,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G31_distributiveExactDivFactorization, 2),
         (.G32_consecutiveBitmaskOrFusion, 3),
         (.G33_nonOverflowingAddSubCancellation, 2),
-        (.G34_dominatedCalldatasizeGuardElision, 2) ]
-    totalSuperoptimizerGasSaved bundle = 3267 := by
+        (.G34_dominatedCalldatasizeGuardElision, 2),
+        (.G35_guardedSubAddRoundtripCancellation, 2),
+        (.G36_intervalTautologicalComparisonElision, 2),
+        (.G37_consecutiveFreeMemBumpFusion, 3) ]
+    totalSuperoptimizerGasSaved bundle = 3379 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer

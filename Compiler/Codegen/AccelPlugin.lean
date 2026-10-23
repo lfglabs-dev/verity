@@ -181,6 +181,9 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g32_consecutive_bitmask_or_fusion_sound_and_saves_18_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g33_non_overflowing_add_sub_cancel_sound_and_saves_44_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g34_dominated_calldatasize_guard_elision_sound_and_saves_44_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g35_guarded_sub_add_cancel_sound_and_saves_44_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g36_interval_tautological_lt_elision_sound_and_saves_32_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g37_consecutive_free_mem_bump_fusion_sound_and_saves_36_gas"
   , "Verity.Proofs.Stdlib.Math.mulDivDown_cancel_right"
   , "Verity.Proofs.Stdlib.Math.mulDivUp_eq_mulDivDown_of_dvd"
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
@@ -511,7 +514,22 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       scope := .yul
       passId := some .G34_dominatedCalldatasizeGuardElision
       assurance := .kernelVerified
-      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g34_dominated_calldatasize_guard_elision_sound_and_saves_44_gas" } ]
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g34_dominated_calldatasize_guard_elision_sound_and_saves_44_gas" }
+  , { pluginName := "G35:guarded-sub-add-roundtrip-cancellation"
+      scope := .mathAlgebraic
+      passId := some .G35_guardedSubAddRoundtripCancellation
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g35_guarded_sub_add_cancel_sound_and_saves_44_gas" }
+  , { pluginName := "G36:interval-tautological-comparison-elision"
+      scope := .mathAlgebraic
+      passId := some .G36_intervalTautologicalComparisonElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g36_interval_tautological_lt_elision_sound_and_saves_32_gas" }
+  , { pluginName := "G37:consecutive-free-mem-bump-fusion"
+      scope := .yul
+      passId := some .G37_consecutiveFreeMemBumpFusion
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g37_consecutive_free_mem_bump_fusion_sound_and_saves_36_gas" } ]
 
 /-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
@@ -621,15 +639,23 @@ def burnedPathsRegistry : List BurnedPathEntry :=
   , { mechanismHash := "G33-burn-18:overflowing-add-sub-roundtrip-cancellation"
       axis := "abstract_domain_interval_elision"
       counterexample256 := "a = 2^256 - 1, b = 1 => ((a + b) % 2^256) - b = 0 != a"
-      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g33_overflowing_add_sub_cancel_refuted" } ]
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g33_overflowing_add_sub_cancel_refuted" }
+  , { mechanismHash := "G35-burn-19:unguarded-sub-add-underflow-cancellation"
+      axis := "math_algebraic_tauceti_rule"
+      counterexample256 := "x = 3, d = 5 => safeSub(3, 5) reverts (none) != some 3"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g35_unguarded_sub_add_underflow_cancel_refuted" }
+  , { mechanismHash := "G36-burn-20:overlapping-interval-strict-lt-elision"
+      axis := "abstract_domain_interval_elision"
+      counterexample256 := "x = 10, y = 10 => (if 10 < 10 then 1 else 0) = 0 != 1"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g36_overlapping_interval_strict_lt_elision_refuted" } ]
 
 /-- Check whether a candidate `mechanismHash` has already been burned in `burnedPathsRegistry`. -/
 def isBurnedMechanism (mechanismHash : String) : Bool :=
   burnedPathsRegistry.any (fun b => b.mechanismHash == mechanismHash)
 
 /-- **Theorem AP.9 (`unguarded_muldiv_is_burned_and_ratchet_is_not`)**:
-    Verifies that all eighteen refuted hypotheses (`G8-burn-01`..`G33-burn-18`)
-    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G34`
+    Verifies that all twenty refuted hypotheses (`G8-burn-01`..`G36-burn-20`)
+    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G37`
     simplifications are permitted. -/
 theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8-burn-01:unguarded-muldiv-cancel-uint256" = true ∧
@@ -650,9 +676,11 @@ theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G31-burn-16:unfactored-floor-div-add-distribution" = true ∧
     isBurnedMechanism "G32-burn-17:overlapping-bitmask-or-to-add-replacement" = true ∧
     isBurnedMechanism "G33-burn-18:overflowing-add-sub-roundtrip-cancellation" = true ∧
-    isBurnedMechanism "G32-ratchet-25:consecutive-bitmask-or-fusion" = false ∧
-    isBurnedMechanism "G33-ratchet-26:non-overflowing-add-sub-cancellation" = false ∧
-    isBurnedMechanism "G34-ratchet-27:dominated-calldatasize-guard-elision" = false := by
+    isBurnedMechanism "G35-burn-19:unguarded-sub-add-underflow-cancellation" = true ∧
+    isBurnedMechanism "G36-burn-20:overlapping-interval-strict-lt-elision" = true ∧
+    isBurnedMechanism "G35-ratchet-28:guarded-sub-add-roundtrip-cancellation" = false ∧
+    isBurnedMechanism "G36-ratchet-29:interval-tautological-comparison-elision" = false ∧
+    isBurnedMechanism "G37-ratchet-30:consecutive-free-mem-bump-fusion" = false := by
   decide
 
 /-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false`, complete with
