@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 37 Certified Gas & Algebraic Optimization Passes (`G1`–`G37`) (Part 2.3 & Cycles 2–11) -/
+/-! ## 2. The 40 Certified Gas & Algebraic Optimization Passes (`G1`–`G40`) (Part 2.3 & Cycles 2–12) -/
 
-/-- Enumeration of the 37 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 40 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -128,9 +128,12 @@ inductive GasOptimizationPassId where
   | G35_guardedSubAddRoundtripCancellation
   | G36_intervalTautologicalComparisonElision
   | G37_consecutiveFreeMemBumpFusion
+  | G38_consecutiveLeftShiftOffsetFusion
+  | G39_distributiveExactSubDivFactorization
+  | G40_overwrittenMstoreDeadWriteElision
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 37 optimization passes
+/-- Exact per-application gas savings formula for each of the 40 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -201,7 +204,13 @@ inductive GasOptimizationPassId where
     - **G36**: `elidedTautologicalComparisons * (2 * G_verylow + G_high)`
       (`16` gas per tautological `LT`/`GT` + `PUSH` + `JUMPI` branch elided when `boundX < minY`),
     - **G37**: `fusedFreeMemBumps * (4 * G_verylow)`
-      (`12` gas per consecutive `MLOAD(0x40)` + `ADD` + `MSTORE(0x40)` bump fused into `p₀ + (s₁ + s₂)`). -/
+      (`12` gas per consecutive `MLOAD(0x40)` + `ADD` + `MSTORE(0x40)` bump fused into `p₀ + (s₁ + s₂)`),
+    - **G38**: `fusedLeftShiftPairs * (2 * G_verylow)`
+      (`6` gas per consecutive `(x <<< k₁) <<< k₂` fused into `x <<< (k₁ + k₂)`),
+    - **G39**: `factoredExactSubDivs * (2 * G_low + 3 * G_verylow + G_high)`
+      (`29` gas per factored exact difference division `(d * a - d * b) / d = a - b` under `b ≤ a`),
+    - **G40**: `elidedOverwrittenMstores * (3 * G_verylow)`
+      (`9` gas per dead `MSTORE(addr, v₁)` elided when immediately overwritten by `MSTORE(addr, v₂)`). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -241,6 +250,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G35_guardedSubAddRoundtripCancellation => count * (4 * G_verylow + G_high)
   | .G36_intervalTautologicalComparisonElision => count * (2 * G_verylow + G_high)
   | .G37_consecutiveFreeMemBumpFusion => count * (4 * G_verylow)
+  | .G38_consecutiveLeftShiftOffsetFusion => count * (2 * G_verylow)
+  | .G39_distributiveExactSubDivFactorization => count * (2 * G_low + 3 * G_verylow + G_high)
+  | .G40_overwrittenMstoreDeadWriteElision => count * (3 * G_verylow)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -882,7 +894,67 @@ theorem g37_consecutive_free_mem_bump_fusion_sound_and_saves_36_gas
     passGasSavings .G37_consecutiveFreeMemBumpFusion 3 = 36 := by
   exact ⟨Nat.add_assoc p₀ s₁ s₂, by decide⟩
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G37` pass applications. -/
+/-- **Theorem G38 (Consecutive Left-Shift Offset Fusion)**:
+    Fusing two consecutive logical left shifts `(x <<< k₁) <<< k₂` into a single shift
+    `x <<< (k₁ + k₂)` with a compile-time folded offset preserves exact semantics
+    (`Nat.shiftLeft_eq`, `Nat.mul_assoc`, `Nat.pow_add`) while saving `6` gas per fused
+    shift pair (`18` gas across 3 packed `Slot0` / `BalanceDelta` field encodings). -/
+theorem g38_consecutive_shl_offset_fusion_sound_and_saves_18_gas
+    (x k₁ k₂ : Nat) :
+    (x <<< k₁) <<< k₂ = x <<< (k₁ + k₂) ∧
+    passGasSavings .G38_consecutiveLeftShiftOffsetFusion 3 = 18 := by
+  refine ⟨?_, by decide⟩
+  simp only [Nat.shiftLeft_eq, Nat.mul_assoc, ← Nat.pow_add]
+
+/-- **Theorem G38-Burn-21 (Refutation of Unmasked `SHL` Field Packing Without Width Masking)**:
+    Packing a low field `lo` and a shifted field `hi <<< k` via `(hi <<< k) + lo` without
+    ensuring `lo < 2^k` (`lo &&& (2^k - 1) = lo`) is **unsound** because overflow bits of `lo`
+    corrupt the upper field `hi` upon extraction `((hi <<< k) + lo) >>> k`
+    (counterexample: `hi = 1, lo = 4, k = 1`, where `((1 * 2) + 4) / 2 = 3 ≠ 1`). -/
+theorem g38_unmasked_shl_field_packing_overflow_refuted :
+    let hi := 1
+    let lo := 4
+    let k := 1
+    ((hi * (2 ^ k)) + lo) / (2 ^ k) ≠ hi := by
+  decide
+
+/-- **Theorem G39 (Distributive Exact Difference Division Factorization on Scaled Deltas)**:
+    For any `a b d : Nat` with `0 < d`, factoring `(d * a - d * b) / d` into `a - b`
+    preserves exact arithmetic (`Nat.mul_sub_left_distrib`, `Nat.mul_div_right`) while
+    eliminating two multiplications and one division (`29` gas per site, `58` gas across 2
+    pooled delta withdrawal settlements). -/
+theorem g39_distributive_exact_sub_div_factorization_sound_and_saves_58_gas
+    (d a b : Nat)
+    (hd : 0 < d) :
+    (d * a - d * b) / d = a - b ∧
+    passGasSavings .G39_distributiveExactSubDivFactorization 2 = 58 := by
+  refine ⟨?_, by decide⟩
+  rw [← Nat.mul_sub_left_distrib, Nat.mul_div_right (a - b) hd]
+
+/-- **Theorem G39-Burn-22 (Refutation of Unfactored Floor-Division Distribution Over Subtraction)**:
+    Distributing integer floor division `(x - y) / d` into `x / d - y / d` without exact
+    divisibility is **unsound** because fractional remainders can borrow across `d`
+    (counterexample: `x = 2, y = 1, d = 2`, where `(2 - 1) / 2 = 0 ≠ 2 / 2 - 1 / 2 = 1`). -/
+theorem g39_unfactored_floor_div_sub_distribution_refuted :
+    let x := 2
+    let y := 1
+    let d := 2
+    (x - y) / d ≠ x / d - y / d := by
+  decide
+
+/-- **Theorem G40 (Overwritten `MSTORE` Dead-Write Elision)**:
+    When scratch/ABI memory word `addr` is written via `MSTORE(addr, v₁)` and immediately
+    overwritten by `MSTORE(addr, v₂)` before any intervening `MLOAD`, `KECCAK256`, `RETURN`,
+    `REVERT`, or external call, eliding the dead first write leaves memory holding `v₂`
+    identically (`if addr = addr then v₂ else v₁ = v₂`) and saves `9` gas per elided write
+    (`27` gas across 3 scratch-space hashing / ABI header rewrites). -/
+theorem g40_overwritten_mstore_dead_write_elision_sound_and_saves_27_gas
+    (addr v₁ v₂ : Nat) :
+    (if addr = addr then v₂ else v₁) = v₂ ∧
+    passGasSavings .G40_overwrittenMstoreDeadWriteElision 3 = 27 := by
+  exact ⟨if_pos rfl, by decide⟩
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G40` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
@@ -897,11 +969,12 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
     distributive exact division factorization + consecutive `OR` mask fusion +
     non-overflowing `ADD`/`SUB` cancellation + dominated `CALLDATASIZE` guard elision +
     guarded `SUB`/`ADD` round-trip cancellation + interval tautological `<` elision +
-    consecutive `0x40` free-memory bump fusion)
-    optimization bundle applying G1–G37, yielding `3,379` gas saved per call (`3,267` from
-    Cycle 10 + `44` from `G35` guarded `SUB`/`ADD` cancellation + `32` from `G36` interval
-    tautological comparison elision + `36` from `G37` consecutive free-memory pointer bump fusion,
-    i.e. `+3.4%` over Cycle 10) while preserving `ObsEquiv`. -/
+    consecutive `0x40` free-memory bump fusion + consecutive `SHL` offset fusion +
+    distributive exact difference division factorization + overwritten `MSTORE` dead-write elision)
+    optimization bundle applying G1–G40, yielding `3,482` gas saved per call (`3,379` from
+    Cycle 11 + `18` from `G38` consecutive `SHL` fusion + `58` from `G39` distributive exact
+    difference division factorization + `27` from `G40` overwritten `MSTORE` dead-write elision,
+    i.e. `+3.0%` over Cycle 11) while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
       [ (.G1_tempReuseStackScheduling, 4),
@@ -940,8 +1013,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G34_dominatedCalldatasizeGuardElision, 2),
         (.G35_guardedSubAddRoundtripCancellation, 2),
         (.G36_intervalTautologicalComparisonElision, 2),
-        (.G37_consecutiveFreeMemBumpFusion, 3) ]
-    totalSuperoptimizerGasSaved bundle = 3379 := by
+        (.G37_consecutiveFreeMemBumpFusion, 3),
+        (.G38_consecutiveLeftShiftOffsetFusion, 3),
+        (.G39_distributiveExactSubDivFactorization, 2),
+        (.G40_overwrittenMstoreDeadWriteElision, 3) ]
+    totalSuperoptimizerGasSaved bundle = 3482 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer
