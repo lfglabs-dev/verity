@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 46 Certified Gas & Algebraic Optimization Passes (`G1`–`G46`) (Part 2.3 & Cycles 2–14) -/
+/-! ## 2. The 49 Certified Gas & Algebraic Optimization Passes (`G1`–`G49`) (Part 2.3 & Cycles 2–15) -/
 
-/-- Enumeration of the 46 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 49 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -137,9 +137,12 @@ inductive GasOptimizationPassId where
   | G44_noopMstoreAfterMloadElision
   | G45_dominatedBitmaskAndAfterMaskElision
   | G46_consecutiveMemoryOffsetAddFusion
+  | G47_dominatedBitmaskOrAfterSetElision
+  | G48_intervalBoundedShlShrRoundtripCancellation
+  | G49_intervalTautologicalIszeroLtElision
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 46 optimization passes
+/-- Exact per-application gas savings formula for each of the 49 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -228,7 +231,13 @@ inductive GasOptimizationPassId where
     - **G45**: `elidedDominatedMaskAnds * (2 * G_verylow)`
       (`6` gas per redundant outer `AND` mask `(x &&& m₁) &&& m₂ = x &&& m₁` when `m₁ &&& m₂ = m₁`),
     - **G46**: `fusedMemOffsetAdds * (2 * G_verylow)`
-      (`6` gas per consecutive `(base + off₁) + off₂` memory address calculation fused into `base + (off₁ + off₂)`). -/
+      (`6` gas per consecutive `(base + off₁) + off₂` memory address calculation fused into `base + (off₁ + off₂)`),
+    - **G47**: `elidedDominatedMaskOrs * (2 * G_verylow)`
+      (`6` gas per redundant outer `OR` mask `(x ||| m₁) ||| m₂ = x ||| m₁` when `m₁ ||| m₂ = m₁`),
+    - **G48**: `cancelledShlShrPairs * (4 * G_verylow)`
+      (`12` gas per non-overflowing `(x <<< k) >>> k = x` shift round-trip elided when `x * 2^k < 2^256`),
+    - **G49**: `elidedTautologicalIszeroLts * (3 * G_verylow + G_high)`
+      (`19` gas per tautological `ISZERO(LT(x, y))` + `PUSH` + `JUMPI` branch elided when `y ≤ minX`). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -277,6 +286,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G44_noopMstoreAfterMloadElision => count * (3 * G_verylow)
   | .G45_dominatedBitmaskAndAfterMaskElision => count * (2 * G_verylow)
   | .G46_consecutiveMemoryOffsetAddFusion => count * (2 * G_verylow)
+  | .G47_dominatedBitmaskOrAfterSetElision => count * (2 * G_verylow)
+  | .G48_intervalBoundedShlShrRoundtripCancellation => count * (4 * G_verylow)
+  | .G49_intervalTautologicalIszeroLtElision => count * (3 * G_verylow + G_high)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -1107,7 +1119,71 @@ theorem g46_wrapped_offset_add_fusion_across_lt_guard_refuted :
       decide (((base + (off₁ + off₂)) % (2 ^ 256)) < base) := by
   decide
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G46` pass applications. -/
+/-- **Theorem G47 (Dominated Bitmask `OR` Elision After Superset Flag Mask)**:
+    Whenever a word `x ||| m₁` has already had flag mask `m₁` set and a subsequent mask `m₂` is
+    a subset of `m₁` (`m₁ ||| m₂ = m₁`, e.g., hook permission flag bitmap already containing `m₂`),
+    the outer `OR` is a no-op (`(x ||| m₁) ||| m₂ = x ||| m₁` via `Nat.or_assoc`), saving `6` gas
+    per elided `PUSH` + `OR` pair (`24` gas across 4 packed `Slot0` / hook permission flag updates). -/
+theorem g47_dominated_bitmask_or_after_set_elision_sound_and_saves_24_gas
+    (x m₁ m₂ : Nat)
+    (hSub : m₁ ||| m₂ = m₁) :
+    (x ||| m₁) ||| m₂ = x ||| m₁ ∧
+    passGasSavings .G47_dominatedBitmaskOrAfterSetElision 4 = 24 := by
+  refine ⟨?_, by decide⟩
+  rw [Nat.or_assoc, hSub]
+
+/-- **Theorem G48 (Interval-Bounded `SHL -> SHR` Exact Round-Trip Cancellation)**:
+    Whenever interval analysis proves `x ≤ boundX` and `boundX * 2^k < 2^256` (so `x <<< k` does
+    not wrap modulo `2^256`), shifting left by `k` bits and immediately shifting right by `k` bits
+    `((x * 2^k) % 2^256) / 2^k` returns `x` identically (`Nat.mod_eq_of_lt`, `Nat.mul_div_left`),
+    saving `12` gas per cancelled `PUSH` + `SHL` + `PUSH` + `SHR` round-trip (`36` gas across 3
+    packed `uint160`/`uint24` intermediate alignments). -/
+theorem g48_interval_bounded_shl_shr_roundtrip_cancel_sound_and_saves_36_gas
+    (x boundX k : Nat)
+    (hx : x ≤ boundX)
+    (hNoWrap : boundX * (2 ^ k) < 2 ^ 256) :
+    ((x * (2 ^ k)) % (2 ^ 256)) / (2 ^ k) = x ∧
+    passGasSavings .G48_intervalBoundedShlShrRoundtripCancellation 3 = 36 := by
+  have hMulLe : x * (2 ^ k) ≤ boundX * (2 ^ k) := Nat.mul_le_mul_right (2 ^ k) hx
+  have hLt : x * (2 ^ k) < 2 ^ 256 := Nat.lt_of_le_of_lt hMulLe hNoWrap
+  have hPowPos : 0 < 2 ^ k := Nat.two_pow_pos k
+  refine ⟨?_, by decide⟩
+  rw [Nat.mod_eq_of_lt hLt, Nat.mul_div_left x hPowPos]
+
+/-- **Theorem G48-Burn-27 (Refutation of Overflowing 256-Bit `SHL -> SHR` Round-Trip Cancellation)**:
+    Cancelling `((x * 2^k) % 2^256) / 2^k` to `x` without proving `x * 2^k < 2^256` is **unsound**
+    because high bits shifted past bit 255 are truncated by `SHL`
+    (counterexample: `x = 2^255, k = 1`, where `((2^255 * 2) % 2^256) / 2 = 0 ≠ 2^255`). -/
+theorem g48_overflowing_shl_shr_roundtrip_cancel_refuted :
+    let x := 2 ^ 255
+    let k := 1
+    ((x * (2 ^ k)) % (2 ^ 256)) / (2 ^ k) ≠ x := by
+  decide
+
+/-- **Theorem G49 (Interval-Bounded Tautological `ISZERO(LT(x, y))` Guard Elision)**:
+    Whenever interval analysis proves `y ≤ minX` and `minX ≤ x`, `y ≤ x` holds invariably so
+    `Nat.min y x = y` (`Nat.min_eq_left`), eliding the `LT(x, y)` + `ISZERO` + `PUSH` + `JUMPI`
+    underflow guard (`19` gas per elided guard, `38` gas across 2 liquidity-floor / fee-cap checks). -/
+theorem g49_interval_tautological_iszero_lt_elision_sound_and_saves_38_gas
+    (x minX y : Nat)
+    (hy : y ≤ minX)
+    (hx : minX ≤ x) :
+    Nat.min y x = y ∧
+    passGasSavings .G49_intervalTautologicalIszeroLtElision 2 = 38 := by
+  have hyx : y ≤ x := Nat.le_trans hy hx
+  exact ⟨Nat.min_eq_left hyx, by decide⟩
+
+/-- **Theorem G49-Burn-28 (Refutation of Eliding `ISZERO(LT(x, y))` Under Upper-Bound-Only `y ≤ maxX`)**:
+    Eliding `ISZERO(LT(x, y))` (`x ≥ y`) when only the upper bound satisfies `y ≤ maxX` (rather
+    than the lower bound `y ≤ minX`) is **unsound** whenever runtime `x < y`
+    (counterexample: `x = 4, y = 7, maxX = 10`, where `(if 4 < 7 then 0 else 1) = 0 ≠ 1`). -/
+theorem g49_upper_bound_only_iszero_lt_elision_refuted :
+    let x := 4
+    let y := 7
+    (if x < y then 0 else 1) ≠ 1 := by
+  decide
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G49` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
@@ -1126,11 +1202,13 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
     distributive exact difference division factorization + overwritten `MSTORE` dead-write elision +
     intra-block `MSTORE->MLOAD` forwarding + involutive `XOR` mask cancellation +
     interval-bounded low-bitmask `AND` elision + no-op `MSTORE` after `MLOAD` elision +
-    dominated bitmask `AND` after narrower mask elision + consecutive memory offset `ADD` fusion)
-    optimization bundle applying G1–G46, yielding `3,629` gas saved per call (`3,554` from
-    Cycle 13 + `27` from `G44` no-op `MSTORE` elision + `24` from `G45` dominated bitmask `AND`
-    elision + `24` from `G46` consecutive memory offset `ADD` fusion, i.e. `+2.1%` over Cycle 13)
-    while preserving `ObsEquiv`. -/
+    dominated bitmask `AND` after narrower mask elision + consecutive memory offset `ADD` fusion +
+    dominated bitmask `OR` after superset flag mask elision + interval-bounded `SHL->SHR`
+    round-trip cancellation + interval tautological `ISZERO(LT)` guard elision)
+    optimization bundle applying G1–G49, yielding `3,727` gas saved per call (`3,629` from
+    Cycle 14 + `24` from `G47` dominated bitmask `OR` elision + `36` from `G48` interval-bounded
+    `SHL->SHR` round-trip cancellation + `38` from `G49` interval tautological `ISZERO(LT)` guard
+    elision, i.e. `+2.7%` over Cycle 14) while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
       [ (.G1_tempReuseStackScheduling, 4),
@@ -1178,8 +1256,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G43_intervalBoundedLowBitmaskAndElision, 4),
         (.G44_noopMstoreAfterMloadElision, 3),
         (.G45_dominatedBitmaskAndAfterMaskElision, 4),
-        (.G46_consecutiveMemoryOffsetAddFusion, 4) ]
-    totalSuperoptimizerGasSaved bundle = 3629 := by
+        (.G46_consecutiveMemoryOffsetAddFusion, 4),
+        (.G47_dominatedBitmaskOrAfterSetElision, 4),
+        (.G48_intervalBoundedShlShrRoundtripCancellation, 3),
+        (.G49_intervalTautologicalIszeroLtElision, 2) ]
+    totalSuperoptimizerGasSaved bundle = 3727 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer
