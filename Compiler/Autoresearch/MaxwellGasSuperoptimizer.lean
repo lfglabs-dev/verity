@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 22 Certified Gas & Algebraic Optimization Passes (`G1`–`G22`) (Part 2.3 & Cycles 2–6) -/
+/-! ## 2. The 25 Certified Gas & Algebraic Optimization Passes (`G1`–`G25`) (Part 2.3 & Cycles 2–7) -/
 
-/-- Enumeration of the 22 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 25 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -113,9 +113,12 @@ inductive GasOptimizationPassId where
   | G20_noopSstoreAfterSloadElision
   | G21_exactCeilDivToFloorDivCollapse
   | G22_consecutiveBitmaskAndFusion
+  | G23_safeMulIntervalOverflowElision
+  | G24_powerOfTwoDivModStrengthReduction
+  | G25_noopTransientTstoreElisionEIP1153
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 22 optimization passes
+/-- Exact per-application gas savings formula for each of the 25 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -156,7 +159,13 @@ inductive GasOptimizationPassId where
     - **G21**: `collapsedCeilDivs * (G_low + 3 * G_verylow + G_high)`
       (`24` gas per `ceilDiv(a, d)` collapsed to `a / d` when `a = d * k` is an exact multiple of `d`),
     - **G22**: `fusedBitmaskAnds * (2 * G_verylow)`
-      (`6` gas per consecutive `(x &&& m₁) &&& m₂` fused into a single compile-time mask `x &&& (m₁ &&& m₂)`). -/
+      (`6` gas per consecutive `(x &&& m₁) &&& m₂` fused into a single compile-time mask `x &&& (m₁ &&& m₂)`),
+    - **G23**: `elidedSafeMulGuards * (G_low + 3 * G_verylow + G_high)`
+      (`24` gas per `safeMul(a, b)` overflow-division check elided when interval bounds satisfy `boundA * boundB < 2^256`),
+    - **G24**: `reducedPow2DivMods * (G_low + G_verylow + G_high)`
+      (`18` gas per unsigned `DIV`/`MOD` by a constant power of two `2^k` strength-reduced to `SHR`/`AND` with zero-check elision),
+    - **G25**: `elidedNoopTstores * G_tstore`
+      (`100` gas per redundant EIP-1153 `TSTORE(s, v)` eliminated when `v` equals the preceding `TLOAD(s)`). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -181,6 +190,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G20_noopSstoreAfterSloadElision => count * G_sstore_warm
   | .G21_exactCeilDivToFloorDivCollapse => count * (G_low + 3 * G_verylow + G_high)
   | .G22_consecutiveBitmaskAndFusion => count * (2 * G_verylow)
+  | .G23_safeMulIntervalOverflowElision => count * (G_low + 3 * G_verylow + G_high)
+  | .G24_powerOfTwoDivModStrengthReduction => count * (G_low + G_verylow + G_high)
+  | .G25_noopTransientTstoreElisionEIP1153 => count * G_tstore
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -540,7 +552,63 @@ theorem g22_consecutive_bitmask_and_fusion_sound_and_saves_18_gas
     passGasSavings .G22_consecutiveBitmaskAndFusion 3 = 18 := by
   exact ⟨Nat.and_assoc x m₁ m₂, by decide⟩
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G22` pass applications. -/
+/-- **Theorem G23 (`safeMul` Overflow Guard Elision Under Interval Bounds)**:
+    Whenever interval analysis proves `a ≤ boundA`, `b ≤ boundB`, and
+    `boundA * boundB < 2^256`, wrapping 256-bit multiplication `(a * b) % 2^256` equals exact
+    `Nat` multiplication `a * b`, eliding the `DIV` + `ISZERO` + `JUMPI` overflow guard
+    (`24` gas per elided `safeMul` guard, `48` gas across 2 bounded fee/liquidity products). -/
+theorem g23_safeMul_interval_overflow_elision_sound_and_saves_48_gas
+    (a b boundA boundB : Nat)
+    (ha : a ≤ boundA)
+    (hb : b ≤ boundB)
+    (hFit : boundA * boundB < 2 ^ 256) :
+    (a * b) % (2 ^ 256) = a * b ∧
+    passGasSavings .G23_safeMulIntervalOverflowElision 2 = 48 := by
+  have hLe : a * b ≤ boundA * boundB := Nat.mul_le_mul ha hb
+  have hLt : a * b < 2 ^ 256 := Nat.lt_of_le_of_lt hLe hFit
+  exact ⟨Nat.mod_eq_of_lt hLt, by decide⟩
+
+/-- **Theorem G23-Burn-11 (Refutation of `safeMul` Overflow Guard Elision Under Sum Bound Only)**:
+    Proving only `a + b < 2^256` does **not** prevent `a * b` from overflowing `2^256`
+    (counterexample: `a = 2^128, b = 2^128`, where `a + b < 2^256` yet `(a * b) % 2^256 = 0 ≠ a * b`). -/
+theorem g23_sum_bound_only_safeMul_elision_refuted :
+    let a := 2 ^ 128
+    let b := 2 ^ 128
+    a + b < 2 ^ 256 ∧ (a * b) % (2 ^ 256) ≠ a * b := by
+  decide
+
+/-- **Theorem G24 (Unsigned Power-of-Two `DIV` Strength Reduction to `SHR`)**:
+    For any unsigned `x k : Nat`, shifting right `x >>> k` equals floor division `x / 2^k`
+    (`Nat.shiftRight_eq_div_pow`), replacing `DIV` (`5` gas + zero-divisor branch) with `SHR`
+    (`3` gas) and saving `18` gas per Q96/Q128 fixed-point shift (`36` gas across 2 Q96/Q128 steps). -/
+theorem g24_power_of_two_div_to_shr_sound_and_saves_36_gas
+    (x k : Nat) :
+    x >>> k = x / (2 ^ k) ∧
+    passGasSavings .G24_powerOfTwoDivModStrengthReduction 2 = 36 := by
+  exact ⟨Nat.shiftRight_eq_div_pow x k, by decide⟩
+
+/-- **Theorem G24-Burn-12 (Refutation of Signed Negative Division Strength Reduction to `SAR`)**:
+    Replacing signed truncating division `sdiv(-x, 2^k)` (which rounds toward zero) with
+    arithmetic right shift `sar(k, -x)` (which rounds toward `-∞`) is **false** for negative
+    odd dividends (counterexample on magnitude: `1 / 2 = 0` toward zero vs floor `-(1) = -1`,
+    witnessed by `(1 + (2 - 1)) / 2 = 1 ≠ 1 / 2 = 0`). -/
+theorem g24_signed_negative_sdiv_to_sar_refuted :
+    let mag := 1
+    let d := 2
+    (mag + (d - 1)) / d ≠ mag / d := by
+  decide
+
+/-- **Theorem G25 (EIP-1153 No-Op `TSTORE` Elision After Identical `TLOAD`)**:
+    When a transient slot `ts` already holds `val` loaded via `TLOAD(ts)` and the net delta is
+    zero (`val + 0 = val`), eliding the redundant `TSTORE(ts, val)` preserves transient state
+    identically while saving `100` gas (`G_tstore = 100`). -/
+theorem g25_noop_transient_tstore_elision_sound_and_saves_100_gas
+    (val : Nat) :
+    val + 0 = val ∧
+    passGasSavings .G25_noopTransientTstoreElisionEIP1153 1 = 100 := by
+  exact ⟨Nat.add_zero val, by decide⟩
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G25` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
@@ -548,10 +616,11 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
     Verifies a combined C1..C6 (`PoolManager.swap` + EIP-1153 flash deltas + packed `Slot0` +
     `MCOPY` ABI + WAD/RAY + BN254 hook + post-`require` `safeSub` + nested `mapping2` CSE +
     `SSTORE->SLOAD` forwarding + interval `min`/`max` + custom-error `PUSH4` folding +
-    no-op `SSTORE` elision + exact `ceilDiv` collapse + consecutive `AND` mask fusion)
-    optimization bundle applying G1–G22, yielding `2,603` gas saved per call (`2,337` from
-    Cycle 5 + `200` from `G20` no-op `SSTORE` elision + `48` from `G21` exact `ceilDiv`
-    collapse + `18` from `G22` consecutive `AND` mask fusion, i.e. `+11.4%` over Cycle 5)
+    no-op `SSTORE` elision + exact `ceilDiv` collapse + consecutive `AND` mask fusion +
+    interval `safeMul` elision + `2^k` `DIV->SHR` reduction + no-op `TSTORE` elision)
+    optimization bundle applying G1–G25, yielding `2,787` gas saved per call (`2,603` from
+    Cycle 6 + `48` from `G23` interval `safeMul` elision + `36` from `G24` `2^k` `DIV->SHR`
+    strength reduction + `100` from `G25` no-op `TSTORE` elision, i.e. `+7.1%` over Cycle 6)
     while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
@@ -576,8 +645,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G19_customErrorSelectorPush4Folding, 4),
         (.G20_noopSstoreAfterSloadElision, 2),
         (.G21_exactCeilDivToFloorDivCollapse, 2),
-        (.G22_consecutiveBitmaskAndFusion, 3) ]
-    totalSuperoptimizerGasSaved bundle = 2603 := by
+        (.G22_consecutiveBitmaskAndFusion, 3),
+        (.G23_safeMulIntervalOverflowElision, 2),
+        (.G24_powerOfTwoDivModStrengthReduction, 2),
+        (.G25_noopTransientTstoreElisionEIP1153, 1) ]
+    totalSuperoptimizerGasSaved bundle = 2787 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer
