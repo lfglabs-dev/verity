@@ -2577,7 +2577,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.evalIRExprWithInternals_call_of_dispatch
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCallContextBridge_compileExprWithInternals_internalCall
   Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_singleton
-  Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_singleton
   Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_cons_tail
   Compiler.Proofs.HelperStepProofs.exprListInternalHelperCompositionalContextResult_cons_head
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_of_exprListContext
@@ -2601,8 +2600,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.evalExprWithHelpers_add_of_values
   Compiler.Proofs.HelperStepProofs.evalBuiltinCallWithEvmYulLeanContext_add_of_values
   -- Compiler.Proofs.HelperStepProofs.evalIRExprWithInternals_add_of_values  -- private
-  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_add_right_threaded
-  Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalPostStateResult_add_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperCompositionalContextResult_add_left_threaded
@@ -2716,16 +2713,12 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.HelperStepProofs.scopeNamesIncluded_stmtNextScope_letVar  -- private
   -- Compiler.Proofs.HelperStepProofs.stmtStepMatchesIRExecWithInternals_letVar_continue  -- private
   -- Compiler.Proofs.HelperStepProofs.stmtStepMatchesIRExecWithInternals_letVar_of_postStateResult  -- private
-  -- Compiler.Proofs.HelperStepProofs.stmtStepMatchesIRExecWithInternals_letVar_of_postStateResult  -- private
   -- Compiler.Proofs.HelperStepProofs.compileStmt_letVar_shape_of_slack  -- private
   -- Compiler.Proofs.HelperStepProofs.letVarStepObligation_of_postStateEvidence  -- private
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridge_letVar_of_exprCompositionalResult
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
   -- Compiler.Proofs.HelperStepProofs.exprPostStateResult_add_right_of_letVarPayload  -- private
-  Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_of_exprPostStateResult
-  -- Compiler.Proofs.HelperStepProofs.exprPostStateResult_add_right_of_letVarPayload  -- private
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_add_right_threaded
-  Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_add_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_add_left_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_right_threaded
   Compiler.Proofs.HelperStepProofs.exprInternalHelperHeadStepBridgeWithInternals_letVar_mul_left_threaded
@@ -2744,11 +2737,6 @@ end Verity.AxiomAudit
   Compiler.Proofs.HelperStepProofs.stmtListStructuralInternalHelperStepInterfaceWithInternals_cons_forEach_of_compiledStep
   Compiler.Proofs.HelperStepProofs.stmtListStructuralInternalHelperStepInterfaceWithInternals_of_structuralHeadStepsWithInternals
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitnessWithInternals_of_allInterfaces
-  Compiler.Proofs.HelperStepProofs.allHelperInterfacesSatisfied_of_helperSurfaceClosed
-  Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces
-  Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
-  Compiler.Proofs.HelperStepProofs.helperFreeContractWitness
-  Compiler.Proofs.HelperStepProofs.helperFreeContractWitness_disjoint
   Compiler.Proofs.HelperStepProofs.allHelperInterfacesSatisfied_of_helperSurfaceClosed
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces
   Compiler.Proofs.HelperStepProofs.fullHelperAwareListWitness_of_allInterfaces_disjoint
@@ -9647,4 +9635,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8839 theorems/lemmas (6359 public, 2480 private, 0 sorry'd)
+-- Total: 8827 theorems/lemmas (6349 public, 2478 private, 0 sorry'd)
