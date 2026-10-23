@@ -34,7 +34,7 @@ theorem transferOwnership_writes_only (s : ContractState) (newOwner : Address)
     WritesOnly footprint s ((transferOwnership newOwner).run s).snd := by
   simp [transferOwnership, footprint, WritesOnly, owner,
     msgSender, getStorageAddr, setStorageAddr, ContractState.readAddrSlot,
-    ContractState.writeAddrSlot, Verity.require, Verity.bind, Bind.bind,
+    ContractState.writeAddrSlot, Verity.bind, Bind.bind,
     Contract.run, ContractResult.snd, h_owner, Specs.sameContext,
     ContractState.storage, ContractState.storageAddr, ContractState.storageMap,
     ContractState.storageMapUint, ContractState.storageMap2, ContractState.transientStorage,
@@ -47,7 +47,7 @@ theorem transferOwnership_meets_spec_when_owner (s : ContractState) (newOwner : 
     transferOwnership_spec newOwner s s' := by
   simp [transferOwnership, transferOwnership_spec, owner,
     msgSender, getStorageAddr, setStorageAddr, ContractState.readAddrSlot,
-    ContractState.writeAddrSlot, Verity.require, Verity.bind, Bind.bind,
+    ContractState.writeAddrSlot, Verity.bind, Bind.bind,
     Contract.run, ContractResult.snd, h_owner,
     Specs.storageAddrUpdateSpec, Specs.storageAddrUnchangedExcept,
     Specs.sameStorageMapContext, Specs.sameStorage, Specs.sameStorageMap,
