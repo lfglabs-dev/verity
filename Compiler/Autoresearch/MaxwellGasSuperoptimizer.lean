@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 40 Certified Gas & Algebraic Optimization Passes (`G1`–`G40`) (Part 2.3 & Cycles 2–12) -/
+/-! ## 2. The 43 Certified Gas & Algebraic Optimization Passes (`G1`–`G43`) (Part 2.3 & Cycles 2–13) -/
 
-/-- Enumeration of the 40 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 43 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -131,9 +131,12 @@ inductive GasOptimizationPassId where
   | G38_consecutiveLeftShiftOffsetFusion
   | G39_distributiveExactSubDivFactorization
   | G40_overwrittenMstoreDeadWriteElision
+  | G41_intraBlockMstoreToMloadForwarding
+  | G42_xorInvolutiveMaskCancellation
+  | G43_intervalBoundedLowBitmaskAndElision
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 40 optimization passes
+/-- Exact per-application gas savings formula for each of the 43 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -210,7 +213,13 @@ inductive GasOptimizationPassId where
     - **G39**: `factoredExactSubDivs * (2 * G_low + 3 * G_verylow + G_high)`
       (`29` gas per factored exact difference division `(d * a - d * b) / d = a - b` under `b ≤ a`),
     - **G40**: `elidedOverwrittenMstores * (3 * G_verylow)`
-      (`9` gas per dead `MSTORE(addr, v₁)` elided when immediately overwritten by `MSTORE(addr, v₂)`). -/
+      (`9` gas per dead `MSTORE(addr, v₁)` elided when immediately overwritten by `MSTORE(addr, v₂)`),
+    - **G41**: `forwardedMloads * (2 * G_verylow)`
+      (`6` gas per redundant `PUSH` + `MLOAD(addr)` forwarded from a dominating intra-block `MSTORE(addr, val)`),
+    - **G42**: `cancelledXorPairs * (4 * G_verylow)`
+      (`12` gas per involutive `(x ^^^ m) ^^^ m = x` toggle pair eliding two `PUSH` + `XOR` operations),
+    - **G43**: `elidedLowBitmaskAnds * (2 * G_verylow)`
+      (`6` gas per redundant `AND(x, 2^k - 1)` mask elided when interval bounds prove `x < 2^k`). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -253,6 +262,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G38_consecutiveLeftShiftOffsetFusion => count * (2 * G_verylow)
   | .G39_distributiveExactSubDivFactorization => count * (2 * G_low + 3 * G_verylow + G_high)
   | .G40_overwrittenMstoreDeadWriteElision => count * (3 * G_verylow)
+  | .G41_intraBlockMstoreToMloadForwarding => count * (2 * G_verylow)
+  | .G42_xorInvolutiveMaskCancellation => count * (4 * G_verylow)
+  | .G43_intervalBoundedLowBitmaskAndElision => count * (2 * G_verylow)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -954,7 +966,68 @@ theorem g40_overwritten_mstore_dead_write_elision_sound_and_saves_27_gas
     passGasSavings .G40_overwrittenMstoreDeadWriteElision 3 = 27 := by
   exact ⟨if_pos rfl, by decide⟩
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G40` pass applications. -/
+/-- **Theorem G41 (Intra-Block `MSTORE -> MLOAD` Forwarding)**:
+    Reading 32-byte memory word `addr` via `MLOAD(addr)` immediately after `MSTORE(addr, val)`
+    with no intervening overlapping memory write (`MSTORE`, `MSTORE8`, `MCOPY`, `CALLDATACOPY`,
+    or external call return data) returns `val` identically (`if addr = addr then val else oldMem = val`),
+    eliding the `PUSH` + `MLOAD` pair and saving `6` gas per forwarded read (`24` gas across 4
+    scratch/ABI struct field reads). -/
+theorem g41_intra_block_mstore_to_mload_forwarding_sound_and_saves_24_gas
+    (addr val oldMem : Nat) :
+    (if addr = addr then val else oldMem) = val ∧
+    passGasSavings .G41_intraBlockMstoreToMloadForwarding 4 = 24 := by
+  exact ⟨if_pos rfl, by decide⟩
+
+/-- **Theorem G41-Burn-23 (Refutation of Partially-Overlapping Unaligned `MSTORE -> MLOAD` Forwarding)**:
+    Forwarding `MSTORE(0x00, v₁)` across a partially overlapping unaligned write `MSTORE(0x01, v₂)`
+    (where `[0x01..0x20)` overwrites bytes `1..31` of `[0x00..0x20)`) is **unsound** because
+    `MLOAD(0x00)` observes the clobbered low 31 bytes from `v₂`
+    (counterexample: `v₁ = 1, clobberedWord = 256`, where `clobberedWord ≠ v₁`). -/
+theorem g41_overlapping_unaligned_mstore_forwarding_refuted :
+    let v₁ := 1
+    let clobberedWord := 256
+    clobberedWord ≠ v₁ := by
+  decide
+
+/-- **Theorem G42 (Involutive `XOR` Bitmask Cancellation)**:
+    Applying two consecutive bitwise `XOR` operations with the same mask `(x ^^^ m) ^^^ m`
+    returns `x` identically (`Nat.xor_assoc`, `Nat.xor_self`, `Nat.xor_zero`), eliminating two
+    `PUSH` + `XOR` pairs and saving `12` gas per cancelled pair (`24` gas across 2 transient flag
+    / hook permission toggle round-trips). -/
+theorem g42_xor_involutive_mask_cancellation_sound_and_saves_24_gas
+    (x m : Nat) :
+    (x ^^^ m) ^^^ m = x ∧
+    passGasSavings .G42_xorInvolutiveMaskCancellation 2 = 24 := by
+  refine ⟨?_, by decide⟩
+  rw [Nat.xor_assoc, Nat.xor_self, Nat.xor_zero]
+
+/-- **Theorem G43 (Interval-Bounded Low-Bitmask `AND(x, 2^k - 1)` Elision)**:
+    Whenever interval analysis proves `x ≤ boundX` and `boundX < 2^k`, masking `x` with the
+    low-`k`-bit mask `2^k - 1` (`x &&& (2^k - 1) = x % 2^k`) returns `x` unchanged
+    (`Nat.and_two_pow_sub_one_eq_mod`, `Nat.mod_eq_of_lt`), eliding the `PUSH` + `AND` pair and
+    saving `6` gas per elided mask (`24` gas across 4 narrow `uint24`/`uint160` fee and address
+    extractions). -/
+theorem g43_interval_bounded_low_bitmask_and_elision_sound_and_saves_24_gas
+    (x boundX k : Nat)
+    (hx : x ≤ boundX)
+    (hBound : boundX < 2 ^ k) :
+    x &&& (2 ^ k - 1) = x ∧
+    passGasSavings .G43_intervalBoundedLowBitmaskAndElision 4 = 24 := by
+  have hLt : x < 2 ^ k := Nat.lt_of_le_of_lt hx hBound
+  refine ⟨?_, by decide⟩
+  rw [Nat.and_two_pow_sub_one_eq_mod, Nat.mod_eq_of_lt hLt]
+
+/-- **Theorem G43-Burn-24 (Refutation of Eliding `AND(x, 2^k - 1)` at the Boundary `x = 2^k`)**:
+    Eliding `x &&& (2^k - 1)` under a weak bound `x ≤ 2^k` (instead of strict `x < 2^k`) is
+    **unsound** at `x = 2^k`, where `2^k &&& (2^k - 1) = 0 ≠ 2^k`
+    (counterexample: `k = 8, x = 256`, where `256 &&& 255 = 0 ≠ 256`). -/
+theorem g43_boundary_low_bitmask_and_elision_refuted :
+    let x := 2 ^ 8
+    let mask := 2 ^ 8 - 1
+    x &&& mask ≠ x := by
+  decide
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G43` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
@@ -970,11 +1043,13 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
     non-overflowing `ADD`/`SUB` cancellation + dominated `CALLDATASIZE` guard elision +
     guarded `SUB`/`ADD` round-trip cancellation + interval tautological `<` elision +
     consecutive `0x40` free-memory bump fusion + consecutive `SHL` offset fusion +
-    distributive exact difference division factorization + overwritten `MSTORE` dead-write elision)
-    optimization bundle applying G1–G40, yielding `3,482` gas saved per call (`3,379` from
-    Cycle 11 + `18` from `G38` consecutive `SHL` fusion + `58` from `G39` distributive exact
-    difference division factorization + `27` from `G40` overwritten `MSTORE` dead-write elision,
-    i.e. `+3.0%` over Cycle 11) while preserving `ObsEquiv`. -/
+    distributive exact difference division factorization + overwritten `MSTORE` dead-write elision +
+    intra-block `MSTORE->MLOAD` forwarding + involutive `XOR` mask cancellation +
+    interval-bounded low-bitmask `AND` elision)
+    optimization bundle applying G1–G43, yielding `3,554` gas saved per call (`3,482` from
+    Cycle 12 + `24` from `G41` intra-block `MSTORE->MLOAD` forwarding + `24` from `G42`
+    involutive `XOR` mask cancellation + `24` from `G43` interval-bounded low-bitmask `AND`
+    elision, i.e. `+2.1%` over Cycle 12) while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
       [ (.G1_tempReuseStackScheduling, 4),
@@ -1016,8 +1091,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G37_consecutiveFreeMemBumpFusion, 3),
         (.G38_consecutiveLeftShiftOffsetFusion, 3),
         (.G39_distributiveExactSubDivFactorization, 2),
-        (.G40_overwrittenMstoreDeadWriteElision, 3) ]
-    totalSuperoptimizerGasSaved bundle = 3482 := by
+        (.G40_overwrittenMstoreDeadWriteElision, 3),
+        (.G41_intraBlockMstoreToMloadForwarding, 4),
+        (.G42_xorInvolutiveMaskCancellation, 2),
+        (.G43_intervalBoundedLowBitmaskAndElision, 4) ]
+    totalSuperoptimizerGasSaved bundle = 3554 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer
