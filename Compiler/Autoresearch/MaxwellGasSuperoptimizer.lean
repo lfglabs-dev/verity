@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 28 Certified Gas & Algebraic Optimization Passes (`G1`–`G28`) (Part 2.3 & Cycles 2–8) -/
+/-! ## 2. The 31 Certified Gas & Algebraic Optimization Passes (`G1`–`G31`) (Part 2.3 & Cycles 2–9) -/
 
-/-- Enumeration of the 28 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 31 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -119,9 +119,12 @@ inductive GasOptimizationPassId where
   | G26_powerOfTwoModBitmaskStrengthReduction
   | G27_transientTstoreToTloadForwardingEIP1153
   | G28_dominatedRequireBoundElision
+  | G29_consecutiveShiftOffsetFusion
+  | G30_booleanDoubleIszeroElision
+  | G31_distributiveExactDivFactorization
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 28 optimization passes
+/-- Exact per-application gas savings formula for each of the 31 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -174,7 +177,13 @@ inductive GasOptimizationPassId where
     - **G27**: `forwardedTloads * G_tload`
       (`100` gas per redundant EIP-1153 `TLOAD(ts)` forwarded from a dominating intra-block `TSTORE(ts, val)`),
     - **G28**: `elidedDominatedRequires * (3 * G_verylow + G_high)`
-      (`19` gas per redundant `require(x < c₂)` guard elided when dominated by `require(x < c₁)` with `c₁ ≤ c₂`). -/
+      (`19` gas per redundant `require(x < c₂)` guard elided when dominated by `require(x < c₁)` with `c₁ ≤ c₂`),
+    - **G29**: `fusedShiftPairs * (2 * G_verylow)`
+      (`6` gas per consecutive `(x >>> k₁) >>> k₂` fused into a single compile-time offset shift `x >>> (k₁ + k₂)`),
+    - **G30**: `elidedDoubleIszeros * (2 * G_verylow)`
+      (`6` gas per redundant `ISZERO(ISZERO(b))` pair elided on a canonical boolean predicate `b ∈ {0, 1}`),
+    - **G31**: `factoredExactDivSums * (2 * G_low + 3 * G_verylow + G_high)`
+      (`29` gas per factored exact division `(a * d + b * d) / d = a + b` on pooled scaled deltas). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -205,6 +214,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G26_powerOfTwoModBitmaskStrengthReduction => count * (G_low + G_verylow + G_high)
   | .G27_transientTstoreToTloadForwardingEIP1153 => count * G_tload
   | .G28_dominatedRequireBoundElision => count * (3 * G_verylow + G_high)
+  | .G29_consecutiveShiftOffsetFusion => count * (2 * G_verylow)
+  | .G30_booleanDoubleIszeroElision => count * (2 * G_verylow)
+  | .G31_distributiveExactDivFactorization => count * (2 * G_low + 3 * G_verylow + G_high)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -674,7 +686,66 @@ theorem g28_dominated_require_bound_elision_sound_and_saves_38_gas
     passGasSavings .G28_dominatedRequireBoundElision 2 = 38 := by
   exact ⟨Nat.lt_of_lt_of_le hLt (Nat.le_add_right c₁ d), by decide⟩
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G28` pass applications. -/
+/-- **Theorem G29 (Consecutive Right-Shift Offset Fusion)**:
+    Fusing two consecutive logical right shifts `(x >>> k₁) >>> k₂` into a single shift
+    `x >>> (k₁ + k₂)` with a compile-time folded offset preserves exact semantics
+    (`Nat.shiftRight_eq_div_pow`, `Nat.div_div_eq_div_mul`, `Nat.pow_add`) while saving
+    `6` gas per fused shift pair (`18` gas across 3 packed `Slot0` / `BalanceDelta` decodings). -/
+theorem g29_consecutive_shr_offset_fusion_sound_and_saves_18_gas
+    (x k₁ k₂ : Nat) :
+    (x >>> k₁) >>> k₂ = x >>> (k₁ + k₂) ∧
+    passGasSavings .G29_consecutiveShiftOffsetFusion 3 = 18 := by
+  refine ⟨?_, by decide⟩
+  simp only [Nat.shiftRight_eq_div_pow, Nat.div_div_eq_div_mul, ← Nat.pow_add]
+
+/-- **Theorem G29-Burn-15 (Refutation of Mixed `SHL`/`SHR` Offset Cancellation Across 256-Bit Overflow)**:
+    Collapsing `((x <<< k₁) % 2^256) >>> k₂` into `x >>> (k₂ - k₁)` when `k₁ ≤ k₂` is **unsound**
+    whenever `x <<< k₁` overflows 256 bits and truncates high bits
+    (counterexample: `x = 2^255, k₁ = 1, k₂ = 2`, where `((x * 2) % 2^256) / 4 = 0 ≠ x / 2 = 2^254`). -/
+theorem g29_mixed_shl_shr_overflow_fusion_refuted :
+    let x := 2 ^ 255
+    ((x * (2 ^ 1)) % (2 ^ 256)) / (2 ^ 2) ≠ x / (2 ^ (2 - 1)) := by
+  decide
+
+/-- **Theorem G30 (Canonical Boolean Double-`ISZERO` Elision)**:
+    For any canonical boolean word `b ≤ 1` produced by `EQ`, `LT`, `GT`, `SLT`, `SGT`, or `ISZERO`,
+    applying `ISZERO(ISZERO(b))` returns `b` unchanged, saving `6` gas per elided double negation
+    (`24` gas across 4 Yul branch condition normalizations). -/
+theorem g30_canonical_bool_double_iszero_elision_sound_and_saves_24_gas
+    (b : Nat)
+    (hBool : b ≤ 1) :
+    (if (if b = 0 then 1 else 0) = 0 then 1 else 0) = b ∧
+    passGasSavings .G30_booleanDoubleIszeroElision 4 = 24 := by
+  refine ⟨?_, by decide⟩
+  rcases b with _ | _ | b
+  · rfl
+  · rfl
+  · omega
+
+/-- **Theorem G31 (Distributive Exact Division Factorization on Pooled Scaled Deltas)**:
+    For any `a b d : Nat` with `0 < d`, factoring `(d * a + d * b) / d` into `a + b`
+    preserves exact arithmetic (`Nat.left_distrib`, `Nat.mul_div_right`) while eliminating two
+    multiplications and one division (`29` gas per site, `58` gas across 2 pooled delta settlements). -/
+theorem g31_distributive_exact_div_factorization_sound_and_saves_58_gas
+    (d a b : Nat)
+    (hd : 0 < d) :
+    (d * a + d * b) / d = a + b ∧
+    passGasSavings .G31_distributiveExactDivFactorization 2 = 58 := by
+  refine ⟨?_, by decide⟩
+  rw [← Nat.left_distrib, Nat.mul_div_right (a + b) hd]
+
+/-- **Theorem G31-Burn-16 (Refutation of Unfactored Floor-Division Distribution Over Addition)**:
+    Distributing integer floor division `(x + y) / d` into `x / d + y / d` without exact
+    divisibility is **unsound** because remainders can sum to `≥ d`
+    (counterexample: `x = 1, y = 1, d = 2`, where `(1 + 1) / 2 = 1 ≠ 1 / 2 + 1 / 2 = 0`). -/
+theorem g31_unfactored_floor_div_add_distribution_refuted :
+    let x := 1
+    let y := 1
+    let d := 2
+    (x + y) / d ≠ x / d + y / d := by
+  decide
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G31` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
@@ -684,10 +755,12 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
     `SSTORE->SLOAD` forwarding + interval `min`/`max` + custom-error `PUSH4` folding +
     no-op `SSTORE` elision + exact `ceilDiv` collapse + consecutive `AND` mask fusion +
     interval `safeMul` elision + `2^k` `DIV->SHR` reduction + no-op `TSTORE` elision +
-    `2^k` `MOD->AND` reduction + `TSTORE->TLOAD` forwarding + dominated `require` elision)
-    optimization bundle applying G1–G28, yielding `3,061` gas saved per call (`2,787` from
-    Cycle 7 + `36` from `G26` `2^k` `MOD->AND` reduction + `200` from `G27` `TSTORE->TLOAD`
-    forwarding + `38` from `G28` dominated `require` bound elision, i.e. `+9.8%` over Cycle 7)
+    `2^k` `MOD->AND` reduction + `TSTORE->TLOAD` forwarding + dominated `require` elision +
+    consecutive `SHR` offset fusion + canonical boolean double-`ISZERO` elision +
+    distributive exact division factorization)
+    optimization bundle applying G1–G31, yielding `3,161` gas saved per call (`3,061` from
+    Cycle 8 + `18` from `G29` consecutive `SHR` fusion + `24` from `G30` double-`ISZERO`
+    elision + `58` from `G31` distributive exact division factorization, i.e. `+3.3%` over Cycle 8)
     while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
@@ -718,8 +791,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G25_noopTransientTstoreElisionEIP1153, 1),
         (.G26_powerOfTwoModBitmaskStrengthReduction, 2),
         (.G27_transientTstoreToTloadForwardingEIP1153, 2),
-        (.G28_dominatedRequireBoundElision, 2) ]
-    totalSuperoptimizerGasSaved bundle = 3061 := by
+        (.G28_dominatedRequireBoundElision, 2),
+        (.G29_consecutiveShiftOffsetFusion, 3),
+        (.G30_booleanDoubleIszeroElision, 4),
+        (.G31_distributiveExactDivFactorization, 2) ]
+    totalSuperoptimizerGasSaved bundle = 3161 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer

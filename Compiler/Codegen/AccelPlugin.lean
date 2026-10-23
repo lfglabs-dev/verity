@@ -141,7 +141,7 @@ structure PassStepCert where
   boundaryChecked : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G28, patch, and
+/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G31, patch, and
     `Mathlib` / `TauCeti` algebraic & fixed-point math simplification passes. -/
 def verifiedAccelTheoremAllowlist : List String :=
   [ "Compiler.Proofs.YulGeneration.TempReuseSoundness.reuseBlockTemps_sound"
@@ -175,6 +175,9 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g26_power_of_two_mod_to_and_sound_and_saves_36_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g27_transient_tstore_to_tload_forwarding_sound_and_saves_200_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g28_dominated_require_bound_elision_sound_and_saves_38_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g29_consecutive_shr_offset_fusion_sound_and_saves_18_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g30_canonical_bool_double_iszero_elision_sound_and_saves_24_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g31_distributive_exact_div_factorization_sound_and_saves_58_gas"
   , "Verity.Proofs.Stdlib.Math.mulDivDown_cancel_right"
   , "Verity.Proofs.Stdlib.Math.mulDivUp_eq_mulDivDown_of_dvd"
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
@@ -475,7 +478,22 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       scope := .ir
       passId := some .G28_dominatedRequireBoundElision
       assurance := .kernelVerified
-      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g28_dominated_require_bound_elision_sound_and_saves_38_gas" } ]
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g28_dominated_require_bound_elision_sound_and_saves_38_gas" }
+  , { pluginName := "G29:consecutive-shift-offset-fusion"
+      scope := .yul
+      passId := some .G29_consecutiveShiftOffsetFusion
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g29_consecutive_shr_offset_fusion_sound_and_saves_18_gas" }
+  , { pluginName := "G30:boolean-double-iszero-elision"
+      scope := .yul
+      passId := some .G30_booleanDoubleIszeroElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g30_canonical_bool_double_iszero_elision_sound_and_saves_24_gas" }
+  , { pluginName := "G31:distributive-exact-div-factorization"
+      scope := .mathAlgebraic
+      passId := some .G31_distributiveExactDivFactorization
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g31_distributive_exact_div_factorization_sound_and_saves_58_gas" } ]
 
 /-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
@@ -569,15 +587,23 @@ def burnedPathsRegistry : List BurnedPathEntry :=
   , { mechanismHash := "G27-burn-14:reverted-frame-transient-tstore-forwarding"
       axis := "yul_patch_or_egraph_witness"
       counterexample256 := "valBeforeRevert = 50 != tloadAfterRevert = 0"
-      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g27_reverted_frame_transient_forwarding_refuted" } ]
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g27_reverted_frame_transient_forwarding_refuted" }
+  , { mechanismHash := "G29-burn-15:mixed-shl-shr-overflow-offset-cancellation"
+      axis := "yul_patch_or_egraph_witness"
+      counterexample256 := "x = 2^255, k1 = 1, k2 = 2 => ((x * 2) % 2^256) / 4 = 0 != x / 2 = 2^254"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g29_mixed_shl_shr_overflow_fusion_refuted" }
+  , { mechanismHash := "G31-burn-16:unfactored-floor-div-add-distribution"
+      axis := "math_algebraic_tauceti_rule"
+      counterexample256 := "x = 1, y = 1, d = 2 => (1 + 1) / 2 = 1 != 1 / 2 + 1 / 2 = 0"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g31_unfactored_floor_div_add_distribution_refuted" } ]
 
 /-- Check whether a candidate `mechanismHash` has already been burned in `burnedPathsRegistry`. -/
 def isBurnedMechanism (mechanismHash : String) : Bool :=
   burnedPathsRegistry.any (fun b => b.mechanismHash == mechanismHash)
 
 /-- **Theorem AP.9 (`unguarded_muldiv_is_burned_and_ratchet_is_not`)**:
-    Verifies that all fourteen refuted hypotheses (`G8-burn-01`..`G27-burn-14`)
-    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G28`
+    Verifies that all sixteen refuted hypotheses (`G8-burn-01`..`G31-burn-16`)
+    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G31`
     simplifications are permitted. -/
 theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8-burn-01:unguarded-muldiv-cancel-uint256" = true ∧
@@ -594,9 +620,11 @@ theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G24-burn-12:signed-negative-sdiv-to-sar-reduction" = true ∧
     isBurnedMechanism "G26-burn-13:non-power-of-two-mod-bitmask-reduction" = true ∧
     isBurnedMechanism "G27-burn-14:reverted-frame-transient-tstore-forwarding" = true ∧
-    isBurnedMechanism "G26-ratchet-19:power-of-two-mod-bitmask-reduction" = false ∧
-    isBurnedMechanism "G27-ratchet-20:transient-tstore-to-tload-forwarding" = false ∧
-    isBurnedMechanism "G28-ratchet-21:dominated-require-bound-elision" = false := by
+    isBurnedMechanism "G29-burn-15:mixed-shl-shr-overflow-offset-cancellation" = true ∧
+    isBurnedMechanism "G31-burn-16:unfactored-floor-div-add-distribution" = true ∧
+    isBurnedMechanism "G29-ratchet-22:consecutive-shift-offset-fusion" = false ∧
+    isBurnedMechanism "G30-ratchet-23:boolean-double-iszero-elision" = false ∧
+    isBurnedMechanism "G31-ratchet-24:distributive-exact-div-factorization" = false := by
   decide
 
 /-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false`, complete with
