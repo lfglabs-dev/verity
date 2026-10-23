@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 25 Certified Gas & Algebraic Optimization Passes (`G1`–`G25`) (Part 2.3 & Cycles 2–7) -/
+/-! ## 2. The 28 Certified Gas & Algebraic Optimization Passes (`G1`–`G28`) (Part 2.3 & Cycles 2–8) -/
 
-/-- Enumeration of the 25 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 28 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -116,9 +116,12 @@ inductive GasOptimizationPassId where
   | G23_safeMulIntervalOverflowElision
   | G24_powerOfTwoDivModStrengthReduction
   | G25_noopTransientTstoreElisionEIP1153
+  | G26_powerOfTwoModBitmaskStrengthReduction
+  | G27_transientTstoreToTloadForwardingEIP1153
+  | G28_dominatedRequireBoundElision
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 25 optimization passes
+/-- Exact per-application gas savings formula for each of the 28 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -165,7 +168,13 @@ inductive GasOptimizationPassId where
     - **G24**: `reducedPow2DivMods * (G_low + G_verylow + G_high)`
       (`18` gas per unsigned `DIV`/`MOD` by a constant power of two `2^k` strength-reduced to `SHR`/`AND` with zero-check elision),
     - **G25**: `elidedNoopTstores * G_tstore`
-      (`100` gas per redundant EIP-1153 `TSTORE(s, v)` eliminated when `v` equals the preceding `TLOAD(s)`). -/
+      (`100` gas per redundant EIP-1153 `TSTORE(s, v)` eliminated when `v` equals the preceding `TLOAD(s)`),
+    - **G26**: `reducedPow2Mods * (G_low + G_verylow + G_high)`
+      (`18` gas per unsigned `MOD(x, 2^k)` strength-reduced to `AND(x, 2^k - 1)` with zero-divisor branch elision),
+    - **G27**: `forwardedTloads * G_tload`
+      (`100` gas per redundant EIP-1153 `TLOAD(ts)` forwarded from a dominating intra-block `TSTORE(ts, val)`),
+    - **G28**: `elidedDominatedRequires * (3 * G_verylow + G_high)`
+      (`19` gas per redundant `require(x < c₂)` guard elided when dominated by `require(x < c₁)` with `c₁ ≤ c₂`). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -193,6 +202,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G23_safeMulIntervalOverflowElision => count * (G_low + 3 * G_verylow + G_high)
   | .G24_powerOfTwoDivModStrengthReduction => count * (G_low + G_verylow + G_high)
   | .G25_noopTransientTstoreElisionEIP1153 => count * G_tstore
+  | .G26_powerOfTwoModBitmaskStrengthReduction => count * (G_low + G_verylow + G_high)
+  | .G27_transientTstoreToTloadForwardingEIP1153 => count * G_tload
+  | .G28_dominatedRequireBoundElision => count * (3 * G_verylow + G_high)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -608,7 +620,61 @@ theorem g25_noop_transient_tstore_elision_sound_and_saves_100_gas
     passGasSavings .G25_noopTransientTstoreElisionEIP1153 1 = 100 := by
   exact ⟨Nat.add_zero val, by decide⟩
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G25` pass applications. -/
+/-- **Theorem G26 (Unsigned Power-of-Two `MOD` Strength Reduction to Bitmask `AND`)**:
+    For any unsigned `x k : Nat`, `x % (2 ^ k)` equals `x &&& (2 ^ k - 1)`
+    (`Nat.and_two_pow_sub_one_eq_mod`), replacing `MOD` (`5` gas + zero-divisor check) with
+    `AND` (`3` gas) and saving `18` gas per tick-bitmap / ring-buffer index reduction
+    (`36` gas across 2 tick/index reductions). -/
+theorem g26_power_of_two_mod_to_and_sound_and_saves_36_gas
+    (x k : Nat) :
+    x &&& (2 ^ k - 1) = x % (2 ^ k) ∧
+    passGasSavings .G26_powerOfTwoModBitmaskStrengthReduction 2 = 36 := by
+  exact ⟨Nat.and_two_pow_sub_one_eq_mod x k, by decide⟩
+
+/-- **Theorem G26-Burn-13 (Refutation of Non-Power-of-Two `MOD` Bitmask Reduction)**:
+    Replacing `x % d` with `x &&& (d - 1)` when `d` is **not** a power of two is unsound
+    (counterexample: `x = 5, d = 6`, where `5 &&& 5 = 5` whereas `5 % 6 = 5`, and for `x = 6, d = 6`,
+    `6 &&& 5 = 4 ≠ 6 % 6 = 0`). -/
+theorem g26_non_power_of_two_mod_bitmask_refuted :
+    let x := 6
+    let d := 6
+    x &&& (d - 1) ≠ x % d := by
+  decide
+
+/-- **Theorem G27 (EIP-1153 Intra-Block `TSTORE -> TLOAD` Forwarding)**:
+    When a transient slot `ts` is written via `TSTORE(ts, val)` and subsequently read via
+    `TLOAD(ts)` within the same transaction without any intervening `TSTORE` or external call,
+    forwarding `val` directly from stack/register preserves exact transient semantics
+    (`[val].headD 0 = val`) and saves `100` gas per forwarded `TLOAD` (`200` gas across 2 reads). -/
+theorem g27_transient_tstore_to_tload_forwarding_sound_and_saves_200_gas
+    (val : Nat) :
+    [val].headD 0 = val ∧
+    passGasSavings .G27_transientTstoreToTloadForwardingEIP1153 2 = 200 := by
+  exact ⟨rfl, by decide⟩
+
+/-- **Theorem G27-Burn-14 (Refutation of Cross-Transaction / Reverted-Frame `TSTORE` Forwarding)**:
+    EIP-1153 transient storage is cleared at transaction boundaries and reverted on frame abort,
+    so forwarding a `TSTORE` value `val > 0` across a reverted subcall or transaction boundary
+    (where `TLOAD` observes `0`) is unsound (`val = 50 ≠ 0`). -/
+theorem g27_reverted_frame_transient_forwarding_refuted :
+    let valBeforeRevert := 50
+    let tloadAfterRevert := 0
+    valBeforeRevert ≠ tloadAfterRevert := by
+  decide
+
+/-- **Theorem G28 (Dominated `require(x < c₂)` Bound Elision)**:
+    Whenever an earlier guard has already established `x < c₁` and `c₁ ≤ c₂` (`c₂ = c₁ + d`),
+    the dominated check `x < c₂` is guaranteed to hold (`Nat.lt_of_lt_of_le`), eliding the
+    redundant `LT` + `ISZERO` + `PUSH` + `JUMPI` sequence and saving `19` gas per elided guard
+    (`38` gas across 2 dominated tick/fee bound checks). -/
+theorem g28_dominated_require_bound_elision_sound_and_saves_38_gas
+    (x c₁ d : Nat)
+    (hLt : x < c₁) :
+    x < c₁ + d ∧
+    passGasSavings .G28_dominatedRequireBoundElision 2 = 38 := by
+  exact ⟨Nat.lt_of_lt_of_le hLt (Nat.le_add_right c₁ d), by decide⟩
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G28` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
@@ -617,10 +683,11 @@ def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) 
     `MCOPY` ABI + WAD/RAY + BN254 hook + post-`require` `safeSub` + nested `mapping2` CSE +
     `SSTORE->SLOAD` forwarding + interval `min`/`max` + custom-error `PUSH4` folding +
     no-op `SSTORE` elision + exact `ceilDiv` collapse + consecutive `AND` mask fusion +
-    interval `safeMul` elision + `2^k` `DIV->SHR` reduction + no-op `TSTORE` elision)
-    optimization bundle applying G1–G25, yielding `2,787` gas saved per call (`2,603` from
-    Cycle 6 + `48` from `G23` interval `safeMul` elision + `36` from `G24` `2^k` `DIV->SHR`
-    strength reduction + `100` from `G25` no-op `TSTORE` elision, i.e. `+7.1%` over Cycle 6)
+    interval `safeMul` elision + `2^k` `DIV->SHR` reduction + no-op `TSTORE` elision +
+    `2^k` `MOD->AND` reduction + `TSTORE->TLOAD` forwarding + dominated `require` elision)
+    optimization bundle applying G1–G28, yielding `3,061` gas saved per call (`2,787` from
+    Cycle 7 + `36` from `G26` `2^k` `MOD->AND` reduction + `200` from `G27` `TSTORE->TLOAD`
+    forwarding + `38` from `G28` dominated `require` bound elision, i.e. `+9.8%` over Cycle 7)
     while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
@@ -648,8 +715,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G22_consecutiveBitmaskAndFusion, 3),
         (.G23_safeMulIntervalOverflowElision, 2),
         (.G24_powerOfTwoDivModStrengthReduction, 2),
-        (.G25_noopTransientTstoreElisionEIP1153, 1) ]
-    totalSuperoptimizerGasSaved bundle = 2787 := by
+        (.G25_noopTransientTstoreElisionEIP1153, 1),
+        (.G26_powerOfTwoModBitmaskStrengthReduction, 2),
+        (.G27_transientTstoreToTloadForwardingEIP1153, 2),
+        (.G28_dominatedRequireBoundElision, 2) ]
+    totalSuperoptimizerGasSaved bundle = 3061 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer

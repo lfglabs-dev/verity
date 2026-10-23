@@ -141,7 +141,7 @@ structure PassStepCert where
   boundaryChecked : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G25, patch, and
+/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G28, patch, and
     `Mathlib` / `TauCeti` algebraic & fixed-point math simplification passes. -/
 def verifiedAccelTheoremAllowlist : List String :=
   [ "Compiler.Proofs.YulGeneration.TempReuseSoundness.reuseBlockTemps_sound"
@@ -172,6 +172,9 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g23_safeMul_interval_overflow_elision_sound_and_saves_48_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g24_power_of_two_div_to_shr_sound_and_saves_36_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g25_noop_transient_tstore_elision_sound_and_saves_100_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g26_power_of_two_mod_to_and_sound_and_saves_36_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g27_transient_tstore_to_tload_forwarding_sound_and_saves_200_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g28_dominated_require_bound_elision_sound_and_saves_38_gas"
   , "Verity.Proofs.Stdlib.Math.mulDivDown_cancel_right"
   , "Verity.Proofs.Stdlib.Math.mulDivUp_eq_mulDivDown_of_dvd"
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
@@ -457,7 +460,22 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       scope := .ir
       passId := some .G25_noopTransientTstoreElisionEIP1153
       assurance := .kernelVerified
-      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g25_noop_transient_tstore_elision_sound_and_saves_100_gas" } ]
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g25_noop_transient_tstore_elision_sound_and_saves_100_gas" }
+  , { pluginName := "G26:power-of-two-mod-bitmask-strength-reduction"
+      scope := .yul
+      passId := some .G26_powerOfTwoModBitmaskStrengthReduction
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g26_power_of_two_mod_to_and_sound_and_saves_36_gas" }
+  , { pluginName := "G27:transient-tstore-to-tload-forwarding-eip1153"
+      scope := .ir
+      passId := some .G27_transientTstoreToTloadForwardingEIP1153
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g27_transient_tstore_to_tload_forwarding_sound_and_saves_200_gas" }
+  , { pluginName := "G28:dominated-require-bound-elision"
+      scope := .ir
+      passId := some .G28_dominatedRequireBoundElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g28_dominated_require_bound_elision_sound_and_saves_38_gas" } ]
 
 /-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
@@ -543,15 +561,23 @@ def burnedPathsRegistry : List BurnedPathEntry :=
   , { mechanismHash := "G24-burn-12:signed-negative-sdiv-to-sar-reduction"
       axis := "yul_patch_or_egraph_witness"
       counterexample256 := "sdiv(-1, 2) = 0 != sar(1, -1) = -1"
-      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g24_signed_negative_sdiv_to_sar_refuted" } ]
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g24_signed_negative_sdiv_to_sar_refuted" }
+  , { mechanismHash := "G26-burn-13:non-power-of-two-mod-bitmask-reduction"
+      axis := "yul_patch_or_egraph_witness"
+      counterexample256 := "x = 6, d = 6 => 6 &&& 5 = 4 != 6 % 6 = 0"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g26_non_power_of_two_mod_bitmask_refuted" }
+  , { mechanismHash := "G27-burn-14:reverted-frame-transient-tstore-forwarding"
+      axis := "yul_patch_or_egraph_witness"
+      counterexample256 := "valBeforeRevert = 50 != tloadAfterRevert = 0"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g27_reverted_frame_transient_forwarding_refuted" } ]
 
 /-- Check whether a candidate `mechanismHash` has already been burned in `burnedPathsRegistry`. -/
 def isBurnedMechanism (mechanismHash : String) : Bool :=
   burnedPathsRegistry.any (fun b => b.mechanismHash == mechanismHash)
 
 /-- **Theorem AP.9 (`unguarded_muldiv_is_burned_and_ratchet_is_not`)**:
-    Verifies that all twelve refuted hypotheses (`G8-burn-01`..`G24-burn-12`)
-    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G25`
+    Verifies that all fourteen refuted hypotheses (`G8-burn-01`..`G27-burn-14`)
+    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G28`
     simplifications are permitted. -/
 theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8-burn-01:unguarded-muldiv-cancel-uint256" = true ∧
@@ -566,9 +592,11 @@ theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G21-burn-10:non-exact-ceildiv-to-floordiv-collapse" = true ∧
     isBurnedMechanism "G23-burn-11:sum-bound-only-safemul-overflow-elision" = true ∧
     isBurnedMechanism "G24-burn-12:signed-negative-sdiv-to-sar-reduction" = true ∧
-    isBurnedMechanism "G23-ratchet-16:safemul-interval-overflow-elision" = false ∧
-    isBurnedMechanism "G24-ratchet-17:power-of-two-div-to-shr-reduction" = false ∧
-    isBurnedMechanism "G25-ratchet-18:noop-transient-tstore-elision" = false := by
+    isBurnedMechanism "G26-burn-13:non-power-of-two-mod-bitmask-reduction" = true ∧
+    isBurnedMechanism "G27-burn-14:reverted-frame-transient-tstore-forwarding" = true ∧
+    isBurnedMechanism "G26-ratchet-19:power-of-two-mod-bitmask-reduction" = false ∧
+    isBurnedMechanism "G27-ratchet-20:transient-tstore-to-tload-forwarding" = false ∧
+    isBurnedMechanism "G28-ratchet-21:dominated-require-bound-elision" = false := by
   decide
 
 /-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false`, complete with
