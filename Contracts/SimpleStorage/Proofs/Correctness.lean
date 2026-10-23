@@ -72,8 +72,9 @@ theorem store_preserves_context (s : ContractState) (value : Uint256) :
 theorem retrieve_preserves_context (s : ContractState) :
   let s' := ((retrieve).run s).snd
   context_preserved s s' := by
-  simp [Verity.Macro.run_snd_eq_evalState, context_preserved, Specs.sameContext,
-    retrieve_preserves_state]
+  have h_state : Verity.Macro.evalState (retrieve s) s = s := by
+    simpa only [Verity.Macro.run_snd_eq_evalState] using retrieve_preserves_state s
+  simp [context_preserved, Specs.sameContext, h_state]
 
 /-- retrieve preserves well-formedness. -/
 theorem retrieve_preserves_wellformedness (s : ContractState) (h : WellFormedState s) :

@@ -563,7 +563,7 @@ example : ExternalCallInBodySmoke.lowLevel_model.body =
 
 example : (ExternalCallInBodySmoke.discardedReturnDataSize_modelBody).take 3 =
     [ Compiler.CompilationModel.Stmt.letVar "__discard" .returndataSize
-    , Compiler.CompilationModel.Stmt.letVar "__discard_1" .returndataSize
+    , Compiler.CompilationModel.Stmt.letVar "__discard___________" .returndataSize
     , Compiler.CompilationModel.Stmt.letVar "parenthesized" .returndataSize ] := by
   unfold ExternalCallInBodySmoke.discardedReturnDataSize_modelBody
   rfl
