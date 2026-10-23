@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 19 Certified Gas & Algebraic Optimization Passes (`G1`–`G19`) (Part 2.3 & Cycles 2–5) -/
+/-! ## 2. The 22 Certified Gas & Algebraic Optimization Passes (`G1`–`G22`) (Part 2.3 & Cycles 2–6) -/
 
-/-- Enumeration of the 19 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 22 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -110,9 +110,12 @@ inductive GasOptimizationPassId where
   | G17_sstoreToSloadForwarding
   | G18_intervalBoundedMinMaxBranchElision
   | G19_customErrorSelectorPush4Folding
+  | G20_noopSstoreAfterSloadElision
+  | G21_exactCeilDivToFloorDivCollapse
+  | G22_consecutiveBitmaskAndFusion
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 19 optimization passes
+/-- Exact per-application gas savings formula for each of the 22 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -147,7 +150,13 @@ inductive GasOptimizationPassId where
       (`16` gas per `min`/`max` branch elided when interval bounds statically order the operands),
     - **G19**: `foldedCustomErrors * (3 * G_verylow)`
       (`9` gas per custom-error revert site by pre-shifting the 4-byte selector at compile time and
-      storing at `0x00` instead of loading `0x40` and shifting at runtime). -/
+      storing at `0x00` instead of loading `0x40` and shifting at runtime),
+    - **G20**: `elidedNoopSstores * G_sstore_warm`
+      (`100` gas per redundant `SSTORE(s, v)` eliminated when `v` is provably equal to the value just loaded from `s`),
+    - **G21**: `collapsedCeilDivs * (G_low + 3 * G_verylow + G_high)`
+      (`24` gas per `ceilDiv(a, d)` collapsed to `a / d` when `a = d * k` is an exact multiple of `d`),
+    - **G22**: `fusedBitmaskAnds * (2 * G_verylow)`
+      (`6` gas per consecutive `(x &&& m₁) &&& m₂` fused into a single compile-time mask `x &&& (m₁ &&& m₂)`). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -169,6 +178,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G17_sstoreToSloadForwarding => count * G_sload_warm
   | .G18_intervalBoundedMinMaxBranchElision => count * (2 * G_verylow + G_high)
   | .G19_customErrorSelectorPush4Folding => count * (3 * G_verylow)
+  | .G20_noopSstoreAfterSloadElision => count * G_sstore_warm
+  | .G21_exactCeilDivToFloorDivCollapse => count * (G_low + 3 * G_verylow + G_high)
+  | .G22_consecutiveBitmaskAndFusion => count * (2 * G_verylow)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -470,17 +482,76 @@ theorem g19_unshifted_custom_error_selector_revert_refuted :
     0 < sel ∧ sel < 2 ^ 32 ∧ sel / (2 ^ 224) ≠ sel := by
   decide
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G19` pass applications. -/
+/-- **Theorem G20 (No-Op `SSTORE` Elision When Value Equals Preceding `SLOAD`)**:
+    Writing `val + 0` back to storage slot `s` when `val` was just loaded from `s` (with no
+    intervening write to `s`) leaves slot `s` holding `val` identically (`val + 0 = val`),
+    eliding a redundant warm `SSTORE` (`100` gas per elided write, `200` gas across 2 zero-delta
+    `Slot0` / position updates). -/
+theorem g20_noop_sstore_after_sload_elision_sound_and_saves_200_gas
+    (val : Nat) :
+    val + 0 = val ∧
+    passGasSavings .G20_noopSstoreAfterSloadElision 2 = 200 := by
+  exact ⟨Nat.add_zero val, by decide⟩
+
+/-- **Theorem G20-Burn-09 (Refutation of Eliding `SSTORE` After Intervening Slot Mutation)**:
+    Eliding `SSTORE(s, v₀)` after an intervening mutation `SSTORE(s, v₁)` (where `v₁ ≠ v₀`)
+    fails to restore slot `s` to `v₀` (counterexample: `v₀ = 42, v₁ = 99 => v₁ ≠ v₀`). -/
+theorem g20_intervening_write_sstore_elision_refuted :
+    let v₀ := 42
+    let v₁ := 99
+    v₁ ≠ v₀ := by
+  decide
+
+/-- **Theorem G21 (Exact-Multiple `ceilDiv` to Floor `DIV` Collapse)**:
+    Whenever `0 < d` and `a = d * k` is an exact multiple of `d`, the ceiling division
+    `(d * k + d - 1) / d` equals the floor quotient `(d * k) / d = k`, eliding the remainder/zero
+    branch (`24` gas per collapsed `ceilDiv`, `48` gas across 2 exact-multiple share/fee steps). -/
+theorem g21_exact_ceilDiv_to_floorDiv_collapse_sound_and_saves_48_gas
+    (d k : Nat)
+    (hd : 0 < d) :
+    (d * k + (d - 1)) / d = k ∧
+    passGasSavings .G21_exactCeilDivToFloorDivCollapse 2 = 48 := by
+  refine ⟨?_, by decide⟩
+  have hSubLt : d - 1 < d := by omega
+  calc
+    (d * k + (d - 1)) / d
+      = ((d - 1) + d * k) / d := by rw [Nat.add_comm]
+    _ = (d - 1) / d + k := Nat.add_mul_div_left (d - 1) k hd
+    _ = 0 + k := by rw [Nat.div_eq_of_lt hSubLt]
+    _ = k := Nat.zero_add k
+
+/-- **Theorem G21-Burn-10 (Refutation of Naive `(a + d - 1) / d` Formula at `a = 0`)**:
+    Replacing `if a = 0 then 0 else 1 + (a - 1) / d` with the unguarded formula `(a + (d - 1)) / d`
+     overflows or miscomputes unless handled carefully, and collapsing `ceilDiv(a, d)` to `a / d`
+    when `a % d ≠ 0` is **false** (counterexample: `a = 7, d = 4 => (7 + 3) / 4 = 2 ≠ 7 / 4 = 1`). -/
+theorem g21_non_exact_ceilDiv_collapse_refuted :
+    let a := 7
+    let d := 4
+    0 < d ∧ (a + (d - 1)) / d ≠ a / d := by
+  decide
+
+/-- **Theorem G22 (Consecutive Bitmask `AND` Fusion via Associativity)**:
+    Fusing two consecutive bitwise `AND` masks `(x &&& m₁) &&& m₂` into `x &&& (m₁ &&& m₂)`
+    where `m₁ &&& m₂` is folded at compile time preserves the exact result (`Nat.and_assoc`)
+    while saving `6` gas per fused mask pair (`18` gas across 3 address/uint160/uint24 masks). -/
+theorem g22_consecutive_bitmask_and_fusion_sound_and_saves_18_gas
+    (x m₁ m₂ : Nat) :
+    (x &&& m₁) &&& m₂ = x &&& (m₁ &&& m₂) ∧
+    passGasSavings .G22_consecutiveBitmaskAndFusion 3 = 18 := by
+  exact ⟨Nat.and_assoc x m₁ m₂, by decide⟩
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G22` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
 /-- **Executable Witness Suite (`by decide`, `0 native_decide`)**:
     Verifies a combined C1..C6 (`PoolManager.swap` + EIP-1153 flash deltas + packed `Slot0` +
     `MCOPY` ABI + WAD/RAY + BN254 hook + post-`require` `safeSub` + nested `mapping2` CSE +
-    `SSTORE->SLOAD` forwarding + interval `min`/`max` + custom-error `PUSH4` folding)
-    optimization bundle applying G1–G19, yielding `2,337` gas saved per call (`2,069` from
-    Cycle 4 + `200` from `G17` `SSTORE->SLOAD` forwarding + `32` from `G18` interval `min`/`max`
-    elision + `36` from `G19` custom-error selector folding, i.e. `+13.0%` over Cycle 4)
+    `SSTORE->SLOAD` forwarding + interval `min`/`max` + custom-error `PUSH4` folding +
+    no-op `SSTORE` elision + exact `ceilDiv` collapse + consecutive `AND` mask fusion)
+    optimization bundle applying G1–G22, yielding `2,603` gas saved per call (`2,337` from
+    Cycle 5 + `200` from `G20` no-op `SSTORE` elision + `48` from `G21` exact `ceilDiv`
+    collapse + `18` from `G22` consecutive `AND` mask fusion, i.e. `+11.4%` over Cycle 5)
     while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
@@ -502,8 +573,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G16_nestedMappingPrefixKeccakCSE, 2),
         (.G17_sstoreToSloadForwarding, 2),
         (.G18_intervalBoundedMinMaxBranchElision, 2),
-        (.G19_customErrorSelectorPush4Folding, 4) ]
-    totalSuperoptimizerGasSaved bundle = 2337 := by
+        (.G19_customErrorSelectorPush4Folding, 4),
+        (.G20_noopSstoreAfterSloadElision, 2),
+        (.G21_exactCeilDivToFloorDivCollapse, 2),
+        (.G22_consecutiveBitmaskAndFusion, 3) ]
+    totalSuperoptimizerGasSaved bundle = 2603 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer

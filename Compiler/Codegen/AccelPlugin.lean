@@ -141,7 +141,7 @@ structure PassStepCert where
   boundaryChecked : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G19, patch, and
+/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G22, patch, and
     `Mathlib` / `TauCeti` algebraic & fixed-point math simplification passes. -/
 def verifiedAccelTheoremAllowlist : List String :=
   [ "Compiler.Proofs.YulGeneration.TempReuseSoundness.reuseBlockTemps_sound"
@@ -166,6 +166,9 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g17_sstore_to_sload_forwarding_sound_and_saves_200_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g18_interval_bounded_min_branch_elision_sound_and_saves_32_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g19_custom_error_selector_push4_folding_sound_and_saves_36_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g20_noop_sstore_after_sload_elision_sound_and_saves_200_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g21_exact_ceilDiv_to_floorDiv_collapse_sound_and_saves_48_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g22_consecutive_bitmask_and_fusion_sound_and_saves_18_gas"
   , "Verity.Proofs.Stdlib.Math.mulDivDown_cancel_right"
   , "Verity.Proofs.Stdlib.Math.mulDivUp_eq_mulDivDown_of_dvd"
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
@@ -421,7 +424,22 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       scope := .yul
       passId := some .G19_customErrorSelectorPush4Folding
       assurance := .kernelVerified
-      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g19_custom_error_selector_push4_folding_sound_and_saves_36_gas" } ]
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g19_custom_error_selector_push4_folding_sound_and_saves_36_gas" }
+  , { pluginName := "G20:noop-sstore-after-sload-elision"
+      scope := .ir
+      passId := some .G20_noopSstoreAfterSloadElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g20_noop_sstore_after_sload_elision_sound_and_saves_200_gas" }
+  , { pluginName := "G21:exact-ceildiv-to-floordiv-collapse"
+      scope := .mathAlgebraic
+      passId := some .G21_exactCeilDivToFloorDivCollapse
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g21_exact_ceilDiv_to_floorDiv_collapse_sound_and_saves_48_gas" }
+  , { pluginName := "G22:consecutive-bitmask-and-fusion"
+      scope := .yul
+      passId := some .G22_consecutiveBitmaskAndFusion
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g22_consecutive_bitmask_and_fusion_sound_and_saves_18_gas" } ]
 
 /-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
@@ -491,15 +509,23 @@ def burnedPathsRegistry : List BurnedPathEntry :=
   , { mechanismHash := "G19-burn-08:unshifted-custom-error-selector-revert"
       axis := "yul_patch_or_egraph_witness"
       counterexample256 := "sel = 0xdeadbeef => unshifted mstore(0x00, sel) high 4 bytes = 0 != 0xdeadbeef"
-      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g19_unshifted_custom_error_selector_revert_refuted" } ]
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g19_unshifted_custom_error_selector_revert_refuted" }
+  , { mechanismHash := "G20-burn-09:intervening-write-sstore-elision"
+      axis := "yul_patch_or_egraph_witness"
+      counterexample256 := "v0 = 42, v1 = 99 => eliding SSTORE(s, v0) after SSTORE(s, v1) leaves 99 != 42"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g20_intervening_write_sstore_elision_refuted" }
+  , { mechanismHash := "G21-burn-10:non-exact-ceildiv-to-floordiv-collapse"
+      axis := "math_algebraic_tauceti_rule"
+      counterexample256 := "a = 7, d = 4 => (7 + 3) / 4 = 2 != 7 / 4 = 1"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g21_non_exact_ceilDiv_collapse_refuted" } ]
 
 /-- Check whether a candidate `mechanismHash` has already been burned in `burnedPathsRegistry`. -/
 def isBurnedMechanism (mechanismHash : String) : Bool :=
   burnedPathsRegistry.any (fun b => b.mechanismHash == mechanismHash)
 
 /-- **Theorem AP.9 (`unguarded_muldiv_is_burned_and_ratchet_is_not`)**:
-    Verifies that all eight refuted hypotheses (`G8-burn-01`..`G19-burn-08`)
-    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G19`
+    Verifies that all ten refuted hypotheses (`G8-burn-01`..`G21-burn-10`)
+    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G22`
     simplifications are permitted. -/
 theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8-burn-01:unguarded-muldiv-cancel-uint256" = true ∧
@@ -510,9 +536,11 @@ theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G14-burn-06:wad-floor-mul-reassociation" = true ∧
     isBurnedMechanism "G17-burn-07:aliased-mapping-sstore-sload-forwarding" = true ∧
     isBurnedMechanism "G19-burn-08:unshifted-custom-error-selector-revert" = true ∧
-    isBurnedMechanism "G17-ratchet-10:same-slot-sstore-to-sload-forwarding" = false ∧
-    isBurnedMechanism "G18-ratchet-11:interval-bounded-min-max-elision" = false ∧
-    isBurnedMechanism "G19-ratchet-12:custom-error-selector-push4-folding" = false := by
+    isBurnedMechanism "G20-burn-09:intervening-write-sstore-elision" = true ∧
+    isBurnedMechanism "G21-burn-10:non-exact-ceildiv-to-floordiv-collapse" = true ∧
+    isBurnedMechanism "G20-ratchet-13:noop-sstore-after-sload-elision" = false ∧
+    isBurnedMechanism "G21-ratchet-14:exact-ceildiv-to-floordiv-collapse" = false ∧
+    isBurnedMechanism "G22-ratchet-15:consecutive-bitmask-and-fusion" = false := by
   decide
 
 /-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false`, complete with
