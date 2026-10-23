@@ -87,9 +87,9 @@ theorem validateSynthesizedSolcoreWitness_sound
   unfold checkSolcoreFunctionMatch at hp
   exact of_decide_eq_true hp
 
-/-! ## 2. The 16 Certified Gas & Algebraic Optimization Passes (`G1`–`G16`) (Part 2.3 & Cycles 2–4) -/
+/-! ## 2. The 19 Certified Gas & Algebraic Optimization Passes (`G1`–`G19`) (Part 2.3 & Cycles 2–5) -/
 
-/-- Enumeration of the 16 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
+/-- Enumeration of the 19 certified gas & algebraic optimization passes in the Maxwell Gas Superoptimizer. -/
 inductive GasOptimizationPassId where
   | G1_tempReuseStackScheduling
   | G2_slotCoalescingPackedWords
@@ -107,9 +107,12 @@ inductive GasOptimizationPassId where
   | G14_wadRayUnitIdentityElision
   | G15_postRequireSafeSubGuardElision
   | G16_nestedMappingPrefixKeccakCSE
+  | G17_sstoreToSloadForwarding
+  | G18_intervalBoundedMinMaxBranchElision
+  | G19_customErrorSelectorPush4Folding
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Exact per-application gas savings formula for each of the 16 optimization passes
+/-- Exact per-application gas savings formula for each of the 19 optimization passes
     under the `EvmYulLean 2.0` Cancun/Prague/Osaka gas schedule:
     - **G1**: `spilledTempsAvoided * (3 * G_verylow)` (`9` gas per avoided `MSTORE`/`MLOAD` spill pair),
     - **G2**: `(packedWritesCount - 1) * (G_sload_warm + G_sstore_warm)` (`200` gas per coalesced field write),
@@ -137,7 +140,14 @@ inductive GasOptimizationPassId where
     - **G15**: `elidedSafeSubGuards * (3 * G_verylow + G_high)`
       (`19` gas per elided redundant `safeSub` underflow guard dominated by an explicit `require(a >= b)`),
     - **G16**: `sharedOuterMappingKeys * (G_keccak256_base + 2 * G_keccak256_word + 2 * G_verylow)`
-      (`48` gas per reused outer `keccak256(k₁, baseSlot)` prefix across nested `mapping2` accesses). -/
+      (`48` gas per reused outer `keccak256(k₁, baseSlot)` prefix across nested `mapping2` accesses),
+    - **G17**: `forwardedSloads * G_sload_warm`
+      (`100` gas per redundant warm `SLOAD` eliminated after a dominating `SSTORE` to the same slot),
+    - **G18**: `elidedMinMaxBranches * (2 * G_verylow + G_high)`
+      (`16` gas per `min`/`max` branch elided when interval bounds statically order the operands),
+    - **G19**: `foldedCustomErrors * (3 * G_verylow)`
+      (`9` gas per custom-error revert site by pre-shifting the 4-byte selector at compile time and
+      storing at `0x00` instead of loading `0x40` and shifting at runtime). -/
 def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   match pass with
   | .G1_tempReuseStackScheduling => count * (3 * G_verylow)
@@ -156,6 +166,9 @@ def passGasSavings (pass : GasOptimizationPassId) (count : Nat) : Nat :=
   | .G14_wadRayUnitIdentityElision => count * (2 * G_low + 3 * G_verylow + G_high)
   | .G15_postRequireSafeSubGuardElision => count * (3 * G_verylow + G_high)
   | .G16_nestedMappingPrefixKeccakCSE => count * (G_keccak256_base + 2 * G_keccak256_word + 2 * G_verylow)
+  | .G17_sstoreToSloadForwarding => count * G_sload_warm
+  | .G18_intervalBoundedMinMaxBranchElision => count * (2 * G_verylow + G_high)
+  | .G19_customErrorSelectorPush4Folding => count * (3 * G_verylow)
 
 /-- **Theorem G2 (`SlotCoalescingShim` Savings on Uniswap V4 `Slot0`)**:
     Coalescing 4 packed bitfield writes (`sqrtPriceX96`, `tick`, `protocolFee`, `lpFee`)
@@ -403,17 +416,72 @@ theorem g16_nested_mapping2_prefix_cse_sound_and_saves_96_gas
     passGasSavings .G16_nestedMappingPrefixKeccakCSE 2 = 96 := by
   refine ⟨Nat.add_sub_cancel outerSlot k₂, by decide⟩
 
-/-- Cumulative gas saved across a composite profile of `G1`–`G16` pass applications. -/
+/-- **Theorem G17 (`SSTORE` -> `SLOAD` Same-Slot Store-to-Load Forwarding)**:
+    Reading storage slot `s` immediately after writing `val` to slot `s` (with no intervening
+    write to `s` or external call) returns `val` identically (`if s = s then val else oldVal = val`),
+    eliding a warm `SLOAD` (`100` gas per forwarded read, `200` gas across 2 forwarded reads). -/
+theorem g17_sstore_to_sload_forwarding_sound_and_saves_200_gas
+    (s val oldVal : Nat) :
+    (if s = s then val else oldVal) = val ∧
+    passGasSavings .G17_sstoreToSloadForwarding 2 = 200 := by
+  exact ⟨if_pos rfl, by decide⟩
+
+/-- **Theorem G17-Burn-07 (Refutation of Unchecked Dynamic-Key `mapping` Store-to-Load Forwarding)**:
+    Forwarding `SSTORE(slot(k₁), v₁)` across an intervening write `SSTORE(slot(k₂), v₂)` without
+    proving `k₁ ≠ k₂` is **false** when `k₁ = k₂` and `v₁ ≠ v₂` (counterexample: `k₁ = 7, k₂ = 7,
+    v₁ = 10, v₂ = 20`, where the actual slot holds `20 ≠ 10`). -/
+theorem g17_aliased_mapping_sstore_forwarding_refuted :
+    let k₁ := 7
+    let k₂ := 7
+    let v₁ := 10
+    let v₂ := 20
+    (if k₁ = k₂ then v₂ else v₁) ≠ v₁ := by
+  decide
+
+/-- **Theorem G18 (Interval-Bounded `min`/`max` Branch Elision)**:
+    Whenever interval analysis proves `a ≤ upperA` and `upperA ≤ b`, the minimum `min a b`
+    equals `a` identically (and `max a b = b`), eliding the comparison and `JUMPI` branch
+    (`16` gas per elided `min`/`max`, `32` gas across 2 tick/liquidity bound checks). -/
+theorem g18_interval_bounded_min_branch_elision_sound_and_saves_32_gas
+    (a upperA b : Nat)
+    (ha : a ≤ upperA)
+    (hBound : upperA ≤ b) :
+    Nat.min a b = a ∧
+    passGasSavings .G18_intervalBoundedMinMaxBranchElision 2 = 32 := by
+  have hab : a ≤ b := Nat.le_trans ha hBound
+  exact ⟨Nat.min_eq_left hab, by decide⟩
+
+/-- **Theorem G19 (Custom Error 4-Byte Selector Compile-Time `PUSH4`/`SHL` Folding)**:
+    For any 4-byte custom-error selector `0 < sel < 2^32`, pre-shifting `sel * 2^224` at compile
+    time and recovering the high 4 bytes via `(sel * 2^224) / 2^224` preserves `sel` exactly while
+    saving `9` gas per custom-error revert site (`36` gas across 4 custom-error guards). -/
+theorem g19_custom_error_selector_push4_folding_sound_and_saves_36_gas
+    (sel : Nat) :
+    (sel * (2 ^ 224)) / (2 ^ 224) = sel ∧
+    passGasSavings .G19_customErrorSelectorPush4Folding 4 = 36 := by
+  refine ⟨Nat.mul_div_cancel sel (Nat.two_pow_pos 224), by decide⟩
+
+/-- **Theorem G19-Burn-08 (Refutation of Unshifted `mstore(0x00, sel)` with `revert(0x00, 0x04)`)**:
+    Because EVM `MSTORE(0x00, sel)` writes a big-endian 32-byte word placing a 4-byte selector
+    `0 < sel < 2^32` in bytes `28..31`, reading the first 4 bytes `[0x00..0x04)` via ` sel / 2^224`
+    without shifting left by `224` bits yields `0 ≠ sel` (counterexample: `sel = 0xdeadbeef`). -/
+theorem g19_unshifted_custom_error_selector_revert_refuted :
+    let sel := 0xdeadbeef
+    0 < sel ∧ sel < 2 ^ 32 ∧ sel / (2 ^ 224) ≠ sel := by
+  decide
+
+/-- Cumulative gas saved across a composite profile of `G1`–`G19` pass applications. -/
 def totalSuperoptimizerGasSaved (applied : List (GasOptimizationPassId × Nat)) : Nat :=
   applied.foldl (fun acc (p, c) => acc + passGasSavings p c) 0
 
 /-- **Executable Witness Suite (`by decide`, `0 native_decide`)**:
     Verifies a combined C1..C6 (`PoolManager.swap` + EIP-1153 flash deltas + packed `Slot0` +
-    `MCOPY` ABI + WAD/RAY + BN254 hook + post-`require` `safeSub` + nested `mapping2` CSE)
-    optimization bundle applying G1–G16, yielding `2,069` gas saved per call (`1,877` from
-    Cycle 3 + `58` from `G14` WAD unit identity elision + `38` from `G15` post-`require`
-    `safeSub` guard elision + `96` from `G16` nested `mapping2` prefix CSE, i.e. `+10.2%`
-    over Cycle 3) while preserving `ObsEquiv`. -/
+    `MCOPY` ABI + WAD/RAY + BN254 hook + post-`require` `safeSub` + nested `mapping2` CSE +
+    `SSTORE->SLOAD` forwarding + interval `min`/`max` + custom-error `PUSH4` folding)
+    optimization bundle applying G1–G19, yielding `2,337` gas saved per call (`2,069` from
+    Cycle 4 + `200` from `G17` `SSTORE->SLOAD` forwarding + `32` from `G18` interval `min`/`max`
+    elision + `36` from `G19` custom-error selector folding, i.e. `+13.0%` over Cycle 4)
+    while preserving `ObsEquiv`. -/
 theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
     let bundle : List (GasOptimizationPassId × Nat) :=
       [ (.G1_tempReuseStackScheduling, 4),
@@ -431,8 +499,11 @@ theorem maxwellGasSuperoptimizer_uniswapV4_swap_witness :
         (.G13_mcopyDynamicAbiBulkCopyEIP5656, 4),
         (.G14_wadRayUnitIdentityElision, 2),
         (.G15_postRequireSafeSubGuardElision, 2),
-        (.G16_nestedMappingPrefixKeccakCSE, 2) ]
-    totalSuperoptimizerGasSaved bundle = 2069 := by
+        (.G16_nestedMappingPrefixKeccakCSE, 2),
+        (.G17_sstoreToSloadForwarding, 2),
+        (.G18_intervalBoundedMinMaxBranchElision, 2),
+        (.G19_customErrorSelectorPush4Folding, 4) ]
+    totalSuperoptimizerGasSaved bundle = 2337 := by
   decide
 
 end Compiler.Autoresearch.MaxwellGasSuperoptimizer

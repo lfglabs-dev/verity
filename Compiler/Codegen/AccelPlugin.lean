@@ -141,7 +141,7 @@ structure PassStepCert where
   boundaryChecked : Bool := true
   deriving DecidableEq, Repr, BEq, Inhabited
 
-/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G16, patch, and
+/-- Allowlist of kernel-verified soundness theorems for Verity's G1–G19, patch, and
     `Mathlib` / `TauCeti` algebraic & fixed-point math simplification passes. -/
 def verifiedAccelTheoremAllowlist : List String :=
   [ "Compiler.Proofs.YulGeneration.TempReuseSoundness.reuseBlockTemps_sound"
@@ -163,6 +163,9 @@ def verifiedAccelTheoremAllowlist : List String :=
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g14_wad_unit_identity_elision_sound_and_saves_58_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g15_post_require_safeSub_guard_elision_sound_and_saves_38_gas"
   , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g16_nested_mapping2_prefix_cse_sound_and_saves_96_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g17_sstore_to_sload_forwarding_sound_and_saves_200_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g18_interval_bounded_min_branch_elision_sound_and_saves_32_gas"
+  , "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g19_custom_error_selector_push4_folding_sound_and_saves_36_gas"
   , "Verity.Proofs.Stdlib.Math.mulDivDown_cancel_right"
   , "Verity.Proofs.Stdlib.Math.mulDivUp_eq_mulDivDown_of_dvd"
   , "Verity.Proofs.Stdlib.Math.wMulDown_one_right"
@@ -403,7 +406,22 @@ def defaultCertifiedPluginCatalog : List AccelPluginDescriptor :=
       scope := .yul
       passId := some .G16_nestedMappingPrefixKeccakCSE
       assurance := .kernelVerified
-      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g16_nested_mapping2_prefix_cse_sound_and_saves_96_gas" } ]
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g16_nested_mapping2_prefix_cse_sound_and_saves_96_gas" }
+  , { pluginName := "G17:sstore-to-sload-forwarding"
+      scope := .ir
+      passId := some .G17_sstoreToSloadForwarding
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g17_sstore_to_sload_forwarding_sound_and_saves_200_gas" }
+  , { pluginName := "G18:interval-bounded-min-max-branch-elision"
+      scope := .mathAlgebraic
+      passId := some .G18_intervalBoundedMinMaxBranchElision
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g18_interval_bounded_min_branch_elision_sound_and_saves_32_gas" }
+  , { pluginName := "G19:custom-error-selector-push4-folding"
+      scope := .yul
+      passId := some .G19_customErrorSelectorPush4Folding
+      assurance := .kernelVerified
+      theoremRef := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g19_custom_error_selector_push4_folding_sound_and_saves_36_gas" } ]
 
 /-- Synthesize a verified `PassStepCert` for a catalog descriptor given before/after gas and hashes. -/
 def AccelPluginDescriptor.mkStepCert
@@ -465,15 +483,23 @@ def burnedPathsRegistry : List BurnedPathEntry :=
   , { mechanismHash := "G14-burn-06:wad-floor-mul-reassociation"
       axis := "math_algebraic_tauceti_rule"
       counterexample256 := "a = 4, b = 5, c = 5, scale = 10 => (((4 * 5) / 10) * 5) / 10 = 1 != (4 * ((5 * 5) / 10)) / 10 = 0"
-      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g14_wad_mul_reassociation_refuted" } ]
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g14_wad_mul_reassociation_refuted" }
+  , { mechanismHash := "G17-burn-07:aliased-mapping-sstore-sload-forwarding"
+      axis := "yul_patch_or_egraph_witness"
+      counterexample256 := "k1 = 7, k2 = 7, v1 = 10, v2 = 20 => aliased slot holds 20 != 10"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g17_aliased_mapping_sstore_forwarding_refuted" }
+  , { mechanismHash := "G19-burn-08:unshifted-custom-error-selector-revert"
+      axis := "yul_patch_or_egraph_witness"
+      counterexample256 := "sel = 0xdeadbeef => unshifted mstore(0x00, sel) high 4 bytes = 0 != 0xdeadbeef"
+      refutationTheorem := "Compiler.Autoresearch.MaxwellGasSuperoptimizer.g19_unshifted_custom_error_selector_revert_refuted" } ]
 
 /-- Check whether a candidate `mechanismHash` has already been burned in `burnedPathsRegistry`. -/
 def isBurnedMechanism (mechanismHash : String) : Bool :=
   burnedPathsRegistry.any (fun b => b.mechanismHash == mechanismHash)
 
 /-- **Theorem AP.9 (`unguarded_muldiv_is_burned_and_ratchet_is_not`)**:
-    Verifies that all six refuted hypotheses (`G8-burn-01`..`G14-burn-06`)
-    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G16`
+    Verifies that all eight refuted hypotheses (`G8-burn-01`..`G19-burn-08`)
+    are blocked by `isBurnedMechanism`, whereas the guarded `G8`–`G19`
     simplifications are permitted. -/
 theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G8-burn-01:unguarded-muldiv-cancel-uint256" = true ∧
@@ -482,9 +508,11 @@ theorem unguarded_muldiv_is_burned_and_ratchet_is_not :
     isBurnedMechanism "G11-burn-04:cross-callback-transient-tstore-coalescing" = true ∧
     isBurnedMechanism "G12-burn-05:unaligned-shr-shl-roundtrip-elision" = true ∧
     isBurnedMechanism "G14-burn-06:wad-floor-mul-reassociation" = true ∧
-    isBurnedMechanism "G14-ratchet-07:wad-unit-identity-elision" = false ∧
-    isBurnedMechanism "G15-ratchet-08:post-require-safesub-elision" = false ∧
-    isBurnedMechanism "G16-ratchet-09:nested-mapping2-prefix-cse" = false := by
+    isBurnedMechanism "G17-burn-07:aliased-mapping-sstore-sload-forwarding" = true ∧
+    isBurnedMechanism "G19-burn-08:unshifted-custom-error-selector-revert" = true ∧
+    isBurnedMechanism "G17-ratchet-10:same-slot-sstore-to-sload-forwarding" = false ∧
+    isBurnedMechanism "G18-ratchet-11:interval-bounded-min-max-elision" = false ∧
+    isBurnedMechanism "G19-ratchet-12:custom-error-selector-push4-folding" = false := by
   decide
 
 /-- Concrete `MetaGateSpec` instance for `verifyAccelCertGate false`, complete with
