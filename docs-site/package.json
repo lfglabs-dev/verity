@@ -32,5 +32,8 @@
     "@types/react-dom": "^19.2.3",
     "pagefind": "^1.4.0",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.9.12"
   }
 }

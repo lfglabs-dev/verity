@@ -56,14 +56,20 @@ theorem constructor_establishes_supply_bounds (s : ContractState) (initialOwner 
   have h_spec := constructor_meets_spec s initialOwner
   simp [constructor_spec] at h_spec
   obtain ⟨_, h_supply_zero, _, _, h_map, _, _⟩ := h_spec
+  have h_map_run := by
+    simpa only [← Verity.Macro.run_snd_eq_evalState] using h_map
   have h_all_zero : ∀ addr, ((simpleTokenConstructor initialOwner).run s).snd.storageMap 1 addr = 0 := by
-    intro addr; rw [h_map]; exact h_zero addr
+    intro addr; rw [h_map_run]; exact h_zero addr
   have h_sum : sum_balances ((simpleTokenConstructor initialOwner).run s).snd addrs = 0 := by
     simpa [sum_balances] using
       map_sum_zero_of_all_zero
         (fun addr => ((simpleTokenConstructor initialOwner).run s).snd.storageMap 1 addr) h_all_zero addrs
-  have h_supply_zero' : ((simpleTokenConstructor initialOwner).run s).snd.storage 2 = 0 := h_supply_zero
-  simp [h_sum, h_supply_zero']
+  have h_sum_eval :
+      sum_balances (Verity.Macro.evalState (simpleTokenConstructor initialOwner s) s) addrs = 0 := by
+    simpa only [← Verity.Macro.run_snd_eq_evalState] using h_sum
+  have h_supply_zero' : ((simpleTokenConstructor initialOwner).run s).snd.storage 2 = 0 := by
+    simpa only [← Verity.Macro.run_snd_eq_evalState] using h_supply_zero
+  simp [h_sum_eval, h_supply_zero]
 
 /-! ## Mint: Exact Sum Equation -/
 
@@ -82,11 +88,15 @@ theorem mint_sum_equation (s : ContractState) (toAddr : Address) (amount : Uint2
   obtain ⟨h_bal_raw, _, h_other, _, _, _⟩ := h_spec
   have h_bal :
       ((mint toAddr amount).run s).snd.storageMap 1 toAddr = s.storageMap 1 toAddr + amount := by
-    simpa [evm_add_eq_hadd] using h_bal_raw
+    simpa [Verity.Macro.run_snd_eq_evalState, evm_add_eq_hadd] using h_bal_raw
+  have h_other_run : ∀ addr, addr ≠ toAddr →
+      ((mint toAddr amount).run s).snd.storageMap 1 addr = s.storageMap 1 addr := by
+    intro addr h_ne
+    simpa [Verity.Macro.run_snd_eq_evalState] using h_other.1 addr h_ne
   exact map_sum_point_update
     (fun addr => s.storageMap 1 addr)
     (fun addr => ((mint toAddr amount).run s).snd.storageMap 1 addr)
-    toAddr amount h_bal h_other.1
+    toAddr amount h_bal h_other_run
 
 /-- Corollary: for a list where `toAddr` appears exactly once, mint adds exactly `amount`. -/
 theorem mint_sum_singleton_to (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -120,12 +130,20 @@ theorem transfer_sum_equation (s : ContractState) (toAddr : Address) (amount : U
   obtain ⟨_, h_sender_bal, h_recip_bal, h_other_bal, _, _, _, _⟩ := h_spec
   have h_recip_bal' :
       ((transfer toAddr amount).run s).snd.storageMap 1 toAddr = s.storageMap 1 toAddr + amount := by
-    simpa [evm_add_eq_hadd] using h_recip_bal
+    simpa [Verity.Macro.run_snd_eq_evalState, evm_add_eq_hadd] using h_recip_bal
+  have h_sender_bal_run :
+      ((transfer toAddr amount).run s).snd.storageMap 1 s.sender =
+        EVM.Uint256.sub (s.storageMap 1 s.sender) amount := by
+    simpa [Verity.Macro.run_snd_eq_evalState] using h_sender_bal
+  have h_other_bal_run : ∀ addr, addr ≠ s.sender → addr ≠ toAddr →
+      ((transfer toAddr amount).run s).snd.storageMap 1 addr = s.storageMap 1 addr := by
+    intro addr h_sender_ne h_to_ne
+    simpa [Verity.Macro.run_snd_eq_evalState] using h_other_bal.1 addr h_sender_ne h_to_ne
   exact map_sum_transfer_eq
     (fun addr => s.storageMap 1 addr)
     (fun addr => ((transfer toAddr amount).run s).snd.storageMap 1 addr)
-    s.sender toAddr amount h_ne h_sender_bal h_recip_bal'
-    h_other_bal.1
+    s.sender toAddr amount h_ne
+    h_sender_bal_run h_recip_bal' h_other_bal_run
 
 /-- Corollary: for NoDup lists where sender and toAddr each appear once,
     the total balance sum is exactly preserved by transfer. -/

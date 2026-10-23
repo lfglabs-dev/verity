@@ -25,6 +25,7 @@ import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.CompilationModel.ScopeValidation
 import Compiler.CompilationModel.StorageWrites
 import Compiler.CompilationModel.TrustSurface
+import Compiler.CompilationModel.TrustSurfaceLinear
 import Compiler.CompilationModel.YulImporter
 import Compiler.CompilationModel.UsageAnalysis
 import Compiler.CompilationModel.ValidationCalls

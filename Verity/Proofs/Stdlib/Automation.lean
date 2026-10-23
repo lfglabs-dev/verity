@@ -1356,8 +1356,6 @@ theorem bind_run_snd_of_preserve {α β : Type}
       subst hs'
       simpa [Verity.bind, Contract.run, h] using hk a
   | revert msg s' =>
-      have hs' : s' = s := by simpa [Contract.run, h, ContractResult.snd] using hm
-      subst hs'
       simp [Verity.bind, Contract.run, h, ContractResult.snd]
 
 @[simp]

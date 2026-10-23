@@ -29,9 +29,11 @@ theorem transfer_preserves_wellformedness (s : ContractState) (toAddr : Address)
   have h_spec := transfer_meets_spec s toAddr amount h_balance
   simp [transfer_spec, h_ne, beq_iff_eq] at h_spec
   have h_frame := h_spec.2.2.2
+  have h_frame_run := by
+    simpa only [← Verity.Macro.run_snd_eq_evalState] using h_frame
   constructor
-  · exact h_frame.2.2.2.1 ▸ h.sender_nonzero
-  · exact h_frame.2.2.2.2.1 ▸ h.contract_nonzero
+  · exact h_frame_run.2.2.2.1 ▸ h.sender_nonzero
+  · exact h_frame_run.2.2.2.2.1 ▸ h.contract_nonzero
 
 /-- Transfer preserves non-mapping storage. -/
 theorem transfer_preserves_non_mapping (s : ContractState) (toAddr : Address) (amount : Uint256)
@@ -86,12 +88,16 @@ theorem deposit_withdraw_cancel (s : ContractState) (amount : Uint256)
   s2.storageMap 0 s.sender = s.storageMap 0 s.sender := by
   let s1 := ((deposit amount).run s).snd
   have h_inc := deposit_increases_balance s amount
+  have h_inc_eval :
+      (Verity.Macro.evalState (deposit amount s) s).storageMap 0 s.sender =
+        EVM.Uint256.add (s.storageMap 0 s.sender) amount := by
+    simpa [Verity.Macro.run_snd_eq_evalState] using h_inc
   have h_sender : s1.sender = s.sender := by
     simp [s1, deposit, msgSender, getMapping, setMapping, balances,
       Verity.bind, Bind.bind,
-      Contract.run, ContractResult.snd, ContractState.readMap, ContractState.writeMap]
+      ContractState.readMap, ContractState.writeMap]
   have h_balance' : s1.storageMap 0 s.sender ≥ amount := by
-    simpa [s1, h_inc] using h_balance
+    simpa [s1, h_inc_eval] using h_balance
   have h_wd := withdraw_decreases_balance (s := s1) amount h_balance'
   rw [h_sender, h_inc] at h_wd
   simpa [s1, EVM.Uint256.sub_add_cancel (s.storageMap 0 s.sender) amount] using h_wd

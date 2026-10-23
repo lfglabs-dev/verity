@@ -49,7 +49,7 @@ theorem increment_preserves_storage_isolated (s : ContractState)
   let s' := ((increment).run s).snd
   storage_isolated s s' := by
   simp [storage_isolated]; intro k h_ne
-  exact increment_preserves_other_slots s h_no_overflow k h_ne
+  simpa using increment_preserves_other_slots s h_no_overflow k h_ne
 
 /-- decrement preserves storage isolation. -/
 theorem decrement_preserves_storage_isolated (s : ContractState)
@@ -57,13 +57,15 @@ theorem decrement_preserves_storage_isolated (s : ContractState)
   let s' := ((decrement).run s).snd
   storage_isolated s s' := by
   simp [storage_isolated]; intro k h_ne
-  exact decrement_preserves_other_slots s h_no_underflow k h_ne
+  simpa using decrement_preserves_other_slots s h_no_underflow k h_ne
 
 /-- getCount preserves context (trivially, read-only). -/
 theorem getCount_preserves_context (s : ContractState) :
   let s' := ((getCount).run s).snd
   context_preserved s s' := by
-  simp [getCount_preserves_state s]
+  have h_state : Verity.Macro.evalState (getCount s) s = s := by
+    simpa only [Verity.Macro.run_snd_eq_evalState] using getCount_preserves_state s
+  simp [context_preserved, Specs.sameContext, h_state]
 
 /-- getCount preserves well-formedness. -/
 theorem getCount_preserves_wellformedness (s : ContractState) (h : WellFormedState s) :

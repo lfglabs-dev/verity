@@ -53,7 +53,9 @@ theorem decrement_state_preserved_except_count (s : ContractState) :
 theorem getCount_state_preserved (s : ContractState) :
   let s' := ((getCount).run s).snd
   state_preserved_except_count s s' := by
-  simp [getCount_preserves_state s, state_preserved_except_count, storage_isolated]
+  have h_state : Verity.Macro.evalState (getCount s) s = s := by
+    simpa using getCount_preserves_state s
+  simp [state_preserved_except_count, storage_isolated, h_state]
 
 /-! ## Combined Spec Proofs
 

@@ -69,7 +69,7 @@ theorem withdraw_sum_equation (s : ContractState) (amount : Uint256)
     intro addr h_ne
     have h_spec := withdraw_meets_spec s amount h_balance
     simp [withdraw_spec] at h_spec
-    exact h_spec.2.1.1 addr h_ne
+    simpa [Verity.Macro.run_snd_eq_evalState] using h_spec.2.1.1 addr h_ne
   exact map_sum_point_decrease
     (fun addr => s.storageMap 0 addr)
     (fun addr => ((withdraw amount).run s).snd.storageMap 0 addr)
@@ -107,12 +107,20 @@ theorem transfer_sum_equation (s : ContractState) (toAddr : Address) (amount : U
   have h_recip_bal' :
       ((transfer toAddr amount).run s).snd.storageMap 0 toAddr =
         s.storageMap 0 toAddr + amount := by
-    simpa [evm_add_eq_hadd] using h_recip_bal
+    simpa [Verity.Macro.run_snd_eq_evalState, evm_add_eq_hadd] using h_recip_bal
+  have h_sender_bal_run :
+      ((transfer toAddr amount).run s).snd.storageMap 0 s.sender =
+        EVM.Uint256.sub (s.storageMap 0 s.sender) amount := by
+    simpa [Verity.Macro.run_snd_eq_evalState] using h_sender_bal
+  have h_other_bal_run : ∀ addr, addr ≠ s.sender → addr ≠ toAddr →
+      ((transfer toAddr amount).run s).snd.storageMap 0 addr = s.storageMap 0 addr := by
+    intro addr h_sender_ne h_to_ne
+    simpa [Verity.Macro.run_snd_eq_evalState] using h_other_bal.1 addr h_sender_ne h_to_ne
   exact map_sum_transfer_eq
     (fun addr => s.storageMap 0 addr)
     (fun addr => ((transfer toAddr amount).run s).snd.storageMap 0 addr)
-    s.sender toAddr amount h_ne h_sender_bal h_recip_bal'
-    h_other_bal.1
+    s.sender toAddr amount h_ne
+    h_sender_bal_run h_recip_bal' h_other_bal_run
 
 /-- Corollary: for NoDup lists where sender and toAddr each appear once,
     the total sum is exactly preserved by transfer. -/

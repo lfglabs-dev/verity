@@ -189,7 +189,7 @@ theorem transfer_self_preserves_balance (s : ContractState) (amount : Uint256)
   s'.storageMap 0 s.sender = s.storageMap 0 s.sender := by
   have h := transfer_meets_spec s s.sender amount h_balance
   simp [transfer_spec] at h
-  exact h.1
+  simpa using h.1
 
 theorem transfer_decreases_sender (s : ContractState) (toAddr : Address) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount)
@@ -198,7 +198,7 @@ theorem transfer_decreases_sender (s : ContractState) (toAddr : Address) (amount
   s'.storageMap 0 s.sender = EVM.Uint256.sub (s.storageMap 0 s.sender) amount := by
   have h := transfer_meets_spec s toAddr amount h_balance
   simp [transfer_spec, h_ne, beq_iff_eq] at h
-  exact h.1
+  simpa using h.1
 
 theorem transfer_increases_recipient (s : ContractState) (toAddr : Address) (amount : Uint256)
   (h_balance : s.storageMap 0 s.sender >= amount)
@@ -207,7 +207,7 @@ theorem transfer_increases_recipient (s : ContractState) (toAddr : Address) (amo
   s'.storageMap 0 toAddr = EVM.Uint256.add (s.storageMap 0 toAddr) amount := by
   have h := transfer_meets_spec s toAddr amount h_balance
   simp [transfer_spec, h_ne, beq_iff_eq] at h
-  exact h.2.1
+  simpa using h.2.1
 
 theorem transfer_reverts_insufficient (s : ContractState) (toAddr : Address) (amount : Uint256)
   (h_insufficient : ¬(s.storageMap 0 s.sender >= amount)) :
